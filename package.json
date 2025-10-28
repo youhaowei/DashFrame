@@ -1,0 +1,21 @@
+{
+  "name": "dashframe",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "@types/eslint": "9.6.1",
+    "eslint": "9.38.0",
+    "eslint-config-next": "16.0.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.6.2",
+    "turbo": "^2.5.8"
+  }
+}

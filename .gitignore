@@ -1,0 +1,25 @@
+node_modules
+.pnp.*
+.pnpm-debug.log
+pnpm-lock.yaml
+
+# Next.js
+.next
+out
+
+# Turborepo
+.turbo
+
+# Env files
+.env
+.env.*
+
+# System / IDE
+.DS_Store
+.idea
+.vscode
+
+# Local caches
+corepack-home/
+.corepack/
+.pnpm-store/
