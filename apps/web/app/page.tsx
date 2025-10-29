@@ -11,7 +11,7 @@ import { buildVegaLiteSpec, type AxisSelection } from "../lib/spec";
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
 const VegaChart = dynamic(
   () => import("../components/VegaChart").then((mod) => mod.VegaChart),
-  { ssr: false }
+  { ssr: false },
 );
 import {
   persistDataFrame,
@@ -25,7 +25,9 @@ type AxisOption = {
   value: string;
 };
 
-const formatAxisOption = (column: DataFrame["columns"][number]): AxisOption => ({
+const formatAxisOption = (
+  column: DataFrame["columns"][number],
+): AxisOption => ({
   value: column.name,
   label: `${column.name} (${column.type})`,
 });
@@ -33,18 +35,20 @@ const formatAxisOption = (column: DataFrame["columns"][number]): AxisOption => (
 export default function HomePage() {
   const [dataFrame, setDataFrame] = useState<DataFrame | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [axisSelection, setAxisSelection] = useState<AxisSelection>({ x: null, y: null });
+  const [axisSelection, setAxisSelection] = useState<AxisSelection>({
+    x: null,
+    y: null,
+  });
 
   const axisOptions = useMemo<AxisOption[]>(
     () => dataFrame?.columns.map(formatAxisOption) ?? [],
     [dataFrame],
   );
 
-  const spec = useMemo(() => (dataFrame ? buildVegaLiteSpec(dataFrame, axisSelection) : null), [
-    dataFrame,
-    axisSelection,
-  ]);
-
+  const spec = useMemo(
+    () => (dataFrame ? buildVegaLiteSpec(dataFrame, axisSelection) : null),
+    [dataFrame, axisSelection],
+  );
 
   const resetState = useCallback(() => {
     setDataFrame(null);
@@ -61,15 +65,20 @@ export default function HomePage() {
 
     const persistedAxes = readPersistedAxisSelection();
     setAxisSelection({
-      x: persistedAxes.x && persistedFrame.columns.some((column) => column.name === persistedAxes.x)
-        ? persistedAxes.x
-        : persistedFrame.columns[0]?.name ?? null,
-      y: persistedAxes.y && persistedFrame.columns.some((column) => column.name === persistedAxes.y)
-        ? persistedAxes.y
-        : persistedFrame.columns.find((column) => column.type === "number")?.name ??
-        persistedFrame.columns[1]?.name ??
-        persistedFrame.columns[0]?.name ??
-        null,
+      x:
+        persistedAxes.x &&
+        persistedFrame.columns.some((column) => column.name === persistedAxes.x)
+          ? persistedAxes.x
+          : (persistedFrame.columns[0]?.name ?? null),
+      y:
+        persistedAxes.y &&
+        persistedFrame.columns.some((column) => column.name === persistedAxes.y)
+          ? persistedAxes.y
+          : (persistedFrame.columns.find((column) => column.type === "number")
+              ?.name ??
+            persistedFrame.columns[1]?.name ??
+            persistedFrame.columns[0]?.name ??
+            null),
     });
   }, []);
 
@@ -89,46 +98,53 @@ export default function HomePage() {
     persistAxisSelection(axisSelection);
   }, [dataFrame, axisSelection]);
 
-  const handleFile = useCallback((file: File) => {
-    setError(null);
+  const handleFile = useCallback(
+    (file: File) => {
+      setError(null);
 
-    Papa.parse(file, {
-      dynamicTyping: false,
-      skipEmptyLines: true,
-      complete: (result: ParseResult<string>) => {
-        if (result.errors.length) {
-          setError(result.errors.map((err: ParseError) => err.message).join("\n"));
-          resetState();
-          return;
-        }
+      Papa.parse(file, {
+        dynamicTyping: false,
+        skipEmptyLines: true,
+        complete: (result: ParseResult<string>) => {
+          if (result.errors.length) {
+            setError(
+              result.errors.map((err: ParseError) => err.message).join("\n"),
+            );
+            resetState();
+            return;
+          }
 
-        const parsedDataFrame = csvToDataFrame(result.data);
+          const parsedDataFrame = csvToDataFrame(result.data);
 
-        if (!parsedDataFrame.columns.length) {
-          setError("CSV did not contain any columns.");
-          resetState();
-          return;
-        }
+          if (!parsedDataFrame.columns.length) {
+            setError("CSV did not contain any columns.");
+            resetState();
+            return;
+          }
 
-        setDataFrame(parsedDataFrame);
-        setAxisSelection({
-          x: parsedDataFrame.columns[0]?.name ?? null,
-          y:
-            parsedDataFrame.columns.find((column) => column.type === "number")?.name ??
-            parsedDataFrame.columns[1]?.name ??
-            parsedDataFrame.columns[0]?.name ??
-            null,
-        });
-      },
-    });
-  }, [resetState]);
+          setDataFrame(parsedDataFrame);
+          setAxisSelection({
+            x: parsedDataFrame.columns[0]?.name ?? null,
+            y:
+              parsedDataFrame.columns.find((column) => column.type === "number")
+                ?.name ??
+              parsedDataFrame.columns[1]?.name ??
+              parsedDataFrame.columns[0]?.name ??
+              null,
+          });
+        },
+      });
+    },
+    [resetState],
+  );
 
   return (
     <div className="flex min-h-screen flex-col gap-6 bg-slate-950 p-6 text-slate-100">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold">DashFrame</h1>
         <p className="text-sm text-slate-400">
-          Upload a CSV file to explore the CSV → DataFrame → Vega-Lite preview pipeline.
+          Upload a CSV file to explore the CSV → DataFrame → Vega-Lite preview
+          pipeline.
         </p>
       </header>
 
@@ -136,7 +152,8 @@ export default function HomePage() {
         <aside className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/60 p-4 shadow-lg">
           <h2 className="text-lg font-medium text-slate-50">Upload CSV</h2>
           <p className="text-sm text-slate-400">
-            Choose a CSV file with headers in the first row. The preview automatically infers column types.
+            Choose a CSV file with headers in the first row. The preview
+            automatically infers column types.
           </p>
           <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border border-slate-600 bg-slate-800/70 p-6 text-center text-sm font-medium text-slate-100 shadow-md transition hover:border-slate-400 hover:bg-slate-800/90">
             <span>Select CSV</span>
@@ -168,7 +185,10 @@ export default function HomePage() {
                 <select
                   value={axisSelection.x ?? ""}
                   onChange={(event) =>
-                    setAxisSelection((current) => ({ ...current, x: event.target.value || null }))
+                    setAxisSelection((current) => ({
+                      ...current,
+                      x: event.target.value || null,
+                    }))
                   }
                   className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
                 >
@@ -187,7 +207,10 @@ export default function HomePage() {
                 <select
                   value={axisSelection.y ?? ""}
                   onChange={(event) =>
-                    setAxisSelection((current) => ({ ...current, y: event.target.value || null }))
+                    setAxisSelection((current) => ({
+                      ...current,
+                      y: event.target.value || null,
+                    }))
                   }
                   className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
                 >
@@ -198,19 +221,24 @@ export default function HomePage() {
                   ))}
                 </select>
                 <p className="text-xs text-slate-500">
-                  Quantitative columns work best on the Y axis. Temporal values render as a line chart.
+                  Quantitative columns work best on the Y axis. Temporal values
+                  render as a line chart.
                 </p>
               </div>
 
               <div className="space-y-2 text-xs text-slate-400">
                 <p>
-                  <span className="font-semibold text-slate-200">Rows:</span> {dataFrame.rows.length.toLocaleString()}
+                  <span className="font-semibold text-slate-200">Rows:</span>{" "}
+                  {dataFrame.rows.length.toLocaleString()}
                 </p>
                 <p>
-                  <span className="font-semibold text-slate-200">Columns:</span> {dataFrame.columns.length}
+                  <span className="font-semibold text-slate-200">Columns:</span>{" "}
+                  {dataFrame.columns.length}
                 </p>
                 <div>
-                  <span className="font-semibold text-slate-200">Detected types:</span>
+                  <span className="font-semibold text-slate-200">
+                    Detected types:
+                  </span>
                   <ul className="mt-1 space-y-1">
                     {dataFrame.columns.map((column) => (
                       <li key={column.name} className="flex items-center gap-2">
@@ -241,7 +269,7 @@ export default function HomePage() {
             <VegaChart
               spec={{
                 ...spec,
-                data: { values: dataFrame.rows }
+                data: { values: dataFrame.rows },
               }}
             />
           ) : (

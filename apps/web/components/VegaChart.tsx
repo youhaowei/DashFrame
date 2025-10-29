@@ -4,36 +4,40 @@ import { useEffect, useRef } from "react";
 import type { TopLevelSpec } from "vega-lite";
 
 type VegaChartProps = {
-    spec: TopLevelSpec;
+  spec: TopLevelSpec;
 };
 
 export function VegaChart({ spec }: VegaChartProps) {
-    const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (!spec || !containerRef.current) return;
+  useEffect(() => {
+    if (!spec || !containerRef.current) return;
 
-        const container = containerRef.current;
-        let cancelled = false;
+    const container = containerRef.current;
+    let cancelled = false;
 
-        // Dynamically import vega-embed to avoid module-level Set objects
-        import("vega-embed").then(({ default: embed }) => {
-            if (cancelled || !container) return;
+    // Dynamically import vega-embed to avoid module-level Set objects
+    import("vega-embed").then(({ default: embed }) => {
+      if (cancelled || !container) return;
 
-            embed(container, spec, {
-                actions: false,
-                renderer: "canvas",
-            }).catch((error: Error) => {
-                console.error("Error rendering chart:", error);
-            });
-        });
+      embed(container, spec, {
+        actions: false,
+        renderer: "canvas",
+      }).catch((error: Error) => {
+        console.error("Error rendering chart:", error);
+      });
+    });
 
-        return () => {
-            cancelled = true;
-            container.innerHTML = "";
-        };
-    }, [spec]);
+    return () => {
+      cancelled = true;
+      container.innerHTML = "";
+    };
+  }, [spec]);
 
-    return <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden w-full h-full" />;
+  return (
+    <div
+      ref={containerRef}
+      className="h-full min-h-0 w-full flex-1 overflow-hidden"
+    />
+  );
 }
-
