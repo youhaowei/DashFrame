@@ -44,3 +44,8 @@ The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildV
 6. **Operational Services** – WorkOS auth, Convex persistence, scheduling, history/undo
 
 Convex and additional backend services are deferred until after the first milestone proves the front-end pipeline.
+
+## Naming Notes
+
+- Product and architectural references use the `DashFrame` name.
+- Workspace packages and config utilities follow the kebab-case `@dash-frame/*` scope (e.g. `@dash-frame/dataframe`) to stay aligned with npm conventions.

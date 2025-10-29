@@ -1,1 +1,1 @@
-export const placeholder = "@dashframe/ui";
+export const placeholder = "@dash-frame/ui";

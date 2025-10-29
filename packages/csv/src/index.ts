@@ -1,4 +1,4 @@
-import type { DataFrame, ColumnType } from "@dashframe/dataframe";
+import type { DataFrame, ColumnType } from "@dash-frame/dataframe";
 
 /**
  * Represents CSV data as an array of string arrays.

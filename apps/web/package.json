@@ -1,8 +1,8 @@
 {
   "dependencies": {
-    "@dashframe/csv": "workspace:*",
-    "@dashframe/dataframe": "workspace:*",
-    "@dashframe/ui": "workspace:*",
+    "@dash-frame/csv": "workspace:*",
+    "@dash-frame/dataframe": "workspace:*",
+    "@dash-frame/ui": "workspace:*",
     "next": "16.0.0",
     "papaparse": "5.5.3",
     "react": "19.2.0",
@@ -12,6 +12,7 @@
     "vega-lite": "6.4.1"
   },
   "devDependencies": {
+    "@dash-frame/eslint-config": "workspace:*",
     "@tailwindcss/postcss": "4.1.16",
     "@types/node": "24.9.1",
     "@types/papaparse": "5.3.16",
@@ -22,14 +23,16 @@
     "type-fest": "5.1.0",
     "typescript": "5.7.2"
   },
-  "name": "@dashframe/web",
+  "name": "@dash-frame/web",
   "private": true,
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "format": "prettier --check .",
     "lint": "pnpm exec eslint .",
     "start": "next start",
-    "typecheck": "pnpm exec tsc --noEmit"
+    "typecheck": "pnpm exec tsc --noEmit",
+    "format:write": "prettier --write ."
   },
   "version": "0.1.0"
 }

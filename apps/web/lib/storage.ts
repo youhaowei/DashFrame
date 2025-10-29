@@ -1,8 +1,8 @@
-import type { DataFrame } from "@dashframe/dataframe";
+import type { DataFrame } from "@dash-frame/dataframe";
 import type { AxisSelection } from "./spec";
 
-const DATAFRAME_STORAGE_KEY = "dashframe:dataframe";
-const AXIS_STORAGE_KEY = "dashframe:axes";
+const DATAFRAME_STORAGE_KEY = "dash-frame:dataframe";
+const AXIS_STORAGE_KEY = "dash-frame:axes";
 
 const isBrowser = () => typeof window !== "undefined";
 

@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dashframe/dataframe";
+import type { DataFrame } from "@dash-frame/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 export type AxisSelection = {
@@ -40,8 +40,7 @@ export const buildVegaLiteSpec = (
 
   const xType = toVegaType(xColumn.type);
   const yType = toVegaType(yColumn.type);
-  const mark =
-    yType === "quantitative" ? (xType === "nominal" ? "bar" : "line") : "bar";
+  const mark = yType === "quantitative" && xType !== "nominal" ? "line" : "bar";
 
   return {
     description: "CSV preview",

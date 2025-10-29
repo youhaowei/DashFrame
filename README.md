@@ -23,6 +23,12 @@ docs/
   architecture.md   # Architecture summary distilled from Notion
 ```
 
+## Naming Conventions
+
+- Use `DashFrame` for user-facing copy, branding, React components, and TypeScript types.
+- Use `dash-frame` for package names, config identifiers, workspace scopes (e.g. `@dash-frame/dataframe`), directories, and persisted storage keys.
+- Keep new packages under the `@dash-frame/*` scope so tooling and imports remain consistent.
+
 ### Packages
 
 Each package is a TypeScript-first workspace member that exposes its source through `src/` and ships declarations from `dist/`. Every package follows the same `package.json` script contract:
@@ -36,9 +42,9 @@ Turbo treats these as common tasks (`pnpm build`, `pnpm lint`, `pnpm typecheck`,
 
 Package responsibilities:
 
-- `@dashframe/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This packages defines the DataFrame type and the functions to manipulate it.
-- `@dashframe/csv`: This package is for handling the csv file, and converting it to a DataFrame.
-- `@dashframe/ui`: This package is for shared UI primitives and components.
+- `@dash-frame/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This packages defines the DataFrame type and the functions to manipulate it.
+- `@dash-frame/csv`: This package is for handling the csv file, and converting it to a DataFrame.
+- `@dash-frame/ui`: This package is for shared UI primitives and components.
 
 ## Getting Started
 
@@ -56,12 +62,15 @@ Package responsibilities:
 
    Visit `http://localhost:3000/` — the homepage now hosts the CSV → DataFrame → chart experience.
 
-   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dashframe/web dev` or `pnpm --filter @dashframe/csv dev` for focused work.
+   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dash-frame/web dev` or `pnpm --filter @dash-frame/csv dev` for focused work.
 
 3. Optional scripts:
    ```bash
    pnpm dev        # turbo dev (runs all dev targets)
    pnpm build      # turbo build
+   pnpm format     # prettier --check with shared config
+   pnpm format:write  # prettier --write with shared config
+   pnpm check      # lint + typecheck + prettier check
    pnpm lint       # workspace linting (eslint 9)
    pnpm typecheck  # TypeScript checks for all packages
    pnpm test       # placeholder (no tests yet)
@@ -71,7 +80,7 @@ Package responsibilities:
 
 - ✅ Turborepo scaffolding, shared configs, and architecture doc
 - ✅ CSV upload → DataFrame parsing → Vega-Lite preview (with axis selectors and persistence)
-- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/ui`) seeded
+- ✅ Shared packages (`@dash-frame/dataframe`, `@dash-frame/csv`, `@dash-frame/ui`) seeded
 - ✅ Vega chart rendered client-side via dynamic `VegaChart`
 
 ## Roadmap

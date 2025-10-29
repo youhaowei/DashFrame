@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
-import type { DataFrame } from "@dashframe/dataframe";
+import type { DataFrame } from "@dash-frame/dataframe";
 import dynamic from "next/dynamic";
 
-import { csvToDataFrame } from "@dashframe/csv";
+import { csvToDataFrame } from "@dash-frame/csv";
 import { buildVegaLiteSpec, type AxisSelection } from "../lib/spec";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues

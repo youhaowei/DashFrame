@@ -1,5 +1,5 @@
 {
-  "name": "dashframe",
+  "name": "dash-frame",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.12.0",
@@ -7,16 +7,23 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
+    "format": "turbo format",
+    "format:write": "prettier --write .",
     "test": "turbo test",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "check": "turbo check"
   },
   "devDependencies": {
+    "@dash-frame/eslint-config": "workspace:*",
     "@types/eslint": "9.6.1",
     "eslint": "9.38.0",
     "eslint-config-next": "16.0.0",
     "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-sonarjs": "^3.0.5",
     "prettier": "3.6.2",
+    "prettier-plugin-tailwindcss": "0.6.10",
     "turbo": "^2.5.8",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "typescript-eslint": "^8.46.2"
   }
 }
