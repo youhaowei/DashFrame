@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dashframe/types";
+import type { DataFrame } from "@dashframe/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 export type AxisSelection = {

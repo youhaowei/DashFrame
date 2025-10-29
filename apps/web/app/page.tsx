@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
-import type { DataFrame } from "@dashframe/types";
+import type { DataFrame } from "@dashframe/dataframe";
 import dynamic from "next/dynamic";
 
-import { buildDataFrame } from "../lib/dataframe";
+import { csvToDataFrame } from "@dashframe/csv";
 import { buildVegaLiteSpec, type AxisSelection } from "../lib/spec";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
@@ -102,7 +102,7 @@ export default function HomePage() {
           return;
         }
 
-        const parsedDataFrame = buildDataFrame(result.data);
+        const parsedDataFrame = csvToDataFrame(result.data);
 
         if (!parsedDataFrame.columns.length) {
           setError("CSV did not contain any columns.");

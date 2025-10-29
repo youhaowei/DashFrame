@@ -3,18 +3,11 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
-      "@dashframe/types": [
-        "../../packages/types/src"
-      ],
-      "@dashframe/ui": [
-        "../../packages/ui/src"
-      ]
+      "@dashframe/dataframe": ["../../packages/dataframe/src"],
+      "@dashframe/csv": ["../../packages/csv/src"],
+      "@dashframe/ui": ["../../packages/ui/src"]
     },
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,
     "jsx": "preserve",
     "plugins": [
@@ -25,13 +18,6 @@
     "allowJs": true,
     "incremental": true
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

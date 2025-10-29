@@ -16,11 +16,29 @@ DashFrame is a business intelligence playground focused on the DataFrame → cha
 apps/
   web/              # Next.js app (App Router)
 packages/
-  types/            # Shared DataFrame and domain typings
-  ui/               # Shared UI utilities/components (placeholder)
+  dataframe/        # DataFrame types and utilities
+  csv/              # CSV ingest helpers → DataFrame
+  ui/               # Shared UI primitives/components
 docs/
   architecture.md   # Architecture summary distilled from Notion
 ```
+
+### Packages
+
+Each package is a TypeScript-first workspace member that exposes its source through `src/` and ships declarations from `dist/`. Every package follows the same `package.json` script contract:
+
+- `build`: `pnpm exec tsc`
+- `dev`: `pnpm exec tsc --watch`
+- `lint`: `pnpm exec eslint src`
+- `typecheck`: `pnpm exec tsc --noEmit`
+
+Turbo treats these as common tasks (`pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm dev`). When you run `pnpm dev`, it launches `next dev` for the app and puts all library packages into TypeScript watch mode so changes flow through immediately.
+
+Package responsibilities:
+
+- `@dashframe/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This packages defines the DataFrame type and the functions to manipulate it.
+- `@dashframe/csv`: This package is for handling the csv file, and converting it to a DataFrame.
+- `@dashframe/ui`: This package is for shared UI primitives and components.
 
 ## Getting Started
 
@@ -30,13 +48,15 @@ docs/
    pnpm install
    ```
 
-2. Run the web app in development mode:
+2. Start the workspace in development mode (Next.js + package watch mode):
 
    ```bash
-   pnpm --filter @dashframe/web dev
+   pnpm dev
    ```
 
    Visit `http://localhost:3000/` — the homepage now hosts the CSV → DataFrame → chart experience.
+
+   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dashframe/web dev` or `pnpm --filter @dashframe/csv dev` for focused work.
 
 3. Optional scripts:
    ```bash
@@ -51,7 +71,7 @@ docs/
 
 - ✅ Turborepo scaffolding, shared configs, and architecture doc
 - ✅ CSV upload → DataFrame parsing → Vega-Lite preview (with axis selectors and persistence)
-- ✅ Shared packages (`@dashframe/types`, `@dashframe/ui`) seeded
+- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/ui`) seeded
 - ✅ Vega chart rendered client-side via dynamic `VegaChart`
 
 ## Roadmap

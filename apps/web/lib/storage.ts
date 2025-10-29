@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dashframe/types";
+import type { DataFrame } from "@dashframe/dataframe";
 import type { AxisSelection } from "./spec";
 
 const DATAFRAME_STORAGE_KEY = "dashframe:dataframe";

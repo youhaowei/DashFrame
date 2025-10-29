@@ -1,7 +1,11 @@
-import type { ParseResult } from "papaparse";
-import type { DataFrame } from "@dashframe/types";
+import type { DataFrame, ColumnType } from "@dashframe/dataframe";
 
-export type ColumnType = DataFrame["columns"][number]["type"];
+/**
+ * Represents CSV data as an array of string arrays.
+ * First array contains headers, subsequent arrays contain data rows.
+ * Can be either a 2D array or a 1D array (for single row data).
+ */
+export type CSVData = string[][] | string[];
 
 const inferType = (value: string): ColumnType => {
   if (!value?.length) return "unknown";
@@ -31,14 +35,21 @@ const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
   }
 };
 
-export const buildDataFrame = (
-  records: ParseResult<string>["data"],
-): DataFrame => {
-  if (!records.length) {
+/**
+ * Converts CSV data into a DataFrame structure.
+ * Expects the first row to contain headers and subsequent rows to contain data.
+ */
+export const csvToDataFrame = (csvData: CSVData): DataFrame => {
+  // Handle case where csvData might be a single row array
+  const data = Array.isArray(csvData[0])
+    ? (csvData as string[][])
+    : [csvData as string[]];
+
+  if (!data.length) {
     return { columns: [], rows: [] };
   }
 
-  const [header, ...rawRows] = records as unknown as string[][];
+  const [header, ...rawRows] = data;
   const rowsData = rawRows.filter((row) =>
     row.some((cell) => cell !== undefined && cell !== ""),
   );

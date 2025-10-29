@@ -1,9 +1,12 @@
 {
+  "dependencies": {
+    "@dashframe/dataframe": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.6.0"
   },
   "main": "src/index.ts",
-  "name": "@dashframe/ui",
+  "name": "@dashframe/csv",
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,7 +1,6 @@
 node_modules
 .pnp.*
 .pnpm-debug.log
-pnpm-lock.yaml
 
 # Next.js
 .next
@@ -23,3 +22,5 @@ out
 corepack-home/
 .corepack/
 .pnpm-store/
+
+dist

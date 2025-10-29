@@ -1,5 +1,8 @@
 {
   "dependencies": {
+    "@dashframe/csv": "workspace:*",
+    "@dashframe/dataframe": "workspace:*",
+    "@dashframe/ui": "workspace:*",
     "next": "16.0.0",
     "papaparse": "5.5.3",
     "react": "19.2.0",
@@ -25,8 +28,8 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "pnpm exec eslint .",
-    "typecheck": "pnpm exec tsc --noEmit",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "pnpm exec tsc --noEmit"
   },
   "version": "0.1.0"
 }
