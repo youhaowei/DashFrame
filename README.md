@@ -1,13 +1,14 @@
 # DashFrame
 
-DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP validates the CSV upload flow described in the [Data Engine architecture overview](docs/architecture.md) and provides a Next.js builder shell to iterate on visuals.
+DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, as described in the [Data Engine architecture overview](docs/architecture.md), and provides a Next.js builder shell to iterate on visuals.
 
 ## Stack
 
 - Next.js 16 (App Router) + React 19
 - Tailwind CSS (via PostCSS) — shadcn components optional
 - Turborepo for workspace orchestration
-- Vega-Lite + Vega Embed for chart rendering, Papaparse for CSV ingest
+- Vega-Lite + Vega Embed for chart rendering
+- Papaparse for CSV ingest, @notionhq/client for Notion database integration
 - pnpm for dependency management
 
 ## Project Layout
@@ -18,6 +19,7 @@ apps/
 packages/
   dataframe/        # DataFrame types and utilities
   csv/              # CSV ingest helpers → DataFrame
+  notion/           # Notion database integration → DataFrame
   ui/               # Shared UI primitives/components
 docs/
   architecture.md   # Architecture summary distilled from Notion
@@ -42,8 +44,9 @@ Turbo treats these as common tasks (`pnpm build`, `pnpm lint`, `pnpm typecheck`,
 
 Package responsibilities:
 
-- `@dash-frame/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This packages defines the DataFrame type and the functions to manipulate it.
-- `@dash-frame/csv`: This package is for handling the csv file, and converting it to a DataFrame.
+- `@dash-frame/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This package defines the DataFrame type and the functions to manipulate it.
+- `@dash-frame/csv`: This package is for handling CSV files and converting them to a DataFrame.
+- `@dash-frame/notion`: This package integrates with Notion databases via the official Notion API client, fetching database schemas and data, and converting them to a DataFrame.
 - `@dash-frame/ui`: This package is for shared UI primitives and components.
 
 ## Getting Started
@@ -76,11 +79,38 @@ Package responsibilities:
    pnpm test       # placeholder (no tests yet)
    ```
 
+## Using Notion Integration
+
+DashFrame supports importing data directly from Notion databases:
+
+1. **Create a Notion Integration**:
+   - Visit [notion.so/my-integrations](https://www.notion.so/my-integrations)
+   - Click "+ New integration"
+   - Give it a name (e.g., "DashFrame")
+   - Copy the "Internal Integration Token" (starts with `secret_`)
+
+2. **Share a Database with Your Integration**:
+   - Open the Notion database you want to import
+   - Click the "..." menu in the top right
+   - Select "Connections" → "Connect to" → Find your integration
+
+3. **Import Data in DashFrame**:
+   - Click the "Notion DB" tab in the web app
+   - Paste your API key (it's stored in browser localStorage)
+   - Click "Connect" to see your databases
+   - Select a database from the dropdown
+   - Choose which properties (columns) to import
+   - Click "Import Data" to load into DashFrame
+   - Use the "Refresh" button to sync latest data from Notion
+
+**Security Note**: Your Notion API key is stored in browser localStorage for convenience. For production use, consider implementing OAuth or server-side key management.
+
 ## Current Status
 
 - ✅ Turborepo scaffolding, shared configs, and architecture doc
 - ✅ CSV upload → DataFrame parsing → Vega-Lite preview (with axis selectors and persistence)
-- ✅ Shared packages (`@dash-frame/dataframe`, `@dash-frame/csv`, `@dash-frame/ui`) seeded
+- ✅ Notion database integration with property selection and refresh capability
+- ✅ Shared packages (`@dash-frame/dataframe`, `@dash-frame/csv`, `@dash-frame/notion`, `@dash-frame/ui`) seeded
 - ✅ Vega chart rendered client-side via dynamic `VegaChart`
 
 ## Roadmap

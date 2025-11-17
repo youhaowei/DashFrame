@@ -20,11 +20,11 @@ Current MVP focuses on producing a `DataFrame` from a CSV upload and rendering a
 ## Tech Stack (Current MVP)
 
 - **Next.js (App Router)** for the builder UI
-- **Tailwind CSS + shadcn/Radix** for styling and accessible components
+- **Tailwind CSS v4** for styling
 - **Papaparse** for CSV parsing
 - **Vega-Lite + Vega Embed** for chart rendering (dynamic client component)
-- **localStorage** persistence for DataFrame and axis selections
-- **TanStack Store/Form** for state and form handling
+- **Zustand + Immer** for state management with automatic persistence
+- **tRPC** for type-safe API calls (Notion integration)
 
 ## System Flow (MVP)
 
@@ -44,6 +44,48 @@ The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildV
 6. **Operational Services** – WorkOS auth, Convex persistence, scheduling, history/undo
 
 Convex and additional backend services are deferred until after the first milestone proves the front-end pipeline.
+
+## State Management Architecture
+
+### Core Concepts
+
+**Entity Hierarchy:**
+
+- `DataSource` (CSV or Notion) - Where data comes from
+  - `DataEntity` - Has direct DataFrame (CSV)
+  - `DataConnection` - Requires insights to generate DataFrames (Notion)
+- `Insight` - Query configuration (SELECT dimensions FROM table) - nested in DataConnection
+- `DataFrame` - Data snapshot with source tracking + timestamp
+- `Visualization` - Full Vega-Lite spec + DataFrame reference
+
+### Three Zustand Stores
+
+1. **dataSourcesStore** - CSV sources + Notion connections (with nested insights Map)
+2. **dataFramesStore** - Unified DataFrame storage with metadata
+3. **visualizationsStore** - Vega-Lite specs + active visualization tracking
+
+### Key Design Decisions
+
+- **Immer middleware** - Clean immutable updates without manual spreading
+- **Automatic persistence** - Zustand persist handles all localStorage (no manual calls)
+- **UUID-based** - All entities use `crypto.randomUUID()`
+- **Map storage** - O(1) lookups, custom serialization for persistence
+- **Insights as nested entities** - Stored within their parent DataConnection
+- **Source tracking** - DataFrames know their origin (dataSourceId + optional insightId)
+
+### Data Flows
+
+**CSV**: Upload → DataSource + DataFrame → Visualization
+**Notion**: Connect → Insight → DataFrame → Visualization (refreshable)
+
+### Persistence
+
+```
+localStorage keys:
+  dash-frame:data-sources
+  dash-frame:dataframes
+  dash-frame:visualizations
+```
 
 ## Naming Notes
 

@@ -2,14 +2,24 @@
   "dependencies": {
     "@dash-frame/csv": "workspace:*",
     "@dash-frame/dataframe": "workspace:*",
+    "@dash-frame/notion": "workspace:*",
     "@dash-frame/ui": "workspace:*",
+    "@tanstack/react-query": "^5.0.0",
+    "@trpc/client": "^11.0.0",
+    "@trpc/next": "^11.0.0",
+    "@trpc/react-query": "^11.0.0",
+    "@trpc/server": "^11.0.0",
+    "immer": "^10.2.0",
     "next": "16.0.0",
     "papaparse": "5.5.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "superjson": "^2.0.0",
     "vega": "6.2.0",
     "vega-embed": "7.1.0",
-    "vega-lite": "6.4.1"
+    "vega-lite": "6.4.1",
+    "zod": "^4.1.12",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@dash-frame/eslint-config": "workspace:*",
@@ -27,7 +37,8 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
+    "clean": "rm -rf .next *.tsbuildinfo",
+    "dev": "FORCE_COLOR=1 next dev",
     "format": "prettier --check .",
     "lint": "pnpm exec eslint .",
     "start": "next start",

@@ -11,7 +11,8 @@
     "format:write": "prettier --write .",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
-    "check": "turbo check"
+    "check": "turbo check",
+    "clean": "turbo clean"
   },
   "devDependencies": {
     "@dash-frame/eslint-config": "workspace:*",
@@ -22,7 +23,7 @@
     "eslint-plugin-sonarjs": "^3.0.5",
     "prettier": "3.6.2",
     "prettier-plugin-tailwindcss": "0.6.10",
-    "turbo": "^2.5.8",
+    "turbo": "^2.6.1",
     "typescript": "5.7.2",
     "typescript-eslint": "^8.46.2"
   }

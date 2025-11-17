@@ -3,6 +3,7 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
+      "@/*": ["./*"],
       "@dash-frame/dataframe": ["../../packages/dataframe/src"],
       "@dash-frame/csv": ["../../packages/csv/src"],
       "@dash-frame/ui": ["../../packages/ui/src"]
