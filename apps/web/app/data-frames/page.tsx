@@ -113,20 +113,16 @@ export default function DataFramesPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-6">
-        <div className="mx-auto max-w-7xl">
-          <h1 className="text-3xl font-bold text-foreground">Data Frames</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            View and manage processed data from your sources
-          </p>
-        </div>
+    <div className="flex flex-1 flex-col gap-4">
+      <header className="rounded-2xl border border-border/60 bg-card/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <h1 className="text-3xl font-bold text-foreground">Data Frames</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          View and manage processed data from your sources
+        </p>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-6">
-        <div className="mx-auto max-w-7xl">
+      <section className="flex flex-1 flex-col rounded-2xl border border-border/60 bg-card/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <div className="flex-1 p-6">
           <DataGrid
             data={dataFrames}
             columns={columns}
@@ -136,9 +132,8 @@ export default function DataFramesPage() {
             emptyDescription="Create visualizations from your data sources to generate data frames."
           />
         </div>
-      </main>
+      </section>
 
-      {/* Edit Dialog */}
       <Dialog open={!!editingFrame} onOpenChange={() => setEditingFrame(null)}>
         <DialogContent>
           <DialogHeader>

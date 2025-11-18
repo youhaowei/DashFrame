@@ -7,9 +7,12 @@ import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 export default function DataSourcesPage() {
-  const dataSources = useDataSourcesStore((state) => state.getAll());
+  const dataSources = useDataSourcesStore(
+    useShallow((state) => Array.from(state.dataSources.values()))
+  );
   const remove = useDataSourcesStore((state) => state.remove);
 
   const columns = useMemo<ColumnDef<DataSource>[]>(
@@ -38,11 +41,10 @@ export default function DataSourcesPage() {
           const type = row.getValue("type") as string;
           return (
             <span
-              className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                type === "csv"
-                  ? "bg-blue-100 text-blue-800"
-                  : "bg-purple-100 text-purple-800"
-              }`}
+              className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${type === "csv"
+                ? "bg-blue-100 text-blue-800"
+                : "bg-purple-100 text-purple-800"
+                }`}
             >
               {type.toUpperCase()}
             </span>
@@ -88,20 +90,16 @@ export default function DataSourcesPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-6">
-        <div className="mx-auto max-w-7xl">
-          <h1 className="text-3xl font-bold text-foreground">Data Sources</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Manage your CSV files and external data connections
-          </p>
-        </div>
+    <div className="flex flex-1 flex-col gap-4">
+      <header className="rounded-2xl border border-border/60 bg-card px-6 py-6 shadow-sm">
+        <h1 className="text-3xl font-bold text-foreground">Data Sources</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Manage your CSV files and external data connections
+        </p>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-6">
-        <div className="mx-auto max-w-7xl">
+      <section className="flex flex-1 flex-col rounded-2xl border border-border/60 bg-card shadow-lg">
+        <div className="flex-1 p-6">
           <DataGrid
             data={dataSources}
             columns={columns}
@@ -110,7 +108,7 @@ export default function DataSourcesPage() {
             emptyDescription="Upload a CSV or connect to Notion to get started."
           />
         </div>
-      </main>
+      </section>
     </div>
   );
 }
