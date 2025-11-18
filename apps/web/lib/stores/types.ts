@@ -73,6 +73,15 @@ export const isDataConnection = (ds: DataSource): ds is NotionDataSource =>
 // Visualizations
 // ============================================================================
 
+export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
+
+export interface VisualizationEncoding {
+  x?: string;
+  y?: string;
+  color?: string;
+  size?: string;
+}
+
 export interface VisualizationSource {
   dataFrameId: UUID;
   // If from Notion insight, these are set for refresh capability
@@ -85,5 +94,7 @@ export interface Visualization {
   name: string;
   source: VisualizationSource;
   spec: Omit<TopLevelSpec, "data">; // Vega-Lite spec (data comes from DataFrame)
+  visualizationType: VisualizationType; // Display type (table/chart)
+  encoding?: VisualizationEncoding; // Column mappings for chart types
   createdAt: number;
 }

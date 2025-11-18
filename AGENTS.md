@@ -27,6 +27,7 @@ Guidance for automation and future contributors working in this repository.
 
 ## Expectations
 
+- **Spec-First Development**: Before implementing new features or significant UX changes, create a feature spec in `docs/specs/<feature-name>.md`. Document user flows, UI layouts, decision rationale, and error handling. Reference `docs/specs/create-visualization-flow.md` as an example.
 - Favor incremental, targeted changes; avoid rewriting unrelated files.
 - Keep documentation synchronized—update README/docs whenever conventions shift.
 - Prefer `rg` for search, `pnpm` scripts over invoking underlying binaries directly, and stay consistent with existing formatting (Prettier config applies).

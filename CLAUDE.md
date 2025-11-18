@@ -129,11 +129,17 @@ pnpm check  # Runs lint + typecheck + format
 
 ### When Adding Features
 
-1. Check `docs/architecture.md` for vision and architecture alignment
-2. Follow functional converter pattern (no classes/inheritance)
-3. Use Zustand stores for state persistence (see `apps/web/lib/stores/`)
-4. Add tRPC router if calling external APIs (avoid CORS)
-5. Update `README.md` only for major user-facing features
+1. **Write a spec first**: Create a feature spec in `docs/specs/<feature-name>.md` documenting:
+   - User flows and step-by-step interactions
+   - UI layout and visual design
+   - Decision rationale and trade-offs
+   - Error handling and edge cases
+   - See `docs/specs/create-visualization-flow.md` as reference example
+2. Check `docs/architecture.md` for vision and architecture alignment
+3. Follow functional converter pattern (no classes/inheritance)
+4. Use Zustand stores for state persistence (see `apps/web/lib/stores/`)
+5. Add tRPC router if calling external APIs (avoid CORS)
+6. Update `README.md` only for major user-facing features
 
 ### Architecture Principles
 

@@ -4,7 +4,12 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, EnhancedDataFrame } from "@dash-frame/dataframe";
-import type { Visualization, VisualizationSource } from "./types";
+import type {
+  Visualization,
+  VisualizationSource,
+  VisualizationType,
+  VisualizationEncoding,
+} from "./types";
 import type { TopLevelSpec } from "vega-lite";
 import { useDataFramesStore } from "./dataframes-store";
 
@@ -23,6 +28,8 @@ interface VisualizationsActions {
     source: VisualizationSource,
     name: string,
     spec: Omit<TopLevelSpec, "data">,
+    visualizationType?: VisualizationType,
+    encoding?: VisualizationEncoding,
   ) => UUID;
 
   // Update
@@ -31,6 +38,8 @@ interface VisualizationsActions {
     updates: Partial<Omit<Visualization, "id" | "createdAt">>,
   ) => void;
   updateSpec: (id: UUID, spec: Omit<TopLevelSpec, "data">) => void;
+  updateVisualizationType: (id: UUID, type: VisualizationType) => void;
+  updateEncoding: (id: UUID, encoding: VisualizationEncoding) => void;
 
   // Delete
   remove: (id: UUID) => void;
@@ -69,11 +78,27 @@ const storage = createJSONStorage<VisualizationsState>(() => localStorage, {
       "visualizations" in value &&
       Array.isArray((value as { visualizations: unknown }).visualizations)
     ) {
+      // Migrate old visualizations that don't have visualizationType
+      type LegacyVisualization = Omit<Visualization, "visualizationType"> &
+        Partial<Pick<Visualization, "visualizationType">>;
+
+      const visualizations = new Map(
+        (
+          value as { visualizations: [UUID, LegacyVisualization][] }
+        ).visualizations.map(([id, viz]) => [
+          id,
+          {
+            ...viz,
+            // Add default visualizationType if missing (backward compatibility)
+            visualizationType: viz.visualizationType || "bar",
+            // encoding is optional, so no need to add default
+          } as Visualization,
+        ]),
+      );
+
       return {
         ...value,
-        visualizations: new Map(
-          (value as { visualizations: [UUID, Visualization][] }).visualizations,
-        ),
+        visualizations,
       };
     }
     return value;
@@ -99,7 +124,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       activeId: null,
 
       // Create visualization
-      create: (source, name, spec) => {
+      create: (source, name, spec, visualizationType = "table", encoding) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 
@@ -108,6 +133,8 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
           name,
           source,
           spec,
+          visualizationType,
+          encoding,
           createdAt: now,
         };
 
@@ -135,6 +162,26 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
           const viz = state.visualizations.get(id);
           if (viz) {
             viz.spec = spec;
+          }
+        });
+      },
+
+      // Update visualization type
+      updateVisualizationType: (id, type) => {
+        set((state) => {
+          const viz = state.visualizations.get(id);
+          if (viz) {
+            viz.visualizationType = type;
+          }
+        });
+      },
+
+      // Update encoding
+      updateEncoding: (id, encoding) => {
+        set((state) => {
+          const viz = state.visualizations.get(id);
+          if (viz) {
+            viz.encoding = encoding;
           }
         });
       },
