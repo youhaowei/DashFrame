@@ -2,15 +2,19 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useTheme } from "next-themes";
+import { BarChart3, Table as TableIcon } from "lucide-react";
+import type { TopLevelSpec } from "vega-lite";
+import type { EnhancedDataFrame } from "@dash-frame/dataframe";
+import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { TableView } from "./TableView";
-import { VegaChart } from "./VegaChart";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { TopLevelSpec } from "vega-lite";
-import type { Visualization } from "@/lib/stores/types";
-import type { EnhancedDataFrame } from "@dash-frame/dataframe";
+import { TableView } from "./TableView";
+import { VegaChart } from "./VegaChart";
+
+const formatVizType = (type: Visualization["visualizationType"]) =>
+  `${type.slice(0, 1).toUpperCase()}${type.slice(1)}`;
 
 // Helper to get CSS variable color value
 function getCSSColor(variable: string): string {
@@ -178,13 +182,14 @@ export function VisualizationDisplay() {
   // Prevent hydration mismatch - always show empty state on server
   if (!isMounted || !activeResolved) {
     return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg font-medium text-foreground">
-            No visualization selected
-          </p>
+      <div className="flex h-full w-full items-center justify-center px-6">
+        <div className="w-full max-w-lg rounded-3xl border border-dashed border-border/70 bg-background/40 p-10 text-center shadow-inner shadow-black/5">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <BarChart3 className="h-6 w-6" />
+          </div>
+          <p className="text-lg font-semibold text-foreground">No visualization yet</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Create or select a visualization to display
+            Use the controls on the left to create or select a visualization to preview.
           </p>
         </div>
       </div>
@@ -192,44 +197,93 @@ export function VisualizationDisplay() {
   }
 
   const { viz, dataFrame } = activeResolved;
+  const vizTypeLabel = formatVizType(viz.visualizationType);
 
-  // Table-only view
   if (viz.visualizationType === "table") {
     return (
-      <div className="h-full w-full p-6">
-        <TableView dataFrame={dataFrame.data} />
+      <div className="flex h-full flex-col">
+        <div className="border-b border-border/60 bg-background/60 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-primary/10 p-2 text-primary">
+              <TableIcon className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Data preview
+              </p>
+              <p className="text-lg font-semibold text-foreground">{viz.name}</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 px-6 py-6">
+          <div className="h-full rounded-2xl border border-border/60 bg-background/60 p-4 shadow-inner shadow-black/5">
+            <TableView dataFrame={dataFrame.data} />
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
-      {/* Chart Section */}
-      <div className="shrink-0 p-6">
-        <Card className="p-4">
-          {/* vegaSpec is guaranteed to be non-null here because we return early if visualizationType is "table" */}
-          <VegaChart spec={vegaSpec!} />
-        </Card>
-      </div>
-
-      {/* Table Toggle */}
-      <div className="border-t border-border px-6 py-3 shrink-0">
-        <Button
-          variant="link"
-          size="sm"
-          onClick={() => setShowTableWithChart(!showTableWithChart)}
-          className="h-auto p-0"
-        >
-          {showTableWithChart ? "Hide" : "Show"} Data Table
-        </Button>
-      </div>
-
-      {/* Table Section (collapsible) */}
-      {showTableWithChart && (
-        <div className="flex-1 min-h-0 px-6 pb-6">
-          <TableView dataFrame={dataFrame.data} />
+    <div className="flex h-full flex-col">
+      <div className="border-b border-border/60 bg-gradient-to-r from-background/80 via-background/60 to-background/80 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Now viewing
+            </p>
+            <p className="text-xl font-semibold text-foreground">{viz.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
+              {dataFrame.metadata.columnCount} columns
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full border border-border/60 bg-background/70 px-3 py-1 font-semibold text-foreground">
+              {vizTypeLabel}
+            </span>
+            {viz.encoding?.color && (
+              <span className="rounded-full bg-muted px-3 py-1 text-muted-foreground">
+                Color: {viz.encoding.color}
+              </span>
+            )}
+          </div>
         </div>
-      )}
+      </div>
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 px-6 py-6">
+          <Card className="border border-border/60 bg-background/40 p-4 shadow-xl shadow-black/5">
+            <VegaChart spec={vegaSpec!} />
+          </Card>
+        </div>
+
+        <div className="shrink-0 border-t border-border/60 bg-background/40 px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Data table</p>
+              <p className="text-xs text-muted-foreground">
+                Explore the underlying rows powering this visualization.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowTableWithChart(!showTableWithChart)}
+            >
+              {showTableWithChart ? "Hide table" : "Show table"}
+            </Button>
+          </div>
+        </div>
+
+        {showTableWithChart && (
+          <div className="flex-1 min-h-0 px-6 py-6">
+            <div className="h-full rounded-2xl border border-border/60 bg-background/60 p-4 shadow-inner shadow-black/5">
+              <TableView dataFrame={dataFrame.data} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
