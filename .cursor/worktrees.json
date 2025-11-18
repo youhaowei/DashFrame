@@ -1,0 +1,7 @@
+{
+  "setup-worktree": [
+    "pnpm install",
+    "cp $ROOT_WORKTREE_PATH/.env .env 2>/dev/null || true",
+    "node $ROOT_WORKTREE_PATH/scripts/setup-worktree-port.js"
+  ]
+}
