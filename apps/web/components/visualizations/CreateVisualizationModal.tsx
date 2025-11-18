@@ -14,80 +14,26 @@ import { isCSVDataSource, isNotionDataSource } from "@/lib/stores/types";
 import type { TopLevelSpec } from "vega-lite";
 import { FiFileText, FiDatabase } from "react-icons/fi";
 import { SiNotion } from "react-icons/si";
-import { Select } from "../fields";
-
-// ============================================================================
-// Reusable UI Components
-// ============================================================================
-
-interface SelectableCardProps {
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-  isSelected?: boolean;
-}
-
-function SelectableCard({
-  onClick,
-  icon,
-  title,
-  subtitle,
-  isSelected = false,
-}: SelectableCardProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition ${
-        isSelected
-          ? "border-blue-600 bg-blue-50"
-          : "border-gray-300 hover:border-blue-500 hover:bg-blue-50"
-      }`}
-    >
-      {icon}
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-gray-900">{title}</div>
-        {subtitle && <div className="text-xs text-gray-500">{subtitle}</div>}
-      </div>
-    </button>
-  );
-}
-
-interface TabButtonProps {
-  isActive: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}
-
-function TabButton({ isActive, onClick, children }: TabButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition ${
-        isActive
-          ? "bg-blue-600 text-white"
-          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-interface SectionProps {
-  title?: string;
-  children: React.ReactNode;
-  bordered?: boolean;
-}
-
-function Section({ title, children, bordered = false }: SectionProps) {
-  return (
-    <div className={bordered ? "space-y-3 rounded-lg border border-gray-300 p-4" : "space-y-3"}>
-      {title && <h4 className="font-medium text-gray-900">{title}</h4>}
-      {children}
-    </div>
-  );
-}
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface CreateVisualizationModalProps {
   isOpen: boolean;
@@ -465,45 +411,33 @@ export function CreateVisualizationModal({
     onClose,
   ]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">
-            Create Visualization
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            ✕
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create Visualization</DialogTitle>
+        </DialogHeader>
 
         {/* Step Content */}
-        <div className="mb-6 min-h-[400px]">
+        <div className="min-h-[400px]">
           {/* Step 1: Source Selection */}
           {currentStep === "source" && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Choose Data Source
-              </h3>
+              <h3 className="text-lg font-semibold">Choose Data Source</h3>
 
               {/* Existing Sources */}
               {existingDataSources.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">
+                  <h4 className="text-sm font-medium text-muted-foreground">
                     Existing Sources
                   </h4>
                   <div className="space-y-2">
                     {existingDataSources.map((source) => {
                       if (isCSVDataSource(source)) {
                         return (
-                          <SelectableCard
+                          <Card
                             key={source.id}
+                            className="cursor-pointer transition hover:border-primary"
                             onClick={() =>
                               handleSelectExistingCSV(
                                 source.id,
@@ -511,20 +445,35 @@ export function CreateVisualizationModal({
                                 source.name,
                               )
                             }
-                            icon={<FiFileText className="h-5 w-5 shrink-0 text-gray-600" />}
-                            title={source.name}
-                            subtitle={source.fileName}
-                          />
+                          >
+                            <CardContent className="flex items-center gap-3 p-3">
+                              <FiFileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium">{source.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {source.fileName}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
                         );
                       } else if (isNotionDataSource(source)) {
                         return (
-                          <SelectableCard
+                          <Card
                             key={source.id}
+                            className="cursor-pointer transition hover:border-primary"
                             onClick={handleSelectExistingNotion}
-                            icon={<SiNotion className="h-5 w-5 shrink-0 text-gray-900" />}
-                            title={source.name}
-                            subtitle={`${source.insights.size} insight${source.insights.size !== 1 ? "s" : ""}`}
-                          />
+                          >
+                            <CardContent className="flex items-center gap-3 p-3">
+                              <SiNotion className="h-5 w-5 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium">{source.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {`${source.insights.size} insight${source.insights.size !== 1 ? "s" : ""}`}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
                         );
                       }
                       return null;
@@ -534,193 +483,258 @@ export function CreateVisualizationModal({
               )}
 
               {/* Add New Source */}
-              <h4 className="text-sm font-medium text-gray-700">
+              <h4 className="text-sm font-medium text-muted-foreground">
                 Add New Source
               </h4>
 
               {/* CSV Upload */}
-              <Section title="CSV File" bordered>
-                <p className="text-sm text-gray-600">
-                  Upload a CSV file with headers in the first row
-                </p>
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center hover:border-blue-500 hover:bg-blue-50">
-                  <span className="text-sm font-medium text-gray-700">
-                    Select CSV File
-                  </span>
-                  <span className="mt-1 text-xs text-gray-500">
-                    Supports .csv files up to 5MB
-                  </span>
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setSourceType("csv-upload");
-                        handleCSVUpload(file);
-                      }
-                    }}
-                  />
-                </label>
-              </Section>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">CSV File</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Upload a CSV file with headers in the first row
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-input bg-muted/50 p-6 text-center transition hover:border-primary hover:bg-muted">
+                    <span className="text-sm font-medium">Select CSV File</span>
+                    <span className="mt-1 text-xs text-muted-foreground">
+                      Supports .csv files up to 5MB
+                    </span>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setSourceType("csv-upload");
+                          handleCSVUpload(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </CardContent>
+              </Card>
 
               {/* Notion */}
-              <Section title="Notion Database" bordered>
-                <p className="text-sm text-gray-600">
-                  Connect to your Notion workspace
-                </p>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    API Key
-                  </label>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Notion Database</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Connect to your Notion workspace
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Label htmlFor="modal-api-key">API Key</Label>
                   <div className="relative">
-                    <input
+                    <Input
+                      id="modal-api-key"
                       type={showApiKey ? "text" : "password"}
                       value={notionApiKey}
                       onChange={(e) => setNotionApiKey(e.target.value)}
                       placeholder="secret_..."
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 pr-16 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="pr-16"
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600 hover:text-gray-900"
+                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 text-xs"
                     >
                       {showApiKey ? "Hide" : "Show"}
-                    </button>
+                    </Button>
                   </div>
-                  <button
+                  <Button
                     onClick={() => {
                       setSourceType("notion");
                       handleConnectNotion();
                     }}
                     disabled={!notionApiKey || isLoadingDatabases}
-                    className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="w-full"
                   >
                     {isLoadingDatabases ? "Connecting..." : "Connect"}
-                  </button>
-                </div>
-              </Section>
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
           )}
 
           {/* Step 2: Insight Configuration (Notion only) */}
           {currentStep === "insight" && sourceType === "notion" && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Configure Insight
-              </h3>
+              <h3 className="text-lg font-semibold">Configure Insight</h3>
 
               {/* Tab Switcher (only for existing connections) */}
               {isFromExistingConnection && persistedNotionConnection && (
-                <div className="flex gap-2">
-                  <TabButton
-                    isActive={insightMode === "existing"}
-                    onClick={() => setInsightMode("existing")}
-                  >
-                    Use Existing Insight
-                  </TabButton>
-                  <TabButton
-                    isActive={insightMode === "new"}
-                    onClick={() => setInsightMode("new")}
-                  >
-                    Create New Insight
-                  </TabButton>
-                </div>
-              )}
+                <Tabs value={insightMode} onValueChange={(v) => setInsightMode(v as "existing" | "new")}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="existing">Use Existing Insight</TabsTrigger>
+                    <TabsTrigger value="new">Create New Insight</TabsTrigger>
+                  </TabsList>
 
-              {/* Existing Insights List */}
-              {insightMode === "existing" && persistedNotionConnection && (
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Select an Insight
-                  </label>
-                  <div className="space-y-2">
-                    {Array.from(persistedNotionConnection.insights.values()).map(
-                      (insight) => (
-                        <SelectableCard
-                          key={insight.id}
-                          onClick={() =>
-                            handleSelectExistingInsight(
-                              insight.id,
-                              insight.table,
-                              insight.dimensions,
-                            )
-                          }
-                          icon={<FiDatabase className="h-5 w-5 shrink-0 text-gray-600" />}
-                          title={insight.name}
-                          subtitle={`${insight.dimensions.length} properties selected`}
-                          isSelected={selectedInsightId === insight.id}
-                        />
-                      ),
+                  {/* Existing Insights List */}
+                  <TabsContent value="existing" className="space-y-2">
+                    <Label>Select an Insight</Label>
+                    <div className="space-y-2">
+                      {Array.from(persistedNotionConnection.insights.values()).map(
+                        (insight) => (
+                          <Card
+                            key={insight.id}
+                            className={`cursor-pointer transition ${
+                              selectedInsightId === insight.id
+                                ? "border-primary"
+                                : "hover:border-primary"
+                            }`}
+                            onClick={() =>
+                              handleSelectExistingInsight(
+                                insight.id,
+                                insight.table,
+                                insight.dimensions,
+                              )
+                            }
+                          >
+                            <CardContent className="flex items-center gap-3 p-3">
+                              <FiDatabase className="h-5 w-5 shrink-0 text-muted-foreground" />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium">{insight.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {`${insight.dimensions.length} properties selected`}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ),
+                      )}
+                    </div>
+                    {selectedInsightId && (
+                      <Button
+                        onClick={handleCreateNotionVisualization}
+                        disabled={selectedPropertyIds.length === 0}
+                        className="w-full"
+                      >
+                        Create Table Visualization
+                      </Button>
                     )}
-                  </div>
-                  {selectedInsightId && (
-                    <button
-                      onClick={handleCreateNotionVisualization}
-                      disabled={selectedPropertyIds.length === 0}
-                      className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      Create Table Visualization
-                    </button>
-                  )}
-                </div>
+                  </TabsContent>
+
+                  {/* Create New Insight */}
+                  <TabsContent value="new" className="space-y-4">
+                    {/* Database Picker */}
+                    <div className="space-y-2">
+                      <Label htmlFor="modal-database">Select Database</Label>
+                      <Select
+                        value={selectedDatabaseId || ""}
+                        onValueChange={handleSelectDatabase}
+                      >
+                        <SelectTrigger id="modal-database">
+                          <SelectValue placeholder="Choose a database..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {notionDatabases.map((db) => (
+                            <SelectItem key={db.id} value={db.id}>
+                              {db.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Property Selection */}
+                    {isLoadingSchema && (
+                      <p className="text-sm text-muted-foreground">
+                        Loading properties...
+                      </p>
+                    )}
+                    {databaseSchema.length > 0 && !isLoadingSchema && (
+                      <div className="space-y-2">
+                        <Label>Select Properties</Label>
+                        <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                          {databaseSchema.map((prop) => (
+                            <label
+                              key={prop.id}
+                              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                            >
+                              <Checkbox
+                                checked={selectedPropertyIds.includes(prop.id)}
+                                onCheckedChange={() => handleToggleProperty(prop.id)}
+                              />
+                              <span className="flex-1">{prop.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {prop.type}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <Button
+                          onClick={handleCreateNotionVisualization}
+                          disabled={selectedPropertyIds.length === 0}
+                          className="w-full"
+                        >
+                          Create Table Visualization
+                        </Button>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               )}
 
-              {/* Create New Insight */}
-              {insightMode === "new" && (
+              {/* Create New Insight (for new connections) */}
+              {!isFromExistingConnection && (
                 <div className="space-y-4">
                   {/* Database Picker */}
-                  <Select
-                    label="Select Database"
-                    value={selectedDatabaseId || ""}
-                    onChange={handleSelectDatabase}
-                    options={notionDatabases.map((db) => ({
-                      label: db.title,
-                      value: db.id,
-                    }))}
-                    placeholder="Choose a database..."
-                  />
+                  <div className="space-y-2">
+                    <Label htmlFor="modal-database-new">Select Database</Label>
+                    <Select
+                      value={selectedDatabaseId || ""}
+                      onValueChange={handleSelectDatabase}
+                    >
+                      <SelectTrigger id="modal-database-new">
+                        <SelectValue placeholder="Choose a database..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {notionDatabases.map((db) => (
+                          <SelectItem key={db.id} value={db.id}>
+                            {db.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
                   {/* Property Selection */}
                   {isLoadingSchema && (
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       Loading properties...
                     </p>
                   )}
                   {databaseSchema.length > 0 && !isLoadingSchema && (
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Select Properties
-                      </label>
-                      <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-gray-300 p-2">
+                      <Label>Select Properties</Label>
+                      <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
                         {databaseSchema.map((prop) => (
                           <label
                             key={prop.id}
-                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-100"
+                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
                           >
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={selectedPropertyIds.includes(prop.id)}
-                              onChange={() => handleToggleProperty(prop.id)}
-                              className="rounded border-gray-300"
+                              onCheckedChange={() => handleToggleProperty(prop.id)}
                             />
-                            <span className="flex-1 text-gray-900">
-                              {prop.name}
-                            </span>
-                            <span className="text-xs text-gray-500">
+                            <span className="flex-1">{prop.name}</span>
+                            <span className="text-xs text-muted-foreground">
                               {prop.type}
                             </span>
                           </label>
                         ))}
                       </div>
-                      <button
+                      <Button
                         onClick={handleCreateNotionVisualization}
                         disabled={selectedPropertyIds.length === 0}
-                        className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        className="w-full"
                       >
                         Create Table Visualization
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -731,32 +745,29 @@ export function CreateVisualizationModal({
 
         {/* Error Display */}
         {error && (
-          <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Footer Actions */}
         <div className="flex justify-between">
-          <button
+          <Button
+            variant="outline"
             onClick={() => {
               if (currentStep === "insight") {
                 setCurrentStep("source");
               }
             }}
             disabled={currentStep === "source"}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Back
-          </button>
-          <button
-            onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
+          </Button>
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

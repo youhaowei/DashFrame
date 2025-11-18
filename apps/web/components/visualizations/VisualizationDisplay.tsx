@@ -1,13 +1,55 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useTheme } from "next-themes";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import type { TopLevelSpec } from "vega-lite";
 import type { Visualization } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dash-frame/dataframe";
+
+// Helper to get CSS variable color value
+function getCSSColor(variable: string): string {
+  if (typeof window === "undefined") return "#000000";
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(variable)
+    .trim();
+  return value || "#000000";
+}
+
+// Get theme-aware Vega-Lite config
+function getVegaThemeConfig() {
+  return {
+    background: getCSSColor("--color-card"),
+    view: {
+      stroke: getCSSColor("--color-border"),
+      strokeWidth: 1,
+    },
+    axis: {
+      domainColor: getCSSColor("--color-border"),
+      gridColor: getCSSColor("--color-border"),
+      tickColor: getCSSColor("--color-border"),
+      labelColor: getCSSColor("--color-foreground"),
+      titleColor: getCSSColor("--color-foreground"),
+      labelFont: "inherit",
+      titleFont: "inherit",
+    },
+    legend: {
+      labelColor: getCSSColor("--color-foreground"),
+      titleColor: getCSSColor("--color-foreground"),
+      labelFont: "inherit",
+      titleFont: "inherit",
+    },
+    title: {
+      color: getCSSColor("--color-foreground"),
+      font: "inherit",
+    },
+  };
+}
 
 function buildVegaSpec(
   viz: Visualization,
@@ -21,6 +63,7 @@ function buildVegaSpec(
     data: { values: dataFrame.data.rows },
     width: "container" as const,
     height: 400,
+    config: getVegaThemeConfig(),
   };
 
   // If no encoding is set, use defaults
@@ -102,6 +145,7 @@ function buildVegaSpec(
 
 export function VisualizationDisplay() {
   const [isMounted, setIsMounted] = useState(false);
+  const { resolvedTheme } = useTheme();
   const activeId = useVisualizationsStore((state) => state.activeId);
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
@@ -119,6 +163,14 @@ export function VisualizationDisplay() {
 
   const [showTableWithChart, setShowTableWithChart] = useState(true);
 
+  // Build Vega spec with theme awareness (must be called before any conditional returns)
+  const vegaSpec = useMemo(() => {
+    if (!activeResolved) return null;
+    const { viz, dataFrame } = activeResolved;
+    if (viz.visualizationType === "table") return null;
+    return buildVegaSpec(viz, dataFrame);
+  }, [activeResolved, resolvedTheme]);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -128,10 +180,10 @@ export function VisualizationDisplay() {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <div className="text-center">
-          <p className="text-lg font-medium text-gray-700">
+          <p className="text-lg font-medium text-foreground">
             No visualization selected
           </p>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-muted-foreground">
             Create or select a visualization to display
           </p>
         </div>
@@ -144,37 +196,37 @@ export function VisualizationDisplay() {
   // Table-only view
   if (viz.visualizationType === "table") {
     return (
-      <div className="h-full w-full overflow-auto p-6">
+      <div className="h-full w-full p-6">
         <TableView dataFrame={dataFrame.data} />
       </div>
     );
   }
 
-  // Chart view (with optional table below)
-  const vegaSpec = buildVegaSpec(viz, dataFrame);
-
   return (
-    <div className="flex h-full w-full flex-col overflow-auto">
+    <div className="flex h-full w-full flex-col">
       {/* Chart Section */}
-      <div className="flex-shrink-0 p-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <VegaChart spec={vegaSpec} />
-        </div>
+      <div className="shrink-0 p-6">
+        <Card className="p-4">
+          {/* vegaSpec is guaranteed to be non-null here because we return early if visualizationType is "table" */}
+          <VegaChart spec={vegaSpec!} />
+        </Card>
       </div>
 
       {/* Table Toggle */}
-      <div className="border-t border-gray-200 px-6 py-3">
-        <button
+      <div className="border-t border-border px-6 py-3 shrink-0">
+        <Button
+          variant="link"
+          size="sm"
           onClick={() => setShowTableWithChart(!showTableWithChart)}
-          className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          className="h-auto p-0"
         >
           {showTableWithChart ? "Hide" : "Show"} Data Table
-        </button>
+        </Button>
       </div>
 
       {/* Table Section (collapsible) */}
       {showTableWithChart && (
-        <div className="flex-1 px-6 pb-6">
+        <div className="flex-1 min-h-0 px-6 pb-6">
           <TableView dataFrame={dataFrame.data} />
         </div>
       )}

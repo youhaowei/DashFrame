@@ -1,14 +1,17 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 interface VisualizationTabsProps {
   onCreateClick: () => void;
 }
 
 export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
-  const [isMounted, setIsMounted] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );
@@ -19,53 +22,57 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
   const activeId = useVisualizationsStore((state) => state.activeId);
   const setActive = useVisualizationsStore((state) => state.setActive);
 
+  // Wait for client-side hydration before rendering content from stores
   useEffect(() => {
-    setIsMounted(true);
+    setIsHydrated(true);
   }, []);
 
-  // Prevent hydration mismatch - always show empty state on server
-  if (!isMounted || visualizations.length === 0) {
+  // Don't render anything until hydrated to avoid hydration mismatch
+  if (!isHydrated) {
     return (
-      <div className="flex items-center gap-4 border-b border-gray-200 bg-white px-6 py-3">
-        <div className="text-sm text-gray-500">
+      <div className="flex items-center gap-4 border-b border-border bg-card px-6 py-3">
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (visualizations.length === 0) {
+    return (
+      <div className="flex items-center gap-4 border-b border-border bg-card px-6 py-3">
+        <p className="text-sm text-muted-foreground">
           No visualizations yet. Create your first one to get started.
-        </div>
-        <button
-          onClick={onCreateClick}
-          className="ml-auto rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          + Create Visualization
-        </button>
+        </p>
+        <Button onClick={onCreateClick} className="ml-auto" size="sm">
+          <Plus className="mr-2 h-4 w-4" />
+          Create Visualization
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-6">
-      {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto">
-        {visualizations.map((viz) => (
-          <button
-            key={viz.id}
-            onClick={() => setActive(viz.id)}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-              activeId === viz.id
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900"
-            }`}
-          >
-            {viz.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Create Button */}
-      <button
-        onClick={onCreateClick}
-        className="ml-auto rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+    <div className="flex items-center gap-4 border-b border-border bg-card px-6 py-2">
+      <Tabs
+        value={activeId ?? undefined}
+        onValueChange={setActive}
       >
-        + Create
-      </button>
+        <TabsList>
+          {visualizations.map((viz) => (
+            <TabsTrigger
+              key={viz.id}
+              value={viz.id}
+            >
+              {viz.name}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <Button variant="secondary" onClick={onCreateClick} size="sm" className="ml-auto">
+        <Plus className="h-4 w-4" />
+        Create Visualization
+      </Button>
     </div>
   );
 }

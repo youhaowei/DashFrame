@@ -11,6 +11,66 @@ import {
   useVisualizationsStore,
 } from "@/lib/stores";
 import { buildVegaLiteSpec } from "@/lib/spec";
+import type { TopLevelSpec } from "vega-lite";
+import type { DataFrame } from "@dash-frame/dataframe";
+import type {
+  VisualizationType,
+  VisualizationEncoding,
+} from "@/lib/stores/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+// Helper function to extract visualization type and encoding from a Vega-Lite spec
+function extractVisualizationMetadata(
+  spec: TopLevelSpec,
+): {
+  visualizationType: VisualizationType;
+  encoding?: VisualizationEncoding;
+} {
+  // Extract mark type
+  const mark =
+    "mark" in spec && typeof spec.mark === "string" ? spec.mark : "bar";
+  const visualizationType = mark === "line" ? "line" : "bar";
+
+  // Extract encoding if it exists
+  const encoding =
+    "encoding" in spec &&
+      spec.encoding &&
+      typeof spec.encoding === "object" &&
+      "x" in spec.encoding &&
+      "y" in spec.encoding
+      ? {
+        x:
+          spec.encoding.x &&
+            typeof spec.encoding.x === "object" &&
+            "field" in spec.encoding.x &&
+            typeof spec.encoding.x.field === "string"
+            ? spec.encoding.x.field
+            : undefined,
+        y:
+          spec.encoding.y &&
+            typeof spec.encoding.y === "object" &&
+            "field" in spec.encoding.y &&
+            typeof spec.encoding.y.field === "string"
+            ? spec.encoding.y.field
+            : undefined,
+      }
+      : undefined;
+
+  return { visualizationType, encoding };
+}
 
 export function DataSourcesPanel() {
   // Store actions
@@ -52,6 +112,59 @@ export function DataSourcesPanel() {
   const getDatabaseSchemaMutation = trpc.notion.getDatabaseSchema.useMutation();
   const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
 
+  // Process CSV data and create visualization
+  const processCSVData = useCallback(
+    (
+      dataFrame: ReturnType<typeof csvToDataFrame>,
+      fileName: string,
+      fileSize: number,
+    ) => {
+      // Generate UUID for data source
+      const dataSourceId = crypto.randomUUID();
+
+      // Create DataFrame first (with dataSourceId reference)
+      const dataFrameId = createDataFrameFromCSV(
+        dataSourceId,
+        `${fileName} Data`,
+        dataFrame,
+      );
+
+      // Create CSV data source (with dataFrameId reference)
+      addCSV(
+        fileName.replace(/\.csv$/i, ""),
+        fileName,
+        fileSize,
+        dataFrameId,
+      );
+
+      // Create default Vega-Lite spec
+      const defaultSpec = buildVegaLiteSpec(dataFrame, {
+        x: dataFrame.columns[0]?.name ?? null,
+        y:
+          dataFrame.columns.find((col) => col.type === "number")?.name ??
+          dataFrame.columns[1]?.name ??
+          null,
+      });
+
+      if (defaultSpec) {
+        const { visualizationType, encoding } =
+          extractVisualizationMetadata(defaultSpec);
+        const { data, ...specWithoutData } = defaultSpec;
+
+        createVisualization(
+          {
+            dataFrameId,
+          },
+          `${fileName} Chart`,
+          specWithoutData,
+          visualizationType,
+          encoding,
+        );
+      }
+    },
+    [addCSV, createDataFrameFromCSV, createVisualization],
+  );
+
   // CSV Upload Handler
   const handleFileUpload = useCallback(
     (file: File) => {
@@ -75,49 +188,11 @@ export function DataSourcesPanel() {
             return;
           }
 
-          // Generate UUID for data source
-          const dataSourceId = crypto.randomUUID();
-
-          // Create DataFrame first (with dataSourceId reference)
-          const dataFrameId = createDataFrameFromCSV(
-            dataSourceId,
-            `${file.name} Data`,
-            dataFrame,
-          );
-
-          // Create CSV data source (with dataFrameId reference)
-          addCSV(
-            file.name.replace(/\.csv$/i, ""),
-            file.name,
-            file.size,
-            dataFrameId,
-          );
-
-          // Create default Vega-Lite spec
-          const defaultSpec = buildVegaLiteSpec(dataFrame, {
-            x: dataFrame.columns[0]?.name ?? null,
-            y:
-              dataFrame.columns.find((col) => col.type === "number")?.name ??
-              dataFrame.columns[1]?.name ??
-              null,
-          });
-
-          if (defaultSpec) {
-            // Remove data field from spec (will be added during render)
-            const { data, ...specWithoutData } = defaultSpec;
-
-            createVisualization(
-              {
-                dataFrameId,
-              },
-              `${file.name} Chart`,
-              specWithoutData,
-            );
-          }
+          processCSVData(dataFrame, file.name, file.size);
         },
       });
     },
-    [addCSV, createDataFrameFromCSV, createVisualization],
+    [processCSVData],
   );
 
   // Notion Connection Handler
@@ -193,6 +268,51 @@ export function DataSourcesPanel() {
     );
   }, []);
 
+  // Process Notion data and create visualization
+  const processNotionData = useCallback(
+    (
+      dataFrame: DataFrame,
+      notionSourceId: string,
+      insightId: string,
+    ) => {
+      // Create DataFrame from insight
+      const dataFrameId = createDataFrameFromInsight(
+        notionSourceId,
+        insightId,
+        "Notion Data",
+        dataFrame,
+      );
+
+      // Create default Vega-Lite spec
+      const defaultSpec = buildVegaLiteSpec(dataFrame, {
+        x: dataFrame.columns[0]?.name ?? null,
+        y:
+          dataFrame.columns.find((col) => col.type === "number")?.name ??
+          dataFrame.columns[1]?.name ??
+          null,
+      });
+
+      if (defaultSpec) {
+        const { visualizationType, encoding } =
+          extractVisualizationMetadata(defaultSpec);
+        const { data, ...specWithoutData } = defaultSpec;
+
+        createVisualization(
+          {
+            dataFrameId,
+            dataSourceId: notionSourceId,
+            insightId,
+          },
+          "Notion Chart",
+          specWithoutData,
+          visualizationType,
+          encoding,
+        );
+      }
+    },
+    [createDataFrameFromInsight, createVisualization],
+  );
+
   // Import from Notion Handler
   const handleImportNotion = useCallback(async () => {
     if (
@@ -234,36 +354,7 @@ export function DataSourcesPanel() {
         return;
       }
 
-      // Create DataFrame from insight
-      const dataFrameId = createDataFrameFromInsight(
-        notionSource.id,
-        insightId,
-        "Notion Data",
-        dataFrame,
-      );
-
-      // Create default Vega-Lite spec
-      const defaultSpec = buildVegaLiteSpec(dataFrame, {
-        x: dataFrame.columns[0]?.name ?? null,
-        y:
-          dataFrame.columns.find((col) => col.type === "number")?.name ??
-          dataFrame.columns[1]?.name ??
-          null,
-      });
-
-      if (defaultSpec) {
-        const { data, ...specWithoutData } = defaultSpec;
-
-        createVisualization(
-          {
-            dataFrameId,
-            dataSourceId: notionSource.id,
-            insightId,
-          },
-          "Notion Chart",
-          specWithoutData,
-        );
-      }
+      processNotionData(dataFrame, notionSource.id, insightId);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to import from Notion",
@@ -278,184 +369,171 @@ export function DataSourcesPanel() {
     getNotion,
     addInsight,
     queryDatabaseMutation,
-    createDataFrameFromInsight,
-    createVisualization,
+    processNotionData,
   ]);
 
   return (
-    <aside className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/60 p-4 shadow-lg">
-      {/* Tab Selector */}
-      <div className="flex gap-2 rounded-md border border-slate-700 bg-slate-800/50 p-1">
-        <button
-          onClick={() => setActiveTab("csv")}
-          className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${
-            activeTab === "csv"
-              ? "bg-slate-700 text-slate-50"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          CSV File
-        </button>
-        <button
-          onClick={() => setActiveTab("notion")}
-          className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${
-            activeTab === "notion"
-              ? "bg-slate-700 text-slate-50"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          Notion DB
-        </button>
-      </div>
+    <Card className="space-y-4 shadow-lg">
+      <CardContent className="pt-6">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "csv" | "notion")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="csv">CSV File</TabsTrigger>
+            <TabsTrigger value="notion">Notion DB</TabsTrigger>
+          </TabsList>
 
-      {/* CSV Upload Section */}
-      {activeTab === "csv" && (
-        <>
-          <h2 className="text-lg font-medium text-slate-50">Upload CSV</h2>
-          <p className="text-sm text-slate-400">
-            Choose a CSV file with headers in the first row. The preview
-            automatically infers column types.
-          </p>
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border border-slate-600 bg-slate-800/70 p-6 text-center text-sm font-medium text-slate-100 shadow-md transition hover:border-slate-400 hover:bg-slate-800/90">
-            <span>Select CSV</span>
-            <span className="mt-2 text-xs font-normal text-slate-300">
-              Supports .csv files up to 5MB
-            </span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) handleFileUpload(file);
-              }}
-            />
-          </label>
-        </>
-      )}
-
-      {/* Notion Connection Section */}
-      {activeTab === "notion" && (
-        <>
-          <h2 className="text-lg font-medium text-slate-50">
-            Connect to Notion
-          </h2>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <label className="block text-sm text-slate-400">
-                API Key
-                <span className="ml-1 text-xs text-yellow-400">
-                  (stored in browser)
-                </span>
-              </label>
-              <div className="relative">
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  value={notionApiKey}
-                  onChange={(e) => setNotionApiKey(e.target.value)}
-                  placeholder="secret_..."
-                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 pr-20 text-sm"
-                />
-                <button
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
-                >
-                  {showApiKey ? "Hide" : "Show"}
-                </button>
-              </div>
-              <p className="text-xs text-slate-500">
-                Create an integration at{" "}
-                <a
-                  href="https://www.notion.so/my-integrations"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:underline"
-                >
-                  notion.so/my-integrations
-                </a>
+          {/* CSV Upload Section */}
+          <TabsContent value="csv" className="space-y-4">
+            <CardHeader className="p-0">
+              <CardTitle className="text-lg">Upload CSV</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Choose a CSV file with headers in the first row. The preview
+                automatically infers column types.
               </p>
-            </div>
+            </CardHeader>
 
-            <button
-              onClick={handleConnectNotion}
-              disabled={!notionApiKey || isLoadingDatabases}
-              className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isLoadingDatabases ? "Connecting..." : "Connect"}
-            </button>
+            <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border border-input bg-muted/50 p-6 text-center text-sm font-medium transition hover:border-primary hover:bg-muted">
+              <span className="text-foreground">Select CSV</span>
+              <span className="mt-2 text-xs font-normal text-muted-foreground">
+                Supports .csv files up to 5MB
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                }}
+              />
+            </label>
+          </TabsContent>
 
-            {/* Database Picker */}
-            {notionDatabases.length > 0 && (
+          {/* Notion Connection Section */}
+          <TabsContent value="notion" className="space-y-4">
+            <CardHeader className="p-0">
+              <CardTitle className="text-lg">Connect to Notion</CardTitle>
+            </CardHeader>
+
+            <div className="space-y-3">
               <div className="space-y-2">
-                <label className="block text-sm text-slate-400">
-                  Select Database
-                </label>
-                <select
-                  value={selectedDatabaseId || ""}
-                  onChange={(e) => handleSelectDatabase(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-                >
-                  <option value="">Choose a database...</option>
-                  {notionDatabases.map((db) => (
-                    <option key={db.id} value={db.id}>
-                      {db.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Property Selection */}
-            {isLoadingSchema && (
-              <p className="text-sm text-slate-400">Loading properties...</p>
-            )}
-            {databaseSchema.length > 0 && !isLoadingSchema && (
-              <div className="space-y-2">
-                <label className="block text-sm text-slate-400">
-                  Select Properties
-                </label>
-                <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-700 bg-slate-900 p-2">
-                  {databaseSchema.map((prop) => (
-                    <label
-                      key={prop.id}
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-800"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedPropertyIds.includes(prop.id)}
-                        onChange={() => handleToggleProperty(prop.id)}
-                        className="rounded border-slate-600"
-                      />
-                      <span className="flex-1 text-slate-200">{prop.name}</span>
-                      <span className="text-xs text-slate-500">
-                        {prop.type}
-                      </span>
-                    </label>
-                  ))}
+                <Label htmlFor="notion-api-key">
+                  API Key
+                  <span className="ml-1 text-xs text-yellow-500">
+                    (stored in browser)
+                  </span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="notion-api-key"
+                    type={showApiKey ? "text" : "password"}
+                    value={notionApiKey}
+                    onChange={(e) => setNotionApiKey(e.target.value)}
+                    placeholder="secret_..."
+                    className="pr-20"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-1 top-1/2 h-7 -translate-y-1/2 text-xs"
+                  >
+                    {showApiKey ? "Hide" : "Show"}
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Create an integration at{" "}
+                  <a
+                    href="https://www.notion.so/my-integrations"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    notion.so/my-integrations
+                  </a>
+                </p>
               </div>
-            )}
 
-            {/* Import Button */}
-            {selectedDatabaseId && selectedPropertyIds.length > 0 && (
-              <button
-                onClick={handleImportNotion}
-                disabled={isImporting}
-                className="w-full rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50"
+              <Button
+                onClick={handleConnectNotion}
+                disabled={!notionApiKey || isLoadingDatabases}
+                className="w-full"
               >
-                {isImporting ? "Importing..." : "Import Data"}
-              </button>
-            )}
-          </div>
-        </>
-      )}
+                {isLoadingDatabases ? "Connecting..." : "Connect"}
+              </Button>
 
-      {/* Error Display */}
-      {error && (
-        <pre className="overflow-auto rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-200">
-          {error}
-        </pre>
-      )}
-    </aside>
+              {/* Database Picker */}
+              {notionDatabases.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="notion-database">Select Database</Label>
+                  <Select
+                    value={selectedDatabaseId || ""}
+                    onValueChange={handleSelectDatabase}
+                  >
+                    <SelectTrigger id="notion-database">
+                      <SelectValue placeholder="Choose a database..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {notionDatabases.map((db) => (
+                        <SelectItem key={db.id} value={db.id}>
+                          {db.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Property Selection */}
+              {isLoadingSchema && (
+                <p className="text-sm text-muted-foreground">Loading properties...</p>
+              )}
+              {databaseSchema.length > 0 && !isLoadingSchema && (
+                <div className="space-y-2">
+                  <Label>Select Properties</Label>
+                  <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border bg-card p-2">
+                    {databaseSchema.map((prop) => (
+                      <label
+                        key={prop.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={selectedPropertyIds.includes(prop.id)}
+                          onCheckedChange={() => handleToggleProperty(prop.id)}
+                        />
+                        <span className="flex-1 text-foreground">{prop.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {prop.type}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Import Button */}
+              {selectedDatabaseId && selectedPropertyIds.length > 0 && (
+                <Button
+                  onClick={handleImportNotion}
+                  disabled={isImporting}
+                  variant="default"
+                  className="w-full"
+                >
+                  {isImporting ? "Importing..." : "Import Data"}
+                </Button>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {/* Error Display */}
+        {error && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertDescription>
+              <pre className="overflow-auto text-xs">{error}</pre>
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   );
 }

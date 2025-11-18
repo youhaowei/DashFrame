@@ -29,7 +29,7 @@ export function Select({
   return (
     <div className={className}>
       {label && (
-        <Label className="mb-2 block text-sm font-medium text-gray-700">
+        <Label className="mb-2 block text-sm font-medium text-foreground">
           {label}
         </Label>
       )}

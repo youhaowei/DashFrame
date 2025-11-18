@@ -3,6 +3,7 @@
 import { useLayoutEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisualizationsStore, useDataFramesStore } from "@/lib/stores";
+import { Card, CardContent } from "@/components/ui/card";
 import type { TopLevelSpec } from "vega-lite";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
@@ -47,64 +48,68 @@ export function VisualizationPanel() {
 
   if (!hydratedResolved) {
     return (
-      <section className="flex min-h-[480px] flex-col gap-4 overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium text-slate-50">Chart Preview</h2>
-        </div>
-        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-slate-700 text-sm text-slate-500">
-          Upload a CSV or connect to Notion to create a visualization.
-        </div>
-      </section>
+      <Card className="flex min-h-[480px] flex-col gap-4 overflow-hidden shadow-lg">
+        <CardContent className="flex flex-col gap-4 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-medium">Chart Preview</h2>
+          </div>
+          <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+            Upload a CSV or connect to Notion to create a visualization.
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
   const { viz, dataFrame } = hydratedResolved;
 
   return (
-    <section className="flex min-h-[480px] flex-col gap-4 overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4 shadow-lg">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-medium text-slate-50">{viz.name}</h2>
-          <p className="text-xs text-slate-400">
-            {dataFrame.metadata.name} • Updated{" "}
-            {new Intl.DateTimeFormat("en-US", {
-              dateStyle: "medium",
-              timeStyle: "short",
-              timeZone: "UTC",
-            }).format(dataFrame.metadata.timestamp)}
-          </p>
+    <Card className="flex min-h-[480px] flex-col gap-4 overflow-hidden shadow-lg">
+      <CardContent className="flex flex-col gap-4 p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-medium">{viz.name}</h2>
+            <p className="text-xs text-muted-foreground">
+              {dataFrame.metadata.name} • Updated{" "}
+              {new Intl.DateTimeFormat("en-US", {
+                dateStyle: "medium",
+                timeStyle: "short",
+                timeZone: "UTC",
+              }).format(dataFrame.metadata.timestamp)}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Rows: {dataFrame.data.rows.length.toLocaleString()}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-400">
-            Rows: {dataFrame.data.rows.length.toLocaleString()}
-          </span>
-        </div>
-      </div>
 
-      {/* Chart */}
-      {fullSpec && <VegaChart spec={fullSpec} />}
+        {/* Chart */}
+        {fullSpec && <VegaChart spec={fullSpec} />}
 
-      {/* DataFrame Info */}
-      <div className="space-y-2 text-xs text-slate-400">
-        <div>
-          <span className="font-semibold text-slate-200">Columns:</span>{" "}
-          {dataFrame.data.columns.length}
+        {/* DataFrame Info */}
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <div>
+            <span className="font-semibold text-foreground">Columns:</span>{" "}
+            {dataFrame.data.columns.length}
+          </div>
+          <div>
+            <span className="font-semibold text-foreground">Detected types:</span>
+            <ul className="mt-1 space-y-1">
+              {dataFrame.data.columns.map((column) => (
+                <li key={column.name} className="flex items-center gap-2">
+                  <span className="rounded bg-muted px-2 py-1 text-[10px] uppercase text-muted-foreground">
+                    {column.type}
+                  </span>
+                  <span className="text-foreground">{column.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <div>
-          <span className="font-semibold text-slate-200">Detected types:</span>
-          <ul className="mt-1 space-y-1">
-            {dataFrame.data.columns.map((column) => (
-              <li key={column.name} className="flex items-center gap-2">
-                <span className="rounded bg-slate-800 px-2 py-1 text-[10px] uppercase text-slate-300">
-                  {column.type}
-                </span>
-                <span className="text-slate-200">{column.name}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }

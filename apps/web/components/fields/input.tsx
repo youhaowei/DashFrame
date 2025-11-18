@@ -22,7 +22,7 @@ export function Input({
 }: InputProps) {
   return (
     <div className={className}>
-      <Label className="mb-1 block text-xs font-medium text-gray-700">
+      <Label className="mb-1 block text-xs font-medium text-foreground">
         {label}
       </Label>
       <InputPrimitive

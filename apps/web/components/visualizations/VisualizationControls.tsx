@@ -6,14 +6,24 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import type { VisualizationType } from "@/lib/stores/types";
 import { Select } from "../fields";
-import { Input, Label } from "../ui";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
+import { RefreshCw, Trash2 } from "lucide-react";
 
 export function VisualizationControls() {
-  const [isMounted, setIsMounted] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const activeViz = useVisualizationsStore((state) => state.getActive());
+
+  // Wait for client-side hydration before rendering content from stores
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
   const updateVisualizationType = useVisualizationsStore(
     (state) => state.updateVisualizationType,
   );
@@ -29,16 +39,21 @@ export function VisualizationControls() {
 
   const queryNotionDatabase = trpc.notion.queryDatabase.useMutation();
 
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Prevent hydration mismatch by showing placeholder until mounted
-  if (!isMounted || !activeViz) {
+  // Don't render anything until hydrated to avoid hydration mismatch
+  if (!isHydrated) {
     return (
-      <div className="flex h-full w-full items-center justify-center p-6 text-gray-500">
-        <p className="text-center text-sm">
+      <div className="flex h-full w-full items-center justify-center p-6">
+        <p className="text-center text-sm text-muted-foreground">
+          Loading...
+        </p>
+      </div>
+    );
+  }
+
+  if (!activeViz) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-6">
+        <p className="text-center text-sm text-muted-foreground">
           No visualization selected.
           <br />
           Select or create one to see controls.
@@ -54,8 +69,8 @@ export function VisualizationControls() {
 
   if (!dataFrame) {
     return (
-      <div className="flex h-full w-full items-center justify-center p-6 text-red-500">
-        <p className="text-center text-sm">Error: DataFrame not found</p>
+      <div className="flex h-full w-full items-center justify-center p-6">
+        <p className="text-center text-sm text-destructive">Error: DataFrame not found</p>
       </div>
     );
   }
@@ -143,10 +158,10 @@ export function VisualizationControls() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
+    <div className="flex flex-col gap-6 p-6">
       {/* Section 1: Visualization Type Picker */}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-sm font-semibold">
           Visualization Type
         </h3>
         <Select
@@ -159,10 +174,12 @@ export function VisualizationControls() {
 
       {/* Section 2: Column/Encoding Config (only for chart types) */}
       {activeViz.visualizationType !== "table" && (
-        <div className="space-y-3 border-t border-gray-200 pt-6">
-          <h3 className="text-sm font-semibold text-gray-900">
-            Chart Configuration
-          </h3>
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">
+              Chart Configuration
+            </h3>
 
           {/* X Axis */}
           <Select
@@ -201,78 +218,78 @@ export function VisualizationControls() {
               placeholder="None"
             />
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {/* Section 3: Metadata */}
-      <div className="space-y-3 border-t border-gray-200 pt-6">
-        <h3 className="text-sm font-semibold text-gray-900">Metadata</h3>
+      <Separator />
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold">Metadata</h3>
 
         {/* Name */}
-        <div>
-          <Label className="mb-1 block text-xs font-medium text-gray-700">
-            Name
-          </Label>
+        <div className="space-y-2">
+          <Label htmlFor="viz-name">Name</Label>
           <Input
+            id="viz-name"
             value={activeViz.name}
             onChange={(e) => update(activeViz.id, { name: e.target.value })}
           />
         </div>
 
         {/* Source */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">
-            Data Source
-          </label>
-          <div className="text-sm text-gray-600">
+        <div className="space-y-2">
+          <Label>Data Source</Label>
+          <p className="text-sm text-muted-foreground">
             {dataSource?.name || "Unknown"}
-          </div>
+          </p>
         </div>
 
         {/* DataFrame Info */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">
-            DataFrame
-          </label>
-          <div className="text-sm text-gray-600">
+        <div className="space-y-2">
+          <Label>DataFrame</Label>
+          <p className="text-sm text-muted-foreground">
             {dataFrame.metadata.rowCount} rows ×{" "}
             {dataFrame.metadata.columnCount} columns
-          </div>
+          </p>
         </div>
 
         {/* Created At */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-700">
-            Created
-          </label>
-          <div className="text-sm text-gray-600">
+        <div className="space-y-2">
+          <Label>Created</Label>
+          <p className="text-sm text-muted-foreground">
             {new Date(activeViz.createdAt).toLocaleString()}
-          </div>
+          </p>
         </div>
       </div>
 
       {/* Section 4: Actions */}
-      <div className="space-y-3 border-t border-gray-200 pt-6">
-        <h3 className="text-sm font-semibold text-gray-900">Actions</h3>
+      <Separator />
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Actions</h3>
 
         {/* Refresh (only for Notion insights) */}
         {activeViz.source.insightId && (
-          <button
+          <Button
+            variant="outline"
+            className="w-full"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="w-full rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             {isRefreshing ? "Refreshing..." : "Refresh Data"}
-          </button>
+          </Button>
         )}
 
         {/* Delete */}
-        <button
+        <Button
+          variant="destructive"
+          className="w-full"
           onClick={handleDelete}
-          className="w-full rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
         >
+          <Trash2 className="mr-2 h-4 w-4" />
           Delete Visualization
-        </button>
+        </Button>
       </div>
     </div>
   );
