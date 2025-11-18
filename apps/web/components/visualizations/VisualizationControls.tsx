@@ -124,13 +124,11 @@ export function VisualizationControls() {
       });
 
       // Update the DataFrame with fresh data
-      updateDataFrame(activeViz.source.dataFrameId, {
-        data: newDataFrame,
-        metadata: {
-          ...newDataFrame.metadata,
-          lastRefreshed: new Date(),
-        },
-      });
+      updateFromInsight(
+        activeViz.source.dataSourceId!,
+        activeViz.source.insightId!,
+        newDataFrame
+      );
 
       toast.success("Data refreshed successfully!", { id: toastId });
     } catch (error) {
