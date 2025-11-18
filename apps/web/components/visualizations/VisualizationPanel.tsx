@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import {
-  useVisualizationsStore,
-  useDataFramesStore,
-} from "@/lib/stores";
+import { useVisualizationsStore, useDataFramesStore } from "@/lib/stores";
 import type { TopLevelSpec } from "vega-lite";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
@@ -17,14 +14,17 @@ const VegaChart = dynamic(
 export function VisualizationPanel() {
   // Track hydration to avoid SSR/CSR mismatches with persisted stores
   const [isHydrated, setIsHydrated] = useState(false);
-  useEffect(() => {
+
+  // Set hydration flag after mount - this is a legitimate pattern for SSR hydration
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsHydrated(true);
   }, []);
 
   // Select primitive values to avoid re-render loops
   const activeViz = useVisualizationsStore((s) => s.getActive());
   const activeDataFrame = useDataFramesStore((s) =>
-    activeViz ? s.get(activeViz.source.dataFrameId) : undefined
+    activeViz ? s.get(activeViz.source.dataFrameId) : undefined,
   );
 
   // Combine into resolved object
