@@ -33,6 +33,7 @@ import {
   type SelectableItem,
   type ItemAction,
 } from "@/components/shared/ItemSelector";
+import { TableView } from "@/components/visualizations/TableView";
 import { NewDataSourcePanel } from "./NewDataSourcePanel";
 import { cn } from "@/lib/utils";
 import {
@@ -728,50 +729,9 @@ interface DataPreviewTableProps {
 }
 
 function DataPreviewTable({ dataFrame }: DataPreviewTableProps) {
-  const columns = dataFrame.data.columns;
-  const rows = (dataFrame.data.rows as Record<string, unknown>[]).slice(0, 50);
-
   return (
-    <div className="flex min-h-0 flex-col gap-3">
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="sticky top-0 bg-muted text-left text-xs font-semibold text-muted-foreground">
-            <tr>
-              {columns.map((column) => (
-                <th key={column.name} className="px-4 py-2 font-semibold">
-                  {column.name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border bg-card">
-            {rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-6 text-center text-muted-foreground"
-                >
-                  No rows available.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="hover:bg-muted/40">
-                  {columns.map((column) => (
-                    <td key={column.name} className="px-4 py-2">
-                      {formatCellValue(row[column.name])}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Showing {rows.length} of {dataFrame.data.rows.length} rows •{" "}
-        {dataFrame.metadata.rowCount} total rows recorded
-      </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <TableView dataFrame={dataFrame.data} />
     </div>
   );
 }
@@ -819,21 +779,6 @@ const maskApiKey = (key: string) => {
   if (!key) return "Not set";
   if (key.length <= 6) return "•••";
   return `${key.slice(0, 6)}••••`;
-};
-
-const formatCellValue = (value: unknown) => {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "number") return value.toString();
-  if (value instanceof Date) return value.toLocaleDateString();
-  if (typeof value === "string") {
-    const maybeDate = new Date(value);
-    if (!Number.isNaN(maybeDate.getTime())) {
-      return maybeDate.toLocaleDateString();
-    }
-    return value;
-  }
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 };
 
 function resolveInsightSelection(

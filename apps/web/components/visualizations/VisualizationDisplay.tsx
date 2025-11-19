@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 import { BarChart3, Table as TableIcon } from "lucide-react";
 import type { TopLevelSpec } from "vega-lite";
@@ -8,10 +8,19 @@ import type { EnhancedDataFrame } from "@dash-frame/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
+import { Layers } from "lucide-react";
+
+// Minimum visible rows needed to enable "Show Both" mode
+const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
 const formatVizType = (type: Visualization["visualizationType"]) =>
   `${type.slice(0, 1).toUpperCase()}${type.slice(1)}`;
@@ -63,7 +72,7 @@ function buildVegaSpec(
 
   // Common spec properties
   const commonSpec = {
-    $schema: "https://vega.github.io/schema/vega-lite/v5.json" as const,
+    $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
     data: { values: dataFrame.data.rows },
     width: "container" as const,
     height: 400,
@@ -82,7 +91,7 @@ function buildVegaSpec(
     case "bar":
       return {
         ...commonSpec,
-        mark: "bar" as const,
+        mark: { type: "bar" as const, stroke: null },
         encoding: {
           x: { field: x, type: "nominal" as const },
           y: { field: y, type: "quantitative" as const },
@@ -138,7 +147,7 @@ function buildVegaSpec(
       // Fallback to bar chart
       return {
         ...commonSpec,
-        mark: "bar" as const,
+        mark: { type: "bar" as const, stroke: null },
         encoding: {
           x: { field: x, type: "nominal" as const },
           y: { field: y, type: "quantitative" as const },
@@ -149,12 +158,60 @@ function buildVegaSpec(
 
 export function VisualizationDisplay() {
   const [isMounted, setIsMounted] = useState(false);
+  const [visibleRows, setVisibleRows] = useState<number>(10);
+  const [activeTab, setActiveTab] = useState<string>("chart");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
+
   const activeId = useVisualizationsStore((state) => state.activeId);
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );
   const dataFramesMap = useDataFramesStore((state) => state.dataFrames);
+
+  // Watch container size changes to detect available space for "Show Both" mode
+  useEffect(() => {
+    if (!containerRef.current || !headerRef.current) {
+      console.log('Refs not ready:', { container: !!containerRef.current, header: !!headerRef.current });
+      return;
+    }
+
+    console.log('Setting up ResizeObserver');
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const containerHeight = entry.contentRect.height;
+        // Measure actual header height from DOM
+        const headerHeight = headerRef.current?.offsetHeight || 100;
+        const chartHeight = 400; // Chart height from Vega spec
+        const tabContentPadding = 12; // mt-3 on TabsContent
+        const chartBottomPadding = 8; // pb-2 on chart container
+        const spacing = 40; // Additional spacing for borders, table wrapper padding, etc.
+
+        const availableForTable = containerHeight - headerHeight - chartHeight - tabContentPadding - chartBottomPadding - spacing;
+        const rowHeight = 30; // Compact row height
+        const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
+
+        // Debug logging
+        console.log('Space calculation:', {
+          containerHeight,
+          headerHeight,
+          availableForTable,
+          calculatedVisibleRows,
+          canShowBoth: calculatedVisibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH
+        });
+
+        setVisibleRows(calculatedVisibleRows);
+      }
+    });
+
+    observer.observe(containerRef.current);
+    return () => {
+      console.log('Cleaning up ResizeObserver');
+      observer.disconnect();
+    };
+  }, [isMounted, activeId]);
 
   const activeResolved = useMemo(() => {
     if (!activeId) return null;
@@ -164,8 +221,6 @@ export function VisualizationDisplay() {
     if (!dataFrame) return null;
     return { viz, dataFrame };
   }, [activeId, visualizationsMap, dataFramesMap]);
-
-  const [showTableWithChart, setShowTableWithChart] = useState(true);
 
   // Build Vega spec with theme awareness (must be called before any conditional returns)
   const vegaSpec = useMemo(() => {
@@ -178,6 +233,19 @@ export function VisualizationDisplay() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Check if there's enough space to show both views
+  const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
+  const bothTooltip = canShowBoth
+    ? "Show chart and table simultaneously"
+    : `Not enough space (${visibleRows} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
+
+  // Automatically switch away from "both" tab when space becomes insufficient
+  useEffect(() => {
+    if (!canShowBoth && activeTab === "both") {
+      setActiveTab("chart");
+    }
+  }, [canShowBoth, activeTab]);
 
   // Prevent hydration mismatch - always show empty state on server
   if (!isMounted || !activeResolved) {
@@ -197,7 +265,6 @@ export function VisualizationDisplay() {
   }
 
   const { viz, dataFrame } = activeResolved;
-  const vizTypeLabel = formatVizType(viz.visualizationType);
 
   if (viz.visualizationType === "table") {
     return (
@@ -224,63 +291,86 @@ export function VisualizationDisplay() {
     );
   }
 
+  // Unified tabs view with Chart, Table, and Both options
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border/60 bg-gradient-to-r from-background/80 via-background/60 to-background/80 px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-semibold text-foreground">{viz.name}</p>
-            <p className="text-sm text-muted-foreground">
-              {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
-              {dataFrame.metadata.columnCount} columns
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs tracking-wide text-muted-foreground">
-            <span className="rounded-full border border-border/60 bg-background/70 px-3 py-1 font-semibold text-foreground">
-              {vizTypeLabel}
-            </span>
-            {viz.encoding?.color && (
-              <span className="rounded-full bg-muted px-3 py-1 text-muted-foreground">
-                Color: {viz.encoding.color}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 px-6 py-6">
-          <Card className="border border-border/60 bg-background/40 p-4 shadow-xl shadow-black/5">
-            <VegaChart spec={vegaSpec!} />
-          </Card>
-        </div>
-
-        <div className="shrink-0 border-t border-border/60 bg-background/40 px-6 py-3">
-          <div className="flex items-center justify-between">
+    <div ref={containerRef} className="flex h-full flex-col">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col min-h-0">
+        <div ref={headerRef} className="border-b border-border/60 px-4 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-foreground">Data table</p>
-              <p className="text-xs text-muted-foreground">
-                Explore the underlying rows powering this visualization.
-              </p>
+              <p className="text-xl font-semibold text-foreground">{viz.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
+                  {dataFrame.metadata.columnCount} columns
+                </p>
+                {viz.encoding?.color && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    Color: {viz.encoding.color}
+                  </span>
+                )}
+              </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowTableWithChart(!showTableWithChart)}
-            >
-              {showTableWithChart ? "Hide table" : "Show table"}
-            </Button>
+            <div className="flex items-center gap-3">
+              <TabsList className="shrink-0">
+                <TabsTrigger value="chart" className="gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Chart
+                </TabsTrigger>
+                <TabsTrigger value="table" className="gap-2">
+                  <TableIcon className="h-4 w-4" />
+                  Data Table
+                </TabsTrigger>
+                {canShowBoth ? (
+                  <TabsTrigger value="both" className="gap-2">
+                    <Layers className="h-4 w-4" />
+                    Both
+                  </TabsTrigger>
+                ) : (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <TabsTrigger value="both" className="gap-2" disabled>
+                            <Layers className="h-4 w-4" />
+                            Both
+                          </TabsTrigger>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">{bothTooltip}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </TabsList>
+            </div>
           </div>
         </div>
 
-        {showTableWithChart && (
-          <div className="flex-1 min-h-0 px-6 py-6">
-            <div className="h-full rounded-2xl border border-border/60 bg-background/60 p-4 shadow-inner shadow-black/5">
+        <TabsContent value="chart" className="flex-1 min-h-0 mt-3 px-4 data-[state=active]:flex data-[state=inactive]:hidden">
+          <div className="w-full h-full">
+            <VegaChart spec={vegaSpec!} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="table" className="flex-1 min-h-0 mt-3 px-4 data-[state=active]:flex data-[state=inactive]:hidden">
+          <div className="h-full w-full rounded-2xl border border-border/60 bg-background/60 shadow-inner shadow-black/5">
+            <TableView dataFrame={dataFrame.data} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="both" className="flex-1 min-h-0 mt-3 data-[state=active]:flex data-[state=inactive]:hidden flex-col">
+          <div className="shrink-0 px-4 pb-2">
+            <VegaChart spec={vegaSpec!} />
+          </div>
+          <div className="flex-1 min-h-0">
+            <div className="h-full rounded-2xl border border-border/60 bg-background/60 shadow-inner shadow-black/5">
               <TableView dataFrame={dataFrame.data} />
             </div>
           </div>
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

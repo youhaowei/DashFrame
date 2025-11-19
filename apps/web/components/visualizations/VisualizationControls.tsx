@@ -136,13 +136,18 @@ export function VisualizationControls() {
     .filter((col) => col.type === "number")
     .map((col) => col.name);
 
-  const visualizationTypeOptions = [
-    { label: "Table", value: "table" },
-    { label: "Bar Chart", value: "bar" },
-    { label: "Line Chart", value: "line" },
-    { label: "Scatter Plot", value: "scatter" },
-    { label: "Area Chart", value: "area" },
-  ];
+  const hasNumericColumns = numericColumns.length > 0;
+
+  // Only allow table visualization if there are no numeric columns
+  const visualizationTypeOptions = hasNumericColumns
+    ? [
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
+    : [{ label: "Table", value: "table" }];
 
   const columnOptions = columns.map((col) => ({ label: col, value: col }));
   const numericColumnOptions = numericColumns.map((col) => ({
@@ -265,6 +270,28 @@ export function VisualizationControls() {
         defaultOpen={true}
       >
         <div className="space-y-3">
+          {!hasNumericColumns && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/30">
+              <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                Charts require numeric data
+              </p>
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                Your data doesn't contain any numeric columns. Only table view is available.
+              </p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-medium text-amber-800 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-100">
+                  Show column types
+                </summary>
+                <ul className="mt-1.5 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
+                  {dataFrame.data.columns.map((col) => (
+                    <li key={col.name}>
+                      <strong>{col.name}</strong>: {col.type}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
           <Select
             label=""
             value={activeViz.visualizationType}
@@ -288,29 +315,13 @@ export function VisualizationControls() {
               options={columnOptions}
               placeholder="Select column..."
             />
-            <div>
-              <Select
-                label="Y Axis"
-                value={activeViz.encoding?.y || ""}
-                onChange={(value) => handleEncodingChange("y", value)}
-                options={numericColumnOptions}
-                placeholder={numericColumnOptions.length === 0 ? "No numeric columns found" : "Select column..."}
-              />
-              {numericColumnOptions.length === 0 && (
-                <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
-                  <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
-                    No numeric columns detected
-                  </p>
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                    Available columns: {dataFrame.data.columns.map((col, idx) => (
-                      <span key={col.name}>
-                        <strong>{col.name}</strong> ({col.type}){idx < dataFrame.data.columns.length - 1 ? ', ' : ''}
-                      </span>
-                    ))}
-                  </p>
-                </div>
-              )}
-            </div>
+            <Select
+              label="Y Axis"
+              value={activeViz.encoding?.y || ""}
+              onChange={(value) => handleEncodingChange("y", value)}
+              options={numericColumnOptions}
+              placeholder="Select column..."
+            />
             <Select
               label="Color (optional)"
               value={activeViz.encoding?.color || ""}

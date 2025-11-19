@@ -120,7 +120,7 @@ export function CreateVisualizationModal({
   const handleSelectExistingCSV = useCallback(
     (dataSourceId: string, dataFrameId: string, name: string) => {
       const emptySpec: Omit<TopLevelSpec, "data"> = {
-        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        $schema: "https://vega.github.io/schema/vega-lite/v6.json",
       };
 
       createVisualization(
@@ -203,7 +203,7 @@ export function CreateVisualizationModal({
 
         // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
         const emptySpec: Omit<TopLevelSpec, "data"> = {
-          $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+          $schema: "https://vega.github.io/schema/vega-lite/v6.json",
         };
 
         createVisualization(
@@ -378,7 +378,7 @@ export function CreateVisualizationModal({
 
       // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
       const emptySpec: Omit<TopLevelSpec, "data"> = {
-        $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+        $schema: "https://vega.github.io/schema/vega-lite/v6.json",
       };
 
       createVisualization(

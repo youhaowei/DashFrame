@@ -187,16 +187,18 @@ export function ItemSelector({
                           {item.label}
                         </span>
                       </div>
-                      {item.badge && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {item.badge}
-                        </p>
-                      )}
-                      {item.metadata && (
-                        <p className="text-xs font-medium text-foreground">
-                          {item.metadata}
-                        </p>
-                      )}
+                      <div className="mt-1 flex items-center gap-2">
+                        {item.metadata && (
+                          <span className="text-xs text-muted-foreground">
+                            {item.metadata}
+                          </span>
+                        )}
+                        {item.badge && (
+                          <span className="rounded-full bg-muted px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
