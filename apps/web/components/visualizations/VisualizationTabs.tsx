@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useEffect, useState } from "react";
-import { Sparkles, Plus } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sparkles, Plus, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ItemSelector, type SelectableItem, type ItemAction } from "@/components/shared/ItemSelector";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { cn } from "@/lib/utils";
 
 interface VisualizationTabsProps {
   onCreateClick: () => void;
@@ -34,15 +33,39 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
   const activeId = useVisualizationsStore((state) => state.activeId);
   const setActive = useVisualizationsStore((state) => state.setActive);
 
-  const vizSummaries = useMemo(() => {
+  const vizItems: SelectableItem[] = useMemo(() => {
     return visualizations.map((viz) => {
       const frame = dataFramesMap.get(viz.source.dataFrameId);
+      const isActive = viz.id === activeId;
       return {
-        ...viz,
-        rowCount: frame?.metadata.rowCount,
+        id: viz.id,
+        label: viz.name,
+        active: isActive,
+        badge: visualizationLabels[viz.visualizationType] ?? "Chart",
+        metadata: frame?.metadata.rowCount
+          ? `${frame.metadata.rowCount.toLocaleString()} rows`
+          : undefined,
       };
     });
-  }, [visualizations, dataFramesMap]);
+  }, [visualizations, dataFramesMap, activeId]);
+
+  const actions: ItemAction[] = useMemo(
+    () => [
+      {
+        label: "Manage Data",
+        variant: "outline",
+        href: "/data-sources",
+        icon: Database,
+        tooltip: "Open data sources",
+      },
+      {
+        label: "New Visualization",
+        onClick: onCreateClick,
+        icon: Plus,
+      },
+    ],
+    [onCreateClick]
+  );
 
   useEffect(() => {
     setIsHydrated(true);
@@ -80,60 +103,11 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
   }
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/70 px-4 py-4 shadow-sm sm:px-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
-            <span>Visualizations</span>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-foreground/70">
-              {visualizations.length} active
-            </span>
-          </div>
-
-          <Tabs
-            value={activeId ?? undefined}
-            onValueChange={setActive}
-            className="min-w-0"
-          >
-            <div className="overflow-x-auto">
-              <TabsList className="min-w-max bg-background/40">
-                {vizSummaries.map((viz) => (
-                  <TabsTrigger
-                    key={viz.id}
-                    value={viz.id}
-                    className="min-w-[180px] justify-between gap-2 px-3 py-1.5 text-left"
-                  >
-                    <span className="truncate">{viz.name}</span>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 text-[11px] font-semibold uppercase tracking-wide",
-                        "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {visualizationLabels[viz.visualizationType] ?? "Chart"}
-                    </span>
-                    {typeof viz.rowCount === "number" && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {viz.rowCount.toLocaleString()} rows
-                      </span>
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
-          </Tabs>
-        </div>
-
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
-          <Button variant="outline" asChild size="sm" className="w-full min-w-[150px] sm:w-auto">
-            <Link href="/data-sources">Manage Data</Link>
-          </Button>
-          <Button onClick={onCreateClick} size="sm" className="w-full min-w-[150px] sm:w-auto">
-            <Plus className="mr-2 h-4 w-4" />
-            New Visualization
-          </Button>
-        </div>
-      </div>
-    </div>
+    <ItemSelector
+      title="Visualizations"
+      items={vizItems}
+      onItemSelect={setActive}
+      actions={actions}
+    />
   );
 }

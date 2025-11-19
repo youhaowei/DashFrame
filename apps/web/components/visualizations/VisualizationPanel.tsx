@@ -100,7 +100,7 @@ export function VisualizationPanel() {
             <ul className="mt-1 space-y-1">
               {dataFrame.data.columns.map((column) => (
                 <li key={column.name} className="flex items-center gap-2">
-                  <span className="rounded bg-muted px-2 py-1 text-[10px] uppercase text-muted-foreground">
+                  <span className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground">
                     {column.type}
                   </span>
                   <span className="text-foreground">{column.name}</span>

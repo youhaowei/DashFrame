@@ -208,7 +208,7 @@ export function VisualizationDisplay() {
               <TableIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs tracking-wide text-muted-foreground">
                 Data preview
               </p>
               <p className="text-lg font-semibold text-foreground">{viz.name}</p>
@@ -229,16 +229,13 @@ export function VisualizationDisplay() {
       <div className="border-b border-border/60 bg-gradient-to-r from-background/80 via-background/60 to-background/80 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Now viewing
-            </p>
             <p className="text-xl font-semibold text-foreground">{viz.name}</p>
             <p className="text-sm text-muted-foreground">
               {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
               {dataFrame.metadata.columnCount} columns
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs tracking-wide text-muted-foreground">
             <span className="rounded-full border border-border/60 bg-background/70 px-3 py-1 font-semibold text-foreground">
               {vizTypeLabel}
             </span>

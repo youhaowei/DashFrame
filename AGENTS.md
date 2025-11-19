@@ -8,6 +8,10 @@ Guidance for automation and future contributors working in this repository.
 - Primary app sits in `apps/web` (Next.js 16 + React 19).
 - TypeScript is ubiquitous; linting flows through ESLint 9 + shared config.
 
+## Architecture
+
+See `docs/architecture.md` for complete architecture details.
+
 ## Naming Conventions
 
 - Brand-facing references and code identifiers (components, types) use `DashFrame`.
@@ -27,7 +31,7 @@ Guidance for automation and future contributors working in this repository.
 
 ## Expectations
 
-- **Spec-First Development**: Before implementing new features or significant UX changes, create a feature spec in `docs/specs/<feature-name>.md`. Document user flows, UI layouts, decision rationale, and error handling. Reference `docs/specs/create-visualization-flow.md` as an example.
+- **Spec-First Development**: Before implementing new features or significant UI/UX changes, create a feature spec in `docs/specs/<feature-name>.md`. Document user flows, UI layouts, decision rationale, and error handling. Reference `docs/specs/create-visualization-flow.md` as an example.
 - Favor incremental, targeted changes; avoid rewriting unrelated files.
 - Keep documentation synchronized—update README/docs whenever conventions shift.
 - Prefer `rg` for search, `pnpm` scripts over invoking underlying binaries directly, and stay consistent with existing formatting (Prettier config applies).

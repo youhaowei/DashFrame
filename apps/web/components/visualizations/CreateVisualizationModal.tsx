@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 
 interface CreateVisualizationModalProps {
   isOpen: boolean;
@@ -486,77 +487,28 @@ export function CreateVisualizationModal({
               <h4 className="text-sm font-medium text-muted-foreground">
                 Add New Source
               </h4>
-
-              {/* CSV Upload */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">CSV File</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Upload a CSV file with headers in the first row
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-input bg-muted/50 p-6 text-center transition hover:border-primary hover:bg-muted">
-                    <span className="text-sm font-medium">Select CSV File</span>
-                    <span className="mt-1 text-xs text-muted-foreground">
-                      Supports .csv files up to 5MB
-                    </span>
-                    <input
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setSourceType("csv-upload");
-                          handleCSVUpload(file);
-                        }
-                      }}
-                    />
-                  </label>
-                </CardContent>
-              </Card>
-
-              {/* Notion */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Notion Database</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Connect to your Notion workspace
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Label htmlFor="modal-api-key">API Key</Label>
-                  <div className="relative">
-                    <Input
-                      id="modal-api-key"
-                      type={showApiKey ? "text" : "password"}
-                      value={notionApiKey}
-                      onChange={(e) => setNotionApiKey(e.target.value)}
-                      placeholder="secret_..."
-                      className="pr-16"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 text-xs"
-                    >
-                      {showApiKey ? "Hide" : "Show"}
-                    </Button>
-                  </div>
-                  <Button
-                    onClick={() => {
-                      setSourceType("notion");
-                      handleConnectNotion();
-                    }}
-                    disabled={!notionApiKey || isLoadingDatabases}
-                    className="w-full"
-                  >
-                    {isLoadingDatabases ? "Connecting..." : "Connect"}
-                  </Button>
-                </CardContent>
-              </Card>
+              <AddConnectionPanel
+                onCsvSelect={(file) => {
+                  setSourceType("csv-upload");
+                  handleCSVUpload(file);
+                }}
+                csvDescription="Upload a CSV file with headers in the first row."
+                csvHelperText="Supports .csv files up to 5MB"
+                notion={{
+                  apiKey: notionApiKey,
+                  showApiKey,
+                  onApiKeyChange: setNotionApiKey,
+                  onToggleShowApiKey: () => setShowApiKey((prev) => !prev),
+                  onConnectNotion: () => {
+                    setSourceType("notion");
+                    handleConnectNotion();
+                  },
+                  connectButtonLabel: isLoadingDatabases
+                    ? "Connecting..."
+                    : "Connect",
+                  connectDisabled: !notionApiKey || isLoadingDatabases,
+                }}
+              />
             </div>
           )}
 

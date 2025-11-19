@@ -7,23 +7,22 @@ import {
   VisualizationDisplay,
   CreateVisualizationModal,
 } from "@/components/visualizations";
+import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { SidePanel } from "@/components/shared/SidePanel";
 
 export default function HomePage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   return (
     <>
-      <VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />
-
-      <section className="grid flex-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="min-h-0 rounded-2xl border border-border/60 bg-card/70 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
-          <VisualizationControls />
-        </aside>
-
-        <main className="min-h-0 rounded-2xl border border-border/60 bg-card/75 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+      <WorkbenchLayout
+        selector={<VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />}
+        leftPanel={<VisualizationControls />}
+      >
+        <SidePanel className="shadow-lg bg-card/75">
           <VisualizationDisplay />
-        </main>
-      </section>
+        </SidePanel>
+      </WorkbenchLayout>
 
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}

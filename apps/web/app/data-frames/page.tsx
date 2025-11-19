@@ -20,7 +20,8 @@ import {
 import { Label } from "@/components/ui/label";
 
 export default function DataFramesPage() {
-  const dataFrames = useDataFramesStore((state) => state.getAll());
+  // Inline state access so Zustand can track dependencies properly
+  const dataFrames = useDataFramesStore((state) => Array.from(state.dataFrames.values()));
   const remove = useDataFramesStore((state) => state.remove);
   const getDataSource = useDataSourcesStore((state) => state.get);
 

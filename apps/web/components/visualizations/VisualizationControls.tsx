@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { RefreshCw, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -12,11 +12,64 @@ import { Select } from "../fields";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import { SidePanel } from "@/components/shared/SidePanel";
+
+interface CollapsibleSectionProps {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  className?: string;
+  isFooter?: boolean;
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+  className,
+  isFooter = false,
+}: CollapsibleSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <Collapsible
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      className={cn(!isFooter && "border-b border-border/40", className)}
+    >
+      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform duration-200",
+            // Footer collapses upward, so flip the logic
+            isFooter ? (!isOpen && "rotate-180") : (isOpen && "rotate-180")
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-4 pb-4">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 export function VisualizationControls() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
-  const activeViz = useVisualizationsStore((state) => state.getActive());
+  // Inline state access so Zustand can track dependencies properly
+  const activeViz = useVisualizationsStore((state) => {
+    if (!state.activeId) return null;
+    return state.visualizations.get(state.activeId) ?? null;
+  });
 
   // Wait for client-side hydration before rendering content from stores
   useEffect(() => {
@@ -160,51 +213,58 @@ export function VisualizationControls() {
     }
   };
 
-  return (
-    <div className="flex h-full flex-col gap-5 overflow-y-auto p-6">
-      <div className="rounded-2xl border border-border/60 bg-background/50 p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Active visualization
-            </p>
-            <p className="text-lg font-semibold text-foreground">{activeViz.name}</p>
-            <p className="text-sm text-muted-foreground">{dataSource?.name ?? "Unlinked source"}</p>
-          </div>
-          <span className="rounded-full bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
-            {visualizationTypeOptions.find((o) => o.value === activeViz.visualizationType)?.label ??
-              activeViz.visualizationType}
-          </span>
-        </div>
+  const actionsFooter = (
+    <CollapsibleSection
+      title="Actions"
+      defaultOpen={false}
+      isFooter={true}
+    >
+      <div className="space-y-2">
+        {activeViz.source.insightId && (
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "Refreshing..." : "Refresh Data"}
+          </Button>
+        )}
+        <Button variant="destructive" className="w-full" onClick={handleDelete}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Visualization
+        </Button>
+      </div>
+    </CollapsibleSection>
+  );
 
-        <div className="mt-4 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-          <div className="rounded-xl border border-border/50 bg-background/40 px-3 py-2">
-            <p className="text-xs uppercase">Rows</p>
-            <p className="text-base font-semibold text-foreground">
-              {dataFrame.metadata.rowCount.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/50 bg-background/40 px-3 py-2">
-            <p className="text-xs uppercase">Columns</p>
-            <p className="text-base font-semibold text-foreground">
-              {dataFrame.metadata.columnCount}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border/50 bg-background/40 px-3 py-2 sm:col-span-1">
-            <p className="text-xs uppercase">Created</p>
-            <p className="text-sm text-foreground">
-              {new Date(activeViz.createdAt).toLocaleDateString()}
-            </p>
-          </div>
-        </div>
+  return (
+    <SidePanel footer={actionsFooter}>
+      {/* Name field at top */}
+      <div className="px-4 pt-4 pb-3 border-b border-border/40">
+        <Label htmlFor="viz-name" className="text-xs font-medium text-muted-foreground">
+          Name
+        </Label>
+        <Input
+          id="viz-name"
+          value={activeViz.name}
+          onChange={(e) => update(activeViz.id, { name: e.target.value })}
+          className="mt-1.5"
+        />
+        {dataSource && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Source: {dataSource.name}
+          </p>
+        )}
       </div>
 
-      <div className="rounded-2xl border border-border/60 bg-background/60 p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-foreground">Visualization type</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Choose how you want DashFrame to render this dataset.
-        </p>
-        <div className="mt-4">
+      {/* Collapsible: Visualization Type */}
+      <CollapsibleSection
+        title="Visualization Type"
+        defaultOpen={true}
+      >
+        <div className="space-y-3">
           <Select
             label=""
             value={activeViz.visualizationType}
@@ -212,17 +272,15 @@ export function VisualizationControls() {
             options={visualizationTypeOptions}
           />
         </div>
-      </div>
+      </CollapsibleSection>
 
+      {/* Collapsible: Chart Configuration */}
       {activeViz.visualizationType !== "table" && (
-        <div className="rounded-2xl border border-border/60 bg-background/60 p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Chart configuration</h3>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Encodings
-            </p>
-          </div>
-          <div className="mt-4 space-y-4">
+        <CollapsibleSection
+          title="Chart Configuration"
+          defaultOpen={true}
+        >
+          <div className="space-y-3">
             <Select
               label="X Axis"
               value={activeViz.encoding?.x || ""}
@@ -230,13 +288,29 @@ export function VisualizationControls() {
               options={columnOptions}
               placeholder="Select column..."
             />
-            <Select
-              label="Y Axis"
-              value={activeViz.encoding?.y || ""}
-              onChange={(value) => handleEncodingChange("y", value)}
-              options={numericColumnOptions}
-              placeholder="Select column..."
-            />
+            <div>
+              <Select
+                label="Y Axis"
+                value={activeViz.encoding?.y || ""}
+                onChange={(value) => handleEncodingChange("y", value)}
+                options={numericColumnOptions}
+                placeholder={numericColumnOptions.length === 0 ? "No numeric columns found" : "Select column..."}
+              />
+              {numericColumnOptions.length === 0 && (
+                <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
+                  <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                    No numeric columns detected
+                  </p>
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    Available columns: {dataFrame.data.columns.map((col, idx) => (
+                      <span key={col.name}>
+                        <strong>{col.name}</strong> ({col.type}){idx < dataFrame.data.columns.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              )}
+            </div>
             <Select
               label="Color (optional)"
               value={activeViz.encoding?.color || ""}
@@ -254,59 +328,8 @@ export function VisualizationControls() {
               />
             )}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
-
-      <div className="rounded-2xl border border-border/60 bg-background/60 p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-foreground">Metadata</h3>
-        <div className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="viz-name">Name</Label>
-            <Input
-              id="viz-name"
-              value={activeViz.name}
-              onChange={(e) => update(activeViz.id, { name: e.target.value })}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label>Data Source</Label>
-            <p className="text-sm text-muted-foreground">{dataSource?.name || "Unknown"}</p>
-          </div>
-
-          <div className="space-y-1">
-            <Label>DataFrame</Label>
-            <p className="text-sm text-muted-foreground">
-              {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
-              {dataFrame.metadata.columnCount} columns
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-auto rounded-2xl border border-border/60 bg-background/60 p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-foreground">Actions</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Keep your visualization up to date or remove it when you are done exploring.
-        </p>
-        <div className="mt-4 space-y-3">
-          {activeViz.source.insightId && (
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing ? "Refreshing..." : "Refresh Data"}
-            </Button>
-          )}
-          <Button variant="destructive" className="w-full" onClick={handleDelete}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete Visualization
-          </Button>
-        </div>
-      </div>
-    </div>
+    </SidePanel>
   );
 }

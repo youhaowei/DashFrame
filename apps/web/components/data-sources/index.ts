@@ -1,2 +1,3 @@
 // Data source components
-export { DataSourcesPanel } from "./DataSourcesPanel";
+export { NewDataSourcePanel } from "./NewDataSourcePanel";
+export { DataSourcesWorkbench } from "./DataSourcesWorkbench";
