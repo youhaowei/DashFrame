@@ -1,13 +1,12 @@
 "use client";
 
 import { type ReactNode } from "react";
-import type { NotionDatabase, NotionProperty } from "@dash-frame/notion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { SiNotion } from "react-icons/si";
+import { Notion } from "@/components/icons";
 
 interface AddConnectionPanelProps {
   error?: string | null;
@@ -56,17 +55,17 @@ export function AddConnectionPanel({
       )}
 
       <div className="space-y-4">
-        <Card className="border border-border/60 bg-card/80 shadow-sm">
+        <Card className="border-border/60 bg-card/80 border shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base font-semibold text-foreground">
+            <CardTitle className="text-foreground text-base font-semibold">
               {csvTitle}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">{csvDescription}</p>
+            <p className="text-muted-foreground text-sm">{csvDescription}</p>
           </CardHeader>
           <CardContent>
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border border-input bg-muted/50 p-6 text-center text-sm font-medium transition hover:border-primary hover:bg-muted">
+            <label className="border-input bg-muted/50 hover:border-primary hover:bg-muted flex cursor-pointer flex-col items-center justify-center rounded-md border p-6 text-center text-sm font-medium transition">
               <span className="text-foreground">Select CSV File</span>
-              <span className="mt-2 text-xs font-normal text-muted-foreground">
+              <span className="text-muted-foreground mt-2 text-xs font-normal">
                 {csvHelperText}
               </span>
               <input
@@ -79,14 +78,14 @@ export function AddConnectionPanel({
           </CardContent>
         </Card>
 
-        <Card className="border border-border/60 bg-card/80 shadow-sm">
+        <Card className="border-border/60 bg-card/80 border shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-              <SiNotion className="h-5 w-5" />
+            <CardTitle className="text-foreground flex items-center gap-2 text-base font-semibold">
+              <Notion className="h-5 w-5" />
               {notion.title ?? "Notion"}
             </CardTitle>
             {notion.description && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 {notion.description}
               </p>
             )}
@@ -94,7 +93,7 @@ export function AddConnectionPanel({
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="add-connection-api-key">API Key</Label>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-muted-foreground text-xs">
                 {notion.hint ?? "Stored locally in your browser."}
               </span>
             </div>
@@ -130,4 +129,3 @@ export function AddConnectionPanel({
     </div>
   );
 }
-

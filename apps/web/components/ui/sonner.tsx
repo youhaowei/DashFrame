@@ -1,13 +1,17 @@
-"use client"
+"use client";
 
-import { Toaster as Sonner } from "sonner"
+import { useTheme } from "next-themes";
+import { Toaster as Sonner } from "sonner";
 
-type ToasterProps = React.ComponentProps<typeof Sonner>
+type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme = "system" } = useTheme();
+
   return (
     <Sonner
-      theme="dark"
+      theme={theme as ToasterProps["theme"]}
+      position="top-center"
       className="toaster group"
       toastOptions={{
         classNames: {
@@ -18,11 +22,18 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          success:
+            "group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-green-500/50 group-[.toaster]:shadow-lg [&>[data-icon]]:text-green-500",
+          error:
+            "group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-destructive/50 group-[.toaster]:shadow-lg [&>[data-icon]]:text-destructive",
+          warning:
+            "group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-yellow-500/50 group-[.toaster]:shadow-lg [&>[data-icon]]:text-yellow-500",
+          info: "group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-blue-500/50 group-[.toaster]:shadow-lg [&>[data-icon]]:text-blue-500",
         },
       }}
       {...props}
     />
-  )
-}
+  );
+};
 
-export { Toaster }
+export { Toaster };

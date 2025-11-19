@@ -78,15 +78,15 @@ export function TableView({ dataFrame }: TableViewProps) {
   const gridTemplateColumns = `repeat(${dataFrame.columns.length}, minmax(120px, 1fr))`;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
       {/* Virtualized table with sticky header */}
       <div
         ref={tableContainerRef}
-        className="flex-1 min-h-0 overflow-auto rounded-lg border border-border"
+        className="border-border min-h-0 flex-1 overflow-auto rounded-lg border"
       >
         {/* Header - sticky */}
         <div
-          className="sticky top-0 z-10 bg-muted border-b border-border"
+          className="bg-muted border-border sticky top-0 z-10 border-b"
           style={{
             display: "grid",
             gridTemplateColumns,
@@ -106,14 +106,14 @@ export function TableView({ dataFrame }: TableViewProps) {
                 return (
                   <div
                     key={header.id}
-                    className="px-2 py-1.5 font-medium text-muted-foreground text-xs overflow-hidden"
+                    className="text-muted-foreground overflow-hidden px-2 py-1.5 text-xs font-medium"
                     title={headerString}
                   >
                     {header.isPlaceholder ? null : (
                       <div
                         className={
                           header.column.getCanSort()
-                            ? "flex cursor-pointer select-none items-center gap-2 hover:text-foreground"
+                            ? "hover:text-foreground flex cursor-pointer select-none items-center gap-2"
                             : "flex items-center"
                         }
                         onClick={header.column.getToggleSortingHandler()}
@@ -145,7 +145,7 @@ export function TableView({ dataFrame }: TableViewProps) {
             return (
               <div
                 key={row.id}
-                className="absolute border-b border-border group"
+                className="border-border group absolute border-b"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
@@ -177,10 +177,10 @@ export function TableView({ dataFrame }: TableViewProps) {
                   return (
                     <div
                       key={cell.id}
-                      className="px-2 py-1.5 text-foreground text-xs group-hover:bg-muted/50"
+                      className="text-foreground group-hover:bg-muted/50 px-2 py-1.5 text-xs"
                       title={tooltipText}
                     >
-                      <div className="flex items-center overflow-hidden min-w-0">
+                      <div className="flex min-w-0 items-center overflow-hidden">
                         <span className="truncate">{cellValue}</span>
                       </div>
                     </div>

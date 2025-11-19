@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -8,7 +8,13 @@ export interface ItemAction {
   label: string;
   onClick?: () => void;
   href?: string;
-  variant?: "default" | "outline" | "destructive" | "secondary" | "ghost" | "link";
+  variant?:
+    | "default"
+    | "outline"
+    | "destructive"
+    | "secondary"
+    | "ghost"
+    | "link";
   icon?: LucideIcon;
   size?: "default" | "sm" | "lg" | "icon";
   asChild?: boolean;
@@ -39,37 +45,40 @@ export interface ActionGroupProps {
  * />
  * ```
  */
-export function ActionGroup({ actions, className, compact = false }: ActionGroupProps) {
+export function ActionGroup({
+  actions,
+  className,
+  compact = false,
+}: ActionGroupProps) {
   if (actions.length === 0) return null;
 
   return (
-    <div className={cn("flex shrink-0 flex-wrap items-center gap-2", className)}>
+    <div
+      className={cn("flex shrink-0 flex-wrap items-center gap-2", className)}
+    >
       {actions.map((action, index) => {
         const Icon = action.icon;
         const shouldShowLabel = !compact || !Icon;
-        const buttonContent =
-          action.children ||
-          (
-            <>
-              {Icon && (
-                <Icon
-                  className={cn(
-                    "h-4 w-4",
-                    shouldShowLabel && "mr-2"
-                  )}
-                  aria-hidden
-                />
-              )}
-              {shouldShowLabel ? (
-                action.label
-              ) : (
-                <span className="sr-only">{action.label}</span>
-              )}
-            </>
-          );
+        const buttonContent = action.children || (
+          <>
+            {Icon && (
+              <Icon
+                className={cn("h-4 w-4", shouldShowLabel && "mr-2")}
+                aria-hidden
+              />
+            )}
+            {shouldShowLabel ? (
+              action.label
+            ) : (
+              <span className="sr-only">{action.label}</span>
+            )}
+          </>
+        );
         const size = action.size || (compact ? "icon" : "sm");
         const variant = action.variant ?? "default";
-        const baseClass = compact ? "h-9 w-9 min-w-0" : "h-9 min-w-[140px] px-4";
+        const baseClass = compact
+          ? "h-9 w-9 min-w-0"
+          : "h-9 min-w-[140px] px-4";
         const commonProps = {
           variant,
           size,

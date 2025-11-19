@@ -1,0 +1,483 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import {
+  Trash2,
+  Database,
+  Plus,
+  RefreshCw,
+  Loader2,
+  ChevronDown,
+} from "@/components/icons";
+import { toast } from "sonner";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { isNotionDataSource } from "@/lib/stores/types";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import { SidePanel } from "@/components/shared/SidePanel";
+import { trpc } from "@/lib/trpc/Provider";
+import type { NotionDatabase } from "@dash-frame/notion";
+
+interface CollapsibleSectionProps {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  className?: string;
+  isFooter?: boolean;
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+  className,
+  isFooter = false,
+}: CollapsibleSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <Collapsible
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      className={cn(!isFooter && "border-border/40 border-b", className)}
+    >
+      <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
+        <h3 className="text-foreground text-sm font-semibold">{title}</h3>
+        <ChevronDown
+          className={cn(
+            "text-muted-foreground h-4 w-4 transition-transform duration-200",
+            // Footer collapses upward, so flip the logic
+            isFooter ? !isOpen && "rotate-180" : isOpen && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-4 pb-4">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+interface DataSourceControlsProps {
+  dataSourceId: string | null;
+}
+
+export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [availableDatabases, setAvailableDatabases] = useState<
+    NotionDatabase[]
+  >([]);
+  const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
+  const [lastFetchTime, setLastFetchTime] = useState<number | null>(null);
+  const [isDataTablesOpen, setIsDataTablesOpen] = useState(true);
+
+  // Hydrate cached database list from localStorage
+  useEffect(() => {
+    if (!dataSourceId || !isHydrated) return;
+
+    try {
+      const cacheKey = `dash-frame:notion-databases:${dataSourceId}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { databases, timestamp } = JSON.parse(cached);
+        setAvailableDatabases(databases);
+        setLastFetchTime(timestamp);
+      }
+    } catch (error) {
+      console.error("Failed to load cached databases:", error);
+    }
+  }, [dataSourceId, isHydrated]);
+
+  // Get data source from store
+  const dataSource = useDataSourcesStore((state) =>
+    dataSourceId ? state.get(dataSourceId) : null,
+  );
+  const update = useDataSourcesStore((state) => state.update);
+  const remove = useDataSourcesStore((state) => state.remove);
+  const addDataTable = useDataSourcesStore((state) => state.addDataTable);
+
+  // tRPC mutation for fetching databases
+  const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
+
+  // Wait for client-side hydration
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // Get configured DataTables
+  const dataTables = useMemo(() => {
+    if (!dataSource || !isNotionDataSource(dataSource)) return [];
+    return Array.from(dataSource.dataTables?.values() ?? []);
+  }, [dataSource]);
+
+  // Filter unconfigured databases
+  const unconfiguredDatabases = useMemo(() => {
+    if (!dataSource || !isNotionDataSource(dataSource)) return [];
+    const configuredIds = new Set(dataTables.map((dt) => dt.table));
+    return availableDatabases.filter((db) => !configuredIds.has(db.id));
+  }, [dataSource, dataTables, availableDatabases]);
+
+  // Fetch databases with permanent caching (only refreshes on manual click)
+  const fetchDatabases = async (force = false) => {
+    if (!dataSource || !isNotionDataSource(dataSource) || !isHydrated) return;
+
+    // Use cached data unless explicitly forced to refresh
+    if (!force && lastFetchTime) {
+      return; // Already have cached data, don't refetch
+    }
+
+    setIsLoadingDatabases(true);
+
+    try {
+      const result = await listDatabasesMutation.mutateAsync({
+        apiKey: dataSource.apiKey,
+      });
+      const now = Date.now();
+      setAvailableDatabases(result);
+      setLastFetchTime(now);
+
+      // Persist to localStorage
+      try {
+        const cacheKey = `dash-frame:notion-databases:${dataSource.id}`;
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            databases: result,
+            timestamp: now,
+          }),
+        );
+      } catch (error) {
+        console.error("Failed to cache databases:", error);
+      }
+    } catch (error) {
+      console.error("Failed to fetch Notion databases:", error);
+      toast.error("Failed to load databases from Notion");
+    } finally {
+      setIsLoadingDatabases(false);
+    }
+  };
+
+  // Note: Database list is NOT auto-fetched on load.
+  // Users must manually click the refresh button to sync from Notion.
+
+  // Handler to add a database as DataTable
+  const handleAddDatabase = (database: NotionDatabase) => {
+    if (!dataSource || !isNotionDataSource(dataSource)) return;
+
+    try {
+      addDataTable(dataSource.id, database.title, database.id, [], undefined);
+      toast.success(`Added "${database.title}"`);
+    } catch (error) {
+      console.error("Failed to add database:", error);
+      toast.error("Failed to add database");
+    }
+  };
+
+  // Don't render until hydrated to avoid hydration mismatch
+  if (!isHydrated) {
+    return (
+      <div className="text-muted-foreground flex h-full w-full items-center justify-center p-6 text-sm">
+        Loading controls…
+      </div>
+    );
+  }
+
+  if (!dataSource) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-6">
+        <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center">
+          <p className="text-foreground text-base font-medium">
+            No data source selected
+          </p>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Select a data source or create a new one to configure settings.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleDelete = () => {
+    if (
+      confirm(
+        `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
+      )
+    ) {
+      remove(dataSource.id);
+      toast.success("Data source deleted");
+    }
+  };
+
+  const handleNameChange = (newName: string) => {
+    update(dataSource.id, { name: newName });
+  };
+
+  const handleApiKeyChange = (newApiKey: string) => {
+    if (isNotionDataSource(dataSource)) {
+      update(dataSource.id, { apiKey: newApiKey });
+    }
+  };
+
+  const actionsFooter = (
+    <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
+      <div className="space-y-2">
+        <Button variant="destructive" className="w-full" onClick={handleDelete}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete Data Source
+        </Button>
+      </div>
+    </CollapsibleSection>
+  );
+
+  return (
+    <SidePanel footer={actionsFooter}>
+      {/* Name field at top */}
+      <div className="border-border/40 border-b px-4 pb-3 pt-4">
+        <Label
+          htmlFor="source-name"
+          className="text-muted-foreground text-xs font-medium"
+        >
+          Name
+        </Label>
+        <Input
+          id="source-name"
+          value={dataSource.name}
+          onChange={(e) => handleNameChange(e.target.value)}
+          className="mt-1.5"
+        />
+      </div>
+
+      {/* API Key for Notion */}
+      {isNotionDataSource(dataSource) && (
+        <CollapsibleSection title="API Key" defaultOpen={false}>
+          <div>
+            <Input
+              id="api-key"
+              type="password"
+              value={dataSource.apiKey}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              className="font-mono text-xs"
+              placeholder="secret_..."
+            />
+            <p className="text-muted-foreground mt-1.5 text-xs">
+              Your Notion integration token
+            </p>
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Data Tables section for Notion */}
+      {isNotionDataSource(dataSource) && (
+        <Collapsible
+          open={isDataTablesOpen}
+          onOpenChange={setIsDataTablesOpen}
+          className="border-border/40 border-b"
+        >
+          <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
+            <h3 className="text-foreground text-sm font-semibold">
+              Data Tables
+            </h3>
+            <div className="flex items-center gap-2">
+              {lastFetchTime ? (
+                <span className="text-muted-foreground text-[10px]">
+                  synced{" "}
+                  {(() => {
+                    const diff = Date.now() - lastFetchTime;
+                    const minutes = Math.floor(diff / 1000 / 60);
+                    const hours = Math.floor(minutes / 60);
+                    if (hours > 0) return `${hours}h ago`;
+                    if (minutes > 0) return `${minutes}m ago`;
+                    return "just now";
+                  })()}
+                </span>
+              ) : (
+                <span className="text-muted-foreground/70 text-[10px] italic">
+                  not synced
+                </span>
+              )}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isLoadingDatabases) {
+                    fetchDatabases(true);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === "Enter" || e.key === " ") &&
+                    !isLoadingDatabases
+                  ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fetchDatabases(true);
+                  }
+                }}
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                  "hover:bg-accent hover:text-accent-foreground",
+                  "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2",
+                  isLoadingDatabases
+                    ? "cursor-not-allowed opacity-50"
+                    : "cursor-pointer",
+                )}
+                title="Refresh databases list from Notion"
+                aria-label="Refresh databases list from Notion"
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-3 w-3",
+                    isLoadingDatabases && "animate-spin",
+                  )}
+                />
+              </div>
+              <ChevronDown
+                className={cn(
+                  "text-muted-foreground h-4 w-4 transition-transform duration-200",
+                  isDataTablesOpen && "rotate-180",
+                )}
+              />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-3 px-4 pb-4">
+              {/* Configured Data Tables */}
+              {dataTables.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground mb-2 text-xs font-medium">
+                    Added ({dataTables.length})
+                  </p>
+                  <div className="space-y-1.5">
+                    {dataTables.map((dt) => {
+                      // Format relative time
+                      const formatRelativeTime = (timestamp: number) => {
+                        const now = Date.now();
+                        const diff = now - timestamp;
+                        const minutes = Math.floor(diff / 1000 / 60);
+                        const hours = Math.floor(minutes / 60);
+                        const days = Math.floor(hours / 24);
+                        if (days > 0) return `${days}d ago`;
+                        if (hours > 0) return `${hours}h ago`;
+                        if (minutes > 0) return `${minutes}m ago`;
+                        return "just now";
+                      };
+
+                      // Determine status text
+                      let statusText = null;
+                      if (dt.lastFetchedAt) {
+                        statusText = (
+                          <p className="text-muted-foreground mt-0.5 text-[10px]">
+                            {formatRelativeTime(dt.lastFetchedAt)}
+                          </p>
+                        );
+                      } else if (!dt.dataFrameId) {
+                        statusText = (
+                          <p className="text-muted-foreground/70 mt-0.5 text-[10px] italic">
+                            No data cached
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={dt.id}
+                          className="border-border/40 bg-background/40 flex items-center gap-2 rounded-md border p-2"
+                        >
+                          <Database className="text-muted-foreground h-3 w-3 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-foreground truncate text-xs font-medium">
+                              {dt.name}
+                            </p>
+                            {statusText}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Available Notion Databases */}
+              {isLoadingDatabases ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+                </div>
+              ) : (
+                (() => {
+                  // Extract nested ternaries into clear conditions
+                  if (unconfiguredDatabases.length > 0) {
+                    return (
+                      <div>
+                        <p className="text-muted-foreground mb-2 text-xs font-medium">
+                          Available Notion databases (
+                          {unconfiguredDatabases.length})
+                        </p>
+                        <div className="space-y-1.5">
+                          {unconfiguredDatabases.map((db) => (
+                            <div
+                              key={db.id}
+                              className="border-border/50 bg-muted/20 flex items-center gap-2 rounded-md border border-dashed p-2"
+                            >
+                              <Database className="text-muted-foreground h-3 w-3 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-foreground truncate text-xs font-medium">
+                                  {db.title}
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleAddDatabase(db)}
+                                className="h-6 px-2"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (dataTables.length > 0) {
+                    return (
+                      <p className="text-muted-foreground py-2 text-center text-xs">
+                        All Notion databases added
+                      </p>
+                    );
+                  }
+                  if (!lastFetchTime) {
+                    return (
+                      <p className="text-muted-foreground py-3 text-center text-xs">
+                        Click the refresh button to load databases
+                      </p>
+                    );
+                  }
+                  return null;
+                })()
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Files count for Local */}
+      {dataSource.type === "local" && (
+        <div className="border-border/40 border-b px-4 py-3">
+          <p className="text-muted-foreground text-xs font-medium">Files</p>
+          <p className="text-foreground mt-1 text-sm font-medium">
+            {dataSource.dataTables?.size ?? 0}{" "}
+            {(dataSource.dataTables?.size ?? 0) === 1 ? "file" : "files"}
+          </p>
+        </div>
+      )}
+    </SidePanel>
+  );
+}

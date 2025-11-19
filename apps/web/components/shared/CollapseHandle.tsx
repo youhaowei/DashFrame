@@ -1,4 +1,9 @@
-import { ChevronsLeft, ChevronsRight, ChevronsUp, ChevronsDown } from "lucide-react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronsUp,
+  ChevronsDown,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export interface CollapseHandleProps {
@@ -72,12 +77,12 @@ export function CollapseHandle({
         "flex items-center justify-center",
         config.size,
         config.rounded,
-        "border border-border/60",
+        "border-border/60 border",
         config.border,
         "bg-card text-muted-foreground",
         "shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
-        "transition-all hover:bg-muted/50 hover:text-foreground hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "hover:bg-muted/50 hover:text-foreground transition-all hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]",
+        "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2",
         className,
       )}
       aria-label={ariaLabel || `${isOpen ? "Collapse" : "Expand"} section`}

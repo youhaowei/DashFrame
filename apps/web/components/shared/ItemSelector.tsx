@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { LucideIcon } from "lucide-react";
-import { LayoutGrid, List } from "lucide-react";
+import { LayoutGrid, List } from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionGroup, type ItemAction } from "./ActionGroup";
 import { cn } from "@/lib/utils";
@@ -55,27 +55,29 @@ export function ItemSelector({
   actions,
   className,
 }: ItemSelectorProps) {
-  const [viewStyle, setViewStyle] = useState<"compact" | "expanded">("expanded");
+  const [viewStyle, setViewStyle] = useState<"compact" | "expanded">(
+    "expanded",
+  );
   const activeItem = items.find((item) => item.active);
 
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border/60 bg-card/70 px-4 py-2 shadow-sm",
+        "border-border/60 bg-card/70 rounded-2xl border px-4 py-2 shadow-sm",
         className,
       )}
     >
       <div className="flex flex-col gap-2">
         {/* Header */}
-        <div className="flex flex-col gap-3 min-w-0 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <h2 className="text-base font-semibold text-foreground">
+              <h2 className="text-foreground text-base font-semibold">
                 {title}
               </h2>
               {/* View style toggle inline */}
               {items.length > 0 && (
-                <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1.5 py-1">
+                <div className="border-border/60 bg-background/80 flex items-center gap-1 rounded-full border px-1.5 py-1">
                   <button
                     type="button"
                     onClick={() => setViewStyle("compact")}
@@ -83,7 +85,7 @@ export function ItemSelector({
                       "flex h-6 w-6 items-center justify-center rounded-full transition-colors",
                       viewStyle === "compact"
                         ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                     aria-label="Compact view"
                   >
@@ -96,7 +98,7 @@ export function ItemSelector({
                       "flex h-6 w-6 items-center justify-center rounded-full transition-colors",
                       viewStyle === "expanded"
                         ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                     aria-label="Expanded view"
                   >
@@ -106,7 +108,7 @@ export function ItemSelector({
               )}
             </div>
             {description && (
-              <p className="text-xs text-muted-foreground">{description}</p>
+              <p className="text-muted-foreground text-xs">{description}</p>
             )}
           </div>
           {actions.length > 0 && (
@@ -129,7 +131,7 @@ export function ItemSelector({
                 className="min-w-0"
               >
                 <div className="overflow-x-auto">
-                  <TabsList className="min-w-max rounded-2xl border border-border/50 bg-card/60 px-1 py-1">
+                  <TabsList className="border-border/50 bg-card/60 min-w-max rounded-2xl border px-1 py-1">
                     {items.map((item) => {
                       const Icon = item.icon;
                       return (
@@ -137,9 +139,9 @@ export function ItemSelector({
                           key={item.id}
                           value={item.id}
                           className={cn(
-                            "min-w-[180px] justify-between gap-2 rounded-xl border border-transparent px-3 py-1.5 text-left text-sm font-medium text-muted-foreground transition",
+                            "text-muted-foreground min-w-[180px] justify-between gap-2 rounded-xl border border-transparent px-3 py-1.5 text-left text-sm font-medium transition",
                             "data-[state=active]:border-primary/60 data-[state=active]:bg-primary/10 data-[state=active]:text-primary",
-                            "data-[state=active]:shadow-sm data-[state=active]:shadow-primary/20",
+                            "data-[state=active]:shadow-primary/20 data-[state=active]:shadow-sm",
                           )}
                         >
                           <span className="flex items-center gap-2 truncate">
@@ -147,12 +149,12 @@ export function ItemSelector({
                             <span className="truncate">{item.label}</span>
                           </span>
                           {item.badge && (
-                            <span className="rounded-full bg-muted px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+                            <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide">
                               {item.badge}
                             </span>
                           )}
                           {item.metadata && (
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-muted-foreground text-[11px]">
                               {item.metadata}
                             </span>
                           )}
@@ -175,26 +177,26 @@ export function ItemSelector({
                       type="button"
                       onClick={() => onItemSelect(item.id)}
                       className={cn(
-                        "min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "focus-visible:ring-ring min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2",
                         item.active
                           ? "border-primary/70 bg-primary/5"
-                          : "border-border/70 bg-card/70"
+                          : "border-border/70 bg-card/70",
                       )}
                     >
                       <div className="flex items-center gap-2">
                         {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="text-foreground text-sm font-medium">
                           {item.label}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         {item.metadata && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-muted-foreground text-xs">
                             {item.metadata}
                           </span>
                         )}
                         {item.badge && (
-                          <span className="rounded-full bg-muted px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+                          <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide">
                             {item.badge}
                           </span>
                         )}

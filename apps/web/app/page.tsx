@@ -16,10 +16,12 @@ export default function HomePage() {
   return (
     <>
       <WorkbenchLayout
-        selector={<VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />}
+        selector={
+          <VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />
+        }
         leftPanel={<VisualizationControls />}
       >
-        <SidePanel className="shadow-lg bg-card/75">
+        <SidePanel className="bg-card/75 shadow-lg">
           <VisualizationDisplay />
         </SidePanel>
       </WorkbenchLayout>

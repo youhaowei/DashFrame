@@ -2,12 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import type { EnhancedDataFrame } from "@dash-frame/dataframe";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown } from "@/components/icons";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -21,11 +20,14 @@ import { Label } from "@/components/ui/label";
 
 export default function DataFramesPage() {
   // Inline state access so Zustand can track dependencies properly
-  const dataFrames = useDataFramesStore((state) => Array.from(state.dataFrames.values()));
+  const dataFrames = useDataFramesStore((state) =>
+    Array.from(state.dataFrames.values()),
+  );
   const remove = useDataFramesStore((state) => state.remove);
-  const getDataSource = useDataSourcesStore((state) => state.get);
 
-  const [editingFrame, setEditingFrame] = useState<EnhancedDataFrame | null>(null);
+  const [editingFrame, setEditingFrame] = useState<EnhancedDataFrame | null>(
+    null,
+  );
   const [editedName, setEditedName] = useState("");
 
   const columns = useMemo<ColumnDef<EnhancedDataFrame>[]>(
@@ -36,7 +38,9 @@ export default function DataFramesPage() {
           return (
             <Button
               variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              onClick={() =>
+                column.toggleSorting(column.getIsSorted() === "asc")
+              }
             >
               Name
               <ArrowUpDown className="ml-2 h-4 w-4" />
@@ -44,19 +48,19 @@ export default function DataFramesPage() {
           );
         },
         cell: ({ row }) => (
-          <div className="font-medium">
-            {row.original.metadata.name}
-          </div>
+          <div className="font-medium">{row.original.metadata.name}</div>
         ),
       },
       {
         id: "source",
         header: "Source",
         cell: ({ row }) => {
-          const dataSource = getDataSource(row.original.metadata.source.dataSourceId);
+          // DataFrameSource now only has insightId
+          // For direct CSV loads, there's no insightId
+          const source = row.original.metadata.source;
           return (
             <span className="text-muted-foreground">
-              {dataSource?.name || "Unknown"}
+              {source.insightId ? "From Insight" : "Direct Load"}
             </span>
           );
         },
@@ -79,7 +83,9 @@ export default function DataFramesPage() {
           return (
             <Button
               variant="ghost"
-              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              onClick={() =>
+                column.toggleSorting(column.getIsSorted() === "asc")
+              }
             >
               Created
               <ArrowUpDown className="ml-2 h-4 w-4" />
@@ -93,7 +99,7 @@ export default function DataFramesPage() {
         ),
       },
     ],
-    [getDataSource]
+    [],
   );
 
   const handleEdit = (dataFrame: EnhancedDataFrame) => {
@@ -102,27 +108,31 @@ export default function DataFramesPage() {
   };
 
   const handleSaveEdit = () => {
-    // TODO: Implement update functionality in dataframes store
+    // Note: DataFrame update functionality not yet implemented in store
+    // For now, just close the dialog. In the future, this will call
+    // a store action like: updateDataFrame(editingFrame.metadata.id, { name: editedName })
     console.log("Save edit:", editedName);
     setEditingFrame(null);
   };
 
   const handleDelete = (dataFrame: EnhancedDataFrame) => {
-    if (confirm(`Delete "${dataFrame.metadata.name}"? This cannot be undone.`)) {
+    if (
+      confirm(`Delete "${dataFrame.metadata.name}"? This cannot be undone.`)
+    ) {
       remove(dataFrame.metadata.id);
     }
   };
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      <header className="rounded-2xl border border-border/60 bg-card/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
-        <h1 className="text-3xl font-bold text-foreground">Data Frames</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+      <header className="border-border/60 bg-card/80 supports-[backdrop-filter]:bg-card/60 rounded-2xl border px-6 py-6 shadow-sm backdrop-blur">
+        <h1 className="text-foreground text-3xl font-bold">Data Frames</h1>
+        <p className="text-muted-foreground mt-2 text-sm">
           View and manage processed data from your sources
         </p>
       </header>
 
-      <section className="flex flex-1 flex-col rounded-2xl border border-border/60 bg-card/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+      <section className="border-border/60 bg-card/80 supports-[backdrop-filter]:bg-card/60 flex flex-1 flex-col rounded-2xl border shadow-lg backdrop-blur">
         <div className="flex-1 p-6">
           <DataGrid
             data={dataFrames}

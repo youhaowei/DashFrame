@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useTheme } from "next-themes";
-import { BarChart3, Table as TableIcon } from "lucide-react";
+import { BarChart3, Table as TableIcon, Layers } from "@/components/icons";
 import type { TopLevelSpec } from "vega-lite";
 import type { EnhancedDataFrame } from "@dash-frame/dataframe";
 import type { Visualization } from "@/lib/stores/types";
@@ -17,13 +16,9 @@ import {
 } from "@/components/ui/tooltip";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
-import { Layers } from "lucide-react";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
-
-const formatVizType = (type: Visualization["visualizationType"]) =>
-  `${type.slice(0, 1).toUpperCase()}${type.slice(1)}`;
 
 // Helper to get CSS variable color value
 function getCSSColor(variable: string): string {
@@ -157,12 +152,11 @@ function buildVegaSpec(
 }
 
 export function VisualizationDisplay() {
-  const [isMounted, setIsMounted] = useState(false);
+  const [isMounted] = useState(() => typeof window !== "undefined");
   const [visibleRows, setVisibleRows] = useState<number>(10);
-  const [activeTab, setActiveTab] = useState<string>("chart");
+  const [activeTab, setActiveTab] = useState<string>("both");
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const { resolvedTheme } = useTheme();
 
   const activeId = useVisualizationsStore((state) => state.activeId);
   const visualizationsMap = useVisualizationsStore(
@@ -173,11 +167,14 @@ export function VisualizationDisplay() {
   // Watch container size changes to detect available space for "Show Both" mode
   useEffect(() => {
     if (!containerRef.current || !headerRef.current) {
-      console.log('Refs not ready:', { container: !!containerRef.current, header: !!headerRef.current });
+      console.log("Refs not ready:", {
+        container: !!containerRef.current,
+        header: !!headerRef.current,
+      });
       return;
     }
 
-    console.log('Setting up ResizeObserver');
+    console.log("Setting up ResizeObserver");
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -189,17 +186,23 @@ export function VisualizationDisplay() {
         const chartBottomPadding = 8; // pb-2 on chart container
         const spacing = 40; // Additional spacing for borders, table wrapper padding, etc.
 
-        const availableForTable = containerHeight - headerHeight - chartHeight - tabContentPadding - chartBottomPadding - spacing;
+        const availableForTable =
+          containerHeight -
+          headerHeight -
+          chartHeight -
+          tabContentPadding -
+          chartBottomPadding -
+          spacing;
         const rowHeight = 30; // Compact row height
         const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
 
         // Debug logging
-        console.log('Space calculation:', {
+        console.log("Space calculation:", {
           containerHeight,
           headerHeight,
           availableForTable,
           calculatedVisibleRows,
-          canShowBoth: calculatedVisibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH
+          canShowBoth: calculatedVisibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH,
         });
 
         setVisibleRows(calculatedVisibleRows);
@@ -208,10 +211,10 @@ export function VisualizationDisplay() {
 
     observer.observe(containerRef.current);
     return () => {
-      console.log('Cleaning up ResizeObserver');
+      console.log("Cleaning up ResizeObserver");
       observer.disconnect();
     };
-  }, [isMounted, activeId]);
+  }, [activeId]);
 
   const activeResolved = useMemo(() => {
     if (!activeId) return null;
@@ -228,11 +231,7 @@ export function VisualizationDisplay() {
     const { viz, dataFrame } = activeResolved;
     if (viz.visualizationType === "table") return null;
     return buildVegaSpec(viz, dataFrame);
-  }, [activeResolved, resolvedTheme]);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  }, [activeResolved]);
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
@@ -240,24 +239,40 @@ export function VisualizationDisplay() {
     ? "Show chart and table simultaneously"
     : `Not enough space (${visibleRows} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
 
-  // Automatically switch away from "both" tab when space becomes insufficient
+  // Automatically switch to "both" when space becomes available, or to "chart" when insufficient
+  // Using a ref to track changes and prevent cascading renders
+  const previousStateRef = useRef({ canShowBoth, activeTab });
   useEffect(() => {
-    if (!canShowBoth && activeTab === "both") {
-      setActiveTab("chart");
+    const prev = previousStateRef.current;
+    const canShowBothChanged = prev.canShowBoth !== canShowBoth;
+
+    // This effect synchronizes activeTab state with the canShowBoth external condition (window size)
+    // The ref pattern prevents cascading renders by only updating when canShowBoth actually changes
+    if (canShowBothChanged) {
+      if (canShowBoth && activeTab !== "both") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setActiveTab("both");
+      } else if (!canShowBoth && activeTab === "both") {
+        setActiveTab("chart");
+      }
     }
+    previousStateRef.current = { canShowBoth, activeTab };
   }, [canShowBoth, activeTab]);
 
   // Prevent hydration mismatch - always show empty state on server
   if (!isMounted || !activeResolved) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
-        <div className="w-full max-w-lg rounded-3xl border border-dashed border-border/70 bg-background/40 p-10 text-center shadow-inner shadow-black/5">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <div className="border-border/70 bg-background/40 w-full max-w-lg rounded-3xl border border-dashed p-10 text-center shadow-inner shadow-black/5">
+          <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
             <BarChart3 className="h-6 w-6" />
           </div>
-          <p className="text-lg font-semibold text-foreground">No visualization yet</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Use the controls on the left to create or select a visualization to preview.
+          <p className="text-foreground text-lg font-semibold">
+            No visualization yet
+          </p>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Use the controls on the left to create or select a visualization to
+            preview.
           </p>
         </div>
       </div>
@@ -269,21 +284,23 @@ export function VisualizationDisplay() {
   if (viz.visualizationType === "table") {
     return (
       <div className="flex h-full flex-col">
-        <div className="border-b border-border/60 bg-background/60 px-6 py-4">
+        <div className="border-border/60 bg-background/60 border-b px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-full bg-primary/10 p-2 text-primary">
+            <div className="bg-primary/10 text-primary rounded-full p-2">
               <TableIcon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-xs tracking-wide text-muted-foreground">
+              <p className="text-muted-foreground text-xs tracking-wide">
                 Data preview
               </p>
-              <p className="text-lg font-semibold text-foreground">{viz.name}</p>
+              <p className="text-foreground text-lg font-semibold">
+                {viz.name}
+              </p>
             </div>
           </div>
         </div>
-        <div className="flex-1 min-h-0 px-6 py-6">
-          <div className="h-full rounded-2xl border border-border/60 bg-background/60 p-4 shadow-inner shadow-black/5">
+        <div className="min-h-0 flex-1 px-6 py-6">
+          <div className="border-border/60 bg-background/60 h-full rounded-2xl border p-4 shadow-inner shadow-black/5">
             <TableView dataFrame={dataFrame.data} />
           </div>
         </div>
@@ -294,18 +311,24 @@ export function VisualizationDisplay() {
   // Unified tabs view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col min-h-0">
-        <div ref={headerRef} className="border-b border-border/60 px-4 py-2">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-xl font-semibold text-foreground">{viz.name}</p>
+              <p className="text-foreground text-xl font-semibold">
+                {viz.name}
+              </p>
               <div className="flex items-center gap-2">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
                   {dataFrame.metadata.columnCount} columns
                 </p>
                 {viz.encoding?.color && (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
                     Color: {viz.encoding.color}
                   </span>
                 )}
@@ -348,24 +371,33 @@ export function VisualizationDisplay() {
           </div>
         </div>
 
-        <TabsContent value="chart" className="flex-1 min-h-0 mt-3 px-4 data-[state=active]:flex data-[state=inactive]:hidden">
-          <div className="w-full h-full">
+        <TabsContent
+          value="chart"
+          className="mt-3 min-h-0 flex-1 px-4 data-[state=active]:flex data-[state=inactive]:hidden"
+        >
+          <div className="h-full w-full">
             <VegaChart spec={vegaSpec!} />
           </div>
         </TabsContent>
 
-        <TabsContent value="table" className="flex-1 min-h-0 mt-3 px-4 data-[state=active]:flex data-[state=inactive]:hidden">
-          <div className="h-full w-full rounded-2xl border border-border/60 bg-background/60 shadow-inner shadow-black/5">
+        <TabsContent
+          value="table"
+          className="mt-3 min-h-0 flex-1 px-4 data-[state=active]:flex data-[state=inactive]:hidden"
+        >
+          <div className="border-border/60 bg-background/60 h-full w-full rounded-2xl border shadow-inner shadow-black/5">
             <TableView dataFrame={dataFrame.data} />
           </div>
         </TabsContent>
 
-        <TabsContent value="both" className="flex-1 min-h-0 mt-3 data-[state=active]:flex data-[state=inactive]:hidden flex-col">
+        <TabsContent
+          value="both"
+          className="mt-3 min-h-0 flex-1 flex-col data-[state=active]:flex data-[state=inactive]:hidden"
+        >
           <div className="shrink-0 px-4 pb-2">
             <VegaChart spec={vegaSpec!} />
           </div>
-          <div className="flex-1 min-h-0">
-            <div className="h-full rounded-2xl border border-border/60 bg-background/60 shadow-inner shadow-black/5">
+          <div className="min-h-0 flex-1">
+            <div className="border-border/60 bg-background/60 h-full rounded-2xl border shadow-inner shadow-black/5">
               <TableView dataFrame={dataFrame.data} />
             </div>
           </div>

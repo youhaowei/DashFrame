@@ -36,12 +36,14 @@ export function CollapsibleSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen} className={cn("relative", className)}>
-      <CollapsibleContent>
-        {children}
-      </CollapsibleContent>
+    <Collapsible
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      className={cn("relative", className)}
+    >
+      <CollapsibleContent>{children}</CollapsibleContent>
 
-      <div className="relative flex justify-center -mt-px">
+      <div className="relative -mt-px flex justify-center">
         <CollapsibleTrigger asChild>
           <CollapseHandle
             direction="down"

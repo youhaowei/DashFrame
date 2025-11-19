@@ -9,21 +9,20 @@ import {
   useDataSourcesStore,
   useDataFramesStore,
   useVisualizationsStore,
+  useInsightsStore,
 } from "@/lib/stores";
 import { isCSVDataSource, isNotionDataSource } from "@/lib/stores/types";
 import type { TopLevelSpec } from "vega-lite";
-import { FiFileText, FiDatabase } from "react-icons/fi";
-import { SiNotion } from "react-icons/si";
+import { FileText, Database, Notion } from "@/components/icons";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,12 +75,16 @@ export function CreateVisualizationModal({
   const [error, setError] = useState<string | null>(null);
 
   // Store actions
-  const addCSV = useDataSourcesStore((s) => s.addCSV);
+  const addLocal = useDataSourcesStore((s) => s.addLocal);
+  const getLocal = useDataSourcesStore((s) => s.getLocal);
   const setNotion = useDataSourcesStore((s) => s.setNotion);
   const getNotion = useDataSourcesStore((s) => s.getNotion);
   const getAll = useDataSourcesStore((s) => s.getAll);
-  const persistedNotionConnection = useDataSourcesStore((s) => s.getNotion());
-  const addInsight = useDataSourcesStore((s) => s.addInsight);
+  const addDataTable = useDataSourcesStore((s) => s.addDataTable);
+  const updateDataTable = useDataSourcesStore((s) => s.updateDataTable);
+  const addInsight = useInsightsStore((s) => s.addInsight);
+  const setInsightDataFrame = useInsightsStore((s) => s.setInsightDataFrame);
+  const getAllInsights = useInsightsStore((s) => s.getAll);
   const createDataFrameFromCSV = useDataFramesStore((s) => s.createFromCSV);
   const createDataFrameFromInsight = useDataFramesStore(
     (s) => s.createFromInsight,
@@ -98,8 +101,9 @@ export function CreateVisualizationModal({
 
   // Hydrate Notion API key
   useEffect(() => {
-    setNotionApiKey(persistedNotionConnection?.apiKey ?? "");
-  }, [persistedNotionConnection?.apiKey]);
+    const persistedConnection = getNotion();
+    setNotionApiKey(persistedConnection?.apiKey ?? "");
+  }, [getNotion]);
 
   // Reset modal state when closed
   useEffect(() => {
@@ -164,59 +168,82 @@ export function CreateVisualizationModal({
   }, [getNotion, listDatabasesMutation]);
 
   // CSV Upload Handler
-  const handleCSVUpload = useCallback((file: File) => {
-    setError(null);
+  const handleCSVUpload = useCallback(
+    (file: File) => {
+      setError(null);
 
-    Papa.parse(file, {
-      dynamicTyping: false,
-      skipEmptyLines: true,
-      complete: (result: ParseResult<string>) => {
-        if (result.errors.length) {
-          setError(
-            result.errors.map((err: ParseError) => err.message).join("\n"),
+      Papa.parse(file, {
+        dynamicTyping: false,
+        skipEmptyLines: true,
+        complete: (result: ParseResult<string>) => {
+          if (result.errors.length) {
+            setError(
+              result.errors.map((err: ParseError) => err.message).join("\n"),
+            );
+            return;
+          }
+
+          const dataFrame = csvToDataFrame(result.data);
+
+          if (!dataFrame.columns.length) {
+            setError("CSV did not contain any columns.");
+            return;
+          }
+
+          // Get or create local data source
+          let localSource = getLocal();
+          if (!localSource) {
+            addLocal("Local Storage");
+            localSource = getLocal();
+          }
+
+          if (!localSource) {
+            setError("Failed to create local data source");
+            return;
+          }
+
+          // Create DataFrame from CSV
+          const dataFrameId = createDataFrameFromCSV(
+            localSource.id,
+            `${file.name} Data`,
+            dataFrame,
           );
-          return;
-        }
 
-        const dataFrame = csvToDataFrame(result.data);
+          // Create DataTable for this CSV file
+          const columns = dataFrame.columns.map((col) => col.name);
+          addDataTable(
+            localSource.id,
+            file.name.replace(/\.csv$/i, ""),
+            file.name,
+            columns,
+            dataFrameId,
+          );
 
-        if (!dataFrame.columns.length) {
-          setError("CSV did not contain any columns.");
-          return;
-        }
+          // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
+          const emptySpec: Omit<TopLevelSpec, "data"> = {
+            $schema: "https://vega.github.io/schema/vega-lite/v6.json",
+          };
 
-        // Create CSV visualization immediately
-        const dataSourceId = crypto.randomUUID();
+          createVisualization(
+            { dataFrameId },
+            `${file.name} - table`,
+            emptySpec,
+            "table",
+          );
 
-        const dataFrameId = createDataFrameFromCSV(
-          dataSourceId,
-          `${file.name} Data`,
-          dataFrame,
-        );
-
-        addCSV(
-          file.name.replace(/\.csv$/i, ""),
-          file.name,
-          file.size,
-          dataFrameId,
-        );
-
-        // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
-        const emptySpec: Omit<TopLevelSpec, "data"> = {
-          $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-        };
-
-        createVisualization(
-          { dataFrameId },
-          `${file.name} - table`,
-          emptySpec,
-          "table",
-        );
-
-        onClose();
-      },
-    });
-  }, [createDataFrameFromCSV, addCSV, createVisualization, onClose]);
+          onClose();
+        },
+      });
+    },
+    [
+      createDataFrameFromCSV,
+      addLocal,
+      getLocal,
+      addDataTable,
+      createVisualization,
+      onClose,
+    ],
+  );
 
   // Notion Connection Handler
   const handleConnectNotion = useCallback(async () => {
@@ -343,16 +370,30 @@ export function CreateVisualizationModal({
 
       // Determine insight ID (use existing or create new)
       let insightId: string;
+      let dataTableId: string;
+
       if (insightMode === "existing" && selectedInsightId) {
         // Reuse existing insight
         insightId = selectedInsightId;
+        // Get existing DataTable from insight (assumes first one)
+        const existingInsight = getAllInsights().find(
+          (i) => i.id === selectedInsightId,
+        );
+        dataTableId = existingInsight?.dataTableIds[0] || "";
       } else {
-        // Create new insight
-        insightId = addInsight(
+        // Create new DataTable (Notion database configuration)
+        dataTableId = addDataTable(
           notionSource.id,
-          `${selectedDatabaseId} Insight`,
+          `${selectedDatabaseId} Table`,
           selectedDatabaseId,
           selectedPropertyIds,
+        );
+
+        // Create pass-through Insight for this DataTable
+        insightId = addInsight(
+          `${selectedDatabaseId} Insight`,
+          [dataTableId],
+          "transform", // Notion uses transform (operates on cached data)
         );
       }
 
@@ -370,11 +411,19 @@ export function CreateVisualizationModal({
 
       // Create DataFrame from insight
       const dataFrameId = createDataFrameFromInsight(
-        notionSource.id,
         insightId,
         "Notion Data",
         dataFrame,
       );
+
+      // Link DataFrame to Insight
+      setInsightDataFrame(insightId, dataFrameId);
+
+      // Cache DataFrame in DataTable for future access
+      updateDataTable(notionSource.id, dataTableId, {
+        dataFrameId,
+        lastFetchedAt: Date.now(),
+      });
 
       // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
       const emptySpec: Omit<TopLevelSpec, "data"> = {
@@ -384,7 +433,6 @@ export function CreateVisualizationModal({
       createVisualization(
         {
           dataFrameId,
-          dataSourceId: notionSource.id,
           insightId,
         },
         `Notion - table`,
@@ -404,17 +452,21 @@ export function CreateVisualizationModal({
     insightMode,
     selectedInsightId,
     getNotion,
+    addDataTable,
     addInsight,
+    getAllInsights,
+    setInsightDataFrame,
     queryDatabaseMutation,
     notionApiKey,
     createDataFrameFromInsight,
     createVisualization,
+    updateDataTable,
     onClose,
   ]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Visualization</DialogTitle>
         </DialogHeader>
@@ -429,48 +481,55 @@ export function CreateVisualizationModal({
               {/* Existing Sources */}
               {existingDataSources.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-muted-foreground">
+                  <h4 className="text-muted-foreground text-sm font-medium">
                     Existing Sources
                   </h4>
                   <div className="space-y-2">
                     {existingDataSources.map((source) => {
                       if (isCSVDataSource(source)) {
-                        return (
+                        // Local source - show each DataTable
+                        return Array.from(
+                          source.dataTables?.values() ?? [],
+                        ).map((dataTable) => (
                           <Card
-                            key={source.id}
-                            className="cursor-pointer transition hover:border-primary"
+                            key={dataTable.id}
+                            className="hover:border-primary cursor-pointer transition"
                             onClick={() =>
+                              dataTable.dataFrameId &&
                               handleSelectExistingCSV(
                                 source.id,
-                                source.dataFrameId,
-                                source.name,
+                                dataTable.dataFrameId,
+                                dataTable.name,
                               )
                             }
                           >
                             <CardContent className="flex items-center gap-3 p-3">
-                              <FiFileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium">{source.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {source.fileName}
+                              <FileText className="text-muted-foreground h-5 w-5 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium">
+                                  {dataTable.name}
+                                </div>
+                                <div className="text-muted-foreground text-xs">
+                                  {dataTable.table} •{" "}
+                                  {dataTable.dimensions.length} columns
                                 </div>
                               </div>
                             </CardContent>
                           </Card>
-                        );
+                        ));
                       } else if (isNotionDataSource(source)) {
                         return (
                           <Card
                             key={source.id}
-                            className="cursor-pointer transition hover:border-primary"
+                            className="hover:border-primary cursor-pointer transition"
                             onClick={handleSelectExistingNotion}
                           >
                             <CardContent className="flex items-center gap-3 p-3">
-                              <SiNotion className="h-5 w-5 shrink-0" />
-                              <div className="flex-1 min-w-0">
+                              <Notion className="h-5 w-5 shrink-0" />
+                              <div className="min-w-0 flex-1">
                                 <div className="font-medium">{source.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {`${source.insights.size} insight${source.insights.size !== 1 ? "s" : ""}`}
+                                <div className="text-muted-foreground text-xs">
+                                  {`${source.dataTables?.size ?? 0} table${(source.dataTables?.size ?? 0) !== 1 ? "s" : ""}`}
                                 </div>
                               </div>
                             </CardContent>
@@ -484,7 +543,7 @@ export function CreateVisualizationModal({
               )}
 
               {/* Add New Source */}
-              <h4 className="text-sm font-medium text-muted-foreground">
+              <h4 className="text-muted-foreground text-sm font-medium">
                 Add New Source
               </h4>
               <AddConnectionPanel
@@ -518,10 +577,15 @@ export function CreateVisualizationModal({
               <h3 className="text-lg font-semibold">Configure Insight</h3>
 
               {/* Tab Switcher (only for existing connections) */}
-              {isFromExistingConnection && persistedNotionConnection && (
-                <Tabs value={insightMode} onValueChange={(v) => setInsightMode(v as "existing" | "new")}>
+              {isFromExistingConnection && getNotion() && (
+                <Tabs
+                  value={insightMode}
+                  onValueChange={(v) => setInsightMode(v as "existing" | "new")}
+                >
                   <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="existing">Use Existing Insight</TabsTrigger>
+                    <TabsTrigger value="existing">
+                      Use Existing Insight
+                    </TabsTrigger>
                     <TabsTrigger value="new">Create New Insight</TabsTrigger>
                   </TabsList>
 
@@ -529,35 +593,57 @@ export function CreateVisualizationModal({
                   <TabsContent value="existing" className="space-y-2">
                     <Label>Select an Insight</Label>
                     <div className="space-y-2">
-                      {Array.from(persistedNotionConnection.insights.values()).map(
-                        (insight) => (
-                          <Card
-                            key={insight.id}
-                            className={`cursor-pointer transition ${
-                              selectedInsightId === insight.id
-                                ? "border-primary"
-                                : "hover:border-primary"
-                            }`}
-                            onClick={() =>
-                              handleSelectExistingInsight(
-                                insight.id,
-                                insight.table,
-                                insight.dimensions,
-                              )
-                            }
-                          >
-                            <CardContent className="flex items-center gap-3 p-3">
-                              <FiDatabase className="h-5 w-5 shrink-0 text-muted-foreground" />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium">{insight.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {`${insight.dimensions.length} properties selected`}
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ),
-                      )}
+                      {(() => {
+                        const notionConnection = getNotion();
+                        if (!notionConnection) return null;
+                        return getAllInsights()
+                          .filter((insight) => {
+                            // Only show insights that reference DataTables from this Notion source
+                            return insight.dataTableIds.some(
+                              (dtId) =>
+                                notionConnection.dataTables?.has(dtId) ?? false,
+                            );
+                          })
+                          .map((insight) => {
+                            // Get the first DataTable to show info
+                            const dataTableId = insight.dataTableIds[0];
+                            const dataTable = dataTableId
+                              ? notionConnection.dataTables?.get(dataTableId)
+                              : null;
+
+                            return (
+                              <Card
+                                key={insight.id}
+                                className={`cursor-pointer transition ${
+                                  selectedInsightId === insight.id
+                                    ? "border-primary"
+                                    : "hover:border-primary"
+                                }`}
+                                onClick={() =>
+                                  handleSelectExistingInsight(
+                                    insight.id,
+                                    dataTable?.table || "",
+                                    dataTable?.dimensions || [],
+                                  )
+                                }
+                              >
+                                <CardContent className="flex items-center gap-3 p-3">
+                                  <Database className="text-muted-foreground h-5 w-5 shrink-0" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-medium">
+                                      {insight.name}
+                                    </div>
+                                    <div className="text-muted-foreground text-xs">
+                                      {dataTable
+                                        ? `${dataTable.dimensions.length} properties selected`
+                                        : "No table configured"}
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          });
+                      })()}
                     </div>
                     {selectedInsightId && (
                       <Button
@@ -594,25 +680,27 @@ export function CreateVisualizationModal({
 
                     {/* Property Selection */}
                     {isLoadingSchema && (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-muted-foreground text-sm">
                         Loading properties...
                       </p>
                     )}
                     {databaseSchema.length > 0 && !isLoadingSchema && (
                       <div className="space-y-2">
                         <Label>Select Properties</Label>
-                        <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                        <div className="border-border max-h-60 space-y-1 overflow-y-auto rounded-md border p-2">
                           {databaseSchema.map((prop) => (
                             <label
                               key={prop.id}
-                              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                              className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
                             >
                               <Checkbox
                                 checked={selectedPropertyIds.includes(prop.id)}
-                                onCheckedChange={() => handleToggleProperty(prop.id)}
+                                onCheckedChange={() =>
+                                  handleToggleProperty(prop.id)
+                                }
                               />
                               <span className="flex-1">{prop.name}</span>
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-muted-foreground text-xs">
                                 {prop.type}
                               </span>
                             </label>
@@ -656,25 +744,27 @@ export function CreateVisualizationModal({
 
                   {/* Property Selection */}
                   {isLoadingSchema && (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-muted-foreground text-sm">
                       Loading properties...
                     </p>
                   )}
                   {databaseSchema.length > 0 && !isLoadingSchema && (
                     <div className="space-y-2">
                       <Label>Select Properties</Label>
-                      <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                      <div className="border-border max-h-60 space-y-1 overflow-y-auto rounded-md border p-2">
                         {databaseSchema.map((prop) => (
                           <label
                             key={prop.id}
-                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                            className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
                           >
                             <Checkbox
                               checked={selectedPropertyIds.includes(prop.id)}
-                              onCheckedChange={() => handleToggleProperty(prop.id)}
+                              onCheckedChange={() =>
+                                handleToggleProperty(prop.id)
+                              }
                             />
                             <span className="flex-1">{prop.name}</span>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-muted-foreground text-xs">
                               {prop.type}
                             </span>
                           </label>

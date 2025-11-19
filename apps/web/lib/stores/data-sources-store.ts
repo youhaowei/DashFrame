@@ -6,11 +6,11 @@ import { immer } from "zustand/middleware/immer";
 import type { UUID } from "@dash-frame/dataframe";
 import type {
   DataSource,
-  CSVDataSource,
+  LocalDataSource,
   NotionDataSource,
-  Insight,
+  DataTable,
 } from "./types";
-import { isNotionDataSource } from "./types";
+import { isNotionDataSource, isLocalDataSource } from "./types";
 
 // ============================================================================
 // State Interface
@@ -21,37 +21,42 @@ interface DataSourcesState {
 }
 
 interface DataSourcesActions {
-  // CSV Data Source
-  addCSV: (
-    name: string,
-    fileName: string,
-    fileSize: number,
-    dataFrameId: UUID,
-  ) => UUID;
-  updateCSVDataFrameId: (id: UUID, dataFrameId: UUID) => void;
+  // Local Data Source (CSV uploads, local files)
+  addLocal: (name: string) => UUID;
+  getLocal: () => LocalDataSource | null;
 
   // Notion Data Source (single connection for now)
   setNotion: (name: string, apiKey: string) => UUID;
   getNotion: () => NotionDataSource | null;
   clearNotion: () => void;
 
-  // Insight Management (for Notion DataConnection)
-  addInsight: (
+  // DataTable Management (works for all source types)
+  addDataTable: (
     dataSourceId: UUID,
     name: string,
     table: string,
     dimensions: string[],
+    dataFrameId?: UUID,
   ) => UUID;
-  updateInsight: (
+  updateDataTable: (
     dataSourceId: UUID,
-    insightId: UUID,
-    updates: Partial<Omit<Insight, "id" | "createdAt">>,
+    dataTableId: UUID,
+    updates: Partial<Omit<DataTable, "id" | "createdAt" | "sourceId">>,
   ) => void;
-  removeInsight: (dataSourceId: UUID, insightId: UUID) => void;
-  getInsight: (dataSourceId: UUID, insightId: UUID) => Insight | undefined;
-  getInsightsByDataSource: (dataSourceId: UUID) => Insight[];
+  refreshDataTable: (
+    dataSourceId: UUID,
+    dataTableId: UUID,
+    dataFrameId: UUID,
+  ) => void;
+  removeDataTable: (dataSourceId: UUID, dataTableId: UUID) => void;
+  getDataTable: (
+    dataSourceId: UUID,
+    dataTableId: UUID,
+  ) => DataTable | undefined;
+  getDataTablesBySource: (dataSourceId: UUID) => DataTable[];
 
   // General
+  update: (id: UUID, updates: Partial<DataSource>) => void;
   remove: (id: UUID) => void;
   get: (id: UUID) => DataSource | undefined;
   getAll: () => DataSource[];
@@ -77,14 +82,14 @@ const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
         ...value,
         dataSources: new Map(
           value.dataSources.map((ds: DataSource) => {
-            // Also convert insights arrays back to Maps
-            if ("insights" in ds && Array.isArray(ds.insights)) {
+            // Also convert dataTables arrays back to Maps
+            if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
               return [
                 ds.id,
                 {
                   ...ds,
-                  insights: new Map(
-                    ds.insights as unknown as [UUID, Insight][],
+                  dataTables: new Map(
+                    ds.dataTables as unknown as [UUID, DataTable][],
                   ),
                 },
               ];
@@ -100,16 +105,16 @@ const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
     // Convert Maps to arrays for JSON serialization
     if (value instanceof Map) {
       return Array.from(value.entries()).map(([_id, item]) => {
-        // Also convert nested insights Maps to arrays
+        // Also convert nested dataTables Maps to arrays
         if (
           typeof item === "object" &&
           item !== null &&
-          "insights" in item &&
-          item.insights instanceof Map
+          "dataTables" in item &&
+          item.dataTables instanceof Map
         ) {
           return {
             ...item,
-            insights: Array.from(item.insights.entries()),
+            dataTables: Array.from(item.dataTables.entries()),
           };
         }
         return item;
@@ -129,36 +134,29 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
       // Initial state
       dataSources: new Map(),
 
-      // CSV Data Source actions
-      addCSV: (name, fileName, fileSize, dataFrameId) => {
+      // Local Data Source actions
+      addLocal: (name) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 
-        const csvSource: CSVDataSource = {
+        const localSource: LocalDataSource = {
           id,
-          type: "csv",
+          type: "local",
           name,
-          fileName,
-          fileSize,
-          dataFrameId,
-          uploadedAt: now,
+          dataTables: new Map(),
           createdAt: now,
         };
 
         set((state) => {
-          state.dataSources.set(id, csvSource);
+          state.dataSources.set(id, localSource);
         });
 
         return id;
       },
 
-      updateCSVDataFrameId: (id, dataFrameId) => {
-        set((state) => {
-          const source = state.dataSources.get(id);
-          if (source && source.type === "csv") {
-            source.dataFrameId = dataFrameId;
-          }
-        });
+      getLocal: () => {
+        const sources = Array.from(get().dataSources.values());
+        return sources.find(isLocalDataSource) ?? null;
       },
 
       // Notion Data Source actions
@@ -186,8 +184,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           type: "notion",
           name,
           apiKey,
-          dataFrameId: null,
-          insights: new Map(),
+          dataTables: new Map(),
           createdAt: now,
         };
 
@@ -210,79 +207,101 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
         }
       },
 
-      // Insight Management
-      addInsight: (dataSourceId, name, table, dimensions) => {
+      // DataTable Management (works for all source types)
+      addDataTable: (dataSourceId, name, table, dimensions, dataFrameId) => {
         const dataSource = get().dataSources.get(dataSourceId);
 
-        if (!dataSource || !isNotionDataSource(dataSource)) {
-          throw new Error(
-            `Data source ${dataSourceId} is not a Notion connection`,
-          );
+        if (!dataSource) {
+          throw new Error(`Data source ${dataSourceId} not found`);
         }
 
-        const insightId = crypto.randomUUID();
+        const dataTableId = crypto.randomUUID();
         const now = Date.now();
 
-        const insight: Insight = {
-          id: insightId,
+        const dataTable: DataTable = {
+          id: dataTableId,
           name,
+          sourceId: dataSourceId,
           table,
           dimensions,
+          dataFrameId,
           createdAt: now,
         };
 
         set((state) => {
           const source = state.dataSources.get(dataSourceId);
-          if (source && isNotionDataSource(source)) {
-            source.insights.set(insightId, insight);
+          if (source) {
+            source.dataTables.set(dataTableId, dataTable);
           }
         });
 
-        return insightId;
+        return dataTableId;
       },
 
-      updateInsight: (dataSourceId, insightId, updates) => {
+      updateDataTable: (dataSourceId, dataTableId, updates) => {
         set((state) => {
           const source = state.dataSources.get(dataSourceId);
-          if (source && isNotionDataSource(source)) {
-            const insight = source.insights.get(insightId);
-            if (insight) {
-              Object.assign(insight, updates);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              Object.assign(dataTable, updates);
             }
           }
         });
       },
 
-      removeInsight: (dataSourceId, insightId) => {
+      refreshDataTable: (dataSourceId, dataTableId, dataFrameId) => {
         set((state) => {
           const source = state.dataSources.get(dataSourceId);
-          if (source && isNotionDataSource(source)) {
-            source.insights.delete(insightId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.dataFrameId = dataFrameId;
+              dataTable.lastFetchedAt = Date.now();
+            }
           }
         });
       },
 
-      getInsight: (dataSourceId, insightId) => {
+      removeDataTable: (dataSourceId, dataTableId) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            source.dataTables.delete(dataTableId);
+          }
+        });
+      },
+
+      getDataTable: (dataSourceId, dataTableId) => {
         const dataSource = get().dataSources.get(dataSourceId);
 
-        if (!dataSource || !isNotionDataSource(dataSource)) {
+        if (!dataSource) {
           return undefined;
         }
 
-        return dataSource.insights.get(insightId);
+        return dataSource.dataTables.get(dataTableId);
       },
 
-      getInsightsByDataSource: (dataSourceId) => {
+      getDataTablesBySource: (dataSourceId) => {
         const dataSource = get().dataSources.get(dataSourceId);
 
-        if (!dataSource || !isNotionDataSource(dataSource)) {
+        if (!dataSource) {
           return [];
         }
 
-        return Array.from(dataSource.insights.values());
+        return Array.from(dataSource.dataTables.values());
       },
 
       // General actions
+      update: (id, updates) => {
+        set((state) => {
+          const source = state.dataSources.get(id);
+          if (source) {
+            Object.assign(source, updates);
+          }
+        });
+      },
+
       remove: (id) => {
         set((state) => {
           state.dataSources.delete(id);

@@ -265,10 +265,10 @@ Shows only database/property selection (no tabs needed).
 ## Visual Design
 
 ### Icons
-- **CSV files**: `FileText` icon from lucide-react
+- **CSV files**: `LuFileText` icon from `react-icons/lu`
 - **Notion connection**: Custom Notion SVG logo
-- **Insights**: `Database` icon from lucide-react
-- **Plus/Add**: `Plus` icon from lucide-react
+- **Insights**: `LuDatabase` icon from `react-icons/lu`
+- **Plus/Add**: `LuPlus` icon from `react-icons/lu`
 
 ### Colors
 - **Primary action**: Blue (#2563eb)

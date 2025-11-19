@@ -53,7 +53,7 @@ export function VisualizationPanel() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium">Chart Preview</h2>
           </div>
-          <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+          <div className="border-border text-muted-foreground flex flex-1 items-center justify-center rounded-md border border-dashed text-sm">
             Upload a CSV or connect to Notion to create a visualization.
           </div>
         </CardContent>
@@ -70,7 +70,7 @@ export function VisualizationPanel() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium">{viz.name}</h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {dataFrame.metadata.name} • Updated{" "}
               {new Intl.DateTimeFormat("en-US", {
                 dateStyle: "medium",
@@ -80,7 +80,7 @@ export function VisualizationPanel() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               Rows: {dataFrame.data.rows.length.toLocaleString()}
             </span>
           </div>
@@ -90,17 +90,19 @@ export function VisualizationPanel() {
         {fullSpec && <VegaChart spec={fullSpec} />}
 
         {/* DataFrame Info */}
-        <div className="space-y-2 text-xs text-muted-foreground">
+        <div className="text-muted-foreground space-y-2 text-xs">
           <div>
-            <span className="font-semibold text-foreground">Columns:</span>{" "}
+            <span className="text-foreground font-semibold">Columns:</span>{" "}
             {dataFrame.data.columns.length}
           </div>
           <div>
-            <span className="font-semibold text-foreground">Detected types:</span>
+            <span className="text-foreground font-semibold">
+              Detected types:
+            </span>
             <ul className="mt-1 space-y-1">
               {dataFrame.data.columns.map((column) => (
                 <li key={column.name} className="flex items-center gap-2">
-                  <span className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                  <span className="bg-muted text-muted-foreground rounded px-2 py-1 text-[10px]">
                     {column.type}
                   </span>
                   <span className="text-foreground">{column.name}</span>

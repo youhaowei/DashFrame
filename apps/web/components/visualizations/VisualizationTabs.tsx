@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useEffect, useState } from "react";
-import { Sparkles, Plus, Database } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Sparkles, Plus, Database } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import { ItemSelector, type SelectableItem, type ItemAction } from "@/components/shared/ItemSelector";
+import {
+  ItemSelector,
+  type SelectableItem,
+  type ItemAction,
+} from "@/components/shared/ItemSelector";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 
@@ -21,7 +25,7 @@ const visualizationLabels: Record<string, string> = {
 };
 
 export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [isHydrated] = useState(() => typeof window !== "undefined");
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );
@@ -64,30 +68,31 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
         icon: Plus,
       },
     ],
-    [onCreateClick]
+    [onCreateClick],
   );
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   if (!isHydrated) {
     return (
-      <div className="rounded-2xl border border-border/60 bg-card/70 px-6 py-5 shadow-sm">
-        <p className="text-sm text-muted-foreground">Preparing visualizations…</p>
+      <div className="border-border/60 bg-card/70 rounded-2xl border px-6 py-5 shadow-sm">
+        <p className="text-muted-foreground text-sm">
+          Preparing visualizations…
+        </p>
       </div>
     );
   }
 
   if (visualizations.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 px-6 py-8 text-center shadow-sm">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+      <div className="border-border/70 bg-card/60 rounded-2xl border border-dashed px-6 py-8 text-center shadow-sm">
+        <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
           <Sparkles className="h-5 w-5" />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">Create your first visualization</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Upload data or connect to Notion, then design charts tailored to your analysis.
+        <h2 className="text-foreground text-lg font-semibold">
+          Create your first visualization
+        </h2>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Upload data or connect to Notion, then design charts tailored to your
+          analysis.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Button variant="outline" asChild size="sm">

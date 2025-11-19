@@ -52,44 +52,34 @@ export function WorkbenchLayout({
   className,
 }: WorkbenchLayoutProps) {
   return (
-    <div className={cn("flex h-screen flex-col gap-4 overflow-hidden", className)}>
+    <div
+      className={cn("flex h-screen flex-col gap-4 overflow-hidden", className)}
+    >
       {/* Top collapsible selector */}
       <div className="shrink-0">
         <CollapsibleSection>
-          <div className="mt-4">
-            {selector}
-          </div>
+          <div className="mt-4">{selector}</div>
         </CollapsibleSection>
       </div>
 
       {/* Main content area */}
-      <div className="flex flex-1 gap-4 min-h-0">
+      <div className="flex min-h-0 flex-1 gap-4">
         {/* Left panel */}
         {leftPanel && (
-          <aside className="w-[360px] shrink-0 h-full">
-            {leftPanel}
-          </aside>
+          <aside className="h-full w-[360px] shrink-0">{leftPanel}</aside>
         )}
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 h-full">
-          {children}
-        </main>
+        <main className="h-full min-w-0 flex-1">{children}</main>
 
         {/* Right panel (optional) */}
         {rightPanel && (
-          <aside className="w-[360px] shrink-0 h-full">
-            {rightPanel}
-          </aside>
+          <aside className="h-full w-[360px] shrink-0">{rightPanel}</aside>
         )}
       </div>
 
       {/* Footer (optional) */}
-      {footer && (
-        <footer className="shrink-0">
-          {footer}
-        </footer>
-      )}
+      {footer && <footer className="shrink-0">{footer}</footer>}
     </div>
   );
 }

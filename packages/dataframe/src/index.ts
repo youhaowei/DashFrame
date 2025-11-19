@@ -17,10 +17,11 @@ export type DataFrame = {
 // eslint-disable-next-line sonarjs/redundant-type-aliases
 export type UUID = string;
 
-// DataFrame source tracking (simplified)
+// DataFrame source tracking
+// DataFrames are produced by Insights (which reference DataTables/DataSources)
 export type DataFrameSource = {
-  dataSourceId: UUID;
-  insightId?: UUID; // Present for Notion insights, undefined for CSV
+  insightId?: UUID; // The Insight that produced this DataFrame (for transforms/queries)
+  // For simple cases (direct CSV load), insightId may be undefined
 };
 
 // DataFrame metadata for tracking source and timestamp

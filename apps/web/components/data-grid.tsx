@@ -9,7 +9,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -71,7 +71,9 @@ export function DataGrid<TData>({
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       {onEdit && (
                         <>
-                          <DropdownMenuItem onClick={() => onEdit(row.original)}>
+                          <DropdownMenuItem
+                            onClick={() => onEdit(row.original)}
+                          >
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
@@ -93,7 +95,7 @@ export function DataGrid<TData>({
           ]
         : []),
     ],
-    [columns, onEdit, onDelete]
+    [columns, onEdit, onDelete],
   );
 
   const table = useReactTable({
@@ -110,9 +112,9 @@ export function DataGrid<TData>({
   // Empty state
   if (data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted bg-card p-12 text-center">
-        <p className="text-base font-medium text-foreground">{emptyMessage}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
+      <div className="border-muted bg-card flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center">
+        <p className="text-foreground text-base font-medium">{emptyMessage}</p>
+        <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (
           <Button onClick={onCreate} className="mt-4">
             Create New
@@ -136,7 +138,7 @@ export function DataGrid<TData>({
                         ? null
                         : flexRender(
                             header.column.columnDef.header,
-                            header.getContext()
+                            header.getContext(),
                           )}
                     </TableHead>
                   );
@@ -150,14 +152,20 @@ export function DataGrid<TData>({
                 <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columnsWithActions.length} className="h-24 text-center">
+                <TableCell
+                  colSpan={columnsWithActions.length}
+                  className="h-24 text-center"
+                >
                   {emptyMessage}
                 </TableCell>
               </TableRow>

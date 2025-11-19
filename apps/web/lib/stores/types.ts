@@ -2,72 +2,98 @@ import type { UUID } from "@dash-frame/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 // ============================================================================
-// Insights (generic query configuration)
+// DataTables (raw table data from sources)
 // ============================================================================
+
+// DataTable behavior varies by source type:
+// - Local (CSV): Contains loaded data → has dataFrameId
+// - Cached (Notion): Config + cached data → has dataFrameId (can refresh)
+// - Remote (PostgreSQL): Metadata only → no dataFrameId (needs Insight query to fetch)
+export interface DataTable {
+  id: UUID;
+  name: string;
+  sourceId: UUID; // Which DataSource this belongs to
+  table: string; // Notion DB ID, CSV filename, PostgreSQL table name, etc.
+  dimensions: string[]; // Selected columns/fields to include
+  dataFrameId?: UUID; // Present for local/cached, absent for remote metadata-only tables
+  lastFetchedAt?: number; // Timestamp of last data fetch (for cached sources like Notion)
+  createdAt: number;
+}
+
+// ============================================================================
+// Insights (unified abstraction for analytic questions)
+// ============================================================================
+
+// Two execution strategies:
+// - 'transform': Local/cloud processing on DataFrames (CSV, Notion cached data)
+// - 'query': Remote processing at data source (PostgreSQL, data lakes)
+export type InsightExecutionType = "transform" | "query";
 
 export interface Insight {
   id: UUID;
   name: string;
-  table: string; // Which table/database to query (e.g., Notion database ID)
-  dimensions: string[]; // Which columns/properties to select
-  // Future: filters, sorts, aggregations
+  dataTableIds: UUID[]; // Can reference multiple tables from different sources
+  executionType: InsightExecutionType;
+  config?: unknown; // TransformConfig | QueryConfig - SQL, filters, joins, aggregations
+  dataFrameId?: UUID; // Resulting DataFrame after execution
   createdAt: number;
 }
 
 // ============================================================================
-// Data Sources
+// Data Sources (Symmetric Structure - All sources have DataTables)
 // ============================================================================
 
 // Base interface for all data sources
+// All sources contain DataTables Map for consistency
 export interface BaseDataSource {
   id: UUID;
+  type: "local" | "notion" | "postgresql";
   name: string;
+  dataTables: Map<UUID, DataTable>; // All sources have DataTables (consistent)
   createdAt: number;
-  insights?: Map<UUID, Insight>; // Future: filtered views, aggregations
 }
 
-// Data Entity - has DataFrame, can be visualized directly
-export interface DataEntity extends BaseDataSource {
-  dataFrameId: UUID;
+// Local Data Source - browser storage (CSV uploads, local files)
+export interface LocalDataSource extends BaseDataSource {
+  type: "local";
+  // No credentials needed - data stored in browser
+  // Each uploaded CSV file becomes a DataTable
 }
 
-// Data Connection - requires insights to generate DataFrames
-export interface DataConnection extends BaseDataSource {
-  dataFrameId: null;
-  insights: Map<UUID, Insight>;
-}
-
-// CSV Data Source - has direct data, can optionally add insights
-export interface CSVDataSource extends DataEntity {
-  type: "csv";
-  fileName: string;
-  fileSize: number;
-  uploadedAt: number;
-}
-
-// Notion Data Source - pure connection, requires insights
-export interface NotionDataSource extends DataConnection {
+// Notion Data Source - Notion workspace connection
+export interface NotionDataSource extends BaseDataSource {
   type: "notion";
-  apiKey: string; // Connection credential
+  apiKey: string; // Integration token
+  // Each Notion database becomes a DataTable
+}
+
+// PostgreSQL Data Source - database connection (future)
+export interface PostgreSQLDataSource extends BaseDataSource {
+  type: "postgresql";
+  connectionString: string; // Connection credential
+  // Each PostgreSQL table becomes a DataTable
 }
 
 // Union type for all data sources
-export type DataSource = CSVDataSource | NotionDataSource;
+export type DataSource =
+  | LocalDataSource
+  | NotionDataSource
+  | PostgreSQLDataSource;
 
 // Type guards
-export const isCSVDataSource = (ds: DataSource): ds is CSVDataSource =>
-  ds.type === "csv";
+export const isLocalDataSource = (ds: DataSource): ds is LocalDataSource =>
+  ds.type === "local";
 
 export const isNotionDataSource = (ds: DataSource): ds is NotionDataSource =>
   ds.type === "notion";
 
-// Check if DataSource has direct data (implements DataEntity)
-export const isDataEntity = (ds: DataSource): ds is CSVDataSource =>
-  ds.dataFrameId !== null;
+export const isPostgreSQLDataSource = (
+  ds: DataSource,
+): ds is PostgreSQLDataSource => ds.type === "postgresql";
 
-// Check if DataSource is a connection (implements DataConnection)
-export const isDataConnection = (ds: DataSource): ds is NotionDataSource =>
-  ds.dataFrameId === null;
+// Legacy type guard for backward compatibility (Local sources used to be CSV sources)
+export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
+  ds.type === "local";
 
 // ============================================================================
 // Visualizations
@@ -83,10 +109,8 @@ export interface VisualizationEncoding {
 }
 
 export interface VisualizationSource {
-  dataFrameId: UUID;
-  // If from Notion insight, these are set for refresh capability
-  dataSourceId?: UUID;
-  insightId?: UUID;
+  dataFrameId: UUID; // The DataFrame being visualized
+  insightId?: UUID; // The Insight that produced it (for refresh/provenance tracking)
 }
 
 export interface Visualization {

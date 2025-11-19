@@ -18,24 +18,13 @@ interface DataFramesActions {
   createFromCSV: (dataSourceId: UUID, name: string, data: DataFrame) => UUID;
 
   // Create/update from Insight
-  createFromInsight: (
-    dataSourceId: UUID,
-    insightId: UUID,
-    name: string,
-    data: DataFrame,
-  ) => UUID;
-  updateFromInsight: (
-    dataSourceId: UUID,
-    insightId: UUID,
-    data: DataFrame,
-  ) => void;
+  createFromInsight: (insightId: UUID, name: string, data: DataFrame) => UUID;
+  updateFromInsight: (insightId: UUID, data: DataFrame) => void;
+  updateById: (id: UUID, data: DataFrame) => void;
 
   // General
   get: (id: UUID) => EnhancedDataFrame | undefined;
-  getByInsight: (
-    dataSourceId: UUID,
-    insightId: UUID,
-  ) => EnhancedDataFrame | undefined;
+  getByInsight: (insightId: UUID) => EnhancedDataFrame | undefined;
   remove: (id: UUID) => void;
   getAll: () => EnhancedDataFrame[];
   clear: () => void;
@@ -94,8 +83,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             id,
             name,
             source: {
-              dataSourceId,
-              // No insightId for CSV
+              // No insightId for direct CSV loads (data is already local)
             },
             timestamp: now,
             rowCount: data.rows.length,
@@ -112,7 +100,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
       },
 
       // Create from Insight
-      createFromInsight: (dataSourceId, insightId, name, data) => {
+      createFromInsight: (insightId, name, data) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 
@@ -121,7 +109,6 @@ export const useDataFramesStore = create<DataFramesStore>()(
             id,
             name,
             source: {
-              dataSourceId,
               insightId,
             },
             timestamp: now,
@@ -139,9 +126,9 @@ export const useDataFramesStore = create<DataFramesStore>()(
       },
 
       // Update from Insight (refresh)
-      updateFromInsight: (dataSourceId, insightId, data) => {
+      updateFromInsight: (insightId, data) => {
         // Find existing DataFrame for this insight
-        const existing = get().getByInsight(dataSourceId, insightId);
+        const existing = get().getByInsight(insightId);
 
         if (existing) {
           // Update existing DataFrame
@@ -156,13 +143,21 @@ export const useDataFramesStore = create<DataFramesStore>()(
           });
         } else {
           // Create new DataFrame if it doesn't exist
-          get().createFromInsight(
-            dataSourceId,
-            insightId,
-            "Insight Data",
-            data,
-          );
+          get().createFromInsight(insightId, "Insight Data", data);
         }
+      },
+
+      // Update by ID (refresh cached data)
+      updateById: (id, data) => {
+        set((state) => {
+          const df = state.dataFrames.get(id);
+          if (df) {
+            df.data = data;
+            df.metadata.timestamp = Date.now();
+            df.metadata.rowCount = data.rows.length;
+            df.metadata.columnCount = data.columns.length;
+          }
+        });
       },
 
       // Get DataFrame by ID
@@ -171,12 +166,10 @@ export const useDataFramesStore = create<DataFramesStore>()(
       },
 
       // Get DataFrame by Insight
-      getByInsight: (dataSourceId, insightId) => {
+      getByInsight: (insightId) => {
         const dataFrames = Array.from(get().dataFrames.values());
         return dataFrames.find(
-          (df) =>
-            df.metadata.source.dataSourceId === dataSourceId &&
-            df.metadata.source.insightId === insightId,
+          (df) => df.metadata.source.insightId === insightId,
         );
       },
 

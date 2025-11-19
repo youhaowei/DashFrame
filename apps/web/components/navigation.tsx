@@ -3,8 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
 import {
+  type LucideIcon,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -15,7 +15,7 @@ import {
   LineChart,
   Menu,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -57,7 +57,7 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-border/60 px-4 py-4">
+      <div className="border-border/60 border-b px-4 py-4">
         <div
           className={cn(
             "flex items-center gap-3",
@@ -67,11 +67,11 @@ function SidebarContent({
           <Link
             href="/"
             className={cn(
-              "flex items-center gap-3 transition-colors hover:text-primary",
+              "hover:text-primary flex items-center gap-3 transition-colors",
               isCollapsed && "justify-center",
             )}
           >
-            <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
               <LineChart className="h-5 w-5" />
             </span>
             {!isCollapsed && (
@@ -95,8 +95,10 @@ function SidebarContent({
                   variant="ghost"
                   size="icon"
                   onClick={onToggleCollapse}
-                  className="h-7 w-7 rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-background"
-                  aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  className="border-border/60 bg-background text-muted-foreground hover:bg-background h-7 w-7 rounded-full border shadow-sm transition-colors"
+                  aria-label={
+                    isCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                  }
                   title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   {isCollapsed ? (
@@ -115,7 +117,9 @@ function SidebarContent({
       <nav
         className={cn(
           "flex-1 overflow-y-auto py-4",
-          isCollapsed ? "flex flex-col items-center gap-2 px-0" : "space-y-3 px-3",
+          isCollapsed
+            ? "flex flex-col items-center gap-2 px-0"
+            : "space-y-3 px-3",
         )}
       >
         {navItems.map((item) => {
@@ -128,11 +132,12 @@ function SidebarContent({
               className={cn(
                 "group relative flex transition-all duration-200",
                 isCollapsed
-                  ? "h-10 w-10 items-center justify-center rounded-lg border border-transparent hover:bg-muted/50"
+                  ? "hover:bg-muted/50 h-10 w-10 items-center justify-center rounded-lg border border-transparent"
                   : "items-center gap-3 rounded-2xl border border-transparent px-3 py-2",
                 isActive && !isCollapsed
                   ? "bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
-                  : !isCollapsed && "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  : !isCollapsed &&
+                      "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 isActive && isCollapsed && "bg-primary/10 text-primary",
               )}
               title={isCollapsed ? item.name : undefined}
@@ -143,22 +148,25 @@ function SidebarContent({
                 <>
                   <span
                     className={cn(
-                      "rounded-lg border border-border/50 bg-background/90 p-2 text-muted-foreground transition-colors group-hover:text-foreground",
+                      "border-border/50 bg-background/90 text-muted-foreground group-hover:text-foreground rounded-lg border p-2 transition-colors",
                       isActive && "text-primary border-primary/30",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
                   </span>
                   <div className="flex flex-1 flex-col">
-                    <span className="text-sm font-medium text-foreground">
+                    <span className="text-foreground text-sm font-medium">
                       {item.name}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-muted-foreground text-xs">
                       {item.description}
                     </span>
                   </div>
                   {isActive && (
-                    <span className="absolute inset-0 rounded-2xl border border-primary/40" aria-hidden />
+                    <span
+                      className="border-primary/40 absolute inset-0 rounded-2xl border"
+                      aria-hidden
+                    />
                   )}
                 </>
               )}
@@ -169,13 +177,18 @@ function SidebarContent({
 
       {/* Support + theme */}
       {!isCollapsed && (
-        <div className="border-t border-border/60 px-4 py-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-2 font-medium text-foreground">
+        <div className="border-border/60 border-t px-4 py-4">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <div className="text-foreground flex items-center gap-2 font-medium">
               <LifeBuoy className="h-4 w-4" />
               Support
             </div>
-            <Button asChild variant="link" size="sm" className="px-0 text-primary">
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="text-primary px-0"
+            >
               <a href="mailto:hello@dashframe.dev">Email us</a>
             </Button>
           </div>
@@ -203,7 +216,7 @@ export function Navigation() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden lg:flex flex-col border-r border-border/60 bg-background/95/80 sticky top-0 h-screen overflow-y-auto transition-all duration-300 backdrop-blur supports-backdrop-filter:bg-background/80",
+          "border-border/60 bg-background/95/80 supports-backdrop-filter:bg-background/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r backdrop-blur transition-all duration-300 lg:flex",
           sidebarWidth,
         )}
       >
@@ -217,7 +230,7 @@ export function Navigation() {
       <button
         type="button"
         onClick={() => setIsHidden((prev) => !prev)}
-        className="hidden lg:flex fixed top-1/2 z-40 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border/60 bg-background text-muted-foreground shadow-sm transition-all duration-300 hover:bg-muted hover:text-foreground"
+        className="border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground fixed top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-sm transition-all duration-300 lg:flex"
         style={{
           left: handleLeft,
           height: "3rem",
@@ -238,16 +251,16 @@ export function Navigation() {
         variant="ghost"
         size="icon"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 left-4 z-40 lg:hidden rounded-full shadow-lg bg-primary hover:bg-primary/90"
+        className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
       >
         <Menu className="h-5 w-5" />
       </Button>
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-xs p-0 gap-0 border-0">
+        <DialogContent className="max-w-xs gap-0 border-0 p-0">
           <div className="flex h-screen flex-col">
-            <div className="flex items-center justify-between border-b border-border/60 p-4">
+            <div className="border-border/60 flex items-center justify-between border-b p-4">
               <span className="text-sm font-semibold">Menu</span>
               <Button
                 variant="ghost"

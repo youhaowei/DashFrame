@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, Trash2, ChevronDown } from "lucide-react";
+import { RefreshCw, Trash2, ChevronDown } from "@/components/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useInsightsStore } from "@/lib/stores/insights-store";
 import type { VisualizationType } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
 import { Select } from "../fields";
@@ -41,22 +42,20 @@ function CollapsibleSection({
     <Collapsible
       open={isOpen}
       onOpenChange={setIsOpen}
-      className={cn(!isFooter && "border-b border-border/40", className)}
+      className={cn(!isFooter && "border-border/40 border-b", className)}
     >
-      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
+        <h3 className="text-foreground text-sm font-semibold">{title}</h3>
         <ChevronDown
           className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform duration-200",
+            "text-muted-foreground h-4 w-4 transition-transform duration-200",
             // Footer collapses upward, so flip the logic
-            isFooter ? (!isOpen && "rotate-180") : (isOpen && "rotate-180")
+            isFooter ? !isOpen && "rotate-180" : isOpen && "rotate-180",
           )}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-4 pb-4">
-          {children}
-        </div>
+        <div className="px-4 pb-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -85,16 +84,17 @@ export function VisualizationControls() {
   const update = useVisualizationsStore((state) => state.update);
   const remove = useVisualizationsStore((state) => state.remove);
   const getDataFrame = useDataFramesStore((state) => state.get);
-  const updateFromInsight = useDataFramesStore((state) => state.updateFromInsight);
-  const getDataSource = useDataSourcesStore((state) => state.get);
-  const getInsight = useDataSourcesStore((state) => state.getInsight);
+  const updateFromInsight = useDataFramesStore(
+    (state) => state.updateFromInsight,
+  );
+  const getInsight = useInsightsStore((state) => state.getInsight);
 
   const queryNotionDatabase = trpc.notion.queryDatabase.useMutation();
 
   // Don't render anything until hydrated to avoid hydration mismatch
   if (!isHydrated) {
     return (
-      <div className="flex h-full w-full items-center justify-center p-6 text-sm text-muted-foreground">
+      <div className="text-muted-foreground flex h-full w-full items-center justify-center p-6 text-sm">
         Loading controls…
       </div>
     );
@@ -103,10 +103,13 @@ export function VisualizationControls() {
   if (!activeViz) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
-        <div className="w-full rounded-2xl border border-dashed border-border/70 bg-background/40 p-8 text-center">
-          <p className="text-base font-medium text-foreground">No visualization selected</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Choose an existing visualization or create a new one to configure settings.
+        <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center">
+          <p className="text-foreground text-base font-medium">
+            No visualization selected
+          </p>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Choose an existing visualization or create a new one to configure
+            settings.
           </p>
         </div>
       </div>
@@ -114,16 +117,20 @@ export function VisualizationControls() {
   }
 
   const dataFrame = getDataFrame(activeViz.source.dataFrameId);
-  const dataSource = activeViz.source.dataSourceId
-    ? getDataSource(activeViz.source.dataSourceId)
+
+  // Get data source through insight if it exists
+  const insight = activeViz.source.insightId
+    ? getInsight(activeViz.source.insightId)
     : null;
 
   if (!dataFrame) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
-        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-6 text-center">
-          <p className="text-sm font-medium text-destructive">Unable to load DataFrame</p>
-          <p className="mt-2 text-xs text-destructive/80">
+        <div className="border-destructive/40 bg-destructive/10 rounded-2xl border px-4 py-6 text-center">
+          <p className="text-destructive text-sm font-medium">
+            Unable to load DataFrame
+          </p>
+          <p className="text-destructive/80 mt-2 text-xs">
             Please refresh your data source or recreate this visualization.
           </p>
         </div>
@@ -176,54 +183,70 @@ export function VisualizationControls() {
   };
 
   const handleRefresh = async () => {
-    if (!activeViz.source.insightId || !activeViz.source.dataSourceId) return;
+    if (!activeViz.source.insightId) return;
 
     const toastId = toast.loading("Refreshing data from Notion...");
     setIsRefreshing(true);
 
     try {
-      // Get the Notion data source (has apiKey)
-      const dataSource = getDataSource(activeViz.source.dataSourceId);
-      if (!dataSource || dataSource.type !== "notion") {
+      // Get the insight
+      const insight = getInsight(activeViz.source.insightId);
+      if (!insight || insight.dataTableIds.length === 0) {
+        throw new Error("Insight not found");
+      }
+
+      // Get the first DataTable from the insight
+      const dataTableId = insight.dataTableIds[0];
+      if (!dataTableId) throw new Error("No DataTable found for insight");
+
+      // Get the DataTable to find which data source it belongs to
+      // We need to search all data sources to find the one containing this DataTable
+      const allSources = useDataSourcesStore.getState().getAll();
+      let foundDataSource = null;
+      let foundDataTable = null;
+
+      for (const source of allSources) {
+        if (source.type === "notion") {
+          const table = source.dataTables?.get(dataTableId);
+          if (table) {
+            foundDataSource = source;
+            foundDataTable = table;
+            break;
+          }
+        }
+      }
+
+      if (!foundDataSource || !foundDataTable) {
         throw new Error("Notion data source not found");
       }
 
-      // Get the insight (has databaseId and properties)
-      const insight = getInsight(activeViz.source.dataSourceId, activeViz.source.insightId);
-      if (!insight) throw new Error("Insight not found");
-
       // Fetch fresh data from Notion (returns DataFrame directly)
       const newDataFrame = await queryNotionDatabase.mutateAsync({
-        apiKey: dataSource.apiKey,              // From NotionDataSource
-        databaseId: insight.table,               // From Insight (table = databaseId)
-        selectedPropertyIds: insight.dimensions, // From Insight (dimensions = properties)
+        apiKey: foundDataSource.apiKey, // From NotionDataSource
+        databaseId: foundDataTable.table, // From DataTable
+        selectedPropertyIds: foundDataTable.dimensions, // From DataTable
       });
 
       // Update the DataFrame with fresh data
-      updateFromInsight(
-        activeViz.source.dataSourceId!,
-        activeViz.source.insightId!,
-        newDataFrame
-      );
+      updateFromInsight(activeViz.source.insightId, newDataFrame);
 
       toast.success("Data refreshed successfully!", { id: toastId });
     } catch (error) {
       console.error("Failed to refresh data:", error);
-      toast.error(`Failed to refresh: ${error instanceof Error ? error.message : "Unknown error"}`, {
-        id: toastId,
-        description: "Please check your Notion API key and try again."
-      });
+      toast.error(
+        `Failed to refresh: ${error instanceof Error ? error.message : "Unknown error"}`,
+        {
+          id: toastId,
+          description: "Please check your Notion API key and try again.",
+        },
+      );
     } finally {
       setIsRefreshing(false);
     }
   };
 
   const actionsFooter = (
-    <CollapsibleSection
-      title="Actions"
-      defaultOpen={false}
-      isFooter={true}
-    >
+    <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
       <div className="space-y-2">
         {activeViz.source.insightId && (
           <Button
@@ -232,7 +255,9 @@ export function VisualizationControls() {
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
             {isRefreshing ? "Refreshing..." : "Refresh Data"}
           </Button>
         )}
@@ -247,8 +272,11 @@ export function VisualizationControls() {
   return (
     <SidePanel footer={actionsFooter}>
       {/* Name field at top */}
-      <div className="px-4 pt-4 pb-3 border-b border-border/40">
-        <Label htmlFor="viz-name" className="text-xs font-medium text-muted-foreground">
+      <div className="border-border/40 border-b px-4 pb-3 pt-4">
+        <Label
+          htmlFor="viz-name"
+          className="text-muted-foreground text-xs font-medium"
+        >
           Name
         </Label>
         <Input
@@ -257,18 +285,15 @@ export function VisualizationControls() {
           onChange={(e) => update(activeViz.id, { name: e.target.value })}
           className="mt-1.5"
         />
-        {dataSource && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Source: {dataSource.name}
+        {insight && (
+          <p className="text-muted-foreground mt-2 text-xs">
+            Source: {insight.name}
           </p>
         )}
       </div>
 
       {/* Collapsible: Visualization Type */}
-      <CollapsibleSection
-        title="Visualization Type"
-        defaultOpen={true}
-      >
+      <CollapsibleSection title="Visualization Type" defaultOpen={true}>
         <div className="space-y-3">
           {!hasNumericColumns && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/30">
@@ -276,7 +301,8 @@ export function VisualizationControls() {
                 Charts require numeric data
               </p>
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                Your data doesn't contain any numeric columns. Only table view is available.
+                Your data doesn&apos;t contain any numeric columns. Only table
+                view is available.
               </p>
               <details className="mt-2">
                 <summary className="cursor-pointer text-xs font-medium text-amber-800 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-100">
@@ -303,10 +329,7 @@ export function VisualizationControls() {
 
       {/* Collapsible: Chart Configuration */}
       {activeViz.visualizationType !== "table" && (
-        <CollapsibleSection
-          title="Chart Configuration"
-          defaultOpen={true}
-        >
+        <CollapsibleSection title="Chart Configuration" defaultOpen={true}>
           <div className="space-y-3">
             <Select
               label="X Axis"

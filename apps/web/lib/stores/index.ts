@@ -4,23 +4,25 @@ import "./config";
 export { useDataSourcesStore } from "./data-sources-store";
 export { useDataFramesStore } from "./dataframes-store";
 export { useVisualizationsStore } from "./visualizations-store";
+export { useInsightsStore } from "./insights-store";
 
 // Re-export all types
 export type {
+  DataTable,
   Insight,
+  InsightExecutionType,
   BaseDataSource,
-  DataEntity,
-  DataConnection,
-  CSVDataSource,
+  LocalDataSource,
   NotionDataSource,
+  PostgreSQLDataSource,
   DataSource,
   VisualizationSource,
   Visualization,
 } from "./types";
 
 export {
-  isCSVDataSource,
+  isLocalDataSource,
+  isCSVDataSource, // Legacy alias for isLocalDataSource
   isNotionDataSource,
-  isDataEntity,
-  isDataConnection,
+  isPostgreSQLDataSource,
 } from "./types";

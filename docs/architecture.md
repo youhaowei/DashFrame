@@ -49,41 +49,103 @@ Convex and additional backend services are deferred until after the first milest
 
 ### Core Concepts
 
-**Entity Hierarchy:**
+**Entity Hierarchy (Symmetric Structure):**
 
-- `DataSource` (CSV or Notion) - Where data comes from
-  - `DataEntity` - Has direct DataFrame (CSV)
-  - `DataConnection` - Requires insights to generate DataFrames (Notion)
-- `Insight` - Query configuration (SELECT dimensions FROM table) - nested in DataConnection
-- `DataFrame` - Data snapshot with source tracking + timestamp
-- `Visualization` - Full Vega-Lite spec + DataFrame reference
+```
+DataSource → DataTable → Insight → DataFrame → Visualization
+```
 
-### Three Zustand Stores
+**All data sources follow the same pattern:**
 
-1. **dataSourcesStore** - CSV sources + Notion connections (with nested insights Map)
-2. **dataFramesStore** - Unified DataFrame storage with metadata
-3. **visualizationsStore** - Vega-Lite specs + active visualization tracking
+- **`DataSource`** - Connection/credentials (Local, Notion, PostgreSQL)
+  - **ALL** sources have `dataTables: Map<UUID, DataTable>`
+  - Symmetric interface enables consistent data access patterns
+
+- **`DataTable`** - Table/file representation (varies by source type)
+  - **Local**: CSV file metadata + loaded data (`dataFrameId` present)
+  - **Notion**: Database configuration + cached data (`dataFrameId` present, refreshable)
+  - **PostgreSQL** (future): Table metadata only (`dataFrameId` absent, queried on-demand)
+
+- **`Insight`** - Global transformation or query
+  - Not nested in DataSource - can reference DataTables from **multiple sources**
+  - Enables cross-source joins and analytics
+  - Two execution types:
+    - `"transform"`: Local/cloud processing on DataFrames (CSV, cached Notion)
+    - `"query"`: Remote execution at data source (PostgreSQL)
+
+- **`DataFrame`** - Immutable data snapshot with metadata
+  - Tracks optional `insightId` for provenance and refresh capability
+  - Can be from: direct load, cached query, insight transform, or remote query
+
+- **`Visualization`** - Vega-Lite spec + data reference
+  - Always based on `dataFrameId`
+  - Tracks optional `insightId` for refresh/provenance
+
+### Four Zustand Stores
+
+1. **dataSourcesStore** - All data source types (Local, Notion, PostgreSQL)
+   - Each source contains `dataTables` Map
+2. **insightsStore** - Global insights (can reference any DataTables)
+3. **dataFramesStore** - Unified DataFrame storage with metadata
+4. **visualizationsStore** - Vega-Lite specs + active visualization tracking
 
 ### Key Design Decisions
 
+- **Symmetric DataSource structure** - All sources have DataTables, consistent API
+- **DataTables nested in source** - Owned by source, referenced globally by Insights
+- **Global Insights** - Cross-source analytics, not tied to a single source
+- **Flexible execution** - Insights adapt to source capabilities (query vs transform)
 - **Immer middleware** - Clean immutable updates without manual spreading
-- **Automatic persistence** - Zustand persist handles all localStorage (no manual calls)
+- **Automatic persistence** - Zustand persist handles all localStorage
 - **UUID-based** - All entities use `crypto.randomUUID()`
 - **Map storage** - O(1) lookups, custom serialization for persistence
-- **Insights as nested entities** - Stored within their parent DataConnection
-- **Source tracking** - DataFrames know their origin (dataSourceId + optional insightId)
 
 ### Data Flows
 
-**CSV**: Upload → DataSource + DataFrame → Visualization
-**Notion**: Connect → Insight → DataFrame → Visualization (refreshable)
+**Local (CSV Upload)**:
+```
+Upload → Local DataSource
+      → DataTable (file + loaded data)
+      → DataFrame
+      → Visualization
+```
+
+**Notion (Cached)**:
+```
+Connect → Notion DataSource
+       → DataTable (DB config)
+       → Pass-through Insight
+       → DataFrame (cached)
+       → Visualization (refreshable)
+```
+
+**PostgreSQL (Remote - Future)**:
+```
+Connect → PostgreSQL DataSource
+       → DataTable (table metadata, no cache)
+       → Query Insight (SQL)
+       → DataFrame (on-demand)
+       → Visualization
+```
+
+### Why This Design?
+
+**Symmetric structure**: All sources work the same way - reduces complexity, easier to add new source types
+
+**Cached vs Remote**:
+- Notion doesn't support rich querying → cache as DataFrame, run transforms locally
+- PostgreSQL supports full SQL → execute queries remotely, return DataFrames on-demand
+- CSV is already local → load immediately into DataFrame
+
+**Global Insights**: Can join DataTables from different sources (e.g., CSV + Notion + PostgreSQL)
 
 ### Persistence
 
 ```
 localStorage keys:
-  dash-frame:data-sources
-  dash-frame:dataframes
+  dash-frame:data-sources  (all types, with nested dataTables)
+  dash-frame:insights      (global, cross-source)
+  dash-frame:dataframes    (cached results + metadata)
   dash-frame:visualizations
 ```
 
