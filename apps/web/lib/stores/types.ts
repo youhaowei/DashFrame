@@ -1,9 +1,4 @@
-import type {
-  UUID,
-  Field,
-  Metric,
-  SourceSchema,
-} from "@dashframe/dataframe";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 // ============================================================================
@@ -114,9 +109,13 @@ export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
 
 export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
 
+export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
+
 export interface VisualizationEncoding {
   x?: string;
   y?: string;
+  xType?: AxisType;
+  yType?: AxisType;
   color?: string;
   size?: string;
 }

@@ -3,6 +3,7 @@ import { LayoutGrid, List } from "@/components/icons";
 import type { LucideIcon } from "@/components/icons";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionGroup, type ItemAction } from "./ActionGroup";
+import { Toggle } from "./Toggle";
 import { cn } from "@/lib/utils";
 
 export type { ItemAction } from "./ActionGroup";
@@ -77,34 +78,24 @@ export function ItemSelector({
               </h2>
               {/* View style toggle inline */}
               {items.length > 0 && (
-                <div className="border-border/60 bg-background/80 flex items-center gap-1 rounded-full border px-1.5 py-1">
-                  <button
-                    type="button"
-                    onClick={() => setViewStyle("compact")}
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full transition-colors",
-                      viewStyle === "compact"
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    aria-label="Compact view"
-                  >
-                    <List className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewStyle("expanded")}
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full transition-colors",
-                      viewStyle === "expanded"
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    aria-label="Expanded view"
-                  >
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                <Toggle
+                  value={viewStyle}
+                  options={[
+                    {
+                      value: "compact",
+                      icon: <List className="h-3.5 w-3.5" />,
+                      tooltip: "Compact view",
+                      ariaLabel: "Compact view",
+                    },
+                    {
+                      value: "expanded",
+                      icon: <LayoutGrid className="h-3.5 w-3.5" />,
+                      tooltip: "Expanded view",
+                      ariaLabel: "Expanded view",
+                    },
+                  ]}
+                  onValueChange={(val) => setViewStyle(val)}
+                />
               )}
             </div>
             {description && (

@@ -8,12 +8,7 @@ import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip } from "@/components/shared/Tooltip";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
 
@@ -88,8 +83,8 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: "nominal" as const },
-          y: { field: y, type: "quantitative" as const },
+          x: { field: x, type: (encoding?.xType || "nominal") as any },
+          y: { field: y, type: (encoding?.yType || "quantitative") as any },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -101,8 +96,8 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "line" as const,
         encoding: {
-          x: { field: x, type: "ordinal" as const },
-          y: { field: y, type: "quantitative" as const },
+          x: { field: x, type: (encoding?.xType || "ordinal") as any },
+          y: { field: y, type: (encoding?.yType || "quantitative") as any },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -114,8 +109,8 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "point" as const,
         encoding: {
-          x: { field: x, type: "quantitative" as const },
-          y: { field: y, type: "quantitative" as const },
+          x: { field: x, type: (encoding?.xType || "quantitative") as any },
+          y: { field: y, type: (encoding?.yType || "quantitative") as any },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -130,8 +125,8 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "area" as const,
         encoding: {
-          x: { field: x, type: "ordinal" as const },
-          y: { field: y, type: "quantitative" },
+          x: { field: x, type: (encoding?.xType || "ordinal") as any },
+          y: { field: y, type: (encoding?.yType || "quantitative") as any },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -144,8 +139,8 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: "nominal" as const },
-          y: { field: y, type: "quantitative" as const },
+          x: { field: x, type: (encoding?.xType || "nominal") as any },
+          y: { field: y, type: (encoding?.yType || "quantitative") as any },
         },
       };
   }
@@ -350,21 +345,14 @@ export function VisualizationDisplay() {
                     Both
                   </TabsTrigger>
                 ) : (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex">
-                          <TabsTrigger value="both" className="gap-2" disabled>
-                            <Layers className="h-4 w-4" />
-                            Both
-                          </TabsTrigger>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">{bothTooltip}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Tooltip content={<p className="text-xs">{bothTooltip}</p>}>
+                    <span className="inline-flex">
+                      <TabsTrigger value="both" className="gap-2" disabled>
+                        <Layers className="h-4 w-4" />
+                        Both
+                      </TabsTrigger>
+                    </span>
+                  </Tooltip>
                 )}
               </TabsList>
             </div>

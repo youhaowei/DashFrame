@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
 import { StoreHydration } from "@/components/providers/StoreHydration";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "DashFrame",
@@ -25,8 +26,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <TRPCProvider>
-            <StoreHydration>
+          <TooltipProvider>
+            <TRPCProvider>
+              <StoreHydration>
               <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                 <div
                   className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(147,197,253,0.55),transparent_60%)] opacity-80 blur-3xl dark:opacity-60"
@@ -55,8 +57,9 @@ export default function RootLayout({
                 </main>
               </div>
               <Toaster />
-            </StoreHydration>
-          </TRPCProvider>
+              </StoreHydration>
+            </TRPCProvider>
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

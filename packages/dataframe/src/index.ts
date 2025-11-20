@@ -10,7 +10,7 @@ export type DataFrameColumn = {
 export type DataFrameRow = Record<string, unknown>;
 
 export type DataFrame = {
-  fieldIds: UUID[];               // References to Field definitions
+  fieldIds: UUID[]; // References to Field definitions
   rows: DataFrameRow[];
   primaryKey?: string | string[]; // Column name(s) forming the primary key
 
@@ -51,32 +51,36 @@ export type EnhancedDataFrame = {
 
 // Foreign key reference (for join suggestions)
 export type ForeignKey = {
-  tableId: UUID;         // Stable reference to target DataTable
-  columnName: string;    // Target column name
+  tableId: UUID; // Stable reference to target DataTable
+  columnName: string; // Target column name
 };
 
 // Table column (discovered from source)
 export type TableColumn = {
   name: string;
-  type: string;          // Native source type: "status", "relation", "varchar", "timestamp"
+  type: string; // Native source type: "status", "relation", "varchar", "timestamp"
   foreignKey?: ForeignKey;
+  isIdentifier?: boolean;
+  isReference?: boolean;
 };
 
 // Field (user-facing column with lineage)
 export type Field = {
   id: UUID;
-  name: string;          // User-facing name (can rename)
-  tableId: UUID;         // Which DataTable owns this field (lineage)
-  columnName?: string;   // Which TableColumn this maps to (undefined for computed fields)
-  type: ColumnType;      // Normalized: "string" | "number" | "date" | "boolean"
+  name: string; // User-facing name (can rename)
+  tableId: UUID; // Which DataTable owns this field (lineage)
+  columnName?: string; // Which TableColumn this maps to (undefined for computed fields)
+  type: ColumnType; // Normalized: "string" | "number" | "date" | "boolean"
+  isIdentifier?: boolean;
+  isReference?: boolean;
 };
 
 // Metric (aggregation)
 export type Metric = {
   id: UUID;
   name: string;
-  tableId: UUID;         // Which DataTable owns this metric (lineage)
-  columnName?: string;   // Which TableColumn to aggregate (undefined for count())
+  tableId: UUID; // Which DataTable owns this metric (lineage)
+  columnName?: string; // Which TableColumn to aggregate (undefined for count())
   aggregation: "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
 };
 
@@ -116,3 +120,4 @@ export function ensureIdFields(df: any): any {
 // - Column operations
 // - Row operations
 // - Aggregation functions
+export * from "./analyze";

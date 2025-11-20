@@ -1,41 +1,83 @@
 import type { VisualizationType, VisualizationEncoding } from "../stores/types";
+import {
+  analyzeDataFrame,
+  type EnhancedDataFrame,
+  type Field,
+  type ColumnAnalysis,
+} from "@dashframe/dataframe";
 
 /**
- * Helper to check if a column looks like an identifier
- */
-const isLikelyId = (col: string) => {
-  const lower = col.toLowerCase();
-  return lower === "id" || lower.endsWith("_id") || lower.endsWith("id");
-};
-
-/**
- * Auto-selects axes based on chart type and available columns.
- * Preserves existing valid axes when possible.
+ * Auto-selects axes based on chart type and column analysis.
+ * Uses column categorization to make intelligent defaults.
  */
 export function autoSelectEncoding(
   type: VisualizationType,
-  columns: string[],
-  numericColumns: string[],
-  currentEncoding: VisualizationEncoding = {}
+  dataFrame: EnhancedDataFrame,
+  fields?: Record<string, Field>,
+  currentEncoding: VisualizationEncoding = {},
 ): VisualizationEncoding {
+  // Analyze the dataframe to categorize columns
+  const analysis = analyzeDataFrame(dataFrame, fields);
+
+  // Helper to check if column exists in analysis
+  const columnExists = (colName: string | undefined) =>
+    colName && analysis.some((a) => a.columnName === colName);
+
+  // Categories we want to avoid for Y-axis in most charts
+  const nonMeasureCategories = new Set([
+    "identifier",
+    "reference",
+    "email",
+    "url",
+    "uuid",
+  ]);
+
   let newEncoding = { ...currentEncoding };
 
   if (type === "bar" || type === "line" || type === "area") {
-    // For these charts: X is usually categorical/time (non-numeric), Y is numeric
-    
-    // Preserve X if it's valid (exists in columns)
+    // For these charts: X is usually categorical/temporal, Y is numeric
+
+    // Preserve X if it's valid (exists in analysis)
     let xColumn = newEncoding.x;
-    if (!xColumn || !columns.includes(xColumn)) {
-      xColumn = columns.find(col => !numericColumns.includes(col)) || columns[0];
+    if (!columnExists(xColumn)) {
+      // Prefer temporal for line/area, categorical for bar
+      if (type === "line" || type === "area") {
+        xColumn = analysis.find((a) => a.category === "temporal")?.columnName;
+      }
+      if (!xColumn) {
+        xColumn = analysis.find(
+          (a) =>
+            a.category === "categorical" ||
+            a.category === "text" ||
+            a.category === "boolean",
+        )?.columnName;
+      }
+      // Fallback to first non-numerical column
+      if (!xColumn) {
+        xColumn = analysis.find((a) => a.category !== "numerical")?.columnName;
+      }
+      // Last resort: first column
+      if (!xColumn && analysis.length > 0) {
+        xColumn = analysis[0].columnName;
+      }
     }
 
-    // Preserve Y if it's valid (exists in numericColumns)
+    // Preserve Y if it's valid AND numeric
     let yColumn = newEncoding.y;
-    if (!yColumn || !numericColumns.includes(yColumn)) {
-      // Prefer non-ID numeric columns
-      yColumn = numericColumns.find(col => !isLikelyId(col)) || numericColumns[0];
+    const yAnalysis = analysis.find((a) => a.columnName === yColumn);
+    if (!yColumn || yAnalysis?.category !== "numerical") {
+      // Find a numerical column that's not an identifier
+      yColumn = analysis.find(
+        (a) =>
+          a.category === "numerical" && !nonMeasureCategories.has(a.category),
+      )?.columnName;
+
+      // Fallback to any numerical column
+      if (!yColumn) {
+        yColumn = analysis.find((a) => a.category === "numerical")?.columnName;
+      }
     }
-    
+
     newEncoding = {
       ...newEncoding,
       x: xColumn,
@@ -43,22 +85,37 @@ export function autoSelectEncoding(
     };
   } else if (type === "scatter") {
     // For scatter: X and Y should both be numeric
-    
+
+    const numericalColumns = analysis.filter((a) => a.category === "numerical");
+
     // Preserve X if it's valid AND numeric
     let xColumn = newEncoding.x;
-    if (!xColumn || !numericColumns.includes(xColumn)) {
-      xColumn = numericColumns[0];
+    if (!numericalColumns.some((a) => a.columnName === xColumn)) {
+      xColumn = numericalColumns[0]?.columnName;
     }
 
     // Preserve Y if it's valid AND numeric
     let yColumn = newEncoding.y;
-    if (!yColumn || !numericColumns.includes(yColumn)) {
-      // Try to find a different numeric column for Y
-      yColumn = numericColumns.find(col => col !== xColumn && !isLikelyId(col)) 
-        || numericColumns.find(col => col !== xColumn) 
-        || numericColumns[0];
+    if (!numericalColumns.some((a) => a.columnName === yColumn)) {
+      // Try to find a different numeric column for Y that's not an identifier
+      yColumn = numericalColumns.find(
+        (a) =>
+          a.columnName !== xColumn && !nonMeasureCategories.has(a.category),
+      )?.columnName;
+
+      // Fallback to any numeric column different from X
+      if (!yColumn) {
+        yColumn = numericalColumns.find(
+          (a) => a.columnName !== xColumn,
+        )?.columnName;
+      }
+
+      // Last resort: use first numerical column
+      if (!yColumn) {
+        yColumn = numericalColumns[0]?.columnName;
+      }
     }
-    
+
     newEncoding = {
       ...newEncoding,
       x: xColumn,

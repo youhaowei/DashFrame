@@ -1,6 +1,7 @@
 {
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.12"
   },
   "main": "src/index.ts",
   "name": "@dashframe/dataframe",
@@ -12,6 +13,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "eslint src",
+    "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "types": "src/index.ts",
