@@ -15,9 +15,15 @@ non-commercial internal purposes, subject to the following conditions:
    product or SaaS offering, without express written permission from
    the copyright holder.
 
-2. No Hosted or Managed Service.
-   You may NOT host, provide, or offer the Software as a hosted or managed
-   service, whether paid or unpaid, without express written permission.
+2. Public Hosting and Managed Services.
+   You may host or provide the Software as a publicly accessible service
+   **only if the service is completely free to end users** AND includes
+   clear attribution to the DashFrame project.
+
+   Any hosting or service that charges fees, collects payments, or provides
+   commercial benefit (including paid tiers, enterprise plans, or usage-based
+   billing) is prohibited without express written permission from the
+   copyright holder.
 
 3. No Trademark Use.
    This license does not grant you any rights to use the names "DashFrame",
@@ -34,4 +40,4 @@ non-commercial internal purposes, subject to the following conditions:
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 For commercial licensing or partnership inquiries, please contact:
-youhao (at) dashframe.dev
+wei (at) youhao.me
