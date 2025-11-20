@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sparkles, Plus, Database } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,11 @@ const visualizationLabels: Record<string, string> = {
 };
 
 export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
-  const [isHydrated] = useState(() => typeof window !== "undefined");
+  const [isHydrated, setIsHydrated] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setIsHydrated(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );

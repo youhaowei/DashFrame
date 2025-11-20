@@ -12,8 +12,6 @@ import {
 import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -24,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { SidePanel } from "@/components/shared/SidePanel";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dash-frame/notion";
+import { Input } from "@/components/fields/input";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -70,7 +69,6 @@ interface DataSourceControlsProps {
 }
 
 export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
-  const [isHydrated, setIsHydrated] = useState(false);
   const [availableDatabases, setAvailableDatabases] = useState<
     NotionDatabase[]
   >([]);
@@ -80,7 +78,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Hydrate cached database list from localStorage
   useEffect(() => {
-    if (!dataSourceId || !isHydrated) return;
+    if (!dataSourceId) return;
 
     try {
       const cacheKey = `dash-frame:notion-databases:${dataSourceId}`;
@@ -93,7 +91,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     } catch (error) {
       console.error("Failed to load cached databases:", error);
     }
-  }, [dataSourceId, isHydrated]);
+  }, [dataSourceId]);
 
   // Get data source from store
   const dataSource = useDataSourcesStore((state) =>
@@ -105,11 +103,6 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // tRPC mutation for fetching databases
   const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
-
-  // Wait for client-side hydration
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   // Get configured DataTables
   const dataTables = useMemo(() => {
@@ -126,7 +119,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || !isNotionDataSource(dataSource) || !isHydrated) return;
+    if (!dataSource || !isNotionDataSource(dataSource)) return;
 
     // Use cached data unless explicitly forced to refresh
     if (!force && lastFetchTime) {
@@ -180,15 +173,6 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     }
   };
 
-  // Don't render until hydrated to avoid hydration mismatch
-  if (!isHydrated) {
-    return (
-      <div className="text-muted-foreground flex h-full w-full items-center justify-center p-6 text-sm">
-        Loading controls…
-      </div>
-    );
-  }
-
   if (!dataSource) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
@@ -240,17 +224,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     <SidePanel footer={actionsFooter}>
       {/* Name field at top */}
       <div className="border-border/40 border-b px-4 pb-3 pt-4">
-        <Label
-          htmlFor="source-name"
-          className="text-muted-foreground text-xs font-medium"
-        >
-          Name
-        </Label>
         <Input
-          id="source-name"
+          label="Name"
           value={dataSource.name}
-          onChange={(e) => handleNameChange(e.target.value)}
-          className="mt-1.5"
+          onChange={handleNameChange}
         />
       </div>
 
@@ -389,11 +366,16 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                       return (
                         <div
                           key={dt.id}
-                          className="border-border/40 bg-background/40 flex items-center gap-2 rounded-md border p-2"
+                          className={cn(
+                            "flex items-center gap-2 rounded-md border p-2 transition-all",
+                            "border-primary/40 bg-primary/5",
+                            "hover:border-primary/60 hover:bg-primary/10",
+                            "shadow-sm",
+                          )}
                         >
-                          <Database className="text-muted-foreground h-3 w-3 shrink-0" />
+                          <Database className="text-primary h-3.5 w-3.5 shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <p className="text-foreground truncate text-xs font-medium">
+                            <p className="text-foreground truncate text-xs font-semibold">
                               {dt.name}
                             </p>
                             {statusText}

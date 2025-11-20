@@ -1,6 +1,6 @@
 "use client";
 
-import { Label } from "../ui/label";
+import { Field, FieldLabel } from "../ui/field";
 import {
   Select as SelectPrimitive,
   SelectContent,
@@ -27,12 +27,8 @@ export function Select({
   className,
 }: SelectProps) {
   return (
-    <div className={className}>
-      {label && (
-        <Label className="text-foreground mb-2 block text-sm font-medium">
-          {label}
-        </Label>
-      )}
+    <Field className={className}>
+      {label && <FieldLabel>{label}</FieldLabel>}
       <SelectPrimitive value={value || undefined} onValueChange={onChange}>
         <SelectTrigger className="w-full">
           <SelectValue placeholder={placeholder} />
@@ -45,6 +41,6 @@ export function Select({
           ))}
         </SelectContent>
       </SelectPrimitive>
-    </div>
+    </Field>
   );
 }

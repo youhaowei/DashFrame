@@ -62,10 +62,10 @@
     "clean": "rm -rf .next *.tsbuildinfo",
     "dev": "FORCE_COLOR=1 next dev",
     "format": "prettier --check .",
+    "format:write": "prettier --write .",
     "lint": "pnpm exec eslint .",
     "start": "next start",
-    "typecheck": "pnpm exec tsc --noEmit",
-    "format:write": "prettier --write ."
+    "typecheck": "pnpm exec tsc --noEmit"
   },
   "version": "0.1.0"
 }

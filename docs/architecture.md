@@ -11,11 +11,13 @@ DashFrame aims to become a flexible business intelligence surface focused on tra
 - **Table** – physical database table (future scope)
 - **View** – saved SQL representation (future scope)
 - **Model** – semantic layer modeling joins, dimensions, and measures (future scope)
+- **Field** – user-defined column with UUID reference, optional formula, and semantic metadata
+- **Metric** – aggregation definition (sum, avg, count, etc.) for quantitative analysis
 - **Visualization** – declarative recipe for charts (data-free spec referencing a model)
 - **Data Frame** – runtime tabular result (columns + rows) injected into visualization rendering
 - **Document** – arrangement of visualizations in dashboards, canvases, or reports (future scope)
 
-Current MVP focuses on producing a `DataFrame` from a CSV upload and rendering a chart using Vega-Lite.
+Current MVP focuses on producing a `DataFrame` from CSV/Notion sources and rendering charts using Vega-Lite.
 
 ## Tech Stack (Current MVP)
 
@@ -95,9 +97,14 @@ DataSource → DataTable → Insight → DataFrame → Visualization
 - **DataTables nested in source** - Owned by source, referenced globally by Insights
 - **Global Insights** - Cross-source analytics, not tied to a single source
 - **Flexible execution** - Insights adapt to source capabilities (query vs transform)
+- **Schema separation** - sourceSchema (discovered) vs fields (user-defined) prevents sync conflicts
+- **UUID-based field references** - Formulas use UUIDs not names, enabling renames without breakage
+- **Flat structures** - No wrapper abstractions (metadata, schema, customizations)
+- **Sample-first loading** - 100-row preview for instant UX, full sync on demand
+- **Semantic type preservation** - Source types (Notion status, relation) enable smart features
+- **Rule-based suggestions** - Client-side heuristics for viz/join suggestions (no AI/GPT)
 - **Immer middleware** - Clean immutable updates without manual spreading
 - **Automatic persistence** - Zustand persist handles all localStorage
-- **UUID-based** - All entities use `crypto.randomUUID()`
 - **Map storage** - O(1) lookups, custom serialization for persistence
 
 ### Data Flows
@@ -112,11 +119,23 @@ Upload → Local DataSource
 
 **Notion (Cached)**:
 ```
-Connect → Notion DataSource
-       → DataTable (DB config)
-       → Pass-through Insight
-       → DataFrame (cached)
-       → Visualization (refreshable)
+Phase 1: Discovery
+  Connect → Notion DataSource
+         → Fetch schema for all databases
+         → Create DataTable (sourceSchema + auto-generated fields)
+         → No data cached yet
+
+Phase 2: Sample (Instant Preview)
+  User selects database
+         → Fetch first 100 rows
+         → Create sample DataFrame (isSample: true)
+         → Show in visualization builder
+
+Phase 3: Full Sync (On Demand)
+  User clicks "Sync Full Dataset"
+         → Fetch all rows for current fields
+         → Create complete DataFrame
+         → Update visualizations
 ```
 
 **PostgreSQL (Remote - Future)**:
@@ -148,6 +167,73 @@ localStorage keys:
   dash-frame:dataframes    (cached results + metadata)
   dash-frame:visualizations
 ```
+
+## DataTable Schema Layers
+
+DataTables separate **discovered schema** (what exists in source) from **user-defined analytical layer** (what users see and customize). This enables schema evolution without breaking user customizations.
+
+**Three Layers:**
+
+1. **Source Schema** - Discovered columns from source (Notion properties, CSV headers)
+   - Includes original semantic types (Notion: status, relation, email; CSV: inferred types)
+   - Synced during discovery/refresh with version tracking
+   - System updates this layer automatically
+
+2. **Fields** - User-facing columns with customization
+   - Each field has UUID for stable formula references
+   - Can rename without breaking references
+   - Can hide columns (no field = hidden)
+   - Can add calculated fields with formulas
+   - References source columns via `basedOn` array
+
+3. **Metrics** - Aggregation definitions (sum, avg, count, etc.)
+   - Referenced by UUID in formulas
+   - Always produce numeric output
+
+**DataTable Lifecycle:**
+
+1. **Discovered** - Schema fetched, fields auto-generated, no data cached
+2. **Sample Loaded** - First 100 rows cached for instant preview
+3. **Fully Synced** - Complete dataset cached, ready for analysis
+
+## Fields and Metrics
+
+**Fields** are user-facing columns that can be renamed, hidden, or calculated. Each field has a UUID for stable references in formulas, enabling name changes without breaking dependencies. Fields reference source columns via `basedOn` array (one column for simple fields, multiple for calculated fields).
+
+**Metrics** define aggregations (sum, avg, count, min, max, count_distinct) over fields. Like fields, they use UUID references for stability.
+
+**Key Design Choice - UUID References:**
+Formulas reference other fields/metrics by UUID, not by name. This allows users to rename anything without breaking formulas. This avoids the "stable name ID" pattern which creates implementation complexity.
+
+**Semantic Intelligence:**
+Source columns preserve original types (Notion's status, relation, email, etc.). Fields can look up source semantic types via `basedOn` to enable smart features like filtering out email/URL fields from visualizations or detecting relation fields for join suggestions.
+
+## Smart Visualization Suggestions
+
+Rule-based heuristics suggest visualizations based on field types and cardinality. No AI/GPT calls - instant, free, privacy-preserving.
+
+**Core Heuristics:**
+- Categorical (low cardinality) + Count → Bar chart
+- Two numeric fields → Scatter plot
+- Date + Numeric → Time series line chart
+- Date + Count → Activity timeline
+- Categorical + Numeric → Aggregated bar chart
+
+**Semantic Type Intelligence:**
+Source column types inform suggestions. Notion `status` and `select` fields are prioritized for categorical charts. Fields like `email`, `url`, `phone_number` are filtered out. `created_time` and `last_edited_time` suggest activity tracking visualizations.
+
+**Field Scoring:**
+Prefer fields with 2-50 distinct values, penalize high null percentage, prioritize descriptive names (status, priority, category), avoid system fields in suggestions.
+
+## Join Suggestions
+
+Notion `relation` fields enable automatic join detection. Relations store page IDs from related databases, allowing high-confidence join suggestions: `Tasks.Project` → `Projects._notionId`.
+
+**Confidence Levels:**
+- **High** - Detected from Notion relation metadata
+- **Medium** - Name-based matching (field "Project" → table "Projects")
+
+Fallback heuristics include name matching with pluralization and common ID patterns.
 
 ## UI/UX Guidelines
 

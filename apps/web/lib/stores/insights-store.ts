@@ -164,6 +164,7 @@ export const useInsightsStore = create<InsightsStore>()(
       partialize: (state) => ({
         insights: state.insights,
       }),
+      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
     },
   ),
 );

@@ -200,17 +200,35 @@ export function convertNotionToDataFrame(
     ? schema.filter((prop) => selectedPropertyIds.includes(prop.id))
     : schema;
 
-  // Create DataFrame columns
-  const columns: DataFrameColumn[] = activeSchema.map((prop) => ({
-    name: prop.name,
-    type: mapNotionTypeToColumnType(prop.type),
-  }));
+  // Create DataFrame columns with system columns first
+  const columns: DataFrameColumn[] = [
+    // System-generated row index
+    {
+      name: "_rowIndex",
+      type: "number",
+    },
+    // Notion page ID (primary key)
+    {
+      name: "_notionId",
+      type: "string",
+      sourceField: "page.id",
+    },
+    // User-selected properties
+    ...activeSchema.map((prop) => ({
+      name: prop.name,
+      type: mapNotionTypeToColumnType(prop.type),
+    })),
+  ];
 
   // Convert Notion pages to DataFrame rows
   const rows: DataFrameRow[] = response.results
     .filter((result): result is PageObjectResponse => result.object === "page")
-    .map((page) => {
-      const row: DataFrameRow = {};
+    .map((page, index) => {
+      const row: DataFrameRow = {
+        // Add system columns
+        _rowIndex: index,
+        _notionId: page.id,
+      };
 
       // Extract values for each selected property
       activeSchema.forEach((prop) => {
@@ -223,6 +241,7 @@ export function convertNotionToDataFrame(
 
   return {
     columns,
+    primaryKey: "_notionId",
     rows,
   };
 }

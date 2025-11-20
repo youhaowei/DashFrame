@@ -6,10 +6,13 @@ import {
   type NotionDatabase,
   type NotionProperty,
 } from "./client";
-import { convertNotionToDataFrame } from "./converter";
+import { convertNotionToDataFrame, mapNotionTypeToColumnType } from "./converter";
 
 // Re-export types
 export type { NotionDatabase, NotionProperty };
+
+// Re-export utilities
+export { mapNotionTypeToColumnType };
 
 /**
  * Configuration for connecting to a Notion database

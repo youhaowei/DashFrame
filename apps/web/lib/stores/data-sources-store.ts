@@ -82,19 +82,29 @@ const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
         ...value,
         dataSources: new Map(
           value.dataSources.map((ds: DataSource) => {
-            // Also convert dataTables arrays back to Maps
+            // Always ensure dataTables is initialized as a Map
+            let dataTables: Map<UUID, DataTable>;
+
             if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
-              return [
-                ds.id,
-                {
-                  ...ds,
-                  dataTables: new Map(
-                    ds.dataTables as unknown as [UUID, DataTable][],
-                  ),
-                },
-              ];
+              // Convert dataTables array back to Map
+              dataTables = new Map(
+                ds.dataTables as unknown as [UUID, DataTable][],
+              );
+            } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
+              // Already a Map (shouldn't happen in serialized data, but handle it)
+              dataTables = ds.dataTables;
+            } else {
+              // Missing or invalid - initialize as empty Map (fixes old localStorage data)
+              dataTables = new Map();
             }
-            return [ds.id, ds];
+
+            return [
+              ds.id,
+              {
+                ...ds,
+                dataTables,
+              },
+            ];
           }),
         ),
       };
@@ -328,6 +338,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
       partialize: (state) => ({
         dataSources: state.dataSources,
       }),
+      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
     },
   ),
 );

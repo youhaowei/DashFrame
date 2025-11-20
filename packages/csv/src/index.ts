@@ -54,7 +54,8 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
     row.some((cell) => cell !== undefined && cell !== ""),
   );
 
-  const columns = header.map((name, index) => {
+  // Create columns from CSV headers
+  const userColumns = header.map((name, index) => {
     const sampleValue =
       rowsData.find((row) => row[index] !== undefined && row[index] !== "")?.[
         index
@@ -65,13 +66,35 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
     };
   });
 
-  const rows = rowsData.map((row) =>
-    header.reduce<Record<string, unknown>>((acc, key, index) => {
-      const column = columns[index];
-      acc[key] = parseValue(row[index], column.type);
-      return acc;
-    }, {}),
+  // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
+  const detectedIdColumn = userColumns.find((col) =>
+    /^_?id$/i.test(col.name),
   );
 
-  return { columns, rows };
+  // Add system columns with _rowIndex first
+  const columns = [
+    {
+      name: "_rowIndex",
+      type: "number" as ColumnType,
+    },
+    ...userColumns,
+  ];
+
+  // Create rows with system columns
+  const rows = rowsData.map((row, index) =>
+    header.reduce<Record<string, unknown>>(
+      (acc, key, colIndex) => {
+        const column = userColumns[colIndex];
+        acc[key] = parseValue(row[colIndex], column.type);
+        return acc;
+      },
+      { _rowIndex: index }, // Start with _rowIndex
+    ),
+  );
+
+  return {
+    columns,
+    primaryKey: detectedIdColumn ? detectedIdColumn.name : "_rowIndex",
+    rows,
+  };
 };

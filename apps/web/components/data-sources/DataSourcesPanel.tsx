@@ -9,7 +9,6 @@ import {
   useDataSourcesStore,
   useDataFramesStore,
   useVisualizationsStore,
-  useInsightsStore,
 } from "@/lib/stores";
 import { buildVegaLiteSpec } from "@/lib/spec";
 import type { TopLevelSpec } from "vega-lite";
@@ -30,7 +29,9 @@ import {
 } from "@/components/ui/select";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 
-function extractVisualizationMetadata(spec: TopLevelSpec): {
+function extractVisualizationMetadata(
+  spec: TopLevelSpec,
+): {
   visualizationType: VisualizationType;
   encoding?: VisualizationEncoding;
 } {
@@ -65,14 +66,12 @@ function extractVisualizationMetadata(spec: TopLevelSpec): {
   return { visualizationType, encoding };
 }
 
-export function NewDataSourcePanel() {
-  const addLocal = useDataSourcesStore((s) => s.addLocal);
-  const getLocal = useDataSourcesStore((s) => s.getLocal);
+export function DataSourcesPanel() {
+  const addCSV = useDataSourcesStore((s) => s.addCSV);
   const setNotion = useDataSourcesStore((s) => s.setNotion);
   const getNotion = useDataSourcesStore((s) => s.getNotion);
-  const addDataTable = useDataSourcesStore((s) => s.addDataTable);
-  const addInsight = useInsightsStore((s) => s.addInsight);
-  const setInsightDataFrame = useInsightsStore((s) => s.setInsightDataFrame);
+  const persistedNotionConnection = useDataSourcesStore((s) => s.getNotion());
+  const addInsight = useDataSourcesStore((s) => s.addInsight);
   const createDataFrameFromCSV = useDataFramesStore((s) => s.createFromCSV);
   const createDataFrameFromInsight = useDataFramesStore(
     (s) => s.createFromInsight,
@@ -101,32 +100,23 @@ export function NewDataSourcePanel() {
   const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
 
   const processCSVData = useCallback(
-    (dataFrame: ReturnType<typeof csvToDataFrame>, fileName: string) => {
-      // Get or create local data source
-      let localSource = getLocal();
-      if (!localSource) {
-        addLocal("Local Storage");
-        localSource = getLocal();
-      }
+    (
+      dataFrame: ReturnType<typeof csvToDataFrame>,
+      fileName: string,
+      fileSize: number,
+    ) => {
+      const dataSourceId = crypto.randomUUID();
 
-      if (!localSource) {
-        throw new Error("Failed to create local data source");
-      }
-
-      // Create DataFrame from CSV
       const dataFrameId = createDataFrameFromCSV(
-        localSource.id,
+        dataSourceId,
         `${fileName} Data`,
         dataFrame,
       );
 
-      // Create DataTable for this CSV file
-      const columns = dataFrame.columns.map((col) => col.name);
-      addDataTable(
-        localSource.id,
+      addCSV(
         fileName.replace(/\.csv$/i, ""),
         fileName,
-        columns,
+        fileSize,
         dataFrameId,
       );
 
@@ -154,13 +144,7 @@ export function NewDataSourcePanel() {
         );
       }
     },
-    [
-      addLocal,
-      getLocal,
-      addDataTable,
-      createDataFrameFromCSV,
-      createVisualization,
-    ],
+    [addCSV, createDataFrameFromCSV, createVisualization],
   );
 
   const handleFileUpload = useCallback(
@@ -185,7 +169,7 @@ export function NewDataSourcePanel() {
             return;
           }
 
-          processCSVData(dataFrame, file.name);
+          processCSVData(dataFrame, file.name, file.size);
         },
       });
     },
@@ -239,9 +223,7 @@ export function NewDataSourcePanel() {
         setSelectedPropertyIds(schema.map((prop) => prop.id));
       } catch (err) {
         setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch database schema",
+          err instanceof Error ? err.message : "Failed to fetch database schema",
         );
         setDatabaseSchema([]);
         setSelectedPropertyIds([]);
@@ -264,17 +246,14 @@ export function NewDataSourcePanel() {
     (
       dataFrame: DataFrame,
       notionSourceId: string,
-      dataTableId: string,
       insightId: string,
     ) => {
       const dataFrameId = createDataFrameFromInsight(
+        notionSourceId,
         insightId,
         "Notion Data",
         dataFrame,
       );
-
-      // Link DataFrame to Insight
-      setInsightDataFrame(insightId, dataFrameId);
 
       const defaultSpec = buildVegaLiteSpec(dataFrame, {
         x: dataFrame.columns[0]?.name ?? null,
@@ -292,6 +271,7 @@ export function NewDataSourcePanel() {
         createVisualization(
           {
             dataFrameId,
+            dataSourceId: notionSourceId,
             insightId,
           },
           "Notion Chart",
@@ -301,7 +281,7 @@ export function NewDataSourcePanel() {
         );
       }
     },
-    [createDataFrameFromInsight, setInsightDataFrame, createVisualization],
+    [createDataFrameFromInsight, createVisualization],
   );
 
   const handleImportNotion = useCallback(async () => {
@@ -324,15 +304,13 @@ export function NewDataSourcePanel() {
     setIsImporting(true);
 
     try {
-      // Create DataTable (Notion database configuration)
-      const dataTableId = addDataTable(
+      const insightId = addInsight(
         notionSource.id,
-        `${selectedDatabaseId} Table`,
+        `${selectedDatabaseId} Insight`,
         selectedDatabaseId,
         selectedPropertyIds,
       );
 
-      // Fetch data from Notion
       const dataFrame = await queryDatabaseMutation.mutateAsync({
         apiKey: notionApiKey,
         databaseId: selectedDatabaseId,
@@ -344,14 +322,7 @@ export function NewDataSourcePanel() {
         return;
       }
 
-      // Create pass-through Insight for this DataTable
-      const insightId = addInsight(
-        `${selectedDatabaseId} Insight`,
-        [dataTableId],
-        "transform", // Notion uses transform (operates on cached data)
-      );
-
-      processNotionData(dataFrame, notionSource.id, dataTableId, insightId);
+      processNotionData(dataFrame, notionSource.id, insightId);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to import from Notion",
@@ -364,7 +335,6 @@ export function NewDataSourcePanel() {
     selectedDatabaseId,
     selectedPropertyIds,
     getNotion,
-    addDataTable,
     addInsight,
     queryDatabaseMutation,
     processNotionData,
@@ -394,25 +364,23 @@ export function NewDataSourcePanel() {
       )}
 
       {isLoadingSchema && (
-        <p className="text-muted-foreground text-sm">Loading properties...</p>
+        <p className="text-sm text-muted-foreground">Loading properties...</p>
       )}
       {databaseSchema.length > 0 && !isLoadingSchema && (
         <div className="space-y-2">
           <Label>Select Properties</Label>
-          <div className="border-border bg-card max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border bg-card p-2">
             {databaseSchema.map((prop) => (
               <label
                 key={prop.id}
-                className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
               >
                 <Checkbox
                   checked={selectedPropertyIds.includes(prop.id)}
                   onCheckedChange={() => handleToggleProperty(prop.id)}
                 />
-                <span className="text-foreground flex-1">{prop.name}</span>
-                <span className="text-muted-foreground text-xs">
-                  {prop.type}
-                </span>
+                <span className="flex-1 text-foreground">{prop.name}</span>
+                <span className="text-xs text-muted-foreground">{prop.type}</span>
               </label>
             ))}
           </div>
@@ -445,7 +413,9 @@ export function NewDataSourcePanel() {
           onApiKeyChange: setNotionApiKey,
           onToggleShowApiKey: () => setShowApiKey((prev) => !prev),
           onConnectNotion: handleConnectNotion,
-          connectButtonLabel: isLoadingDatabases ? "Connecting..." : "Connect",
+          connectButtonLabel: isLoadingDatabases
+            ? "Connecting..."
+            : "Connect",
           connectDisabled: !notionApiKey || isLoadingDatabases,
           notionChildren,
         }}

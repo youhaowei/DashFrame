@@ -198,6 +198,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
       partialize: (state) => ({
         dataFrames: state.dataFrames,
       }),
+      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
     },
   ),
 );

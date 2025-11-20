@@ -27,6 +27,10 @@ import { TableView } from "@/components/visualizations/TableView";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
+import type { NotionProperty } from "@dash-frame/notion";
+import { mapNotionTypeToColumnType } from "@dash-frame/notion";
+import { Input } from "@/components/fields/input";
+import { MultiSelect } from "@/components/fields/multi-select";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
@@ -84,12 +88,15 @@ function LocalDataSourceView({
 }
 
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
-  const [isHydrated, setIsHydrated] = useState(false);
   const [selectedDataTableId, setSelectedDataTableId] = useState<string | null>(
     null,
   );
   const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFetchingSchema, setIsFetchingSchema] = useState(false);
+  const [databaseSchema, setDatabaseSchema] = useState<NotionProperty[]>([]);
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
+  const [rowLimit, setRowLimit] = useState<number>(50);
 
   // Get data source from store
   const dataSource = useDataSourcesStore((state) =>
@@ -102,13 +109,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     (state) => state.refreshDataTable,
   );
 
-  // tRPC mutation for refreshing Notion data
+  // tRPC mutations for Notion
   const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
-
-  // Wait for client-side hydration
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+  const getSchemaMutation = trpc.notion.getDatabaseSchema.useMutation();
 
   // Get DataTables for the selected source
   const dataTables = useMemo(() => {
@@ -131,6 +134,39 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     if (!selectedDataTableId) return null;
     return dataTables.find((dt) => dt.id === selectedDataTableId) ?? null;
   }, [dataTables, selectedDataTableId]);
+
+  // Fetch database schema when a table is selected
+  useEffect(() => {
+    const fetchSchema = async () => {
+      if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+        return;
+      }
+
+      setIsFetchingSchema(true);
+      try {
+        const schema = await getSchemaMutation.mutateAsync({
+          apiKey: dataSource.apiKey,
+          databaseId: selectedDataTable.table,
+        });
+        setDatabaseSchema(schema);
+
+        // Load previously selected properties from DataTable dimensions
+        if (selectedDataTable.dimensions.length > 0) {
+          setSelectedPropertyIds(selectedDataTable.dimensions);
+        } else {
+          // Default: select all properties
+          setSelectedPropertyIds(schema.map((p) => p.id));
+        }
+      } catch (error) {
+        console.error("Failed to fetch database schema:", error);
+        toast.error("Failed to load database fields");
+      } finally {
+        setIsFetchingSchema(false);
+      }
+    };
+
+    fetchSchema();
+  }, [selectedDataTable, dataSource]);
 
   // Get the DataFrame for the selected DataTable
   const dataFrame = useMemo(() => {
@@ -155,7 +191,67 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return "just now";
   };
 
-  // Handle refreshing Notion data
+  // Handle syncing data with selected properties
+  const handleSyncData = async () => {
+    if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+      return;
+    }
+
+    if (selectedPropertyIds.length === 0) {
+      toast.error("Please select at least one property");
+      return;
+    }
+
+    setIsRefreshing(true);
+    try {
+      // Fetch data from Notion API with selected properties
+      const dataFrame = await queryDatabaseMutation.mutateAsync({
+        apiKey: dataSource.apiKey,
+        databaseId: selectedDataTable.table,
+        selectedPropertyIds,
+      });
+
+      if (!dataFrame.columns.length) {
+        toast.error("No data found in the selected database");
+        return;
+      }
+
+      // Update or create DataFrame in store
+      const dataFramesStore = useDataFramesStore.getState();
+      if (selectedDataTable.dataFrameId) {
+        // Update existing DataFrame
+        updateDataFrameById(selectedDataTable.dataFrameId, dataFrame);
+        refreshDataTable(
+          dataSource.id,
+          selectedDataTable.id,
+          selectedDataTable.dataFrameId,
+        );
+      } else {
+        // Create new DataFrame
+        const newDataFrameId = dataFramesStore.add(
+          dataFrame,
+          `${selectedDataTable.name} (${new Date().toLocaleString()})`,
+        );
+        refreshDataTable(dataSource.id, selectedDataTable.id, newDataFrameId);
+      }
+
+      // Update DataTable dimensions with selected properties
+      const updateDataTable = useDataSourcesStore.getState().updateDataTable;
+      updateDataTable(dataSource.id, selectedDataTable.id, {
+        dimensions: selectedPropertyIds,
+      });
+
+      toast.success("Data synced successfully");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to sync data",
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Handle refreshing Notion data (uses existing property selection)
   const handleRefreshDataTable = async () => {
     if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
       return;
@@ -200,15 +296,6 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     }
   };
 
-  // Don't render until hydrated to avoid hydration mismatch
-  if (!isHydrated) {
-    return (
-      <div className="text-muted-foreground flex h-full w-full items-center justify-center p-6 text-sm">
-        Loading display…
-      </div>
-    );
-  }
-
   if (!dataSource) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
@@ -243,55 +330,143 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
     return (
       <div className="flex h-full flex-col gap-4">
-        {/* Header */}
-        <Card className="border-border/60 bg-card/80 border shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg">{dataSource.name}</CardTitle>
-            <CardDescription>
-              Notion data source • {dataTables.length}{" "}
-              {dataTables.length === 1 ? "table" : "tables"}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-
-        {/* DataTables List */}
-        {hasDataTables && (
+        {/* Table Header & Configuration */}
+        {selectedDataTable && (
           <Card className="border-border/60 bg-card/80 border shadow-sm">
             <CardHeader>
-              <CardTitle className="text-base">Data Tables</CardTitle>
-              <CardDescription>
-                Notion databases configured for this connection
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Database className="text-muted-foreground h-5 w-5" />
+                    <CardTitle className="text-lg">
+                      {selectedDataTable.name}
+                    </CardTitle>
+                  </div>
+                  <CardDescription className="mt-1.5">
+                    {dataFrame ? (
+                      <>
+                        {dataFrame.metadata.rowCount} rows ×{" "}
+                        {dataFrame.metadata.columnCount} columns
+                        {selectedDataTable.lastFetchedAt && (
+                          <>
+                            {" "}
+                            • Last synced:{" "}
+                            {formatRelativeTime(
+                              selectedDataTable.lastFetchedAt,
+                            )}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      "No data synced yet"
+                    )}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Table Selector */}
+                  {dataTables.length > 1 && (
+                    <div className="flex gap-1">
+                      {dataTables.map((dataTable) => (
+                        <button
+                          key={dataTable.id}
+                          onClick={() => setSelectedDataTableId(dataTable.id)}
+                          className={cn(
+                            "hover:bg-muted/50 rounded-md border px-3 py-1.5 text-xs transition-colors",
+                            selectedDataTableId === dataTable.id
+                              ? "border-primary bg-primary/5 text-foreground font-medium"
+                              : "border-border/40 text-muted-foreground",
+                          )}
+                        >
+                          {dataTable.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Sync Button */}
+                  <Button
+                    onClick={handleSyncData}
+                    disabled={
+                      isRefreshing ||
+                      isFetchingSchema ||
+                      selectedPropertyIds.length === 0
+                    }
+                    size="sm"
+                  >
+                    <Refresh
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        isRefreshing && "animate-spin",
+                      )}
+                    />
+                    {isRefreshing ? "Syncing..." : "Sync Data"}
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {dataTables.map((dataTable) => (
-                  <button
-                    key={dataTable.id}
-                    onClick={() => setSelectedDataTableId(dataTable.id)}
-                    className={cn(
-                      "hover:bg-muted/50 w-full rounded-lg border p-3 text-left transition-all",
-                      selectedDataTableId === dataTable.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border/40 bg-background/40",
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="text-foreground text-sm font-medium">
-                          {dataTable.name}
-                        </p>
-                        <p className="text-muted-foreground mt-1 text-xs">
-                          {dataTable.dimensions.length}{" "}
-                          {dataTable.dimensions.length === 1
-                            ? "property"
-                            : "properties"}
-                        </p>
-                      </div>
-                      <Database className="text-muted-foreground h-4 w-4" />
+              <div className="grid gap-4 sm:grid-cols-[1fr,auto] sm:items-end">
+                {/* Properties Multiselect */}
+                {isFetchingSchema ? (
+                  <div className="space-y-2">
+                    <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">
+                      <Refresh className="h-3 w-3 animate-spin" />
+                      <span className="text-muted-foreground text-xs">
+                        Loading...
+                      </span>
                     </div>
-                  </button>
-                ))}
+                  </div>
+                ) : (
+                  <MultiSelect
+                    label="Properties"
+                    options={databaseSchema.map((p) => {
+                      const dfType = mapNotionTypeToColumnType(p.type);
+                      return {
+                        value: p.id,
+                        label: p.name,
+                        description: `${p.type} → ${dfType}`,
+                        type: dfType,
+                      };
+                    })}
+                    value={selectedPropertyIds}
+                    onChange={(newValue) => {
+                      if (newValue.length === 0) {
+                        toast.error("At least one property must be selected");
+                        return;
+                      }
+                      setSelectedPropertyIds(newValue);
+                    }}
+                    placeholder="Select properties..."
+                    disabled={isFetchingSchema}
+                  />
+                )}
+
+                {/* Row Limit */}
+                <Input
+                  label="Limit"
+                  type="number"
+                  value={rowLimit.toString()}
+                  onChange={(value) =>
+                    setRowLimit(Math.max(1, parseInt(value) || 1))
+                  }
+                  className="w-24"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty state if no tables configured */}
+        {!hasDataTables && (
+          <Card className="border-border/60 bg-card/80 border shadow-sm">
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <Database className="text-muted-foreground/70 h-8 w-8" />
+                <p className="text-foreground text-sm font-medium">
+                  No tables configured
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Add databases from the left panel to get started
+                </p>
               </div>
             </CardContent>
           </Card>

@@ -261,6 +261,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         visualizations: state.visualizations,
         activeId: state.activeId,
       }),
+      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
     },
   ),
 );

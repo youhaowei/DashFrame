@@ -614,11 +614,10 @@ export function CreateVisualizationModal({
                             return (
                               <Card
                                 key={insight.id}
-                                className={`cursor-pointer transition ${
-                                  selectedInsightId === insight.id
+                                className={`cursor-pointer transition ${selectedInsightId === insight.id
                                     ? "border-primary"
                                     : "hover:border-primary"
-                                }`}
+                                  }`}
                                 onClick={() =>
                                   handleSelectExistingInsight(
                                     insight.id,

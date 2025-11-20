@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 
 export function DataSourcesWorkbench() {
-  const [isHydrated] = useState(() => typeof window !== "undefined");
+  const [isHydrated, setIsHydrated] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
   const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
@@ -27,19 +27,25 @@ export function DataSourcesWorkbench() {
     [dataSourcesMap],
   );
 
-  // Auto-select first data source if none selected (using lazy initializer to avoid effect)
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const sources = Array.from(dataSourcesMap.values());
-    return sources.length > 0
-      ? sources.sort((a, b) => b.createdAt - a.createdAt)[0].id
-      : null;
-  });
+  // Auto-select first data source if none selected
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Hydrate on mount
+  useEffect(() => {
+    setIsHydrated(true);
+
+    // Auto-select first data source after hydration
+    if (dataSources.length > 0 && !selectedId) {
+      setSelectedId(dataSources[0].id);
+    }
+  }, [dataSources, selectedId]);
 
   // Update selectedId if it becomes invalid (source was deleted)
   // Using a ref to prevent cascading renders
   const previousDataSourcesRef = useRef(dataSources);
   useEffect(() => {
+    if (!isHydrated) return;
+
     const previousSources = previousDataSourcesRef.current;
     const sourcesChanged = previousSources.length !== dataSources.length;
 
@@ -49,11 +55,10 @@ export function DataSourcesWorkbench() {
       !dataSourcesMap.has(selectedId) &&
       dataSources.length > 0
     ) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedId(dataSources[0].id);
     }
     previousDataSourcesRef.current = dataSources;
-  }, [dataSources, selectedId, dataSourcesMap]);
+  }, [dataSources, selectedId, dataSourcesMap, isHydrated]);
 
   if (!isHydrated) {
     return (

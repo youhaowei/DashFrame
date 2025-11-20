@@ -1,10 +1,10 @@
 "use client";
 
-import { Label } from "../ui/label";
+import { Field, FieldLabel } from "../ui/field";
 import { Input as InputPrimitive } from "../ui/input";
 
 interface InputProps {
-  label: string;
+  label?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -21,16 +21,14 @@ export function Input({
   className,
 }: InputProps) {
   return (
-    <div className={className}>
-      <Label className="text-foreground mb-1 block text-xs font-medium">
-        {label}
-      </Label>
+    <Field className={className}>
+      {label && <FieldLabel>{label}</FieldLabel>}
       <InputPrimitive
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
-    </div>
+    </Field>
   );
 }

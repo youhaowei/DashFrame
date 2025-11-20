@@ -1,7 +1,9 @@
 import type { IconType } from "react-icons";
 import {
   LuArrowUpDown,
+  LuCalendar,
   LuCheck,
+  LuSquareCheck,
   LuChevronDown,
   LuChevronLeft,
   LuChevronRight,
@@ -12,6 +14,7 @@ import {
   LuChevronsUp,
   LuCircle,
   LuDatabase,
+  LuHash,
   LuLayers,
   LuLayoutDashboard,
   LuLayoutGrid,
@@ -28,6 +31,7 @@ import {
   LuTable,
   LuTrash2,
   LuTrendingUp,
+  LuType,
   LuX,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
@@ -73,12 +77,19 @@ export { SiNotion as Notion };
 
 // UI Elements
 export { LuCheck as Check };
+export { LuSquareCheck as CheckSquare };
 export { LuCircle as Dot };
 export { LuX as X };
 export { LuX as Close };
 export { LuX as CloseIcon };
 export { LuPlus as Plus };
 export { LuTrash2 as Delete };
+
+// Data Type Icons
+export { LuType as Type };
+export { LuHash as Hash };
+export { LuCalendar as Calendar };
+export { LuSquareCheck as Toggle };
 
 // Dashboard & Actions
 export { LuSparkles as Sparkles };
