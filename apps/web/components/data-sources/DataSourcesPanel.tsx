@@ -2,9 +2,10 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
-import { csvToDataFrame } from "@dash-frame/csv";
+import { csvToDataFrameWithFields } from "@dashframe/csv";
 import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase, NotionProperty } from "@dash-frame/notion";
+import type { NotionDatabase, NotionProperty } from "@dashframe/notion";
+import type { Field, SourceSchema } from "@dashframe/dataframe";
 import {
   useDataSourcesStore,
   useDataFramesStore,
@@ -12,7 +13,7 @@ import {
 } from "@/lib/stores";
 import { buildVegaLiteSpec } from "@/lib/spec";
 import type { TopLevelSpec } from "vega-lite";
-import type { DataFrame } from "@dash-frame/dataframe";
+import type { DataFrame } from "@dashframe/dataframe";
 import type {
   VisualizationType,
   VisualizationEncoding,
@@ -67,11 +68,12 @@ function extractVisualizationMetadata(
 }
 
 export function DataSourcesPanel() {
-  const addCSV = useDataSourcesStore((s) => s.addCSV);
+  const addLocal = useDataSourcesStore((s) => s.addLocal);
+  const getLocal = useDataSourcesStore((s) => s.getLocal);
+  const addDataTable = useDataSourcesStore((s) => s.addDataTable);
   const setNotion = useDataSourcesStore((s) => s.setNotion);
   const getNotion = useDataSourcesStore((s) => s.getNotion);
   const persistedNotionConnection = useDataSourcesStore((s) => s.getNotion());
-  const addInsight = useDataSourcesStore((s) => s.addInsight);
   const createDataFrameFromCSV = useDataFramesStore((s) => s.createFromCSV);
   const createDataFrameFromInsight = useDataFramesStore(
     (s) => s.createFromInsight,
@@ -101,31 +103,49 @@ export function DataSourcesPanel() {
 
   const processCSVData = useCallback(
     (
-      dataFrame: ReturnType<typeof csvToDataFrame>,
+      csvData: string[],
       fileName: string,
       fileSize: number,
     ) => {
-      const dataSourceId = crypto.randomUUID();
+      // Get or create local data source
+      const localSource = getLocal();
+      const dataSourceId = localSource ? localSource.id : addLocal("Local Files");
 
+      // Generate DataTable ID upfront
+      const dataTableId = crypto.randomUUID();
+
+      // Convert CSV to DataFrame with fields
+      const { dataFrame, fields, sourceSchema } = csvToDataFrameWithFields(
+        csvData,
+        dataTableId,
+      );
+
+      // Store DataFrame
       const dataFrameId = createDataFrameFromCSV(
         dataSourceId,
         `${fileName} Data`,
         dataFrame,
       );
 
-      addCSV(
+      // Add DataTable with fields and sourceSchema
+      addDataTable(
+        dataSourceId,
         fileName.replace(/\.csv$/i, ""),
         fileName,
-        fileSize,
-        dataFrameId,
+        {
+          sourceSchema,
+          fields,
+          dataFrameId,
+        },
       );
 
+      // Build default visualization using fields
+      const firstField = fields.find(f => f.columnName)?.name ?? null;
+      const numberField = fields.find(f => f.type === "number" && f.columnName)?.name ?? null;
+
       const defaultSpec = buildVegaLiteSpec(dataFrame, {
-        x: dataFrame.columns[0]?.name ?? null,
-        y:
-          dataFrame.columns.find((col) => col.type === "number")?.name ??
-          dataFrame.columns[1]?.name ??
-          null,
+        x: firstField,
+        y: numberField ?? fields.find(f => f.columnName && f.name !== firstField)?.name ?? null,
       });
 
       if (defaultSpec) {
@@ -144,7 +164,7 @@ export function DataSourcesPanel() {
         );
       }
     },
-    [addCSV, createDataFrameFromCSV, createVisualization],
+    [getLocal, addLocal, addDataTable, createDataFrameFromCSV, createVisualization],
   );
 
   const handleFileUpload = useCallback(
@@ -162,14 +182,12 @@ export function DataSourcesPanel() {
             return;
           }
 
-          const dataFrame = csvToDataFrame(result.data);
-
-          if (!dataFrame.columns.length) {
-            setError("CSV did not contain any columns.");
+          if (!result.data.length || !result.data[0]) {
+            setError("CSV did not contain any data.");
             return;
           }
 
-          processCSVData(dataFrame, file.name, file.size);
+          processCSVData(result.data, file.name, file.size);
         },
       });
     },
@@ -246,21 +264,22 @@ export function DataSourcesPanel() {
     (
       dataFrame: DataFrame,
       notionSourceId: string,
-      insightId: string,
+      dataTableId: string,
+      fields: Field[],
     ) => {
-      const dataFrameId = createDataFrameFromInsight(
+      const dataFrameId = createDataFrameFromCSV(
         notionSourceId,
-        insightId,
         "Notion Data",
         dataFrame,
       );
 
+      // Build default visualization using fields
+      const firstField = fields.find(f => f.columnName)?.name ?? null;
+      const numberField = fields.find(f => f.type === "number" && f.columnName)?.name ?? null;
+
       const defaultSpec = buildVegaLiteSpec(dataFrame, {
-        x: dataFrame.columns[0]?.name ?? null,
-        y:
-          dataFrame.columns.find((col) => col.type === "number")?.name ??
-          dataFrame.columns[1]?.name ??
-          null,
+        x: firstField,
+        y: numberField ?? fields.find(f => f.columnName && f.name !== firstField)?.name ?? null,
       });
 
       if (defaultSpec) {
@@ -271,8 +290,6 @@ export function DataSourcesPanel() {
         createVisualization(
           {
             dataFrameId,
-            dataSourceId: notionSourceId,
-            insightId,
           },
           "Notion Chart",
           specWithoutData,
@@ -280,8 +297,10 @@ export function DataSourcesPanel() {
           encoding,
         );
       }
+
+      return dataFrameId;
     },
-    [createDataFrameFromInsight, createVisualization],
+    [createDataFrameFromCSV, createVisualization],
   );
 
   const handleImportNotion = useCallback(async () => {
@@ -304,25 +323,40 @@ export function DataSourcesPanel() {
     setIsImporting(true);
 
     try {
-      const insightId = addInsight(
-        notionSource.id,
-        `${selectedDatabaseId} Insight`,
-        selectedDatabaseId,
-        selectedPropertyIds,
-      );
+      // Generate fields from schema
+      const dataTableId = crypto.randomUUID();
+      const { generateFieldsFromNotionSchema } = await import("@dashframe/notion");
+      const { fields, sourceSchema } = generateFieldsFromNotionSchema(databaseSchema, dataTableId);
 
+      // Fetch data from Notion
       const dataFrame = await queryDatabaseMutation.mutateAsync({
         apiKey: notionApiKey,
         databaseId: selectedDatabaseId,
         selectedPropertyIds,
       });
 
-      if (!dataFrame.columns.length) {
+      if (!dataFrame.fieldIds?.length) {
         setError("No data found in the selected database");
         return;
       }
 
-      processNotionData(dataFrame, notionSource.id, insightId);
+      // Process and store data
+      const dataFrameId = processNotionData(dataFrame, notionSource.id, dataTableId, fields);
+
+      // Find the selected database name
+      const dbName = notionDatabases.find(db => db.id === selectedDatabaseId)?.title || "Notion Database";
+
+      // Add DataTable with fields and sourceSchema
+      addDataTable(
+        notionSource.id,
+        dbName,
+        selectedDatabaseId,
+        {
+          sourceSchema,
+          fields,
+          dataFrameId,
+        },
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to import from Notion",
@@ -334,8 +368,10 @@ export function DataSourcesPanel() {
     notionApiKey,
     selectedDatabaseId,
     selectedPropertyIds,
+    databaseSchema,
+    notionDatabases,
     getNotion,
-    addInsight,
+    addDataTable,
     queryDatabaseMutation,
     processNotionData,
   ]);

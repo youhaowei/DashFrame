@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import type { EnhancedDataFrame } from "@dash-frame/dataframe";
+import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";

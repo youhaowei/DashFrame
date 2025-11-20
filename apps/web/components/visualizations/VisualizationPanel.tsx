@@ -93,14 +93,14 @@ export function VisualizationPanel() {
         <div className="text-muted-foreground space-y-2 text-xs">
           <div>
             <span className="text-foreground font-semibold">Columns:</span>{" "}
-            {dataFrame.data.columns.length}
+            {dataFrame.data.columns?.length || 0}
           </div>
           <div>
             <span className="text-foreground font-semibold">
               Detected types:
             </span>
             <ul className="mt-1 space-y-1">
-              {dataFrame.data.columns.map((column) => (
+              {(dataFrame.data.columns || []).map((column) => (
                 <li key={column.name} className="flex items-center gap-2">
                   <span className="bg-muted text-muted-foreground rounded px-2 py-1 text-[10px]">
                     {column.type}

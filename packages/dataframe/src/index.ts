@@ -10,9 +10,12 @@ export type DataFrameColumn = {
 export type DataFrameRow = Record<string, unknown>;
 
 export type DataFrame = {
-  columns: DataFrameColumn[];
-  primaryKey?: string | string[]; // Column name(s) forming the primary key
+  fieldIds: UUID[];               // References to Field definitions
   rows: DataFrameRow[];
+  primaryKey?: string | string[]; // Column name(s) forming the primary key
+
+  /** @deprecated For backward compatibility with join operations only. Will be removed in future version. */
+  columns?: DataFrameColumn[];
 };
 
 // UUID type for unique identifiers
@@ -42,55 +45,68 @@ export type EnhancedDataFrame = {
   data: DataFrame;
 };
 
+// ============================================================================
+// Field/Metric Architecture Types
+// ============================================================================
+
+// Foreign key reference (for join suggestions)
+export type ForeignKey = {
+  tableId: UUID;         // Stable reference to target DataTable
+  columnName: string;    // Target column name
+};
+
+// Table column (discovered from source)
+export type TableColumn = {
+  name: string;
+  type: string;          // Native source type: "status", "relation", "varchar", "timestamp"
+  foreignKey?: ForeignKey;
+};
+
+// Field (user-facing column with lineage)
+export type Field = {
+  id: UUID;
+  name: string;          // User-facing name (can rename)
+  tableId: UUID;         // Which DataTable owns this field (lineage)
+  columnName?: string;   // Which TableColumn this maps to (undefined for computed fields)
+  type: ColumnType;      // Normalized: "string" | "number" | "date" | "boolean"
+};
+
+// Metric (aggregation)
+export type Metric = {
+  id: UUID;
+  name: string;
+  tableId: UUID;         // Which DataTable owns this metric (lineage)
+  columnName?: string;   // Which TableColumn to aggregate (undefined for count())
+  aggregation: "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
+};
+
+// Source schema wrapper
+export type SourceSchema = {
+  columns: TableColumn[];
+  version: number;
+  lastSyncedAt: number;
+};
+
 // DataFrame operations
 export { join } from "./operations";
 export type { JoinOptions, JoinType } from "./operations";
 
 /**
+ * @deprecated This function is deprecated with the new Field/Metric architecture.
+ * DataFrame now uses fieldIds instead of columns.
+ * This function will be removed in a future version.
+ *
  * Ensure DataFrame has _rowIndex column and primaryKey set.
  * Used for migrating old DataFrames that were created before ID support.
  *
  * @param df - DataFrame to migrate
  * @returns Migrated DataFrame with _rowIndex and primaryKey
  */
-export function ensureIdFields(df: DataFrame): DataFrame {
-  // Check if already has _rowIndex column
-  const hasRowIndex = df.columns.some((col) => col.name === "_rowIndex");
-
-  if (hasRowIndex && df.primaryKey) {
-    // Already migrated
-    return df;
-  }
-
-  // Add _rowIndex column if missing
-  const columns: DataFrameColumn[] = hasRowIndex
-    ? df.columns
-    : [
-        { name: "_rowIndex", type: "number" },
-        ...df.columns,
-      ];
-
-  // Add _rowIndex values to rows if missing
-  const rows: DataFrameRow[] = hasRowIndex
-    ? df.rows
-    : df.rows.map((row, index) => ({
-        _rowIndex: index,
-        ...row,
-      }));
-
-  // Detect or set primary key
-  let primaryKey = df.primaryKey;
-  if (!primaryKey) {
-    // Try to detect ID column by name pattern
-    const idColumn = df.columns.find((col) => /^_?id$/i.test(col.name));
-    primaryKey = idColumn ? idColumn.name : "_rowIndex";
-  }
-
-  return {
-    columns,
-    primaryKey,
-    rows,
-  };
+export function ensureIdFields(df: any): any {
+  // This function needs to be refactored for the new architecture
+  // For now, just return the DataFrame as-is
+  // TODO: Remove this function or update it to work with fieldIds
+  return df;
 }
 
 // Future DataFrame utilities will go here

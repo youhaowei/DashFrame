@@ -1,8 +1,8 @@
 {
-  "name": "dash-frame",
+  "name": "dashframe",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.12.0",
+  "packageManager": "pnpm@10.23.0",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -15,7 +15,7 @@
     "clean": "turbo clean"
   },
   "devDependencies": {
-    "@dash-frame/eslint-config": "workspace:*",
+    "@dashframe/eslint-config": "workspace:*",
     "@types/eslint": "9.6.1",
     "eslint": "9.38.0",
     "eslint-config-next": "16.0.0",

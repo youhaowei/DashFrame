@@ -85,31 +85,7 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
     );
   }
 
-  if (visualizations.length === 0) {
-    return (
-      <div className="border-border/70 bg-card/60 rounded-2xl border border-dashed px-6 py-8 text-center shadow-sm">
-        <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <h2 className="text-foreground text-lg font-semibold">
-          Create your first visualization
-        </h2>
-        <p className="text-muted-foreground mt-2 text-sm">
-          Upload data or connect to Notion, then design charts tailored to your
-          analysis.
-        </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <Button variant="outline" asChild size="sm">
-            <Link href="/data-sources">Browse Data Sources</Link>
-          </Button>
-          <Button onClick={onCreateClick} size="sm">
-            <Plus className="mr-2 h-4 w-4" />
-            Create Visualization
-          </Button>
-        </div>
-      </div>
-    );
-  }
+
 
   return (
     <ItemSelector

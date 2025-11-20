@@ -1,3 +1,8 @@
+/**
+ * TODO: This file needs to be refactored for the new Field/Metric architecture.
+ * The join operations currently use the deprecated `columns` property on DataFrame.
+ * Future work should update joins to work with fieldIds and Field definitions.
+ */
 import type { DataFrame, DataFrameRow, DataFrameColumn } from "../index";
 
 export type JoinType = "inner" | "left" | "right" | "outer";
@@ -74,6 +79,11 @@ export function join(
   const leftJoinCol = typeof on === "string" ? on : on.left;
   const rightJoinCol = typeof on === "string" ? on : on.right;
 
+  // Validate columns exist (required for join operations)
+  if (!left.columns || !right.columns) {
+    throw new Error("Join operations require DataFrames with columns property");
+  }
+
   // Validate join columns exist
   if (!left.columns.find((col) => col.name === leftJoinCol)) {
     throw new Error(`Left join column "${leftJoinCol}" not found`);
@@ -131,6 +141,7 @@ export function join(
   const outputPrimaryKey = determinePrimaryKey(left, right, how);
 
   return {
+    fieldIds: [], // TODO: Generate proper fieldIds when refactoring for Field/Metric architecture
     columns: outputColumns,
     primaryKey: outputPrimaryKey,
     rows: joinedRows,
@@ -149,18 +160,22 @@ function mergeRows(
 ): DataFrameRow {
   const merged: DataFrameRow = {};
 
+  // Columns are guaranteed to exist at this point due to validation in join()
+  const leftColumns = left.columns!;
+  const rightColumns = right.columns!;
+
   // Add left columns
   if (leftRow) {
-    left.columns.forEach((col) => {
-      const outputName = needsSuffix(col.name, right.columns)
+    leftColumns.forEach((col) => {
+      const outputName = needsSuffix(col.name, rightColumns)
         ? `${col.name}${suffixes.left}`
         : col.name;
       merged[outputName] = leftRow[col.name];
     });
   } else {
     // Null row - fill with nulls
-    left.columns.forEach((col) => {
-      const outputName = needsSuffix(col.name, right.columns)
+    leftColumns.forEach((col) => {
+      const outputName = needsSuffix(col.name, rightColumns)
         ? `${col.name}${suffixes.left}`
         : col.name;
       merged[outputName] = null;
@@ -169,16 +184,16 @@ function mergeRows(
 
   // Add right columns
   if (rightRow) {
-    right.columns.forEach((col) => {
-      const outputName = needsSuffix(col.name, left.columns)
+    rightColumns.forEach((col) => {
+      const outputName = needsSuffix(col.name, leftColumns)
         ? `${col.name}${suffixes.right}`
         : col.name;
       merged[outputName] = rightRow[col.name];
     });
   } else {
     // Null row - fill with nulls
-    right.columns.forEach((col) => {
-      const outputName = needsSuffix(col.name, left.columns)
+    rightColumns.forEach((col) => {
+      const outputName = needsSuffix(col.name, leftColumns)
         ? `${col.name}${suffixes.right}`
         : col.name;
       merged[outputName] = null;
@@ -208,9 +223,13 @@ function buildJoinedColumns(
 ): DataFrameColumn[] {
   const columns: DataFrameColumn[] = [];
 
+  // Columns are guaranteed to exist at this point due to validation in join()
+  const leftColumns = left.columns!;
+  const rightColumns = right.columns!;
+
   // Add left columns
-  left.columns.forEach((col) => {
-    const outputName = needsSuffix(col.name, right.columns)
+  leftColumns.forEach((col) => {
+    const outputName = needsSuffix(col.name, rightColumns)
       ? `${col.name}${suffixes.left}`
       : col.name;
     columns.push({
@@ -220,8 +239,8 @@ function buildJoinedColumns(
   });
 
   // Add right columns
-  right.columns.forEach((col) => {
-    const outputName = needsSuffix(col.name, left.columns)
+  rightColumns.forEach((col) => {
+    const outputName = needsSuffix(col.name, leftColumns)
       ? `${col.name}${suffixes.right}`
       : col.name;
     columns.push({

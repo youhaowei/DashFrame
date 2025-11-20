@@ -3,7 +3,7 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, DataFrame, EnhancedDataFrame } from "@dash-frame/dataframe";
+import type { UUID, DataFrame, EnhancedDataFrame } from "@dashframe/dataframe";
 
 // ============================================================================
 // State Interface
@@ -87,7 +87,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             },
             timestamp: now,
             rowCount: data.rows.length,
-            columnCount: data.columns.length,
+            columnCount: data.fieldIds?.length ?? 0,
           },
           data,
         };
@@ -113,7 +113,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             },
             timestamp: now,
             rowCount: data.rows.length,
-            columnCount: data.columns.length,
+            columnCount: data.fieldIds?.length ?? 0,
           },
           data,
         };
@@ -138,7 +138,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
               df.data = data;
               df.metadata.timestamp = Date.now();
               df.metadata.rowCount = data.rows.length;
-              df.metadata.columnCount = data.columns.length;
+              df.metadata.columnCount = data.fieldIds?.length ?? 0;
             }
           });
         } else {
@@ -155,7 +155,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             df.data = data;
             df.metadata.timestamp = Date.now();
             df.metadata.rowCount = data.rows.length;
-            df.metadata.columnCount = data.columns.length;
+            df.metadata.columnCount = data.fieldIds?.length ?? 0;
           }
         });
       },
@@ -193,7 +193,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
       },
     })),
     {
-      name: "dash-frame:dataframes",
+      name: "dashframe:dataframes",
       storage,
       partialize: (state) => ({
         dataFrames: state.dataFrames,

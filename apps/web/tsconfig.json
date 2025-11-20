@@ -4,9 +4,9 @@
     "baseUrl": "./",
     "paths": {
       "@/*": ["./*"],
-      "@dash-frame/dataframe": ["../../packages/dataframe/src"],
-      "@dash-frame/csv": ["../../packages/csv/src"],
-      "@dash-frame/ui": ["../../packages/ui/src"]
+      "@dashframe/dataframe": ["../../packages/dataframe/src"],
+      "@dashframe/csv": ["../../packages/csv/src"],
+      "@dashframe/ui": ["../../packages/ui/src"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,

@@ -162,10 +162,10 @@ Connect → PostgreSQL DataSource
 
 ```
 localStorage keys:
-  dash-frame:data-sources  (all types, with nested dataTables)
-  dash-frame:insights      (global, cross-source)
-  dash-frame:dataframes    (cached results + metadata)
-  dash-frame:visualizations
+  dashframe:data-sources  (all types, with nested dataTables)
+  dashframe:insights      (global, cross-source)
+  dashframe:dataframes    (cached results + metadata)
+  dashframe:visualizations
 ```
 
 ## DataTable Schema Layers
@@ -295,7 +295,7 @@ Fallback heuristics include name matching with pluralization and common ID patte
 
 - **User-facing language** - Avoid technical jargon in page titles, descriptions, and labels
 - **Metadata cleanup** - Remove implementation details from user-visible content
-- **Helper text** - Write for users, not developers (e.g., "Stored locally in your browser" ✓, "localStorage key: dash-frame:api-key" ✗)
+- **Helper text** - Write for users, not developers (e.g., "Stored locally in your browser" ✓, "localStorage key: dashframe:api-key" ✗)
 
 ### Accessibility
 
@@ -308,4 +308,4 @@ Fallback heuristics include name matching with pluralization and common ID patte
 ## Naming Notes
 
 - Product and architectural references use the `DashFrame` name.
-- Workspace packages and config utilities follow the kebab-case `@dash-frame/*` scope (e.g. `@dash-frame/dataframe`) to stay aligned with npm conventions.
+- Workspace packages and config utilities follow the lowercase `@dashframe/*` scope (e.g. `@dashframe/dataframe`) to stay aligned with npm conventions.

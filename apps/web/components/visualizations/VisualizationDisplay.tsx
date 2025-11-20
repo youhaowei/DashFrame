@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { BarChart3, Table as TableIcon, Layers } from "@/components/icons";
 import type { TopLevelSpec } from "vega-lite";
-import type { EnhancedDataFrame } from "@dash-frame/dataframe";
+import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -75,11 +75,11 @@ function buildVegaSpec(
   };
 
   // If no encoding is set, use defaults
-  const x = encoding?.x || dataFrame.data.columns[0]?.name || "x";
+  const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
   const y =
     encoding?.y ||
-    dataFrame.data.columns.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns[1]?.name ||
+    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
+    dataFrame.data.columns?.[1]?.name ||
     "y";
 
   switch (visualizationType) {

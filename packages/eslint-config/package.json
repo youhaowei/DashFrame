@@ -2,7 +2,7 @@
   "exports": {
     ".": "./index.mjs"
   },
-  "name": "@dash-frame/eslint-config",
+  "name": "@dashframe/eslint-config",
   "peerDependencies": {
     "eslint": ">=9.0.0",
     "eslint-config-prettier": ">=10.0.0",

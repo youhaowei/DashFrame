@@ -27,8 +27,8 @@ import { TableView } from "@/components/visualizations/TableView";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
-import type { NotionProperty } from "@dash-frame/notion";
-import { mapNotionTypeToColumnType } from "@dash-frame/notion";
+import type { NotionProperty } from "@dashframe/notion";
+import { mapNotionTypeToColumnType } from "@dashframe/notion";
 import { Input } from "@/components/fields/input";
 import { MultiSelect } from "@/components/fields/multi-select";
 
@@ -150,13 +150,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         });
         setDatabaseSchema(schema);
 
-        // Load previously selected properties from DataTable dimensions
-        if (selectedDataTable.dimensions.length > 0) {
-          setSelectedPropertyIds(selectedDataTable.dimensions);
-        } else {
-          // Default: select all properties
-          setSelectedPropertyIds(schema.map((p) => p.id));
-        }
+        // Default: select all properties
+        // Note: Previously used DataTable.dimensions, now we select all by default
+        setSelectedPropertyIds(schema.map((p) => p.id));
       } catch (error) {
         console.error("Failed to fetch database schema:", error);
         toast.error("Failed to load database fields");
@@ -211,7 +207,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         selectedPropertyIds,
       });
 
-      if (!dataFrame.columns.length) {
+      if (!dataFrame.columns || !dataFrame.columns.length) {
         toast.error("No data found in the selected database");
         return;
       }
@@ -228,18 +224,13 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         );
       } else {
         // Create new DataFrame
-        const newDataFrameId = dataFramesStore.add(
-          dataFrame,
+        const newDataFrameId = dataFramesStore.createFromCSV(
+          dataSource.id,
           `${selectedDataTable.name} (${new Date().toLocaleString()})`,
+          dataFrame,
         );
         refreshDataTable(dataSource.id, selectedDataTable.id, newDataFrameId);
       }
-
-      // Update DataTable dimensions with selected properties
-      const updateDataTable = useDataSourcesStore.getState().updateDataTable;
-      updateDataTable(dataSource.id, selectedDataTable.id, {
-        dimensions: selectedPropertyIds,
-      });
 
       toast.success("Data synced successfully");
     } catch (error) {
@@ -268,10 +259,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       const dataFrame = await queryDatabaseMutation.mutateAsync({
         apiKey: dataSource.apiKey,
         databaseId: selectedDataTable.table,
-        selectedPropertyIds: selectedDataTable.dimensions,
+        selectedPropertyIds,
       });
 
-      if (!dataFrame.columns.length) {
+      if (!dataFrame.columns || !dataFrame.columns.length) {
         toast.error("No data found in the selected database");
         return;
       }

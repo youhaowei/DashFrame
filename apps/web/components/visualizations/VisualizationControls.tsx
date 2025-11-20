@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { SidePanel } from "@/components/shared/SidePanel";
+import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -138,8 +139,8 @@ export function VisualizationControls() {
     );
   }
 
-  const columns = dataFrame.data.columns.map((col) => col.name);
-  const numericColumns = dataFrame.data.columns
+  const columns = (dataFrame.data.columns || []).map((col) => col.name);
+  const numericColumns = (dataFrame.data.columns || [])
     .filter((col) => col.type === "number")
     .map((col) => col.name);
 
@@ -148,12 +149,12 @@ export function VisualizationControls() {
   // Only allow table visualization if there are no numeric columns
   const visualizationTypeOptions = hasNumericColumns
     ? [
-        { label: "Table", value: "table" },
-        { label: "Bar Chart", value: "bar" },
-        { label: "Line Chart", value: "line" },
-        { label: "Scatter Plot", value: "scatter" },
-        { label: "Area Chart", value: "area" },
-      ]
+      { label: "Table", value: "table" },
+      { label: "Bar Chart", value: "bar" },
+      { label: "Line Chart", value: "line" },
+      { label: "Scatter Plot", value: "scatter" },
+      { label: "Area Chart", value: "area" },
+    ]
     : [{ label: "Table", value: "table" }];
 
   const columnOptions = columns.map((col) => ({ label: col, value: col }));
@@ -163,7 +164,21 @@ export function VisualizationControls() {
   }));
 
   const handleTypeChange = (type: string) => {
-    updateVisualizationType(activeViz.id, type as VisualizationType);
+    const newType = type as VisualizationType;
+
+    // Auto-select axes using shared utility
+    const newEncoding = autoSelectEncoding(
+      newType,
+      columns,
+      numericColumns,
+      activeViz.encoding
+    );
+
+    // Update both type and encoding
+    update(activeViz.id, {
+      visualizationType: newType,
+      encoding: newEncoding
+    });
   };
 
   const handleEncodingChange = (
@@ -224,7 +239,7 @@ export function VisualizationControls() {
       const newDataFrame = await queryNotionDatabase.mutateAsync({
         apiKey: foundDataSource.apiKey, // From NotionDataSource
         databaseId: foundDataTable.table, // From DataTable
-        selectedPropertyIds: foundDataTable.dimensions, // From DataTable
+        selectedPropertyIds: foundDataTable.fields.map(f => f.id), // Use field IDs
       });
 
       // Update the DataFrame with fresh data
@@ -309,7 +324,7 @@ export function VisualizationControls() {
                   Show column types
                 </summary>
                 <ul className="mt-1.5 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
-                  {dataFrame.data.columns.map((col) => (
+                  {(dataFrame.data.columns || []).map((col) => (
                     <li key={col.name}>
                       <strong>{col.name}</strong>: {col.type}
                     </li>

@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { SidePanel } from "@/components/shared/SidePanel";
 import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase } from "@dash-frame/notion";
+import type { NotionDatabase } from "@dashframe/notion";
 import { Input } from "@/components/fields/input";
 
 interface CollapsibleSectionProps {
@@ -81,7 +81,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     if (!dataSourceId) return;
 
     try {
-      const cacheKey = `dash-frame:notion-databases:${dataSourceId}`;
+      const cacheKey = `dashframe:notion-databases:${dataSourceId}`;
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const { databases, timestamp } = JSON.parse(cached);
@@ -138,7 +138,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
       // Persist to localStorage
       try {
-        const cacheKey = `dash-frame:notion-databases:${dataSource.id}`;
+        const cacheKey = `dashframe:notion-databases:${dataSource.id}`;
         localStorage.setItem(
           cacheKey,
           JSON.stringify({
@@ -165,7 +165,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     if (!dataSource || !isNotionDataSource(dataSource)) return;
 
     try {
-      addDataTable(dataSource.id, database.title, database.id, [], undefined);
+      addDataTable(dataSource.id, database.title, database.id);
       toast.success(`Added "${database.title}"`);
     } catch (error) {
       console.error("Failed to add database:", error);
@@ -236,10 +236,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
             <Input
-              id="api-key"
               type="password"
               value={dataSource.apiKey}
-              onChange={(e) => handleApiKeyChange(e.target.value)}
+              onChange={(value) => handleApiKeyChange(value)}
               className="font-mono text-xs"
               placeholder="secret_..."
             />

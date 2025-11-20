@@ -3,7 +3,12 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID } from "@dash-frame/dataframe";
+import type {
+  UUID,
+  Field,
+  Metric,
+  SourceSchema,
+} from "@dashframe/dataframe";
 import type {
   DataSource,
   LocalDataSource,
@@ -35,13 +40,17 @@ interface DataSourcesActions {
     dataSourceId: UUID,
     name: string,
     table: string,
-    dimensions: string[],
-    dataFrameId?: UUID,
+    options?: {
+      sourceSchema?: SourceSchema;
+      fields?: Field[];
+      metrics?: Metric[];
+      dataFrameId?: UUID;
+    }
   ) => UUID;
   updateDataTable: (
     dataSourceId: UUID,
     dataTableId: UUID,
-    updates: Partial<Omit<DataTable, "id" | "createdAt" | "sourceId">>,
+    updates: Partial<Omit<DataTable, "id" | "createdAt" | "dataSourceId">>,
   ) => void;
   refreshDataTable: (
     dataSourceId: UUID,
@@ -54,6 +63,33 @@ interface DataSourcesActions {
     dataTableId: UUID,
   ) => DataTable | undefined;
   getDataTablesBySource: (dataSourceId: UUID) => DataTable[];
+
+  // Field Management
+  addField: (dataSourceId: UUID, dataTableId: UUID, field: Field) => void;
+  updateField: (
+    dataSourceId: UUID,
+    dataTableId: UUID,
+    fieldId: UUID,
+    updates: Partial<Field>
+  ) => void;
+  deleteField: (dataSourceId: UUID, dataTableId: UUID, fieldId: UUID) => void;
+
+  // Metric Management
+  addMetric: (dataSourceId: UUID, dataTableId: UUID, metric: Metric) => void;
+  updateMetric: (
+    dataSourceId: UUID,
+    dataTableId: UUID,
+    metricId: UUID,
+    updates: Partial<Metric>
+  ) => void;
+  deleteMetric: (dataSourceId: UUID, dataTableId: UUID, metricId: UUID) => void;
+
+  // Schema sync
+  updateSourceSchema: (
+    dataSourceId: UUID,
+    dataTableId: UUID,
+    sourceSchema: SourceSchema
+  ) => void;
 
   // General
   update: (id: UUID, updates: Partial<DataSource>) => void;
@@ -86,9 +122,39 @@ const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
             let dataTables: Map<UUID, DataTable>;
 
             if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
-              // Convert dataTables array back to Map
+              // Convert dataTables array back to Map with migration
               dataTables = new Map(
-                ds.dataTables as unknown as [UUID, DataTable][],
+                (ds.dataTables as unknown as [UUID, any][]).map(([id, dt]) => {
+                  // MIGRATION: Old DataTable → New DataTable
+
+                  // Auto-generate default count metric if missing
+                  const hasCountMetric = dt.metrics?.some(
+                    (m: Metric) => m.aggregation === "count" && !m.columnName
+                  );
+
+                  const defaultMetrics: Metric[] = hasCountMetric ? [] : [{
+                    id: crypto.randomUUID(),
+                    name: "Count",
+                    tableId: dt.id,
+                    columnName: undefined,
+                    aggregation: "count"
+                  }];
+
+                  const migrated: DataTable = {
+                    ...dt,
+                    dataSourceId: (dt as any).sourceId ?? dt.dataSourceId,
+                    table: dt.table ?? "",
+                    sourceSchema: dt.sourceSchema,
+                    fields: dt.fields ?? [],
+                    metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
+                  };
+
+                  // Cleanup old fields
+                  delete (migrated as any).sourceId;
+                  delete (migrated as any).dimensions;
+
+                  return [id, migrated];
+                })
               );
             } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
               // Already a Map (shouldn't happen in serialized data, but handle it)
@@ -218,7 +284,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
       },
 
       // DataTable Management (works for all source types)
-      addDataTable: (dataSourceId, name, table, dimensions, dataFrameId) => {
+      addDataTable: (dataSourceId, name, table, options = {}) => {
         const dataSource = get().dataSources.get(dataSourceId);
 
         if (!dataSource) {
@@ -226,16 +292,26 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
         }
 
         const dataTableId = crypto.randomUUID();
-        const now = Date.now();
+
+        // Auto-generate default count metric
+        const defaultMetrics: Metric[] = [{
+          id: crypto.randomUUID(),
+          name: "Count",
+          tableId: dataTableId,
+          columnName: undefined,  // Count all rows
+          aggregation: "count"
+        }];
 
         const dataTable: DataTable = {
           id: dataTableId,
           name,
-          sourceId: dataSourceId,
+          dataSourceId,
           table,
-          dimensions,
-          dataFrameId,
-          createdAt: now,
+          sourceSchema: options.sourceSchema,
+          fields: options.fields ?? [],
+          metrics: [...defaultMetrics, ...(options.metrics ?? [])],
+          dataFrameId: options.dataFrameId,
+          createdAt: Date.now(),
         };
 
         set((state) => {
@@ -331,9 +407,102 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           state.dataSources.clear();
         });
       },
+
+      // Field Management
+      addField: (dataSourceId, dataTableId, field) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.fields.push(field);
+            }
+          }
+        });
+      },
+
+      updateField: (dataSourceId, dataTableId, fieldId, updates) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              const field = dataTable.fields.find(f => f.id === fieldId);
+              if (field) {
+                Object.assign(field, updates);
+              }
+            }
+          }
+        });
+      },
+
+      deleteField: (dataSourceId, dataTableId, fieldId) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.fields = dataTable.fields.filter(f => f.id !== fieldId);
+            }
+          }
+        });
+      },
+
+      // Metric Management
+      addMetric: (dataSourceId, dataTableId, metric) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.metrics.push(metric);
+            }
+          }
+        });
+      },
+
+      updateMetric: (dataSourceId, dataTableId, metricId, updates) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              const metric = dataTable.metrics.find(m => m.id === metricId);
+              if (metric) {
+                Object.assign(metric, updates);
+              }
+            }
+          }
+        });
+      },
+
+      deleteMetric: (dataSourceId, dataTableId, metricId) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.metrics = dataTable.metrics.filter(m => m.id !== metricId);
+            }
+          }
+        });
+      },
+
+      // Schema sync
+      updateSourceSchema: (dataSourceId, dataTableId, sourceSchema) => {
+        set((state) => {
+          const source = state.dataSources.get(dataSourceId);
+          if (source) {
+            const dataTable = source.dataTables.get(dataTableId);
+            if (dataTable) {
+              dataTable.sourceSchema = sourceSchema;
+            }
+          }
+        });
+      },
     })),
     {
-      name: "dash-frame:data-sources",
+      name: "dashframe:data-sources",
       storage,
       partialize: (state) => ({
         dataSources: state.dataSources,

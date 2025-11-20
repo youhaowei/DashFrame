@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
-import { csvToDataFrame } from "@dash-frame/csv";
+import { csvToDataFrame } from "@dashframe/csv";
 import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase, NotionProperty } from "@dash-frame/notion";
+import type { NotionDatabase, NotionProperty } from "@dashframe/notion";
 import {
   useDataSourcesStore,
   useDataFramesStore,
@@ -13,7 +13,7 @@ import {
 } from "@/lib/stores";
 import { buildVegaLiteSpec } from "@/lib/spec";
 import type { TopLevelSpec } from "vega-lite";
-import type { DataFrame } from "@dash-frame/dataframe";
+import type { DataFrame } from "@dashframe/dataframe";
 import type {
   VisualizationType,
   VisualizationEncoding,
@@ -121,20 +121,20 @@ export function NewDataSourcePanel() {
       );
 
       // Create DataTable for this CSV file
-      const columns = dataFrame.columns.map((col) => col.name);
       addDataTable(
         localSource.id,
         fileName.replace(/\.csv$/i, ""),
         fileName,
-        columns,
-        dataFrameId,
+        {
+          dataFrameId,
+        }
       );
 
       const defaultSpec = buildVegaLiteSpec(dataFrame, {
-        x: dataFrame.columns[0]?.name ?? null,
+        x: dataFrame.columns?.[0]?.name ?? null,
         y:
-          dataFrame.columns.find((col) => col.type === "number")?.name ??
-          dataFrame.columns[1]?.name ??
+          dataFrame.columns?.find((col) => col.type === "number")?.name ??
+          dataFrame.columns?.[1]?.name ??
           null,
       });
 
@@ -180,7 +180,7 @@ export function NewDataSourcePanel() {
 
           const dataFrame = csvToDataFrame(result.data);
 
-          if (!dataFrame.columns.length) {
+          if (!dataFrame.columns || !dataFrame.columns.length) {
             setError("CSV did not contain any columns.");
             return;
           }
@@ -277,10 +277,10 @@ export function NewDataSourcePanel() {
       setInsightDataFrame(insightId, dataFrameId);
 
       const defaultSpec = buildVegaLiteSpec(dataFrame, {
-        x: dataFrame.columns[0]?.name ?? null,
+        x: dataFrame.columns?.[0]?.name ?? null,
         y:
-          dataFrame.columns.find((col) => col.type === "number")?.name ??
-          dataFrame.columns[1]?.name ??
+          dataFrame.columns?.find((col) => col.type === "number")?.name ??
+          dataFrame.columns?.[1]?.name ??
           null,
       });
 
@@ -329,7 +329,6 @@ export function NewDataSourcePanel() {
         notionSource.id,
         `${selectedDatabaseId} Table`,
         selectedDatabaseId,
-        selectedPropertyIds,
       );
 
       // Fetch data from Notion
@@ -339,7 +338,7 @@ export function NewDataSourcePanel() {
         selectedPropertyIds,
       });
 
-      if (!dataFrame.columns.length) {
+      if (!dataFrame.columns || !dataFrame.columns.length) {
         setError("No data found in the selected database");
         return;
       }

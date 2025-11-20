@@ -1,9 +1,9 @@
 import type {
   DataFrame,
-  DataFrameColumn,
   DataFrameRow,
   ColumnType,
-} from "@dash-frame/dataframe";
+  Field,
+} from "@dashframe/dataframe";
 import type {
   QueryDatabaseResponse,
   PageObjectResponse,
@@ -188,59 +188,38 @@ export function extractPropertyValue(property: PropertyValue): unknown {
 }
 
 /**
- * Convert Notion query response to DataFrame
+ * Convert Notion query response to DataFrame using pre-generated fields
  */
 export function convertNotionToDataFrame(
   response: QueryDatabaseResponse,
-  schema: NotionProperty[],
-  selectedPropertyIds?: string[],
+  fields: Field[],
 ): DataFrame {
-  // Filter schema to only selected properties
-  const activeSchema = selectedPropertyIds
-    ? schema.filter((prop) => selectedPropertyIds.includes(prop.id))
-    : schema;
-
-  // Create DataFrame columns with system columns first
-  const columns: DataFrameColumn[] = [
-    // System-generated row index
-    {
-      name: "_rowIndex",
-      type: "number",
-    },
-    // Notion page ID (primary key)
-    {
-      name: "_notionId",
-      type: "string",
-      sourceField: "page.id",
-    },
-    // User-selected properties
-    ...activeSchema.map((prop) => ({
-      name: prop.name,
-      type: mapNotionTypeToColumnType(prop.type),
-    })),
-  ];
-
   // Convert Notion pages to DataFrame rows
   const rows: DataFrameRow[] = response.results
     .filter((result): result is PageObjectResponse => result.object === "page")
     .map((page, index) => {
-      const row: DataFrameRow = {
-        // Add system columns
-        _rowIndex: index,
-        _notionId: page.id,
-      };
+      const row: DataFrameRow = {};
 
-      // Extract values for each selected property
-      activeSchema.forEach((prop) => {
-        const property = page.properties[prop.name];
-        row[prop.name] = extractPropertyValue(property);
+      // Extract values for each field
+      fields.forEach((field) => {
+        if (field.name === "_rowIndex") {
+          // Computed field: array index
+          row[field.name] = index;
+        } else if (field.name === "_notionId") {
+          // Computed field: Notion page ID
+          row[field.name] = page.id;
+        } else if (field.columnName) {
+          // User field: extract from Notion property
+          const property = page.properties[field.columnName];
+          row[field.name] = extractPropertyValue(property);
+        }
       });
 
       return row;
     });
 
   return {
-    columns,
+    fieldIds: fields.map(f => f.id),
     primaryKey: "_notionId",
     rows,
   };

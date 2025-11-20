@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useMemo, useRef } from "react";
-import type { DataFrame } from "@dash-frame/dataframe";
+import type { DataFrame } from "@dashframe/dataframe";
 
 interface TableViewProps {
   dataFrame: DataFrame;
@@ -26,7 +26,7 @@ export function TableView({ dataFrame }: TableViewProps) {
   // Build columns from DataFrame schema
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () =>
-      dataFrame.columns.map((col) => ({
+      (dataFrame.columns || []).map((col) => ({
         accessorKey: col.name,
         header: col.name,
         cell: (info) => {
@@ -75,7 +75,7 @@ export function TableView({ dataFrame }: TableViewProps) {
   });
 
   // Calculate grid template columns (equal width for all columns)
-  const gridTemplateColumns = `repeat(${dataFrame.columns.length}, minmax(120px, 1fr))`;
+  const gridTemplateColumns = `repeat(${dataFrame.columns?.length || 0}, minmax(120px, 1fr))`;
 
   return (
     <div className="flex h-full flex-col">

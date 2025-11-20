@@ -15,8 +15,8 @@ See `docs/architecture.md` for complete architecture details.
 ## Naming Conventions
 
 - Brand-facing references and code identifiers (components, types) use `DashFrame`.
-- Package scopes, directories, config keys, and persisted storage entries use kebab-case `dash-frame`, e.g. `@dash-frame/dataframe`.
-- When adding new workspace members, prefer the `@dash-frame/*` scope and update `pnpm-workspace.yaml` if layout changes.
+- Package scopes, directories, config keys, and persisted storage entries use the lowercase `dashframe` prefix, e.g. `@dashframe/dataframe`.
+- When adding new workspace members, prefer the `@dashframe/*` scope and update `pnpm-workspace.yaml` if layout changes.
 
 ## Commands
 

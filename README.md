@@ -28,8 +28,8 @@ docs/
 ## Naming Conventions
 
 - Use `DashFrame` for user-facing copy, branding, React components, and TypeScript types.
-- Use `dash-frame` for package names, config identifiers, workspace scopes (e.g. `@dash-frame/dataframe`), directories, and persisted storage keys.
-- Keep new packages under the `@dash-frame/*` scope so tooling and imports remain consistent.
+- Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/dataframe`), directories, and persisted storage keys.
+- Keep new packages under the `@dashframe/*` scope so tooling and imports remain consistent.
 
 ### Packages
 
@@ -44,10 +44,10 @@ Turbo treats these as common tasks (`pnpm build`, `pnpm lint`, `pnpm typecheck`,
 
 Package responsibilities:
 
-- `@dash-frame/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This package defines the DataFrame type and the functions to manipulate it.
-- `@dash-frame/csv`: This package is for handling CSV files and converting them to a DataFrame.
-- `@dash-frame/notion`: This package integrates with Notion databases via the official Notion API client, fetching database schemas and data, and converting them to a DataFrame.
-- `@dash-frame/ui`: This package is for shared UI primitives and components.
+- `@dashframe/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This package defines the DataFrame type and the functions to manipulate it.
+- `@dashframe/csv`: This package is for handling CSV files and converting them to a DataFrame.
+- `@dashframe/notion`: This package integrates with Notion databases via the official Notion API client, fetching database schemas and data, and converting them to a DataFrame.
+- `@dashframe/ui`: This package is for shared UI primitives and components.
 
 ## Getting Started
 
@@ -65,7 +65,7 @@ Package responsibilities:
 
    Visit `http://localhost:3000/` — the homepage now hosts the CSV → DataFrame → chart experience.
 
-   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dash-frame/web dev` or `pnpm --filter @dash-frame/csv dev` for focused work.
+   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dashframe/web dev` or `pnpm --filter @dashframe/csv dev` for focused work.
 
 3. Optional scripts:
    ```bash
@@ -110,7 +110,7 @@ DashFrame supports importing data directly from Notion databases:
 - ✅ Turborepo scaffolding, shared configs, and architecture doc
 - ✅ CSV upload → DataFrame parsing → Vega-Lite preview (with axis selectors and persistence)
 - ✅ Notion database integration with property selection and refresh capability
-- ✅ Shared packages (`@dash-frame/dataframe`, `@dash-frame/csv`, `@dash-frame/notion`, `@dash-frame/ui`) seeded
+- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/notion`, `@dashframe/ui`) seeded
 - ✅ Vega chart rendered client-side via dynamic `VegaChart`
 
 ## Roadmap

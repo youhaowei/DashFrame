@@ -3,7 +3,7 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, EnhancedDataFrame } from "@dash-frame/dataframe";
+import type { UUID, EnhancedDataFrame } from "@dashframe/dataframe";
 import type {
   Visualization,
   VisualizationSource,
@@ -255,7 +255,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       },
     })),
     {
-      name: "dash-frame:visualizations",
+      name: "dashframe:visualizations",
       storage,
       partialize: (state) => ({
         visualizations: state.visualizations,

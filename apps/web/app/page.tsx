@@ -1,30 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   VisualizationTabs,
   VisualizationControls,
   VisualizationDisplay,
   CreateVisualizationModal,
+  EmptyState,
 } from "@/components/visualizations";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { SidePanel } from "@/components/shared/SidePanel";
+import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 
 export default function HomePage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  const visualizations = useVisualizationsStore((state) => state.visualizations);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // Show empty state if no visualizations exist (only after hydration)
+  const showEmptyState = isHydrated && visualizations.size === 0;
 
   return (
     <>
-      <WorkbenchLayout
-        selector={
-          <VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />
-        }
-        leftPanel={<VisualizationControls />}
-      >
-        <SidePanel className="bg-card/75 shadow-lg">
-          <VisualizationDisplay />
-        </SidePanel>
-      </WorkbenchLayout>
+      {showEmptyState ? (
+        <EmptyState onCreateClick={() => { }} />
+      ) : (
+        <WorkbenchLayout
+          selector={
+            <VisualizationTabs onCreateClick={() => setIsCreateModalOpen(true)} />
+          }
+          leftPanel={<VisualizationControls />}
+        >
+          <SidePanel className="bg-card/75 shadow-lg">
+            <VisualizationDisplay />
+          </SidePanel>
+        </WorkbenchLayout>
+      )}
 
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}

@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { ColumnType } from "@dash-frame/dataframe";
+import type { ColumnType } from "@dashframe/dataframe";
 
 interface MultiSelectOption {
   value: string;

@@ -1,4 +1,9 @@
-import type { UUID } from "@dash-frame/dataframe";
+import type {
+  UUID,
+  Field,
+  Metric,
+  SourceSchema,
+} from "@dashframe/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 // ============================================================================
@@ -11,11 +16,19 @@ import type { TopLevelSpec } from "vega-lite";
 // - Remote (PostgreSQL): Metadata only → no dataFrameId (needs Insight query to fetch)
 export interface DataTable {
   id: UUID;
-  name: string;
-  sourceId: UUID; // Which DataSource this belongs to
+  name: string; // User-defined display name
+  dataSourceId: UUID; // Which DataSource this belongs to (renamed from sourceId)
   table: string; // Notion DB ID, CSV filename, PostgreSQL table name, etc.
-  dimensions: string[]; // Selected columns/fields to include
+
+  // Schema layers
+  sourceSchema?: SourceSchema; // Discovered columns from source
+  fields: Field[]; // User-defined columns (auto-generated initially)
+  metrics: Metric[]; // Aggregations (includes default count())
+
+  // Data reference
   dataFrameId?: UUID; // Present for local/cached, absent for remote metadata-only tables
+
+  // Timestamps
   lastFetchedAt?: number; // Timestamp of last data fetch (for cached sources like Notion)
   createdAt: number;
 }

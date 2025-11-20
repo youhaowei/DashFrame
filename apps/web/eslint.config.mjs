@@ -1,7 +1,7 @@
 import { defineConfig } from "eslint/config";
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
-import sharedConfig, { sharedRules } from "@dash-frame/eslint-config";
+import sharedConfig, { sharedRules } from "@dashframe/eslint-config";
 
 const stripDuplicateTypescriptPlugin = (config) => {
   if (

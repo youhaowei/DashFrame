@@ -81,30 +81,43 @@ export async function getDatabaseSchema(
 export async function queryDatabase(
   apiKey: string,
   databaseId: string,
+  options?: {
+    pageSize?: number;  // Limit number of rows fetched
+  }
 ): Promise<QueryDatabaseResponse> {
   const notion = new Client({ auth: apiKey });
 
-  // Notion API pagination - fetch all results
+  // Notion API pagination - fetch all results (or up to pageSize)
   let hasMore = true;
   let startCursor: string | undefined = undefined;
   const allResults: QueryDatabaseResponse["results"] = [];
+  const maxRows = options?.pageSize || Infinity;
 
-  while (hasMore) {
+  while (hasMore && allResults.length < maxRows) {
     const response: QueryDatabaseResponse = await notion.databases.query({
       database_id: databaseId,
       start_cursor: startCursor,
+      page_size: options?.pageSize
+        ? Math.min(100, maxRows - allResults.length)
+        : 100,
       // Note: Notion API doesn't support filtering properties in query,
       // we'll need to filter on the client side
     });
 
     allResults.push(...response.results);
-    hasMore = response.has_more;
-    startCursor = response.next_cursor || undefined;
+
+    // Stop if we hit page size limit
+    if (options?.pageSize && allResults.length >= options.pageSize) {
+      hasMore = false;
+    } else {
+      hasMore = response.has_more;
+      startCursor = response.next_cursor || undefined;
+    }
   }
 
   return {
     object: "list" as const,
-    results: allResults,
+    results: allResults.slice(0, options?.pageSize),
     has_more: false,
     next_cursor: null,
     type: "page_or_database" as const,

@@ -1,9 +1,9 @@
 {
   "dependencies": {
-    "@dash-frame/csv": "workspace:*",
-    "@dash-frame/dataframe": "workspace:*",
-    "@dash-frame/notion": "workspace:*",
-    "@dash-frame/ui": "workspace:*",
+    "@dashframe/csv": "workspace:*",
+    "@dashframe/dataframe": "workspace:*",
+    "@dashframe/notion": "workspace:*",
+    "@dashframe/ui": "workspace:*",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -43,7 +43,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "@dash-frame/eslint-config": "workspace:*",
+    "@dashframe/eslint-config": "workspace:*",
     "@tailwindcss/postcss": "4.1.16",
     "@types/node": "24.9.1",
     "@types/papaparse": "5.3.16",
@@ -55,7 +55,7 @@
     "type-fest": "5.1.0",
     "typescript": "5.7.2"
   },
-  "name": "@dash-frame/web",
+  "name": "@dashframe/web",
   "private": true,
   "scripts": {
     "build": "next build",

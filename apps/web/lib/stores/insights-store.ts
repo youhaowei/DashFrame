@@ -3,7 +3,7 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID } from "@dash-frame/dataframe";
+import type { UUID } from "@dashframe/dataframe";
 import type { Insight, InsightExecutionType } from "./types";
 
 // ============================================================================
@@ -159,7 +159,7 @@ export const useInsightsStore = create<InsightsStore>()(
       },
     })),
     {
-      name: "dash-frame:insights",
+      name: "dashframe:insights",
       storage,
       partialize: (state) => ({
         insights: state.insights,

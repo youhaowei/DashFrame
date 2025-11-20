@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dash-frame/dataframe";
+import type { DataFrame } from "@dashframe/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 export type AxisSelection = {
@@ -7,7 +7,7 @@ export type AxisSelection = {
 };
 
 const toVegaType = (
-  type: DataFrame["columns"][number]["type"],
+  type: string,
 ): "quantitative" | "temporal" | "nominal" => {
   switch (type) {
     case "number":
@@ -27,10 +27,11 @@ export const buildVegaLiteSpec = (
   selections: AxisSelection,
 ): TopLevelSpec | null => {
   const { x: xColumnName, y: yColumnName } = selections;
-  const xColumn = dataFrame.columns.find(
+  const columns = dataFrame.columns || [];
+  const xColumn = columns.find(
     (column) => column.name === xColumnName,
   );
-  const yColumn = dataFrame.columns.find(
+  const yColumn = columns.find(
     (column) => column.name === yColumnName,
   );
 
@@ -58,7 +59,7 @@ export const buildVegaLiteSpec = (
         field: yColumn.name,
         type: yType,
       },
-      tooltip: dataFrame.columns.map((column) => ({
+      tooltip: columns.map((column) => ({
         field: column.name,
         type: toVegaType(column.type),
       })),

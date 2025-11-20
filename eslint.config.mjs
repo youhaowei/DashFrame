@@ -1,3 +1,3 @@
-import sharedConfig from "@dash-frame/eslint-config";
+import sharedConfig from "@dashframe/eslint-config";
 
 export default sharedConfig;

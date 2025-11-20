@@ -25,8 +25,8 @@ pnpm format:write  # Prettier write
 ### Targeting Specific Packages
 
 ```bash
-pnpm --filter @dash-frame/web dev      # Run only web app
-pnpm --filter @dash-frame/notion build # Build only notion package
+pnpm --filter @dashframe/web dev      # Run only web app
+pnpm --filter @dashframe/notion build # Build only notion package
 turbo build --force                     # Force rebuild ignoring cache
 ```
 
@@ -77,11 +77,11 @@ packages/
 
 **Zustand + Immer** with automatic localStorage persistence. See `docs/architecture.md` for details.
 
-**localStorage keys**: All use `dash-frame:` prefix (kebab-case):
+**localStorage keys**: All use the lowercase `dashframe:` prefix:
 
-- `dash-frame:data-sources` - DataSources with nested Insights
-- `dash-frame:dataframes` - EnhancedDataFrames with metadata
-- `dash-frame:visualizations` - Vega-Lite specs + active tracking
+- `dashframe:data-sources` - DataSources with nested Insights
+- `dashframe:dataframes` - EnhancedDataFrames with metadata
+- `dashframe:visualizations` - Vega-Lite specs + active tracking
 
 ## Critical Gotchas
 
@@ -96,8 +96,8 @@ const VegaChart = dynamic(() => import("./VegaChart"), { ssr: false });
 ### Naming Conventions
 
 - **User-facing**: `DashFrame` (PascalCase)
-- **Packages**: `@dash-frame/*` (kebab-case)
-- **Storage keys**: `dash-frame:*` (kebab-case)
+- **Packages**: `@dashframe/*` (lowercase scope)
+- **Storage keys**: `dashframe:*` (lowercase prefix)
 
 ### Tailwind CSS v4
 
@@ -105,7 +105,7 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 
 ### Other Gotchas
 
-- **No UI Package Content**: `@dash-frame/ui` is placeholder only
+- **No UI Package Content**: `@dashframe/ui` is placeholder only
 - **Notion API Keys**: Stored in localStorage (use OAuth in production)
 - **No Tests Yet**: Test scripts exist but no actual test files
 - **Turborepo Cache**: Run `turbo build --force` if seeing stale builds

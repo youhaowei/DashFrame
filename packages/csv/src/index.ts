@@ -1,4 +1,11 @@
-import type { DataFrame, ColumnType } from "@dash-frame/dataframe";
+import type {
+  DataFrame,
+  ColumnType,
+  UUID,
+  Field,
+  TableColumn,
+  SourceSchema
+} from "@dashframe/dataframe";
 
 /**
  * Represents CSV data as an array of string arrays.
@@ -46,7 +53,7 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
     : [csvData as string[]];
 
   if (!data.length) {
-    return { columns: [], rows: [] };
+    return { fieldIds: [], columns: [], rows: [] };
   }
 
   const [header, ...rawRows] = data;
@@ -93,8 +100,73 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
   );
 
   return {
+    fieldIds: [], // Legacy function - use csvToDataFrameWithFields for field-based architecture
     columns,
     primaryKey: detectedIdColumn ? detectedIdColumn.name : "_rowIndex",
     rows,
   };
 };
+
+/**
+ * Result type for enhanced CSV conversion
+ */
+export type CsvResult = {
+  dataFrame: DataFrame;
+  fields: Field[];
+  sourceSchema: SourceSchema;
+};
+
+/**
+ * Converts CSV data into a DataFrame with field metadata.
+ * Returns DataFrame, auto-generated fields, and source schema.
+ */
+export function csvToDataFrameWithFields(
+  csvData: CSVData,
+  dataTableId: UUID
+): CsvResult {
+  // Parse CSV using existing logic
+  const parsed = csvToDataFrame(csvData);
+
+  // Build source schema (no _rowIndex in source - it's computed)
+  const columns: TableColumn[] = (parsed.columns || [])
+    .filter(col => col.name !== "_rowIndex")
+    .map(col => ({
+      name: col.name,
+      type: col.type,  // Use inferred type as native type for CSV
+    }));
+
+  const sourceSchema: SourceSchema = {
+    columns,
+    version: 1,
+    lastSyncedAt: Date.now()
+  };
+
+  // Auto-generate fields (including _rowIndex computed field)
+  const fields: Field[] = [
+    // System field - computed from array index
+    {
+      id: crypto.randomUUID(),
+      name: "_rowIndex",
+      tableId: dataTableId,
+      columnName: undefined,  // Computed field
+      type: "number"
+    },
+    // User fields from source
+    ...columns.map(col => ({
+      id: crypto.randomUUID(),
+      name: col.name,
+      tableId: dataTableId,
+      columnName: col.name,
+      type: col.type as ColumnType,
+    }))
+  ];
+
+  // Build DataFrame with fieldIds
+  const dataFrame: DataFrame = {
+    fieldIds: fields.map(f => f.id),
+    rows: parsed.rows,
+    primaryKey: parsed.primaryKey
+  };
+
+  return { dataFrame, fields, sourceSchema };
+}

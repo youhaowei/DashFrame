@@ -1,13 +1,13 @@
 {
   "dependencies": {
-    "@dash-frame/dataframe": "workspace:*",
+    "@dashframe/dataframe": "workspace:*",
     "@notionhq/client": "^2.2.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
   },
   "main": "src/index.ts",
-  "name": "@dash-frame/notion",
+  "name": "@dashframe/notion",
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",

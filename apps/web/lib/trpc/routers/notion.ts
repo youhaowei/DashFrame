@@ -4,8 +4,9 @@ import {
   fetchNotionDatabases,
   fetchNotionDatabaseSchema,
   notionToDataFrame,
+  generateFieldsFromNotionSchema,
   type NotionConfig,
-} from "@dash-frame/notion";
+} from "@dashframe/notion";
 
 export const notionRouter = router({
   listDatabases: publicProcedure
@@ -40,6 +41,20 @@ export const notionRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      return await notionToDataFrame(input as NotionConfig);
+      const { apiKey, databaseId, selectedPropertyIds } = input;
+
+      // Fetch schema and generate fields internally
+      const schema = await fetchNotionDatabaseSchema(apiKey, databaseId);
+      const dataTableId = databaseId; // Use actual Notion database ID for lineage tracking
+      const { fields } = generateFieldsFromNotionSchema(schema, dataTableId);
+
+      // Call notionToDataFrame with generated fields
+      const config: NotionConfig = {
+        apiKey,
+        databaseId,
+        selectedPropertyIds,
+      };
+
+      return await notionToDataFrame(config, fields);
     }),
 });

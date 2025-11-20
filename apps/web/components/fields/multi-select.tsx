@@ -2,7 +2,7 @@
 
 import { Field, FieldLabel } from "../ui/field";
 import { MultiSelect as MultiSelectPrimitive } from "../ui/multi-select";
-import type { ColumnType } from "@dash-frame/dataframe";
+import type { ColumnType } from "@dashframe/dataframe";
 
 interface MultiSelectOption {
   value: string;
@@ -19,7 +19,6 @@ interface MultiSelectProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
-  maxDisplayTags?: number;
 }
 
 export function MultiSelect({
@@ -30,7 +29,6 @@ export function MultiSelect({
   placeholder = "Select items...",
   disabled = false,
   className,
-  maxDisplayTags,
 }: MultiSelectProps) {
   return (
     <Field className={className}>
@@ -41,7 +39,6 @@ export function MultiSelect({
         onChange={onChange}
         placeholder={placeholder}
         disabled={disabled}
-        maxDisplayTags={maxDisplayTags}
       />
     </Field>
   );

@@ -1,4 +1,10 @@
-import type { DataFrame } from "@dash-frame/dataframe";
+import type {
+  DataFrame,
+  UUID,
+  Field,
+  TableColumn,
+  SourceSchema,
+} from "@dashframe/dataframe";
 import {
   listDatabases,
   getDatabaseSchema,
@@ -47,15 +53,117 @@ export async function fetchNotionDatabaseSchema(
  */
 export async function notionToDataFrame(
   config: NotionConfig,
+  fields: Field[],
 ): Promise<DataFrame> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
 
-  // Fetch database schema
-  const schema = await getDatabaseSchema(apiKey, databaseId);
+  // Filter fields based on selectedPropertyIds if provided
+  let activeFields = fields;
+  if (selectedPropertyIds && selectedPropertyIds.length > 0) {
+    // Fetch schema to map property IDs to names
+    const schema = await getDatabaseSchema(apiKey, databaseId);
+    const selectedNames = schema
+      .filter((prop) => selectedPropertyIds.includes(prop.id))
+      .map((prop) => prop.name);
+
+    // Keep system fields and selected user fields
+    activeFields = fields.filter(
+      (field) =>
+        !field.columnName || // System fields (_rowIndex, _notionId)
+        selectedNames.includes(field.columnName),
+    );
+  }
 
   // Query database for all data
   const response = await queryDatabase(apiKey, databaseId);
 
   // Convert to DataFrame
-  return convertNotionToDataFrame(response, schema, selectedPropertyIds);
+  return convertNotionToDataFrame(response, activeFields);
+}
+
+/**
+ * Generate fields from Notion schema (for discovery phase)
+ */
+export function generateFieldsFromNotionSchema(
+  schema: NotionProperty[],
+  dataTableId: UUID
+): { fields: Field[]; sourceSchema: SourceSchema } {
+  // System fields (computed)
+  const systemFields: Field[] = [
+    {
+      id: crypto.randomUUID(),
+      name: "_rowIndex",
+      tableId: dataTableId,
+      columnName: undefined,  // Computed from array index
+      type: "number",
+    },
+    {
+      id: crypto.randomUUID(),
+      name: "_notionId",
+      tableId: dataTableId,
+      columnName: undefined,  // Computed from page.id
+      type: "string",
+    },
+  ];
+
+  // User fields from schema
+  const userFields: Field[] = schema.map((prop) => ({
+    id: crypto.randomUUID(),
+    name: prop.name,
+    tableId: dataTableId,
+    columnName: prop.name,
+    type: mapNotionTypeToColumnType(prop.type),
+  }));
+
+  // Source schema with native Notion types
+  const columns: TableColumn[] = schema.map((prop) => ({
+    name: prop.name,
+    type: prop.type,  // Native: "status", "relation", etc.
+    // TODO: Detect foreign keys from relation properties
+  }));
+
+  const sourceSchema: SourceSchema = {
+    columns,
+    version: 1,
+    lastSyncedAt: Date.now(),
+  };
+
+  return {
+    fields: [...systemFields, ...userFields],
+    sourceSchema,
+  };
+}
+
+/**
+ * Fetch sample data (limited rows) from Notion database
+ */
+export async function notionToDataFrameSample(
+  config: NotionConfig,
+  fields: Field[],
+  pageSize: number = 100
+): Promise<DataFrame> {
+  const { apiKey, databaseId, selectedPropertyIds } = config;
+
+  // Filter fields based on selectedPropertyIds if provided
+  let activeFields = fields;
+  if (selectedPropertyIds && selectedPropertyIds.length > 0) {
+    // Fetch schema to map property IDs to names
+    const schema = await getDatabaseSchema(apiKey, databaseId);
+    const selectedNames = schema
+      .filter((prop) => selectedPropertyIds.includes(prop.id))
+      .map((prop) => prop.name);
+
+    // Keep system fields and selected user fields
+    activeFields = fields.filter(
+      (field) =>
+        !field.columnName || // System fields (_rowIndex, _notionId)
+        selectedNames.includes(field.columnName),
+    );
+  }
+
+  // Query database for sample data
+  const response = await queryDatabase(apiKey, databaseId, { pageSize });
+
+  // Convert to DataFrame
+  return convertNotionToDataFrame(response, activeFields);
 }
