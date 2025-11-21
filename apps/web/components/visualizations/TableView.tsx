@@ -12,43 +12,86 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useMemo, useRef } from "react";
-import type { DataFrame } from "@dashframe/dataframe";
+import type { DataFrame, Field } from "@dashframe/dataframe";
 
 interface TableViewProps {
   dataFrame: DataFrame;
+  fields?: Field[]; // Optional: Field definitions for modern fieldIds architecture
 }
 
-export function TableView({ dataFrame }: TableViewProps) {
+// Utility to format dates consistently
+function formatDate(value: unknown): string | null {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!isNaN(parsed)) {
+      const date = new Date(parsed);
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return null;
+}
+
+export function TableView({ dataFrame, fields }: TableViewProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  // Build columns from DataFrame schema
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
-    () =>
-      (dataFrame.columns || []).map((col) => ({
+  // Build columns from Field definitions (modern) or deprecated columns field (legacy)
+  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+    // Modern approach: Use Field definitions if available
+    if (fields && fields.length > 0) {
+      return fields
+        .filter((field) => !field.name.startsWith("_")) // Filter out internal fields
+        .map((field) => ({
+          // Use field.name as the accessor key (this is what's in the row data)
+          accessorKey: field.name,
+          header: field.name,
+          cell: (info) => {
+            const value = info.getValue();
+            // Handle different data types
+            if (value === null || value === undefined) return "—";
+
+            // Try to format as date
+            const dateStr = formatDate(value);
+            if (dateStr) return dateStr;
+
+            if (typeof value === "object") return JSON.stringify(value);
+            return String(value);
+          },
+        }));
+    }
+
+    // Legacy fallback: Use deprecated columns field for backward compatibility
+    return (dataFrame.columns || [])
+      .filter((col) => !col.name.startsWith("_"))
+      .map((col) => ({
         accessorKey: col.name,
         header: col.name,
         cell: (info) => {
           const value = info.getValue();
           // Handle different data types
           if (value === null || value === undefined) return "—";
-          if (value instanceof Date) {
-            return value.toLocaleDateString();
-          }
-          if (typeof value === "string" && !isNaN(Date.parse(value))) {
-            // Check if it looks like an ISO date string
-            const date = new Date(value);
-            if (date.toString() !== "Invalid Date") {
-              return date.toLocaleDateString();
-            }
-          }
+
+          // Try to format as date
+          const dateStr = formatDate(value);
+          if (dateStr) return dateStr;
+
           if (typeof value === "object") return JSON.stringify(value);
           return String(value);
         },
-      })),
-    [dataFrame.columns],
-  );
+      }));
+  }, [fields, dataFrame.columns]);
 
   const table = useReactTable({
     data: dataFrame.rows,
@@ -75,7 +118,7 @@ export function TableView({ dataFrame }: TableViewProps) {
   });
 
   // Calculate grid template columns (equal width for all columns)
-  const gridTemplateColumns = `repeat(${dataFrame.columns?.length || 0}, minmax(120px, 1fr))`;
+  const gridTemplateColumns = `repeat(${columns.length}, minmax(120px, 1fr))`;
 
   return (
     <div className="flex h-full flex-col">
@@ -166,12 +209,15 @@ export function TableView({ dataFrame }: TableViewProps) {
                   let tooltipText = "";
                   if (rawValue === null || rawValue === undefined) {
                     tooltipText = "—";
-                  } else if (rawValue instanceof Date) {
-                    tooltipText = rawValue.toLocaleDateString();
-                  } else if (typeof rawValue === "object") {
-                    tooltipText = JSON.stringify(rawValue);
                   } else {
-                    tooltipText = String(rawValue);
+                    const dateStr = formatDate(rawValue);
+                    if (dateStr) {
+                      tooltipText = dateStr;
+                    } else if (typeof rawValue === "object") {
+                      tooltipText = JSON.stringify(rawValue);
+                    } else {
+                      tooltipText = String(rawValue);
+                    }
                   }
 
                   return (

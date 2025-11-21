@@ -11,6 +11,7 @@ import type {
   Visualization,
   VisualizationType,
   VisualizationEncoding,
+  AxisType,
 } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
 import { Select } from "../fields";
@@ -535,12 +536,12 @@ export function VisualizationControls() {
     try {
       // Get the insight
       const insight = getInsight(activeViz.source.insightId);
-      if (!insight || insight.dataTableIds.length === 0) {
+      if (!insight || !insight.baseTable) {
         throw new Error("Insight not found");
       }
 
-      // Get the first DataTable from the insight
-      const dataTableId = insight.dataTableIds[0];
+      // Get the DataTable from the insight's base table
+      const dataTableId = insight.baseTable.tableId;
       if (!dataTableId) throw new Error("No DataTable found for insight");
 
       // Get the DataTable to find which data source it belongs to

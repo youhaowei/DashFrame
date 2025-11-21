@@ -18,20 +18,6 @@ export function EmptyState({ onCreateClick }: EmptyStateProps) {
                     <h2 className="text-foreground text-2xl font-semibold tracking-tight">
                         Create your first visualization
                     </h2>
-                    <p className="text-muted-foreground mt-2 text-base">
-                        Connect your data to get started.
-                    </p>
-                    <div className="bg-muted/50 text-muted-foreground mt-6 max-w-lg rounded-lg p-4 text-sm text-left mx-auto">
-                        <p className="mb-2">
-                            <strong>Note:</strong> This project is in early development. All data is stored locally in your browser.
-                        </p>
-                        <p className="mb-2">
-                            The server does not process any data, except for proxying Notion API requests to handle CORS.
-                        </p>
-                        <p>
-                            Feedback is appreciated! <a href="https://github.com/youhaowei/DashFrame" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View on GitHub</a>
-                        </p>
-                    </div>
                 </div>
 
                 <CreateVisualizationContent onComplete={onCreateClick} />

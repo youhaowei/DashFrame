@@ -41,6 +41,7 @@ interface DataSourcesActions {
     name: string,
     table: string,
     options?: {
+      id?: UUID;
       sourceSchema?: SourceSchema;
       fields?: Field[];
       metrics?: Metric[];
@@ -291,7 +292,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           throw new Error(`Data source ${dataSourceId} not found`);
         }
 
-        const dataTableId = crypto.randomUUID();
+        const dataTableId = options.id ?? crypto.randomUUID();
 
         // Auto-generate default count metric
         const defaultMetrics: Metric[] = [{

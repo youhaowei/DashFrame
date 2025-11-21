@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID } from "@dashframe/dataframe";
-import type { Insight, InsightExecutionType } from "./types";
+import type { Insight, InsightExecutionType, InsightMetric } from "./types";
 
 // ============================================================================
 // State Interface
@@ -15,19 +15,16 @@ interface InsightsState {
 }
 
 interface InsightsActions {
-  // Create Insight
-  addInsight: (
-    name: string,
-    dataTableIds: UUID[],
-    executionType: InsightExecutionType,
-    config?: unknown,
-  ) => UUID;
+  // Create Insight (new baseTable-based API)
+  createDraft: (tableId: UUID, tableName: string, fieldIds: UUID[]) => UUID;
 
   // Update Insight
   updateInsight: (
     insightId: UUID,
     updates: Partial<Omit<Insight, "id" | "createdAt">>,
   ) => void;
+  updateMetrics: (insightId: UUID, metrics: InsightMetric[]) => void;
+  updateSelectedFields: (insightId: UUID, fieldIds: UUID[]) => void;
 
   // Link DataFrame to Insight (after execution)
   setInsightDataFrame: (insightId: UUID, dataFrameId: UUID) => void;
@@ -42,6 +39,15 @@ interface InsightsActions {
 
   // Clear all
   clear: () => void;
+
+  // ===== Legacy API (deprecated) =====
+  /** @deprecated Use createDraft instead */
+  addInsight: (
+    name: string,
+    dataTableIds: UUID[],
+    executionType: InsightExecutionType,
+    config?: unknown,
+  ) => UUID;
 }
 
 type InsightsStore = InsightsState & InsightsActions;
@@ -85,7 +91,55 @@ export const useInsightsStore = create<InsightsStore>()(
       // Initial state
       insights: new Map(),
 
-      // Add new Insight
+      // Create draft Insight (new API)
+      createDraft: (tableId, tableName, fieldIds) => {
+        const id = crypto.randomUUID();
+        const now = Date.now();
+
+        const insight: Insight = {
+          id,
+          name: `${tableName} - Draft`,
+          baseTable: {
+            tableId,
+            selectedFields: fieldIds, // Auto-select all fields by default
+          },
+          metrics: [], // No metrics initially
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        set((state) => {
+          state.insights.set(id, insight);
+        });
+
+        return id;
+      },
+
+      // Update metrics
+      updateMetrics: (insightId, metrics) => {
+        set((state) => {
+          const insight = state.insights.get(insightId);
+          if (insight) {
+            insight.metrics = metrics;
+            insight.updatedAt = Date.now();
+          }
+        });
+      },
+
+      // Update selected fields
+      updateSelectedFields: (insightId, fieldIds) => {
+        set((state) => {
+          const insight = state.insights.get(insightId);
+          if (insight) {
+            insight.baseTable.selectedFields = fieldIds;
+            insight.updatedAt = Date.now();
+          }
+        });
+      },
+
+      // ===== Legacy API =====
+
+      // Add new Insight (deprecated)
       addInsight: (name, dataTableIds, executionType, config) => {
         const id = crypto.randomUUID();
         const now = Date.now();
@@ -93,10 +147,18 @@ export const useInsightsStore = create<InsightsStore>()(
         const insight: Insight = {
           id,
           name,
+          // Legacy fields
           dataTableIds,
           executionType,
           config,
+          // New fields (set defaults for backward compatibility)
+          baseTable: {
+            tableId: dataTableIds[0] || "",
+            selectedFields: [],
+          },
+          metrics: [],
           createdAt: now,
+          updatedAt: now,
         };
 
         set((state) => {
@@ -141,9 +203,12 @@ export const useInsightsStore = create<InsightsStore>()(
       // Get all Insights that use a specific DataTable
       getInsightsByDataTable: (dataTableId) => {
         const allInsights = Array.from(get().insights.values());
-        return allInsights.filter((insight) =>
-          insight.dataTableIds.includes(dataTableId),
-        );
+        return allInsights.filter((insight) => {
+          // Check new baseTable structure
+          if (insight.baseTable?.tableId === dataTableId) return true;
+          // Check legacy dataTableIds
+          return insight.dataTableIds?.includes(dataTableId) ?? false;
+        });
       },
 
       // Get all Insights

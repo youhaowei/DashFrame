@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
-import { csvToDataFrame } from "@dashframe/csv";
+import { csvToDataFrameWithFields } from "@dashframe/csv";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase, NotionProperty } from "@dashframe/notion";
 import {
@@ -12,7 +13,6 @@ import {
     useInsightsStore,
 } from "@/lib/stores";
 import { isCSVDataSource, isNotionDataSource } from "@/lib/stores/types";
-import type { TopLevelSpec } from "vega-lite";
 import { FileText, Database, Notion } from "@/components/icons";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,6 +41,8 @@ export function CreateVisualizationContent({
     onComplete,
     onCancel,
 }: CreateVisualizationContentProps) {
+    const router = useRouter();
+
     // Current step
     const [currentStep, setCurrentStep] = useState<Step>("source");
 
@@ -76,6 +78,7 @@ export function CreateVisualizationContent({
     const getAll = useDataSourcesStore((s) => s.getAll);
     const addDataTable = useDataSourcesStore((s) => s.addDataTable);
     const updateDataTable = useDataSourcesStore((s) => s.updateDataTable);
+    const createDraftInsight = useInsightsStore((s) => s.createDraft);
     const addInsight = useInsightsStore((s) => s.addInsight);
     const setInsightDataFrame = useInsightsStore((s) => s.setInsightDataFrame);
     const getAllInsights = useInsightsStore((s) => s.getAll);
@@ -85,8 +88,9 @@ export function CreateVisualizationContent({
     );
     const createVisualization = useVisualizationsStore((s) => s.create);
 
-    // Fetch all existing data sources
+    // Fetch all existing data sources and insights
     const existingDataSources = getAll();
+    const existingInsights = getAllInsights();
 
     // tRPC mutations
     const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
@@ -101,21 +105,15 @@ export function CreateVisualizationContent({
 
     // Handle existing CSV source selection
     const handleSelectExistingCSV = useCallback(
-        (dataSourceId: string, dataFrameId: string, name: string) => {
-            const emptySpec: Omit<TopLevelSpec, "data"> = {
-                $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-            };
+        (tableId: string, name: string, fieldIds: string[]) => {
+            // Create draft insight with all fields selected
+            const insightId = createDraftInsight(tableId, name, fieldIds);
 
-            createVisualization(
-                { dataFrameId },
-                `${name} - table`,
-                emptySpec,
-                "table",
-            );
-
+            // Navigate to preview screen
+            router.push(`/insights/${insightId}/create-visualization`);
             onComplete();
         },
-        [createVisualization, onComplete],
+        [createDraftInsight, router, onComplete],
     );
 
     // Handle existing Notion source selection
@@ -162,13 +160,6 @@ export function CreateVisualizationContent({
                         return;
                     }
 
-                    const dataFrame = csvToDataFrame(result.data);
-
-                    if (!dataFrame.columns || !dataFrame.columns.length) {
-                        setError("CSV did not contain any columns.");
-                        return;
-                    }
-
                     // Get or create local data source
                     let localSource = getLocal();
                     if (!localSource) {
@@ -181,35 +172,48 @@ export function CreateVisualizationContent({
                         return;
                     }
 
+                    const tableName = file.name.replace(/\.csv$/i, "");
+
+                    // Generate tableId upfront to use consistently
+                    const tableId = crypto.randomUUID();
+
+                    // Convert CSV with field metadata using the real tableId
+                    const { dataFrame, fields, sourceSchema } = csvToDataFrameWithFields(
+                        result.data,
+                        tableId
+                    );
+
+                    if (!fields.length) {
+                        setError("CSV did not contain any columns.");
+                        return;
+                    }
+
                     // Create DataFrame from CSV
                     const dataFrameId = createDataFrameFromCSV(
                         localSource.id,
-                        `${file.name} Data`,
+                        `${tableName} Data`,
                         dataFrame,
                     );
 
-                    // Create DataTable for this CSV file
+                    // Add DataTable with the pre-generated tableId and correctly-linked fields
                     addDataTable(
                         localSource.id,
-                        file.name.replace(/\.csv$/i, ""),
+                        tableName,
                         file.name,
                         {
+                            id: tableId,
+                            fields,
+                            sourceSchema,
                             dataFrameId,
                         }
                     );
 
-                    // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
-                    const emptySpec: Omit<TopLevelSpec, "data"> = {
-                        $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-                    };
+                    // Create draft insight with all fields selected
+                    const fieldIds = fields.map((f) => f.id);
+                    const insightId = createDraftInsight(tableId, tableName, fieldIds);
 
-                    createVisualization(
-                        { dataFrameId },
-                        `${file.name} - table`,
-                        emptySpec,
-                        "table",
-                    );
-
+                    // Navigate to preview screen
+                    router.push(`/insights/${insightId}/create-visualization`);
                     onComplete();
                 },
             });
@@ -219,7 +223,8 @@ export function CreateVisualizationContent({
             addLocal,
             getLocal,
             addDataTable,
-            createVisualization,
+            createDraftInsight,
+            router,
             onComplete,
         ],
     );
@@ -354,11 +359,14 @@ export function CreateVisualizationContent({
             if (insightMode === "existing" && selectedInsightId) {
                 // Reuse existing insight
                 insightId = selectedInsightId;
-                // Get existing DataTable from insight (assumes first one)
+                // Get existing DataTable from insight
                 const existingInsight = getAllInsights().find(
                     (i) => i.id === selectedInsightId,
                 );
-                dataTableId = existingInsight?.dataTableIds[0] || "";
+                // Support both old and new insight structure
+                dataTableId = existingInsight?.baseTable?.tableId
+                    || existingInsight?.dataTableIds?.[0]
+                    || "";
             } else {
                 // Create new DataTable (Notion database configuration)
                 dataTableId = addDataTable(
@@ -403,21 +411,8 @@ export function CreateVisualizationContent({
                 lastFetchedAt: Date.now(),
             });
 
-            // Create a minimal Vega-Lite spec (will be built dynamically by VisualizationDisplay)
-            const emptySpec: Omit<TopLevelSpec, "data"> = {
-                $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-            };
-
-            createVisualization(
-                {
-                    dataFrameId,
-                    insightId,
-                },
-                `Notion - table`,
-                emptySpec,
-                "table",
-            );
-
+            // Navigate to preview screen instead of creating visualization directly
+            router.push(`/insights/${insightId}/create-visualization`);
             onComplete();
         } catch (err) {
             setError(
@@ -449,11 +444,59 @@ export function CreateVisualizationContent({
                 {/* Step 1: Source Selection */}
                 {currentStep === "source" && (
                     <div className="space-y-4">
+                        {/* Existing Insights */}
+                        {existingInsights.length > 0 && (
+                            <div className="space-y-3">
+                                <h4 className="text-muted-foreground text-sm font-medium">
+                                    Existing Insights
+                                </h4>
+                                <div className="space-y-2">
+                                    {existingInsights.map((insight) => {
+                                        // Skip insights without baseTable (legacy or incomplete)
+                                        if (!insight?.baseTable?.tableId) return null;
+
+                                        // Get the data table info for display
+                                        let dataTable = null;
+                                        for (const source of existingDataSources) {
+                                            const table = source.dataTables.get(insight.baseTable.tableId);
+                                            if (table) {
+                                                dataTable = table;
+                                                break;
+                                            }
+                                        }
+
+                                        if (!dataTable) return null;
+
+                                        return (
+                                            <Card
+                                                key={insight.id}
+                                                className="hover:border-primary cursor-pointer transition"
+                                                onClick={() => {
+                                                    router.push(`/insights/${insight.id}/create-visualization`);
+                                                    onComplete();
+                                                }}
+                                            >
+                                                <CardContent className="flex items-center gap-3 p-3">
+                                                    <Database className="text-muted-foreground h-5 w-5 shrink-0" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="font-medium">{insight.name}</div>
+                                                        <div className="text-muted-foreground text-xs">
+                                                            {dataTable.name} • {insight.baseTable.selectedFields.length} fields
+                                                        </div>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Existing Sources */}
                         {existingDataSources.length > 0 && (
                             <div className="space-y-3">
                                 <h4 className="text-muted-foreground text-sm font-medium">
-                                    Existing Sources
+                                    Existing Tables
                                 </h4>
                                 <div className="space-y-2">
                                     {existingDataSources.map((source) => {
@@ -466,11 +509,10 @@ export function CreateVisualizationContent({
                                                     key={dataTable.id}
                                                     className="hover:border-primary cursor-pointer transition"
                                                     onClick={() =>
-                                                        dataTable.dataFrameId &&
                                                         handleSelectExistingCSV(
-                                                            source.id,
-                                                            dataTable.dataFrameId,
+                                                            dataTable.id,
                                                             dataTable.name,
+                                                            dataTable.fields.map(f => f.id),
                                                         )
                                                     }
                                                 >
@@ -514,7 +556,7 @@ export function CreateVisualizationContent({
                         )}
 
                         {/* Add New Source */}
-                        {existingDataSources.length > 0 && (
+                        {(existingInsights.length > 0 || existingDataSources.length > 0) && (
                             <h4 className="text-muted-foreground text-sm font-medium">
                                 Add New Source
                             </h4>
@@ -570,14 +612,21 @@ export function CreateVisualizationContent({
                                             return getAllInsights()
                                                 .filter((insight) => {
                                                     // Only show insights that reference DataTables from this Notion source
-                                                    return insight.dataTableIds.some(
+                                                    // Support both old and new insight structure
+                                                    const tableId = insight.baseTable?.tableId;
+                                                    if (tableId) {
+                                                        return notionConnection.dataTables?.has(tableId) ?? false;
+                                                    }
+                                                    // Fallback to legacy dataTableIds
+                                                    return insight.dataTableIds?.some(
                                                         (dtId) =>
                                                             notionConnection.dataTables?.has(dtId) ?? false,
-                                                    );
+                                                    ) ?? false;
                                                 })
                                                 .map((insight) => {
-                                                    // Get the first DataTable to show info
-                                                    const dataTableId = insight.dataTableIds[0];
+                                                    // Get the DataTable to show info
+                                                    const dataTableId = insight.baseTable?.tableId
+                                                        || insight.dataTableIds?.[0];
                                                     const dataTable = dataTableId
                                                         ? notionConnection.dataTables?.get(dataTableId)
                                                         : null;

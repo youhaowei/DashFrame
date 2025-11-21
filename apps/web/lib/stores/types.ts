@@ -35,16 +35,54 @@ export interface DataTable {
 // Two execution strategies:
 // - 'transform': Local/cloud processing on DataFrames (CSV, Notion cached data)
 // - 'query': Remote processing at data source (PostgreSQL, data lakes)
+/** @deprecated Use baseTable structure instead */
 export type InsightExecutionType = "transform" | "query";
+
+// Insight-level metric definition (computed column)
+export interface InsightMetric {
+  id: UUID;
+  name: string;
+  sourceTable: UUID; // Which table (base or joined) - for v1, always baseTable.tableId
+  columnName?: string; // Which column to aggregate (undefined for count())
+  aggregation: "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
+}
 
 export interface Insight {
   id: UUID;
   name: string;
-  dataTableIds: UUID[]; // Can reference multiple tables from different sources
-  executionType: InsightExecutionType;
-  config?: unknown; // TransformConfig | QueryConfig - SQL, filters, joins, aggregations
-  dataFrameId?: UUID; // Resulting DataFrame after execution
+
+  // Table structure - v1: single base table
+  baseTable: {
+    tableId: UUID;
+    selectedFields: UUID[]; // Which fields to include (references Field.id)
+  };
+
+  // v2: Multi-table support (reserved for future)
+  joins?: Array<{
+    id: UUID;
+    tableId: UUID;
+    selectedFields: UUID[];
+    joinOn: { baseField: UUID; joinedField: UUID };
+    joinType: "left" | "inner";
+  }>;
+
+  // Computed columns
+  metrics: InsightMetric[];
+
+  // Output cache
+  dataFrameId?: UUID;
+  lastComputedAt?: number;
+
   createdAt: number;
+  updatedAt: number;
+
+  // ===== Legacy fields (backward compatibility) =====
+  /** @deprecated Use baseTable.tableId instead. Array kept for old multi-table insights. */
+  dataTableIds?: UUID[];
+  /** @deprecated Execution type is now inferred from source type */
+  executionType?: InsightExecutionType;
+  /** @deprecated Use baseTable/joins/metrics instead */
+  config?: unknown;
 }
 
 // ============================================================================

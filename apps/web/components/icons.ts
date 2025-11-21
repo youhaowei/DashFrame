@@ -14,6 +14,7 @@ import {
   LuChevronsUp,
   LuCircle,
   LuDatabase,
+  LuPencil,
   LuHash,
   LuLayers,
   LuLayoutDashboard,
@@ -83,6 +84,7 @@ export { LuX as X };
 export { LuX as Close };
 export { LuX as CloseIcon };
 export { LuPlus as Plus };
+export { LuPencil as Edit3 };
 export { LuTrash2 as Delete };
 
 // Data Type Icons

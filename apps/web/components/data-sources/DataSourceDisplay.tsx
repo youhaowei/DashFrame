@@ -45,9 +45,13 @@ function LocalDataSourceView({
   getDataFrame: ReturnType<typeof useDataFramesStore.getState>["get"];
 }) {
   const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
-  const firstDataTable = dataTables[0];
-  const localDataFrame = firstDataTable?.dataFrameId
-    ? getDataFrame(firstDataTable.dataFrameId)
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(
+    dataTables[0]?.id ?? null
+  );
+
+  const selectedDataTable = dataTables.find((dt) => dt.id === selectedTableId);
+  const localDataFrame = selectedDataTable?.dataFrameId
+    ? getDataFrame(selectedDataTable.dataFrameId)
     : null;
 
   return (
@@ -58,28 +62,78 @@ function LocalDataSourceView({
           <CardDescription>
             Local storage • {dataTables.length}{" "}
             {dataTables.length === 1 ? "file" : "files"}
-            {localDataFrame &&
-              ` • ${localDataFrame.metadata.rowCount} rows × ${localDataFrame.metadata.columnCount} columns`}
           </CardDescription>
         </CardHeader>
       </Card>
 
+      {/* Files List */}
+      <Card className="border-border/60 bg-card/80 border shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-lg">Files</CardTitle>
+          <CardDescription>
+            {dataTables.length === 0
+              ? "No files uploaded"
+              : `${dataTables.length} ${dataTables.length === 1 ? "file" : "files"} available`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {dataTables.length === 0 ? (
+            <EmptyState message="Upload CSV files to get started." />
+          ) : (
+            dataTables.map((table) => {
+              const df = table.dataFrameId ? getDataFrame(table.dataFrameId) : null;
+              const isSelected = table.id === selectedTableId;
+              return (
+                <button
+                  key={table.id}
+                  onClick={() => setSelectedTableId(table.id)}
+                  className={cn(
+                    "border-border/60 hover:border-border hover:bg-accent/50 w-full rounded-lg border p-3 text-left transition-colors",
+                    isSelected && "border-primary bg-primary/5"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className={cn(
+                        "text-foreground truncate text-sm font-medium",
+                        isSelected && "text-primary"
+                      )}>
+                        {table.name}
+                      </p>
+                      {df && (
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          {df.metadata.rowCount} rows × {df.metadata.columnCount} columns
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Data Preview */}
       <Card className="border-border/60 bg-card/80 flex min-h-0 flex-1 flex-col border shadow-sm">
         <CardHeader>
           <CardTitle className="text-lg">Data Preview</CardTitle>
           <CardDescription>
-            {localDataFrame
-              ? `Showing ${firstDataTable.name}`
+            {localDataFrame && selectedDataTable
+              ? `Showing ${selectedDataTable.name}`
               : "No data available"}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {localDataFrame ? (
+          {localDataFrame && selectedDataTable ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <TableView dataFrame={localDataFrame.data} />
+              <TableView
+                dataFrame={localDataFrame.data}
+                fields={selectedDataTable.fields}
+              />
             </div>
           ) : (
-            <EmptyState message="Upload CSV files to preview data." />
+            <EmptyState message="Select a file to preview its data." />
           )}
         </CardContent>
       </Card>
@@ -566,7 +620,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               }
               return (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <TableView dataFrame={dataFrame.data} />
+                  <TableView
+                    dataFrame={dataFrame.data}
+                    fields={selectedDataTable.fields}
+                  />
                 </div>
               );
             })()}

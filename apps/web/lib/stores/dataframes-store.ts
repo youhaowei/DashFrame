@@ -67,6 +67,15 @@ const storage = createJSONStorage<DataFramesState>(() => localStorage, {
 // Store Implementation
 // ============================================================================
 
+const calculateColumnCount = (data: DataFrame): number =>
+  data.fieldIds?.length ?? data.columns?.length ?? 0;
+
+const refreshColumnCounts = (state: DataFramesState) => {
+  state.dataFrames.forEach((enhanced) => {
+    enhanced.metadata.columnCount = calculateColumnCount(enhanced.data);
+  });
+};
+
 export const useDataFramesStore = create<DataFramesStore>()(
   persist(
     immer((set, get) => ({
@@ -87,7 +96,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             },
             timestamp: now,
             rowCount: data.rows.length,
-            columnCount: data.fieldIds?.length ?? 0,
+            columnCount: calculateColumnCount(data),
           },
           data,
         };
@@ -113,7 +122,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             },
             timestamp: now,
             rowCount: data.rows.length,
-            columnCount: data.fieldIds?.length ?? 0,
+            columnCount: calculateColumnCount(data),
           },
           data,
         };
@@ -138,7 +147,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
               df.data = data;
               df.metadata.timestamp = Date.now();
               df.metadata.rowCount = data.rows.length;
-              df.metadata.columnCount = data.fieldIds?.length ?? 0;
+              df.metadata.columnCount = calculateColumnCount(data);
             }
           });
         } else {
@@ -155,7 +164,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
             df.data = data;
             df.metadata.timestamp = Date.now();
             df.metadata.rowCount = data.rows.length;
-            df.metadata.columnCount = data.fieldIds?.length ?? 0;
+            df.metadata.columnCount = calculateColumnCount(data);
           }
         });
       },
@@ -199,6 +208,12 @@ export const useDataFramesStore = create<DataFramesStore>()(
         dataFrames: state.dataFrames,
       }),
       skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
+      onRehydrateStorage: () => {
+        return (state) => {
+          if (!state) return;
+          refreshColumnCounts(state);
+        };
+      },
     },
   ),
 );
