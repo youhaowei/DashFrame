@@ -64,7 +64,7 @@ export function ItemSelector({
   return (
     <div
       className={cn(
-        "border-border/60 bg-card/70 rounded-2xl border px-4 py-2 shadow-sm",
+        "border-border/60 bg-card/70 rounded-2xl border p-4 shadow-sm",
         className,
       )}
     >
@@ -79,17 +79,18 @@ export function ItemSelector({
               {/* View style toggle inline */}
               {items.length > 0 && (
                 <Toggle
+                  variant="outline"
                   value={viewStyle}
                   options={[
                     {
                       value: "compact",
-                      icon: <List className="h-3.5 w-3.5" />,
+                      icon: <List className="h-4 w-4" />,
                       tooltip: "Compact view",
                       ariaLabel: "Compact view",
                     },
                     {
                       value: "expanded",
-                      icon: <LayoutGrid className="h-3.5 w-3.5" />,
+                      icon: <LayoutGrid className="h-4 w-4" />,
                       tooltip: "Expanded view",
                       ariaLabel: "Expanded view",
                     },
@@ -122,7 +123,7 @@ export function ItemSelector({
                 className="min-w-0"
               >
                 <div className="overflow-x-auto">
-                  <TabsList className="border-border/50 bg-card/60 min-w-max rounded-2xl border px-1 py-1">
+                  <TabsList className="border-border/60 bg-card/70 min-w-max rounded-2xl border px-1 py-1">
                     {items.map((item) => {
                       const Icon = item.icon;
                       return (
@@ -167,6 +168,7 @@ export function ItemSelector({
                       key={item.id}
                       type="button"
                       onClick={() => onItemSelect(item.id)}
+                      aria-pressed={item.active}
                       className={cn(
                         "focus-visible:ring-ring min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2",
                         item.active

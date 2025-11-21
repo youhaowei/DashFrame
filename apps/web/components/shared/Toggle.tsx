@@ -6,31 +6,49 @@ export interface ToggleOption<T extends string> {
   value: T;
   icon?: ReactNode;
   label?: string;
+  badge?: string | number;
   tooltip?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }
 
 export interface ToggleProps<T extends string> {
   value: T;
   options: ToggleOption<T>[];
   onValueChange: (value: T) => void;
+  variant?: "default" | "outline";
   className?: string;
-  size?: "sm" | "md" | "lg";
 }
 
 /**
- * Toggle - Reusable pill-style toggle component
+ * Toggle - Reusable segmented control/toggle component
  *
- * Displays options as buttons in a pill-shaped container with clear active state indication.
- * Supports icons, labels, and tooltips for each option.
+ * Supports two visual variants:
+ * - default: Filled background style (Chart/Data Table/Both)
+ * - outline: Compact outline style (Compact/Expanded view)
+ *
+ * Both variants support icons, labels, badges, and disabled states.
  *
  * @example
  * ```tsx
+ * // Default variant (filled background)
  * <Toggle
+ *   variant="default"
+ *   value={activeTab}
+ *   options={[
+ *     { value: "chart", icon: <BarChart3 />, label: "Chart" },
+ *     { value: "table", icon: <TableIcon />, label: "Data Table", badge: 100 }
+ *   ]}
+ *   onValueChange={setActiveTab}
+ * />
+ *
+ * // Outline variant (compact)
+ * <Toggle
+ *   variant="outline"
  *   value={viewStyle}
  *   options={[
- *     { value: "compact", icon: <List />, tooltip: "Compact view", ariaLabel: "Compact view" },
- *     { value: "expanded", icon: <LayoutGrid />, tooltip: "Expanded view", ariaLabel: "Expanded view" }
+ *     { value: "compact", icon: <List />, tooltip: "Compact view" },
+ *     { value: "expanded", icon: <LayoutGrid />, tooltip: "Expanded view" }
  *   ]}
  *   onValueChange={setViewStyle}
  * />
@@ -40,25 +58,33 @@ export function Toggle<T extends string>({
   value,
   options,
   onValueChange,
+  variant = "outline",
   className,
-  size = "md",
 }: ToggleProps<T>) {
-  const sizeClasses = {
-    sm: "h-5 w-5 text-xs",
-    md: "h-6 w-6",
-    lg: "h-7 w-7",
+  const containerClasses = {
+    default: "bg-muted rounded-2xl p-1",
+    outline: "bg-background/80 border border-border/60 rounded-full px-1.5 py-1",
   };
 
-  const iconSizeClasses = {
-    sm: "h-3 w-3",
-    md: "h-3.5 w-3.5",
-    lg: "h-4 w-4",
+  const optionClasses = {
+    default: {
+      base: "px-4 py-2 rounded-xl gap-2 text-sm font-medium transition-all",
+      active: "bg-background text-foreground shadow-sm",
+      inactive: "text-foreground hover:bg-background/60",
+    },
+    outline: {
+      base: "px-2 py-1 rounded-full gap-1 transition-colors",
+      active: "bg-primary/10 text-primary",
+      inactive: "text-muted-foreground hover:text-foreground",
+    },
   };
 
   return (
     <div
+      role="tablist"
       className={cn(
-        "border-border/60 bg-background/80 flex items-center gap-1 rounded-full border px-1.5 py-1",
+        "flex items-center gap-1",
+        containerClasses[variant],
         className,
       )}
     >
@@ -67,22 +93,26 @@ export function Toggle<T extends string>({
         const button = (
           <button
             type="button"
-            onClick={() => onValueChange(option.value)}
-            className={cn(
-              "flex items-center justify-center rounded-full transition-colors",
-              sizeClasses[size],
-              isActive
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
+            role="tab"
+            onClick={() => !option.disabled && onValueChange(option.value)}
+            disabled={option.disabled}
+            aria-selected={isActive}
+            aria-disabled={option.disabled}
             aria-label={option.ariaLabel || option.tooltip || option.label}
-            aria-pressed={isActive}
-          >
-            {option.icon && (
-              <span className={iconSizeClasses[size]}>{option.icon}</span>
+            className={cn(
+              "flex items-center justify-center whitespace-nowrap disabled:pointer-events-none disabled:opacity-50",
+              optionClasses[variant].base,
+              isActive
+                ? optionClasses[variant].active
+                : optionClasses[variant].inactive,
             )}
-            {option.label && !option.icon && (
-              <span className="text-[10px] px-1">{option.label}</span>
+          >
+            {option.icon && <span className="shrink-0">{option.icon}</span>}
+            {option.label && (
+              <span>
+                {option.label}
+                {option.badge !== undefined && ` (${option.badge})`}
+              </span>
             )}
           </button>
         );

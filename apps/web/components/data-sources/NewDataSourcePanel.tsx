@@ -398,7 +398,7 @@ export function NewDataSourcePanel() {
       {databaseSchema.length > 0 && !isLoadingSchema && (
         <div className="space-y-2">
           <Label>Select Properties</Label>
-          <div className="border-border bg-card max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+          <div className="border-border bg-card max-h-40 space-y-1 overflow-y-auto rounded-xl border p-2">
             {databaseSchema.map((prop) => (
               <label
                 key={prop.id}

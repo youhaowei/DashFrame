@@ -5,8 +5,9 @@ import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit3, X, Sparkles, Layers } from "@/components/icons";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toggle } from "@/components/shared/Toggle";
 import { TableView } from "@/components/visualizations/TableView";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { cn } from "@/lib/utils";
 
 interface TableDetailPanelProps {
@@ -35,19 +36,12 @@ export function TableDetailPanel({
   // Empty state when no table selected
   if (!dataTable) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-center">
-          <div className="bg-muted/50 text-muted-foreground mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-            <Layers className="h-8 w-8" />
-          </div>
-          <p className="text-foreground text-lg font-semibold">
-            Select a table to view details
-          </p>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Choose a table from the list to view and edit its fields, metrics,
-            and data.
-          </p>
-        </div>
+      <div className="flex h-full items-center justify-center">
+        <EmptyState
+          icon={Layers}
+          title="Select a table to view details"
+          description="Choose a table from the list to view and edit its fields, metrics, and data."
+        />
       </div>
     );
   }
@@ -55,7 +49,7 @@ export function TableDetailPanel({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="border-border/60 shrink-0 border-b px-6 py-4">
+      <div className="border-border/60 shrink-0 border-b p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-foreground text-xl font-semibold">
@@ -74,33 +68,23 @@ export function TableDetailPanel({
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-        <div className="border-border/60 shrink-0 border-b px-6">
-          <TabsList className="h-auto bg-transparent p-0">
-            <TabsTrigger
-              value="fields"
-              className="data-[state=active]:border-primary rounded-none border-b-2 border-transparent px-4 py-3"
-            >
-              Fields ({dataTable.fields.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="metrics"
-              className="data-[state=active]:border-primary rounded-none border-b-2 border-transparent px-4 py-3"
-            >
-              Metrics ({dataTable.metrics.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="preview"
-              className="data-[state=active]:border-primary rounded-none border-b-2 border-transparent px-4 py-3"
-            >
-              Preview
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      {/* Toggle */}
+      <div className="border-border/60 shrink-0 border-b px-6 py-4">
+        <Toggle
+          variant="default"
+          value={activeTab}
+          onValueChange={setActiveTab}
+          options={[
+            { value: "fields", label: "Fields", badge: dataTable.fields.length },
+            { value: "metrics", label: "Metrics", badge: dataTable.metrics.length },
+            { value: "preview", label: "Preview" },
+          ]}
+        />
+      </div>
 
-        {/* Fields Tab */}
-        <TabsContent value="fields" className="mt-0 flex-1 overflow-hidden p-6">
+      {/* Fields Content */}
+      {activeTab === "fields" && (
+        <div className="flex-1 overflow-hidden p-6">
           <div className="flex h-full flex-col gap-4">
             <div className="flex items-center justify-between">
               <p className="text-muted-foreground text-sm">
@@ -122,7 +106,7 @@ export function TableDetailPanel({
                 dataTable.fields.map((field) => (
                   <div
                     key={field.id}
-                    className="border-border/60 hover:border-border flex items-center justify-between rounded-lg border p-3 transition-colors"
+                    className="border-border/60 hover:border-border flex items-center justify-between rounded-xl border p-3 transition-colors"
                   >
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <span className="text-foreground truncate text-sm font-medium">
@@ -155,10 +139,12 @@ export function TableDetailPanel({
               )}
             </div>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        {/* Metrics Tab */}
-        <TabsContent value="metrics" className="mt-0 flex-1 overflow-hidden p-6">
+      {/* Metrics Content */}
+      {activeTab === "metrics" && (
+        <div className="flex-1 overflow-hidden p-6">
           <div className="flex h-full flex-col gap-4">
             <div className="flex items-center justify-between">
               <p className="text-muted-foreground text-sm">
@@ -185,7 +171,7 @@ export function TableDetailPanel({
                   return (
                     <div
                       key={metric.id}
-                      className="border-border/60 hover:border-border flex items-center justify-between rounded-lg border p-3 transition-colors"
+                      className="border-border/60 hover:border-border flex items-center justify-between rounded-xl border p-3 transition-colors"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <span className="text-foreground truncate text-sm font-medium">
@@ -209,10 +195,12 @@ export function TableDetailPanel({
               )}
             </div>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        {/* Preview Tab */}
-        <TabsContent value="preview" className="mt-0 flex-1 overflow-hidden p-6">
+      {/* Preview Content */}
+      {activeTab === "preview" && (
+        <div className="flex-1 overflow-hidden p-6">
           <div className="flex h-full flex-col gap-4">
             <p className="text-muted-foreground text-sm">
               {dataFrame
@@ -220,7 +208,7 @@ export function TableDetailPanel({
                 : "No data available"}
             </p>
 
-            <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-lg border">
+            <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
               {dataFrame ? (
                 <TableView dataFrame={dataFrame.data} fields={dataTable.fields} />
               ) : (
@@ -232,8 +220,8 @@ export function TableDetailPanel({
               )}
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }

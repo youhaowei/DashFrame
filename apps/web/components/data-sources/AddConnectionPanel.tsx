@@ -55,7 +55,7 @@ export function AddConnectionPanel({
             )}
 
             <div className="space-y-4">
-                <Card className="border-border/60 bg-card/80 border shadow-sm">
+                <Card className="border-border/60 bg-card/70 border shadow-sm">
                     <CardHeader>
                         <CardTitle className="text-foreground text-base font-semibold">
                             {csvTitle}
@@ -63,22 +63,23 @@ export function AddConnectionPanel({
                         <p className="text-muted-foreground text-sm">{csvDescription}</p>
                     </CardHeader>
                     <CardContent>
-                        <label className="border-input bg-muted/50 hover:border-primary hover:bg-muted flex cursor-pointer flex-col items-center justify-center rounded-md border p-6 text-center text-sm font-medium transition">
+                        <label className="border-input bg-muted/50 hover:border-primary hover:bg-muted flex cursor-pointer flex-col items-center justify-center rounded-xl border p-6 text-center text-sm font-medium transition">
                             <span className="text-foreground">Select CSV File</span>
-                            <span className="text-muted-foreground mt-2 text-xs font-normal">
+                            <span id="csv-helper-text" className="text-muted-foreground mt-2 text-xs font-normal">
                                 {csvHelperText}
                             </span>
                             <input
                                 type="file"
                                 accept=".csv,text/csv"
                                 className="hidden"
+                                aria-describedby="csv-helper-text"
                                 onChange={handleFileChange}
                             />
                         </label>
                     </CardContent>
                 </Card>
 
-                <Card className="border-border/60 bg-card/80 border shadow-sm">
+                <Card className="border-border/60 bg-card/70 border shadow-sm">
                     <CardHeader>
                         <CardTitle className="text-foreground flex items-center gap-2 text-base font-semibold">
                             <Notion className="h-5 w-5" />

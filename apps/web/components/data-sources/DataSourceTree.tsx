@@ -7,6 +7,7 @@ import { isLocalDataSource } from "@/lib/stores/types";
 import { File, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { SidePanel } from "@/components/shared/SidePanel";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { cn } from "@/lib/utils";
 
 interface DataSourceTreeProps {
@@ -81,13 +82,12 @@ export function DataSourceTree({
       {/* Tables List */}
       <div className="space-y-2">
         {dataTables.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-            <File className="text-muted-foreground/50 h-8 w-8" />
-            <p className="text-muted-foreground text-sm">No tables yet</p>
-            <p className="text-muted-foreground text-xs">
-              Upload a CSV to get started
-            </p>
-          </div>
+          <EmptyState
+            icon={File}
+            title="No tables yet"
+            description="Upload a CSV to get started"
+            size="sm"
+          />
         ) : (
           dataTables.map((table) => {
             const dataFrame = table.dataFrameId
@@ -99,8 +99,10 @@ export function DataSourceTree({
               <button
                 key={table.id}
                 onClick={() => onTableSelect(table.id)}
+                aria-selected={isSelected}
+                role="option"
                 className={cn(
-                  "group w-full rounded-lg border p-3 text-left transition-all",
+                  "group w-full rounded-xl border p-3 text-left transition-all",
                   "hover:border-border hover:bg-accent/50",
                   isSelected
                     ? "border-primary bg-primary/5 shadow-sm"
@@ -116,7 +118,7 @@ export function DataSourceTree({
                         : "bg-muted text-muted-foreground"
                     )}
                   >
-                    <File className="h-3.5 w-3.5" />
+                    <File className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p

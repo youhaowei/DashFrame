@@ -47,17 +47,17 @@ export function SidePanel({
     >
       {/* Fixed header */}
       {header && (
-        <div className="border-border/60 shrink-0 border-b px-6 py-4">
+        <div className="border-border/60 shrink-0 border-b p-6">
           {header}
         </div>
       )}
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">{children}</div>
+      <div className="flex-1 overflow-y-auto p-6">{children}</div>
 
       {/* Fixed footer */}
       {footer && (
-        <div className="border-border/60 shrink-0 border-t px-6 py-4">
+        <div className="border-border/60 shrink-0 border-t p-6">
           {footer}
         </div>
       )}

@@ -7,8 +7,7 @@ import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip } from "@/components/shared/Tooltip";
+import { Toggle } from "@/components/shared/Toggle";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
 
@@ -303,84 +302,75 @@ export function VisualizationDisplay() {
     );
   }
 
-  // Unified tabs view with Chart, Table, and Both options
+  // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-foreground text-xl font-semibold">
-                {viz.name}
+      <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-foreground text-xl font-semibold">
+              {viz.name}
+            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-muted-foreground text-sm">
+                {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
+                {dataFrame.metadata.columnCount} columns
               </p>
-              <div className="flex items-center gap-2">
-                <p className="text-muted-foreground text-sm">
-                  {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
-                  {dataFrame.metadata.columnCount} columns
-                </p>
-                {viz.encoding?.color && (
-                  <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
-                    Color: {viz.encoding.color}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <TabsList className="shrink-0">
-                <TabsTrigger value="chart" className="gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Chart
-                </TabsTrigger>
-                <TabsTrigger value="table" className="gap-2">
-                  <TableIcon className="h-4 w-4" />
-                  Data Table
-                </TabsTrigger>
-                {canShowBoth ? (
-                  <TabsTrigger value="both" className="gap-2">
-                    <Layers className="h-4 w-4" />
-                    Both
-                  </TabsTrigger>
-                ) : (
-                  <Tooltip content={<p className="text-xs">{bothTooltip}</p>}>
-                    <span className="inline-flex">
-                      <TabsTrigger value="both" className="gap-2" disabled>
-                        <Layers className="h-4 w-4" />
-                        Both
-                      </TabsTrigger>
-                    </span>
-                  </Tooltip>
-                )}
-              </TabsList>
+              {viz.encoding?.color && (
+                <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
+                  Color: {viz.encoding.color}
+                </span>
+              )}
             </div>
           </div>
+          <div className="flex items-center gap-3">
+            <Toggle
+              variant="default"
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="shrink-0"
+              options={[
+                {
+                  value: "chart",
+                  icon: <BarChart3 className="h-4 w-4" />,
+                  label: "Chart",
+                },
+                {
+                  value: "table",
+                  icon: <TableIcon className="h-4 w-4" />,
+                  label: "Data Table",
+                },
+                {
+                  value: "both",
+                  icon: <Layers className="h-4 w-4" />,
+                  label: "Both",
+                  disabled: !canShowBoth,
+                  tooltip: bothTooltip,
+                },
+              ]}
+            />
+          </div>
         </div>
+      </div>
 
-        <TabsContent
-          value="chart"
-          className="mt-3 min-h-0 flex-1 px-4 data-[state=active]:flex data-[state=inactive]:hidden"
-        >
+      {activeTab === "chart" && (
+        <div className="mt-3 flex min-h-0 flex-1 px-4">
           <div className="h-full w-full">
             <VegaChart spec={vegaSpec!} />
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent
-          value="table"
-          className="mt-3 min-h-0 flex-1 px-4 data-[state=active]:flex data-[state=inactive]:hidden"
-        >
+      {activeTab === "table" && (
+        <div className="mt-3 flex min-h-0 flex-1 px-4">
           <div className="border-border/60 bg-background/60 h-full w-full rounded-2xl border shadow-inner shadow-black/5">
             <TableView dataFrame={dataFrame.data} />
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent
-          value="both"
-          className="mt-3 min-h-0 flex-1 flex-col data-[state=active]:flex data-[state=inactive]:hidden"
-        >
+      {activeTab === "both" && (
+        <div className="mt-3 flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 px-4 pb-2">
             <VegaChart spec={vegaSpec!} />
           </div>
@@ -389,8 +379,8 @@ export function VisualizationDisplay() {
               <TableView dataFrame={dataFrame.data} />
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }

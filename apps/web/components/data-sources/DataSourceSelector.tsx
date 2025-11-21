@@ -80,7 +80,7 @@ export function DataSourceSelector({
 
   if (!isHydrated) {
     return (
-      <div className="border-border/60 bg-card/70 rounded-2xl border px-6 py-5 shadow-sm">
+      <div className="border-border/60 bg-card/70 rounded-2xl border p-6 shadow-sm">
         <p className="text-muted-foreground text-sm">Preparing data sources…</p>
       </div>
     );
@@ -88,9 +88,9 @@ export function DataSourceSelector({
 
   if (dataSources.length === 0) {
     return (
-      <div className="border-border/70 bg-card/60 rounded-2xl border border-dashed px-6 py-8 text-center shadow-sm">
+      <div className="border-border/60 bg-card/70 rounded-2xl border border-dashed p-8 text-center shadow-sm">
         <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
-          <Database className="h-5 w-5" />
+          <Database className="h-12 w-12" />
         </div>
         <h2 className="text-foreground text-lg font-semibold">
           Add your first data source
