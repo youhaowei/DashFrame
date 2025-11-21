@@ -141,6 +141,44 @@ pnpm check  # Runs lint + typecheck + format
 5. Add tRPC router if calling external APIs (avoid CORS)
 6. Update `README.md` only for major user-facing features
 
+### UI Component Guidelines
+
+**See `docs/ui-components.md` for comprehensive component documentation.**
+
+Before implementing any UI changes, follow this component-first approach:
+
+1. **Check existing components first**:
+   - `components/ui/` - shadcn/ui components (22 components available)
+   - `components/shared/` - Custom reusable components (ActionGroup, ItemSelector, CollapsibleSection, etc.)
+   - See `docs/ui-components.md` for full inventory
+
+2. **Component decision principles**:
+   - **Use shadcn/ui components** for standard UI patterns (buttons, cards, dialogs, forms, etc.)
+   - **Use shared components** for DashFrame-specific patterns (ActionGroup, ItemSelector, Toggle, etc.)
+   - **Create feature-specific components** for one-off, domain-specific UI
+   - **Extract to shared/** when patterns emerge across multiple features
+
+3. **Design token enforcement** (from `docs/architecture.md`):
+   - **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
+   - **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
+   - **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)
+   - **No UPPERCASE text** - Use sentence case everywhere (except acronyms like CSV, API)
+
+4. **When to create reusable components**:
+   - Pattern appears or will appear in 3+ places
+   - Component encapsulates meaningful UI logic
+   - Component has clear, semantic purpose (not just styling wrapper)
+   - Add JSDoc documentation with usage examples
+
+5. **Avoid one-off customization**:
+   - Don't create custom `<div>` wrappers with Tailwind when a component exists
+   - Don't duplicate component logic - extract and reuse
+   - Don't break design token patterns - follow spacing/radius/icon guidelines
+   - Don't skip accessibility - use semantic HTML and aria-labels
+
+**Component extraction workflow**:
+- Recognize repeated pattern → Check if shared component exists → Extract to `components/shared/` if used 3+ times → Document with JSDoc
+
 ### Architecture Principles
 
 - **DataFrame is the contract**: All sources convert to it, all visualizations consume it

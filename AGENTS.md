@@ -1,37 +1,70 @@
 # Agent Playbook
 
-Guidance for automation and future contributors working in this repository.
+**For comprehensive development guidance, see [`CLAUDE.md`](./CLAUDE.md).**
 
-## Quick Facts
+This file serves as a brief entry point for automated agents and AI assistants working in this repository. All detailed guidance is maintained in `CLAUDE.md` to avoid duplication.
 
-- Monorepo managed with `pnpm` and Turborepo; packages live under `apps/*` and `packages/*`.
-- Primary app sits in `apps/web` (Next.js 16 + React 19).
-- TypeScript is ubiquitous; linting flows through ESLint 9 + shared config.
+## Quick Start
 
-## Architecture
+1. **Read [`CLAUDE.md`](./CLAUDE.md)** - Complete development guidance including:
+   - Essential commands and workspace setup
+   - Core architecture and design principles
+   - UI component guidelines and design tokens
+   - Development best practices and workflows
 
-See `docs/architecture.md` for complete architecture details.
+2. **Check [`docs/ui-components.md`](./docs/ui-components.md)** before implementing UI changes:
+   - Component inventory (shadcn/ui + custom shared components)
+   - Design system tokens and patterns
+   - Decision framework for component reuse
+   - Real examples from the codebase
 
-## Naming Conventions
+3. **Review [`docs/architecture.md`](./docs/architecture.md)** for system design:
+   - Vision and domain model
+   - State management architecture
+   - Data flow patterns
+   - UI/UX guidelines
 
-- Brand-facing references and code identifiers (components, types) use `DashFrame`.
-- Package scopes, directories, config keys, and persisted storage entries use the lowercase `dashframe` prefix, e.g. `@dashframe/dataframe`.
-- When adding new workspace members, prefer the `@dashframe/*` scope and update `pnpm-workspace.yaml` if layout changes.
+## Essential Quick Reference
 
-## Commands
+### Core Technologies
+- **Monorepo**: pnpm + Turborepo (`apps/*`, `packages/*`)
+- **Framework**: Next.js 16 (App Router) + React 19
+- **Styling**: Tailwind CSS v4 + shadcn/ui components
+- **State**: Zustand + Immer with localStorage persistence
+- **Types**: TypeScript (strict mode)
 
-- Install dependencies: `pnpm install`
-- Run dev mode: `pnpm dev`
-- Check formatting: `pnpm format`
-- Apply formatting fixes: `pnpm format:write`
-- Run full static checks (lint+types+format): `pnpm check`
-- Lint all packages: `pnpm lint`
-- Type-check workspace: `pnpm typecheck`
-- Build everything: `pnpm build`
+### Key Commands
+```bash
+pnpm check      # Run lint + typecheck + format (before committing)
+pnpm dev        # Run dev server + TypeScript watch mode
+pnpm build      # Build all packages and apps
+```
 
-## Expectations
+**⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested.**
 
-- **Spec-First Development**: Before implementing new features or significant UI/UX changes, create a feature spec in `docs/specs/<feature-name>.md`. Document user flows, UI layouts, decision rationale, and error handling. Reference `docs/specs/create-visualization-flow.md` as an example.
-- Favor incremental, targeted changes; avoid rewriting unrelated files.
-- Keep documentation synchronized—update README/docs whenever conventions shift.
-- Prefer `rg` for search, `pnpm` scripts over invoking underlying binaries directly, and stay consistent with existing formatting (Prettier config applies).
+### Naming Conventions
+- **User-facing**: `DashFrame` (PascalCase)
+- **Packages**: `@dashframe/*` (lowercase scope)
+- **Storage keys**: `dashframe:*` (lowercase prefix)
+
+### Development Workflow
+1. **Spec-first**: Create `docs/specs/<feature>.md` before implementing
+2. **Component-first**: Check `components/ui/` and `components/shared/` before writing custom JSX
+3. **Check before committing**: Run `pnpm check`
+
+## UI Component Quick Decision Tree
+
+```
+Need UI?
+  ↓
+1. Check components/ui/ (shadcn/ui) → Use if available
+2. Check components/shared/ (custom) → Use if pattern matches
+3. Pattern used 3+ times? → Extract to shared/
+4. Otherwise → Create feature-specific component
+```
+
+**See [`docs/ui-components.md`](./docs/ui-components.md) for complete component documentation.**
+
+---
+
+**For everything else, see [`CLAUDE.md`](./CLAUDE.md).**
