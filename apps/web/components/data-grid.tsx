@@ -12,6 +12,7 @@ import {
 import { MoreHorizontal } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,7 +113,7 @@ export function DataGrid<TData>({
   // Empty state
   if (data.length === 0) {
     return (
-      <div className="border-muted bg-card flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center">
+      <Surface elevation="inset" className="flex flex-col items-center justify-center rounded-lg p-12 text-center">
         <p className="text-foreground text-base font-medium">{emptyMessage}</p>
         <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (
@@ -120,7 +121,7 @@ export function DataGrid<TData>({
             Create New
           </Button>
         )}
-      </div>
+      </Surface>
     );
   }
 

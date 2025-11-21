@@ -13,13 +13,14 @@ import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { SidePanel } from "@/components/shared/SidePanel";
+import { Panel } from "@/components/shared/Panel";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/notion";
 import { Input } from "@/components/fields/input";
@@ -176,14 +177,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   if (!dataSource) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
-        <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center">
+        <Surface elevation="inset" className="w-full p-8 text-center">
           <p className="text-foreground text-base font-medium">
             No data source selected
           </p>
           <p className="text-muted-foreground mt-2 text-sm">
             Select a data source or create a new one to configure settings.
           </p>
-        </div>
+        </Surface>
       </div>
     );
   }
@@ -221,7 +222,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   );
 
   return (
-    <SidePanel footer={actionsFooter}>
+    <Panel footer={actionsFooter}>
       {/* Name field at top */}
       <div className="border-border/40 border-b px-4 pb-3 pt-4">
         <Input
@@ -459,6 +460,6 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
           </p>
         </div>
       )}
-    </SidePanel>
+    </Panel>
   );
 }

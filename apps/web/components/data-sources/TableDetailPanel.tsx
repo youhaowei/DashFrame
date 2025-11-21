@@ -5,6 +5,7 @@ import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit3, X, Sparkles, Layers } from "@/components/icons";
+import { Panel } from "@/components/shared/Panel";
 import { Toggle } from "@/components/shared/Toggle";
 import { TableView } from "@/components/visualizations/TableView";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -47,45 +48,44 @@ export function TableDetailPanel({
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-border/60 shrink-0 border-b p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-foreground text-xl font-semibold">
-              {dataTable.name}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {dataFrame
-                ? `${dataFrame.metadata.rowCount} rows × ${dataFrame.metadata.columnCount} columns`
-                : "No data available"}
-            </p>
+    <Panel
+      header={
+        <>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-foreground text-xl font-semibold">
+                {dataTable.name}
+              </h1>
+              <p className="text-muted-foreground mt-1 text-sm">
+                {dataFrame
+                  ? `${dataFrame.metadata.rowCount} rows × ${dataFrame.metadata.columnCount} columns`
+                  : "No data available"}
+              </p>
+            </div>
+            <Button onClick={onCreateVisualization} size="sm" className="shrink-0">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Create Visualization
+            </Button>
           </div>
-          <Button onClick={onCreateVisualization} size="sm" className="shrink-0">
-            <Sparkles className="mr-2 h-4 w-4" />
-            Create Visualization
-          </Button>
-        </div>
-      </div>
 
-      {/* Toggle */}
-      <div className="border-border/60 shrink-0 border-b px-6 py-4">
-        <Toggle
-          variant="default"
-          value={activeTab}
-          onValueChange={setActiveTab}
-          options={[
-            { value: "fields", label: "Fields", badge: dataTable.fields.length },
-            { value: "metrics", label: "Metrics", badge: dataTable.metrics.length },
-            { value: "preview", label: "Preview" },
-          ]}
-        />
-      </div>
-
+          <div className="border-border/60 mt-4 border-t pt-4">
+            <Toggle
+              variant="default"
+              value={activeTab}
+              onValueChange={setActiveTab}
+              options={[
+                { value: "fields", label: "Fields", badge: dataTable.fields.length },
+                { value: "metrics", label: "Metrics", badge: dataTable.metrics.length },
+                { value: "preview", label: "Preview" },
+              ]}
+            />
+          </div>
+        </>
+      }
+    >
       {/* Fields Content */}
       {activeTab === "fields" && (
-        <div className="flex-1 overflow-hidden p-6">
-          <div className="flex h-full flex-col gap-4">
+        <div className="flex h-full flex-col gap-4">
             <div className="flex items-center justify-between">
               <p className="text-muted-foreground text-sm">
                 {dataTable.fields.length} field
@@ -138,14 +138,12 @@ export function TableDetailPanel({
                 ))
               )}
             </div>
-          </div>
         </div>
       )}
 
       {/* Metrics Content */}
       {activeTab === "metrics" && (
-        <div className="flex-1 overflow-hidden p-6">
-          <div className="flex h-full flex-col gap-4">
+        <div className="flex h-full flex-col gap-4">
             <div className="flex items-center justify-between">
               <p className="text-muted-foreground text-sm">
                 {dataTable.metrics.length} metric
@@ -194,14 +192,12 @@ export function TableDetailPanel({
                 })
               )}
             </div>
-          </div>
         </div>
       )}
 
       {/* Preview Content */}
       {activeTab === "preview" && (
-        <div className="flex-1 overflow-hidden p-6">
-          <div className="flex h-full flex-col gap-4">
+        <div className="flex h-full flex-col gap-4">
             <p className="text-muted-foreground text-sm">
               {dataFrame
                 ? `Showing first ${Math.min(50, dataFrame.metadata.rowCount)} rows`
@@ -220,8 +216,7 @@ export function TableDetailPanel({
               )}
             </div>
           </div>
-        </div>
       )}
-    </div>
+    </Panel>
   );
 }

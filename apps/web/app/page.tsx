@@ -9,7 +9,7 @@ import {
   EmptyState,
 } from "@/components/visualizations";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
-import { SidePanel } from "@/components/shared/SidePanel";
+import { Panel } from "@/components/shared/Panel";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 
 export default function HomePage() {
@@ -36,9 +36,9 @@ export default function HomePage() {
           }
           leftPanel={<VisualizationControls />}
         >
-          <SidePanel className="bg-card/75 shadow-lg">
+          <Panel>
             <VisualizationDisplay />
-          </SidePanel>
+          </Panel>
         </WorkbenchLayout>
       )}
 

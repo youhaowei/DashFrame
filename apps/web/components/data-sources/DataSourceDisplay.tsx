@@ -14,7 +14,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from "@/components/shared/Card";
+import { Surface } from "@/components/ui/surface";
 import { Button } from "@/components/ui/button";
 import {
   ChevronDown,
@@ -56,7 +57,7 @@ function LocalDataSourceView({
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <Card className="border-border/60 bg-card/80 border shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="text-lg">{dataSource.name}</CardTitle>
           <CardDescription>
@@ -67,7 +68,7 @@ function LocalDataSourceView({
       </Card>
 
       {/* Files List */}
-      <Card className="border-border/60 bg-card/80 border shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="text-lg">Files</CardTitle>
           <CardDescription>
@@ -115,7 +116,7 @@ function LocalDataSourceView({
       </Card>
 
       {/* Data Preview */}
-      <Card className="border-border/60 bg-card/80 flex min-h-0 flex-1 flex-col border shadow-sm">
+      <Card className="flex min-h-0 flex-1 flex-col">
         <CardHeader>
           <CardTitle className="text-lg">Data Preview</CardTitle>
           <CardDescription>
@@ -344,7 +345,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   if (!dataSource) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
-        <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center">
+        <Surface elevation="inset" className="w-full p-8 text-center">
           <Database className="text-muted-foreground/50 mx-auto h-12 w-12" />
           <p className="text-foreground mt-4 text-base font-medium">
             No data source selected
@@ -352,7 +353,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             Select a data source to view its tables and data.
           </p>
-        </div>
+        </Surface>
       </div>
     );
   }
@@ -377,7 +378,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       <div className="flex h-full flex-col gap-4">
         {/* Table Header & Configuration */}
         {selectedDataTable && (
-          <Card className="border-border/60 bg-card/80 border shadow-sm">
+          <Card>
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
@@ -502,7 +503,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
         {/* Empty state if no tables configured */}
         {!hasDataTables && (
-          <Card className="border-border/60 bg-card/80 border shadow-sm">
+          <Card>
             <CardContent className="py-12">
               <div className="flex flex-col items-center gap-2 text-center">
                 <Database className="text-muted-foreground/70 h-8 w-8" />
@@ -518,7 +519,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         )}
 
         {/* Data Preview */}
-        <Card className="border-border/60 bg-card/80 flex min-h-0 flex-1 flex-col border shadow-sm">
+        <Card className="flex min-h-0 flex-1 flex-col">
           <CardHeader className="flex flex-row items-center justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -635,11 +636,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   return (
     <div className="flex h-full w-full items-center justify-center p-6">
-      <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center">
+      <Surface elevation="inset" className="w-full p-8 text-center">
         <p className="text-foreground text-base font-medium">
           Unsupported data source type
         </p>
-      </div>
+      </Surface>
     </div>
   );
 }

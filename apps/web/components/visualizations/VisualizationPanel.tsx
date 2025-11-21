@@ -3,7 +3,8 @@
 import { useLayoutEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisualizationsStore, useDataFramesStore } from "@/lib/stores";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/shared/Card";
+import { Surface } from "@/components/ui/surface";
 import type { TopLevelSpec } from "vega-lite";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
@@ -53,9 +54,9 @@ export function VisualizationPanel() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium">Chart Preview</h2>
           </div>
-          <div className="border-border text-muted-foreground flex flex-1 items-center justify-center rounded-md border border-dashed text-sm">
+          <Surface elevation="inset" className="text-muted-foreground flex flex-1 items-center justify-center rounded-md text-sm">
             Upload a CSV or connect to Notion to create a visualization.
-          </div>
+          </Surface>
         </CardContent>
       </Card>
     );

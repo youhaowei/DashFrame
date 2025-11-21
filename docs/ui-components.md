@@ -23,15 +23,64 @@ This document provides comprehensive guidance on UI components in DashFrame, cov
 
 - **Actions**: `button`, `dropdown-menu`
 - **Forms**: `checkbox`, `field`, `input`, `label`, `select`, `switch`, `multi-select`
-- **Data Display**: `badge`, `card`, `table`, `tabs`, `separator`, `scroll-area`
+- **Data Display**: `badge`, `table`, `tabs`, `separator`, `scroll-area`
 - **Feedback**: `alert`, `sonner` (toast notifications), `tooltip`
-- **Layout**: `dialog`, `collapsible`, `navigation-menu`
+- **Layout**: `dialog`, `collapsible`, `navigation-menu`, `surface`
 
 **When to use**: These are your building blocks. Use them for all standard UI patterns (buttons, inputs, cards, modals, etc.). They provide consistent styling, accessibility, and behavior out of the box.
+
+#### Surface Component
+
+**`Surface`** - Primitive component for standardized elevation and visual depth.
+
+- **Purpose**: Provides foundational system for creating UI layers with consistent elevation effects
+- **Location**: `components/ui/surface.tsx`
+- **Use for**: Backgrounds, containers, and any element needing standardized depth or visual hierarchy
+
+**Elevation variants**:
+- `plain` - Minimal flat surface with border only, no shadow
+- `raised` - Standard elevated surface with subtle shadow (default)
+- `floating` - Prominent elevation with backdrop blur and stronger shadow
+- `inset` - Sunken appearance with inset shadow for recessed areas
+
+**Props**:
+- `elevation?: "plain" | "raised" | "floating" | "inset"` - Visual depth variant (default: `"raised"`)
+- `interactive?: boolean` - Adds hover states for clickable surfaces (default: `false`)
+- Standard div props + `className` for spacing/customization
+
+**Examples**:
+```tsx
+// Standard card surface
+<Surface elevation="raised" className="p-6">
+  <h2>Content</h2>
+</Surface>
+
+// Elevated panel with backdrop blur
+<Surface elevation="floating" className="p-8">
+  <nav>Navigation</nav>
+</Surface>
+
+// Sunken empty state area
+<Surface elevation="inset" className="p-8 text-center">
+  <p>No items found</p>
+</Surface>
+
+// Interactive clickable surface
+<Surface elevation="raised" interactive className="p-4 cursor-pointer">
+  <button>Click me</button>
+</Surface>
+```
 
 ### Custom Shared Components (`components/shared/`)
 
 **DashFrame-specific reusable patterns.**
+
+- **`Card`** - Enhanced content grouping component with standardized elevation
+  - Use for: Structured content layout with headers, titles, descriptions, and footers
+  - Built on: Uses `Surface` primitive internally for consistent elevation
+  - Subcomponents: `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`, `CardAction`
+  - Props: Same as `Surface` (`elevation`, `interactive`) plus standard div props
+  - Example: Content cards, feature panels, data displays
 
 - **`ActionGroup`** - Universal button group renderer with icons, variants, and compact mode
   - Use for: Consistent action button groups throughout the app
@@ -49,9 +98,13 @@ This document provides comprehensive guidance on UI components in DashFrame, cov
   - Use for: Indicating expandable/collapsible content
   - Pairs with: CollapsibleSection component
 
-- **`SidePanel`** - Reusable side panel layout
-  - Use for: Consistent side panel UI (settings, filters, details)
-  - Provides: Standard panel structure and animations
+- **`Panel`** - Reusable panel component with fixed header/footer and scrollable content
+  - Use for: Any panel layout (side panels, detail panels, main content areas)
+  - Built on: Uses `Surface` primitive internally for consistent elevation
+  - Features: Optional header/footer, automatic scrolling, forward ref support
+  - Subcomponent: `PanelSection` for section dividers within panels
+  - Props: `elevation` (default: "raised"), `header`, `footer`, `children`, `className`
+  - Example: Settings panels, control panels, detail views
 
 - **`Toggle`** - Custom toggle component for view switching
   - Use for: Switching between modes/views
@@ -83,32 +136,52 @@ Components in `components/data-sources/`, `components/visualizations/`, `compone
 
 **Purpose**: Structure and organize page content
 
-- **From shadcn/ui**: `card`, `separator`, `scroll-area`
-- **Custom shared**: `Stack`, `Container`, `SidePanel`
+- **From shadcn/ui**: `surface`, `separator`, `scroll-area`
+- **Custom shared**: `Card`, `Stack`, `Container`, `Panel`
 
-**Pattern**: Use Card for content grouping, Stack for vertical/horizontal layouts, Container for max-width constraints.
+**Pattern**: Use Surface for generic elevation effects, Card for structured content with headers/footers, Panel for full-height layouts with headers/footers, Stack for vertical/horizontal layouts, Container for max-width constraints.
+
+**Surface vs Card vs Panel decision tree**:
+- Use **Surface** for: Generic backgrounds, containers, panels without structured content
+- Use **Card** for: Content grouping with headers, titles, descriptions, actions (uses Surface internally)
+- Use **Panel** for: Full-height layouts with fixed header/footer and scrollable content (uses Surface internally)
 
 ```tsx
-// Good - Using layout components
+// Good - Using layout components with Surface and Card
 <Container>
   <Stack direction="vertical" spacing="lg">
-    <Card>
-      <Stack direction="horizontal" spacing="sm">
-        <Icon />
-        <Text>Content</Text>
-      </Stack>
+    {/* Use Card for structured content */}
+    <Card elevation="raised">
+      <CardHeader>
+        <CardTitle>Data Sources</CardTitle>
+        <CardDescription>Manage your connected data sources</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p>Content here</p>
+      </CardContent>
     </Card>
+
+    {/* Use Surface for generic containers */}
+    <Surface elevation="inset" className="p-6 text-center">
+      <p className="text-muted-foreground">No data available</p>
+    </Surface>
   </Stack>
 </Container>
 
 // Avoid - Custom div wrappers
 <div className="max-w-7xl mx-auto px-6">
   <div className="flex flex-col gap-6">
-    <div className="rounded-2xl border p-6">
-      <div className="flex items-center gap-2">
-        <Icon />
-        <span>Content</span>
+    <div className="rounded-2xl border p-6 shadow-sm bg-card">
+      <div className="px-6">
+        <h2>Data Sources</h2>
+        <p>Manage your connected data sources</p>
       </div>
+      <div className="px-6">
+        <p>Content here</p>
+      </div>
+    </div>
+    <div className="rounded-2xl border border-dashed p-6 text-center bg-background/40 shadow-inner">
+      <p className="text-muted-foreground">No data available</p>
     </div>
   </div>
 </div>
@@ -357,6 +430,79 @@ import { Stack } from "@/components/shared/Stack"
 
 **Why avoid**: Harder to maintain consistency, no type safety, more verbose, easy to diverge from design system.
 
+### Example 5: Panel Component
+
+**Good - Using Panel**:
+```tsx
+import { Panel, PanelSection } from "@/components/shared/Panel"
+
+// Standard panel with header and footer
+<Panel
+  header={
+    <div className="flex items-center justify-between">
+      <h2 className="text-xl font-semibold">Settings</h2>
+      <Button>Save</Button>
+    </div>
+  }
+  footer={
+    <div className="flex justify-end gap-2">
+      <Button variant="outline">Cancel</Button>
+      <Button>Apply</Button>
+    </div>
+  }
+>
+  <PanelSection title="General" description="Basic configuration options">
+    <div>Settings content here</div>
+  </PanelSection>
+
+  <PanelSection title="Advanced">
+    <div>Advanced options</div>
+  </PanelSection>
+</Panel>
+
+// Panel with forward ref for ResizeObserver
+const panelRef = useRef<HTMLDivElement>(null);
+<Panel ref={panelRef} header={<h2>Resizable Panel</h2>}>
+  <div>Content that needs resize tracking</div>
+</Panel>
+```
+
+**Benefits**: Fixed header/footer, automatic scrolling, consistent elevation via Surface, section dividers with PanelSection, forward ref support.
+
+**Avoid - Manual panel divs**:
+```tsx
+<div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
+  <div className="border-b p-6">
+    <div className="flex items-center justify-between">
+      <h2 className="text-xl font-semibold">Settings</h2>
+      <Button>Save</Button>
+    </div>
+  </div>
+
+  <div className="flex-1 overflow-y-auto p-6">
+    <div className="border-b p-6">
+      <h3 className="font-semibold">General</h3>
+      <p className="text-sm text-muted-foreground">Basic configuration options</p>
+      <div>Settings content here</div>
+    </div>
+
+    <div className="p-6">
+      <h3 className="font-semibold">Advanced</h3>
+      <div>Advanced options</div>
+    </div>
+  </div>
+
+  <div className="border-t p-6">
+    <div className="flex justify-end gap-2">
+      <Button variant="outline">Cancel</Button>
+      <Button>Apply</Button>
+    </div>
+  </div>
+</div>
+```
+
+**Why avoid**: Manual border/padding management, inconsistent elevation, repetitive section structure, no ref forwarding, hard to maintain.
+
 ## Component Creation Checklist
 
 When creating a new shared component:
@@ -416,6 +562,40 @@ When creating a new shared component:
   />
 )}
 ```
+
+### Migrating from Manual Card Divs to Surface
+
+**Before - Manual raised surface**:
+```tsx
+<div className="border-border/60 bg-card/80 rounded-2xl border p-6 shadow-sm">
+  <p className="text-muted-foreground text-sm">Content here</p>
+</div>
+```
+
+**After - Surface component**:
+```tsx
+<Surface elevation="raised" className="p-6">
+  <p className="text-muted-foreground text-sm">Content here</p>
+</Surface>
+```
+
+**Before - Manual inset surface (empty state)**:
+```tsx
+<div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center shadow-inner shadow-black/5">
+  <p className="text-foreground text-base font-medium">No data source selected</p>
+  <p className="text-muted-foreground mt-2 text-sm">Select a data source to view its data.</p>
+</div>
+```
+
+**After - Surface with inset elevation**:
+```tsx
+<Surface elevation="inset" className="w-full p-8 text-center">
+  <p className="text-foreground text-base font-medium">No data source selected</p>
+  <p className="text-muted-foreground mt-2 text-sm">Select a data source to view its data.</p>
+</Surface>
+```
+
+**Benefits**: Standardized elevation system, consistent shadow/border/background patterns, simplified className props, single source of truth for surface styling.
 
 ## Best Practices Summary
 

@@ -6,7 +6,7 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { isLocalDataSource } from "@/lib/stores/types";
 import { File, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import { SidePanel } from "@/components/shared/SidePanel";
+import { Panel } from "@/components/shared/Panel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +42,7 @@ export function DataSourceTree({
   }
 
   return (
-    <SidePanel
+    <Panel
       header={
         <div className="space-y-3">
           {/* Data Source Name */}
@@ -142,6 +142,6 @@ export function DataSourceTree({
           })
         )}
       </div>
-    </SidePanel>
+    </Panel>
   );
 }

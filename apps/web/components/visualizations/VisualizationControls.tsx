@@ -24,7 +24,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { SidePanel } from "@/components/shared/SidePanel";
+import { Panel } from "@/components/shared/Panel";
 import { Toggle } from "@/components/shared/Toggle";
 import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
@@ -615,7 +615,7 @@ export function VisualizationControls() {
   );
 
   return (
-    <SidePanel footer={actionsFooter}>
+    <Panel footer={actionsFooter}>
       {/* Name field at top */}
       <div className="border-border/40 border-b px-4 pb-3 pt-4">
         <Label
@@ -884,6 +884,6 @@ export function VisualizationControls() {
             </div>
         </CollapsibleSection>
       )}
-    </SidePanel>
+    </Panel>
   );
 }

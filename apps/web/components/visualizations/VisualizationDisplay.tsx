@@ -7,6 +7,7 @@ import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { Surface } from "@/components/ui/surface";
 import { Toggle } from "@/components/shared/Toggle";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
@@ -257,7 +258,7 @@ export function VisualizationDisplay() {
   if (!isMounted || !activeResolved) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
-        <div className="border-border/70 bg-background/40 w-full max-w-lg rounded-3xl border border-dashed p-10 text-center shadow-inner shadow-black/5">
+        <Surface elevation="inset" className="w-full max-w-lg rounded-3xl p-10 text-center">
           <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
             <BarChart3 className="h-6 w-6" />
           </div>
@@ -268,7 +269,7 @@ export function VisualizationDisplay() {
             Use the controls on the left to create or select a visualization to
             preview.
           </p>
-        </div>
+        </Surface>
       </div>
     );
   }
@@ -294,9 +295,9 @@ export function VisualizationDisplay() {
           </div>
         </div>
         <div className="min-h-0 flex-1 px-6 py-6">
-          <div className="border-border/60 bg-background/60 h-full rounded-2xl border p-4 shadow-inner shadow-black/5">
+          <Surface elevation="inset" className="h-full p-4">
             <TableView dataFrame={dataFrame.data} />
-          </div>
+          </Surface>
         </div>
       </div>
     );
@@ -363,9 +364,9 @@ export function VisualizationDisplay() {
 
       {activeTab === "table" && (
         <div className="mt-3 flex min-h-0 flex-1 px-4">
-          <div className="border-border/60 bg-background/60 h-full w-full rounded-2xl border shadow-inner shadow-black/5">
+          <Surface elevation="inset" className="h-full w-full">
             <TableView dataFrame={dataFrame.data} />
-          </div>
+          </Surface>
         </div>
       )}
 
@@ -375,9 +376,9 @@ export function VisualizationDisplay() {
             <VegaChart spec={vegaSpec!} />
           </div>
           <div className="min-h-0 flex-1">
-            <div className="border-border/60 bg-background/60 h-full rounded-2xl border shadow-inner shadow-black/5">
+            <Surface elevation="inset" className="h-full">
               <TableView dataFrame={dataFrame.data} />
-            </div>
+            </Surface>
           </div>
         </div>
       )}

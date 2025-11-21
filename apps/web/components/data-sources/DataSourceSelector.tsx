@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Database, Plus, BarChart3, Notion, File } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 import {
   ItemSelector,
   type SelectableItem,
@@ -80,15 +81,15 @@ export function DataSourceSelector({
 
   if (!isHydrated) {
     return (
-      <div className="border-border/60 bg-card/70 rounded-2xl border p-6 shadow-sm">
+      <Surface elevation="raised" className="p-6">
         <p className="text-muted-foreground text-sm">Preparing data sources…</p>
-      </div>
+      </Surface>
     );
   }
 
   if (dataSources.length === 0) {
     return (
-      <div className="border-border/60 bg-card/70 rounded-2xl border border-dashed p-8 text-center shadow-sm">
+      <Surface elevation="inset" className="p-8 text-center">
         <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
           <Database className="h-12 w-12" />
         </div>
@@ -107,7 +108,7 @@ export function DataSourceSelector({
             Add Data Source
           </Button>
         </div>
-      </div>
+      </Surface>
     );
   }
 

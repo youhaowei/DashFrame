@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/shared/Card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,7 +55,7 @@ export function AddConnectionPanel({
             )}
 
             <div className="space-y-4">
-                <Card className="border-border/60 bg-card/70 border shadow-sm">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-foreground text-base font-semibold">
                             {csvTitle}
@@ -79,7 +79,7 @@ export function AddConnectionPanel({
                     </CardContent>
                 </Card>
 
-                <Card className="border-border/60 bg-card/70 border shadow-sm">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-foreground flex items-center gap-2 text-base font-semibold">
                             <Notion className="h-5 w-5" />

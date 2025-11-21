@@ -14,7 +14,7 @@ import {
 } from "@/lib/stores";
 import { isCSVDataSource, isNotionDataSource } from "@/lib/stores/types";
 import { FileText, Database, Notion } from "@/components/icons";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/shared/Card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
