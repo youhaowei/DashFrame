@@ -1,11 +1,10 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import { TRPCProvider } from "@/lib/trpc/Provider";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster, TooltipProvider } from "@dashframe/ui";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
 import { StoreHydration } from "@/components/providers/StoreHydration";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "DashFrame",

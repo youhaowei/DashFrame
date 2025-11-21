@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { CollapsibleSection } from "@/components/shared/CollapsibleSection";
-import { cn } from "@/lib/utils";
+import { CollapsibleSection, cn } from "@dashframe/ui";
 
 export interface WorkbenchLayoutProps {
   /** Top selector section - will be wrapped in CollapsibleSection automatically */

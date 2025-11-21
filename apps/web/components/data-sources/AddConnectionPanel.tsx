@@ -1,12 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/shared/Card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Notion } from "@/components/icons";
+import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Alert, AlertDescription, Notion } from "@dashframe/ui";
 
 interface AddConnectionPanelProps {
     error?: string | null;

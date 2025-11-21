@@ -5,18 +5,7 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Button } from "@/components/ui/button";
-import { ArrowUpDown } from "@/components/icons";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Button, ArrowUpDown, Input, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Label } from "@dashframe/ui";
 
 export default function DataFramesPage() {
   // Inline state access so Zustand can track dependencies properly

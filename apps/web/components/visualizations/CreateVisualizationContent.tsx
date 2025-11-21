@@ -13,20 +13,7 @@ import {
     useInsightsStore,
 } from "@/lib/stores";
 import { isCSVDataSource, isNotionDataSource } from "@/lib/stores/types";
-import { FileText, Database, Notion } from "@/components/icons";
-import { Card, CardContent } from "@/components/shared/Card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { FileText, Database, Notion, Card, CardContent, Tabs, TabsContent, TabsList, TabsTrigger, Button, Label, Alert, AlertDescription, Checkbox, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@dashframe/ui";
 import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 
 interface CreateVisualizationContentProps {

@@ -1,14 +1,12 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { BarChart3, Table as TableIcon, Layers } from "@/components/icons";
+import { BarChart3, Table as TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
 import type { TopLevelSpec } from "vega-lite";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { Surface } from "@/components/ui/surface";
-import { Toggle } from "@/components/shared/Toggle";
 import { TableView } from "./TableView";
 import { VegaChart } from "./VegaChart";
 

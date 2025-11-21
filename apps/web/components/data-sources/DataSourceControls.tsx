@@ -1,26 +1,10 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import {
-  Trash2,
-  Database,
-  Plus,
-  RefreshCw,
-  Loader2,
-  ChevronDown,
-} from "@/components/icons";
+import { Trash2, Database, Plus, RefreshCw, Loader2, ChevronDown, Button, Surface, Collapsible, CollapsibleContent, CollapsibleTrigger, cn, Panel } from "@dashframe/ui";
 import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
-import { Button } from "@/components/ui/button";
-import { Surface } from "@/components/ui/surface";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
-import { Panel } from "@/components/shared/Panel";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/notion";
 import { Input } from "@/components/fields/input";

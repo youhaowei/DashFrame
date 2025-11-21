@@ -12,7 +12,9 @@
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "check": "turbo check",
-    "clean": "turbo clean"
+    "clean": "turbo clean",
+    "storybook": "turbo storybook",
+    "build-storybook": "turbo build-storybook"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",

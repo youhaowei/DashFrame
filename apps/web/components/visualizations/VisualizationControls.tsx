@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, Trash2, ChevronDown } from "@/components/icons";
+import { RefreshCw, Trash2, ChevronDown, CheckIcon, ArrowUpDown, Input, Label, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, cn, Panel, Toggle, Tooltip, TooltipContent, TooltipTrigger, Select as SelectPrimitive, SelectContent, SelectItem, SelectTrigger, SelectValue, FieldLabel } from "@dashframe/ui";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -15,35 +15,10 @@ import type {
 } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
 import { Select } from "../fields";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
-import { Panel } from "@/components/shared/Panel";
-import { Toggle } from "@/components/shared/Toggle";
 import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Select as SelectPrimitive,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { FieldLabel } from "@/components/ui/field";
 import { LuInfo, LuHash, LuCalendar, LuType } from "react-icons/lu";
 import * as RadixSelect from "@radix-ui/react-select";
-import { CheckIcon, ArrowUpDown } from "@/components/icons";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -494,7 +469,7 @@ export function VisualizationControls() {
     const showTemporal = effectiveType === "temporal" || (effectiveType === "nominal" && isTemporalColumn);
 
     const options = [];
-    
+
     if (showTemporal) {
       options.push({
         value: "temporal" as const,
@@ -510,7 +485,7 @@ export function VisualizationControls() {
         ariaLabel: "Continuous",
       });
     }
-    
+
     options.push({
       value: "nominal" as const,
       icon: <LuType className="h-3 w-3" />,
@@ -704,184 +679,184 @@ export function VisualizationControls() {
           <div className="space-y-3">
 
 
-              {/* X Axis with warning icon next to label */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <FieldLabel>X Axis</FieldLabel>
-                    {(() => {
-                      const selectedOption = xAxisOptions.find(opt => opt.value === activeViz.encoding?.x);
-                      return selectedOption?.warning ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-xs z-[100]">
-                            <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
-                            <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null;
-                    })()}
-                  </div>
-
-                  {/* Axis Type Toggle */}
-                  {canToggleType(activeViz.encoding?.x) && (
-                    <Toggle
-                      value={getEffectiveAxisType(activeViz.encoding?.x, activeViz.encoding?.xType) as "quantitative" | "nominal" | "temporal"}
-                      options={getAxisTypeToggleOptions(activeViz.encoding?.x, activeViz.encoding?.xType)}
-                      onValueChange={(val) => {
-                        if (!activeViz.encoding) return;
-                        updateEncoding(activeViz.id, { ...activeViz.encoding, xType: val as any });
-                      }}
-                      size="sm"
-                    />
-                  )}
+            {/* X Axis with warning icon next to label */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <FieldLabel>X Axis</FieldLabel>
+                  {(() => {
+                    const selectedOption = xAxisOptions.find(opt => opt.value === activeViz.encoding?.x);
+                    return selectedOption?.warning ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs z-[100]">
+                          <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
+                          <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null;
+                  })()}
                 </div>
-                <SelectPrimitive value={activeViz.encoding?.x || undefined} onValueChange={(value) => handleEncodingChange("x", value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {xAxisOptions.map((option) => (
-                      <RadixSelect.Item
-                        key={option.value}
-                        value={option.value}
-                        className={cn(
-                          "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-                          option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-[highlighted]:text-amber-600 dark:data-[highlighted]:text-amber-400" : ""
+
+                {/* Axis Type Toggle */}
+                {canToggleType(activeViz.encoding?.x) && (
+                  <Toggle
+                    value={getEffectiveAxisType(activeViz.encoding?.x, activeViz.encoding?.xType) as "quantitative" | "nominal" | "temporal"}
+                    options={getAxisTypeToggleOptions(activeViz.encoding?.x, activeViz.encoding?.xType)}
+                    onValueChange={(val) => {
+                      if (!activeViz.encoding) return;
+                      updateEncoding(activeViz.id, { ...activeViz.encoding, xType: val as any });
+                    }}
+                    size="sm"
+                  />
+                )}
+              </div>
+              <SelectPrimitive value={activeViz.encoding?.x || undefined} onValueChange={(value) => handleEncodingChange("x", value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select column..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {xAxisOptions.map((option) => (
+                    <RadixSelect.Item
+                      key={option.value}
+                      value={option.value}
+                      className={cn(
+                        "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                        option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-[highlighted]:text-amber-600 dark:data-[highlighted]:text-amber-400" : ""
+                      )}
+                    >
+                      <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                        <RadixSelect.ItemIndicator>
+                          <CheckIcon className="size-4" />
+                        </RadixSelect.ItemIndicator>
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <RadixSelect.ItemText>
+                          {option.value}
+                        </RadixSelect.ItemText>
+                        {option.warning && (
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            {option.warning.message}
+                          </span>
                         )}
-                      >
-                        <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                          <RadixSelect.ItemIndicator>
-                            <CheckIcon className="size-4" />
-                          </RadixSelect.ItemIndicator>
-                        </span>
-                        <div className="flex flex-col gap-0.5">
-                          <RadixSelect.ItemText>
-                            {option.value}
-                          </RadixSelect.ItemText>
-                          {option.warning && (
-                            <span className="text-[10px] text-muted-foreground font-normal">
-                              {option.warning.message}
-                            </span>
-                          )}
-                        </div>
-                      </RadixSelect.Item>
-                    ))}
-                  </SelectContent>
-                </SelectPrimitive>
-              </div>
+                      </div>
+                    </RadixSelect.Item>
+                  ))}
+                </SelectContent>
+              </SelectPrimitive>
+            </div>
 
-              {/* Swap Axes Button */}
-              <div className="flex justify-center -my-1 relative z-10">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 rounded-full border bg-background shadow-xs hover:bg-muted text-muted-foreground"
-                  onClick={() => {
-                    if (!activeViz.encoding) return;
-                    updateEncoding(activeViz.id, {
-                      ...activeViz.encoding,
-                      x: activeViz.encoding.y,
-                      y: activeViz.encoding.x,
-                      // Also swap types
-                      xType: activeViz.encoding.yType,
-                      yType: activeViz.encoding.xType
-                    });
-                  }}
-                  title="Swap X and Y axes"
-                >
-                  <ArrowUpDown className="h-3 w-3" />
-                </Button>
-              </div>
+            {/* Swap Axes Button */}
+            <div className="flex justify-center -my-1 relative z-10">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-full border bg-background shadow-xs hover:bg-muted text-muted-foreground"
+                onClick={() => {
+                  if (!activeViz.encoding) return;
+                  updateEncoding(activeViz.id, {
+                    ...activeViz.encoding,
+                    x: activeViz.encoding.y,
+                    y: activeViz.encoding.x,
+                    // Also swap types
+                    xType: activeViz.encoding.yType,
+                    yType: activeViz.encoding.xType
+                  });
+                }}
+                title="Swap X and Y axes"
+              >
+                <ArrowUpDown className="h-3 w-3" />
+              </Button>
+            </div>
 
-              {/* Y Axis with warning icon next to label */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <FieldLabel>Y Axis</FieldLabel>
-                    {(() => {
-                      const selectedOption = yAxisOptions.find(opt => opt.value === activeViz.encoding?.y);
-                      return selectedOption?.warning ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-xs z-[100]">
-                            <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
-                            <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null;
-                    })()}
-                  </div>
-
-                  {/* Axis Type Toggle */}
-                  {canToggleType(activeViz.encoding?.y) && (
-                    <Toggle
-                      value={getEffectiveAxisType(activeViz.encoding?.y, activeViz.encoding?.yType) as "quantitative" | "nominal" | "temporal"}
-                      options={getAxisTypeToggleOptions(activeViz.encoding?.y, activeViz.encoding?.yType)}
-                      onValueChange={(val) => {
-                        if (!activeViz.encoding) return;
-                        updateEncoding(activeViz.id, { ...activeViz.encoding, yType: val as any });
-                      }}
-                      size="sm"
-                    />
-                  )}
+            {/* Y Axis with warning icon next to label */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <FieldLabel>Y Axis</FieldLabel>
+                  {(() => {
+                    const selectedOption = yAxisOptions.find(opt => opt.value === activeViz.encoding?.y);
+                    return selectedOption?.warning ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs z-[100]">
+                          <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
+                          <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null;
+                  })()}
                 </div>
-                <SelectPrimitive value={activeViz.encoding?.y || undefined} onValueChange={(value) => handleEncodingChange("y", value)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {yAxisOptions.map((option) => (
-                      <RadixSelect.Item
-                        key={option.value}
-                        value={option.value}
-                        className={cn(
-                          "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-                          option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-[highlighted]:text-amber-600 dark:data-[highlighted]:text-amber-400" : ""
-                        )}
-                      >
-                        <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                          <RadixSelect.ItemIndicator>
-                            <CheckIcon className="size-4" />
-                          </RadixSelect.ItemIndicator>
-                        </span>
-                        <div className="flex flex-col gap-0.5">
-                          <RadixSelect.ItemText>
-                            {option.value}
-                          </RadixSelect.ItemText>
-                          {option.warning && (
-                            <span className="text-[10px] text-muted-foreground font-normal">
-                              {option.warning.message}
-                            </span>
-                          )}
-                        </div>
-                      </RadixSelect.Item>
-                    ))}
-                  </SelectContent>
-                </SelectPrimitive>
-              </div>
 
+                {/* Axis Type Toggle */}
+                {canToggleType(activeViz.encoding?.y) && (
+                  <Toggle
+                    value={getEffectiveAxisType(activeViz.encoding?.y, activeViz.encoding?.yType) as "quantitative" | "nominal" | "temporal"}
+                    options={getAxisTypeToggleOptions(activeViz.encoding?.y, activeViz.encoding?.yType)}
+                    onValueChange={(val) => {
+                      if (!activeViz.encoding) return;
+                      updateEncoding(activeViz.id, { ...activeViz.encoding, yType: val });
+                    }}
+                    size="sm"
+                  />
+                )}
+              </div>
+              <SelectPrimitive value={activeViz.encoding?.y || undefined} onValueChange={(value) => handleEncodingChange("y", value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select column..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {yAxisOptions.map((option) => (
+                    <RadixSelect.Item
+                      key={option.value}
+                      value={option.value}
+                      className={cn(
+                        "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-disabled:pointer-events-none data-disabled:opacity-50",
+                        option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-highlighted:text-amber-600 dark:data-highlighted:text-amber-400" : ""
+                      )}
+                    >
+                      <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                        <RadixSelect.ItemIndicator>
+                          <CheckIcon className="size-4" />
+                        </RadixSelect.ItemIndicator>
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <RadixSelect.ItemText>
+                          {option.value}
+                        </RadixSelect.ItemText>
+                        {option.warning && (
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            {option.warning.message}
+                          </span>
+                        )}
+                      </div>
+                    </RadixSelect.Item>
+                  ))}
+                </SelectContent>
+              </SelectPrimitive>
+            </div>
+
+            <Select
+              label="Color (optional)"
+              value={activeViz.encoding?.color || ""}
+              onChange={(value) => handleEncodingChange("color", value)}
+              options={columnOptions}
+              placeholder="None"
+            />
+            {activeViz.visualizationType === "scatter" && (
               <Select
-                label="Color (optional)"
-                value={activeViz.encoding?.color || ""}
-                onChange={(value) => handleEncodingChange("color", value)}
+                label="Size (optional)"
+                value={activeViz.encoding?.size || ""}
+                onChange={(value) => handleEncodingChange("size", value)}
                 options={columnOptions}
                 placeholder="None"
               />
-              {activeViz.visualizationType === "scatter" && (
-                <Select
-                  label="Size (optional)"
-                  value={activeViz.encoding?.size || ""}
-                  onChange={(value) => handleEncodingChange("size", value)}
-                  options={columnOptions}
-                  placeholder="None"
-                />
-              )}
-            </div>
+            )}
+          </div>
         </CollapsibleSection>
       )}
     </Panel>

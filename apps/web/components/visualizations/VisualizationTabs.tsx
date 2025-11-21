@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Plus, Database } from "@/components/icons";
-import { Button } from "@/components/ui/button";
-import {
-  ItemSelector,
-  type SelectableItem,
-  type ItemAction,
-} from "@/components/shared/ItemSelector";
+import { Sparkles, Plus, Database, Button, ItemSelector, type SelectableItem, type ItemAction } from "@dashframe/ui";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 

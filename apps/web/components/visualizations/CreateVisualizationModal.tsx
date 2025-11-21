@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@dashframe/ui";
 import { CreateVisualizationContent } from "./CreateVisualizationContent";
 
 interface CreateVisualizationModalProps {

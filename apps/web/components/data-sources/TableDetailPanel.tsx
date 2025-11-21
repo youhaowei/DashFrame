@@ -3,13 +3,8 @@
 import { useState } from "react";
 import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
-import { Button } from "@/components/ui/button";
-import { Plus, Edit3, X, Sparkles, Layers } from "@/components/icons";
-import { Panel } from "@/components/shared/Panel";
-import { Toggle } from "@/components/shared/Toggle";
+import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn } from "@dashframe/ui";
 import { TableView } from "@/components/visualizations/TableView";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { cn } from "@/lib/utils";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;

@@ -1,0 +1,406 @@
+import type { Meta, StoryObj } from "@storybook/react";
+import { Stack } from "./Stack";
+import { Button } from "../primitives/button";
+import { Database, BarChart3, FileText } from "../lib/icons";
+
+const meta = {
+  title: "Components/Layout/Stack",
+  component: Stack,
+  parameters: { layout: "padded" },
+  tags: ["autodocs"],
+  argTypes: {
+    direction: {
+      control: "select",
+      options: ["vertical", "horizontal"],
+      description: "Stack direction",
+    },
+    spacing: {
+      control: "select",
+      options: ["none", "xs", "sm", "md", "lg", "xl"],
+      description: "Spacing between items",
+    },
+    align: {
+      control: "select",
+      options: ["start", "center", "end", "stretch"],
+      description: "Alignment along cross axis",
+    },
+    justify: {
+      control: "select",
+      options: ["start", "center", "end", "between", "around"],
+      description: "Justification along main axis",
+    },
+    wrap: {
+      control: "boolean",
+      description: "Whether to wrap items",
+    },
+  },
+} satisfies Meta<typeof Stack>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+/**
+ * Default vertical stack with standard spacing
+ */
+export const Default: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "md",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Horizontal stack
+ */
+export const Horizontal: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "md",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * No spacing
+ */
+export const NoSpacing: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "none",
+    children: (
+      <>
+        <div className="bg-card border-b border-border/60 p-4">Item 1</div>
+        <div className="bg-card border-b border-border/60 p-4">Item 2</div>
+        <div className="bg-card p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Extra small spacing
+ */
+export const ExtraSmallSpacing: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "xs",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Small spacing
+ */
+export const SmallSpacing: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "sm",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Large spacing
+ */
+export const LargeSpacing: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "lg",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Extra large spacing
+ */
+export const ExtraLargeSpacing: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "xl",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
+        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Center aligned (horizontal)
+ */
+export const CenterAligned: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "sm",
+    align: "center",
+    children: (
+      <>
+        <Database className="h-4 w-4" />
+        <span className="text-sm">Database icon with text</span>
+      </>
+    ),
+  },
+};
+
+/**
+ * Center justified (horizontal)
+ */
+export const CenterJustified: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "sm",
+    justify: "center",
+    children: (
+      <>
+        <Button variant="outline">Cancel</Button>
+        <Button>Save</Button>
+      </>
+    ),
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-full border border-border/60 rounded-2xl p-6">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
+ * Space between (horizontal)
+ */
+export const SpaceBetween: Story = {
+  args: {
+    direction: "horizontal",
+    justify: "between",
+    align: "center",
+    children: (
+      <>
+        <span className="text-sm font-medium">Total Items</span>
+        <span className="text-sm text-muted-foreground">42</span>
+      </>
+    ),
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-full border border-border/60 rounded-2xl p-4">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
+ * Wrapping horizontal stack
+ */
+export const WrappingStack: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "sm",
+    wrap: true,
+    children: (
+      <>
+        <Button size="sm">Option 1</Button>
+        <Button size="sm" variant="outline">Option 2</Button>
+        <Button size="sm" variant="outline">Option 3</Button>
+        <Button size="sm" variant="outline">Option 4</Button>
+        <Button size="sm" variant="outline">Option 5</Button>
+        <Button size="sm" variant="outline">Option 6</Button>
+      </>
+    ),
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-[300px] border border-border/60 rounded-2xl p-4">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
+ * Icon and text pattern
+ */
+export const IconAndText: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "sm",
+    align: "center",
+    children: (
+      <>
+        <Database className="h-4 w-4 text-primary" />
+        <span className="text-sm font-medium">Sales Database</span>
+        <span className="text-xs text-muted-foreground">12 tables</span>
+      </>
+    ),
+  },
+};
+
+/**
+ * Form layout (vertical)
+ */
+export const FormLayout: Story = {
+  args: {
+    direction: "vertical",
+    spacing: "md",
+    children: (
+      <>
+        <div>
+          <label className="text-sm font-medium block mb-2">Name</label>
+          <input
+            type="text"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            placeholder="Enter name"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-2">Email</label>
+          <input
+            type="email"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            placeholder="Enter email"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-2">Message</label>
+          <textarea
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            placeholder="Enter message"
+            rows={3}
+          />
+        </div>
+      </>
+    ),
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-[400px]">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
+ * Card grid pattern (horizontal wrap)
+ */
+export const CardGrid: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "md",
+    wrap: true,
+    children: (
+      <>
+        {[Database, BarChart3, FileText].map((Icon, i) => (
+          <div key={i} className="bg-card rounded-2xl border border-border/60 p-6 w-[200px]">
+            <Icon className="h-5 w-5 mb-3" />
+            <h3 className="text-sm font-semibold mb-1">Feature {i + 1}</h3>
+            <p className="text-xs text-muted-foreground">Description text here</p>
+          </div>
+        ))}
+      </>
+    ),
+  },
+};
+
+/**
+ * Stretch alignment
+ */
+export const StretchAlignment: Story = {
+  args: {
+    direction: "horizontal",
+    spacing: "md",
+    align: "stretch",
+    children: (
+      <>
+        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
+          Flexible item 1
+        </div>
+        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
+          Flexible item 2<br />with more content
+        </div>
+        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
+          Flexible item 3
+        </div>
+      </>
+    ),
+  },
+};
+
+/**
+ * Nested stacks
+ */
+export const NestedStacks: Story = {
+  render: () => (
+    <Stack direction="vertical" spacing="lg">
+      <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <h3 className="text-sm font-semibold mb-4">Horizontal nested stack</h3>
+        <Stack direction="horizontal" spacing="sm">
+          <Button size="sm">Button 1</Button>
+          <Button size="sm" variant="outline">Button 2</Button>
+          <Button size="sm" variant="outline">Button 3</Button>
+        </Stack>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <h3 className="text-sm font-semibold mb-4">Vertical nested stack</h3>
+        <Stack direction="vertical" spacing="xs">
+          <div className="text-sm">Item 1</div>
+          <div className="text-sm">Item 2</div>
+          <div className="text-sm">Item 3</div>
+        </Stack>
+      </div>
+    </Stack>
+  ),
+};
+
+/**
+ * As semantic nav element
+ */
+export const SemanticNav: Story = {
+  args: {
+    as: "nav",
+    direction: "horizontal",
+    spacing: "md",
+    children: (
+      <>
+        <Button variant="ghost" size="sm">Home</Button>
+        <Button variant="ghost" size="sm">About</Button>
+        <Button variant="ghost" size="sm">Contact</Button>
+      </>
+    ),
+  },
+};

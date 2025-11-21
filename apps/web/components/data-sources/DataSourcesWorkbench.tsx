@@ -10,15 +10,7 @@ import { TableDetailPanel } from "./TableDetailPanel";
 import { FieldEditorModal } from "./FieldEditorModal";
 import { MetricEditorModal } from "./MetricEditorModal";
 import { NewDataSourcePanel } from "./NewDataSourcePanel";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Button } from "@dashframe/ui";
 import { toast } from "sonner";
 import type { Field, Metric } from "@dashframe/dataframe";
 

@@ -3,8 +3,7 @@
 import { useLayoutEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisualizationsStore, useDataFramesStore } from "@/lib/stores";
-import { Card, CardContent } from "@/components/shared/Card";
-import { Surface } from "@/components/ui/surface";
+import { Card, CardContent, Surface } from "@dashframe/ui";
 import type { TopLevelSpec } from "vega-lite";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues

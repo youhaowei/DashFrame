@@ -2,6 +2,33 @@
 
 This document provides comprehensive guidance on UI components in DashFrame, covering our design system, component inventory, and principles for creating reusable components.
 
+## Package Structure
+
+All UI components are centralized in the `@dashframe/ui` package (`packages/ui/`):
+
+```
+packages/ui/
+├── src/
+│   ├── primitives/       # shadcn/ui components (23 components)
+│   ├── components/       # Custom shared components (11 components)
+│   ├── lib/
+│   │   ├── utils.ts     # cn() utility for className merging
+│   │   └── icons.tsx    # Icon exports from react-icons
+│   ├── globals.css      # Tailwind CSS v4 design tokens
+│   └── index.ts         # Barrel exports
+├── .storybook/          # Storybook v10 configuration
+└── package.json
+
+```
+
+**Importing components**: All components are exported from the package root:
+
+```typescript
+import { Button, Card, Panel, Toggle, cn, RefreshCw } from "@dashframe/ui";
+```
+
+**Storybook**: Run `pnpm storybook` to browse components interactively at http://localhost:6006
+
 ## Component Philosophy
 
 **Principles-Based Approach**: We favor judgment and composition over rigid rules. The goal is to build a consistent, maintainable UI through thoughtful component reuse, not through enforcement.
@@ -17,9 +44,9 @@ This document provides comprehensive guidance on UI components in DashFrame, cov
 
 ## Component Inventory
 
-### shadcn/ui Components (`components/ui/`)
+### shadcn/ui Components (`@dashframe/ui` primitives)
 
-**Standard UI primitives built on Radix UI.**
+**Standard UI primitives built on Radix UI.** Located in `packages/ui/src/primitives/`.
 
 - **Actions**: `button`, `dropdown-menu`
 - **Forms**: `checkbox`, `field`, `input`, `label`, `select`, `switch`, `multi-select`
@@ -34,7 +61,8 @@ This document provides comprehensive guidance on UI components in DashFrame, cov
 **`Surface`** - Primitive component for standardized elevation and visual depth.
 
 - **Purpose**: Provides foundational system for creating UI layers with consistent elevation effects
-- **Location**: `components/ui/surface.tsx`
+- **Location**: `packages/ui/src/primitives/surface.tsx`
+- **Import**: `import { Surface } from "@dashframe/ui";`
 - **Use for**: Backgrounds, containers, and any element needing standardized depth or visual hierarchy
 
 **Elevation variants**:
@@ -71,9 +99,9 @@ This document provides comprehensive guidance on UI components in DashFrame, cov
 </Surface>
 ```
 
-### Custom Shared Components (`components/shared/`)
+### Custom Shared Components (`@dashframe/ui` components)
 
-**DashFrame-specific reusable patterns.**
+**DashFrame-specific reusable patterns.** Located in `packages/ui/src/components/`.
 
 - **`Card`** - Enhanced content grouping component with standardized elevation
   - Use for: Structured content layout with headers, titles, descriptions, and footers

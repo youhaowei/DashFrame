@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Button, Input } from "@dashframe/ui";
 
 // Simple arrow left icon
 const ArrowLeft = ({ className }: { className?: string }) => (

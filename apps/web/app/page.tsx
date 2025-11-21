@@ -9,7 +9,7 @@ import {
   EmptyState,
 } from "@/components/visualizations";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
-import { Panel } from "@/components/shared/Panel";
+import { Panel } from "@dashframe/ui";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 
 export default function HomePage() {

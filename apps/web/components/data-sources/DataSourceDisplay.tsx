@@ -8,24 +8,8 @@ import {
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/shared/Card";
-import { Surface } from "@/components/ui/surface";
-import { Button } from "@/components/ui/button";
-import {
-  ChevronDown,
-  ChevronUp,
-  Database,
-  Layers,
-  Refresh,
-} from "@/components/icons";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Surface, Button, ChevronDown, ChevronUp, Database, Layers, Refresh, cn } from "@dashframe/ui";
 import { TableView } from "@/components/visualizations/TableView";
-import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
 import type { NotionProperty } from "@dashframe/notion";

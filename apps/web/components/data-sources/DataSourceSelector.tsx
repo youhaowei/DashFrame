@@ -1,14 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Database, Plus, BarChart3, Notion, File } from "@/components/icons";
-import { Button } from "@/components/ui/button";
-import { Surface } from "@/components/ui/surface";
-import {
-  ItemSelector,
-  type SelectableItem,
-  type ItemAction,
-} from "@/components/shared/ItemSelector";
+import { Database, Plus, BarChart3, Notion, File, Button, Surface, ItemSelector, type SelectableItem, type ItemAction } from "@dashframe/ui";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
 import Link from "next/link";

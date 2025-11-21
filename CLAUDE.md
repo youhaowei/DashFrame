@@ -67,7 +67,8 @@ packages/
   dataframe/      # Core types
   csv/            # csvToDataFrame converter
   notion/         # notionToDataFrame + tRPC integration
-  ui/             # Placeholder for shared components
+  ui/             # Shared UI components (shadcn/ui primitives + custom components)
+                  # Includes Storybook for component development
   eslint-config/  # Shared ESLint 9 flat config
 ```
 
@@ -105,7 +106,6 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 
 ### Other Gotchas
 
-- **No UI Package Content**: `@dashframe/ui` is placeholder only
 - **Notion API Keys**: Stored in localStorage (use OAuth in production)
 - **No Tests Yet**: Test scripts exist but no actual test files
 - **Turborepo Cache**: Run `turbo build --force` if seeing stale builds
@@ -148,9 +148,11 @@ pnpm check  # Runs lint + typecheck + format
 Before implementing any UI changes, follow this component-first approach:
 
 1. **Check existing components first**:
-   - `components/ui/` - shadcn/ui components (22 components available)
-   - `components/shared/` - Custom reusable components (ActionGroup, ItemSelector, CollapsibleSection, etc.)
-   - See `docs/ui-components.md` for full inventory
+   - `@dashframe/ui` package exports all UI components (import from `@dashframe/ui`)
+   - shadcn/ui primitives (23 components) - Button, Card, Input, Select, Dialog, etc.
+   - Custom shared components (11 components) - ActionGroup, ItemSelector, Panel, Toggle, etc.
+   - Icons from react-icons (Lucide, Feather, Simple Icons)
+   - See `docs/ui-components.md` for full inventory and `pnpm storybook` to browse components
 
 2. **Component decision principles**:
    - **Use shadcn/ui components** for standard UI patterns (buttons, cards, dialogs, forms, etc.)
@@ -177,7 +179,13 @@ Before implementing any UI changes, follow this component-first approach:
    - Don't skip accessibility - use semantic HTML and aria-labels
 
 **Component extraction workflow**:
-- Recognize repeated pattern → Check if shared component exists → Extract to `components/shared/` if used 3+ times → Document with JSDoc
+- Recognize repeated pattern → Check if component exists in `@dashframe/ui` → Extract to `packages/ui/src/components/` if used 3+ times → Document with JSDoc → Export from `packages/ui/src/index.ts`
+
+**Storybook for UI Development**:
+- Run `pnpm storybook` to launch Storybook at http://localhost:6006
+- Browse all UI components with interactive examples
+- Located in `packages/ui/` with stories in `src/**/*.stories.tsx`
+- Configured with Storybook v10 using Next.js framework and Tailwind CSS v4
 
 ### Architecture Principles
 

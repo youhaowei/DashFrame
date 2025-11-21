@@ -1,27 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Field } from "@dashframe/dataframe";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import type { ColumnType } from "@dashframe/dataframe";
+import type { Field, ColumnType } from "@dashframe/dataframe";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Checkbox } from "@dashframe/ui";
 
 interface FieldEditorModalProps {
   isOpen: boolean;

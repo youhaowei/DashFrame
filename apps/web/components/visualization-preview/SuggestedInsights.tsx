@@ -1,7 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/shared/Card";
+import { Button, Card } from "@dashframe/ui";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import dynamic from "next/dynamic";
 

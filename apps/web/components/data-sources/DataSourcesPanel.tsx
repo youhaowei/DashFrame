@@ -18,16 +18,7 @@ import type {
   VisualizationType,
   VisualizationEncoding,
 } from "@/lib/stores/types";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Button, Label, Checkbox, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@dashframe/ui";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 
 function extractVisualizationMetadata(

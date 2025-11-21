@@ -3,23 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  type LucideIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  LayoutDashboard,
-  LifeBuoy,
-  LineChart,
-  Menu,
-  X,
-} from "@/components/icons";
+import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, LayoutDashboard, LifeBuoy, LineChart, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 
 type NavItem = {
   name: string;
