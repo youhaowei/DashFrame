@@ -6,6 +6,7 @@
       "@/*": ["./*"],
       "@dashframe/dataframe": ["../../packages/dataframe/src"],
       "@dashframe/csv": ["../../packages/csv/src"],
+      "@dashframe/ui/icons": ["../../packages/ui/src/lib/icons"],
       "@dashframe/ui": ["../../packages/ui/src"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],

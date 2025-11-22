@@ -15,6 +15,7 @@ import {
   LuCircle,
   LuCircleAlert,
   LuCircleCheck,
+  LuCopy,
   LuDatabase,
   LuDot,
   LuInfo,
@@ -95,6 +96,7 @@ export { LuCheck as CheckIcon };
 export { LuSquareCheck as CheckSquare };
 export { LuCircle as Dot };
 export { LuCircle as CircleIcon };
+export { LuCopy as Copy };
 export { LuDot };
 export { LuX as X };
 export { LuX as Close };

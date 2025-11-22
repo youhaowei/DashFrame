@@ -28,7 +28,7 @@ import {
   Badge,
   SelectField,
 } from "@dashframe/ui";
-import { LuCopy } from "react-icons/lu";
+import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -43,7 +43,6 @@ import type {
 import { trpc } from "@/lib/trpc/Provider";
 import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import { LuInfo, LuHash, LuCalendar, LuType } from "react-icons/lu";
 import * as RadixSelect from "@radix-ui/react-select";
 
 interface CollapsibleSectionProps {
@@ -813,14 +812,14 @@ export function VisualizationControls() {
     if (showTemporal) {
       options.push({
         value: "temporal" as const,
-        icon: <LuCalendar className="h-3 w-3" />,
+        icon: <Calendar className="h-3 w-3" />,
         tooltip: "Temporal",
         ariaLabel: "Temporal",
       });
     } else {
       options.push({
         value: "quantitative" as const,
-        icon: <LuHash className="h-3 w-3" />,
+        icon: <Hash className="h-3 w-3" />,
         tooltip: "Continuous",
         ariaLabel: "Continuous",
       });
@@ -828,7 +827,7 @@ export function VisualizationControls() {
 
     options.push({
       value: "nominal" as const,
-      icon: <LuType className="h-3 w-3" />,
+      icon: <Type className="h-3 w-3" />,
       tooltip: "Categorical",
       ariaLabel: "Categorical",
     });
@@ -943,7 +942,7 @@ export function VisualizationControls() {
           </Button>
         )}
         <Button variant="outline" className="w-full" onClick={handleDuplicate}>
-          <LuCopy className="mr-2 h-4 w-4" />
+          <Copy className="mr-2 h-4 w-4" />
           Duplicate
         </Button>
         <Button variant="destructive" className="w-full" onClick={handleDelete}>
@@ -999,7 +998,7 @@ export function VisualizationControls() {
                   return selectedOption?.warning ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                        <Info className="h-3.5 w-3.5 cursor-help text-amber-500" />
                       </TooltipTrigger>
                       <TooltipContent side="right" className="z-[100] max-w-xs">
                         <p className="text-xs font-semibold">
@@ -1113,7 +1112,7 @@ export function VisualizationControls() {
                   return selectedOption?.warning ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                        <Info className="h-3.5 w-3.5 cursor-help text-amber-500" />
                       </TooltipTrigger>
                       <TooltipContent side="right" className="z-[100] max-w-xs">
                         <p className="text-xs font-semibold">
@@ -1237,7 +1236,7 @@ export function VisualizationControls() {
           {activeViz.visualizationType === "table" && (
             <div className="bg-muted/30 rounded-md border p-3">
               <div className="flex items-center gap-2">
-                <LuInfo className="text-muted-foreground h-4 w-4" />
+                <Info className="text-muted-foreground h-4 w-4" />
                 <p className="text-foreground text-xs font-medium">
                   Table View
                 </p>

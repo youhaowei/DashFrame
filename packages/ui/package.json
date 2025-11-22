@@ -35,6 +35,10 @@
     "typescript": "5.7.2",
     "vite": "^6.0.7"
   },
+  "exports": {
+    ".": "./src/index.ts",
+    "./icons": "./src/lib/icons.tsx"
+  },
   "main": "src/index.ts",
   "name": "@dashframe/ui",
   "peerDependencies": {

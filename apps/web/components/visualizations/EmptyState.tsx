@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "@/components/icons";
+import { Sparkles } from "@dashframe/ui/icons";
 import { CreateVisualizationContent } from "./CreateVisualizationContent";
 
 interface EmptyStateProps {
