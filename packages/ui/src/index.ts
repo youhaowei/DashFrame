@@ -9,9 +9,20 @@ export type { LucideIcon } from "./lib/icons";
 export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
 export { Button, buttonVariants } from "./primitives/button";
-export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./primitives/card";
+export {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "./primitives/card";
 export { Checkbox } from "./primitives/checkbox";
-export { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./primitives/collapsible";
+export {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "./primitives/collapsible";
 export {
   Dialog,
   DialogPortal,
@@ -83,17 +94,34 @@ export {
   TableCaption,
 } from "./primitives/table";
 export { Tabs, TabsList, TabsTrigger, TabsContent } from "./primitives/tabs";
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./primitives/tooltip";
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "./primitives/tooltip";
 
 // Shared Components (custom reusable components)
-export { ActionGroup, type ActionGroupProps, type ItemAction } from "./components/ActionGroup";
+export {
+  ActionGroup,
+  type ActionGroupProps,
+  type ItemAction,
+} from "./components/ActionGroup";
 export { Card as CustomCard } from "./components/Card";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";
 export { Container } from "./components/Container";
 export { EmptyState } from "./components/EmptyState";
-export { ItemSelector, type ItemSelectorProps } from "./components/ItemSelector";
+export {
+  ItemSelector,
+  type ItemSelectorProps,
+} from "./components/ItemSelector";
 export { Panel, PanelSection } from "./components/Panel";
 export { Stack } from "./components/Stack";
 export { Toggle } from "./components/Toggle";
 export { Tooltip as CustomTooltip } from "./components/Tooltip";
+
+// Field Wrappers (primitives + Field component)
+export { Input as InputField } from "./fields/input";
+export { MultiSelect as MultiSelectField } from "./fields/multi-select";
+export { Select as SelectField } from "./fields/select";

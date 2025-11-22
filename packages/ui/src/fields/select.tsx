@@ -1,6 +1,14 @@
 "use client";
 
-import { Field, FieldLabel, Select as SelectPrimitive, SelectContent, SelectTrigger, SelectValue, CheckIcon, cn } from "@dashframe/ui";
+import { Field, FieldLabel } from "../primitives/field";
+import {
+  Select as SelectPrimitive,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+} from "../primitives/select";
+import { CheckIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 import * as SelectPrimitiveParts from "@radix-ui/react-select";
 
 interface SelectOption {
@@ -17,6 +25,7 @@ interface SelectProps {
   options: SelectOption[];
   placeholder?: string;
   className?: string;
+  onClear?: () => void;
 }
 
 export function Select({
@@ -26,12 +35,13 @@ export function Select({
   options,
   placeholder = "Select an option...",
   className,
+  onClear,
 }: SelectProps) {
   return (
     <Field className={className}>
       {label && <FieldLabel>{label}</FieldLabel>}
       <SelectPrimitive value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" onClear={onClear} value={value}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -40,7 +50,7 @@ export function Select({
               key={option.value}
               value={option.value}
               className={cn(
-                "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
               )}
             >
               <span className="absolute right-2 flex size-3.5 items-center justify-center">
@@ -53,7 +63,7 @@ export function Select({
                   {option.label}
                 </SelectPrimitiveParts.ItemText>
                 {option.description && (
-                  <span className="text-[10px] text-muted-foreground font-normal">
+                  <span className="text-muted-foreground text-[10px] font-normal">
                     {option.description}
                   </span>
                 )}

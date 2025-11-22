@@ -1,7 +1,34 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, Trash2, ChevronDown, CheckIcon, ArrowUpDown, Input, Label, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, cn, Panel, Toggle, Tooltip, TooltipContent, TooltipTrigger, Select as SelectPrimitive, SelectContent, SelectItem, SelectTrigger, SelectValue, FieldLabel } from "@dashframe/ui";
+import Link from "next/link";
+import {
+  RefreshCw,
+  Trash2,
+  ChevronDown,
+  CheckIcon,
+  ArrowUpDown,
+  Input,
+  Label,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+  Panel,
+  Toggle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Select as SelectPrimitive,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+  FieldLabel,
+  Badge,
+  SelectField,
+} from "@dashframe/ui";
+import { LuCopy } from "react-icons/lu";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -14,7 +41,6 @@ import type {
   AxisType,
 } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
-import { Select } from "../fields";
 import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
 import { LuInfo, LuHash, LuCalendar, LuType } from "react-icons/lu";
@@ -54,7 +80,7 @@ function CollapsibleSection({
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-4 pb-4">{children}</div>
+        <div className="px-4 py-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -63,33 +89,38 @@ function CollapsibleSection({
 /**
  * Get a warning message for a column selection based on analysis and context
  */
-/**
- * Get a warning message for a column selection based on analysis and context
- */
 function getColumnWarning(
   columnName: string | undefined,
   axis: "x" | "y",
   chartType: VisualizationType,
   analysis: ColumnAnalysis[],
-  otherAxisColumn?: string
+  otherAxisColumn?: string,
 ): { message: string; reason: string } | null {
   if (!columnName) return null;
 
-  const col = analysis.find(a => a.columnName === columnName);
+  const col = analysis.find((a) => a.columnName === columnName);
   if (!col) return null;
 
   // Helper: check if a column name looks like an identifier
   const looksLikeId = (name: string) => {
     const lower = name.toLowerCase();
-    return lower === "id" ||
+    return (
+      lower === "id" ||
       lower === "_rowindex" ||
       lower.endsWith("_id") ||
       lower.endsWith("id") ||
-      lower.startsWith("_row");
+      lower.startsWith("_row")
+    );
   };
 
-  const isIdentifier = col.category === "identifier" || looksLikeId(columnName) || col.category === "uuid";
-  const isReference = col.category === "reference" || col.category === "url" || col.category === "email";
+  const isIdentifier =
+    col.category === "identifier" ||
+    looksLikeId(columnName) ||
+    col.category === "uuid";
+  const isReference =
+    col.category === "reference" ||
+    col.category === "url" ||
+    col.category === "email";
   const isNumerical = col.category === "numerical";
   const isTemporal = col.category === "temporal";
   const isCategorical = col.category === "categorical";
@@ -100,7 +131,8 @@ function getColumnWarning(
   if (otherAxisColumn && columnName === otherAxisColumn) {
     return {
       message: "Same column on both axes",
-      reason: "Comparing a column to itself usually doesn't show meaningful insights."
+      reason:
+        "Comparing a column to itself usually doesn't show meaningful insights.",
     };
   }
 
@@ -110,7 +142,8 @@ function getColumnWarning(
     if (isIdentifier || isReference) {
       return {
         message: "Not a measurable value",
-        reason: "This column contains unique labels or IDs, which cannot be aggregated (sum/avg) meaningfully."
+        reason:
+          "This column contains unique labels or IDs, which cannot be aggregated (sum/avg) meaningfully.",
       };
     }
 
@@ -119,7 +152,7 @@ function getColumnWarning(
       if (!isNumerical) {
         return {
           message: "Numerical column recommended",
-          reason: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} charts need numerical values on the Y-axis to show height, trends, or position.`
+          reason: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} charts need numerical values on the Y-axis to show height, trends, or position.`,
         };
       }
     }
@@ -132,7 +165,8 @@ function getColumnWarning(
       if (!isNumerical) {
         return {
           message: "Numerical column recommended",
-          reason: "Scatter plots need numerical values on both axes to show correlations between two measures."
+          reason:
+            "Scatter plots need numerical values on both axes to show correlations between two measures.",
         };
       }
     }
@@ -142,13 +176,14 @@ function getColumnWarning(
       if (isCategorical && col.cardinality > 20) {
         return {
           message: "Too many categories",
-          reason: "Line charts with many categories can look cluttered. Consider a Bar chart or filtering."
+          reason:
+            "Line charts with many categories can look cluttered. Consider a Bar chart or filtering.",
         };
       }
       if (!isTemporal && !isNumerical && !isCategorical) {
         return {
           message: "Ordered column recommended",
-          reason: "Line charts work best with time-series or continuous data."
+          reason: "Line charts work best with time-series or continuous data.",
         };
       }
     }
@@ -158,7 +193,8 @@ function getColumnWarning(
       if (isNumerical && col.cardinality > 20) {
         return {
           message: "Many unique values",
-          reason: "A numerical X-axis with many values might be better suited for a Histogram or Scatter plot."
+          reason:
+            "A numerical X-axis with many values might be better suited for a Histogram or Scatter plot.",
         };
       }
     }
@@ -175,7 +211,7 @@ function getRankedColumnOptions(
   axis: "x" | "y",
   chartType: VisualizationType,
   analysis: ColumnAnalysis[],
-  otherAxisColumn?: string
+  otherAxisColumn?: string,
 ): Array<{
   label: string;
   value: string;
@@ -184,15 +220,29 @@ function getRankedColumnOptions(
 }> {
   return columns
     .map((col) => {
-      const warning = getColumnWarning(col, axis, chartType, analysis, otherAxisColumn);
-      const colAnalysis = analysis.find(a => a.columnName === col);
+      const warning = getColumnWarning(
+        col,
+        axis,
+        chartType,
+        analysis,
+        otherAxisColumn,
+      );
+      const colAnalysis = analysis.find((a) => a.columnName === col);
 
-      if (!colAnalysis) return { label: col, value: col, score: 0, warning: warning || undefined };
+      if (!colAnalysis)
+        return {
+          label: col,
+          value: col,
+          score: 0,
+          warning: warning || undefined,
+        };
 
       const isNumerical = colAnalysis.category === "numerical";
       const isTemporal = colAnalysis.category === "temporal";
       const isCategorical = colAnalysis.category === "categorical";
-      const isIdentifier = colAnalysis.category === "identifier" || colAnalysis.category === "uuid";
+      const isIdentifier =
+        colAnalysis.category === "identifier" ||
+        colAnalysis.category === "uuid";
 
       // Base Score
       let score = 50;
@@ -203,7 +253,10 @@ function getRankedColumnOptions(
         if (isNumerical) score += 100;
 
         // Penalize non-numericals heavily for standard charts
-        if (!isNumerical && ["bar", "line", "area", "scatter"].includes(chartType)) {
+        if (
+          !isNumerical &&
+          ["bar", "line", "area", "scatter"].includes(chartType)
+        ) {
           score -= 50;
         }
 
@@ -250,9 +303,278 @@ function getRankedColumnOptions(
     .sort((a, b) => b.score - a.score); // Sort by score descending
 }
 
+/**
+ * Provenance Summary Component - Shows insight name, source, DataFrame stats, and refresh controls
+ */
+interface ProvenanceSummaryProps {
+  insight:
+    | { id: string; name: string; lastComputedAt?: number }
+    | null
+    | undefined;
+  dataFrame: {
+    metadata?: { rowCount: number; columnCount: number; timestamp?: number };
+  };
+  source: { name: string } | null;
+  dataTable: { name: string } | null;
+  isRefreshable: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+  refreshError?: string;
+}
+
+function ProvenanceSummary({
+  insight,
+  dataFrame,
+  source,
+  dataTable,
+  isRefreshable,
+  isRefreshing,
+  onRefresh,
+  refreshError,
+}: ProvenanceSummaryProps) {
+  const rowCount = dataFrame?.metadata?.rowCount ?? 0;
+  const colCount = dataFrame?.metadata?.columnCount ?? 0;
+  const lastRefreshed = dataFrame?.metadata?.timestamp;
+
+  // Determine freshness indicator
+  const isStale =
+    insight?.lastComputedAt && lastRefreshed
+      ? insight.lastComputedAt > lastRefreshed
+      : false;
+
+  const formatTime = (timestamp?: number) => {
+    if (!timestamp) return "Not yet refreshed";
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+
+    if (hours < 1) return "Just now";
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="border-border/40 space-y-3 border-b px-4 py-3">
+      {/* Insight name with link */}
+      <div className="space-y-1">
+        <Label className="text-muted-foreground text-xs font-medium">
+          Insight
+        </Label>
+        {insight ? (
+          <Link
+            href={`/insights/${insight.id}/create-visualization`}
+            className="text-primary text-sm font-medium hover:underline"
+          >
+            {insight.name}
+          </Link>
+        ) : (
+          <p className="text-muted-foreground text-sm">Unknown insight</p>
+        )}
+      </div>
+
+      {/* Source and table badges */}
+      {source && dataTable && (
+        <div className="space-y-1">
+          <Label className="text-muted-foreground text-xs font-medium">
+            Data source
+          </Label>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="text-xs">
+              {source.name || "Unknown source"}
+            </Badge>
+            <Badge variant="outline" className="text-xs">
+              {dataTable.name || "Unknown table"}
+            </Badge>
+          </div>
+        </div>
+      )}
+
+      {/* DataFrame stats */}
+      <div className="space-y-1">
+        <Label className="text-muted-foreground text-xs font-medium">
+          Data
+        </Label>
+        <p className="text-foreground text-sm">
+          <span className="font-medium">{rowCount.toLocaleString()}</span> rows
+          • <span className="font-medium">{colCount}</span> columns
+        </p>
+      </div>
+
+      {/* Last refreshed timestamp */}
+      <div className="space-y-1">
+        <Label className="text-muted-foreground text-xs font-medium">
+          Last refreshed
+        </Label>
+        <div className="flex items-center justify-between">
+          <p className="text-foreground text-sm">{formatTime(lastRefreshed)}</p>
+          {isStale && (
+            <Badge
+              variant="outline"
+              className="border-amber-200 bg-amber-50 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            >
+              Stale
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Refresh button */}
+      {isRefreshable && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+        >
+          <RefreshCw
+            className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+          {isRefreshing ? "Refreshing..." : "Refresh data"}
+        </Button>
+      )}
+
+      {refreshError && (
+        <div className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border p-2 text-xs">
+          {refreshError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Metrics Strip Component - Shows available metrics with aggregation badges
+ */
+interface MetricItem {
+  id: string;
+  name: string;
+  aggregation: string;
+  columnName?: string;
+}
+
+interface MetricsStripProps {
+  insight: { id: string; metrics?: MetricItem[] };
+}
+
+function MetricsStrip({ insight }: MetricsStripProps) {
+  const metrics = insight?.metrics ?? [];
+
+  if (metrics.length === 0) {
+    return (
+      <div className="bg-muted/30 rounded-md border p-3 text-center">
+        <p className="text-foreground text-xs font-medium">
+          No metrics defined
+        </p>
+        <p className="text-muted-foreground mt-1 text-xs">
+          Metrics help you aggregate and summarize data.
+        </p>
+        <Link
+          href={`/insights/${insight.id}/create-visualization`}
+          className="text-primary mt-2 inline-block text-xs font-medium hover:underline"
+        >
+          Add metrics in insight editor →
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {metrics.map((metric) => (
+        <div
+          key={metric.id}
+          className="bg-muted/20 flex items-center justify-between rounded-md border px-3 py-2"
+        >
+          <span className="text-foreground text-sm">{metric.name}</span>
+          <Badge variant="secondary" className="font-mono text-xs">
+            {metric.aggregation}
+            {metric.columnName && `(${metric.columnName})`}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Preview Filters Component - Optional lightweight toggles for preview filtering
+ */
+interface PreviewFiltersProps {
+  onChange: (filters: PreviewFilters) => void;
+  currentFilters: PreviewFilters;
+}
+
+interface PreviewFilters {
+  excludeNulls?: boolean;
+  topN?: number;
+  topNMetric?: string;
+}
+
+function PreviewFilters({ onChange, currentFilters }: PreviewFiltersProps) {
+  return (
+    <div className="space-y-3">
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={currentFilters.excludeNulls ?? false}
+          onChange={(e) =>
+            onChange({ ...currentFilters, excludeNulls: e.target.checked })
+          }
+          className="border-input rounded border"
+        />
+        <span className="text-foreground text-sm">Exclude null values</span>
+      </label>
+
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={!!currentFilters.topN}
+          onChange={(e) =>
+            onChange({
+              ...currentFilters,
+              topN: e.target.checked ? 10 : undefined,
+            })
+          }
+          className="border-input rounded border"
+        />
+        <span className="text-foreground text-sm">Top N results</span>
+      </label>
+
+      {currentFilters.topN && (
+        <div className="ml-6 space-y-1">
+          <Label className="text-muted-foreground text-xs">Top N value</Label>
+          <Input
+            type="number"
+            min="1"
+            value={currentFilters.topN}
+            onChange={(e) =>
+              onChange({
+                ...currentFilters,
+                topN: parseInt(e.target.value) || 10,
+              })
+            }
+            className="h-8"
+          />
+        </div>
+      )}
+
+      <p className="text-muted-foreground text-xs italic">
+        Preview filters don&apos;t persist to the insight
+      </p>
+    </div>
+  );
+}
+
 export function VisualizationControls() {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string>();
   const [isHydrated, setIsHydrated] = useState(false);
+  const [previewFilters, setPreviewFilters] = useState<PreviewFilters>({});
+
   // Inline state access so Zustand can track dependencies properly
   const activeViz = useVisualizationsStore((state) => {
     if (!state.activeId) return null;
@@ -264,9 +586,6 @@ export function VisualizationControls() {
     setIsHydrated(true);
   }, []);
 
-  const updateVisualizationType = useVisualizationsStore(
-    (state) => state.updateVisualizationType,
-  );
   const updateEncoding = useVisualizationsStore(
     (state) => state.updateEncoding,
   );
@@ -327,28 +646,53 @@ export function VisualizationControls() {
     );
   }
 
-  const columns = (dataFrame.data.columns || []).map((col) => col.name);
+  const columns = (dataFrame.data.columns || []).map(
+    (col: { name: string }) => col.name,
+  );
   const numericColumns = (dataFrame.data.columns || [])
-    .filter((col) => col.type === "number")
-    .map((col) => col.name);
+    .filter((col: { type: string }) => col.type === "number")
+    .map((col: { name: string }) => col.name);
 
   // Analyze columns for warnings
   const columnAnalysis = analyzeDataFrame(dataFrame);
 
   const hasNumericColumns = numericColumns.length > 0;
 
+  // Determine if source is refreshable
+  let isRefreshable = false;
+  let source = null;
+  let dataTable = null;
+
+  if (activeViz.source.insightId && insight?.baseTable) {
+    const allSources = useDataSourcesStore.getState().getAll();
+    for (const src of allSources) {
+      if (src.type === "notion") {
+        const table = src.dataTables?.get(insight.baseTable.tableId);
+        if (table) {
+          source = src;
+          dataTable = table;
+          isRefreshable = true;
+          break;
+        }
+      }
+    }
+  }
+
   // Only allow table visualization if there are no numeric columns
   const visualizationTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
     : [{ label: "Table", value: "table" }];
 
-  const columnOptions = columns.map((col) => ({ label: col, value: col }));
+  const columnOptions = columns.map((col: string) => ({
+    label: col,
+    value: col,
+  }));
 
   // Get ranked options for X and Y axes with inline warnings
   const xAxisOptions = getRankedColumnOptions(
@@ -356,7 +700,7 @@ export function VisualizationControls() {
     "x",
     activeViz.visualizationType,
     columnAnalysis,
-    activeViz.encoding?.y
+    activeViz.encoding?.y,
   );
 
   const yAxisOptions = getRankedColumnOptions(
@@ -364,7 +708,7 @@ export function VisualizationControls() {
     "y",
     activeViz.visualizationType,
     columnAnalysis,
-    activeViz.encoding?.x
+    activeViz.encoding?.x,
   );
 
   const handleTypeChange = (type: string) => {
@@ -375,13 +719,13 @@ export function VisualizationControls() {
       newType,
       dataFrame,
       undefined, // fields - not available in this context yet
-      activeViz.encoding
+      activeViz.encoding,
     );
 
     // Update both type and encoding
     update(activeViz.id, {
       visualizationType: newType,
-      encoding: newEncoding
+      encoding: newEncoding,
     });
   };
 
@@ -399,7 +743,8 @@ export function VisualizationControls() {
       const typeField = field === "x" ? "xType" : "yType";
 
       if (colAnalysis) {
-        let axisType: "quantitative" | "nominal" | "ordinal" | "temporal" = "nominal";
+        let axisType: "quantitative" | "nominal" | "ordinal" | "temporal" =
+          "nominal";
 
         if (colAnalysis.category === "numerical") {
           axisType = "quantitative";
@@ -408,7 +753,10 @@ export function VisualizationControls() {
         }
 
         // Override: Identifiers should default to categorical (nominal) even if numeric
-        if (colAnalysis.category === "identifier" || colAnalysis.category === "uuid") {
+        if (
+          colAnalysis.category === "identifier" ||
+          colAnalysis.category === "uuid"
+        ) {
           axisType = "nominal";
         }
 
@@ -419,41 +767,28 @@ export function VisualizationControls() {
     updateEncoding(activeViz.id, newEncoding);
   };
 
-  const toggleAxisType = (axis: "x" | "y") => {
-    if (!activeViz?.encoding) return;
-    const typeField = axis === "x" ? "xType" : "yType";
-    const currentType = activeViz.encoding[typeField];
-
-    // Only toggle between quantitative and nominal/ordinal
-    // Temporal usually stays temporal, but we can allow treating it as nominal
-    let newType = currentType;
-
-    if (currentType === "quantitative") {
-      newType = "nominal";
-    } else if (currentType === "nominal" || currentType === "ordinal") {
-      newType = "quantitative";
-    } else if (currentType === "temporal") {
-      newType = "nominal";
-    }
-
-    updateEncoding(activeViz.id, { ...activeViz.encoding, [typeField]: newType });
-  };
-
   // Helper to check if type toggle should be shown (mainly for numerical columns)
   const canToggleType = (columnName?: string) => {
     if (!columnName) return false;
-    const col = columnAnalysis.find(c => c.columnName === columnName);
+    const col = columnAnalysis.find((c) => c.columnName === columnName);
     // Only allow toggling for numerical or temporal columns
     // Strings are always categorical, so no toggle needed
-    return col?.category === "numerical" || col?.category === "temporal" || col?.category === "identifier";
+    return (
+      col?.category === "numerical" ||
+      col?.category === "temporal" ||
+      col?.category === "identifier"
+    );
   };
 
   // Helper to determine the effective axis type (defaulting intelligently if not set)
-  const getEffectiveAxisType = (columnName: string | undefined, currentType: AxisType | undefined): string => {
+  const getEffectiveAxisType = (
+    columnName: string | undefined,
+    currentType: AxisType | undefined,
+  ): string => {
     if (currentType) return currentType;
     if (!columnName) return "nominal";
 
-    const col = columnAnalysis.find(c => c.columnName === columnName);
+    const col = columnAnalysis.find((c) => c.columnName === columnName);
     if (!col) return "nominal";
 
     if (col.category === "numerical") return "quantitative";
@@ -462,11 +797,16 @@ export function VisualizationControls() {
   };
 
   // Helper to build toggle options for axis type based on column analysis
-  const getAxisTypeToggleOptions = (columnName: string | undefined, currentType: AxisType | undefined) => {
+  const getAxisTypeToggleOptions = (
+    columnName: string | undefined,
+    currentType: AxisType | undefined,
+  ) => {
     const effectiveType = getEffectiveAxisType(columnName, currentType);
-    const col = columnAnalysis.find(c => c.columnName === columnName);
+    const col = columnAnalysis.find((c) => c.columnName === columnName);
     const isTemporalColumn = col?.category === "temporal";
-    const showTemporal = effectiveType === "temporal" || (effectiveType === "nominal" && isTemporalColumn);
+    const showTemporal =
+      effectiveType === "temporal" ||
+      (effectiveType === "nominal" && isTemporalColumn);
 
     const options = [];
 
@@ -502,9 +842,29 @@ export function VisualizationControls() {
     }
   };
 
+  const handleDuplicate = () => {
+    // Clone the visualization with a new ID and name
+    const newId = crypto.randomUUID() as string;
+    const clonedViz: Visualization = {
+      ...activeViz,
+      id: newId,
+      name: `${activeViz.name} (copy)`,
+      createdAt: Date.now(),
+    };
+
+    const store = useVisualizationsStore.getState();
+    store.visualizations.set(clonedViz.id, clonedViz);
+    store.setActive(clonedViz.id);
+    // Trigger store update to persist
+    store.update(clonedViz.id, {});
+
+    toast.success(`Duplicated "${activeViz.name}"`);
+  };
+
   const handleRefresh = async () => {
     if (!activeViz.source.insightId) return;
 
+    setRefreshError(undefined);
     const toastId = toast.loading("Refreshing data from Notion...");
     setIsRefreshing(true);
 
@@ -544,7 +904,9 @@ export function VisualizationControls() {
       const newDataFrame = await queryNotionDatabase.mutateAsync({
         apiKey: foundDataSource.apiKey, // From NotionDataSource
         databaseId: foundDataTable.table, // From DataTable
-        selectedPropertyIds: foundDataTable.fields.map(f => f.id), // Use field IDs
+        selectedPropertyIds: foundDataTable.fields.map(
+          (f: { id: string }) => f.id,
+        ), // Use field IDs
       });
 
       // Update the DataFrame with fresh data
@@ -552,14 +914,13 @@ export function VisualizationControls() {
 
       toast.success("Data refreshed successfully!", { id: toastId });
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      setRefreshError(errorMsg);
       console.error("Failed to refresh data:", error);
-      toast.error(
-        `Failed to refresh: ${error instanceof Error ? error.message : "Unknown error"}`,
-        {
-          id: toastId,
-          description: "Please check your Notion API key and try again.",
-        },
-      );
+      toast.error(`Failed to refresh: ${errorMsg}`, {
+        id: toastId,
+        description: "Please check your Notion API key and try again.",
+      });
     } finally {
       setIsRefreshing(false);
     }
@@ -568,7 +929,7 @@ export function VisualizationControls() {
   const actionsFooter = (
     <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
       <div className="space-y-2">
-        {activeViz.source.insightId && (
+        {isRefreshable && (
           <Button
             variant="outline"
             className="w-full"
@@ -578,12 +939,16 @@ export function VisualizationControls() {
             <RefreshCw
               className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
             />
-            {isRefreshing ? "Refreshing..." : "Refresh Data"}
+            {isRefreshing ? "Refreshing..." : "Refresh data"}
           </Button>
         )}
+        <Button variant="outline" className="w-full" onClick={handleDuplicate}>
+          <LuCopy className="mr-2 h-4 w-4" />
+          Duplicate
+        </Button>
         <Button variant="destructive" className="w-full" onClick={handleDelete}>
           <Trash2 className="mr-2 h-4 w-4" />
-          Delete Visualization
+          Delete
         </Button>
       </div>
     </CollapsibleSection>
@@ -605,15 +970,269 @@ export function VisualizationControls() {
           onChange={(e) => update(activeViz.id, { name: e.target.value })}
           className="mt-1.5"
         />
-        {insight && (
-          <p className="text-muted-foreground mt-2 text-xs">
-            Source: {insight.name}
-          </p>
-        )}
       </div>
 
-      {/* Collapsible: Visualization Type */}
-      <CollapsibleSection title="Visualization Type" defaultOpen={true}>
+      {/* NEW: Provenance Summary (always visible) */}
+      <ProvenanceSummary
+        insight={insight}
+        dataFrame={dataFrame}
+        source={source}
+        dataTable={dataTable}
+        isRefreshable={isRefreshable}
+        isRefreshing={isRefreshing}
+        onRefresh={handleRefresh}
+        refreshError={refreshError}
+      />
+
+      {/* Encodings Section */}
+      <CollapsibleSection title="Encodings" defaultOpen={true}>
+        <div className="space-y-3">
+          {/* X Axis with warning icon next to label */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <FieldLabel>X Axis</FieldLabel>
+                {(() => {
+                  const selectedOption = xAxisOptions.find(
+                    (opt) => opt.value === activeViz.encoding?.x,
+                  );
+                  return selectedOption?.warning ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="z-[100] max-w-xs">
+                        <p className="text-xs font-semibold">
+                          {selectedOption.warning.message}
+                        </p>
+                        <p className="mt-0.5 text-xs opacity-90">
+                          {selectedOption.warning.reason}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* Axis Type Toggle */}
+              {canToggleType(activeViz.encoding?.x) && (
+                <Toggle
+                  value={
+                    getEffectiveAxisType(
+                      activeViz.encoding?.x,
+                      activeViz.encoding?.xType,
+                    ) as "quantitative" | "nominal" | "temporal"
+                  }
+                  options={getAxisTypeToggleOptions(
+                    activeViz.encoding?.x,
+                    activeViz.encoding?.xType,
+                  )}
+                  onValueChange={(val) => {
+                    if (!activeViz.encoding) return;
+                    updateEncoding(activeViz.id, {
+                      ...activeViz.encoding,
+                      xType: val as AxisType,
+                    });
+                  }}
+                  size="sm"
+                />
+              )}
+            </div>
+            <SelectPrimitive
+              value={activeViz.encoding?.x || undefined}
+              onValueChange={(value) => handleEncodingChange("x", value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select column..." />
+              </SelectTrigger>
+              <SelectContent>
+                {xAxisOptions.map((option) => (
+                  <RadixSelect.Item
+                    key={option.value}
+                    value={option.value}
+                    className={cn(
+                      "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                      option.warning
+                        ? "text-amber-600 focus:text-amber-600 data-[highlighted]:text-amber-600 dark:text-amber-400 dark:focus:text-amber-400 dark:data-[highlighted]:text-amber-400"
+                        : "",
+                    )}
+                  >
+                    <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                      <RadixSelect.ItemIndicator>
+                        <CheckIcon className="size-4" />
+                      </RadixSelect.ItemIndicator>
+                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <RadixSelect.ItemText>
+                        {option.value}
+                      </RadixSelect.ItemText>
+                      {option.warning && (
+                        <span className="text-muted-foreground text-[10px] font-normal">
+                          {option.warning.message}
+                        </span>
+                      )}
+                    </div>
+                  </RadixSelect.Item>
+                ))}
+              </SelectContent>
+            </SelectPrimitive>
+          </div>
+
+          {/* Swap Axes Button */}
+          <div className="relative z-10 -my-1 flex justify-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="bg-background shadow-xs hover:bg-muted text-muted-foreground h-6 w-6 rounded-full border"
+              onClick={() => {
+                if (!activeViz.encoding) return;
+                updateEncoding(activeViz.id, {
+                  ...activeViz.encoding,
+                  x: activeViz.encoding.y,
+                  y: activeViz.encoding.x,
+                  // Also swap types
+                  xType: activeViz.encoding.yType,
+                  yType: activeViz.encoding.xType,
+                });
+              }}
+              title="Swap X and Y axes"
+            >
+              <ArrowUpDown className="h-3 w-3" />
+            </Button>
+          </div>
+
+          {/* Y Axis with warning icon next to label */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <FieldLabel>Y Axis</FieldLabel>
+                {(() => {
+                  const selectedOption = yAxisOptions.find(
+                    (opt) => opt.value === activeViz.encoding?.y,
+                  );
+                  return selectedOption?.warning ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="z-[100] max-w-xs">
+                        <p className="text-xs font-semibold">
+                          {selectedOption.warning.message}
+                        </p>
+                        <p className="mt-0.5 text-xs opacity-90">
+                          {selectedOption.warning.reason}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* Axis Type Toggle */}
+              {canToggleType(activeViz.encoding?.y) && (
+                <Toggle
+                  value={
+                    getEffectiveAxisType(
+                      activeViz.encoding?.y,
+                      activeViz.encoding?.yType,
+                    ) as "quantitative" | "nominal" | "temporal"
+                  }
+                  options={getAxisTypeToggleOptions(
+                    activeViz.encoding?.y,
+                    activeViz.encoding?.yType,
+                  )}
+                  onValueChange={(val) => {
+                    if (!activeViz.encoding) return;
+                    updateEncoding(activeViz.id, {
+                      ...activeViz.encoding,
+                      yType: val,
+                    });
+                  }}
+                  size="sm"
+                />
+              )}
+            </div>
+            <SelectPrimitive
+              value={activeViz.encoding?.y || undefined}
+              onValueChange={(value) => handleEncodingChange("y", value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select column..." />
+              </SelectTrigger>
+              <SelectContent>
+                {yAxisOptions.map((option) => (
+                  <RadixSelect.Item
+                    key={option.value}
+                    value={option.value}
+                    className={cn(
+                      "focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none",
+                      option.warning
+                        ? "data-highlighted:text-amber-600 dark:data-highlighted:text-amber-400 text-amber-600 focus:text-amber-600 dark:text-amber-400 dark:focus:text-amber-400"
+                        : "",
+                    )}
+                  >
+                    <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                      <RadixSelect.ItemIndicator>
+                        <CheckIcon className="size-4" />
+                      </RadixSelect.ItemIndicator>
+                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <RadixSelect.ItemText>
+                        {option.value}
+                      </RadixSelect.ItemText>
+                      {option.warning && (
+                        <span className="text-muted-foreground text-[10px] font-normal">
+                          {option.warning.message}
+                        </span>
+                      )}
+                    </div>
+                  </RadixSelect.Item>
+                ))}
+              </SelectContent>
+            </SelectPrimitive>
+          </div>
+
+          <SelectField
+            label="Color (optional)"
+            value={activeViz.encoding?.color || ""}
+            onChange={(value) => handleEncodingChange("color", value)}
+            onClear={() => handleEncodingChange("color", "")}
+            options={columnOptions}
+            placeholder="None"
+          />
+          {activeViz.visualizationType === "scatter" && (
+            <SelectField
+              label="Size (optional)"
+              value={activeViz.encoding?.size || ""}
+              onChange={(value) => handleEncodingChange("size", value)}
+              onClear={() => handleEncodingChange("size", "")}
+              options={columnOptions}
+              placeholder="None"
+            />
+          )}
+        </div>
+      </CollapsibleSection>
+
+      {/* NEW: Metrics Strip */}
+      {insight && (
+        <CollapsibleSection
+          title="Metrics"
+          defaultOpen={insight.metrics && insight.metrics.length > 0}
+        >
+          <MetricsStrip insight={insight} />
+        </CollapsibleSection>
+      )}
+
+      {/* NEW: Preview Filters (Optional) */}
+      <CollapsibleSection title="Preview filters" defaultOpen={false}>
+        <PreviewFilters
+          currentFilters={previewFilters}
+          onChange={setPreviewFilters}
+        />
+      </CollapsibleSection>
+
+      {/* Chart Type moved to Chart Options (demoted) */}
+      <CollapsibleSection title="Chart options" defaultOpen={false}>
         <div className="space-y-3">
           {activeViz.visualizationType === "table" && (
             <div className="bg-muted/30 rounded-md border p-3">
@@ -624,21 +1243,8 @@ export function VisualizationControls() {
                 </p>
               </div>
               <p className="text-muted-foreground mt-1 text-xs">
-                Showing raw data from{" "}
-                <span className="font-medium">the DataFrame</span>.
+                Showing raw data from the DataFrame.
               </p>
-              <details className="mt-2">
-                <summary className="text-muted-foreground cursor-pointer text-xs hover:underline">
-                  View Schema
-                </summary>
-                <ul className="mt-1.5 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
-                  {(dataFrame.data.columns || []).map((col) => (
-                    <li key={col.name}>
-                      <strong>{col.name}</strong>: {col.type}
-                    </li>
-                  ))}
-                </ul>
-              </details>
             </div>
           )}
           {!hasNumericColumns && (
@@ -650,215 +1256,16 @@ export function VisualizationControls() {
                 Your data doesn&apos;t contain any numeric columns. Only table
                 view is available.
               </p>
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-medium text-amber-800 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-100">
-                  Show column types
-                </summary>
-                <ul className="mt-1.5 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
-                  {(dataFrame.data.columns || []).map((col) => (
-                    <li key={col.name}>
-                      <strong>{col.name}</strong>: {col.type}
-                    </li>
-                  ))}
-                </ul>
-              </details>
             </div>
           )}
-          <Select
-            label=""
+          <SelectField
+            label="Chart type"
             value={activeViz.visualizationType}
             onChange={handleTypeChange}
             options={visualizationTypeOptions}
           />
         </div>
       </CollapsibleSection>
-
-      {/* Collapsible: Chart Configuration */}
-      {activeViz.visualizationType !== "table" && (
-        <CollapsibleSection title="Chart Configuration" defaultOpen={true}>
-          <div className="space-y-3">
-
-
-            {/* X Axis with warning icon next to label */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <FieldLabel>X Axis</FieldLabel>
-                  {(() => {
-                    const selectedOption = xAxisOptions.find(opt => opt.value === activeViz.encoding?.x);
-                    return selectedOption?.warning ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs z-[100]">
-                          <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
-                          <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null;
-                  })()}
-                </div>
-
-                {/* Axis Type Toggle */}
-                {canToggleType(activeViz.encoding?.x) && (
-                  <Toggle
-                    value={getEffectiveAxisType(activeViz.encoding?.x, activeViz.encoding?.xType) as "quantitative" | "nominal" | "temporal"}
-                    options={getAxisTypeToggleOptions(activeViz.encoding?.x, activeViz.encoding?.xType)}
-                    onValueChange={(val) => {
-                      if (!activeViz.encoding) return;
-                      updateEncoding(activeViz.id, { ...activeViz.encoding, xType: val as any });
-                    }}
-                    size="sm"
-                  />
-                )}
-              </div>
-              <SelectPrimitive value={activeViz.encoding?.x || undefined} onValueChange={(value) => handleEncodingChange("x", value)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select column..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {xAxisOptions.map((option) => (
-                    <RadixSelect.Item
-                      key={option.value}
-                      value={option.value}
-                      className={cn(
-                        "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-                        option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-[highlighted]:text-amber-600 dark:data-[highlighted]:text-amber-400" : ""
-                      )}
-                    >
-                      <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                        <RadixSelect.ItemIndicator>
-                          <CheckIcon className="size-4" />
-                        </RadixSelect.ItemIndicator>
-                      </span>
-                      <div className="flex flex-col gap-0.5">
-                        <RadixSelect.ItemText>
-                          {option.value}
-                        </RadixSelect.ItemText>
-                        {option.warning && (
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {option.warning.message}
-                          </span>
-                        )}
-                      </div>
-                    </RadixSelect.Item>
-                  ))}
-                </SelectContent>
-              </SelectPrimitive>
-            </div>
-
-            {/* Swap Axes Button */}
-            <div className="flex justify-center -my-1 relative z-10">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-full border bg-background shadow-xs hover:bg-muted text-muted-foreground"
-                onClick={() => {
-                  if (!activeViz.encoding) return;
-                  updateEncoding(activeViz.id, {
-                    ...activeViz.encoding,
-                    x: activeViz.encoding.y,
-                    y: activeViz.encoding.x,
-                    // Also swap types
-                    xType: activeViz.encoding.yType,
-                    yType: activeViz.encoding.xType
-                  });
-                }}
-                title="Swap X and Y axes"
-              >
-                <ArrowUpDown className="h-3 w-3" />
-              </Button>
-            </div>
-
-            {/* Y Axis with warning icon next to label */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <FieldLabel>Y Axis</FieldLabel>
-                  {(() => {
-                    const selectedOption = yAxisOptions.find(opt => opt.value === activeViz.encoding?.y);
-                    return selectedOption?.warning ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <LuInfo className="h-3.5 w-3.5 cursor-help text-amber-500" />
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs z-[100]">
-                          <p className="font-semibold text-xs">{selectedOption.warning.message}</p>
-                          <p className="text-xs mt-0.5 opacity-90">{selectedOption.warning.reason}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null;
-                  })()}
-                </div>
-
-                {/* Axis Type Toggle */}
-                {canToggleType(activeViz.encoding?.y) && (
-                  <Toggle
-                    value={getEffectiveAxisType(activeViz.encoding?.y, activeViz.encoding?.yType) as "quantitative" | "nominal" | "temporal"}
-                    options={getAxisTypeToggleOptions(activeViz.encoding?.y, activeViz.encoding?.yType)}
-                    onValueChange={(val) => {
-                      if (!activeViz.encoding) return;
-                      updateEncoding(activeViz.id, { ...activeViz.encoding, yType: val });
-                    }}
-                    size="sm"
-                  />
-                )}
-              </div>
-              <SelectPrimitive value={activeViz.encoding?.y || undefined} onValueChange={(value) => handleEncodingChange("y", value)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select column..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {yAxisOptions.map((option) => (
-                    <RadixSelect.Item
-                      key={option.value}
-                      value={option.value}
-                      className={cn(
-                        "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-disabled:pointer-events-none data-disabled:opacity-50",
-                        option.warning ? "text-amber-600 dark:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 data-highlighted:text-amber-600 dark:data-highlighted:text-amber-400" : ""
-                      )}
-                    >
-                      <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                        <RadixSelect.ItemIndicator>
-                          <CheckIcon className="size-4" />
-                        </RadixSelect.ItemIndicator>
-                      </span>
-                      <div className="flex flex-col gap-0.5">
-                        <RadixSelect.ItemText>
-                          {option.value}
-                        </RadixSelect.ItemText>
-                        {option.warning && (
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {option.warning.message}
-                          </span>
-                        )}
-                      </div>
-                    </RadixSelect.Item>
-                  ))}
-                </SelectContent>
-              </SelectPrimitive>
-            </div>
-
-            <Select
-              label="Color (optional)"
-              value={activeViz.encoding?.color || ""}
-              onChange={(value) => handleEncodingChange("color", value)}
-              options={columnOptions}
-              placeholder="None"
-            />
-            {activeViz.visualizationType === "scatter" && (
-              <Select
-                label="Size (optional)"
-                value={activeViz.encoding?.size || ""}
-                onChange={(value) => handleEncodingChange("size", value)}
-                options={columnOptions}
-                placeholder="None"
-              />
-            )}
-          </div>
-        </CollapsibleSection>
-      )}
     </Panel>
   );
 }

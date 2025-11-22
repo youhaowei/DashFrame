@@ -1,13 +1,27 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Trash2, Database, Plus, RefreshCw, Loader2, ChevronDown, Button, Surface, Collapsible, CollapsibleContent, CollapsibleTrigger, cn, Panel } from "@dashframe/ui";
+import {
+  Trash2,
+  Database,
+  Plus,
+  RefreshCw,
+  Loader2,
+  ChevronDown,
+  Button,
+  Surface,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+  Panel,
+  InputField,
+} from "@dashframe/ui";
 import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/notion";
-import { Input } from "@/components/fields/input";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -209,7 +223,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     <Panel footer={actionsFooter}>
       {/* Name field at top */}
       <div className="border-border/40 border-b px-4 pb-3 pt-4">
-        <Input
+        <InputField
           label="Name"
           value={dataSource.name}
           onChange={handleNameChange}
@@ -220,10 +234,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       {isNotionDataSource(dataSource) && (
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
-            <Input
+            <InputField
               type="password"
               value={dataSource.apiKey}
-              onChange={(value) => handleApiKeyChange(value)}
+              onChange={handleApiKeyChange}
               className="font-mono text-xs"
               placeholder="secret_..."
             />

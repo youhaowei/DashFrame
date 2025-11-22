@@ -54,31 +54,32 @@ export interface PanelProps extends React.ComponentProps<"div"> {
  * </Panel>
  * ```
  */
-export const Panel = forwardRef<HTMLDivElement, PanelProps>(
-  function Panel({ elevation = "raised", header, children, footer, className, ...props }, ref) {
-    return (
-      <Surface
-        ref={ref}
-        elevation={elevation}
-        className={cn("flex h-full flex-col", className)}
-        {...props}
-      >
-        {/* Fixed header */}
-        {header && (
-          <div className="border-border/60 shrink-0 border-b p-6">{header}</div>
-        )}
+export const Panel = forwardRef<HTMLDivElement, PanelProps>(function Panel(
+  { elevation = "raised", header, children, footer, className, ...props },
+  ref,
+) {
+  return (
+    <Surface
+      ref={ref}
+      elevation={elevation}
+      className={cn("flex h-full flex-col", className)}
+      {...props}
+    >
+      {/* Fixed header */}
+      {header && (
+        <div className="border-border/60 shrink-0 border-b">{header}</div>
+      )}
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto p-6">{children}</div>
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">{children}</div>
 
-        {/* Fixed footer */}
-        {footer && (
-          <div className="border-border/60 shrink-0 border-t p-6">{footer}</div>
-        )}
-      </Surface>
-    );
-  }
-);
+      {/* Fixed footer */}
+      {footer && (
+        <div className="border-border/60 shrink-0 border-t">{footer}</div>
+      )}
+    </Surface>
+  );
+});
 
 export interface PanelSectionProps extends React.ComponentProps<"div"> {
   /** Optional section title */
@@ -119,7 +120,7 @@ export function PanelSection({
     <div
       className={cn(
         "border-border/60 [&:not(:last-child)]:border-b",
-        className
+        className,
       )}
       {...props}
     >

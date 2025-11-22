@@ -8,14 +8,28 @@ import {
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, Surface, Button, ChevronDown, ChevronUp, Database, Layers, Refresh, cn } from "@dashframe/ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Surface,
+  Button,
+  ChevronDown,
+  ChevronUp,
+  Database,
+  Layers,
+  Refresh,
+  cn,
+  InputField,
+  MultiSelectField,
+} from "@dashframe/ui";
 import { TableView } from "@/components/visualizations/TableView";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
 import type { NotionProperty } from "@dashframe/notion";
 import { mapNotionTypeToColumnType } from "@dashframe/notion";
-import { Input } from "@/components/fields/input";
-import { MultiSelect } from "@/components/fields/multi-select";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
@@ -31,7 +45,7 @@ function LocalDataSourceView({
 }) {
   const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(
-    dataTables[0]?.id ?? null
+    dataTables[0]?.id ?? null,
   );
 
   const selectedDataTable = dataTables.find((dt) => dt.id === selectedTableId);
@@ -66,7 +80,9 @@ function LocalDataSourceView({
             <EmptyState message="Upload CSV files to get started." />
           ) : (
             dataTables.map((table) => {
-              const df = table.dataFrameId ? getDataFrame(table.dataFrameId) : null;
+              const df = table.dataFrameId
+                ? getDataFrame(table.dataFrameId)
+                : null;
               const isSelected = table.id === selectedTableId;
               return (
                 <button
@@ -74,20 +90,23 @@ function LocalDataSourceView({
                   onClick={() => setSelectedTableId(table.id)}
                   className={cn(
                     "border-border/60 hover:border-border hover:bg-accent/50 w-full rounded-lg border p-3 text-left transition-colors",
-                    isSelected && "border-primary bg-primary/5"
+                    isSelected && "border-primary bg-primary/5",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className={cn(
-                        "text-foreground truncate text-sm font-medium",
-                        isSelected && "text-primary"
-                      )}>
+                      <p
+                        className={cn(
+                          "text-foreground truncate text-sm font-medium",
+                          isSelected && "text-primary",
+                        )}
+                      >
                         {table.name}
                       </p>
                       {df && (
                         <p className="text-muted-foreground mt-1 text-xs">
-                          {df.metadata.rowCount} rows × {df.metadata.columnCount} columns
+                          {df.metadata.rowCount} rows ×{" "}
+                          {df.metadata.columnCount} columns
                         </p>
                       )}
                     </div>
@@ -177,7 +196,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   // Fetch database schema when a table is selected
   useEffect(() => {
     const fetchSchema = async () => {
-      if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+      if (
+        !selectedDataTable ||
+        !dataSource ||
+        !isNotionDataSource(dataSource)
+      ) {
         return;
       }
 
@@ -438,7 +461,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {/* Properties Multiselect */}
                 {isFetchingSchema ? (
                   <div className="space-y-2">
-                    <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">
+                    <div className="border-input bg-background flex h-9 items-center gap-2 rounded-md border px-3">
                       <Refresh className="h-3 w-3 animate-spin" />
                       <span className="text-muted-foreground text-xs">
                         Loading...
@@ -446,7 +469,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                     </div>
                   </div>
                 ) : (
-                  <MultiSelect
+                  <MultiSelectField
                     label="Properties"
                     options={databaseSchema.map((p) => {
                       const dfType = mapNotionTypeToColumnType(p.type);
@@ -471,7 +494,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 )}
 
                 {/* Row Limit */}
-                <Input
+                <InputField
                   label="Limit"
                   type="number"
                   value={rowLimit.toString()}
