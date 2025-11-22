@@ -6,7 +6,7 @@ export * from "./lib/icons";
 export type { LucideIcon } from "./lib/icons";
 
 // UI Primitives (shadcn/ui components)
-export { Alert } from "./primitives/alert";
+export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
 export { Button, buttonVariants } from "./primitives/button";
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./primitives/card";

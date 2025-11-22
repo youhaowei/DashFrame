@@ -1,7 +1,8 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import { TRPCProvider } from "@/lib/trpc/Provider";
-import { Toaster, TooltipProvider } from "@dashframe/ui";
+import { TooltipProvider } from "@dashframe/ui";
+import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
 import { StoreHydration } from "@/components/providers/StoreHydration";

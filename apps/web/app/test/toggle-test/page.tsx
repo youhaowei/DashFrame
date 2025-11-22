@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, Table as TableIcon, List, LayoutGrid, Sun, Moon, Toggle, Card } from "@dashframe/ui";
+import { BarChart3, TableIcon, List, LayoutGrid, Sun, Moon, Toggle, Card } from "@dashframe/ui";
 
 export default function ToggleTestPage() {
     const [defaultVariantValue, setDefaultVariantValue] = useState("chart");

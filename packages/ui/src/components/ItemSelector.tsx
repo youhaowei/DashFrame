@@ -1,7 +1,8 @@
+"use client";
+
 import { useState } from "react";
 import { LayoutGrid, List } from "../lib/icons";
 import type { LucideIcon } from "../lib/icons";
-import { Tabs, TabsList, TabsTrigger } from "../primitives/tabs";
 import { ActionGroup, type ItemAction } from "./ActionGroup";
 import { Toggle } from "./Toggle";
 import { cn } from "../lib/utils";
@@ -23,6 +24,7 @@ export interface ItemSelectorProps {
   items: SelectableItem[];
   onItemSelect: (id: string) => void;
   actions: ItemAction[];
+  defaultViewStyle?: "compact" | "expanded";
   className?: string;
 }
 
@@ -54,10 +56,11 @@ export function ItemSelector({
   items,
   onItemSelect,
   actions,
+  defaultViewStyle = "expanded",
   className,
 }: ItemSelectorProps) {
   const [viewStyle, setViewStyle] = useState<"compact" | "expanded">(
-    "expanded",
+    defaultViewStyle,
   );
   const activeItem = items.find((item) => item.active);
 
@@ -106,7 +109,6 @@ export function ItemSelector({
           {actions.length > 0 && (
             <ActionGroup
               actions={actions}
-              compact={viewStyle === "compact"}
               className="w-full justify-end sm:w-auto"
             />
           )}
@@ -117,45 +119,20 @@ export function ItemSelector({
           <>
             {/* Compact view */}
             {viewStyle === "compact" && (
-              <Tabs
-                value={activeItem?.id}
-                onValueChange={onItemSelect}
-                className="min-w-0"
-              >
-                <div className="overflow-x-auto">
-                  <TabsList className="border-border/60 bg-card/70 min-w-max rounded-2xl border px-1 py-1">
-                    {items.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <TabsTrigger
-                          key={item.id}
-                          value={item.id}
-                          className={cn(
-                            "text-muted-foreground min-w-[180px] justify-between gap-2 rounded-xl border border-transparent px-3 py-1.5 text-left text-sm font-medium transition",
-                            "data-[state=active]:border-primary/60 data-[state=active]:bg-primary/10 data-[state=active]:text-primary",
-                            "data-[state=active]:shadow-primary/20 data-[state=active]:shadow-sm",
-                          )}
-                        >
-                          <span className="flex items-center gap-2 truncate">
-                            {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                            <span className="truncate">{item.label}</span>
-                          </span>
-                          {item.badge && (
-                            <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide">
-                              {item.badge}
-                            </span>
-                          )}
-                          {item.metadata && (
-                            <span className="text-muted-foreground text-[11px]">
-                              {item.metadata}
-                            </span>
-                          )}
-                        </TabsTrigger>
-                      );
-                    })}
-                  </TabsList>
-                </div>
-              </Tabs>
+              <div className="overflow-x-auto">
+                <Toggle
+                  variant="default"
+                  value={activeItem?.id || items[0]?.id || ""}
+                  options={items.map((item) => ({
+                    value: item.id,
+                    label: item.label,
+                    icon: item.icon ? <item.icon className="h-4 w-4" /> : undefined,
+                    badge: item.badge || item.metadata,
+                  }))}
+                  onValueChange={onItemSelect}
+                  className="min-w-max"
+                />
+              </div>
             )}
 
             {/* Expanded view */}

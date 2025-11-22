@@ -3,7 +3,6 @@ import {
   LuArrowUpDown,
   LuCalendar,
   LuCheck,
-  LuSquareCheck,
   LuChevronDown,
   LuChevronLeft,
   LuChevronRight,
@@ -14,8 +13,11 @@ import {
   LuChevronsUp,
   LuChevronsUpDown,
   LuCircle,
+  LuCircleAlert,
+  LuCircleCheck,
   LuDatabase,
   LuDot,
+  LuInfo,
   LuPencil,
   LuHash,
   LuLayers,
@@ -30,8 +32,10 @@ import {
   LuPlus,
   LuRefreshCw,
   LuSparkles,
+  LuSquareCheck,
   LuSun,
   LuTable,
+  LuTerminal,
   LuToggleLeft,
   LuTrash2,
   LuTrendingUp,
@@ -73,7 +77,6 @@ export { LuEllipsisVertical as MoreHorizontal };
 export { LuTrendingUp as Chart };
 export { LuTrendingUp as LineChart };
 export { LuTrendingUp as BarChart3 };
-export { LuTable as Table };
 export { LuTable as TableIcon };
 export { LuLayoutGrid as Grid };
 export { LuLayoutGrid as LayoutGrid };
@@ -118,3 +121,9 @@ export { LuLifeBuoy as Help };
 export { LuLifeBuoy as LifeBuoy };
 export { LuLoader as Spinner };
 export { LuLoader as Loader2 };
+
+// Feedback & Status
+export { LuCircleAlert as AlertCircle };
+export { LuCircleCheck as CheckCircle };
+export { LuInfo as Info };
+export { LuTerminal as Terminal };

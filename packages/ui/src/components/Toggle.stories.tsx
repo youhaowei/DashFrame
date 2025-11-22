@@ -34,6 +34,7 @@ export const Default: Story = {
     return (
       <Toggle
         {...args}
+        variant="default"
         value={value}
         onValueChange={setValue}
         options={[
@@ -98,6 +99,35 @@ export const IconsAndLabels: Story = {
             icon: <TableIcon className="h-4 w-4" />,
             label: "Table",
             badge: 100,
+          },
+        ]}
+      />
+    );
+  },
+};
+
+/**
+ * Outline variant with icons and labels (compact style)
+ */
+export const OutlineIconsAndLabels: Story = {
+  render: (args) => {
+    const [value, setValue] = useState("chart");
+    return (
+      <Toggle
+        {...args}
+        variant="outline"
+        value={value}
+        onValueChange={setValue}
+        options={[
+          {
+            value: "chart",
+            icon: <BarChart3 className="h-4 w-4" />,
+            label: "Chart",
+          },
+          {
+            value: "table",
+            icon: <TableIcon className="h-4 w-4" />,
+            label: "Table",
           },
         ]}
       />

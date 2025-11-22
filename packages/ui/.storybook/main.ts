@@ -4,11 +4,8 @@ const config: StorybookConfig = {
   stories: ["../src/**/*.mdx", "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [],
   framework: {
-    name: "@storybook/nextjs",
+    name: "@storybook/nextjs-vite",
     options: {},
-  },
-  docs: {
-    autodocs: "tag", // Enable autodocs for stories with "autodocs" tag
   },
 };
 

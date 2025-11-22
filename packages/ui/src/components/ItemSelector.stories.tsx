@@ -125,6 +125,64 @@ export const Visualizations: Story = {
 };
 
 /**
+ * Compact view using Toggle component
+ */
+export const CompactView: Story = {
+  render: (args) => {
+    const [items, setItems] = useState<SelectableItem[]>([
+      {
+        id: "1",
+        label: "Q1 2024",
+        active: true,
+        badge: "Jan-Mar",
+        metadata: "3 months",
+      },
+      {
+        id: "2",
+        label: "Q2 2024",
+        active: false,
+        badge: "Apr-Jun",
+        metadata: "3 months",
+      },
+      {
+        id: "3",
+        label: "Q3 2024",
+        active: false,
+        badge: "Jul-Sep",
+        metadata: "3 months",
+      },
+      {
+        id: "4",
+        label: "Q4 2024",
+        active: false,
+        badge: "Oct-Dec",
+        metadata: "3 months",
+      },
+    ]);
+
+    return (
+      <ItemSelector
+        {...args}
+        title="Quarters"
+        description="Select a quarter to view data"
+        defaultViewStyle="compact"
+        items={items}
+        onItemSelect={(id) => {
+          setItems(items.map((item) => ({ ...item, active: item.id === id })));
+        }}
+        actions={[
+          {
+            label: "Export",
+            onClick: () => alert("Export"),
+            variant: "outline",
+          },
+        ]}
+      />
+    );
+  },
+};
+
+/**
  * Insights selector
  */
 export const Insights: Story = {

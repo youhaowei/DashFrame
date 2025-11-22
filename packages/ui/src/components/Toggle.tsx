@@ -1,6 +1,9 @@
+"use client";
+
 import React, { type ReactNode } from "react";
 import { cn } from "../lib/utils";
 import { Tooltip } from "./Tooltip";
+import { Badge } from "../primitives/badge";
 
 export interface ToggleOption<T extends string> {
   value: T;
@@ -75,7 +78,7 @@ export function Toggle<T extends string>({
   value,
   options,
   onValueChange,
-  variant = "outline",
+  variant = "default",
   size = "default",
   className,
 }: ToggleProps<T>) {
@@ -93,24 +96,24 @@ export function Toggle<T extends string>({
   const optionClasses = {
     default: {
       default: {
-        base: "px-4 py-2 rounded-xl gap-2 text-sm font-medium transition-all",
-        active: "bg-background text-foreground shadow-sm",
-        inactive: "text-foreground hover:bg-background/60",
+        base: "px-4 py-2 rounded-xl gap-2 text-sm font-medium transition-all min-h-10 border",
+        active: "bg-background text-foreground shadow-md border-border/50",
+        inactive: "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
       },
       sm: {
-        base: "px-2 py-1 rounded-lg gap-1 text-xs font-medium transition-all",
-        active: "bg-background text-foreground shadow-sm",
-        inactive: "text-foreground hover:bg-background/60",
+        base: "px-2 py-1 rounded-lg gap-1 text-xs font-medium transition-all min-h-8 border",
+        active: "bg-background text-foreground shadow-md border-border/50",
+        inactive: "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
       },
     },
     outline: {
       default: {
-        base: "px-2 py-1 rounded-full gap-1 transition-colors",
+        base: "px-3 py-1.5 rounded-full gap-1.5 text-sm font-medium transition-colors",
         active: "bg-primary/10 text-primary",
         inactive: "text-muted-foreground hover:text-foreground",
       },
       sm: {
-        base: "px-1.5 py-0.5 rounded-full gap-0.5 text-xs transition-colors",
+        base: "px-2 py-1 rounded-full gap-1 text-xs font-medium transition-colors",
         active: "bg-primary/10 text-primary",
         inactive: "text-muted-foreground hover:text-foreground",
       },
@@ -144,7 +147,7 @@ export function Toggle<T extends string>({
             aria-disabled={option.disabled}
             aria-label={option.ariaLabel || option.tooltip || option.label}
             className={cn(
-              "flex items-center justify-center whitespace-nowrap disabled:pointer-events-none disabled:opacity-50",
+              "flex items-center justify-center whitespace-nowrap cursor-pointer disabled:pointer-events-none disabled:opacity-50",
               currentSizeClasses.base,
               isActive
                 ? currentSizeClasses.active
@@ -159,12 +162,18 @@ export function Toggle<T extends string>({
             {option.label && (
               <span className={size === "sm" ? "text-xs" : ""}>
                 {option.label}
-                {option.badge !== undefined && (
-                  <span className={cn("ml-1", size === "sm" ? "text-xs" : "")}>
-                    ({option.badge})
-                  </span>
-                )}
               </span>
+            )}
+            {option.badge !== undefined && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "border-border/80 bg-background text-foreground shadow-sm",
+                  size === "sm" ? "px-1 py-0 text-xs" : "px-1.5 py-0 text-xs",
+                )}
+              >
+                {option.badge}
+              </Badge>
             )}
           </button>
         );

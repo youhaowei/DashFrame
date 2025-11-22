@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { BarChart3, Table as TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
+import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
 import type { TopLevelSpec } from "vega-lite";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
