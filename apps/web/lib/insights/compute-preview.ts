@@ -6,19 +6,20 @@ import type { Insight, DataTable, InsightMetric } from "../stores/types";
  */
 export interface PreviewResult {
   dataFrame: DataFrame;
-  rowCount: number; // Total rows (before sampling)
+  rowCount: number; // Total rows (after aggregation)
   sampleSize: number; // Rows in preview
 }
 
 /**
  * Computes a preview DataFrame from an insight.
- * Returns a sample of the data (up to maxRows) with selected fields and metrics.
+ * Implements implicit GROUP BY: selected fields define grouping dimensions,
+ * metrics define aggregations to compute per group.
  *
  * @param insight - The insight to preview
  * @param dataTable - The base data table
  * @param sourceDataFrame - The source DataFrame containing the full data
  * @param maxRows - Maximum rows to include in preview (default: 50)
- * @returns Preview result with sampled DataFrame
+ * @returns Preview result with aggregated DataFrame
  */
 export function computeInsightPreview(
   insight: Insight,
@@ -26,7 +27,7 @@ export function computeInsightPreview(
   sourceDataFrame: DataFrame,
   maxRows = 50
 ): PreviewResult {
-  const { baseTable, metrics } = insight;
+  const { baseTable, metrics, filters } = insight;
 
   // Get selected fields
   const selectedFields = dataTable.fields.filter((f) =>
@@ -38,37 +39,79 @@ export function computeInsightPreview(
     dataTable.fields.map((f) => [f.id, f])
   );
 
-  // Sample rows (first N rows for preview)
-  const totalRows = sourceDataFrame.rows.length;
-  const sampleRows = sourceDataFrame.rows.slice(0, maxRows);
+  // Apply excludeNulls filter if specified
+  let rows = sourceDataFrame.rows;
+  if (filters?.excludeNulls) {
+    rows = rows.filter((row) => {
+      // Exclude row if any selected field is null
+      return selectedFields.every((field) => {
+        const value = field.columnName ? row[field.columnName] : null;
+        return value != null;
+      });
+    });
+  }
 
-  // Build preview rows with only selected fields
-  const previewRows = sampleRows.map((row) => {
-    const previewRow: Record<string, unknown> = {};
+  // Implicit GROUP BY logic:
+  // - If no selected fields → grand total (single aggregated row)
+  // - If selected fields → group by those fields, compute metrics per group
+  let aggregatedRows: Record<string, unknown>[];
 
-    // Add selected fields
-    for (const fieldId of baseTable.selectedFields) {
-      const field = fieldMap.get(fieldId);
-      if (field && field.columnName) {
-        // Use field name as key (user-facing)
-        previewRow[field.name] = row[field.columnName];
-      }
+  if (selectedFields.length === 0) {
+    // No grouping - compute grand total
+    const computedMetrics = computeMetrics(rows, metrics, fieldMap);
+    aggregatedRows = [computedMetrics];
+  } else {
+    // Group by selected fields
+    const groups = groupRowsBy(rows, selectedFields, fieldMap);
+
+    // Compute metrics for each group
+    aggregatedRows = groups.map((group) => {
+      const groupKeys = extractGroupKeys(group.rows[0], selectedFields, fieldMap);
+      const computedMetrics = computeMetrics(group.rows, metrics, fieldMap);
+      return { ...groupKeys, ...computedMetrics };
+    });
+  }
+
+  // Apply orderBy if specified
+  if (filters?.orderBy) {
+    const { fieldOrMetricId, direction } = filters.orderBy;
+
+    // Find the field or metric name to sort by
+    const field = fieldMap.get(fieldOrMetricId);
+    const metric = metrics.find((m) => m.id === fieldOrMetricId);
+    const sortKey = field?.name || metric?.name;
+
+    if (sortKey) {
+      aggregatedRows.sort((a, b) => {
+        const aVal = a[sortKey];
+        const bVal = b[sortKey];
+
+        // Handle null/undefined
+        if (aVal == null) return 1;
+        if (bVal == null) return -1;
+
+        // Numeric comparison
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return direction === "asc" ? aVal - bVal : bVal - aVal;
+        }
+
+        // String comparison
+        const aStr = String(aVal);
+        const bStr = String(bVal);
+        return direction === "asc"
+          ? aStr.localeCompare(bStr)
+          : bStr.localeCompare(aStr);
+      });
     }
+  }
 
-    return previewRow;
-  });
+  // Apply limit for preview
+  const totalRows = aggregatedRows.length;
+  const limitedRows = filters?.limit
+    ? aggregatedRows.slice(0, Math.min(filters.limit, maxRows))
+    : aggregatedRows.slice(0, maxRows);
 
-  // Compute metrics (if any)
-  // For preview, we'll compute metrics across the sampled data
-  const computedMetrics = computeMetrics(sampleRows, metrics, fieldMap);
-
-  // Add metrics to each row (they're aggregations, so same value for all rows)
-  const rowsWithMetrics = previewRows.map((row) => ({
-    ...row,
-    ...computedMetrics,
-  }));
-
-  // Build column metadata for selected fields and metrics
+  // Build column metadata
   const columns = [
     ...selectedFields.map((field) => ({
       name: field.name,
@@ -76,7 +119,7 @@ export function computeInsightPreview(
     })),
     ...metrics.map((metric) => ({
       name: metric.name,
-      type: "number" as const, // Metrics are always numbers
+      type: "number" as const,
     })),
   ];
 
@@ -84,18 +127,75 @@ export function computeInsightPreview(
   const previewDataFrame: DataFrame = {
     fieldIds: [
       ...baseTable.selectedFields,
-      ...metrics.map((m) => m.id), // Metric IDs as field IDs
+      ...metrics.map((m) => m.id),
     ],
-    columns, // Add column metadata
-    rows: rowsWithMetrics,
+    columns,
+    rows: limitedRows,
     primaryKey: sourceDataFrame.primaryKey,
   };
 
   return {
     dataFrame: previewDataFrame,
     rowCount: totalRows,
-    sampleSize: rowsWithMetrics.length,
+    sampleSize: limitedRows.length,
   };
+}
+
+/**
+ * Groups rows by the specified fields.
+ *
+ * @param rows - Rows to group
+ * @param fields - Fields to group by
+ * @param fieldMap - Map of field IDs to Field objects
+ * @returns Array of groups, each containing rows with the same field values
+ */
+function groupRowsBy(
+  rows: Record<string, unknown>[],
+  fields: Field[],
+  fieldMap: Map<UUID, Field>
+): Array<{ key: string; rows: Record<string, unknown>[] }> {
+  const groupMap = new Map<string, Record<string, unknown>[]>();
+
+  for (const row of rows) {
+    // Create group key from field values
+    const keyParts = fields.map((field) => {
+      const value = field.columnName ? row[field.columnName] : null;
+      return value != null ? String(value) : "__NULL__";
+    });
+    const key = keyParts.join("|||");
+
+    // Add row to group
+    if (!groupMap.has(key)) {
+      groupMap.set(key, []);
+    }
+    groupMap.get(key)!.push(row);
+  }
+
+  return Array.from(groupMap.entries()).map(([key, rows]) => ({ key, rows }));
+}
+
+/**
+ * Extracts group key values from a row.
+ *
+ * @param row - Row to extract from
+ * @param fields - Fields to extract
+ * @param fieldMap - Map of field IDs to Field objects
+ * @returns Object with field names as keys
+ */
+function extractGroupKeys(
+  row: Record<string, unknown>,
+  fields: Field[],
+  fieldMap: Map<UUID, Field>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    if (field.columnName) {
+      result[field.name] = row[field.columnName];
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -115,7 +215,6 @@ function computeMetrics(
   const result: Record<string, number> = {};
 
   for (const metric of metrics) {
-    const field = fieldMap.get(metric.sourceTable); // In v1, sourceTable is the field ID
     const columnName = metric.columnName;
 
     let value = 0;
@@ -191,14 +290,15 @@ function computeMetrics(
  * @param insight - The insight to compute
  * @param dataTable - The base data table
  * @param sourceDataFrame - The source DataFrame containing the full data
- * @returns Full DataFrame with selected fields and metrics
+ * @returns Full DataFrame with aggregated data
  */
 export function computeInsightDataFrame(
   insight: Insight,
   dataTable: DataTable,
   sourceDataFrame: DataFrame
 ): DataFrame {
-  // For full compute, just call preview with maxRows = Infinity
+  // For full compute, call preview with maxRows = Infinity
+  // This applies all filters and grouping without limiting preview rows
   const result = computeInsightPreview(
     insight,
     dataTable,

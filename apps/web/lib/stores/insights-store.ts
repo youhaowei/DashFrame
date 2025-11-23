@@ -25,6 +25,11 @@ interface InsightsActions {
   ) => void;
   updateMetrics: (insightId: UUID, metrics: InsightMetric[]) => void;
   updateSelectedFields: (insightId: UUID, fieldIds: UUID[]) => void;
+  updateFilters: (insightId: UUID, filters: Insight["filters"]) => void;
+
+  // Forking
+  forkInsight: (originalId: UUID) => UUID;
+  mergeForkToOriginal: (forkId: UUID) => UUID | null;
 
   // Link DataFrame to Insight (after execution)
   setInsightDataFrame: (insightId: UUID, dataFrameId: UUID) => void;
@@ -75,7 +80,7 @@ const storage = createJSONStorage<InsightsState>(() => localStorage, {
   replacer: (_key, value) => {
     // Convert Maps to arrays for JSON serialization
     if (value instanceof Map) {
-      return Array.from(value.entries()).map(([_id, insight]) => insight);
+      return Array.from(value.entries());
     }
     return value;
   },
@@ -98,7 +103,7 @@ export const useInsightsStore = create<InsightsStore>()(
 
         const insight: Insight = {
           id,
-          name: `${tableName} - Draft`,
+          name: tableName,
           baseTable: {
             tableId,
             selectedFields: fieldIds, // Auto-select all fields by default
@@ -135,6 +140,77 @@ export const useInsightsStore = create<InsightsStore>()(
             insight.updatedAt = Date.now();
           }
         });
+      },
+
+      // Update filters
+      updateFilters: (insightId, filters) => {
+        set((state) => {
+          const insight = state.insights.get(insightId);
+          if (insight) {
+            insight.filters = filters;
+            insight.updatedAt = Date.now();
+          }
+        });
+      },
+
+      // Fork insight (create a copy)
+      forkInsight: (originalId) => {
+        const original = get().insights.get(originalId);
+        if (!original) {
+          throw new Error(`Cannot fork: Insight ${originalId} not found`);
+        }
+
+        const forkId = crypto.randomUUID();
+        const now = Date.now();
+
+        const fork: Insight = {
+          ...original,
+          id: forkId,
+          name: `${original.name} (copy)`,
+          forkedFrom: originalId,
+          createdAt: now,
+          updatedAt: now,
+          dataFrameId: undefined, // Fork needs its own DataFrame
+          lastComputedAt: undefined,
+        };
+
+        set((state) => {
+          state.insights.set(forkId, fork);
+        });
+
+        return forkId;
+      },
+
+      // Merge fork changes back to original
+      mergeForkToOriginal: (forkId) => {
+        const fork = get().insights.get(forkId);
+        if (!fork?.forkedFrom) {
+          console.error("Cannot merge: not a fork or original not found");
+          return null;
+        }
+
+        const originalId = fork.forkedFrom;
+        const original = get().insights.get(originalId);
+        if (!original) {
+          console.error(`Cannot merge: original insight ${originalId} not found`);
+          return null;
+        }
+
+        // Copy fork changes to original
+        set((state) => {
+          const orig = state.insights.get(originalId);
+          if (orig) {
+            orig.baseTable = { ...fork.baseTable };
+            orig.metrics = [...fork.metrics];
+            orig.filters = fork.filters ? { ...fork.filters } : undefined;
+            orig.updatedAt = Date.now();
+            // Clear cached DataFrame - will need recomputation
+            orig.dataFrameId = undefined;
+            orig.lastComputedAt = undefined;
+          }
+        });
+
+        return originalId;
       },
 
       // ===== Legacy API =====

@@ -60,6 +60,7 @@ interface VisualizationsActions {
   // General
   get: (id: UUID) => Visualization | undefined;
   getAll: () => Visualization[];
+  getVisualizationsUsingInsight: (insightId: UUID) => Visualization[];
   clear: () => void;
 }
 
@@ -244,6 +245,13 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       // Get all visualizations
       getAll: () => {
         return Array.from(get().visualizations.values());
+      },
+
+      // Get visualizations using a specific insight
+      getVisualizationsUsingInsight: (insightId) => {
+        return Array.from(get().visualizations.values()).filter(
+          (viz) => viz.source.insightId === insightId,
+        );
       },
 
       // Clear all visualizations

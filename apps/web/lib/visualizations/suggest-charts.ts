@@ -111,7 +111,7 @@ export function suggestCharts(
       chartType: "bar",
       encoding: {
         x: xCol.columnName,
-        y: yCol.columnName,
+        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: xAxisType,
         yType: "quantitative",
       },
@@ -131,7 +131,7 @@ export function suggestCharts(
       chartType: "line",
       encoding: {
         x: xCol.columnName,
-        y: yCol.columnName,
+        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: "temporal",
         yType: "quantitative",
       },
@@ -175,7 +175,7 @@ export function suggestCharts(
       chartType: "area",
       encoding: {
         x: xCol.columnName,
-        y: yCol.columnName,
+        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: "temporal",
         yType: "quantitative",
       },
@@ -197,7 +197,7 @@ export function suggestCharts(
       chartType: "bar",
       encoding: {
         x: xCol.columnName,
-        y: yCol.columnName,
+        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: xAxisType,
         yType: "quantitative",
         color: colorCol.columnName,

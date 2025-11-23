@@ -69,6 +69,19 @@ export interface Insight {
   // Computed columns
   metrics: InsightMetric[];
 
+  // Filtering and sorting
+  filters?: {
+    excludeNulls?: boolean; // Remove null values before aggregation
+    limit?: number; // Top N groups (applied after aggregation)
+    orderBy?: {
+      fieldOrMetricId: UUID; // Which field or metric to sort by
+      direction: "asc" | "desc";
+    };
+  };
+
+  // Forking (for visualization-specific insight copies)
+  forkedFrom?: UUID; // If this insight was forked from another, track the original
+
   // Output cache
   dataFrameId?: UUID;
   lastComputedAt?: number;

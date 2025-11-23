@@ -21,6 +21,7 @@ import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import type { Field } from "@dashframe/dataframe";
+import type { InsightMetric } from "@/lib/stores/types";
 
 // Utility to format dates consistently
 function formatDate(value: unknown): string | null {
@@ -151,17 +152,32 @@ export default function CreateVisualizationPage({ params }: PageProps) {
       return null;
     }
 
+    console.log('[PREVIEW] Computing preview with insight:', {
+      insightId,
+      selectedFields: insight.baseTable.selectedFields.length,
+      metrics: insight.metrics.length,
+      rawDataRows: sourceDataFrameEnhanced.data.rows.length
+    });
+
     try {
-      return computeInsightPreview(
+      const result = computeInsightPreview(
         insight,
         dataTable,
         sourceDataFrameEnhanced.data
       );
+
+      console.log('[PREVIEW] Computed preview:', {
+        aggregatedRows: result.rowCount,
+        sampleSize: result.sampleSize,
+        columns: result.dataFrame.columns?.length
+      });
+
+      return result;
     } catch (error) {
       console.error("Failed to compute preview:", error);
       return null;
     }
-  }, [insight, dataTable, getDataFrame]);
+  }, [insight, dataTable, getDataFrame, insightId]);
 
   const rowCount = preview?.rowCount ?? 0;
   const sampleSize = preview?.sampleSize ?? 0;
@@ -220,23 +236,130 @@ export default function CreateVisualizationPage({ params }: PageProps) {
     const sourceDataFrameEnhanced = getDataFrame(dataTable.dataFrameId);
     if (!sourceDataFrameEnhanced) return;
 
-    // Compute full DataFrame
+    console.log('[CREATE CHART] Raw DataFrame:', {
+      dataFrameId: dataTable.dataFrameId,
+      rows: sourceDataFrameEnhanced.data.rows.length,
+      columns: sourceDataFrameEnhanced.data.columns?.length
+    });
+
+    // Derive metrics from suggestion encoding if not already present
+    // After field map fix, suggestions reference aggregated fields like "sum(Revenue)"
+    // We need to parse these and create corresponding InsightMetric objects
+    const updatedInsight = { ...insight };
+
+    console.log('[CREATE CHART] Initial insight state:', {
+      metricsLength: updatedInsight.metrics.length,
+      selectedFieldsLength: updatedInsight.baseTable.selectedFields.length,
+      suggestionY: suggestion.encoding.y
+    });
+
+    if (updatedInsight.metrics.length === 0 && suggestion.encoding.y) {
+      const yColumnName = suggestion.encoding.y;
+
+      // Parse metric notation (e.g., "sum(Revenue)" -> { agg: "sum", col: "Revenue" })
+      const metricPattern = /^(sum|avg|count|min|max|count_distinct)\((.+)\)$/i;
+      const match = yColumnName.match(metricPattern);
+
+      console.log('[CREATE CHART] Regex match result:', { yColumnName, match });
+
+      if (match) {
+        const [, aggregation, columnName] = match;
+        const yField = dataTable.fields.find(f => f.name === columnName);
+
+        console.log('[CREATE CHART] Field lookup:', {
+          columnName,
+          yField: yField ? { id: yField.id, name: yField.name } : null,
+          availableFields: dataTable.fields.map(f => ({ id: f.id, name: f.name }))
+        });
+
+        if (yField) {
+          // Create metric from parsed notation
+          const metric: InsightMetric = {
+            id: crypto.randomUUID(),
+            name: yColumnName, // Keep original format: "sum(Revenue)"
+            sourceTable: insight.baseTable.tableId,
+            columnName: columnName, // Extracted column: "Revenue"
+            aggregation: aggregation.toLowerCase() as "sum" | "avg" | "count" | "min" | "max" | "count_distinct",
+          };
+
+          updatedInsight.metrics = [metric];
+
+          // Keep only fields used in the chart encoding (X-axis and Color) for GROUP BY
+          // This ensures proper aggregation based on the visualization's dimensions
+          const fieldsToKeep: string[] = [];
+
+          // Add X-axis field
+          if (suggestion.encoding.x) {
+            const xField = dataTable.fields.find(f => f.name === suggestion.encoding.x);
+            if (xField) fieldsToKeep.push(xField.id);
+          }
+
+          // Add Color field if present
+          if (suggestion.encoding.color) {
+            const colorField = dataTable.fields.find(f => f.name === suggestion.encoding.color);
+            if (colorField) fieldsToKeep.push(colorField.id);
+          }
+
+          updatedInsight.baseTable.selectedFields = fieldsToKeep;
+
+          // Update the insight in the store
+          updateInsight(insightId, {
+            metrics: [metric],
+            baseTable: {
+              ...updatedInsight.baseTable,
+              selectedFields: updatedInsight.baseTable.selectedFields
+            }
+          });
+
+          console.log('[CREATE CHART] Created metric from suggestion:', metric);
+          console.log('[CREATE CHART] Updated selectedFields:', updatedInsight.baseTable.selectedFields);
+        }
+      }
+    }
+
+    // Compute full aggregated DataFrame from raw data
+    console.log('[CREATE CHART] updatedInsight before compute:', {
+      metricsLength: updatedInsight.metrics.length,
+      metrics: updatedInsight.metrics,
+      selectedFieldsLength: updatedInsight.baseTable.selectedFields.length,
+      selectedFieldIds: updatedInsight.baseTable.selectedFields
+    });
+
     const fullDataFrame = computeInsightDataFrame(
-      insight,
+      updatedInsight,
       dataTable,
       sourceDataFrameEnhanced.data
     );
 
-    // Create or update cached DataFrame
-    let dataFrameId = insight.dataFrameId;
-    if (!dataFrameId) {
-      dataFrameId = createDataFrameFromInsight(insightId, insight.name, fullDataFrame);
-      setInsightDataFrame(insightId, dataFrameId);
+    console.log('[CREATE CHART] Aggregated DataFrame:', {
+      rows: fullDataFrame.rows.length,
+      columns: fullDataFrame.columns?.length,
+      firstRow: fullDataFrame.rows[0]
+    });
+
+    // Create or update cached aggregated DataFrame
+    let aggregatedDataFrameId = insight.dataFrameId;
+    if (!aggregatedDataFrameId) {
+      // First time: create new aggregated DataFrame
+      aggregatedDataFrameId = createDataFrameFromInsight(insightId, insight.name, fullDataFrame);
+      setInsightDataFrame(insightId, aggregatedDataFrameId);
+      console.log('[CREATE CHART] Created new aggregated DataFrame:', aggregatedDataFrameId);
+    } else {
+      // Update existing aggregated DataFrame with fresh data
+      const updateById = useDataFramesStore.getState().updateById;
+      updateById(aggregatedDataFrameId, fullDataFrame);
+      console.log('[CREATE CHART] Updated existing aggregated DataFrame:', aggregatedDataFrameId);
     }
+
+    console.log('[CREATE CHART] Creating visualization with:', {
+      dataFrameId: aggregatedDataFrameId,
+      insightId,
+      chartType: suggestion.chartType
+    });
 
     // Create visualization
     const vizId = createVisualization(
-      { dataFrameId, insightId },
+      { dataFrameId: aggregatedDataFrameId, insightId },
       suggestion.title,
       suggestion.spec,
       suggestion.chartType,

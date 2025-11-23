@@ -112,6 +112,11 @@ export function SuggestedInsights({
 
 // Helper to format Y-axis labels with aggregation
 function formatYAxisLabel(yField: string): string {
+  // If the field is already in aggregated format (e.g., "sum(Revenue)"), return as-is
+  if (/^(sum|avg|count|min|max|count_distinct)\(/i.test(yField)) {
+    return yField;
+  }
+
   // Common metric patterns that should show aggregation
   const metricKeywords = ["count", "sum", "total", "revenue", "sales", "amount", "units"];
   const lowerField = yField.toLowerCase();

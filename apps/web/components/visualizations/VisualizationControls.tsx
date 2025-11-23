@@ -28,6 +28,7 @@ import {
   Badge,
   SelectField,
 } from "@dashframe/ui";
+import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
 import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
@@ -307,7 +308,7 @@ function getRankedColumnOptions(
  */
 interface ProvenanceSummaryProps {
   insight:
-    | { id: string; name: string; lastComputedAt?: number }
+    | { id: string; name: string; lastComputedAt?: number; filters?: { excludeNulls?: boolean; limit?: number; orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" } } }
     | null
     | undefined;
   dataFrame: {
@@ -319,6 +320,8 @@ interface ProvenanceSummaryProps {
   isRefreshing: boolean;
   onRefresh: () => void;
   refreshError?: string;
+  dataTableFields?: Array<{ id: string; name: string }>;
+  insightMetrics?: Array<{ id: string; name: string }>;
 }
 
 function ProvenanceSummary({
@@ -330,6 +333,8 @@ function ProvenanceSummary({
   isRefreshing,
   onRefresh,
   refreshError,
+  dataTableFields = [],
+  insightMetrics = [],
 }: ProvenanceSummaryProps) {
   const rowCount = dataFrame?.metadata?.rowCount ?? 0;
   const colCount = dataFrame?.metadata?.columnCount ?? 0;
@@ -354,6 +359,33 @@ function ProvenanceSummary({
     if (days < 7) return `${days}d ago`;
     return date.toLocaleDateString();
   };
+
+  // Build filter description
+  const getFilterDescription = () => {
+    if (!insight?.filters) return null;
+    const { excludeNulls, limit, orderBy } = insight.filters;
+    const parts: string[] = [];
+
+    if (excludeNulls) {
+      parts.push("Excludes nulls");
+    }
+
+    if (limit) {
+      parts.push(`Top ${limit}`);
+    }
+
+    if (orderBy) {
+      // Find field or metric name
+      const field = dataTableFields.find((f) => f.id === orderBy.fieldOrMetricId);
+      const metric = insightMetrics.find((m) => m.id === orderBy.fieldOrMetricId);
+      const name = field?.name || metric?.name || "unknown";
+      parts.push(`Sorted by ${name} (${orderBy.direction})`);
+    }
+
+    return parts.length > 0 ? parts.join(" • ") : null;
+  };
+
+  const filterDescription = getFilterDescription();
 
   return (
     <div className="border-border/40 space-y-3 border-b px-4 py-3">
@@ -419,6 +451,16 @@ function ProvenanceSummary({
           )}
         </div>
       </div>
+
+      {/* Filters display (if any) */}
+      {filterDescription && (
+        <div className="space-y-1">
+          <Label className="text-muted-foreground text-xs font-medium">
+            Active filters
+          </Label>
+          <p className="text-foreground text-sm">{filterDescription}</p>
+        </div>
+      )}
 
       {/* Refresh button */}
       {isRefreshable && (
@@ -499,80 +541,11 @@ function MetricsStrip({ insight }: MetricsStripProps) {
   );
 }
 
-/**
- * Preview Filters Component - Optional lightweight toggles for preview filtering
- */
-interface PreviewFiltersProps {
-  onChange: (filters: PreviewFilters) => void;
-  currentFilters: PreviewFilters;
-}
-
-interface PreviewFilters {
-  excludeNulls?: boolean;
-  topN?: number;
-  topNMetric?: string;
-}
-
-function PreviewFilters({ onChange, currentFilters }: PreviewFiltersProps) {
-  return (
-    <div className="space-y-3">
-      <label className="flex cursor-pointer items-center gap-2">
-        <input
-          type="checkbox"
-          checked={currentFilters.excludeNulls ?? false}
-          onChange={(e) =>
-            onChange({ ...currentFilters, excludeNulls: e.target.checked })
-          }
-          className="border-input rounded border"
-        />
-        <span className="text-foreground text-sm">Exclude null values</span>
-      </label>
-
-      <label className="flex cursor-pointer items-center gap-2">
-        <input
-          type="checkbox"
-          checked={!!currentFilters.topN}
-          onChange={(e) =>
-            onChange({
-              ...currentFilters,
-              topN: e.target.checked ? 10 : undefined,
-            })
-          }
-          className="border-input rounded border"
-        />
-        <span className="text-foreground text-sm">Top N results</span>
-      </label>
-
-      {currentFilters.topN && (
-        <div className="ml-6 space-y-1">
-          <Label className="text-muted-foreground text-xs">Top N value</Label>
-          <Input
-            type="number"
-            min="1"
-            value={currentFilters.topN}
-            onChange={(e) =>
-              onChange({
-                ...currentFilters,
-                topN: parseInt(e.target.value) || 10,
-              })
-            }
-            className="h-8"
-          />
-        </div>
-      )}
-
-      <p className="text-muted-foreground text-xs italic">
-        Preview filters don&apos;t persist to the insight
-      </p>
-    </div>
-  );
-}
 
 export function VisualizationControls() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
   const [isHydrated, setIsHydrated] = useState(false);
-  const [previewFilters, setPreviewFilters] = useState<PreviewFilters>({});
 
   // Inline state access so Zustand can track dependencies properly
   const activeViz = useVisualizationsStore((state) => {
@@ -625,10 +598,15 @@ export function VisualizationControls() {
 
   const dataFrame = getDataFrame(activeViz.source.dataFrameId);
 
-  // Get data source through insight if it exists
-  const insight = activeViz.source.insightId
+  // Get insight - try direct reference first, fallback to dataFrame metadata
+  let insight = activeViz.source.insightId
     ? getInsight(activeViz.source.insightId)
     : null;
+
+  // Fallback: if no direct insight reference, try to find via dataFrame metadata
+  if (!insight && dataFrame?.metadata?.source?.insightId) {
+    insight = getInsight(dataFrame.metadata.source.insightId);
+  }
 
   if (!dataFrame) {
     return (
@@ -713,12 +691,13 @@ export function VisualizationControls() {
   const handleTypeChange = (type: string) => {
     const newType = type as VisualizationType;
 
-    // Auto-select axes using shared utility
+    // Auto-select axes using shared utility (pass insight to prefer metrics)
     const newEncoding = autoSelectEncoding(
       newType,
       dataFrame,
       undefined, // fields - not available in this context yet
       activeViz.encoding,
+      insight || undefined, // Pass insight to prioritize metrics for Y-axis
     );
 
     // Update both type and encoding
@@ -899,8 +878,8 @@ export function VisualizationControls() {
         throw new Error("Notion data source not found");
       }
 
-      // Fetch fresh data from Notion (returns DataFrame directly)
-      const newDataFrame = await queryNotionDatabase.mutateAsync({
+      // Fetch fresh data from Notion (returns raw DataFrame)
+      const rawDataFrame = await queryNotionDatabase.mutateAsync({
         apiKey: foundDataSource.apiKey, // From NotionDataSource
         databaseId: foundDataTable.table, // From DataTable
         selectedPropertyIds: foundDataTable.fields.map(
@@ -908,8 +887,15 @@ export function VisualizationControls() {
         ), // Use field IDs
       });
 
-      // Update the DataFrame with fresh data
-      updateFromInsight(activeViz.source.insightId, newDataFrame);
+      // Apply insight aggregation to raw data
+      const aggregatedDataFrame = computeInsightDataFrame(
+        insight,
+        foundDataTable,
+        rawDataFrame
+      );
+
+      // Update the DataFrame with aggregated data
+      updateFromInsight(activeViz.source.insightId, aggregatedDataFrame);
 
       toast.success("Data refreshed successfully!", { id: toastId });
     } catch (error) {
@@ -981,6 +967,8 @@ export function VisualizationControls() {
         isRefreshing={isRefreshing}
         onRefresh={handleRefresh}
         refreshError={refreshError}
+        dataTableFields={dataTable?.fields?.map((f) => ({ id: f.id, name: f.name }))}
+        insightMetrics={insight?.metrics?.map((m) => ({ id: m.id, name: m.name }))}
       />
 
       {/* Encodings Section */}
@@ -1221,14 +1209,6 @@ export function VisualizationControls() {
           <MetricsStrip insight={insight} />
         </CollapsibleSection>
       )}
-
-      {/* NEW: Preview Filters (Optional) */}
-      <CollapsibleSection title="Preview filters" defaultOpen={false}>
-        <PreviewFilters
-          currentFilters={previewFilters}
-          onChange={setPreviewFilters}
-        />
-      </CollapsibleSection>
 
       {/* Chart Type moved to Chart Options (demoted) */}
       <CollapsibleSection title="Chart options" defaultOpen={false}>

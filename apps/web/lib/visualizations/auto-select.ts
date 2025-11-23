@@ -1,4 +1,4 @@
-import type { VisualizationType, VisualizationEncoding } from "../stores/types";
+import type { VisualizationType, VisualizationEncoding, Insight } from "../stores/types";
 import {
   analyzeDataFrame,
   type EnhancedDataFrame,
@@ -9,15 +9,20 @@ import {
 /**
  * Auto-selects axes based on chart type and column analysis.
  * Uses column categorization to make intelligent defaults.
+ * Prefers metrics over raw fields for Y-axis when available.
  */
 export function autoSelectEncoding(
   type: VisualizationType,
   dataFrame: EnhancedDataFrame,
   fields?: Record<string, Field>,
   currentEncoding: VisualizationEncoding = {},
+  insight?: Insight,
 ): VisualizationEncoding {
   // Analyze the dataframe to categorize columns
   const analysis = analyzeDataFrame(dataFrame, fields);
+
+  // Get metric names if insight is provided
+  const metricNames = new Set(insight?.metrics?.map(m => m.name) || []);
 
   // Helper to check if column exists in analysis
   const columnExists = (colName: string | undefined) =>
@@ -66,15 +71,24 @@ export function autoSelectEncoding(
     let yColumn = newEncoding.y;
     const yAnalysis = analysis.find((a) => a.columnName === yColumn);
     if (!yColumn || yAnalysis?.category !== "numerical") {
-      // Find a numerical column that's not an identifier
-      yColumn = analysis.find(
-        (a) =>
-          a.category === "numerical" && !nonMeasureCategories.has(a.category),
+      // PRIORITY 1: Prefer metrics (aggregated columns)
+      const metricColumn = analysis.find(
+        (a) => a.category === "numerical" && metricNames.has(a.columnName),
       )?.columnName;
 
-      // Fallback to any numerical column
-      if (!yColumn) {
-        yColumn = analysis.find((a) => a.category === "numerical")?.columnName;
+      if (metricColumn) {
+        yColumn = metricColumn;
+      } else {
+        // PRIORITY 2: Find a numerical column that's not an identifier
+        yColumn = analysis.find(
+          (a) =>
+            a.category === "numerical" && !nonMeasureCategories.has(a.category),
+        )?.columnName;
+
+        // PRIORITY 3: Fallback to any numerical column
+        if (!yColumn) {
+          yColumn = analysis.find((a) => a.category === "numerical")?.columnName;
+        }
       }
     }
 
