@@ -279,7 +279,7 @@ export const VisualizationCard: Story = {
  */
 export const EmptyStateCard: Story = {
   args: {
-    elevation: "flat",
+    elevation: "inset",
     children: (
       <CardContent className="text-center py-12">
         <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

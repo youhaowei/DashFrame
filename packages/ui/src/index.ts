@@ -103,10 +103,11 @@ export {
 
 // Shared Components (custom reusable components)
 export {
-  ActionGroup,
-  type ActionGroupProps,
+  ActionButton,
+  type ActionButtonProps,
   type ItemAction,
-} from "./components/ActionGroup";
+} from "./components/ActionButton";
+export { ActionGroup, type ActionGroupProps } from "./components/ActionGroup";
 export { Card as CustomCard } from "./components/Card";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";

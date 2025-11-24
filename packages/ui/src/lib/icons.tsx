@@ -1,5 +1,6 @@
 import type { IconType } from "react-icons";
 import {
+  LuArrowRight,
   LuArrowUpDown,
   LuCalendar,
   LuCheck,
@@ -29,6 +30,8 @@ import {
   LuLoader,
   LuMenu,
   LuMoon,
+  LuSettings,
+  LuShield,
   LuEllipsisVertical,
   LuPlus,
   LuRefreshCw,
@@ -41,6 +44,7 @@ import {
   LuTrash2,
   LuTrendingUp,
   LuType,
+  LuUsers,
   LuX,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
@@ -50,6 +54,7 @@ import { SiNotion } from "react-icons/si";
 export type LucideIcon = IconType;
 
 // Navigation & Layout
+export { LuArrowRight as ArrowRight };
 export { LuArrowUpDown as ArrowUpDown };
 export { LuChevronDown as ChevronDown };
 export { LuChevronDown as ChevronDownIcon };
@@ -67,6 +72,9 @@ export { LuChevronsUpDown as ChevronsUpDown };
 export { LuLayoutDashboard as Dashboard };
 export { LuLayoutDashboard as LayoutDashboard };
 export { LuMenu as Menu };
+export { LuSettings as Settings };
+export { LuShield as Shield };
+export { LuUsers as Users };
 
 // Theme & Appearance
 export { LuMoon as Moon };

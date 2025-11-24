@@ -3,23 +3,24 @@
 import { Button, Card } from "@dashframe/ui";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import dynamic from "next/dynamic";
+import type { TopLevelSpec } from "vega-lite";
 
 // Simple Sparkles icon
 const Sparkles = ({ className }: { className?: string }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.287 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.287L21 12l-5.8-1.9a2 2 0 0 1-1.287-1.287Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>
+    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.287 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.287L21 12l-5.8-1.9a2 2 0 0 1-1.287-1.287Z" /><path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
   </svg>
 );
 
 // Dynamically import VegaChart to avoid SSR issues
-const VegaChart = dynamic<{ spec: any }>(
-  () => import("@/components/visualizations/VegaChart").then(mod => mod.VegaChart),
+const VegaChart = dynamic<{ spec: TopLevelSpec; className?: string }>(
+  () => import("@/components/visualizations/VegaChart").then((mod) => mod.VegaChart),
   {
     ssr: false,
     loading: () => (
       <div className="w-full h-[120px] bg-muted animate-pulse rounded" />
     ),
-  }
+  },
 );
 
 interface SuggestedInsightsProps {
@@ -36,7 +37,7 @@ export function SuggestedInsights({
   if (suggestions.length === 0) {
     return (
       <div className="bg-card rounded-lg border p-4">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-4">Suggested insights</h3>
+        <h3 className="text-xs font-medium text-muted-foreground mb-4">Suggested insights</h3>
         <div className="text-center py-8">
           <p className="text-sm text-muted-foreground mb-4">
             No obvious chart suggestions for this data.
@@ -52,7 +53,7 @@ export function SuggestedInsights({
   return (
     <div className="bg-card rounded-lg border p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Suggested insights</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">Suggested insights</h3>
         {onRegenerate && suggestions.length > 0 && (
           <Button variant="ghost" size="sm" onClick={onRegenerate}>
             <Sparkles className="h-3 w-3 mr-2" />
@@ -66,14 +67,17 @@ export function SuggestedInsights({
           <Card key={suggestion.id} className="p-3 hover:border-primary transition-colors flex flex-col">
             {/* Chart Preview */}
             <div className="mb-3 rounded-lg overflow-hidden bg-transparent flex items-center justify-center">
-              <VegaChart spec={suggestion.spec} />
+              <VegaChart
+                spec={suggestion.spec}
+                className="mx-auto w-fit! flex-initial! max-w-full"
+              />
             </div>
 
             {/* Chart Info */}
             <div className="flex-1 flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-medium truncate">{suggestion.title}</h4>
-                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded flex-shrink-0 ml-2">
+                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded shrink-0 ml-2">
                   {suggestion.chartType}
                 </span>
               </div>
@@ -85,7 +89,7 @@ export function SuggestedInsights({
                 </div>
                 <div className="flex items-start gap-1">
                   <span className="font-medium min-w-[20px]">Y:</span>
-                  <span className="truncate">{formatYAxisLabel(suggestion.encoding.y)}</span>
+                  <span className="truncate">{formatYAxisLabel(suggestion.encoding.y ?? "")}</span>
                 </div>
                 {suggestion.encoding.color && (
                   <div className="flex items-start gap-1">

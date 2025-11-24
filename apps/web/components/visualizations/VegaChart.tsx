@@ -3,11 +3,14 @@
 import { useEffect, useRef } from "react";
 import type { TopLevelSpec } from "vega-lite";
 
+import { cn } from "@/lib/utils";
+
 type VegaChartProps = {
   spec: TopLevelSpec;
+  className?: string;
 };
 
-export function VegaChart({ spec }: VegaChartProps) {
+export function VegaChart({ spec, className }: VegaChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export function VegaChart({ spec }: VegaChartProps) {
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-0 w-full flex-1 overflow-hidden"
+      className={cn("h-full min-h-0 w-full flex-1 overflow-hidden", className)}
     />
   );
 }

@@ -20,7 +20,9 @@ const meta = {
 } satisfies Meta<typeof CollapsibleSection>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = Omit<StoryObj<typeof meta>, "args"> & {
+  args?: StoryObj<typeof meta>["args"];
+};
 
 /**
  * Default collapsible section (starts open)
@@ -99,9 +101,6 @@ export const WithItemSelector: Story = {
         />
       </CollapsibleSection>
     );
-  },
-  args: {
-    defaultOpen: true,
   },
 };
 

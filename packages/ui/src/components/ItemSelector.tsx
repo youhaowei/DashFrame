@@ -7,7 +7,7 @@ import { ActionGroup, type ItemAction } from "./ActionGroup";
 import { Toggle } from "./Toggle";
 import { cn } from "../lib/utils";
 
-export type { ItemAction } from "./ActionGroup";
+export type { ItemAction } from "./ActionButton";
 
 export interface SelectableItem {
   id: string;
@@ -166,7 +166,7 @@ export function ItemSelector({
                           </span>
                         )}
                         {item.badge && (
-                          <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide">
+                          <span className="bg-muted text-muted-foreground rounded-full px-1 text-[10px] font-semibold leading-4 tracking-wide">
                             {item.badge}
                           </span>
                         )}

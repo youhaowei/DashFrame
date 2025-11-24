@@ -10,7 +10,7 @@ import { Button, Input } from "@dashframe/ui";
 // Simple arrow left icon
 const ArrowLeft = ({ className }: { className?: string }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
+    <path d="m12 19-7-7 7-7" /><path d="M19 12H5" />
   </svg>
 );
 import { useState, useEffect, useMemo } from "react";
@@ -19,6 +19,7 @@ import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
+import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import type { Field } from "@dashframe/dataframe";
 import type { InsightMetric } from "@/lib/stores/types";
@@ -63,7 +64,7 @@ export default function CreateVisualizationPage({ params }: PageProps) {
   const { insightId } = use(params);
   const router = useRouter();
 
-  const getInsight = useInsightsStore((state) => state.getInsight);
+  const insight = useInsightsStore((state) => state.getInsight(insightId));
   const updateInsight = useInsightsStore((state) => state.updateInsight);
   const setInsightDataFrame = useInsightsStore((state) => state.setInsightDataFrame);
   const getAllDataSources = useDataSourcesStore((state) => state.getAll);
@@ -74,77 +75,50 @@ export default function CreateVisualizationPage({ params }: PageProps) {
   const createVisualization = useVisualizationsStore((state) => state.create);
   const setActiveVisualization = useVisualizationsStore((state) => state.setActive);
 
-  const [insight, setInsight] = useState(() => getInsight(insightId));
   const [insightName, setInsightName] = useState(insight?.name || "");
+  const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
 
-  // Hydration
   useEffect(() => {
-    const hydrated = getInsight(insightId);
-    setInsight(hydrated);
-    setInsightName(hydrated?.name || "");
-  }, [insightId, getInsight]);
+    setInsightName(insight?.name || "");
+  }, [insight]);
 
-  if (!insight) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold">Insight not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            The insight you're looking for doesn't exist.
-          </p>
-          <Button onClick={() => router.push("/")} className="mt-4">
-            Go back
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Get data table info
+  // Get data table info (computed before hooks)
   const dataSources = getAllDataSources();
-  let dataTable: any = null;
-  let sourceDataSource: any = null;
-  for (const source of dataSources) {
-    const table = source.dataTables.get(insight.baseTable.tableId);
-    if (table) {
-      dataTable = table;
-      sourceDataSource = source;
-      break;
+  const dataTableInfo = useMemo(() => {
+    if (!insight) return { dataTable: null, sourceDataSource: null };
+    
+    let dataTable: any = null;
+    let sourceDataSource: any = null;
+    for (const source of dataSources) {
+      const table = source.dataTables.get(insight.baseTable.tableId);
+      if (table) {
+        dataTable = table;
+        sourceDataSource = source;
+        break;
+      }
     }
-  }
+    return { dataTable, sourceDataSource };
+  }, [insight, dataSources]);
 
-  if (!dataTable) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold">Data table not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            The data table for this insight no longer exists.
-          </p>
-          <Button onClick={() => router.push("/")} className="mt-4">
-            Go back
-          </Button>
-        </div>
-      </div>
+  const { dataTable, sourceDataSource } = dataTableInfo;
+
+  // Compute derived values (must be before early returns)
+  const selectedFields = useMemo(() => {
+    if (!dataTable || !insight) return [];
+    return dataTable.fields.filter((f: any) =>
+      insight.baseTable.selectedFields.includes(f.id) && !f.name.startsWith("_")
     );
-  }
+  }, [dataTable, insight]);
 
-  const handleNameChange = (newName: string) => {
-    setInsightName(newName);
-    updateInsight(insightId, { name: newName });
-  };
-
-  const selectedFields = dataTable.fields.filter((f: any) =>
-    insight.baseTable.selectedFields.includes(f.id) && !f.name.startsWith("_")
-  );
-
-  // Also filter out internal columns from metrics display
-  const visibleMetrics = insight.metrics.filter((m) => !m.name.startsWith("_"));
+  const visibleMetrics = useMemo(() => {
+    if (!insight) return [];
+    return insight.metrics.filter((m) => !m.name.startsWith("_"));
+  }, [insight]);
 
   // Compute preview data
   const preview = useMemo<PreviewResult | null>(() => {
-    if (!dataTable.dataFrameId) {
-      return null; // No data available yet
+    if (!dataTable?.dataFrameId || !insight) {
+      return null;
     }
 
     const sourceDataFrameEnhanced = getDataFrame(dataTable.dataFrameId);
@@ -182,7 +156,7 @@ export default function CreateVisualizationPage({ params }: PageProps) {
   const rowCount = preview?.rowCount ?? 0;
   const sampleSize = preview?.sampleSize ?? 0;
   const columnCount = selectedFields.length + visibleMetrics.length;
-  const dataSourceTypeLabel = (() => {
+  const dataSourceTypeLabel = useMemo(() => {
     if (!sourceDataSource?.type) return "unknown source";
     switch (sourceDataSource.type) {
       case "notion":
@@ -194,7 +168,7 @@ export default function CreateVisualizationPage({ params }: PageProps) {
       default:
         return sourceDataSource.type;
     }
-  })();
+  }, [sourceDataSource]);
 
   // Build field map for analysis
   const fieldMap = useMemo<Record<string, Field>>(() => {
@@ -207,7 +181,7 @@ export default function CreateVisualizationPage({ params }: PageProps) {
 
   // Generate chart suggestions
   const suggestions = useMemo<ChartSuggestion[]>(() => {
-    if (!preview) return [];
+    if (!preview || !insight) return [];
 
     try {
       const previewEnhanced = {
@@ -228,6 +202,44 @@ export default function CreateVisualizationPage({ params }: PageProps) {
       return [];
     }
   }, [preview, insight, insightId, fieldMap]);
+
+  // Early returns after all hooks
+  if (!insight) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">Insight not found</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            The insight you're looking for doesn't exist.
+          </p>
+          <Button onClick={() => router.push("/")} className="mt-4">
+            Go back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dataTable) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">Data table not found</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            The data table for this insight no longer exists.
+          </p>
+          <Button onClick={() => router.push("/")} className="mt-4">
+            Go back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleNameChange = (newName: string) => {
+    setInsightName(newName);
+    updateInsight(insightId, { name: newName });
+  };
 
   // Handle creating a chart from suggestion
   const handleCreateChart = async (suggestion: ChartSuggestion) => {
@@ -371,118 +383,145 @@ export default function CreateVisualizationPage({ params }: PageProps) {
     router.push("/");
   };
 
+  const dataSummary = `${rowCount.toLocaleString()} rows • ${columnCount} fields • ${visibleMetrics.length} metrics`;
+
   return (
     <div className="flex h-screen flex-col bg-background">
-      {/* Sticky Header */}
-    <div className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
-      <div className="container mx-auto px-6 py-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push("/")}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <div className="flex-1 min-w-[220px]">
-            <Input
-              value={insightName}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Insight name"
-              className="w-full"
-            />
+      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => router.push("/")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div className="flex-1 min-w-[220px]">
+              <Input
+                value={insightName}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Insight name"
+                className="w-full"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{dataTable.name}</p>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>{dataSummary}</span>
+            <span>• {dataSourceTypeLabel}</span>
           </div>
         </div>
-        {/* Quick Stats */}
-        <p className="text-xs text-muted-foreground mt-3">
-          {dataTable.name} • {rowCount} rows
-          {sampleSize > 0 && sampleSize < rowCount && ` (showing ${sampleSize})`} •{" "}
-          {columnCount} fields • {visibleMetrics.length} metrics
-        </p>
-      </div>
-    </div>
+      </header>
 
-      {/* Scrollable Main Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-6 max-w-6xl">
-          {/* Data Preview - Scrollable with themed background */}
-          <div className="bg-card rounded-lg border p-4 mb-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="text-sm font-semibold text-muted-foreground">
-                Data preview
-              </h3>
-              <span className="text-xs text-muted-foreground">
-                {dataSourceTypeLabel}
-              </span>
+      <main className="flex-1 overflow-y-auto">
+        <div className="container mx-auto px-6 py-6 max-w-6xl space-y-6">
+          <section className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Data preview
+                </p>
+                <p className="text-sm text-foreground">First {sampleSize || rowCount} rows</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{dataSourceTypeLabel}</span>
             </div>
             {preview ? (
-              <div className="relative rounded border bg-muted/30" style={{ maxHeight: "240px", overflow: "auto" }}>
-                <table className="w-full text-sm border-separate border-spacing-0">
-                  <thead className="sticky top-0 z-10 bg-card">
-                    <tr>
-                      {selectedFields.map((field: any) => (
-                        <th
-                          key={field.id}
-                          className="px-3 py-2 text-left font-medium text-xs border-b bg-card"
-                        >
-                          {field.name}
-                        </th>
-                      ))}
-                      {visibleMetrics.map((metric) => (
-                        <th
-                          key={metric.id}
-                          className="px-3 py-2 text-left font-medium text-xs text-primary border-b bg-card"
-                        >
-                          {metric.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.dataFrame.rows.map((row, idx) => (
-                      <tr key={idx} className="border-b last:border-0">
+              <div className="relative overflow-hidden rounded-xl border bg-muted/20">
+                <div className="overflow-auto" style={{ maxHeight: 260 }}>
+                  <table className="w-full text-sm border-separate border-spacing-0">
+                    <thead className="sticky top-0 z-10 bg-card">
+                      <tr>
                         {selectedFields.map((field: any) => (
-                          <td key={field.id} className="px-3 py-2 text-xs whitespace-nowrap">
-                            {formatCellValue((row as Record<string, unknown>)[field.name])}
-                          </td>
+                          <th
+                            key={field.id}
+                            className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground"
+                          >
+                            {field.name}
+                          </th>
                         ))}
-                        {visibleMetrics.map((metric) => {
-                          const value = (row as Record<string, unknown>)[metric.name];
-                          return (
-                            <td key={metric.id} className="px-3 py-2 text-xs text-primary whitespace-nowrap">
-                              {formatCellValue(value)}
-                            </td>
-                          );
-                        })}
+                        {visibleMetrics.map((metric) => (
+                          <th
+                            key={metric.id}
+                            className="px-3 py-2 text-left text-xs font-semibold text-primary"
+                          >
+                            {metric.name}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {preview.dataFrame.rows.map((row, idx) => (
+                        <tr key={idx} className="border-b last:border-0">
+                          {selectedFields.map((field: any) => (
+                            <td key={field.id} className="px-3 py-2 text-xs whitespace-nowrap">
+                              {formatCellValue((row as Record<string, unknown>)[field.name])}
+                            </td>
+                          ))}
+                          {visibleMetrics.map((metric) => {
+                            const value = (row as Record<string, unknown>)[metric.name];
+                            return (
+                              <td
+                                key={metric.id}
+                                className="px-3 py-2 text-xs font-medium text-primary whitespace-nowrap"
+                              >
+                                {formatCellValue(value)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
                 No data available. The data source may not have been loaded yet.
               </p>
             )}
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Action hub
+                </p>
+                <h3 className="text-lg font-semibold text-foreground">Suggested insights</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {insight.metrics.length
+                  ? `${insight.metrics.length} metric${insight.metrics.length !== 1 ? "s" : ""}`
+                  : "No metrics yet"}
+              </p>
+            </div>
+            <SuggestedInsights suggestions={suggestions} onCreateChart={handleCreateChart} />
+          </section>
+        </div>
+      </main>
+
+      <div className="sticky bottom-0 border-t bg-card/90 backdrop-blur-sm px-6 py-4">
+        <div className="container mx-auto max-w-6xl">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Need something custom? Build from scratch or join another dataset.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" size="sm">
+                Create custom visualization
+              </Button>
+              <Button size="sm" onClick={() => setIsJoinFlowOpen(true)}>
+                Join with another dataset
+              </Button>
+            </div>
           </div>
-
-          {/* Suggested Insights */}
-          <SuggestedInsights
-            suggestions={suggestions}
-            onCreateChart={handleCreateChart}
-          />
         </div>
       </div>
 
-      {/* Sticky Bottom Actions */}
-      <div className="sticky bottom-0 border-t bg-card/90 backdrop-blur-sm shadow-sm px-6 py-4">
-        <div className="container mx-auto max-w-6xl flex justify-end">
-          <Button variant="outline" size="sm">
-            Create custom visualization
-          </Button>
-        </div>
-      </div>
+      <JoinFlowModal
+        insight={insight}
+        dataTable={dataTable}
+        isOpen={isJoinFlowOpen}
+        onOpenChange={setIsJoinFlowOpen}
+      />
     </div>
   );
 }

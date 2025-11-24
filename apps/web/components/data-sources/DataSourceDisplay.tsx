@@ -70,9 +70,13 @@ function LocalDataSourceView({
         <CardHeader>
           <CardTitle className="text-lg">Files</CardTitle>
           <CardDescription>
-            {dataTables.length === 0
-              ? "No files uploaded"
-              : `${dataTables.length} ${dataTables.length === 1 ? "file" : "files"} available`}
+            {(() => {
+              const fileCount = dataTables.length;
+              const fileLabel = fileCount === 1 ? "file" : "files";
+              return fileCount === 0
+                ? "No files uploaded"
+                : `${fileCount} ${fileLabel} available`;
+            })()}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">

@@ -21,7 +21,9 @@ const meta = {
 } satisfies Meta<typeof CollapseHandle>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = Omit<StoryObj<typeof meta>, "args"> & {
+  args?: StoryObj<typeof meta>["args"];
+};
 
 /**
  * Default collapse handle (down direction)

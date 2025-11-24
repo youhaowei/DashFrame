@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import type { ColumnType } from "@dashframe/dataframe";
 import {
   ChevronDown,
   X,
@@ -20,17 +21,16 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 
-// Column type for data-aware select options
-type ColumnType = "string" | "number" | "boolean" | "date" | "object" | "array";
+type MultiSelectColumnType = ColumnType | "object" | "array";
 
-interface MultiSelectOption {
+export interface MultiSelectOption {
   value: string;
   label: string;
   description?: string;
-  type?: ColumnType;
+  type?: MultiSelectColumnType;
 }
 
-function getTypeIcon(type?: ColumnType) {
+function getTypeIcon(type?: MultiSelectColumnType) {
   switch (type) {
     case "string":
       return Type;

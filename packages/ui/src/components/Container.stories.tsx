@@ -26,7 +26,9 @@ const meta = {
 } satisfies Meta<typeof Container>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = Omit<StoryObj<typeof meta>, "args"> & {
+  args?: StoryObj<typeof meta>["args"];
+};
 
 /**
  * Default container (lg max-width, md padding)

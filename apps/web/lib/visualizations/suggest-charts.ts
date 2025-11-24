@@ -71,13 +71,13 @@ export function suggestCharts(
   insight: Insight,
   preview: EnhancedDataFrame,
   fields: Record<string, Field>,
-  limit = 3
+  limit = 3,
 ): ChartSuggestion[] {
   // Analyze columns to categorize them
   const analysis = analyzeDataFrame(preview, fields);
 
-  // Categories to avoid for Y-axis (not meaningful metrics)
-  const nonMeasureCategories = new Set([
+  // Categories to avoid for chart encodings (identifiers/references should not be axes)
+  const blockedAxisCategories = new Set([
     "identifier",
     "reference",
     "email",
@@ -85,16 +85,33 @@ export function suggestCharts(
     "uuid",
   ]);
 
-  // Find columns by category
+  // Helper to check if a column should be blocked from axis usage
+  const isBlocked = (col: ColumnAnalysis): boolean => {
+    // Check category (analyzeDataFrame handles ID detection via patterns and uniqueness)
+    if (blockedAxisCategories.has(col.category)) {
+      return true;
+    }
+    // Also check field metadata for identifier/reference flags (as a fallback)
+    const field = fields[col.columnName];
+    if (field && (field.isIdentifier || field.isReference)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Find columns by category, excluding blocked ones
   const numerical = analysis.filter(
-    (a) => a.category === "numerical" && !nonMeasureCategories.has(a.category)
+    (a) => a.category === "numerical" && !isBlocked(a),
   );
-  const temporal = analysis.filter((a) => a.category === "temporal");
+  const temporal = analysis.filter(
+    (a) => a.category === "temporal" && !isBlocked(a),
+  );
   const categorical = analysis.filter(
     (a) =>
-      a.category === "categorical" ||
-      a.category === "text" ||
-      a.category === "boolean"
+      (a.category === "categorical" ||
+        a.category === "text" ||
+        a.category === "boolean") &&
+      !isBlocked(a),
   );
 
   const suggestions: ChartSuggestion[] = [];
@@ -115,7 +132,14 @@ export function suggestCharts(
         xType: xAxisType,
         yType: "quantitative",
       },
-      spec: createMiniSpec("bar", xCol.columnName, yCol.columnName, preview.data.rows, undefined, xAxisType),
+      spec: createMiniSpec(
+        "bar",
+        xCol.columnName,
+        yCol.columnName,
+        preview.data.rows,
+        undefined,
+        xAxisType,
+      ),
       rationale: "Categorical dimension with numeric measure",
     });
   }
@@ -135,7 +159,14 @@ export function suggestCharts(
         xType: "temporal",
         yType: "quantitative",
       },
-      spec: createMiniSpec("line", xCol.columnName, yCol.columnName, preview.data.rows, undefined, "temporal"),
+      spec: createMiniSpec(
+        "line",
+        xCol.columnName,
+        yCol.columnName,
+        preview.data.rows,
+        undefined,
+        "temporal",
+      ),
       rationale: "Time series data",
     });
   }
@@ -155,7 +186,12 @@ export function suggestCharts(
         xType: "quantitative",
         yType: "quantitative",
       },
-      spec: createMiniSpec("scatter", xCol.columnName, yCol.columnName, preview.data.rows),
+      spec: createMiniSpec(
+        "scatter",
+        xCol.columnName,
+        yCol.columnName,
+        preview.data.rows,
+      ),
       rationale: "Two numeric dimensions for correlation",
     });
   }
@@ -179,7 +215,14 @@ export function suggestCharts(
         xType: "temporal",
         yType: "quantitative",
       },
-      spec: createMiniSpec("area", xCol.columnName, yCol.columnName, preview.data.rows, undefined, "temporal"),
+      spec: createMiniSpec(
+        "area",
+        xCol.columnName,
+        yCol.columnName,
+        preview.data.rows,
+        undefined,
+        "temporal",
+      ),
       rationale: "Cumulative trend visualization",
     });
   }
@@ -208,7 +251,7 @@ export function suggestCharts(
         yCol.columnName,
         preview.data.rows,
         colorCol.columnName,
-        xAxisType
+        xAxisType,
       ),
       rationale: "Multi-dimensional categorical comparison",
     });
@@ -221,7 +264,9 @@ export function suggestCharts(
 /**
  * Converts column analysis category to Vega-Lite axis type
  */
-function getAxisType(column: ColumnAnalysis): "quantitative" | "nominal" | "temporal" {
+function getAxisType(
+  column: ColumnAnalysis,
+): "quantitative" | "nominal" | "temporal" {
   switch (column.category) {
     case "numerical":
       return "quantitative";
@@ -243,7 +288,7 @@ function createMiniSpec(
   yField: string,
   data: Array<Record<string, unknown>>,
   colorField?: string,
-  xType: "nominal" | "temporal" | "quantitative" = "nominal"
+  xType: "nominal" | "temporal" | "quantitative" = "nominal",
 ): TopLevelSpec {
   const mark =
     type === "bar"

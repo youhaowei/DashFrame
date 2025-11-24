@@ -40,43 +40,47 @@ export function DataSourceTree({
   return (
     <Panel
       header={
-        <div className="space-y-3">
-          {/* Data Source Name */}
-          <div>
-            <h2 className="text-foreground text-lg font-semibold">
-              {dataSource.name}
-            </h2>
-            <p className="text-muted-foreground text-xs">
-              {dataSource.type === "local" ? "Local storage" : "Data source"}
-            </p>
-          </div>
+        <div className="px-4 py-4">
+          <div className="space-y-3">
+            {/* Data Source Name */}
+            <div>
+              <h2 className="text-foreground text-lg font-semibold">
+                {dataSource.name}
+              </h2>
+              <p className="text-muted-foreground text-xs">
+                {dataSource.type === "local" ? "Local storage" : "Data source"}
+              </p>
+            </div>
 
-          {/* Tables Header */}
-          <div className="flex items-center gap-2">
-            <File className="text-muted-foreground h-4 w-4" />
-            <h3 className="text-foreground text-sm font-semibold">Tables</h3>
-            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
-              {dataTables.length}
-            </span>
+            {/* Tables Header */}
+            <div className="flex items-center gap-2">
+              <File className="text-muted-foreground h-4 w-4" />
+              <h3 className="text-foreground text-sm font-semibold">Tables</h3>
+              <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                {dataTables.length}
+              </span>
+            </div>
           </div>
         </div>
       }
       footer={
         !isLocal && selectedTableId ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onDeleteTable(selectedTableId)}
-            className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete Table
-          </Button>
+          <div className="px-4 py-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDeleteTable(selectedTableId)}
+              className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete Table
+            </Button>
+          </div>
         ) : undefined
       }
     >
       {/* Tables List */}
-      <div className="space-y-2">
+      <div className="space-y-2 p-4">
         {dataTables.length === 0 ? (
           <EmptyState
             icon={File}

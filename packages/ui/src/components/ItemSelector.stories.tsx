@@ -11,7 +11,9 @@ const meta = {
 } satisfies Meta<typeof ItemSelector>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = Omit<StoryObj<typeof meta>, "args"> & {
+  args?: StoryObj<typeof meta>["args"];
+};
 
 /**
  * Default ItemSelector with data sources

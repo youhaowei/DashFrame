@@ -62,7 +62,28 @@ export function analyzeDataFrame(
       }
     }
 
-    // 2. Heuristics if not explicitly categorized
+    // 2. Pattern-based ID detection (before type-based heuristics)
+    if (category === "unknown") {
+      const colName = columnName.toLowerCase();
+      const idPatterns = [
+        /_id$/, // Ends with _id (user_id, order_id)
+        /^id$/, // Exactly "id"
+        /^id_/, // Starts with id_
+        /^uuid$/, // Exactly "uuid"
+        /^guid$/, // Exactly "guid"
+      ];
+      // Check camelCase: ends with "Id" (capital I) - userId, orderId
+      const camelCaseId = /[a-z]Id$/.test(columnName);
+      
+      if (idPatterns.some((pattern) => pattern.test(colName)) || camelCaseId) {
+        category = "identifier";
+      } else if (uniqueness > 0.95 && cardinality > 10) {
+        // High uniqueness (>95%) with sufficient distinct values is a strong ID indicator
+        category = "identifier";
+      }
+    }
+
+    // 3. Heuristics if not explicitly categorized
     if (category === "unknown") {
       if (nonNullValues.length === 0) {
         category = "unknown";

@@ -20,7 +20,9 @@ const meta = {
 } satisfies Meta<typeof MultiSelect>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = Omit<StoryObj<typeof meta>, "args"> & {
+  args?: StoryObj<typeof meta>["args"];
+};
 
 const basicOptions = [
   { value: "react", label: "React" },

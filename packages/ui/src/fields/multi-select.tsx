@@ -1,15 +1,10 @@
 "use client";
 
 import { Field, FieldLabel } from "../primitives/field";
-import { MultiSelect as MultiSelectPrimitive } from "../primitives/multi-select";
-import type { ColumnType } from "@dashframe/dataframe";
-
-interface MultiSelectOption {
-  value: string;
-  label: string;
-  description?: string;
-  type?: ColumnType;
-}
+import {
+  MultiSelect as MultiSelectPrimitive,
+  type MultiSelectOption,
+} from "../primitives/multi-select";
 
 interface MultiSelectProps {
   label?: string;
