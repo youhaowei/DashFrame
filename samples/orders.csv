@@ -1,0 +1,8 @@
+order_id,user_id,amount,order_date,status
+101,1,50.00,2023-01-05,completed
+102,1,75.50,2023-01-10,completed
+103,2,25.00,2023-01-20,pending
+104,3,100.00,2023-02-05,completed
+105,3,150.00,2023-02-15,refunded
+106,5,200.00,2023-03-10,completed
+107,99,30.00,2023-03-15,completed

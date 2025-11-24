@@ -305,6 +305,52 @@ Fallback heuristics include name matching with pluralization and common ID patte
 - **Keyboard navigation** - All interactive elements accessible via keyboard
 - **Color contrast** - Follow WCAG AA standards (Tailwind's default palette generally compliant)
 
+## Action-Based Flow Architecture
+
+The visualization creation flow uses an action-based model rather than rigid step sequences. This makes it easier to extend with new actions and provides a more flexible user experience.
+
+### Key Concepts
+
+**Action Hub Pattern**: The create-visualization page (`/insights/[id]/create-visualization`) serves as a central hub where users can take multiple actions:
+- Create visualization from recommendations (click suggestion cards)
+- Create custom visualization (opens builder)
+- Join with another dataset (opens join flow modal)
+
+**Auto-Navigation**: When a data source is selected, the system automatically:
+1. Creates a draft insight
+2. Navigates to the create-visualization page
+3. Shows data preview and available actions
+
+**Modular Actions**: Each action is implemented as a separate component:
+- `JoinFlowModal` - Standalone modal for join operations
+- `NotionInsightConfig` - Notion-specific insight configuration
+- `CreateVisualizationContent` - Source selection and routing
+
+### Benefits
+
+- **Extensibility**: Add new actions by creating components and adding buttons to the action hub
+- **Separation of Concerns**: Each action is isolated and independently testable
+- **No Step Management**: No need to track step state or handle step transitions
+- **Flexible Navigation**: Actions can navigate to different pages or open modals as needed
+
+### Adding New Actions
+
+To add a new action to the create-visualization page:
+
+1. Create action component (modal, page, or inline UI)
+2. Add button to sticky bottom actions bar in `create-visualization/page.tsx`
+3. Handle action completion (navigate, update state, etc.)
+4. Document the new action in the spec
+
+Example:
+```tsx
+// In create-visualization/page.tsx
+<Button onClick={() => setIsNewActionOpen(true)}>
+  New Action
+</Button>
+<NewActionModal isOpen={isNewActionOpen} onClose={...} />
+```
+
 ## Naming Notes
 
 - Product and architectural references use the `DashFrame` name.

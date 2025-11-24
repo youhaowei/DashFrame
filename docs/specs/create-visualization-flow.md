@@ -2,62 +2,64 @@
 
 ## Overview
 
-The Create Visualization modal provides a streamlined flow for creating table visualizations from data sources. All visualizations default to table view. The modal supports CSV and Notion data sources with optimized flows for each type.
+The Create Visualization flow uses an action-based model rather than linear steps. Users select a data source, which automatically creates a draft insight and navigates to the create-visualization page. This page serves as an action hub where users can create visualizations from recommendations, create custom visualizations, or join with another dataset.
 
 ## Design Principles
 
-1. **Simplicity First**: Default to table view, eliminating unnecessary choice
-2. **Reuse Over Recreation**: Existing data sources prominently displayed
-3. **Flexibility**: Reuse existing insights or create new ones from Notion connections
-4. **Fast Path**: CSV sources create visualizations in one click
+1. **Action-Based Flow**: No rigid step sequences - users take actions from a central hub
+2. **Immediate Feedback**: Selecting a table immediately creates an insight and shows the preview page
+3. **Flexible Actions**: Multiple paths available from the create-visualization page (recommendations, custom, join)
+4. **Fast Path**: CSV sources auto-create insight and navigate directly to visualization page
 
 ## User Flows
 
-### Flow 1: Existing CSV → Table Visualization
-**Steps**: 1 (immediate)
+### Flow 1: Existing CSV → Create Visualization Page
+**Actions**: 1 (immediate navigation)
 
 ```
-Step 1: Source Selection
+Source Selection Modal
 └─> Click existing CSV source
-    └─> Table visualization created
-        └─> Modal closes
+    └─> Draft insight created automatically
+        └─> Navigate to /insights/[id]/create-visualization
+            └─> Action Hub (3 options available)
 ```
 
 **User Actions:**
 1. Open Create Visualization modal
 2. Click on existing CSV source
-3. Done! Table appears
+3. Automatically navigated to create-visualization page
+4. Choose action: Create from recommendation / Create custom / Join with another dataset
 
-### Flow 2: New CSV Upload → Table Visualization
-**Steps**: 1 (immediate)
+### Flow 2: New CSV Upload → Create Visualization Page
+**Actions**: 1 (immediate navigation)
 
 ```
-Step 1: Source Selection
+Source Selection Modal
 └─> Upload CSV file
     └─> Parse & validate
-        └─> Table visualization created
-            └─> Modal closes
+        └─> Draft insight created automatically
+            └─> Navigate to /insights/[id]/create-visualization
+                └─> Action Hub (3 options available)
 ```
 
 **User Actions:**
 1. Open Create Visualization modal
 2. Click "Select CSV File" and choose file
-3. Done! Table appears
+3. Automatically navigated to create-visualization page
+4. Choose action: Create from recommendation / Create custom / Join with another dataset
 
-### Flow 3: Existing Notion → Reuse Insight → Table Visualization
-**Steps**: 2 (connection → insight)
+### Flow 3: Existing Notion → Reuse Insight → Create Visualization Page
+**Actions**: 2 (connection → insight configuration → navigation)
 
 ```
-Step 1: Source Selection
+Source Selection Modal
 └─> Click existing Notion connection
-    └─> Move to Step 2
-
-Step 2: Insight Configuration
-└─> Select "Use Existing Insight" tab
-    └─> Click an existing insight
-        └─> Click "Create Table Visualization"
-            └─> Table visualization created
-                └─> Modal closes
+    └─> Show Notion Insight Configuration
+        └─> Select "Use Existing Insight" tab
+            └─> Click an existing insight
+                └─> Click "Create Table Visualization"
+                    └─> Navigate to /insights/[id]/create-visualization
+                        └─> Action Hub (3 options available)
 ```
 
 **User Actions:**
@@ -66,23 +68,21 @@ Step 2: Insight Configuration
 3. Click "Use Existing Insight" tab
 4. Click on an insight
 5. Click "Create Table Visualization"
+6. Navigated to create-visualization page with action options
 
-### Flow 4: Existing Notion → New Insight → Table Visualization
-**Steps**: 2 (connection → configure)
+### Flow 4: Existing Notion → New Insight → Create Visualization Page
+**Actions**: 2 (connection → configure → navigation)
 
 ```
-Step 1: Source Selection
+Source Selection Modal
 └─> Click existing Notion connection
-    └─> Move to Step 2
-
-Step 2: Insight Configuration
-└─> Select "Create New Insight" tab
-    └─> Select database
-        └─> Select properties
-            └─> Click "Create Table Visualization"
-                └─> New insight created
-                    └─> Table visualization created
-                        └─> Modal closes
+    └─> Show Notion Insight Configuration
+        └─> Select "Create New Insight" tab
+            └─> Select database
+                └─> Select properties
+                    └─> Click "Create Table Visualization"
+                        └─> Navigate to /insights/[id]/create-visualization
+                            └─> Action Hub (3 options available)
 ```
 
 **User Actions:**
@@ -92,25 +92,22 @@ Step 2: Insight Configuration
 4. Select database from dropdown
 5. Select properties (all selected by default)
 6. Click "Create Table Visualization"
+7. Navigated to create-visualization page with action options
 
-### Flow 5: New Notion Connection → Table Visualization
-**Steps**: 2 (connect → configure)
+### Flow 5: New Notion Connection → Create Visualization Page
+**Actions**: 2 (connect → configure → navigation)
 
 ```
-Step 1: Source Selection
+Source Selection Modal
 └─> Enter Notion API key
     └─> Click "Connect"
         └─> Fetch databases
-            └─> Move to Step 2
-
-Step 2: Insight Configuration
-└─> Select database
-    └─> Select properties
-        └─> Click "Create Table Visualization"
-            └─> Notion connection created
-                └─> Insight created
-                    └─> Table visualization created
-                        └─> Modal closes
+            └─> Show Notion Insight Configuration
+                └─> Select database
+                    └─> Select properties
+                        └─> Click "Create Table Visualization"
+                            └─> Navigate to /insights/[id]/create-visualization
+                                └─> Action Hub (3 options available)
 ```
 
 **User Actions:**
@@ -120,10 +117,40 @@ Step 2: Insight Configuration
 4. Select database from dropdown
 5. Select properties (all selected by default)
 6. Click "Create Table Visualization"
+7. Navigated to create-visualization page with action options
 
-## Step Breakdown
+### Flow 6: Join Flow (from Create Visualization Page)
+**Actions**: 1 (join modal → navigation)
 
-### Step 1: Source Selection
+```
+Create Visualization Page
+└─> Click "Join with another dataset" button
+    └─> Join Flow Modal opens
+        └─> Select secondary table (or upload CSV)
+            └─> Configure join columns and type
+                └─> Click "Combine Data"
+                    └─> Joined insight created
+                        └─> Navigate to /insights/[joined-id]/create-visualization
+                            └─> Action Hub for joined data
+```
+
+**User Actions:**
+1. On create-visualization page, click "Join with another dataset"
+2. In modal, select secondary table from list or upload new CSV
+3. Select join columns (left and right)
+4. Choose join type (left, inner, outer, right)
+5. Click "Combine Data"
+6. Navigated to new create-visualization page for joined data
+
+## Action Hub: Create Visualization Page
+
+The create-visualization page (`/insights/[id]/create-visualization`) serves as an action hub with three primary actions:
+
+1. **Create from Recommendation** - Click on a suggested chart card to create visualization immediately
+2. **Create Custom Visualization** - Opens visualization builder (future implementation)
+3. **Join with Another Dataset** - Opens join flow modal to combine current data with another table
+
+### Source Selection Modal
 
 **Layout:**
 ```
@@ -170,7 +197,9 @@ Step 2: Insight Configuration
 - **CSV upload**: On success → Create table immediately
 - **Notion connect**: On success → Go to Step 2
 
-### Step 2: Insight Configuration (Notion Only)
+### Notion Insight Configuration
+
+When a Notion source is selected, the modal shows Notion-specific configuration:
 
 **Two Modes Based on Connection Type:**
 
@@ -316,11 +345,17 @@ Shows only database/property selection (no tabs needed).
 - **Familiar pattern**: Standard UI pattern users understand
 - **Flexible layout**: Can expand either section without overlap
 
-### Why No Progress Indicators?
-- **Simple flows**: Only 1-2 steps don't need visual tracking
-- **Clear context**: Current step obvious from content shown
-- **Reduced clutter**: Cleaner, more focused interface
-- **Faster comprehension**: Less UI elements to parse
+### Why Action-Based Flow?
+- **Flexibility**: Users can take different actions from the same page
+- **No dead ends**: All actions available at once, no need to backtrack
+- **Clear options**: Action hub makes all possibilities visible
+- **Progressive enhancement**: Start with recommendations, customize or join as needed
+
+### Why Auto-Navigate to Create Visualization Page?
+- **Immediate feedback**: Users see their data right away
+- **Context preservation**: Data preview shows what they're working with
+- **Action clarity**: All next steps visible in one place
+- **Reduced modal complexity**: Source selection is simple, actions happen on dedicated page
 
 ## Error Handling
 
