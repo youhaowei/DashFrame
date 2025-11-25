@@ -4,13 +4,20 @@ import { useCallback, useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
 import { csvToDataFrameWithFields } from "@dashframe/csv";
-import { join as joinDataFrames } from "@dashframe/dataframe";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, Button, Label, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Alert, AlertDescription } from "@dashframe/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Button,
+  Alert,
+  AlertDescription,
+  Database,
+  Check,
+} from "@dashframe/ui";
 import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { convertColumnsToFields } from "@/lib/utils";
 import type { Insight, DataTable } from "@/lib/stores/types";
 
 interface JoinFlowModalProps {
@@ -20,53 +27,56 @@ interface JoinFlowModalProps {
   onOpenChange: (isOpen: boolean) => void;
 }
 
+/**
+ * JoinFlowModal - Table Selection Modal
+ *
+ * This modal allows users to select a table to join with their insight.
+ * After selection, navigates to the dedicated join configuration page
+ * where users can configure join columns, type, and preview results.
+ */
 export function JoinFlowModal({
   insight,
   dataTable,
   isOpen,
   onOpenChange,
 }: JoinFlowModalProps) {
+  const router = useRouter();
   const getAllDataSources = useDataSourcesStore((state) => state.getAll);
   const addLocal = useDataSourcesStore((state) => state.addLocal);
   const getLocal = useDataSourcesStore((state) => state.getLocal);
   const addDataTable = useDataSourcesStore((state) => state.addDataTable);
-  const createDataFrameFromCSV = useDataFramesStore((state) => state.createFromCSV);
+  const createDataFrameFromCSV = useDataFramesStore(
+    (state) => state.createFromCSV
+  );
 
-  const [selectedSecondaryId, setSelectedSecondaryId] = useState<string | null>(null);
-  const [leftFieldId, setLeftFieldId] = useState<string | null>(null);
-  const [rightFieldId, setRightFieldId] = useState<string | null>(null);
-  const [joinType, setJoinType] = useState<"inner" | "left" | "right" | "outer">("inner");
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const dataSources = useMemo(() => getAllDataSources(), [getAllDataSources]);
 
-  const allTables = useMemo(
+  // Get all tables except the current insight's base table
+  const availableTables = useMemo(
     () =>
       dataSources.flatMap((source) =>
-        Array.from(source.dataTables.values()).map((table) => ({
-          table,
-          source,
-        }))
+        Array.from(source.dataTables.values())
+          .filter((table) => table.id !== dataTable.id) // Exclude current table
+          .map((table) => ({
+            table,
+            source,
+          }))
       ),
-    [dataSources]
+    [dataSources, dataTable.id]
   );
 
-  const secondaryEntry = useMemo(() => {
-    if (!selectedSecondaryId) return null;
-    return allTables.find(({ table }) => table.id === selectedSecondaryId) ?? null;
-  }, [selectedSecondaryId, allTables]);
-
+  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setSelectedSecondaryId(null);
-      setLeftFieldId(null);
-      setRightFieldId(null);
+      setSelectedTableId(null);
       setError(null);
-      setIsSubmitting(false);
     }
   }, [isOpen]);
 
+  // Handle CSV upload - creates a new table and selects it
   const handleCSVSelect = useCallback(
     (file: File) => {
       setError(null);
@@ -118,161 +128,24 @@ export function JoinFlowModal({
             dataFrameId,
           });
 
-          setSelectedSecondaryId(tableId);
+          // Select the newly created table
+          setSelectedTableId(tableId);
         },
       });
     },
     [addDataTable, addLocal, createDataFrameFromCSV, getLocal]
   );
 
-  const createDraftInsight = useInsightsStore((state) => state.createDraft);
-  const updateInsight = useInsightsStore((state) => state.updateInsight);
-  const setInsightDataFrame = useInsightsStore((state) => state.setInsightDataFrame);
-  const updateDataTable = useDataSourcesStore((state) => state.updateDataTable);
-  const getDataFrame = useDataFramesStore((state) => state.get);
-  const createDataFrameFromInsight = useDataFramesStore((state) => state.createFromInsight);
-  const router = useRouter();
-
-  const handleCombine = useCallback(async () => {
-    if (!selectedSecondaryId || !leftFieldId || !rightFieldId) {
-      setError("Select both join columns and a secondary table.");
+  // Navigate to join configuration page
+  const handleContinue = useCallback(() => {
+    if (!selectedTableId) {
+      setError("Please select a table to join with.");
       return;
     }
 
-    const secondaryTable = secondaryEntry?.table;
-    if (!secondaryTable) {
-      setError("Select a secondary table.");
-      return;
-    }
-
-    const baseFrameId = dataTable.dataFrameId;
-    const secondaryFrameId = secondaryTable.dataFrameId;
-
-    if (!baseFrameId || !secondaryFrameId) {
-      setError("Unable to load data for one of the tables.");
-      return;
-    }
-
-    const baseEnhanced = getDataFrame(baseFrameId);
-    const secondaryEnhanced = getDataFrame(secondaryFrameId);
-
-    if (!baseEnhanced || !secondaryEnhanced) {
-      setError("Unable to access cached data. Please refresh the tables.");
-      return;
-    }
-
-    const leftField = dataTable.fields.find((field) => field.id === leftFieldId);
-    const rightField = secondaryTable.fields.find((field) => field.id === rightFieldId);
-
-    if (!leftField || !rightField) {
-      setError("Selected columns are no longer available.");
-      return;
-    }
-
-    const leftColumnName = leftField.columnName ?? leftField.name;
-    const rightColumnName = rightField.columnName ?? rightField.name;
-
-    setError(null);
-    setIsSubmitting(true);
-
-    let joinedDataFrame;
-    try {
-      joinedDataFrame = joinDataFrames(baseEnhanced.data, secondaryEnhanced.data, {
-        on: { left: leftColumnName, right: rightColumnName },
-        how: joinType,
-        suffixes: { left: "_left", right: "_right" },
-      });
-    } catch (err) {
-      console.error("Join failed", err);
-      setError("Failed to join tables. Try different columns or types.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    const localSource = getLocal() ?? (() => {
-      addLocal("Local Storage");
-      return getLocal();
-    })();
-
-    if (!localSource) {
-      setError("Unable to create local storage for the joined dataset.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    const joinedTableId = crypto.randomUUID();
-    const joinedTableName = `${dataTable.name} + ${secondaryTable.name}`;
-
-    const joinedFields = convertColumnsToFields(
-      joinedDataFrame.columns ?? [],
-      joinedTableId
-    );
-
-    addDataTable(localSource.id, joinedTableName, joinedTableName, {
-      id: joinedTableId,
-      fields: joinedFields,
-    });
-
-    const joinedInsightName = `${insight.name} + ${secondaryTable.name}`;
-    const joinedInsightId = createDraftInsight(
-      joinedTableId,
-      joinedInsightName,
-      joinedFields.map((field) => field.id)
-    );
-
-    const joinMeta = {
-      id: crypto.randomUUID(),
-      tableId: secondaryTable.id,
-      selectedFields: [rightField.id],
-      joinOn: { baseField: leftField.id, joinedField: rightField.id },
-      joinType,
-    };
-
-    updateInsight(joinedInsightId, {
-      joins: [joinMeta],
-    });
-
-    const joinedDataFrameId = createDataFrameFromInsight(
-      joinedInsightId,
-      joinedInsightName,
-      joinedDataFrame
-    );
-
-    setInsightDataFrame(joinedInsightId, joinedDataFrameId);
-    updateDataTable(localSource.id, joinedTableId, {
-      dataFrameId: joinedDataFrameId,
-      lastFetchedAt: Date.now(),
-    });
-
-    setIsSubmitting(false);
     onOpenChange(false);
-    router.push(`/insights/${joinedInsightId}/create-visualization`);
-  }, [
-    selectedSecondaryId,
-    leftFieldId,
-    rightFieldId,
-    joinType,
-    secondaryEntry,
-    dataTable,
-    insight,
-    getDataFrame,
-    convertColumnsToFields,
-    addLocal,
-    getLocal,
-    addDataTable,
-    createDraftInsight,
-    updateInsight,
-    createDataFrameFromInsight,
-    setInsightDataFrame,
-    updateDataTable,
-    router,
-    onOpenChange,
-  ]);
-
-  const joinableFields = dataTable.fields.filter((field) => !field.name.startsWith("_"));
-  const secondaryFields = secondaryEntry?.table.fields.filter(
-    (field) => !field.name.startsWith("_")
-  );
+    router.push(`/insights/${insight.id}/join/${selectedTableId}`);
+  }, [selectedTableId, insight.id, router, onOpenChange]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -280,126 +153,91 @@ export function JoinFlowModal({
         <DialogHeader>
           <DialogTitle>Join with another dataset</DialogTitle>
         </DialogHeader>
+
         <div className="space-y-6">
+          {/* Table Selection */}
           <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-foreground">Select secondary table</h4>
+              <h4 className="text-sm font-semibold text-foreground">
+                Select a table to join
+              </h4>
               <p className="text-xs text-muted-foreground">
-                {secondaryEntry ? "Selected" : "Pick a table to join"}
+                {selectedTableId ? "Table selected" : "Choose a table"}
               </p>
             </div>
-            <div className="grid max-h-60 gap-3 overflow-auto">
-              {allTables.map(({ table, source }) => (
-                <Button
-                  key={table.id}
-                  variant={selectedSecondaryId === table.id ? "secondary" : "ghost"}
-                  className="justify-between"
-                  onClick={() => setSelectedSecondaryId(table.id)}
-                >
-                  <span>
-                    {table.name}
-                    <p className="text-xs text-muted-foreground">
-                      {source.name} • {table.fields.length} columns
-                    </p>
-                  </span>
-                </Button>
-              ))}
-            </div>
-            <AddConnectionPanel
-              csvTitle="Upload CSV for join"
-              csvDescription="Upload another table to join with your insight."
-              csvHelperText="Supports .csv files up to 5MB"
-              onCsvSelect={handleCSVSelect}
-              notion={{
-                apiKey: "",
-                showApiKey: false,
-                onApiKeyChange: () => {},
-                onToggleShowApiKey: () => {},
-                onConnectNotion: () => {},
-                connectDisabled: true,
-                connectButtonLabel: "Not supported here",
-                title: "Notion (coming soon)",
-                description: "Use existing Notion tables listed above.",
-                hint: "Connecting Notion inside the join flow is not available yet.",
-              }}
-            />
-          </section>
 
-          <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-foreground">Configure join</h4>
-              <p className="text-xs text-muted-foreground">Choose columns and type</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="join-left">Base table column</Label>
-                <Select
-                  value={leftFieldId ?? ""}
-                  onValueChange={(value) => setLeftFieldId(value || null)}
-                >
-                  <SelectTrigger id="join-left">
-                    <SelectValue placeholder="Choose a column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {joinableFields.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {field.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {availableTables.length > 0 ? (
+              <div className="grid max-h-60 gap-2 overflow-auto">
+                {availableTables.map(({ table, source }) => (
+                  <Button
+                    key={table.id}
+                    variant={selectedTableId === table.id ? "secondary" : "ghost"}
+                    className="h-auto justify-between px-4 py-3"
+                    onClick={() => setSelectedTableId(table.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Database className="h-4 w-4 text-muted-foreground" />
+                      <div className="text-left">
+                        <p className="font-medium">{table.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {source.name} · {table.fields.length} columns
+                        </p>
+                      </div>
+                    </div>
+                    {selectedTableId === table.id && (
+                      <Check className="h-4 w-4 text-primary" />
+                    )}
+                  </Button>
+                ))}
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="join-right">Secondary table column</Label>
-                <Select
-                  value={rightFieldId ?? ""}
-                  onValueChange={(value) => setRightFieldId(value || null)}
-                  disabled={!secondaryFields?.length}
-                >
-                  <SelectTrigger id="join-right">
-                    <SelectValue placeholder="Choose a column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {secondaryFields?.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {field.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border py-8 text-center">
+                <Database className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No other tables available
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload a CSV file below to create a new table
+                </p>
               </div>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="join-type">Join type</Label>
-              <Select
-                value={joinType}
-                onValueChange={(value) => setJoinType(value as "inner" | "left" | "right" | "outer")}
-              >
-                <SelectTrigger id="join-type">
-                  <SelectValue placeholder="Pick join type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="inner">Inner</SelectItem>
-                  <SelectItem value="left">Left</SelectItem>
-                  <SelectItem value="right">Right</SelectItem>
-                  <SelectItem value="outer">Outer</SelectItem>
-                </SelectContent>
-              </Select>
+            )}
+
+            <div className="pt-2">
+              <AddConnectionPanel
+                csvTitle="Upload CSV for join"
+                csvDescription="Upload a new table to join with your insight."
+                csvHelperText="Supports .csv files up to 5MB"
+                onCsvSelect={handleCSVSelect}
+                notion={{
+                  apiKey: "",
+                  showApiKey: false,
+                  onApiKeyChange: () => {},
+                  onToggleShowApiKey: () => {},
+                  onConnectNotion: () => {},
+                  connectDisabled: true,
+                  connectButtonLabel: "Not available",
+                  title: "Notion (coming soon)",
+                  description: "Use existing Notion tables listed above.",
+                  hint: "Connecting Notion inside the join flow is not yet supported.",
+                }}
+              />
             </div>
           </section>
 
+          {/* Error Display */}
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
+          {/* Actions */}
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCombine} disabled={isSubmitting}>
-              Combine data
+            <Button onClick={handleContinue} disabled={!selectedTableId}>
+              Continue to join configuration
             </Button>
           </div>
         </div>
@@ -407,4 +245,3 @@ export function JoinFlowModal({
     </Dialog>
   );
 }
-

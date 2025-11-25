@@ -7,7 +7,7 @@ import type { EnhancedDataFrame } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { TableView } from "./TableView";
+import { DataFrameTable } from "@dashframe/ui";
 import { VegaChart } from "./VegaChart";
 
 // Minimum visible rows needed to enable "Show Both" mode
@@ -294,7 +294,7 @@ export function VisualizationDisplay() {
         </div>
         <div className="min-h-0 flex-1 px-6 py-6">
           <Surface elevation="inset" className="h-full p-4">
-            <TableView dataFrame={dataFrame.data} />
+            <DataFrameTable dataFrame={dataFrame.data} />
           </Surface>
         </div>
       </div>
@@ -363,7 +363,7 @@ export function VisualizationDisplay() {
       {activeTab === "table" && (
         <div className="mt-3 flex min-h-0 flex-1 px-4">
           <Surface elevation="inset" className="h-full w-full">
-            <TableView dataFrame={dataFrame.data} />
+            <DataFrameTable dataFrame={dataFrame.data} />
           </Surface>
         </div>
       )}
@@ -375,7 +375,7 @@ export function VisualizationDisplay() {
           </div>
           <div className="min-h-0 flex-1">
             <Surface elevation="inset" className="h-full">
-              <TableView dataFrame={dataFrame.data} />
+              <DataFrameTable dataFrame={dataFrame.data} />
             </Surface>
           </div>
         </div>

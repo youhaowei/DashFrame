@@ -3,8 +3,7 @@
 import { useState } from "react";
 import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
-import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn } from "@dashframe/ui";
-import { TableView } from "@/components/visualizations/TableView";
+import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn, DataFrameTable } from "@dashframe/ui";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -201,7 +200,7 @@ export function TableDetailPanel({
 
           <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
             {dataFrame ? (
-              <TableView dataFrame={dataFrame.data} fields={dataTable.fields} />
+              <DataFrameTable dataFrame={dataFrame.data} fields={dataTable.fields} />
             ) : (
               <div className="flex h-full items-center justify-center">
                 <p className="text-muted-foreground text-sm">

@@ -25,8 +25,9 @@ Current MVP focuses on producing a `DataFrame` from CSV/Notion sources and rende
 - **Tailwind CSS v4** for styling
 - **Papaparse** for CSV parsing
 - **Vega-Lite + Vega Embed** for chart rendering (dynamic client component)
-- **Zustand + Immer** for state management with automatic persistence
-- **tRPC** for type-safe API calls (Notion integration)
+- **Convex** for backend data persistence and real-time sync
+- **Zustand** for client-side DataFrame caching only
+- **tRPC** for external API calls (Notion integration)
 
 ## System Flow (MVP)
 
@@ -35,6 +36,43 @@ CSV Upload → DataFrame (columns + rows) → toVegaLite() → Vega-Lite Chart
 ```
 
 The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildVegaLiteSpec` produces a Vega-Lite spec while `VegaChart` embeds it, feeding table rows as inline values.
+
+## Convex Backend
+
+**Location:** `/convex` (at repo root, separate from frontend apps)
+
+**Tables:**
+- `dataSources` - Data connections (local, notion, postgresql)
+- `dataTables` - Tables within data sources
+- `fields` - Columns in data tables
+- `metrics` - Aggregations on data tables
+- `insights` - User-defined queries/transformations
+- `insightMetrics` - Metrics within insights
+- `visualizations` - Saved Vega-Lite specs
+
+**Import Pattern:**
+```typescript
+import { api } from "@dashframe/convex";
+import { useQuery, useMutation } from "convex/react";
+import type { Id, Doc } from "@dashframe/convex/dataModel";
+```
+
+**Why Convex:**
+- Eliminates SSR hydration mismatches (data fetched server-side)
+- Real-time sync across tabs/devices
+- Type-safe queries with generated types
+- Built-in auth integration
+
+**Route Structure:**
+```
+/                              → Dashboard (entity counts, quick actions)
+/data-sources                  → Data sources list
+/data-sources/[sourceId]       → Data source detail (tables, fields)
+/insights                      → Insights list
+/insights/[insightId]          → Insight detail (configure, preview)
+/visualizations                → Visualizations list
+/visualizations/[vizId]        → Visualization detail (chart, controls)
+```
 
 ## Roadmap Highlights
 
@@ -45,71 +83,88 @@ The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildV
 5. **Documents** – dashboards and rich text story telling via TipTap
 6. **Operational Services** – WorkOS auth, Convex persistence, scheduling, history/undo
 
-Convex and additional backend services are deferred until after the first milestone proves the front-end pipeline.
-
 ## State Management Architecture
 
 ### Core Concepts
 
-**Entity Hierarchy (Symmetric Structure):**
+**Entity Hierarchy:**
 
 ```
-DataSource → DataTable → Insight → DataFrame → Visualization
+DataSource → DataTable → Field/Metric
+                      ↘ Insight → InsightMetric
+                               ↘ Visualization
 ```
 
-**All data sources follow the same pattern:**
+**Entities (stored in Convex):**
 
 - **`DataSource`** - Connection/credentials (Local, Notion, PostgreSQL)
-  - **ALL** sources have `dataTables: Map<UUID, DataTable>`
-  - Symmetric interface enables consistent data access patterns
+- **`DataTable`** - Table/file representation with schema
+- **`Field`** - User-facing columns with customization (UUID references)
+- **`Metric`** - Aggregation definitions (sum, avg, count, etc.)
+- **`Insight`** - User-defined query selecting fields/metrics from a table
+- **`Visualization`** - Vega-Lite spec referencing an insight's DataFrame
 
-- **`DataTable`** - Table/file representation (varies by source type)
-  - **Local**: CSV file metadata + loaded data (`dataFrameId` present)
-  - **Notion**: Database configuration + cached data (`dataFrameId` present, refreshable)
-  - **PostgreSQL** (future): Table metadata only (`dataFrameId` absent, queried on-demand)
+**Client-side only:**
 
-- **`Insight`** - Global transformation or query
-  - Not nested in DataSource - can reference DataTables from **multiple sources**
-  - Enables cross-source joins and analytics
-  - Two execution types:
-    - `"transform"`: Local/cloud processing on DataFrames (CSV, cached Notion)
-    - `"query"`: Remote execution at data source (PostgreSQL)
+- **`DataFrame`** - Runtime tabular data (cached in localStorage)
 
-- **`DataFrame`** - Immutable data snapshot with metadata
-  - Tracks optional `insightId` for provenance and refresh capability
-  - Can be from: direct load, cached query, insight transform, or remote query
+### State Split: Convex vs Local
 
-- **`Visualization`** - Vega-Lite spec + data reference
-  - Always based on `dataFrameId`
-  - Tracks optional `insightId` for refresh/provenance
+| Data | Location | Reason |
+|------|----------|--------|
+| DataSources | Convex | User-owned, needs persistence |
+| DataTables | Convex | User-owned, needs persistence |
+| Fields/Metrics | Convex | User-owned, needs persistence |
+| Insights | Convex | User-owned, needs persistence |
+| Visualizations | Convex | User-owned, needs persistence |
+| DataFrames | localStorage | Large cached data, client-side only |
+| Active entity | URL params | Shareable, browser history |
+| UI state | React useState | Ephemeral, component-local |
 
-### Four Zustand Stores
+### Convex Query Patterns
 
-1. **dataSourcesStore** - All data source types (Local, Notion, PostgreSQL)
-   - Each source contains `dataTables` Map
-2. **insightsStore** - Global insights (can reference any DataTables)
-3. **dataFramesStore** - Unified DataFrame storage with metadata
-4. **visualizationsStore** - Vega-Lite specs + active visualization tracking
+```typescript
+// Fetch entity from route params (no hydration issues)
+const { vizId } = useParams();
+const visualization = useQuery(api.visualizations.get, { id: vizId });
+
+// Conditional queries with "skip"
+const insight = useQuery(
+  api.insights.get,
+  visualization?.insightId ? { id: visualization.insightId } : "skip"
+);
+
+// Navigation via router (replaces store's setActive)
+const openViz = (id: string) => router.push(`/visualizations/${id}`);
+
+// Loading state handling
+if (visualization === undefined) return <Loading />;
+if (visualization === null) return <NotFound />;
+```
+
+### Stores After Migration
+
+| Store | Status | Purpose |
+|-------|--------|---------|
+| `dataframes-store.ts` | **Active** | Large DataFrame cache (localStorage) |
+| `data-sources-store.ts` | Legacy | Replaced by Convex queries |
+| `insights-store.ts` | Legacy | Replaced by Convex queries |
+| `visualizations-store.ts` | Legacy | Replaced by Convex queries |
 
 ### Key Design Decisions
 
-- **Symmetric DataSource structure** - All sources have DataTables, consistent API
-- **DataTables nested in source** - Owned by source, referenced globally by Insights
-- **Global Insights** - Cross-source analytics, not tied to a single source
-- **Flexible execution** - Insights adapt to source capabilities (query vs transform)
-- **Schema separation** - sourceSchema (discovered) vs fields (user-defined) prevents sync conflicts
-- **UUID-based field references** - Formulas use UUIDs not names, enabling renames without breakage
-- **Flat structures** - No wrapper abstractions (metadata, schema, customizations)
-- **Sample-first loading** - 100-row preview for instant UX, full sync on demand
-- **Semantic type preservation** - Source types (Notion status, relation) enable smart features
-- **Rule-based suggestions** - Client-side heuristics for viz/join suggestions (no AI/GPT)
-- **Immer middleware** - Clean immutable updates without manual spreading
-- **Automatic persistence** - Zustand persist handles all localStorage
-- **Map storage** - O(1) lookups, custom serialization for persistence
+- **Server-first persistence** - Convex eliminates SSR hydration mismatches
+- **Route-based navigation** - Active entity from URL, not store state
+- **Schema separation** - sourceSchema (discovered) vs fields (user-defined)
+- **UUID-based field references** - Formulas use UUIDs, enabling renames
+- **Sample-first loading** - 100-row preview for instant UX
+- **Semantic type preservation** - Source types enable smart features
+- **Rule-based suggestions** - Client-side heuristics (no AI/GPT)
 
 ### Data Flows
 
 **Local (CSV Upload)**:
+
 ```
 Upload → Local DataSource
       → DataTable (file + loaded data)
@@ -118,6 +173,7 @@ Upload → Local DataSource
 ```
 
 **Notion (Cached)**:
+
 ```
 Phase 1: Discovery
   Connect → Notion DataSource
@@ -139,6 +195,7 @@ Phase 3: Full Sync (On Demand)
 ```
 
 **PostgreSQL (Remote - Future)**:
+
 ```
 Connect → PostgreSQL DataSource
        → DataTable (table metadata, no cache)
@@ -152,6 +209,7 @@ Connect → PostgreSQL DataSource
 **Symmetric structure**: All sources work the same way - reduces complexity, easier to add new source types
 
 **Cached vs Remote**:
+
 - Notion doesn't support rich querying → cache as DataFrame, run transforms locally
 - PostgreSQL supports full SQL → execute queries remotely, return DataFrames on-demand
 - CSV is already local → load immediately into DataFrame
@@ -161,11 +219,12 @@ Connect → PostgreSQL DataSource
 ### Persistence
 
 ```
-localStorage keys:
-  dashframe:data-sources  (all types, with nested dataTables)
-  dashframe:insights      (global, cross-source)
-  dashframe:dataframes    (cached results + metadata)
-  dashframe:visualizations
+Convex (server):
+  dataSources, dataTables, fields, metrics,
+  insights, insightMetrics, visualizations
+
+localStorage (client):
+  dashframe:dataframes  (cached DataFrame results + metadata)
 ```
 
 ## DataTable Schema Layers
@@ -213,6 +272,7 @@ Source columns preserve original types (Notion's status, relation, email, etc.).
 Rule-based heuristics suggest visualizations based on field types and cardinality. No AI/GPT calls - instant, free, privacy-preserving.
 
 **Core Heuristics:**
+
 - Categorical (low cardinality) + Count → Bar chart
 - Two numeric fields → Scatter plot
 - Date + Numeric → Time series line chart
@@ -230,6 +290,7 @@ Prefer fields with 2-50 distinct values, penalize high null percentage, prioriti
 Notion `relation` fields enable automatic join detection. Relations store page IDs from related databases, allowing high-confidence join suggestions: `Tasks.Project` → `Projects._notionId`.
 
 **Confidence Levels:**
+
 - **High** - Detected from Notion relation metadata
 - **Medium** - Name-based matching (field "Project" → table "Projects")
 
@@ -242,17 +303,20 @@ Fallback heuristics include name matching with pluralization and common ID patte
 **Avoid custom divs with one-off Tailwind classes.** Use shadcn/ui components or create proper reusable components instead of inline styling.
 
 **Prefer shadcn/ui components:**
+
 - Use `<Card>`, `<CardHeader>`, `<CardContent>` instead of `<div className="border rounded-lg p-6">`
 - Use `<Badge>` instead of `<span className="text-xs px-2 py-1 rounded-full">`
 - Use `<Button>` variants instead of styled `<button>` or clickable `<div>` elements
 - Leverage existing shadcn components: `<Dialog>`, `<Select>`, `<Checkbox>`, `<Input>`, etc.
 
 **Create named components for repeated patterns:**
+
 - If a div+Tailwind combination appears 3+ times, extract to a component
 - Name components by **purpose** (e.g., `<SectionHeader>`, `<EmptyState>`) not appearance
 - Place shared components in `components/ui/` (shadcn) or `components/shared/` (custom)
 
 **When custom divs are acceptable:**
+
 - Layout containers (flex/grid wrappers) with truly one-off positioning
 - But consider if even these could use a `<Stack>` or `<Grid>` component for consistency
 
@@ -266,20 +330,24 @@ Fallback heuristics include name matching with pluralization and common ID patte
 ### Visual Design System
 
 **Spacing hierarchy:**
+
 - `p-4` - Compact elements (buttons, small cards, inline badges)
 - `p-6` - Standard cards and panels (most common)
 - `p-8` - Spacious layouts (page containers, main sections)
 
 **Border radius:**
+
 - `rounded-2xl` - Main cards and top-level containers
 - `rounded-xl` - Nested elements and secondary cards
 - `rounded-full` - Circular badges and avatars only
 
 **Icon sizing:**
+
 - `h-4 w-4` - Inline icons (within buttons, next to text)
 - `h-5 w-5` - Standalone icons (sidebar, empty states, headers)
 
 **Consistent patterns:**
+
 - If shadcn/ui doesn't provide a component and you need the pattern 3+ times, create a reusable component
 - Document custom components in component files with JSDoc comments
 
@@ -312,16 +380,19 @@ The visualization creation flow uses an action-based model rather than rigid ste
 ### Key Concepts
 
 **Action Hub Pattern**: The create-visualization page (`/insights/[id]/create-visualization`) serves as a central hub where users can take multiple actions:
+
 - Create visualization from recommendations (click suggestion cards)
 - Create custom visualization (opens builder)
 - Join with another dataset (opens join flow modal)
 
 **Auto-Navigation**: When a data source is selected, the system automatically:
+
 1. Creates a draft insight
 2. Navigates to the create-visualization page
 3. Shows data preview and available actions
 
 **Modular Actions**: Each action is implemented as a separate component:
+
 - `JoinFlowModal` - Standalone modal for join operations
 - `NotionInsightConfig` - Notion-specific insight configuration
 - `CreateVisualizationContent` - Source selection and routing
@@ -343,6 +414,7 @@ To add a new action to the create-visualization page:
 4. Document the new action in the spec
 
 Example:
+
 ```tsx
 // In create-visualization/page.tsx
 <Button onClick={() => setIsNewActionOpen(true)}>

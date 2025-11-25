@@ -396,7 +396,7 @@ function ProvenanceSummary({
         </Label>
         {insight ? (
           <Link
-            href={`/insights/${insight.id}/create-visualization`}
+            href={`/insights/${insight.id}`}
             className="text-primary text-sm font-medium hover:underline"
           >
             {insight.name}
@@ -514,7 +514,7 @@ function MetricsStrip({ insight }: MetricsStripProps) {
           Metrics help you aggregate and summarize data.
         </p>
         <Link
-          href={`/insights/${insight.id}/create-visualization`}
+          href={`/insights/${insight.id}`}
           className="text-primary mt-2 inline-block text-xs font-medium hover:underline"
         >
           Add metrics in insight editor →

@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "@auth/core": "^0.37.4",
+    "@convex-dev/auth": "^0.0.90",
     "@dashframe/csv": "workspace:*",
     "@dashframe/dataframe": "workspace:*",
     "@dashframe/notion": "workspace:*",
@@ -26,6 +28,7 @@
     "@trpc/server": "^11.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "convex": "^1.29.3",
     "immer": "^10.2.0",
     "next": "16.0.0",
     "next-themes": "^0.4.6",

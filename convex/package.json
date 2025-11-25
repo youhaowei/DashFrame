@@ -1,0 +1,13 @@
+{
+  "name": "convex-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd .. && convex dev"
+  },
+  "dependencies": {
+    "@auth/core": "^0.37.4",
+    "@convex-dev/auth": "^0.0.90",
+    "convex": "^1.29.3"
+  }
+}

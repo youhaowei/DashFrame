@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, LayoutDashboard, LifeBuoy, LineChart, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
+import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, LayoutDashboard, LifeBuoy, LineChart, Sparkles, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type NavItem = {
@@ -19,6 +19,12 @@ const navItems: NavItem[] = [
     href: "/",
     description: "Create, edit, and view visualizations",
     icon: LayoutDashboard,
+  },
+  {
+    name: "Insights",
+    href: "/insights",
+    description: "Manage and configure insights",
+    icon: Sparkles,
   },
   {
     name: "Data Sources",

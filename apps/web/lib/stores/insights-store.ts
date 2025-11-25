@@ -106,7 +106,7 @@ export const useInsightsStore = create<InsightsStore>()(
           name: tableName,
           baseTable: {
             tableId,
-            selectedFields: fieldIds, // Auto-select all fields by default
+            selectedFields: [], // Start unconfigured to show preview + suggestions
           },
           metrics: [], // No metrics initially
           createdAt: now,

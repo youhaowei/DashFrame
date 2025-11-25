@@ -63,7 +63,7 @@ export interface Insight {
     tableId: UUID;
     selectedFields: UUID[];
     joinOn: { baseField: UUID; joinedField: UUID };
-    joinType: "left" | "inner";
+    joinType: "inner" | "left" | "right" | "outer";
   }>;
 
   // Computed columns

@@ -26,3 +26,8 @@ corepack-home/
 # Build artifacts
 dist
 *.tsbuildinfo
+
+# Convex
+convex/_generated
+convex/node_modules
+convex/.env.local

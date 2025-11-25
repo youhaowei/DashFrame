@@ -24,8 +24,8 @@ import {
   cn,
   InputField,
   MultiSelectField,
+  DataFrameTable,
 } from "@dashframe/ui";
-import { TableView } from "@/components/visualizations/TableView";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
 import type { NotionProperty } from "@dashframe/notion";
@@ -135,7 +135,7 @@ function LocalDataSourceView({
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {localDataFrame && selectedDataTable ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <TableView
+              <DataFrameTable
                 dataFrame={localDataFrame.data}
                 fields={selectedDataTable.fields}
               />
@@ -632,7 +632,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               }
               return (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <TableView
+                  <DataFrameTable
                     dataFrame={dataFrame.data}
                     fields={selectedDataTable.fields}
                   />

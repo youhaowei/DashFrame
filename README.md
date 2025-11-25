@@ -4,12 +4,13 @@ DashFrame is a business intelligence playground focused on the DataFrame → cha
 
 ## Stack
 
-- Next.js 16 (App Router) + React 19
-- Tailwind CSS (via PostCSS) — shadcn components optional
-- Turborepo for workspace orchestration
-- Vega-Lite + Vega Embed for chart rendering
-- Papaparse for CSV ingest, @notionhq/client for Notion database integration
-- pnpm for dependency management
+- **Next.js 16** (App Router) + React 19
+- **Convex** for backend persistence and real-time sync
+- **Tailwind CSS v4** (via PostCSS) — shadcn components
+- **Turborepo** for workspace orchestration
+- **Vega-Lite + Vega Embed** for chart rendering
+- **Papaparse** for CSV ingest, **@notionhq/client** for Notion
+- **pnpm** for dependency management
 
 ## Project Layout
 
@@ -21,8 +22,9 @@ packages/
   csv/              # CSV ingest helpers → DataFrame
   notion/           # Notion database integration → DataFrame
   ui/               # Shared UI primitives/components
+convex/             # Backend (Convex functions + schema)
 docs/
-  architecture.md   # Architecture summary distilled from Notion
+  architecture.md   # Architecture overview
 ```
 
 ## Naming Conventions
@@ -57,15 +59,19 @@ Package responsibilities:
    pnpm install
    ```
 
-2. Start the workspace in development mode (Next.js + package watch mode):
+2. Start the workspace in development mode:
 
    ```bash
    pnpm dev
    ```
 
-   Visit `http://localhost:3000/` — the homepage now hosts the CSV → DataFrame → chart experience.
+   This single command starts:
+   - **Convex backend** at `http://127.0.0.1:3210`
+   - **Next.js web app** at `http://localhost:3000`
+   - Auto-generates TypeScript types in `convex/_generated/`
+   - Hot-reload for both frontend and backend
 
-   Need a single package? You can still target explicitly, e.g. `pnpm --filter @dashframe/web dev` or `pnpm --filter @dashframe/csv dev` for focused work.
+   Need a single package? Target explicitly: `pnpm --filter @dashframe/web dev`
 
 3. Optional scripts:
    ```bash
@@ -107,18 +113,19 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Current Status
 
-- ✅ Turborepo scaffolding, shared configs, and architecture doc
-- ✅ CSV upload → DataFrame parsing → Vega-Lite preview (with axis selectors and persistence)
-- ✅ Notion database integration with property selection and refresh capability
-- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/notion`, `@dashframe/ui`) seeded
-- ✅ Vega chart rendered client-side via dynamic `VegaChart`
+- ✅ **Convex backend** with full entity persistence (DataSources, Insights, Visualizations)
+- ✅ **Route-based architecture** - `/data-sources`, `/insights`, `/visualizations` pages
+- ✅ CSV upload → DataFrame → Vega-Lite preview
+- ✅ Notion database integration with property selection
+- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/notion`, `@dashframe/ui`)
+- ✅ Real-time sync across tabs via Convex
 
 ## Roadmap
 
-- Add richer chart customisation (mark type, color palettes, formatting)
-- Surface DataFrame metadata (fields, inferred types) in a sidebar inspector
-- Extend documentation and introduce backend services (Deno/Convex) as needed
-- Add automated tests (unit, Playwright) for the CSV upload flow
+- Add richer chart customization (mark type, color palettes, formatting)
+- Implement cross-source joins (CSV + Notion)
+- Add automated tests (unit, Playwright)
+- OAuth authentication (currently using anonymous auth)
 
 ## Contributing
 

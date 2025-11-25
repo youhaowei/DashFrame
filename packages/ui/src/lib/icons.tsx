@@ -1,5 +1,6 @@
 import type { IconType } from "react-icons";
 import {
+  LuArrowLeft,
   LuArrowRight,
   LuArrowUpDown,
   LuCalendar,
@@ -20,6 +21,7 @@ import {
   LuDatabase,
   LuDot,
   LuInfo,
+  LuMerge,
   LuPencil,
   LuHash,
   LuLayers,
@@ -54,8 +56,10 @@ import { SiNotion } from "react-icons/si";
 export type LucideIcon = IconType;
 
 // Navigation & Layout
+export { LuArrowLeft as ArrowLeft };
 export { LuArrowRight as ArrowRight };
 export { LuArrowUpDown as ArrowUpDown };
+export { LuMerge as Merge };
 export { LuChevronDown as ChevronDown };
 export { LuChevronDown as ChevronDownIcon };
 export { LuChevronDown as ChevronDownSolid };

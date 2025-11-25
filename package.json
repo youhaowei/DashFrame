@@ -28,5 +28,8 @@
     "turbo": "^2.6.1",
     "typescript": "5.7.2",
     "typescript-eslint": "^8.46.2"
+  },
+  "dependencies": {
+    "convex": "^1.29.3"
   }
 }

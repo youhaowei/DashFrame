@@ -11,7 +11,8 @@ import {
   CardContent,
   Input,
   Badge,
-  Database,
+  BarChart3,
+  LineChart,
   TableIcon,
   Plus,
   Trash2,
@@ -21,114 +22,125 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuLoader, LuCloud, LuFileSpreadsheet } from "react-icons/lu";
+import { LuSearch, LuExternalLink, LuLoader, LuCircleDot } from "react-icons/lu";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
-// Type for API response from dataSources.listWithTables
-type DataSourceWithTables = {
-  dataSource: Doc<"dataSources">;
-  dataTables: Doc<"dataTables">[];
-  tableCount: number;
+// Type for API response from visualizations.listWithDetails
+type VisualizationWithDetails = {
+  visualization: Doc<"visualizations">;
+  insight: Doc<"insights"> | null;
+  dataTable: Doc<"dataTables"> | null;
+  sourceType: string | null;
 };
 
 /**
- * Data Sources Management Page
+ * Visualizations Management Page
  *
- * Shows all data sources with their table counts.
- * Click a data source to see its tables and details.
+ * Shows all visualizations with their linked insights.
+ * Click a visualization to open it in the detail view.
  */
-export default function DataSourcesPage() {
+export default function VisualizationsPage() {
   const router = useRouter();
 
   // Convex queries
-  const dataSourcesData = useQuery(api.dataSources.listWithTables);
+  const visualizationsData = useQuery(api.visualizations.listWithDetails);
 
   // Convex mutations
-  const removeDataSource = useMutation(api.dataSources.remove);
+  const removeVisualization = useMutation(api.visualizations.remove);
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // Filter data sources by search query
-  const filteredDataSources = useMemo((): DataSourceWithTables[] => {
-    if (!dataSourcesData) return [];
-    if (!searchQuery.trim()) return dataSourcesData;
+  // Filter visualizations by search query
+  const filteredVisualizations = useMemo((): VisualizationWithDetails[] => {
+    if (!visualizationsData) return [];
+    if (!searchQuery.trim()) return visualizationsData;
     const query = searchQuery.toLowerCase();
-    return dataSourcesData.filter(
-      (item: DataSourceWithTables) =>
-        item.dataSource.name.toLowerCase().includes(query) ||
-        item.dataSource.type.toLowerCase().includes(query)
+    return visualizationsData.filter(
+      (item: VisualizationWithDetails) =>
+        item.visualization.name.toLowerCase().includes(query) ||
+        item.insight?.name.toLowerCase().includes(query) ||
+        item.visualization.visualizationType.toLowerCase().includes(query)
     );
-  }, [dataSourcesData, searchQuery]);
+  }, [visualizationsData, searchQuery]);
 
-  // Get icon for data source type
+  // Get icon for visualization type
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case "notion":
-        return <LuCloud className="h-5 w-5" />;
-      case "local":
-        return <LuFileSpreadsheet className="h-5 w-5" />;
-      case "postgresql":
-        return <Database className="h-5 w-5" />;
+      case "bar":
+        return <BarChart3 className="h-5 w-5" />;
+      case "line":
+      case "area":
+        return <LineChart className="h-5 w-5" />;
+      case "scatter":
+        return <LuCircleDot className="h-5 w-5" />;
+      case "table":
       default:
-        return <Database className="h-5 w-5" />;
+        return <TableIcon className="h-5 w-5" />;
     }
   };
 
-  // Get label for data source type
+  // Get label for visualization type
   const getTypeLabel = (type: string) => {
-    switch (type) {
-      case "notion":
-        return "Notion";
-      case "local":
-        return "Uploaded CSV";
-      case "postgresql":
-        return "PostgreSQL";
-      default:
-        return "Unknown";
-    }
+    const labels: Record<string, string> = {
+      table: "Table",
+      bar: "Bar Chart",
+      line: "Line Chart",
+      scatter: "Scatter Plot",
+      area: "Area Chart",
+    };
+    return labels[type] || "Chart";
   };
 
-  // Handle delete data source
-  const handleDeleteDataSource = async (
-    dataSourceId: Id<"dataSources">,
+  // Handle delete visualization
+  const handleDeleteVisualization = async (
+    visualizationId: Id<"visualizations">,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeDataSource({ id: dataSourceId });
+    await removeVisualization({ id: visualizationId });
   };
 
-  // Render data source card
-  const renderDataSourceCard = (item: DataSourceWithTables) => (
+  // Render visualization card
+  const renderVisualizationCard = (item: VisualizationWithDetails) => (
     <Card
-      key={item.dataSource._id}
+      key={item.visualization._id}
       className="group hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => router.push(`/data-sources/${item.dataSource._id}`)}
+      onClick={() => router.push(`/visualizations/${item.visualization._id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
           <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-            {getTypeIcon(item.dataSource.type)}
+            {getTypeIcon(item.visualization.visualizationType)}
           </div>
 
           {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-medium truncate">{item.dataSource.name}</h4>
+              <h4 className="font-medium truncate">{item.visualization.name}</h4>
               <Badge variant="secondary" className="text-xs">
-                {getTypeLabel(item.dataSource.type)}
+                {getTypeLabel(item.visualization.visualizationType)}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
-              <TableIcon className="h-3 w-3 inline mr-1" />
-              {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
-            </p>
+            {item.insight && (
+              <p className="text-xs text-muted-foreground">
+                From: {item.insight.name}
+                {item.sourceType && ` • ${item.sourceType}`}
+              </p>
+            )}
+            {item.visualization.encoding && (
+              <p className="text-xs text-muted-foreground">
+                {item.visualization.encoding.x && `X: ${item.visualization.encoding.x}`}
+                {item.visualization.encoding.x && item.visualization.encoding.y && " • "}
+                {item.visualization.encoding.y && `Y: ${item.visualization.encoding.y}`}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground mt-1">
               Created{" "}
-              {new Date(item.dataSource.createdAt).toLocaleDateString("en-US", {
+              {new Date(item.visualization.createdAt).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
                 year: "numeric",
@@ -152,7 +164,7 @@ export default function DataSourcesPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/data-sources/${item.dataSource._id}`);
+                  router.push(`/visualizations/${item.visualization._id}`);
                 }}
               >
                 <LuExternalLink className="h-4 w-4 mr-2" />
@@ -161,8 +173,8 @@ export default function DataSourcesPage() {
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={(e) =>
-                  handleDeleteDataSource(
-                    item.dataSource._id,
+                  handleDeleteVisualization(
+                    item.visualization._id,
                     e as unknown as React.MouseEvent
                   )
                 }
@@ -178,12 +190,12 @@ export default function DataSourcesPage() {
   );
 
   // Loading state
-  if (dataSourcesData === undefined) {
+  if (visualizationsData === undefined) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading data sources...</p>
+          <p className="text-sm text-muted-foreground">Loading visualizations...</p>
         </div>
       </div>
     );
@@ -196,21 +208,21 @@ export default function DataSourcesPage() {
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-2xl font-bold">Data Sources</h1>
+              <h1 className="text-2xl font-bold">Visualizations</h1>
               <p className="text-sm text-muted-foreground">
-                {dataSourcesData.length} source{dataSourcesData.length !== 1 ? "s" : ""}{" "}
-                connected
+                {visualizationsData.length} visualization{visualizationsData.length !== 1 ? "s" : ""}{" "}
+                created
               </p>
             </div>
             <Button onClick={() => setIsCreateModalOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Source
+              New Visualization
             </Button>
           </div>
           <div className="relative">
             <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search data sources..."
+              placeholder="Search visualizations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -222,23 +234,23 @@ export default function DataSourcesPage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-6 py-6 max-w-4xl">
-          {/* Data Sources List */}
-          {filteredDataSources.length > 0 ? (
+          {/* Visualizations List */}
+          {filteredVisualizations.length > 0 ? (
             <div className="grid gap-3">
-              {filteredDataSources.map(renderDataSourceCard)}
+              {filteredVisualizations.map(renderVisualizationCard)}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Database className="h-8 w-8 text-muted-foreground" />
+                <BarChart3 className="h-8 w-8 text-muted-foreground" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="text-lg font-semibold mb-2">
-                    No data sources found
+                    No visualizations found
                   </h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    No data sources match "{searchQuery}"
+                    No visualizations match "{searchQuery}"
                   </p>
                   <Button variant="outline" onClick={() => setSearchQuery("")}>
                     Clear search
@@ -247,14 +259,14 @@ export default function DataSourcesPage() {
               ) : (
                 <>
                   <h3 className="text-lg font-semibold mb-2">
-                    No data sources yet
+                    No visualizations yet
                   </h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Connect your first data source to start analyzing
+                    Create your first visualization to see your data come to life
                   </p>
                   <Button onClick={() => setIsCreateModalOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Source
+                    New Visualization
                   </Button>
                 </>
               )}

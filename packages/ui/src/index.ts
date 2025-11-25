@@ -116,11 +116,17 @@ export { EmptyState } from "./components/EmptyState";
 export {
   ItemSelector,
   type ItemSelectorProps,
+  type SelectableItem,
 } from "./components/ItemSelector";
 export { Panel, PanelSection } from "./components/Panel";
 export { Stack } from "./components/Stack";
 export { Toggle } from "./components/Toggle";
 export { Tooltip as CustomTooltip } from "./components/Tooltip";
+export {
+  DataFrameTable,
+  type DataFrameTableProps,
+  type ColumnConfig,
+} from "./components/DataFrameTable";
 
 // Field Wrappers (primitives + Field component)
 export { Input as InputField } from "./fields/input";
