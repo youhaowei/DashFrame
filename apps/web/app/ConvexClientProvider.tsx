@@ -1,31 +1,16 @@
 "use client";
 
-import { ReactNode, useMemo } from "react";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
+import { ConvexReactClient } from "convex/react";
+import { ReactNode } from "react";
+import { AnonymousAuthInitializer } from "@/components/auth";
 
-/**
- * ConvexClientProvider
- *
- * Wraps the application with Convex context for real-time data sync.
- * Must be a client component because ConvexReactClient uses WebSocket.
- *
- * Features:
- * - Real-time subscriptions via WebSocket
- * - Automatic reconnection on network changes
- * - Convex Auth integration for user authentication
- */
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  // Create a single ConvexReactClient instance for the entire app
-  // useMemo ensures we don't recreate the client on re-renders
-  const convex = useMemo(
-    () => new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!),
-    []
-  );
-
-  return (
-    <ConvexAuthProvider client={convex}>
-      {children}
-    </ConvexAuthProvider>
-  );
+    return (
+        <ConvexAuthNextjsProvider client={convex}>
+            <AnonymousAuthInitializer>{children}</AnonymousAuthInitializer>
+        </ConvexAuthNextjsProvider>
+    );
 }

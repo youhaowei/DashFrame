@@ -18,14 +18,14 @@ import { auth } from "./auth";
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const dataSources = await ctx.db
       .query("dataSources")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     return dataSources;
@@ -38,13 +38,13 @@ export const list = query({
 export const get = query({
   args: { id: v.id("dataSources") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
     const dataSource = await ctx.db.get(args.id);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return null;
     }
 
@@ -58,14 +58,14 @@ export const get = query({
 export const listWithTables = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const dataSources = await ctx.db
       .query("dataSources")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     const result = await Promise.all(
@@ -73,7 +73,7 @@ export const listWithTables = query({
         const dataTables = await ctx.db
           .query("dataTables")
           .withIndex("by_dataSourceId", (q) =>
-            q.eq("dataSourceId", dataSource._id)
+            q.eq("dataSourceId", dataSource._id),
           )
           .collect();
 
@@ -82,7 +82,7 @@ export const listWithTables = query({
           dataTables,
           tableCount: dataTables.length,
         };
-      })
+      }),
     );
 
     return result;
@@ -95,13 +95,13 @@ export const listWithTables = query({
 export const getWithTables = query({
   args: { id: v.id("dataSources") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
     const dataSource = await ctx.db.get(args.id);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return null;
     }
 
@@ -126,21 +126,23 @@ export const create = mutation({
     type: v.union(
       v.literal("local"),
       v.literal("notion"),
-      v.literal("postgresql")
+      v.literal("postgresql"),
     ),
     name: v.string(),
     apiKey: v.optional(v.string()),
     connectionString: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    console.log("[dataSources:create] userId:", userId);
+    if (!userId) {
+      console.error("[dataSources:create] Authentication failed - userId is null");
       throw new Error("Not authenticated");
     }
 
     const now = Date.now();
     const id = await ctx.db.insert("dataSources", {
-      userId: identity.subject,
+      userId,
       type: args.type,
       name: args.name,
       apiKey: args.apiKey,
@@ -164,13 +166,13 @@ export const update = mutation({
     connectionString: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const dataSource = await ctx.db.get(args.id);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data source not found");
     }
 
@@ -191,13 +193,13 @@ export const update = mutation({
 export const remove = mutation({
   args: { id: v.id("dataSources") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const dataSource = await ctx.db.get(args.id);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data source not found");
     }
 

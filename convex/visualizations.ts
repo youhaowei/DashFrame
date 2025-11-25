@@ -18,14 +18,14 @@ import { auth } from "./auth";
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const visualizations = await ctx.db
       .query("visualizations")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     return visualizations;
@@ -38,13 +38,13 @@ export const list = query({
 export const get = query({
   args: { id: v.id("visualizations") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
     const visualization = await ctx.db.get(args.id);
-    if (!visualization || visualization.userId !== identity.subject) {
+    if (!visualization || visualization.userId !== userId) {
       return null;
     }
 
@@ -58,14 +58,14 @@ export const get = query({
 export const listWithDetails = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const visualizations = await ctx.db
       .query("visualizations")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     const result = await Promise.all(
@@ -104,15 +104,15 @@ export const listWithDetails = query({
 export const getByInsight = query({
   args: { insightId: v.id("insights") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const visualizations = await ctx.db
       .query("visualizations")
       .withIndex("by_insightId", (q) => q.eq("insightId", args.insightId))
-      .filter((q) => q.eq(q.field("userId"), identity.subject))
+      .filter((q) => q.eq(q.field("userId"), userId))
       .collect();
 
     return visualizations;
@@ -165,22 +165,22 @@ export const create = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     // If linked to an insight, verify user owns it
     if (args.insightId) {
       const insight = await ctx.db.get(args.insightId);
-      if (!insight || insight.userId !== identity.subject) {
+      if (!insight || insight.userId !== userId) {
         throw new Error("Insight not found");
       }
     }
 
     const now = Date.now();
     const id = await ctx.db.insert("visualizations", {
-      userId: identity.subject,
+      userId: userId,
       name: args.name,
       dataFrameId: args.dataFrameId,
       insightId: args.insightId,
@@ -239,13 +239,13 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const visualization = await ctx.db.get(args.id);
-    if (!visualization || visualization.userId !== identity.subject) {
+    if (!visualization || visualization.userId !== userId) {
       throw new Error("Visualization not found");
     }
 
@@ -271,13 +271,13 @@ export const updateSpec = mutation({
     spec: v.any(),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const visualization = await ctx.db.get(args.id);
-    if (!visualization || visualization.userId !== identity.subject) {
+    if (!visualization || visualization.userId !== userId) {
       throw new Error("Visualization not found");
     }
 
@@ -320,13 +320,13 @@ export const updateEncoding = mutation({
     }),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const visualization = await ctx.db.get(args.id);
-    if (!visualization || visualization.userId !== identity.subject) {
+    if (!visualization || visualization.userId !== userId) {
       throw new Error("Visualization not found");
     }
 
@@ -345,13 +345,13 @@ export const updateEncoding = mutation({
 export const remove = mutation({
   args: { id: v.id("visualizations") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const visualization = await ctx.db.get(args.id);
-    if (!visualization || visualization.userId !== identity.subject) {
+    if (!visualization || visualization.userId !== userId) {
       throw new Error("Visualization not found");
     }
 

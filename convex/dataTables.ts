@@ -18,14 +18,14 @@ import { auth } from "./auth";
 export const list = query({
   args: { dataSourceId: v.id("dataSources") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     // Verify user owns the data source
     const dataSource = await ctx.db.get(args.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return [];
     }
 
@@ -46,8 +46,8 @@ export const list = query({
 export const get = query({
   args: { id: v.id("dataTables") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -58,7 +58,7 @@ export const get = query({
 
     // Verify user owns the parent data source
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return null;
     }
 
@@ -72,8 +72,8 @@ export const get = query({
 export const getWithFieldsAndMetrics = query({
   args: { id: v.id("dataTables") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -84,7 +84,7 @@ export const getWithFieldsAndMetrics = query({
 
     // Verify user owns the parent data source
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return null;
     }
 
@@ -128,14 +128,14 @@ export const create = mutation({
     dataFrameId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     // Verify user owns the data source
     const dataSource = await ctx.db.get(args.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data source not found");
     }
 
@@ -195,8 +195,8 @@ export const update = mutation({
     lastFetchedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -207,7 +207,7 @@ export const update = mutation({
 
     // Verify user owns the parent data source
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data table not found");
     }
 
@@ -228,8 +228,8 @@ export const update = mutation({
 export const remove = mutation({
   args: { id: v.id("dataTables") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -240,7 +240,7 @@ export const remove = mutation({
 
     // Verify user owns the parent data source
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data table not found");
     }
 

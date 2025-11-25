@@ -6,6 +6,20 @@ import { useTheme } from "next-themes";
 
 export function ThemeToggle() {
   const { setTheme } = useTheme();
+  const [mounted, setMounted] = React.useState(false);
+
+  // Defer rendering the interactive dropdown until after mount to avoid
+  // Radix ID mismatches between server and client during hydration.
+  React.useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return (
+      <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled>
+        <Sun className="h-[1.2rem] w-[1.2rem] opacity-50" />
+        <span className="sr-only">Toggle theme</span>
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu>

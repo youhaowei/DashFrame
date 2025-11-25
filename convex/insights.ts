@@ -18,14 +18,14 @@ import { auth } from "./auth";
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const insights = await ctx.db
       .query("insights")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     return insights;
@@ -38,13 +38,13 @@ export const list = query({
 export const get = query({
   args: { id: v.id("insights") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
     const insight = await ctx.db.get(args.id);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       return null;
     }
 
@@ -58,13 +58,13 @@ export const get = query({
 export const getWithMetrics = query({
   args: { id: v.id("insights") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
     const insight = await ctx.db.get(args.id);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       return null;
     }
 
@@ -83,15 +83,15 @@ export const getWithMetrics = query({
 export const getByBaseTable = query({
   args: { baseTableId: v.id("dataTables") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const insights = await ctx.db
       .query("insights")
       .withIndex("by_baseTableId", (q) => q.eq("baseTableId", args.baseTableId))
-      .filter((q) => q.eq(q.field("userId"), identity.subject))
+      .filter((q) => q.eq(q.field("userId"), userId))
       .collect();
 
     return insights;
@@ -105,20 +105,20 @@ export const getByBaseTable = query({
 export const listWithDetails = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
     const insights = await ctx.db
       .query("insights")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     // Get all visualizations for counting
     const allVisualizations = await ctx.db
       .query("visualizations")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     // Build a map of insightId -> visualization count
@@ -166,8 +166,8 @@ export const create = mutation({
     selectedFieldIds: v.optional(v.array(v.id("fields"))),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -178,13 +178,13 @@ export const create = mutation({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data table not found");
     }
 
     const now = Date.now();
     const id = await ctx.db.insert("insights", {
-      userId: identity.subject,
+      userId: userId,
       name: args.name,
       baseTableId: args.baseTableId,
       selectedFieldIds: args.selectedFieldIds ?? [],
@@ -220,13 +220,13 @@ export const update = mutation({
     lastComputedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const insight = await ctx.db.get(args.id);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       throw new Error("Insight not found");
     }
 
@@ -250,19 +250,19 @@ export const update = mutation({
 export const fork = mutation({
   args: { id: v.id("insights") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const original = await ctx.db.get(args.id);
-    if (!original || original.userId !== identity.subject) {
+    if (!original || original.userId !== userId) {
       throw new Error("Insight not found");
     }
 
     const now = Date.now();
     const forkId = await ctx.db.insert("insights", {
-      userId: identity.subject,
+      userId: userId,
       name: `${original.name} (copy)`,
       baseTableId: original.baseTableId,
       selectedFieldIds: [...original.selectedFieldIds],
@@ -299,13 +299,13 @@ export const fork = mutation({
 export const remove = mutation({
   args: { id: v.id("insights") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const insight = await ctx.db.get(args.id);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       throw new Error("Insight not found");
     }
 
@@ -356,13 +356,13 @@ export const addMetric = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
     const insight = await ctx.db.get(args.insightId);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       throw new Error("Insight not found");
     }
 
@@ -402,8 +402,8 @@ export const updateMetric = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -413,7 +413,7 @@ export const updateMetric = mutation({
     }
 
     const insight = await ctx.db.get(metric.insightId);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       throw new Error("Metric not found");
     }
 
@@ -437,8 +437,8 @@ export const updateMetric = mutation({
 export const removeMetric = mutation({
   args: { id: v.id("insightMetrics") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -448,7 +448,7 @@ export const removeMetric = mutation({
     }
 
     const insight = await ctx.db.get(metric.insightId);
-    if (!insight || insight.userId !== identity.subject) {
+    if (!insight || insight.userId !== userId) {
       throw new Error("Metric not found");
     }
 

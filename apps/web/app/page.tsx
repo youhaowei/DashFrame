@@ -1,225 +1,234 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import Papa, { type ParseError, type ParseResult } from "papaparse";
+import { csvToDataFrameWithFields } from "@dashframe/csv";
+import { trpc } from "@/lib/trpc/Provider";
+import type { NotionDatabase } from "@dashframe/notion";
+import { useMutation, useQuery } from "convex/react";
+import { useAuthToken } from "@convex-dev/auth/react";
 import { api } from "@dashframe/convex";
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  BarChart3,
-  Database,
-  FileText,
-  Plus,
-} from "@dashframe/ui";
-import { LuLoader, LuArrowRight } from "react-icons/lu";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { useState } from "react";
+import type { Id } from "@dashframe/convex/dataModel";
+import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { Card, CardContent, BarChart3, Alert, AlertDescription } from "@dashframe/ui";
+import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 
 /**
- * Home Dashboard Page
+ * Home Page
  *
- * Shows overview of data sources, insights, and visualizations.
- * Provides quick links to create and manage entities.
+ * Embeds the visualization creation flow directly on the page.
+ * Users can immediately upload CSV or connect Notion without any clicks.
  */
 export default function HomePage() {
   const router = useRouter();
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // Convex queries for counts
-  const dataSources = useQuery(api.dataSources.list);
-  const insights = useQuery(api.insights.list);
-  const visualizations = useQuery(api.visualizations.list);
+  // Notion UI state
+  const [notionApiKey, setNotionApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [notionDatabases, setNotionDatabases] = useState<NotionDatabase[]>([]);
+  const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Loading state
-  const isLoading =
-    dataSources === undefined ||
-    insights === undefined ||
-    visualizations === undefined;
+  // Auth state
+  const token = useAuthToken();
+  const isAuthenticated = token !== null;
 
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  // Convex mutations
+  const createDataSource = useMutation(api.dataSources.create);
+  const createDataTable = useMutation(api.dataTables.create);
+  const createInsight = useMutation(api.insights.create);
 
-  const stats = [
-    {
-      title: "Data Sources",
-      count: dataSources?.length ?? 0,
-      icon: Database,
-      href: "/data-sources",
-      description: "Connected data sources",
+  // Check for existing Notion source
+  const dataSources = useQuery(api.dataSources.list) ?? [];
+  const notionSource = dataSources.find((s) => s.type === "notion");
+
+  // DataFrames store
+  const createDataFrameFromCSV = useDataFramesStore((s) => s.createFromCSV);
+
+  // tRPC for Notion API
+  const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
+
+  // Handle CSV upload
+  const handleCSVUpload = useCallback(
+    async (file: File) => {
+      setError(null);
+
+      // Guard: Don't proceed if not authenticated
+      if (!isAuthenticated) {
+        setError("Session not ready. Please wait a moment and try again.");
+        return;
+      }
+
+      try {
+        // Parse CSV file
+        Papa.parse<Record<string, string>>(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results: ParseResult<Record<string, string>>) => {
+            if (results.errors.length > 0) {
+              const errorMsg = results.errors
+                .map((e: ParseError) => e.message)
+                .join(", ");
+              setError(`CSV parsing errors: ${errorMsg}`);
+              return;
+            }
+
+            if (!results.data || results.data.length === 0) {
+              setError("CSV file is empty or has no data rows");
+              return;
+            }
+
+            // Create or get "Local Files" data source
+            let sourceId: Id<"dataSources">;
+            const existingLocalSource = dataSources.find((s) => s.type === "local");
+
+            if (existingLocalSource) {
+              sourceId = existingLocalSource._id;
+            } else {
+              sourceId = await createDataSource({
+                type: "local",
+                name: "Local Files",
+              });
+            }
+
+            // Convert CSV to DataFrame with fields
+            const { dataFrame, fields } = csvToDataFrameWithFields(results.data);
+
+            // Create data table in Convex
+            const tableId = await createDataTable({
+              dataSourceId: sourceId,
+              name: file.name.replace(".csv", ""),
+              table: file.name,
+              sourceSchema: {
+                fields: fields.map((f) => ({
+                  name: f.name,
+                  type: f.type,
+                })),
+              },
+            });
+
+            // Create insight
+            const insightId = await createInsight({
+              name: `${file.name.replace(".csv", "")} Insight`,
+              baseTableId: tableId,
+              selectedFieldIds: [],
+            });
+
+            // Store DataFrame client-side
+            createDataFrameFromCSV(
+              insightId as string,
+              file.name.replace(".csv", ""),
+              dataFrame
+            );
+
+            // Navigate to insight page
+            router.push(`/insights/${insightId}`);
+          },
+          error: (error: Error) => {
+            setError(`Failed to parse CSV: ${error.message}`);
+          },
+        });
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to upload CSV"
+        );
+      }
     },
-    {
-      title: "Insights",
-      count: insights?.length ?? 0,
-      icon: FileText,
-      href: "/insights",
-      description: "Configured insights",
-    },
-    {
-      title: "Visualizations",
-      count: visualizations?.length ?? 0,
-      icon: BarChart3,
-      href: "/visualizations",
-      description: "Created visualizations",
-    },
-  ];
+    [isAuthenticated, dataSources, createDataSource, createDataTable, createInsight, createDataFrameFromCSV, router]
+  );
 
-  const hasData = (dataSources?.length ?? 0) > 0;
+  // Handle Notion connection
+  const handleConnectNotion = useCallback(async () => {
+    if (!notionApiKey) return;
+
+    setError(null);
+    setIsLoadingDatabases(true);
+
+    try {
+      const databases = await listDatabasesMutation.mutateAsync({
+        apiKey: notionApiKey,
+      });
+
+      if (!databases || databases.length === 0) {
+        setError("No databases found in your Notion workspace");
+        setIsLoadingDatabases(false);
+        return;
+      }
+
+      setNotionDatabases(databases);
+
+      // Create or update Notion data source
+      if (!notionSource) {
+        await createDataSource({
+          type: "notion",
+          name: "Notion",
+          apiKey: notionApiKey,
+        });
+      }
+
+      // For now, just show success - user will need to select database
+      // In a full flow, you'd show a database selector next
+      setError("Notion connected! Please select a database to continue.");
+      setIsLoadingDatabases(false);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to connect to Notion"
+      );
+      setIsLoadingDatabases(false);
+    }
+  }, [notionApiKey, notionSource, listDatabasesMutation, createDataSource]);
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">DashFrame</h1>
-              <p className="text-sm text-muted-foreground">
-                Build dashboards from your data
-              </p>
-            </div>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Visualization
-            </Button>
-          </div>
-        </div>
-      </header>
-
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-6 max-w-4xl space-y-8">
-          {/* Stats Grid */}
-          <div className="grid gap-4 md:grid-cols-3">
-            {stats.map((stat) => (
-              <Card
-                key={stat.title}
-                className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => router.push(stat.href)}
-              >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {stat.title}
-                  </CardTitle>
-                  <stat.icon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stat.count}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {stat.description}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+        <div className="container mx-auto px-6 py-12 max-w-3xl">
+          <Card className="text-center mb-8">
+            <CardContent className="p-8">
+              {/* Icon */}
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <BarChart3 className="h-6 w-6 text-primary" />
+              </div>
 
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              {hasData ? (
-                <>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-auto p-4"
-                    onClick={() => setIsCreateModalOpen(true)}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className="font-medium">Create visualization</span>
-                      <span className="text-xs text-muted-foreground">
-                        Build a chart from your data
-                      </span>
-                    </div>
-                    <LuArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-auto p-4"
-                    onClick={() => router.push("/visualizations")}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className="font-medium">View visualizations</span>
-                      <span className="text-xs text-muted-foreground">
-                        See all your charts
-                      </span>
-                    </div>
-                    <LuArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-auto p-4"
-                    onClick={() => setIsCreateModalOpen(true)}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className="font-medium">Upload a CSV</span>
-                      <span className="text-xs text-muted-foreground">
-                        Get started with local data
-                      </span>
-                    </div>
-                    <LuArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-auto p-4"
-                    onClick={() => setIsCreateModalOpen(true)}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className="font-medium">Connect Notion</span>
-                      <span className="text-xs text-muted-foreground">
-                        Import from Notion databases
-                      </span>
-                    </div>
-                    <LuArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </>
-              )}
+              {/* Heading */}
+              <h2 className="text-2xl font-bold mb-2">
+                Welcome to DashFrame
+              </h2>
+
+              {/* Description */}
+              <p className="text-muted-foreground text-base">
+                Create beautiful visualizations from your data.
+                Upload a CSV file or connect to Notion to get started.
+              </p>
             </CardContent>
           </Card>
 
-          {/* Getting Started (only show when no data) */}
-          {!hasData && (
-            <Card className="bg-muted/30 border-dashed">
-              <CardContent className="p-6 text-center">
-                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                  <Database className="h-6 w-6 text-primary" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">
-                  Welcome to DashFrame
-                </h3>
-                <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-                  Start by uploading a CSV file or connecting to Notion. Once you have data,
-                  you can create insights and visualizations to analyze your information.
-                </p>
-                <Button onClick={() => setIsCreateModalOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Data Source
-                </Button>
-              </CardContent>
-            </Card>
+          {/* Error Alert */}
+          {error && (
+            <Alert variant={error.includes("connected") ? "default" : "destructive"} className="mb-6">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
+
+          {/* Add Connection Panel - First Step Embedded */}
+          <AddConnectionPanel
+            onCsvSelect={handleCSVUpload}
+            csvTitle="Upload CSV File"
+            csvDescription="Upload a CSV file with headers in the first row."
+            csvHelperText="Supports .csv files up to 5MB"
+            notion={{
+              apiKey: notionApiKey,
+              showApiKey,
+              onApiKeyChange: setNotionApiKey,
+              onToggleShowApiKey: () => setShowApiKey((prev) => !prev),
+              onConnectNotion: handleConnectNotion,
+              connectButtonLabel: isLoadingDatabases ? "Connecting..." : "Connect Notion",
+              connectDisabled: !notionApiKey || isLoadingDatabases,
+            }}
+          />
         </div>
       </main>
-
-      {/* Create Modal */}
-      <CreateVisualizationModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-      />
     </div>
   );
 }

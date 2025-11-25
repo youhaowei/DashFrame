@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 /**
  * DashFrame Convex Schema
@@ -10,8 +11,16 @@ import { v } from "convex/values";
  *                      ↘ Visualization
  *
  * DataFrames are kept client-side (localStorage/IndexedDB) for performance.
+ *
+ * Auth tables are provided by @convex-dev/auth for anonymous and OAuth authentication.
  */
 export default defineSchema({
+  // =====================================================
+  // AUTH TABLES - Convex Auth (users, sessions, accounts)
+  // =====================================================
+  ...authTables,
+
+
   // =====================================================
   // DATA SOURCES - Top-level data connections
   // =====================================================

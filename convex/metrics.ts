@@ -18,8 +18,8 @@ import { auth } from "./auth";
 export const list = query({
   args: { dataTableId: v.id("dataTables") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return [];
     }
 
@@ -30,7 +30,7 @@ export const list = query({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return [];
     }
 
@@ -49,8 +49,8 @@ export const list = query({
 export const get = query({
   args: { id: v.id("metrics") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       return null;
     }
 
@@ -66,7 +66,7 @@ export const get = query({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       return null;
     }
 
@@ -96,8 +96,8 @@ export const create = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -108,7 +108,7 @@ export const create = mutation({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Data table not found");
     }
 
@@ -144,8 +144,8 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -161,7 +161,7 @@ export const update = mutation({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Metric not found");
     }
 
@@ -181,8 +181,8 @@ export const update = mutation({
 export const remove = mutation({
   args: { id: v.id("metrics") },
   handler: async (ctx, args) => {
-    const identity = await auth.getUserIdentity(ctx);
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
       throw new Error("Not authenticated");
     }
 
@@ -198,7 +198,7 @@ export const remove = mutation({
     }
 
     const dataSource = await ctx.db.get(dataTable.dataSourceId);
-    if (!dataSource || dataSource.userId !== identity.subject) {
+    if (!dataSource || dataSource.userId !== userId) {
       throw new Error("Metric not found");
     }
 
