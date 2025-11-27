@@ -2,28 +2,29 @@
 
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id } from "@dashframe/convex/dataModel";
 import {
   Button,
   Input,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-  Badge,
+  Toggle,
 } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader } from "react-icons/lu";
+import { LuArrowLeft, LuLoader, LuSettings, LuEye } from "react-icons/lu";
 import { InsightConfigureTab } from "@/components/insights/InsightConfigureTab";
 import { InsightPreviewTab } from "@/components/insights/InsightPreviewTab";
+import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
+import { computeInsightPreview } from "@/lib/insights/compute-preview";
+import type { PreviewResult } from "@/lib/insights/compute-preview";
 
 interface PageProps {
   params: Promise<{ insightId: string }>;
 }
 
 /**
- * Adaptive Insight Page
+ * Adaptive Insight Page (Local-only)
  *
  * This page adapts based on the insight's configuration state:
  * - Unconfigured (draft): Shows data preview + chart suggestions + join action
@@ -33,27 +34,27 @@ export default function InsightPage({ params }: PageProps) {
   const { insightId } = use(params);
   const router = useRouter();
 
-  // Convex queries
-  const insight = useQuery(api.insights.get, { id: insightId as Id<"insights"> });
-  const dataTableWithFields = useQuery(
-    api.dataTables.getWithFieldsAndMetrics,
-    insight ? { id: insight.baseTableId } : "skip"
+  // Get data from local stores with hydration-aware hook
+  const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
+    useInsightsStore,
+    (s) => s.getInsight(insightId),
   );
-  const dataSource = useQuery(
-    api.dataSources.get,
-    dataTableWithFields?.dataTable ? { id: dataTableWithFields.dataTable.dataSourceId } : "skip"
+  const updateInsightName = useInsightsStore((s) => s.updateInsight);
+  const { data: dataSources, isLoading: isSourcesLoading } = useStoreQuery(
+    useDataSourcesStore,
+    (s) => s.getAll(),
   );
-  const visualizations = useQuery(
-    api.visualizations.getByInsight,
-    { insightId: insightId as Id<"insights"> }
-  );
-  const insightMetrics = useQuery(
-    api.insights.getWithMetrics,
-    { id: insightId as Id<"insights"> }
+  const { data: allVisualizations, isLoading: isVizLoading } = useStoreQuery(
+    useVisualizationsStore,
+    (s) => s.getAll(),
   );
 
-  // Convex mutations
-  const updateInsight = useMutation(api.insights.update);
+  // Filter visualizations to only those using this insight
+  const visualizations = useMemo(() => {
+    return allVisualizations.filter(
+      (viz: any) => viz.source.insightId === insightId,
+    );
+  }, [allVisualizations, insightId]);
 
   // Local state
   const [insightName, setInsightName] = useState("");
@@ -66,62 +67,112 @@ export default function InsightPage({ params }: PageProps) {
     }
   }, [insight?.name]);
 
+  // Find data source and table
+  const dataTableInfo = useMemo(() => {
+    if (!insight) return null;
+
+    const tableId = insight.baseTable?.tableId;
+    if (!tableId) return null;
+
+    // Find the table in all data sources
+    for (const source of dataSources) {
+      const table = source.dataTables.get(tableId);
+      if (table) {
+        return {
+          dataSource: source,
+          dataTable: table,
+          fields: table.fields,
+          metrics: table.metrics,
+        };
+      }
+    }
+
+    return null;
+  }, [insight, dataSources]);
+
   // Determine if insight is configured
   const isConfigured = useMemo(() => {
     if (!insight) return false;
-    return insight.selectedFieldIds.length > 0;
+    return (insight.baseTable?.selectedFields?.length ?? 0) > 0;
   }, [insight]);
 
-  // Determine status badge
-  const statusBadge = useMemo(() => {
-    const vizCount = visualizations?.length ?? 0;
-    if (vizCount > 0) {
-      return { label: "With visualizations", variant: "default" as const };
-    }
-    if (isConfigured) {
-      return { label: "Configured", variant: "secondary" as const };
-    }
-    return { label: "Draft", variant: "outline" as const };
-  }, [isConfigured, visualizations]);
+  // Get DataFrame store
+  const getDataFrame = useDataFramesStore((s) => s.get);
 
-  // Get data source type label
-  const dataSourceTypeLabel = useMemo(() => {
-    if (!dataSource?.type) return "unknown source";
-    switch (dataSource.type) {
-      case "notion":
-        return "Notion database";
-      case "local":
-        return "Uploaded CSV";
-      case "postgresql":
-        return "PostgreSQL source";
-      default:
-        return "unknown source";
+  // Compute selected fields for preview
+  const selectedFields = useMemo(() => {
+    if (!dataTableInfo) return [];
+    return dataTableInfo.fields.filter(
+      (f: any) =>
+        insight?.baseTable?.selectedFields?.includes(f.id) && !f.name.startsWith("_")
+    );
+  }, [dataTableInfo, insight?.baseTable?.selectedFields]);
+
+  // Compute aggregated preview for configured insights
+  const aggregatedPreview = useMemo<PreviewResult | null>(() => {
+    if (!isConfigured || !insight || !dataTableInfo) return null;
+    const { dataTable, fields } = dataTableInfo;
+    if (!dataTable?.dataFrameId) return null;
+
+    const sourceDataFrameEnhanced = getDataFrame(dataTable.dataFrameId);
+    if (!sourceDataFrameEnhanced) return null;
+
+    try {
+      const insightForCompute = {
+        id: insightId,
+        name: insight.name,
+        baseTable: {
+          tableId: dataTable.id,
+          selectedFields: insight.baseTable?.selectedFields || [],
+        },
+        metrics: (insight.metrics || []).map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          sourceTable: m.sourceTable,
+          columnName: m.columnName,
+          aggregation: m.aggregation,
+        })),
+        filters: insight.filters,
+        createdAt: insight.createdAt,
+        updatedAt: insight.updatedAt,
+      };
+
+      const dataTableForCompute = {
+        id: dataTable.id,
+        name: dataTable.name,
+        table: dataTable.table,
+        dataFrameId: dataTable.dataFrameId,
+        fields: fields.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          columnName: f.columnName,
+          type: f.type,
+        })),
+      };
+
+      return computeInsightPreview(
+        insightForCompute as any,
+        dataTableForCompute as any,
+        sourceDataFrameEnhanced.data
+      );
+    } catch (error) {
+      console.error("Failed to compute preview:", error);
+      return null;
     }
-  }, [dataSource]);
+  }, [isConfigured, insight, insightId, dataTableInfo, getDataFrame]);
 
   // Handle name change
-  const handleNameChange = async (newName: string) => {
+  const handleNameChange = (newName: string) => {
     setInsightName(newName);
-    await updateInsight({
-      id: insightId as Id<"insights">,
-      name: newName,
-    });
+    updateInsightName(insightId, { name: newName });
   };
 
-  // Extract data from the combined query
-  const dataTable = dataTableWithFields?.dataTable ?? null;
-  const fields = dataTableWithFields?.fields ?? [];
-  const tableMetrics = dataTableWithFields?.metrics ?? [];
-  const insightMetricsList = insightMetrics?.metrics ?? [];
+  const isLoading = isInsightLoading || isSourcesLoading || isVizLoading;
 
-  // Loading state - THIS FIXES THE HYDRATION ISSUE!
-  if (
-    insight === undefined ||
-    dataTableWithFields === undefined ||
-    dataSource === undefined ||
-    visualizations === undefined ||
-    insightMetrics === undefined
-  ) {
+  // Loading state during SSR/hydration
+  // Wait for ALL stores to hydrate before rendering to avoid race conditions
+  // where insight loads faster than data sources
+  if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -132,8 +183,8 @@ export default function InsightPage({ params }: PageProps) {
     );
   }
 
-  // Error states (null means not found, undefined means loading)
-  if (insight === null) {
+  // Insight not found
+  if (!insight) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
@@ -149,7 +200,8 @@ export default function InsightPage({ params }: PageProps) {
     );
   }
 
-  if (dataTableWithFields === null || dataTable === null) {
+  // Data table not found
+  if (!dataTableInfo) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
@@ -165,10 +217,11 @@ export default function InsightPage({ params }: PageProps) {
     );
   }
 
+  const { dataSource, dataTable, fields, metrics } = dataTableInfo;
+
   return (
-    <div className="flex h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+    <WorkbenchLayout
+      header={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
             <Button
@@ -187,74 +240,59 @@ export default function InsightPage({ params }: PageProps) {
                 className="w-full"
               />
             </div>
-            <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span>{dataTable.name}</span>
-            <span>•</span>
-            <span>{dataSourceTypeLabel}</span>
-            {visualizations.length > 0 && (
-              <>
-                <span>•</span>
-                <span>
-                  {visualizations.length} visualization
-                  {visualizations.length !== 1 ? "s" : ""}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Tabs */}
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex-1 flex flex-col overflow-hidden"
-      >
-        <div className="border-b bg-card">
-          <div className="container mx-auto px-6">
-            <TabsList className="h-12">
-              <TabsTrigger value="configure" className="px-6">
-                Configure
-              </TabsTrigger>
-              <TabsTrigger
-                value="preview"
-                className="px-6"
-                disabled={!isConfigured && visualizations.length === 0}
-              >
-                Preview
-                {visualizations.length > 0 && (
-                  <Badge variant="secondary" className="ml-2 h-5 px-1.5">
-                    {visualizations.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+            <Toggle
+              value={activeTab}
+              onValueChange={setActiveTab}
+              options={[
+                {
+                  value: "configure",
+                  icon: <LuSettings />,
+                  label: "Configure",
+                },
+                {
+                  value: "preview",
+                  icon: <LuEye />,
+                  label: "Preview",
+                  badge: visualizations.length > 0 ? visualizations.length : undefined,
+                  disabled: !isConfigured && visualizations.length === 0,
+                },
+              ]}
+            />
           </div>
         </div>
+      }
+      childrenClassName="overflow-hidden flex flex-col"
+    >
+      {/* Tab Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {activeTab === "configure" && (
+          <div className="flex-1 overflow-y-auto">
+            <InsightConfigureTab
+              insightId={insightId as any}
+              insight={insight as any}
+              dataTable={dataTable as any}
+              fields={fields as any}
+              tableMetrics={metrics as any}
+              insightMetrics={insight.metrics as any}
+              dataSource={dataSource as any}
+              isConfigured={isConfigured}
+            />
+          </div>
+        )}
 
-        <TabsContent value="configure" className="flex-1 overflow-hidden mt-0">
-          <InsightConfigureTab
-            insightId={insightId as Id<"insights">}
-            insight={insight}
-            dataTable={dataTable}
-            fields={fields}
-            tableMetrics={tableMetrics}
-            insightMetrics={insightMetricsList}
-            dataSource={dataSource}
-            isConfigured={isConfigured}
-          />
-        </TabsContent>
-
-        <TabsContent value="preview" className="flex-1 overflow-hidden mt-0">
-          <InsightPreviewTab
-            insightId={insightId as Id<"insights">}
-            insight={insight}
-            visualizations={visualizations}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
+        {activeTab === "preview" && (
+          <div className="flex-1 overflow-y-auto">
+            <InsightPreviewTab
+              insightId={insightId as any}
+              insight={insight as any}
+              visualizations={visualizations as any}
+              aggregatedPreview={aggregatedPreview}
+              selectedFields={selectedFields}
+              metrics={insight.metrics || []}
+            />
+          </div>
+        )}
+      </div>
+    </WorkbenchLayout>
   );
 }

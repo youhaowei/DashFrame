@@ -16,7 +16,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     name: "Visualizations",
-    href: "/",
+    href: "/visualizations",
     description: "Create, edit, and view visualizations",
     icon: LayoutDashboard,
   },
@@ -221,7 +221,7 @@ export function Navigation() {
       <button
         type="button"
         onClick={() => setIsHidden((prev) => !prev)}
-        className="border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground fixed top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-sm transition-all duration-300 lg:flex"
+        className="border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-sm transition-all duration-300 lg:flex"
         style={{
           left: handleLeft,
           height: "3rem",

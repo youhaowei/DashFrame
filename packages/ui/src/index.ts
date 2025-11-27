@@ -16,7 +16,13 @@ export {
   CardDescription,
   CardContent,
   CardFooter,
+  type CardProps,
 } from "./primitives/card";
+export {
+  ItemCard,
+  ClickableItemCard,
+  type ItemCardProps,
+} from "./primitives/item-card";
 export { Checkbox } from "./primitives/checkbox";
 export {
   Collapsible,
@@ -52,6 +58,15 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
 } from "./primitives/dropdown-menu";
+export {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+  BreadcrumbEllipsis,
+} from "./primitives/breadcrumb";
 export { Field, FieldLabel, FieldDescription } from "./primitives/field";
 export { Input } from "./primitives/input";
 export { Label } from "./primitives/label";
@@ -108,7 +123,6 @@ export {
   type ItemAction,
 } from "./components/ActionButton";
 export { ActionGroup, type ActionGroupProps } from "./components/ActionGroup";
-export { Card as CustomCard } from "./components/Card";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";
 export { Container } from "./components/Container";
@@ -127,6 +141,22 @@ export {
   type DataFrameTableProps,
   type ColumnConfig,
 } from "./components/DataFrameTable";
+export {
+  SectionList,
+  type SectionListProps,
+} from "./components/SectionList";
+export {
+  ItemList,
+  type ItemListProps,
+  type ListItem,
+} from "./components/ItemList";
+export {
+  JoinTypeIcon,
+  getJoinTypeLabel,
+  getJoinTypeDescription,
+  type JoinTypeIconProps,
+  type JoinType,
+} from "./components/JoinTypeIcon";
 
 // Field Wrappers (primitives + Field component)
 export { Input as InputField } from "./fields/input";

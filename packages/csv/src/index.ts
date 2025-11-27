@@ -149,7 +149,8 @@ export function csvToDataFrameWithFields(
       name: "_rowIndex",
       tableId: dataTableId,
       columnName: undefined,  // Computed field
-      type: "number"
+      type: "number",
+      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
     },
     // User fields from source
     ...columns.map(col => ({

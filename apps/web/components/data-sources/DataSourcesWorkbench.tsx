@@ -9,7 +9,8 @@ import { DataSourceTree } from "./DataSourceTree";
 import { TableDetailPanel } from "./TableDetailPanel";
 import { FieldEditorModal } from "./FieldEditorModal";
 import { MetricEditorModal } from "./MetricEditorModal";
-import { NewDataSourcePanel } from "./NewDataSourcePanel";
+import { AddConnectionPanel } from "./AddConnectionPanel";
+import { useCSVUpload } from "@/hooks/useCSVUpload";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Button } from "@dashframe/ui";
 import { toast } from "sonner";
 import type { Field, Metric } from "@dashframe/dataframe";
@@ -17,6 +18,7 @@ import type { Field, Metric } from "@dashframe/dataframe";
 export function DataSourcesWorkbench() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
 
   // Store hooks
   const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
@@ -189,12 +191,14 @@ export function DataSourcesWorkbench() {
   return (
     <>
       <WorkbenchLayout
-        selector={
-          <DataSourceSelector
-            selectedId={selectedDataSourceId}
-            onSelect={setSelectedDataSourceId}
-            onCreateClick={() => setIsCreateDialogOpen(true)}
-          />
+        header={
+          <div className="p-4">
+            <DataSourceSelector
+              selectedId={selectedDataSourceId}
+              onSelect={setSelectedDataSourceId}
+              onCreateClick={() => setIsCreateDialogOpen(true)}
+            />
+          </div>
         }
         leftPanel={
           selectedDataSourceId ? (
@@ -207,25 +211,43 @@ export function DataSourcesWorkbench() {
           ) : null
         }
       >
-        <TableDetailPanel
-          dataTable={selectedDataTable}
-          dataFrame={selectedDataFrame}
-          onCreateVisualization={handleCreateVisualization}
-          onEditField={handleEditField}
-          onDeleteField={handleDeleteField}
-          onAddField={handleAddField}
-          onAddMetric={() => setMetricEditorOpen(true)}
-          onDeleteMetric={handleDeleteMetric}
-        />
+        <div className="h-full overflow-hidden">
+          <TableDetailPanel
+            dataTable={selectedDataTable}
+            dataFrame={selectedDataFrame}
+            onCreateVisualization={handleCreateVisualization}
+            onEditField={handleEditField}
+            onDeleteField={handleDeleteField}
+            onAddField={handleAddField}
+            onAddMetric={() => setMetricEditorOpen(true)}
+            onDeleteMetric={handleDeleteMetric}
+            onDeleteTable={() => selectedTableId && handleDeleteTable(selectedTableId)}
+          />
+        </div>
       </WorkbenchLayout>
 
       {/* New Data Source Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="max-w-3xl overflow-hidden">
+      <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
+        setIsCreateDialogOpen(open);
+        if (!open) clearError();
+      }}>
+        <DialogContent className="max-w-2xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add data source</DialogTitle>
           </DialogHeader>
-          <NewDataSourcePanel />
+          <AddConnectionPanel
+            error={csvError}
+            onCsvSelect={(file) => {
+              handleCSVUpload(file, (tableId, sourceId) => {
+                setIsCreateDialogOpen(false);
+                setSelectedDataSourceId(sourceId);
+                setSelectedTableId(tableId);
+                toast.success(`Uploaded ${file.name}`);
+              });
+            }}
+            csvDescription="Upload a CSV file with headers in the first row."
+            csvHelperText="Supports .csv files up to 5MB"
+          />
         </DialogContent>
       </Dialog>
 

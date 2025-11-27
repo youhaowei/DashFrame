@@ -18,11 +18,20 @@ import { useInsightsStore } from "@/lib/stores/insights-store";
  */
 export function StoreHydration({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    // Trigger hydration for all persisted stores on the client
-    useDataSourcesStore.persist.rehydrate();
-    useDataFramesStore.persist.rehydrate();
-    useVisualizationsStore.persist.rehydrate();
-    useInsightsStore.persist.rehydrate();
+    // Trigger hydration for all persisted stores on the client, but only once
+    const stores = [
+      useDataSourcesStore,
+      useDataFramesStore,
+      useVisualizationsStore,
+      useInsightsStore,
+    ];
+
+    stores.forEach((store) => {
+      // Safe check for persist API availability
+      if (store.persist && !store.persist.hasHydrated?.()) {
+        store.persist.rehydrate?.();
+      }
+    });
   }, []);
 
   // Render children immediately - stores will be empty initially,

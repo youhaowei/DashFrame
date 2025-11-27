@@ -2,9 +2,6 @@
 
 import { use, useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id, Doc } from "@dashframe/convex/dataModel";
 import type { TopLevelSpec } from "vega-lite";
 import {
   Button,
@@ -20,14 +17,17 @@ import {
   Layers,
   Trash2,
   SelectField,
-  FieldLabel,
 } from "@dashframe/ui";
 import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VegaChart } from "@/components/visualizations/VegaChart";
 import { DataFrameTable } from "@dashframe/ui";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
+import type { EnhancedDataFrame, UUID } from "@dashframe/dataframe";
+import type { Visualization } from "@/lib/stores/types";
+import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
@@ -76,8 +76,10 @@ function getVegaThemeConfig() {
 }
 
 // Build Vega-Lite spec from visualization and dataframe
+// NOTE: The dataframe should already contain pre-computed/aggregated data.
+// The visualization just renders what's in the dataframe.
 function buildVegaSpec(
-  viz: Doc<"visualizations">,
+  viz: Visualization,
   dataFrame: EnhancedDataFrame
 ): TopLevelSpec {
   const { visualizationType, encoding } = viz;
@@ -91,13 +93,10 @@ function buildVegaSpec(
     config: getVegaThemeConfig(),
   };
 
-  // If no encoding is set, use defaults
+  // Get field names from encoding or fall back to dataframe columns
   const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
-  const y =
-    encoding?.y ||
-    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns?.[1]?.name ||
-    "y";
+  const y = encoding?.y || dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
+            dataFrame.data.columns?.[1]?.name || "y";
 
   switch (visualizationType) {
     case "bar":
@@ -197,22 +196,21 @@ export default function VisualizationPage({ params }: PageProps) {
   const { visualizationId } = use(params);
   const router = useRouter();
 
-  // Convex queries
-  const visualization = useQuery(api.visualizations.get, {
-    id: visualizationId as Id<"visualizations">,
-  });
-  const insight = useQuery(
-    api.insights.get,
-    visualization?.insightId ? { id: visualization.insightId } : "skip"
+  // Local stores with hydration awareness
+  const { data: visualization, isLoading: isVizLoading } = useStoreQuery(
+    useVisualizationsStore,
+    (s) => s.get(visualizationId as UUID)
+  );
+  const updateVisualizationLocal = useVisualizationsStore((state) => state.update);
+  const updateEncodingLocal = useVisualizationsStore((state) => state.updateEncoding);
+  const removeVisualizationLocal = useVisualizationsStore((state) => state.remove);
+
+  const { data: getDataFrame, isLoading: isDfLoading } = useStoreQuery(
+    useDataFramesStore,
+    (s) => s.get
   );
 
-  // Convex mutations
-  const updateVisualization = useMutation(api.visualizations.update);
-  const updateEncoding = useMutation(api.visualizations.updateEncoding);
-  const removeVisualization = useMutation(api.visualizations.remove);
-
-  // DataFrames store (client-side cached data)
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  const isLoading = isVizLoading || isDfLoading;
 
   // Local state
   const [vizName, setVizName] = useState("");
@@ -221,7 +219,6 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Refs for layout calculation
   const containerRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
 
   // Sync visualization name when data loads
   useEffect(() => {
@@ -232,17 +229,16 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Watch container size for "Show Both" mode availability
   useEffect(() => {
-    if (!containerRef.current || !headerRef.current) return;
+    if (!containerRef.current) return;
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const containerHeight = entry.contentRect.height;
-        const headerHeight = headerRef.current?.offsetHeight || 100;
+        // No header height needed as we are measuring the content area directly
         const chartHeight = 400;
         const spacing = 60;
 
-        const availableForTable =
-          containerHeight - headerHeight - chartHeight - spacing;
+        const availableForTable = containerHeight - chartHeight - spacing;
         const rowHeight = 30;
         const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
 
@@ -252,13 +248,13 @@ export default function VisualizationPage({ params }: PageProps) {
 
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [visualization?._id]);
+  }, [visualization?.id]);
 
   // Get DataFrame from client-side store
   const dataFrame = useMemo(() => {
-    if (!visualization?.dataFrameId) return null;
-    return getDataFrame(visualization.dataFrameId);
-  }, [visualization?.dataFrameId, getDataFrame]);
+    if (!visualization?.source.dataFrameId) return null;
+    return getDataFrame(visualization.source.dataFrameId);
+  }, [visualization?.source.dataFrameId, getDataFrame]);
 
   // Build Vega spec
   const vegaSpec = useMemo(() => {
@@ -301,17 +297,14 @@ export default function VisualizationPage({ params }: PageProps) {
     previousStateRef.current = { canShowBoth, activeTab };
   }, [canShowBoth, activeTab]);
 
-  // Handle name change
-  const handleNameChange = async (newName: string) => {
+  // Handle name change (LOCAL ONLY)
+  const handleNameChange = (newName: string) => {
     setVizName(newName);
-    await updateVisualization({
-      id: visualizationId as Id<"visualizations">,
-      name: newName,
-    });
+    updateVisualizationLocal(visualizationId as UUID, { name: newName });
   };
 
-  // Handle encoding change
-  const handleEncodingChange = async (
+  // Handle encoding change (LOCAL ONLY)
+  const handleEncodingChange = (
     field: "x" | "y" | "color" | "size",
     value: string
   ) => {
@@ -336,51 +329,43 @@ export default function VisualizationPage({ params }: PageProps) {
       }
     }
 
-    await updateEncoding({
-      id: visualizationId as Id<"visualizations">,
-      encoding: newEncoding as any,
-    });
+    updateEncodingLocal(visualizationId as UUID, newEncoding);
   };
 
-  // Handle visualization type change
-  const handleTypeChange = async (type: string) => {
-    await updateVisualization({
-      id: visualizationId as Id<"visualizations">,
+  // Handle visualization type change (LOCAL ONLY)
+  const handleTypeChange = (type: string) => {
+    updateVisualizationLocal(visualizationId as UUID, {
       visualizationType: type as any,
     });
   };
 
-  // Handle delete
-  const handleDelete = async () => {
+  // Handle delete (LOCAL ONLY)
+  const handleDelete = () => {
     if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      await removeVisualization({
-        id: visualizationId as Id<"visualizations">,
-      });
+      removeVisualizationLocal(visualizationId as UUID);
       router.push("/insights"); // Navigate back after delete
     }
   };
 
-  // Loading state
-  if (visualization === undefined) {
+  // Loading state - wait for all stores to hydrate before rendering
+  if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Loading visualization...
-          </p>
+          <p className="text-sm text-muted-foreground">Loading visualization...</p>
         </div>
       </div>
     );
   }
 
-  // Not found state
-  if (visualization === null) {
+  // Not found state (local store returns undefined if not found)
+  if (!visualization) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-2 text-sm">
             The visualization you're looking for doesn't exist.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
@@ -394,8 +379,8 @@ export default function VisualizationPage({ params }: PageProps) {
   // No DataFrame state (data not cached locally)
   if (!dataFrame) {
     return (
-      <div className="flex h-screen flex-col bg-background">
-        <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <WorkbenchLayout
+        header={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
               <Button
@@ -403,37 +388,39 @@ export default function VisualizationPage({ params }: PageProps) {
                 size="sm"
                 onClick={() => router.back()}
               >
-                <LuArrowLeft className="h-4 w-4 mr-2" />
+                <LuArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
             </div>
           </div>
-        </header>
-        <div className="flex-1 flex items-center justify-center">
-          <Card className="max-w-md">
-            <CardContent className="p-6 text-center">
-              <div className="h-12 w-12 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                {getVizIcon(visualization.visualizationType)}
-              </div>
-              <h3 className="text-lg font-semibold mb-2">Data not available</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                The data for this visualization is not cached locally. Please
-                refresh from the source insight.
-              </p>
-              {visualization.insightId && (
-                <Button
-                  onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
-                  }
-                >
-                  Go to Source Insight
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        }
+        children={
+          <div className="flex flex-1 items-center justify-center p-6">
+            <Card className="max-w-md">
+              <CardContent className="p-6 text-center">
+                <div className="bg-amber-100 dark:bg-amber-900/30 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
+                  {getVizIcon(visualization.visualizationType)}
+                </div>
+                <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
+                <p className="text-muted-foreground mb-4 text-sm">
+                  The data for this visualization is not cached locally. Please
+                  refresh from the source insight.
+                </p>
+                {visualization.source.insightId && (
+                  <Button
+                    onClick={() =>
+                      router.push(`/insights/${visualization.source.insightId}`)
+                    }
+                  >
+                    Go to Source Insight
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        }
+      />
     );
   }
 
@@ -452,12 +439,8 @@ export default function VisualizationPage({ params }: PageProps) {
     : [{ label: "Table", value: "table" }];
 
   return (
-    <div ref={containerRef} className="flex h-screen flex-col bg-background">
-      {/* Header */}
-      <header
-        ref={headerRef}
-        className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm"
-      >
+    <WorkbenchLayout
+      header={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
             <Button
@@ -465,10 +448,10 @@ export default function VisualizationPage({ params }: PageProps) {
               size="sm"
               onClick={() => router.back()}
             >
-              <LuArrowLeft className="h-4 w-4 mr-2" />
+              <LuArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
-            <div className="flex-1 min-w-[220px]">
+            <div className="min-w-[220px] flex-1">
               <Input
                 value={vizName}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -480,19 +463,19 @@ export default function VisualizationPage({ params }: PageProps) {
           </div>
 
           {/* Metadata row */}
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-3 text-xs">
             <span>
               {dataFrame.metadata.rowCount.toLocaleString()} rows •{" "}
               {dataFrame.metadata.columnCount} columns
             </span>
-            {insight && (
+            {visualization.source.insightId && (
               <>
                 <span>•</span>
                 <button
-                  onClick={() => router.push(`/insights/${insight._id}`)}
+                  onClick={() => router.push(`/insights/${visualization.source.insightId}`)}
                   className="text-primary hover:underline"
                 >
-                  From: {insight.name}
+                  From insight
                 </button>
               </>
             )}
@@ -534,128 +517,122 @@ export default function VisualizationPage({ params }: PageProps) {
                 className="text-destructive hover:text-destructive"
                 onClick={handleDelete}
               >
-                <Trash2 className="h-4 w-4 mr-1" />
+                <Trash2 className="mr-1 h-4 w-4" />
                 Delete
               </Button>
             </div>
           )}
         </div>
-      </header>
+      }
+      rightPanel={
+        visualization.visualizationType !== "table" ? (
+          <div className="space-y-4 p-4">
+            <div>
+              <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
 
-      {/* Content area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Main chart/table display */}
-        <div className="flex-1 overflow-auto">
-          {visualization.visualizationType === "table" ? (
-            <div className="h-full p-6">
-              <Surface elevation="inset" className="h-full p-4">
-                <DataFrameTable dataFrame={dataFrame.data} />
-              </Surface>
+              <div className="space-y-3">
+                <SelectField
+                  label="X Axis"
+                  value={visualization.encoding?.x || ""}
+                  onChange={(value) => handleEncodingChange("x", value)}
+                  options={columnOptions}
+                  placeholder="Select column..."
+                />
+
+                <SelectField
+                  label="Y Axis"
+                  value={visualization.encoding?.y || ""}
+                  onChange={(value) => handleEncodingChange("y", value)}
+                  options={columnOptions}
+                  placeholder="Select column..."
+                />
+
+                <SelectField
+                  label="Color (optional)"
+                  value={visualization.encoding?.color || ""}
+                  onChange={(value) => handleEncodingChange("color", value)}
+                  onClear={() => handleEncodingChange("color", "")}
+                  options={columnOptions}
+                  placeholder="None"
+                />
+
+                {visualization.visualizationType === "scatter" && (
+                  <SelectField
+                    label="Size (optional)"
+                    value={visualization.encoding?.size || ""}
+                    onChange={(value) => handleEncodingChange("size", value)}
+                    onClear={() => handleEncodingChange("size", "")}
+                    options={columnOptions}
+                    placeholder="None"
+                  />
+                )}
+              </div>
             </div>
-          ) : activeTab === "chart" ? (
-            <div className="h-full p-6">
+
+            <div className="border-t pt-4">
+              <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
+              <SelectField
+                label=""
+                value={visualization.visualizationType}
+                onChange={handleTypeChange}
+                options={vizTypeOptions}
+              />
+            </div>
+
+            {/* Source insight link */}
+            {visualization.source.insightId && (
+              <div className="border-t pt-4">
+                <h3 className="mb-2 text-sm font-semibold">Source</h3>
+                <Card
+                  className="cursor-pointer transition-colors hover:bg-muted/50"
+                  onClick={() => router.push(`/insights/${visualization.source.insightId}`)}
+                >
+                  <CardContent className="p-3">
+                    <p className="truncate text-sm font-medium">
+                      Source Insight
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Click to view insight details
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
+        ) : undefined
+      }
+    >
+      <div ref={containerRef} className="h-full overflow-hidden">
+        {visualization.visualizationType === "table" ? (
+          <div className="h-full p-6">
+            <Surface elevation="inset" className="h-full p-4">
+              <DataFrameTable dataFrame={dataFrame.data} />
+            </Surface>
+          </div>
+        ) : activeTab === "chart" ? (
+          <div className="h-full p-6">
+            <VegaChart spec={vegaSpec!} />
+          </div>
+        ) : activeTab === "table" ? (
+          <div className="h-full p-6">
+            <Surface elevation="inset" className="h-full">
+              <DataFrameTable dataFrame={dataFrame.data} />
+            </Surface>
+          </div>
+        ) : (
+          // Both view
+          <div className="flex h-full flex-col gap-4 p-6">
+            <div className="shrink-0">
               <VegaChart spec={vegaSpec!} />
             </div>
-          ) : activeTab === "table" ? (
-            <div className="h-full p-6">
+            <div className="min-h-0 flex-1">
               <Surface elevation="inset" className="h-full">
                 <DataFrameTable dataFrame={dataFrame.data} />
               </Surface>
             </div>
-          ) : (
-            // Both view
-            <div className="flex h-full flex-col p-6 gap-4">
-              <div className="shrink-0">
-                <VegaChart spec={vegaSpec!} />
-              </div>
-              <div className="min-h-0 flex-1">
-                <Surface elevation="inset" className="h-full">
-                  <DataFrameTable dataFrame={dataFrame.data} />
-                </Surface>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar controls (only for chart types) */}
-        {visualization.visualizationType !== "table" && (
-          <aside className="w-72 border-l bg-card overflow-y-auto">
-            <div className="p-4 space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Encodings</h3>
-
-                <div className="space-y-3">
-                  <SelectField
-                    label="X Axis"
-                    value={visualization.encoding?.x || ""}
-                    onChange={(value) => handleEncodingChange("x", value)}
-                    options={columnOptions}
-                    placeholder="Select column..."
-                  />
-
-                  <SelectField
-                    label="Y Axis"
-                    value={visualization.encoding?.y || ""}
-                    onChange={(value) => handleEncodingChange("y", value)}
-                    options={columnOptions}
-                    placeholder="Select column..."
-                  />
-
-                  <SelectField
-                    label="Color (optional)"
-                    value={visualization.encoding?.color || ""}
-                    onChange={(value) => handleEncodingChange("color", value)}
-                    onClear={() => handleEncodingChange("color", "")}
-                    options={columnOptions}
-                    placeholder="None"
-                  />
-
-                  {visualization.visualizationType === "scatter" && (
-                    <SelectField
-                      label="Size (optional)"
-                      value={visualization.encoding?.size || ""}
-                      onChange={(value) => handleEncodingChange("size", value)}
-                      onClear={() => handleEncodingChange("size", "")}
-                      options={columnOptions}
-                      placeholder="None"
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h3 className="text-sm font-semibold mb-3">Chart Type</h3>
-                <SelectField
-                  label=""
-                  value={visualization.visualizationType}
-                  onChange={handleTypeChange}
-                  options={vizTypeOptions}
-                />
-              </div>
-
-              {/* Source insight link */}
-              {insight && (
-                <div className="border-t pt-4">
-                  <h3 className="text-sm font-semibold mb-2">Source</h3>
-                  <Card
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => router.push(`/insights/${insight._id}`)}
-                  >
-                    <CardContent className="p-3">
-                      <p className="text-sm font-medium truncate">
-                        {insight.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {insight.selectedFieldIds.length} fields selected
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-            </div>
-          </aside>
+          </div>
         )}
       </div>
-    </div>
+    </WorkbenchLayout>
   );
 }

@@ -12,6 +12,7 @@ import type { Insight, InsightExecutionType, InsightMetric } from "./types";
 
 interface InsightsState {
   insights: Map<UUID, Insight>;
+  _cachedInsights: Insight[]; // Cached array for stable references
 }
 
 interface InsightsActions {
@@ -70,14 +71,18 @@ const storage = createJSONStorage<InsightsState>(() => localStorage, {
       "insights" in value &&
       Array.isArray(value.insights)
     ) {
+      const insightsMap = new Map(value.insights as [UUID, Insight][]);
       return {
         ...value,
-        insights: new Map(value.insights as [UUID, Insight][]),
+        insights: insightsMap,
+        _cachedInsights: Array.from(insightsMap.values()), // Recreate cache
       };
     }
     return value;
   },
   replacer: (_key, value) => {
+    // Skip cached array (it's derived from the Map)
+    if (_key === "_cachedInsights") return undefined;
     // Convert Maps to arrays for JSON serialization
     if (value instanceof Map) {
       return Array.from(value.entries());
@@ -85,6 +90,36 @@ const storage = createJSONStorage<InsightsState>(() => localStorage, {
     return value;
   },
 });
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Generate unique name with (N) suffix if duplicates exist
+ *
+ * @param baseName - The base name to check for duplicates
+ * @param existingNames - Set of existing insight names
+ * @returns Unique name (e.g., "Sales", "Sales (2)", "Sales (3)")
+ */
+function generateUniqueName(
+  baseName: string,
+  existingNames: Set<string>,
+): string {
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+
+  let counter = 2;
+  let candidateName = `${baseName} (${counter})`;
+
+  while (existingNames.has(candidateName)) {
+    counter++;
+    candidateName = `${baseName} (${counter})`;
+  }
+
+  return candidateName;
+}
 
 // ============================================================================
 // Store Implementation
@@ -95,15 +130,22 @@ export const useInsightsStore = create<InsightsStore>()(
     immer((set, get) => ({
       // Initial state
       insights: new Map(),
+      _cachedInsights: [],
 
       // Create draft Insight (new API)
       createDraft: (tableId, tableName, fieldIds) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 
+        // Get existing insight names for deduplication
+        const existingNames = new Set(
+          Array.from(get().insights.values()).map((i) => i.name),
+        );
+        const uniqueName = generateUniqueName(tableName, existingNames);
+
         const insight: Insight = {
           id,
-          name: tableName,
+          name: uniqueName,
           baseTable: {
             tableId,
             selectedFields: [], // Start unconfigured to show preview + suggestions
@@ -115,6 +157,7 @@ export const useInsightsStore = create<InsightsStore>()(
 
         set((state) => {
           state.insights.set(id, insight);
+          state._cachedInsights = Array.from(state.insights.values());
         });
 
         return id;
@@ -176,6 +219,7 @@ export const useInsightsStore = create<InsightsStore>()(
 
         set((state) => {
           state.insights.set(forkId, fork);
+          state._cachedInsights = Array.from(state.insights.values());
         });
 
         return forkId;
@@ -239,6 +283,7 @@ export const useInsightsStore = create<InsightsStore>()(
 
         set((state) => {
           state.insights.set(id, insight);
+          state._cachedInsights = Array.from(state.insights.values());
         });
 
         return id;
@@ -268,6 +313,7 @@ export const useInsightsStore = create<InsightsStore>()(
       removeInsight: (insightId) => {
         set((state) => {
           state.insights.delete(insightId);
+          state._cachedInsights = Array.from(state.insights.values());
         });
       },
 
@@ -287,15 +333,16 @@ export const useInsightsStore = create<InsightsStore>()(
         });
       },
 
-      // Get all Insights
+      // Get all Insights (returns cached array for stable references)
       getAll: () => {
-        return Array.from(get().insights.values());
+        return get()._cachedInsights;
       },
 
       // Clear all
       clear: () => {
         set((state) => {
           state.insights.clear();
+          state._cachedInsights = [];
         });
       },
     })),

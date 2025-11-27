@@ -25,8 +25,8 @@ export interface ColumnConfig {
   label?: string;
   /** Custom cell formatter function */
   format?: (value: unknown) => string;
-  /** Visual highlight (adds background color) */
-  highlight?: boolean;
+  /** Visual highlight - true for primary color, or specify variant */
+  highlight?: boolean | "primary" | "base" | "join";
   /** Hide this column */
   hidden?: boolean;
   /** Custom width (default: minmax(120px, 1fr)) */
@@ -154,11 +154,17 @@ export function DataFrameTable({
       columnDefs = fields
         .filter((field) => !field.name.startsWith("_"))
         .map((field) => ({ name: field.name, type: field.type }));
-    } else {
+    } else if (dataFrame.columns && dataFrame.columns.length > 0) {
       // Legacy fallback: Use deprecated columns field
-      columnDefs = (dataFrame.columns || [])
+      columnDefs = dataFrame.columns
         .filter((col) => !col.name.startsWith("_"))
         .map((col) => ({ name: col.name, type: col.type }));
+    } else if (dataFrame.rows.length > 0) {
+      // Last resort: Infer columns from first row
+      const firstRow = dataFrame.rows[0];
+      columnDefs = Object.keys(firstRow)
+        .filter((key) => !key.startsWith("_"))
+        .map((key) => ({ name: key, type: undefined }));
     }
 
     // Apply column configs (hidden, etc.)
@@ -248,15 +254,24 @@ export function DataFrameTable({
             <div key={headerGroup.id} className="contents">
               {headerGroup.headers.map((header) => {
                 const meta = header.column.columnDef.meta as
-                  | { align?: string; highlight?: boolean }
+                  | { align?: string; highlight?: boolean | "primary" | "base" | "join" }
                   | undefined;
-                const isHighlighted = meta?.highlight || false;
+                const highlight = meta?.highlight;
+                const isHighlighted = !!highlight;
+                const highlightVariant = typeof highlight === "string" ? highlight : "primary";
                 const headerValue = flexRender(
                   header.column.columnDef.header,
                   header.getContext()
                 );
                 const headerString = header.column.id;
                 const isClickable = !!onHeaderClick;
+
+                // Highlight styles based on variant
+                const highlightHeaderStyles = {
+                  primary: "bg-primary text-primary-foreground font-semibold",
+                  base: "bg-blue-600 text-white font-semibold",
+                  join: "bg-emerald-600 text-white font-semibold",
+                };
 
                 return (
                   <div
@@ -265,8 +280,9 @@ export function DataFrameTable({
                       "text-muted-foreground overflow-hidden font-medium",
                       cellPadding,
                       fontSize,
-                      isHighlighted && "bg-primary/10 text-primary",
-                      isClickable && "cursor-pointer hover:bg-muted/80"
+                      isHighlighted && highlightHeaderStyles[highlightVariant],
+                      isClickable && !isHighlighted && "cursor-pointer hover:bg-muted/80",
+                      isClickable && isHighlighted && "cursor-pointer opacity-90 hover:opacity-100"
                     )}
                     title={headerString}
                     onClick={
@@ -327,9 +343,11 @@ export function DataFrameTable({
               >
                 {row.getVisibleCells().map((cell) => {
                   const meta = cell.column.columnDef.meta as
-                    | { align?: string; highlight?: boolean }
+                    | { align?: string; highlight?: boolean | "primary" | "base" | "join" }
                     | undefined;
-                  const isHighlighted = meta?.highlight || false;
+                  const highlight = meta?.highlight;
+                  const isHighlighted = !!highlight;
+                  const highlightVariant = typeof highlight === "string" ? highlight : "primary";
                   const align = meta?.align || "left";
 
                   const cellValue = flexRender(
@@ -343,6 +361,13 @@ export function DataFrameTable({
 
                   const isClickable = !!onCellClick;
 
+                  // Cell highlight styles based on variant
+                  const highlightCellStyles = {
+                    primary: "bg-primary/15",
+                    base: "bg-blue-500/10",
+                    join: "bg-emerald-500/10",
+                  };
+
                   return (
                     <div
                       key={cell.id}
@@ -350,7 +375,7 @@ export function DataFrameTable({
                         "text-foreground group-hover:bg-muted/50",
                         cellPadding,
                         fontSize,
-                        isHighlighted && "bg-primary/5",
+                        isHighlighted && highlightCellStyles[highlightVariant],
                         isClickable && "cursor-pointer",
                         align === "right" && "text-right",
                         align === "center" && "text-center"

@@ -1,13 +1,37 @@
 import * as React from "react";
 
 import { cn } from "../lib/utils";
+import { Surface, type SurfaceElevation } from "./surface";
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+export interface CardProps extends React.ComponentProps<"div"> {
+  /**
+   * The elevation variant for the card surface.
+   * Controls visual depth and shadow effects.
+   *
+   * @default "raised"
+   */
+  elevation?: SurfaceElevation;
+  /**
+   * Adds hover interaction states for clickable cards.
+   *
+   * @default false
+   */
+  interactive?: boolean;
+}
+
+function Card({
+  elevation = "raised",
+  interactive = false,
+  className,
+  ...props
+}: CardProps) {
   return (
-    <div
+    <Surface
+      elevation={elevation}
+      interactive={interactive}
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        "text-card-foreground flex flex-col gap-6 py-6",
         className,
       )}
       {...props}

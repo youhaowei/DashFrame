@@ -2,20 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id, Doc } from "@dashframe/convex/dataModel";
+import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
+import type { Insight, DataTable } from "@/lib/stores/types";
+import type { UUID } from "@dashframe/dataframe";
 
-// Type for API response from listWithDetails
-type InsightWithDetailsResponse = {
-  insight: Doc<"insights">;
-  dataTable: Doc<"dataTables"> | null;
+// Type for insight with joined details
+type InsightWithDetails = {
+  insight: Insight;
+  dataTable: DataTable | null;
   sourceType: string | null;
   visualizationCount: number;
 };
 
 // Type for processed insight with state
-type InsightItem = InsightWithDetailsResponse & {
+type InsightItem = InsightWithDetails & {
   isConfigured: boolean;
   hasVisualizations: boolean;
   state: "with-viz" | "configured" | "draft";
@@ -37,7 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuLoader } from "react-icons/lu";
+import { LuSearch, LuExternalLink } from "react-icons/lu";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
@@ -51,30 +54,59 @@ import { CreateVisualizationModal } from "@/components/visualizations/CreateVisu
 export default function InsightsPage() {
   const router = useRouter();
 
-  // Convex queries
-  const insightsData = useQuery(api.insights.listWithDetails);
-
-  // Convex mutations
-  const removeInsight = useMutation(api.insights.remove);
+  // Local stores with useStoreQuery to prevent infinite loops
+  const { data: allInsights } = useStoreQuery(useInsightsStore, (state) => state.getAll());
+  const removeInsightLocal = useInsightsStore((state) => state.removeInsight);
+  const { data: visualizations } = useStoreQuery(useVisualizationsStore, (state) => state.getAll());
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) => state.getAll());
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
+  // Join insights with dataTables and count visualizations
+  const insightsData = useMemo((): InsightWithDetails[] => {
+    return allInsights.map((insight) => {
+      // Find dataTable and sourceType
+      let dataTable: DataTable | null = null;
+      let sourceType: string | null = null;
+
+      const dataTableId = insight.baseTable?.tableId;
+      if (dataTableId) {
+        // Find which data source contains this table
+        for (const ds of dataSources) {
+          const table = ds.dataTables.get(dataTableId);
+          if (table) {
+            dataTable = table;
+            sourceType = ds.type;
+            break;
+          }
+        }
+      }
+
+      // Count visualizations for this insight
+      const visualizationCount = visualizations.filter(
+        (viz) => viz.source.insightId === insight.id
+      ).length;
+
+      return {
+        insight,
+        dataTable,
+        sourceType,
+        visualizationCount,
+      };
+    });
+  }, [allInsights, dataSources, visualizations]);
+
   // Process insights data
   const insights = useMemo((): InsightItem[] => {
-    if (!insightsData) return [];
-
-    return insightsData.map((item: InsightWithDetailsResponse): InsightItem => {
+    return insightsData.map((item): InsightItem => {
       // Determine state
-      const isConfigured = item.insight.selectedFieldIds.length > 0;
+      const isConfigured = (item.insight.baseTable?.selectedFields?.length ?? 0) > 0;
       const hasVisualizations = item.visualizationCount > 0;
 
       return {
-        insight: item.insight,
-        dataTable: item.dataTable,
-        sourceType: item.sourceType,
-        visualizationCount: item.visualizationCount,
+        ...item,
         isConfigured,
         hasVisualizations,
         state: hasVisualizations
@@ -145,29 +177,29 @@ export default function InsightsPage() {
     }
   };
 
-  // Handle delete insight
-  const handleDeleteInsight = async (
-    insightId: Id<"insights">,
+  // Handle delete insight (LOCAL ONLY)
+  const handleDeleteInsight = (
+    insightId: UUID,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeInsight({ id: insightId });
+    removeInsightLocal(insightId);
   };
 
-  // Handle delete all drafts
-  const handleDeleteAllDrafts = async () => {
+  // Handle delete all drafts (LOCAL ONLY)
+  const handleDeleteAllDrafts = () => {
     for (const item of groupedInsights.drafts) {
-      await removeInsight({ id: item.insight._id });
+      removeInsightLocal(item.insight.id);
     }
   };
 
   // Render insight card
   const renderInsightCard = (item: (typeof insights)[0]) => (
     <Card
-      key={item.insight._id}
+      key={item.insight.id}
       className="group hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => router.push(`/insights/${item.insight._id}`)}
+      onClick={() => router.push(`/insights/${item.insight.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -212,7 +244,7 @@ export default function InsightsPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/insights/${item.insight._id}`);
+                  router.push(`/insights/${item.insight.id}`);
                 }}
               >
                 <LuExternalLink className="h-4 w-4 mr-2" />
@@ -222,7 +254,7 @@ export default function InsightsPage() {
                 className="text-destructive"
                 onClick={(e) =>
                   handleDeleteInsight(
-                    item.insight._id,
+                    item.insight.id,
                     e as unknown as React.MouseEvent
                   )
                 }
@@ -236,18 +268,6 @@ export default function InsightsPage() {
       </CardContent>
     </Card>
   );
-
-  // Loading state - THIS FIXES THE HYDRATION ISSUE!
-  if (insightsData === undefined) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading insights...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen flex-col bg-background">

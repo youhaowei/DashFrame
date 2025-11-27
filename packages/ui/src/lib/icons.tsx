@@ -21,6 +21,7 @@ import {
   LuDatabase,
   LuDot,
   LuInfo,
+  LuLightbulb,
   LuMerge,
   LuPencil,
   LuHash,
@@ -48,6 +49,7 @@ import {
   LuType,
   LuUsers,
   LuX,
+  LuCloud,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
 import { SiNotion } from "react-icons/si";
@@ -101,6 +103,7 @@ export { LuDatabase as Database };
 export { FiFileText as File };
 export { FiFileText as FileText };
 export { SiNotion as Notion };
+export { LuCloud as Cloud };
 
 // UI Elements
 export { LuCheck as Check };
@@ -135,9 +138,11 @@ export { LuLifeBuoy as Help };
 export { LuLifeBuoy as LifeBuoy };
 export { LuLoader as Spinner };
 export { LuLoader as Loader2 };
+export { LuLoader as Loader };
 
 // Feedback & Status
 export { LuCircleAlert as AlertCircle };
 export { LuCircleCheck as CheckCircle };
 export { LuInfo as Info };
 export { LuTerminal as Terminal };
+export { LuLightbulb as Lightbulb };

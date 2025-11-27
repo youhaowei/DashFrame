@@ -11,6 +11,7 @@ import type { UUID, DataFrame, EnhancedDataFrame } from "@dashframe/dataframe";
 
 interface DataFramesState {
   dataFrames: Map<UUID, EnhancedDataFrame>;
+  _cachedDataFrames: EnhancedDataFrame[]; // Cached array for stable references
 }
 
 interface DataFramesActions {
@@ -45,16 +46,21 @@ const storage = createJSONStorage<DataFramesState>(() => localStorage, {
       "dataFrames" in value &&
       Array.isArray((value as { dataFrames: unknown }).dataFrames)
     ) {
+      const dataFramesMap = new Map(
+        (value as { dataFrames: [UUID, EnhancedDataFrame][] }).dataFrames,
+      );
+
       return {
         ...value,
-        dataFrames: new Map(
-          (value as { dataFrames: [UUID, EnhancedDataFrame][] }).dataFrames,
-        ),
+        dataFrames: dataFramesMap,
+        _cachedDataFrames: Array.from(dataFramesMap.values()), // Recreate cache
       };
     }
     return value;
   },
   replacer: (_key, value: unknown) => {
+    // Skip cached array (it's derived from the Map)
+    if (_key === "_cachedDataFrames") return undefined;
     // Convert Map to array for JSON serialization
     if (value instanceof Map) {
       return Array.from(value.entries());
@@ -67,8 +73,14 @@ const storage = createJSONStorage<DataFramesState>(() => localStorage, {
 // Store Implementation
 // ============================================================================
 
-const calculateColumnCount = (data: DataFrame): number =>
-  data.fieldIds?.length ?? data.columns?.length ?? 0;
+const calculateColumnCount = (data: DataFrame): number => {
+  // Prefer columns count if available (join operations set fieldIds: [] but have columns)
+  // Fall back to fieldIds only if columns is not available
+  if (data.columns && data.columns.length > 0) {
+    return data.columns.length;
+  }
+  return data.fieldIds?.length ?? 0;
+};
 
 const refreshColumnCounts = (state: DataFramesState) => {
   state.dataFrames.forEach((enhanced) => {
@@ -81,6 +93,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
     immer((set, get) => ({
       // Initial state
       dataFrames: new Map(),
+      _cachedDataFrames: [],
 
       // Create from CSV
       createFromCSV: (dataSourceId, name, data) => {
@@ -103,6 +116,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
 
         set((state) => {
           state.dataFrames.set(id, enhancedDataFrame);
+          state._cachedDataFrames = Array.from(state.dataFrames.values());
         });
 
         return id;
@@ -129,6 +143,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
 
         set((state) => {
           state.dataFrames.set(id, enhancedDataFrame);
+          state._cachedDataFrames = Array.from(state.dataFrames.values());
         });
 
         return id;
@@ -140,7 +155,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
         const existing = get().getByInsight(insightId);
 
         if (existing) {
-          // Update existing DataFrame
+          // Update existing DataFrame (no cache refresh - Map didn't change)
           set((state) => {
             const df = state.dataFrames.get(existing.metadata.id);
             if (df) {
@@ -158,6 +173,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
 
       // Update by ID (refresh cached data)
       updateById: (id, data) => {
+        // Update doesn't change Map structure, no cache refresh needed
         set((state) => {
           const df = state.dataFrames.get(id);
           if (df) {
@@ -186,18 +202,20 @@ export const useDataFramesStore = create<DataFramesStore>()(
       remove: (id) => {
         set((state) => {
           state.dataFrames.delete(id);
+          state._cachedDataFrames = Array.from(state.dataFrames.values());
         });
       },
 
-      // Get all DataFrames
+      // Get all DataFrames (returns cached array for stable references)
       getAll: () => {
-        return Array.from(get().dataFrames.values());
+        return get()._cachedDataFrames;
       },
 
       // Clear all DataFrames
       clear: () => {
         set((state) => {
           state.dataFrames.clear();
+          state._cachedDataFrames = [];
         });
       },
     })),

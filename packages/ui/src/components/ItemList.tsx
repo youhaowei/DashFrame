@@ -1,0 +1,220 @@
+"use client";
+
+import * as React from "react";
+import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
+import { ItemCard, type ItemAction } from "../primitives/item-card";
+import { cn } from "../lib/utils";
+import type { LucideIcon } from "../lib/icons";
+
+export interface ListItem {
+  /**
+   * Unique identifier for the item
+   */
+  id: string;
+  /**
+   * Primary title text
+   */
+  title: string;
+  /**
+   * Optional subtitle or metadata text
+   */
+  subtitle?: string;
+  /**
+   * Optional badge text to display
+   */
+  badge?: string;
+  /**
+   * Icon to display - can be a Lucide icon or custom React node
+   */
+  icon?: LucideIcon | React.ReactNode;
+  /**
+   * Whether this item is currently selected/active
+   */
+  active?: boolean;
+  /**
+   * Optional actions for this item (shown on hover)
+   */
+  actions?: ItemAction[];
+}
+
+export interface ItemListProps {
+  /**
+   * Array of items to display
+   */
+  items: ListItem[];
+  /**
+   * Callback when an item is selected
+   */
+  onSelect: (id: string) => void;
+  /**
+   * Layout orientation
+   * @default "vertical"
+   */
+  orientation?: "vertical" | "horizontal";
+  /**
+   * Maximum size constraint (height for vertical, width for horizontal)
+   * Can be a number (pixels) or CSS string value
+   */
+  maxSize?: number | string;
+  /**
+   * Gap between items in pixels
+   * @default 8
+   */
+  gap?: number;
+  /**
+   * Fixed item width for horizontal layout (pixels)
+   * @default 220
+   */
+  itemWidth?: number;
+  /**
+   * Additional CSS classes for the container
+   */
+  className?: string;
+  /**
+   * Message to display when items array is empty
+   */
+  emptyMessage?: string;
+  /**
+   * Icon to display in empty state
+   */
+  emptyIcon?: React.ReactNode;
+}
+
+/**
+ * ItemList - Data-driven scrollable list of items
+ *
+ * Renders a scrollable list of items using ItemCard internally.
+ * Supports both vertical and horizontal orientations with configurable constraints.
+ *
+ * @example Vertical list with max height
+ * ```tsx
+ * <ItemList
+ *   items={[
+ *     { id: '1', title: 'Sales Data', subtitle: '150 rows', icon: Database },
+ *     { id: '2', title: 'Users', subtitle: '42 rows', icon: Database, active: true }
+ *   ]}
+ *   onSelect={(id) => setSelectedId(id)}
+ *   maxSize={300}
+ * />
+ * ```
+ *
+ * @example Horizontal scrolling gallery
+ * ```tsx
+ * <ItemList
+ *   items={visualizations}
+ *   onSelect={handleSelect}
+ *   orientation="horizontal"
+ *   itemWidth={240}
+ *   gap={12}
+ * />
+ * ```
+ *
+ * @example With empty state
+ * ```tsx
+ * <ItemList
+ *   items={[]}
+ *   onSelect={() => {}}
+ *   emptyMessage="No data sources connected"
+ *   emptyIcon={<Database className="h-8 w-8" />}
+ * />
+ * ```
+ */
+export function ItemList({
+  items,
+  onSelect,
+  orientation = "vertical",
+  maxSize,
+  gap = 8,
+  itemWidth = 220,
+  className,
+  emptyMessage = "No items",
+  emptyIcon,
+}: ItemListProps) {
+  // Show empty state when no items
+  if (items.length === 0) {
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center text-center p-8",
+          className
+        )}
+      >
+        {emptyIcon && (
+          <div className="text-muted-foreground mb-3">{emptyIcon}</div>
+        )}
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+      </div>
+    );
+  }
+
+  // Convert maxSize to CSS value
+  const maxSizeValue =
+    typeof maxSize === "number" ? `${maxSize}px` : maxSize;
+
+  // Render icon - handles both LucideIcon components and React nodes
+  const renderIcon = (icon: ListItem["icon"]) => {
+    if (!icon) return null;
+
+    // If it's a component (LucideIcon), render it
+    if (typeof icon === "function") {
+      const Icon = icon as LucideIcon;
+      return <Icon className="h-4 w-4" />;
+    }
+
+    // Otherwise it's already a React node
+    return icon;
+  };
+
+  const itemElements = items.map((item) => (
+    <div
+      key={item.id}
+      className={cn(
+        orientation === "horizontal" && "shrink-0",
+      )}
+      style={orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined}
+    >
+      <ItemCard
+        icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
+        title={item.title}
+        subtitle={item.subtitle}
+        badge={item.badge}
+        active={item.active}
+        actions={item.actions}
+        onClick={() => onSelect(item.id)}
+      />
+    </div>
+  ));
+
+  // Vertical orientation
+  if (orientation === "vertical") {
+    return (
+      <ScrollArea
+        className={cn("w-full", className)}
+        style={maxSizeValue ? { maxHeight: maxSizeValue } : undefined}
+      >
+        <div
+          className="flex flex-col"
+          style={{ gap: `${gap}px` }}
+        >
+          {itemElements}
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // Horizontal orientation
+  return (
+    <ScrollArea
+      className={cn("w-full", className)}
+      style={maxSizeValue ? { maxWidth: maxSizeValue } : undefined}
+    >
+      <div
+        className="flex flex-row pb-3"
+        style={{ gap: `${gap}px` }}
+      >
+        {itemElements}
+      </div>
+      <ScrollBar orientation="horizontal" />
+    </ScrollArea>
+  );
+}

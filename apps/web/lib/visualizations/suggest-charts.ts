@@ -72,6 +72,7 @@ export function suggestCharts(
   preview: EnhancedDataFrame,
   fields: Record<string, Field>,
   limit = 3,
+  columnTableMap?: Record<string, string[]>,
 ): ChartSuggestion[] {
   // Analyze columns to categorize them
   const analysis = analyzeDataFrame(preview, fields);
@@ -118,8 +119,9 @@ export function suggestCharts(
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
   if (categorical.length > 0 && numerical.length > 0) {
-    const xCol = categorical[0];
-    const yCol = numerical[0];
+    const pair = pickBestPair(categorical, numerical, columnTableMap);
+    const xCol = pair?.[0] ?? categorical[0];
+    const yCol = pair?.[1] ?? numerical[0];
     const xAxisType = getAxisType(xCol);
 
     suggestions.push({
@@ -146,8 +148,9 @@ export function suggestCharts(
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
   if (temporal.length > 0 && numerical.length > 0) {
-    const xCol = temporal[0];
-    const yCol = numerical[numerical.length > 1 ? 1 : 0]; // Use different Y if available
+    const pair = pickBestPair(temporal, numerical, columnTableMap);
+    const xCol = pair?.[0] ?? temporal[0];
+    const yCol = pair?.[1] ?? numerical[numerical.length > 1 ? 1 : 0];
 
     suggestions.push({
       id: `line-${xCol.columnName}-${yCol.columnName}`,
@@ -173,8 +176,11 @@ export function suggestCharts(
 
   // Heuristic 3: Scatter Plot (2 numerical columns)
   if (numerical.length >= 2) {
-    const xCol = numerical[0];
-    const yCol = numerical[1];
+    const pair = pickBestPair(numerical, numerical, columnTableMap, {
+      disallowSame: true,
+    });
+    const xCol = pair?.[0] ?? numerical[0];
+    const yCol = pair?.[1] ?? numerical[1];
 
     suggestions.push({
       id: `scatter-${xCol.columnName}-${yCol.columnName}`,
@@ -202,8 +208,9 @@ export function suggestCharts(
     numerical.length > 0 &&
     !suggestions.some((s) => s.chartType === "line")
   ) {
-    const xCol = temporal[0];
-    const yCol = numerical[0];
+    const pair = pickBestPair(temporal, numerical, columnTableMap);
+    const xCol = pair?.[0] ?? temporal[0];
+    const yCol = pair?.[1] ?? numerical[0];
 
     suggestions.push({
       id: `area-${xCol.columnName}-${yCol.columnName}`,
@@ -229,9 +236,15 @@ export function suggestCharts(
 
   // Heuristic 5: Grouped Bar (2 categorical + 1 numerical)
   if (categorical.length >= 2 && numerical.length > 0) {
-    const xCol = categorical[0];
-    const colorCol = categorical[1];
-    const yCol = numerical[0];
+    const triple =
+      pickBestTriple(categorical, numerical, columnTableMap) ?? [
+        categorical[0],
+        categorical[1],
+        numerical[0],
+      ];
+    const xCol = triple[0];
+    const colorCol = triple[1];
+    const yCol = triple[2];
     const xAxisType = getAxisType(xCol);
 
     suggestions.push({
@@ -258,7 +271,11 @@ export function suggestCharts(
   }
 
   // Rank by preference and return top N
-  return rankSuggestions(suggestions).slice(0, limit);
+  return rankSuggestions(
+    suggestions,
+    columnTableMap,
+    1 + (insight.joins?.length ?? 0)
+  ).slice(0, limit);
 }
 
 /**
@@ -336,6 +353,100 @@ function createMiniSpec(
   };
 }
 
+function normalizeColumnReference(value?: string): string | null {
+  if (!value) return null;
+  const match = value.match(/^(sum|avg|count|min|max|count_distinct)\((.+)\)$/i);
+  if (match) return match[2];
+  return value;
+}
+
+function coverageScore(
+  columns: Array<string | undefined>,
+  columnTableMap?: Record<string, string[]>,
+): number {
+  if (!columnTableMap) return 0;
+  const tables = new Set<string>();
+  columns.forEach((col) => {
+    const normalized = normalizeColumnReference(col);
+    if (!normalized) return;
+    columnTableMap[normalized]?.forEach((tableId) => tables.add(tableId));
+  });
+  return tables.size;
+}
+
+function pickBestPair(
+  first: ColumnAnalysis[],
+  second: ColumnAnalysis[],
+  columnTableMap?: Record<string, string[]>,
+  options: { disallowSame?: boolean } = {},
+): [ColumnAnalysis, ColumnAnalysis] | null {
+  if (first.length === 0 || second.length === 0) return null;
+  let best: [ColumnAnalysis, ColumnAnalysis] | null = null;
+  let bestScore = -1;
+
+  for (const a of first) {
+    for (const b of second) {
+      if (options.disallowSame && a.columnName === b.columnName) continue;
+      const score = coverageScore(
+        [a.columnName, b.columnName],
+        columnTableMap,
+      );
+      if (score <= bestScore) continue;
+      best = [a, b];
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function pickBestTriple(
+  categories: ColumnAnalysis[],
+  numericals: ColumnAnalysis[],
+  columnTableMap?: Record<string, string[]>,
+): [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null {
+  if (categories.length < 2 || numericals.length === 0) return null;
+
+  let best: [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null = null;
+  let bestScore = -1;
+
+  for (const xCol of categories) {
+    for (const colorCol of categories) {
+      if (colorCol.columnName === xCol.columnName) continue;
+      for (const yCol of numericals) {
+        const score = coverageScore(
+          [xCol.columnName, colorCol.columnName, yCol.columnName],
+          columnTableMap,
+        );
+        if (score <= bestScore) continue;
+        best = [xCol, colorCol, yCol];
+        bestScore = score;
+      }
+    }
+  }
+
+  return best;
+}
+
+function tablesUsedBySuggestion(
+  suggestion: ChartSuggestion,
+  columnTableMap?: Record<string, string[]>,
+): Set<string> {
+  const columns = [
+    suggestion.encoding.x,
+    suggestion.encoding.y,
+    suggestion.encoding.color,
+    suggestion.encoding.size,
+  ];
+  const tables = new Set<string>();
+  columns.forEach((col) => {
+    const normalized = normalizeColumnReference(col);
+    if (!normalized) return;
+    columnTableMap?.[normalized]?.forEach((tableId) => tables.add(tableId));
+  });
+  return tables;
+}
+
 /**
  * Ranks suggestions by preference.
  * Priority:
@@ -344,7 +455,11 @@ function createMiniSpec(
  * 3. Scatter (more specialized)
  * 4. Grouped charts (more complex)
  */
-function rankSuggestions(suggestions: ChartSuggestion[]): ChartSuggestion[] {
+function rankSuggestions(
+  suggestions: ChartSuggestion[],
+  columnTableMap?: Record<string, string[]>,
+  totalTables = 1,
+): ChartSuggestion[] {
   const priority: Record<VisualizationType, number> = {
     line: 1,
     area: 1,
@@ -354,6 +469,21 @@ function rankSuggestions(suggestions: ChartSuggestion[]): ChartSuggestion[] {
   };
 
   return suggestions.sort((a, b) => {
+    const aTables = tablesUsedBySuggestion(a, columnTableMap);
+    const bTables = tablesUsedBySuggestion(b, columnTableMap);
+    const aTableCount = aTables.size;
+    const bTableCount = bTables.size;
+    const aUsesAll = totalTables > 1 && aTableCount >= totalTables;
+    const bUsesAll = totalTables > 1 && bTableCount >= totalTables;
+
+    if (aUsesAll !== bUsesAll) {
+      return aUsesAll ? -1 : 1;
+    }
+
+    if (aTableCount !== bTableCount) {
+      return bTableCount - aTableCount;
+    }
+
     const aPriority = priority[a.chartType] || 5;
     const bPriority = priority[b.chartType] || 5;
 

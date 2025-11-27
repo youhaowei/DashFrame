@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { CollapsibleSection, cn } from "@dashframe/ui";
+import { cn } from "@dashframe/ui";
 
 export interface WorkbenchLayoutProps {
-  /** Top selector section - will be wrapped in CollapsibleSection automatically */
-  selector: ReactNode;
+  /** Sticky header section */
+  header: ReactNode;
   /** Left sidebar panel (e.g., controls, configuration) */
   leftPanel?: ReactNode;
   /** Optional right sidebar panel */
@@ -14,71 +14,85 @@ export interface WorkbenchLayoutProps {
   children: ReactNode;
   /** Optional className for the container */
   className?: string;
+  /** Optional className for the children wrapper (main content area) */
+  childrenClassName?: string;
 }
 
 /**
  * WorkbenchLayout - Reusable layout for workbench-style pages
  *
  * Provides a consistent structure with:
- * - Collapsible top selector (e.g., ItemSelector for visualizations/data sources)
- * - Left sidebar panel (e.g., controls, configuration)
- * - Main content area
- * - Optional right panel and footer for future use
+ * - Sticky top header
+ * - Left/Right attached sidebars
+ * - Main content area with scrolling
+ * - Optional footer
  *
  * @example
  * ```tsx
  * <WorkbenchLayout
- *   selector={
- *     <ItemSelector
- *       title="Visualizations"
- *       items={items}
- *       onItemSelect={setActive}
- *       actions={actions}
- *     />
- *   }
- *   leftPanel={<VisualizationControls />}
+ *   header={<MyHeader />}
+ *   leftPanel={<Controls />}
  * >
- *   <VisualizationDisplay />
+ *   <Content />
  * </WorkbenchLayout>
  * ```
  */
 export function WorkbenchLayout({
-  selector,
+  header,
   leftPanel,
   rightPanel,
   footer,
   children,
   className,
+  childrenClassName,
 }: WorkbenchLayoutProps) {
   return (
     <div
-      className={cn("flex h-screen flex-col gap-4 overflow-hidden", className)}
+      className={cn(
+        "flex h-screen flex-col overflow-hidden bg-background",
+        className,
+      )}
     >
-      {/* Top collapsible selector */}
-      <div className="shrink-0">
-        <CollapsibleSection>
-          <div className="mt-4">{selector}</div>
-        </CollapsibleSection>
-      </div>
+      {/* Sticky Header */}
+      <header className="bg-card/90 sticky top-0 z-10 shrink-0 border-b backdrop-blur-sm">
+        {header}
+      </header>
 
-      {/* Main content area */}
-      <div className="flex min-h-0 flex-1 gap-4">
+      {/* Main Layout Body */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left panel */}
         {leftPanel && (
-          <aside className="h-full w-[360px] shrink-0">{leftPanel}</aside>
+          <aside className="bg-card flex h-full w-72 shrink-0 flex-col overflow-y-auto border-r">
+            {leftPanel}
+          </aside>
         )}
 
         {/* Main content */}
-        <main className="h-full min-w-0 flex-1">{children}</main>
+        <main className="bg-background flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+          <div
+            className={cn(
+              "flex-1 overflow-y-auto p-0",
+              childrenClassName,
+            )}
+          >
+            {children}
+          </div>
+        </main>
 
         {/* Right panel (optional) */}
         {rightPanel && (
-          <aside className="h-full w-[360px] shrink-0">{rightPanel}</aside>
+          <aside className="bg-card flex h-full w-[360px] shrink-0 flex-col overflow-y-auto border-l">
+            {rightPanel}
+          </aside>
         )}
       </div>
 
       {/* Footer (optional) */}
-      {footer && <footer className="shrink-0">{footer}</footer>}
+      {footer && (
+        <footer className="bg-card/90 sticky bottom-0 shrink-0 border-t backdrop-blur-sm px-6 py-4">
+          {footer}
+        </footer>
+      )}
     </div>
   );
 }

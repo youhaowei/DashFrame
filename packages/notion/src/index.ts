@@ -96,6 +96,7 @@ export function generateFieldsFromNotionSchema(
       tableId: dataTableId,
       columnName: undefined,  // Computed from array index
       type: "number",
+      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
     },
     {
       id: crypto.randomUUID(),
@@ -103,6 +104,7 @@ export function generateFieldsFromNotionSchema(
       tableId: dataTableId,
       columnName: undefined,  // Computed from page.id
       type: "string",
+      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
     },
   ];
 

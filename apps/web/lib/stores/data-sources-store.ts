@@ -23,6 +23,7 @@ import { isNotionDataSource, isLocalDataSource } from "./types";
 
 interface DataSourcesState {
   dataSources: Map<UUID, DataSource>;
+  _cachedDataSources: DataSource[]; // Cached array for stable references
 }
 
 interface DataSourcesActions {
@@ -102,6 +103,29 @@ interface DataSourcesActions {
 
 type DataSourcesStore = DataSourcesState & DataSourcesActions;
 
+// Helper: rebuild cached sources with cloned tables to avoid immer proxies leaking
+const rebuildCache = (state: DataSourcesState) => {
+  state._cachedDataSources = Array.from(state.dataSources.values()).map(
+    (source) => {
+      const clonedTables = new Map(
+        Array.from(source.dataTables.entries()).map(([id, table]) => [
+          id,
+          {
+            ...table,
+            fields: [...(table.fields ?? [])],
+            metrics: [...(table.metrics ?? [])],
+          },
+        ]),
+      );
+
+      return {
+        ...source,
+        dataTables: clonedTables,
+      };
+    },
+  );
+};
+
 // ============================================================================
 // Storage Serialization (for Map support)
 // ============================================================================
@@ -115,70 +139,82 @@ const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
       "dataSources" in value &&
       Array.isArray(value.dataSources)
     ) {
+      const dataSourcesMap = new Map(
+        value.dataSources.map((ds: DataSource) => {
+          // Always ensure dataTables is initialized as a Map
+          let dataTables: Map<UUID, DataTable>;
+
+          if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
+            // Convert dataTables array back to Map with migration
+            dataTables = new Map(
+              (ds.dataTables as unknown as [UUID, any][]).map(([id, dt]) => {
+                // MIGRATION: Old DataTable → New DataTable
+
+                // Auto-generate default count metric if missing
+                const hasCountMetric = dt.metrics?.some(
+                  (m: Metric) => m.aggregation === "count" && !m.columnName
+                );
+
+                const defaultMetrics: Metric[] = hasCountMetric ? [] : [{
+                  id: crypto.randomUUID(),
+                  name: "Count",
+                  tableId: dt.id,
+                  columnName: undefined,
+                  aggregation: "count"
+                }];
+
+                const migrated: DataTable = {
+                  ...dt,
+                  dataSourceId: (dt as any).sourceId ?? dt.dataSourceId,
+                  table: dt.table ?? "",
+                  sourceSchema: dt.sourceSchema,
+                  fields: dt.fields ?? [],
+                  metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
+                };
+
+                // Cleanup old fields
+                delete (migrated as any).sourceId;
+                delete (migrated as any).dimensions;
+
+                return [id, migrated];
+              })
+            );
+          } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
+            // Already a Map (shouldn't happen in serialized data, but handle it)
+            dataTables = ds.dataTables;
+          } else {
+            // Missing or invalid - initialize as empty Map (fixes old localStorage data)
+            dataTables = new Map();
+          }
+
+          return [
+            ds.id,
+            {
+              ...ds,
+              dataTables,
+            },
+          ];
+        }),
+      );
+
       return {
         ...value,
-        dataSources: new Map(
-          value.dataSources.map((ds: DataSource) => {
-            // Always ensure dataTables is initialized as a Map
-            let dataTables: Map<UUID, DataTable>;
-
-            if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
-              // Convert dataTables array back to Map with migration
-              dataTables = new Map(
-                (ds.dataTables as unknown as [UUID, any][]).map(([id, dt]) => {
-                  // MIGRATION: Old DataTable → New DataTable
-
-                  // Auto-generate default count metric if missing
-                  const hasCountMetric = dt.metrics?.some(
-                    (m: Metric) => m.aggregation === "count" && !m.columnName
-                  );
-
-                  const defaultMetrics: Metric[] = hasCountMetric ? [] : [{
-                    id: crypto.randomUUID(),
-                    name: "Count",
-                    tableId: dt.id,
-                    columnName: undefined,
-                    aggregation: "count"
-                  }];
-
-                  const migrated: DataTable = {
-                    ...dt,
-                    dataSourceId: (dt as any).sourceId ?? dt.dataSourceId,
-                    table: dt.table ?? "",
-                    sourceSchema: dt.sourceSchema,
-                    fields: dt.fields ?? [],
-                    metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
-                  };
-
-                  // Cleanup old fields
-                  delete (migrated as any).sourceId;
-                  delete (migrated as any).dimensions;
-
-                  return [id, migrated];
-                })
-              );
-            } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
-              // Already a Map (shouldn't happen in serialized data, but handle it)
-              dataTables = ds.dataTables;
-            } else {
-              // Missing or invalid - initialize as empty Map (fixes old localStorage data)
-              dataTables = new Map();
-            }
-
-            return [
-              ds.id,
-              {
-                ...ds,
-                dataTables,
-              },
-            ];
-          }),
-        ),
+        dataSources: dataSourcesMap,
+        _cachedDataSources: (() => {
+          const state: DataSourcesState = {
+            dataSources: dataSourcesMap,
+            _cachedDataSources: [],
+          };
+          rebuildCache(state);
+          return state._cachedDataSources;
+        })(), // Recreate cache without immer proxies
       };
     }
     return value;
   },
   replacer: (_key, value) => {
+    // Skip cached array (it's derived from the Map)
+    if (_key === "_cachedDataSources") return undefined;
     // Convert Maps to arrays for JSON serialization
     if (value instanceof Map) {
       return Array.from(value.entries()).map(([_id, item]) => {
@@ -210,6 +246,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
     immer((set, get) => ({
       // Initial state
       dataSources: new Map(),
+      _cachedDataSources: [],
 
       // Local Data Source actions
       addLocal: (name) => {
@@ -226,6 +263,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
 
         set((state) => {
           state.dataSources.set(id, localSource);
+          rebuildCache(state);
         });
 
         return id;
@@ -247,6 +285,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             if (source && isNotionDataSource(source)) {
               source.name = name;
               source.apiKey = apiKey;
+              rebuildCache(state);
             }
           });
           return existing.id;
@@ -267,6 +306,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
 
         set((state) => {
           state.dataSources.set(id, notionSource);
+          rebuildCache(state);
         });
 
         return id;
@@ -319,6 +359,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           const source = state.dataSources.get(dataSourceId);
           if (source) {
             source.dataTables.set(dataTableId, dataTable);
+            rebuildCache(state);
           }
         });
 
@@ -332,6 +373,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               Object.assign(dataTable, updates);
+              rebuildCache(state);
             }
           }
         });
@@ -345,6 +387,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             if (dataTable) {
               dataTable.dataFrameId = dataFrameId;
               dataTable.lastFetchedAt = Date.now();
+              rebuildCache(state);
             }
           }
         });
@@ -355,6 +398,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           const source = state.dataSources.get(dataSourceId);
           if (source) {
             source.dataTables.delete(dataTableId);
+            rebuildCache(state);
           }
         });
       },
@@ -385,6 +429,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           const source = state.dataSources.get(id);
           if (source) {
             Object.assign(source, updates);
+            rebuildCache(state);
           }
         });
       },
@@ -392,6 +437,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
       remove: (id) => {
         set((state) => {
           state.dataSources.delete(id);
+          rebuildCache(state);
         });
       },
 
@@ -400,12 +446,13 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
       },
 
       getAll: () => {
-        return Array.from(get().dataSources.values());
+        return get()._cachedDataSources;
       },
 
       clear: () => {
         set((state) => {
           state.dataSources.clear();
+          rebuildCache(state);
         });
       },
 
@@ -417,6 +464,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               dataTable.fields.push(field);
+              rebuildCache(state);
             }
           }
         });
@@ -431,6 +479,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
               const field = dataTable.fields.find(f => f.id === fieldId);
               if (field) {
                 Object.assign(field, updates);
+                rebuildCache(state);
               }
             }
           }
@@ -444,6 +493,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               dataTable.fields = dataTable.fields.filter(f => f.id !== fieldId);
+              rebuildCache(state);
             }
           }
         });
@@ -457,6 +507,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               dataTable.metrics.push(metric);
+              rebuildCache(state);
             }
           }
         });
@@ -471,6 +522,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
               const metric = dataTable.metrics.find(m => m.id === metricId);
               if (metric) {
                 Object.assign(metric, updates);
+                rebuildCache(state);
               }
             }
           }
@@ -484,6 +536,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               dataTable.metrics = dataTable.metrics.filter(m => m.id !== metricId);
+              rebuildCache(state);
             }
           }
         });
@@ -497,6 +550,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
               dataTable.sourceSchema = sourceSchema;
+              rebuildCache(state);
             }
           }
         });

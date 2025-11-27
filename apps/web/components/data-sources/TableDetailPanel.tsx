@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
-import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn, DataFrameTable } from "@dashframe/ui";
+import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn, DataFrameTable, Trash2, ActionGroup } from "@dashframe/ui";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -14,6 +14,7 @@ interface TableDetailPanelProps {
   onAddField: () => void;
   onAddMetric: () => void;
   onDeleteMetric: (metricId: string) => void;
+  onDeleteTable: () => void;
 }
 
 export function TableDetailPanel({
@@ -25,6 +26,7 @@ export function TableDetailPanel({
   onAddField,
   onAddMetric,
   onDeleteMetric,
+  onDeleteTable,
 }: TableDetailPanelProps) {
   const [activeTab, setActiveTab] = useState("fields");
 
@@ -56,10 +58,23 @@ export function TableDetailPanel({
                   : "No data available"}
               </p>
             </div>
-            <Button onClick={onCreateVisualization} size="sm" className="shrink-0">
-              <Sparkles className="mr-2 h-4 w-4" />
-              Create Visualization
-            </Button>
+            <ActionGroup
+              actions={[
+                {
+                  label: "Delete Table",
+                  onClick: onDeleteTable,
+                  icon: Trash2,
+                  variant: "ghost",
+                  className: "text-destructive hover:bg-destructive hover:text-destructive-foreground",
+                },
+                {
+                  label: "Create Visualization",
+                  onClick: onCreateVisualization,
+                  icon: Sparkles,
+                  variant: "default",
+                },
+              ]}
+            />
           </div>
 
           <div className="border-border/60 mt-4 border-t pt-4">

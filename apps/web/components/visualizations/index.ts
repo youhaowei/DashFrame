@@ -1,6 +1,5 @@
 // Core visualization components - used by Convex-migrated pages
 export { CreateVisualizationModal } from "./CreateVisualizationModal";
-export { CreateVisualizationContent } from "./CreateVisualizationContent";
 export { VegaChart } from "./VegaChart";
 export { EmptyState } from "./EmptyState";
 

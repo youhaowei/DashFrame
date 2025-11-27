@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id, Doc } from "@dashframe/convex/dataModel";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import type { DataSource } from "@/lib/stores/types";
+import type { UUID } from "@dashframe/dataframe";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
 import {
   Button,
   Card,
@@ -21,13 +22,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuLoader, LuCloud, LuFileSpreadsheet } from "react-icons/lu";
+import { LuSearch, LuExternalLink, LuCloud, LuFileSpreadsheet } from "react-icons/lu";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
-// Type for API response from dataSources.listWithTables
+// Type for data source with table count
 type DataSourceWithTables = {
-  dataSource: Doc<"dataSources">;
-  dataTables: Doc<"dataTables">[];
+  dataSource: DataSource;
   tableCount: number;
 };
 
@@ -40,27 +40,35 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const router = useRouter();
 
-  // Convex queries
-  const dataSourcesData = useQuery(api.dataSources.listWithTables);
-
-  // Convex mutations
-  const removeDataSource = useMutation(api.dataSources.remove);
+  // Local stores
+  const { data: dataSources, isLoading } = useStoreQuery(
+    useDataSourcesStore,
+    (state) => state.getAll(),
+  );
+  const removeDataSourceLocal = useDataSourcesStore((state) => state.remove);
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
+  // Transform data sources for display
+  const allDataSources = useMemo((): DataSourceWithTables[] => {
+    return dataSources.map((source) => ({
+      dataSource: source,
+      tableCount: source.dataTables.size,
+    }));
+  }, [dataSources]);
+
   // Filter data sources by search query
-  const filteredDataSources = useMemo((): DataSourceWithTables[] => {
-    if (!dataSourcesData) return [];
-    if (!searchQuery.trim()) return dataSourcesData;
+  const filteredDataSources = useMemo(() => {
+    if (!searchQuery.trim()) return allDataSources;
     const query = searchQuery.toLowerCase();
-    return dataSourcesData.filter(
-      (item: DataSourceWithTables) =>
+    return allDataSources.filter(
+      (item) =>
         item.dataSource.name.toLowerCase().includes(query) ||
         item.dataSource.type.toLowerCase().includes(query)
     );
-  }, [dataSourcesData, searchQuery]);
+  }, [allDataSources, searchQuery]);
 
   // Get icon for data source type
   const getTypeIcon = (type: string) => {
@@ -90,22 +98,22 @@ export default function DataSourcesPage() {
     }
   };
 
-  // Handle delete data source
-  const handleDeleteDataSource = async (
-    dataSourceId: Id<"dataSources">,
+  // Handle delete data source (LOCAL ONLY)
+  const handleDeleteDataSource = (
+    dataSourceId: UUID,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeDataSource({ id: dataSourceId });
+    removeDataSourceLocal(dataSourceId);
   };
 
   // Render data source card
   const renderDataSourceCard = (item: DataSourceWithTables) => (
     <Card
-      key={item.dataSource._id}
+      key={item.dataSource.id}
       className="group hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => router.push(`/data-sources/${item.dataSource._id}`)}
+      onClick={() => router.push(`/data-sources/${item.dataSource.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -116,7 +124,7 @@ export default function DataSourcesPage() {
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h4 className="font-medium truncate">{item.dataSource.name}</h4>
               <Badge variant="secondary" className="text-xs">
                 {getTypeLabel(item.dataSource.type)}
@@ -152,7 +160,7 @@ export default function DataSourcesPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/data-sources/${item.dataSource._id}`);
+                  router.push(`/data-sources/${item.dataSource.id}`);
                 }}
               >
                 <LuExternalLink className="h-4 w-4 mr-2" />
@@ -162,7 +170,7 @@ export default function DataSourcesPage() {
                 className="text-destructive"
                 onClick={(e) =>
                   handleDeleteDataSource(
-                    item.dataSource._id,
+                    item.dataSource.id,
                     e as unknown as React.MouseEvent
                   )
                 }
@@ -177,14 +185,10 @@ export default function DataSourcesPage() {
     </Card>
   );
 
-  // Loading state
-  if (dataSourcesData === undefined) {
+  if (isLoading && dataSources.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading data sources...</p>
-        </div>
+        <p className="text-muted-foreground text-sm">Loading data sources…</p>
       </div>
     );
   }
@@ -198,7 +202,7 @@ export default function DataSourcesPage() {
             <div>
               <h1 className="text-2xl font-bold">Data Sources</h1>
               <p className="text-sm text-muted-foreground">
-                {dataSourcesData.length} source{dataSourcesData.length !== 1 ? "s" : ""}{" "}
+                {allDataSources.length} source{allDataSources.length !== 1 ? "s" : ""}{" "}
                 connected
               </p>
             </div>

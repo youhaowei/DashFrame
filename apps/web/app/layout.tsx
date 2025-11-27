@@ -55,7 +55,7 @@ export default function RootLayout({
                       <Navigation />
 
                       <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
-                        <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto px-8">
+                        <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
                           {children}
                         </div>
                       </main>

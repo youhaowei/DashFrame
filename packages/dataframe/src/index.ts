@@ -13,8 +13,6 @@ export type DataFrame = {
   fieldIds: UUID[]; // References to Field definitions
   rows: DataFrameRow[];
   primaryKey?: string | string[]; // Column name(s) forming the primary key
-
-  /** @deprecated For backward compatibility with join operations only. Will be removed in future version. */
   columns?: DataFrameColumn[];
 };
 

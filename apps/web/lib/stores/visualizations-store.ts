@@ -19,6 +19,7 @@ import { useDataFramesStore } from "./dataframes-store";
 
 interface VisualizationsState {
   visualizations: Map<UUID, Visualization>;
+  _cachedVisualizations: Visualization[]; // Cached array for stable references
   activeId: UUID | null;
 }
 
@@ -100,11 +101,14 @@ const storage = createJSONStorage<VisualizationsState>(() => localStorage, {
       return {
         ...value,
         visualizations,
+        _cachedVisualizations: Array.from(visualizations.values()), // Recreate cache
       };
     }
     return value;
   },
   replacer: (_key, value: unknown) => {
+    // Skip cached array (it's derived from the Map)
+    if (_key === "_cachedVisualizations") return undefined;
     // Convert Map to array for JSON serialization
     if (value instanceof Map) {
       return Array.from(value.entries());
@@ -122,6 +126,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
     immer((set, get) => ({
       // Initial state
       visualizations: new Map(),
+      _cachedVisualizations: [],
       activeId: null,
 
       // Create visualization
@@ -141,6 +146,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
 
         set((state) => {
           state.visualizations.set(id, visualization);
+          state._cachedVisualizations = Array.from(state.visualizations.values());
           state.activeId = id; // Auto-select new visualization
         });
 
@@ -191,6 +197,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       remove: (id) => {
         set((state) => {
           state.visualizations.delete(id);
+          state._cachedVisualizations = Array.from(state.visualizations.values());
           // Clear active if it was removed
           if (state.activeId === id) {
             state.activeId = null;
@@ -242,9 +249,9 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         return get().visualizations.get(id);
       },
 
-      // Get all visualizations
+      // Get all visualizations (returns cached array for stable references)
       getAll: () => {
-        return Array.from(get().visualizations.values());
+        return get()._cachedVisualizations;
       },
 
       // Get visualizations using a specific insight
@@ -258,6 +265,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       clear: () => {
         set((state) => {
           state.visualizations.clear();
+          state._cachedVisualizations = [];
           state.activeId = null;
         });
       },

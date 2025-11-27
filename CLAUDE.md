@@ -153,6 +153,7 @@ Before implementing any UI changes, follow this component-first approach:
    - Custom shared components (11 components) - ActionGroup, ItemSelector, Panel, Toggle, etc.
    - Icons from react-icons (Lucide, Feather, Simple Icons)
    - See `docs/ui-components.md` for full inventory and `pnpm storybook` to browse components
+   - **IMPORTANT**: All UI elements on pages MUST use components from `@dashframe/ui`. If a needed component doesn't exist, add it to the UI package first before using it in pages.
 
 2. **Component decision principles**:
    - **Use shadcn/ui components** for standard UI patterns (buttons, cards, dialogs, forms, etc.)

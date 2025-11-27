@@ -83,7 +83,7 @@ export interface Insight {
   forkedFrom?: UUID; // If this insight was forked from another, track the original
 
   // Output cache
-  dataFrameId?: UUID;
+  dataFrameId?: UUID; // Aggregated/computed DataFrame for visualizations
   lastComputedAt?: number;
 
   createdAt: number;

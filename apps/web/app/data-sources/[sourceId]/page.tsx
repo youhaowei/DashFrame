@@ -2,9 +2,6 @@
 
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id, Doc } from "@dashframe/convex/dataModel";
 import {
   Button,
   Input,
@@ -13,14 +10,40 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Trash2,
   Database,
   TableIcon,
   Plus,
+  Trash2,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  ActionGroup,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  ChevronLeft as LuArrowLeft,
+  File as LuFileSpreadsheet,
+  Cloud as LuCloud,
+  MoreHorizontal as LuMoreHorizontal,
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+  ItemCard,
 } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuFileSpreadsheet, LuCloud } from "react-icons/lu";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { DataFrameTable } from "@dashframe/ui";
+import type { DataSource, DataTable } from "@/lib/stores/types";
+import type { Field, UUID } from "@dashframe/dataframe";
+import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
 interface PageProps {
   params: Promise<{ sourceId: string }>;
@@ -67,43 +90,52 @@ export default function DataSourcePage({ params }: PageProps) {
   const { sourceId } = use(params);
   const router = useRouter();
 
-  // Convex queries
-  const dataSourceWithTables = useQuery(api.dataSources.getWithTables, {
-    id: sourceId as Id<"dataSources">,
-  });
+  // Local stores
+  const { data: dataSource, isLoading } = useStoreQuery(
+    useDataSourcesStore,
+    (s) => s.get(sourceId),
+  );
+  const updateDataSource = useDataSourcesStore((s) => s.update);
+  const removeDataSource = useDataSourcesStore((s) => s.remove);
+  const removeDataTable = useDataSourcesStore((s) => s.removeDataTable);
+  const getDataFrame = useDataFramesStore((state) => state.get);
+
+  // Get tables from data source
+  const dataTables = useMemo(() => {
+    return dataSource ? Array.from(dataSource.dataTables.values()) : [];
+  }, [dataSource]);
 
   // Local state for selected table
-  const [selectedTableId, setSelectedTableId] = useState<Id<"dataTables"> | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
 
-  // Query selected table details (fields and metrics)
-  const tableDetails = useQuery(
-    api.dataTables.getWithFieldsAndMetrics,
-    selectedTableId ? { id: selectedTableId } : "skip"
-  );
-
-  // Convex mutations
-  const updateDataSource = useMutation(api.dataSources.update);
-  const removeDataSource = useMutation(api.dataSources.remove);
-
-  // DataFrames store for preview data
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  // Get selected table details
+  const tableDetails = useMemo(() => {
+    if (!selectedTableId || !dataSource) return null;
+    const table = dataSource.dataTables.get(selectedTableId);
+    return table ? { dataTable: table, fields: table.fields, metrics: table.metrics } : null;
+  }, [selectedTableId, dataSource]);
 
   // Local state
   const [sourceName, setSourceName] = useState("");
+  const [deleteConfirmState, setDeleteConfirmState] = useState<{
+    isOpen: boolean;
+    tableId: UUID | null;
+    tableName: string | null;
+  }>({ isOpen: false, tableId: null, tableName: null });
 
   // Auto-select first table when data loads
   useEffect(() => {
-    if (dataSourceWithTables?.dataTables && dataSourceWithTables.dataTables.length > 0 && !selectedTableId) {
-      setSelectedTableId(dataSourceWithTables.dataTables[0]._id);
+    if (dataTables.length > 0 && !selectedTableId) {
+      setSelectedTableId(dataTables[0].id);
     }
-  }, [dataSourceWithTables?.dataTables, selectedTableId]);
+  }, [dataTables, selectedTableId]);
 
   // Sync source name when data loads
   useEffect(() => {
-    if (dataSourceWithTables?.dataSource?.name) {
-      setSourceName(dataSourceWithTables.dataSource.name);
+    if (dataSource?.name) {
+      setSourceName(dataSource.name);
     }
-  }, [dataSourceWithTables?.dataSource?.name]);
+  }, [dataSource?.name]);
 
   // Get DataFrame for selected table preview
   const dataFrame = useMemo(() => {
@@ -112,47 +144,57 @@ export default function DataSourcePage({ params }: PageProps) {
   }, [tableDetails?.dataTable?.dataFrameId, getDataFrame]);
 
   // Handle name change
-  const handleNameChange = async (newName: string) => {
+  const handleNameChange = (newName: string) => {
     setSourceName(newName);
-    await updateDataSource({
-      id: sourceId as Id<"dataSources">,
-      name: newName,
-    });
-  };
-
-  // Handle delete
-  const handleDelete = async () => {
-    if (
-      confirm(
-        `Are you sure you want to delete "${dataSourceWithTables?.dataSource?.name}"? This will also delete all tables, insights, and visualizations associated with it.`
-      )
-    ) {
-      await removeDataSource({ id: sourceId as Id<"dataSources"> });
-      router.push("/data-sources");
-    }
+    updateDataSource(sourceId, { name: newName });
   };
 
   // Handle create insight from table
-  const handleCreateInsight = (tableId: Id<"dataTables">) => {
+  const handleCreateInsight = (tableId: UUID) => {
     // Navigate to insights page with pre-selected table
     // The actual insight creation will happen there
     router.push(`/insights?newInsight=true&tableId=${tableId}`);
   };
 
-  // Loading state
-  if (dataSourceWithTables === undefined) {
+  // Handle delete table
+  const handleDeleteTable = () => {
+    if (!selectedTableId || !tableDetails?.dataTable) return;
+
+    setDeleteConfirmState({
+      isOpen: true,
+      tableId: selectedTableId,
+      tableName: tableDetails.dataTable.name,
+    });
+  };
+
+  // Handle confirm delete
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmState.tableId) return;
+
+    try {
+      // Delete from local store
+      removeDataTable(sourceId, deleteConfirmState.tableId);
+
+      // Clear selection and close dialog
+      setSelectedTableId(null);
+      setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null });
+    } catch (error) {
+      console.error("Failed to delete table:", error);
+    }
+  };
+
+  if (isLoading && !dataSource) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading data source...</p>
+          <p className="text-sm text-muted-foreground">Loading data source…</p>
         </div>
       </div>
     );
   }
 
   // Not found state
-  if (dataSourceWithTables === null) {
+  if (!dataSource) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
@@ -168,23 +210,37 @@ export default function DataSourcePage({ params }: PageProps) {
     );
   }
 
-  const { dataSource, dataTables } = dataSourceWithTables;
-
   return (
-    <div className="flex h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/data-sources")}
-            >
-              <LuArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <div className="flex-1 min-w-[220px]">
+    <>
+      <WorkbenchLayout
+        header={
+          <div className="container mx-auto px-6 py-4">
+            <Breadcrumb className="mb-4">
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink
+                    onClick={() => router.push("/data-sources")}
+                    className="flex items-center gap-1 cursor-pointer hover:text-foreground"
+                  >
+                    <LuArrowLeft className="h-4 w-4" />
+                    Back
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbLink href="/data-sources">Data Sources</BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>{sourceName || "Untitled Source"}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+        }
+        leftPanel={
+          <div className="flex h-full flex-col">
+            <div className="border-b p-4">
               <Input
                 value={sourceName}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -192,179 +248,205 @@ export default function DataSourcePage({ params }: PageProps) {
                 className="w-full"
               />
             </div>
-            <Badge variant="secondary">
-              {getSourceTypeLabel(dataSource.type)}
-            </Badge>
-          </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                {getSourceTypeIcon(dataSource.type)}
+                Tables
+              </h3>
 
-          {/* Metadata row */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{dataTables.length} table{dataTables.length !== 1 ? "s" : ""}</span>
-              <span>•</span>
-              <span>
-                Created{" "}
-                {new Date(dataSource.createdAt).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={handleDelete}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete Source
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Tables sidebar */}
-        <aside className="w-72 border-r bg-card overflow-y-auto">
-          <div className="p-4">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              {getSourceTypeIcon(dataSource.type)}
-              Tables
-            </h3>
-
-            {dataTables.length === 0 ? (
-              <div className="text-center py-8">
-                <TableIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No tables yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {dataTables.map((table: Doc<"dataTables">) => (
-                  <Card
-                    key={table._id}
-                    className={`cursor-pointer transition-colors ${
-                      selectedTableId === table._id
-                        ? "border-primary bg-primary/5"
-                        : "hover:bg-muted/50"
-                    }`}
-                    onClick={() => setSelectedTableId(table._id)}
-                  >
-                    <CardContent className="p-3">
-                      <p className="font-medium text-sm truncate">{table.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {table.sourceSchema?.fields?.length || 0} fields
-                      </p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
-          {selectedTableId && tableDetails ? (
-            <div className="p-6 space-y-6">
-              {/* Table header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold">
-                    {tableDetails.dataTable?.name}
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {tableDetails.fields.length} fields •{" "}
-                    {tableDetails.metrics.length} metrics
-                  </p>
+              {dataTables.length === 0 ? (
+                <div className="py-8 text-center">
+                  <TableIcon className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
+                  <p className="text-muted-foreground text-sm">No tables yet</p>
                 </div>
-                <Button onClick={() => handleCreateInsight(selectedTableId)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Insight
-                </Button>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  {dataTables.map((table) => {
+                    const fieldCount = table.fields.length;
 
-              {/* Fields */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Fields</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {tableDetails.fields.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No fields defined</p>
-                  ) : (
-                    <div className="grid gap-2">
-                      {tableDetails.fields.map((field: Doc<"fields">) => (
-                        <div
-                          key={field._id}
-                          className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-lg"
-                        >
-                          <span className="text-sm font-medium">{field.name}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {field.type}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Metrics */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Metrics</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {tableDetails.metrics.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No metrics defined</p>
-                  ) : (
-                    <div className="grid gap-2">
-                      {tableDetails.metrics.map((metric: Doc<"metrics">) => (
-                        <div
-                          key={metric._id}
-                          className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-lg"
-                        >
-                          <span className="text-sm font-medium">{metric.name}</span>
-                          <Badge variant="secondary" className="text-xs font-mono">
-                            {metric.aggregation}
-                            {metric.columnName && `(${metric.columnName})`}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Data preview */}
-              {dataFrame && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Data Preview</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="max-h-96 overflow-auto">
-                      <DataFrameTable dataFrame={dataFrame.data} />
-                    </div>
-                  </CardContent>
-                </Card>
+                    return (
+                      <ItemCard
+                        key={table.id}
+                        icon={<TableIcon className="h-4 w-4" />}
+                        title={table.name}
+                        subtitle={`${fieldCount} fields`}
+                        onClick={() => setSelectedTableId(table.id)}
+                        active={selectedTableId === table.id}
+                      />
+                    );
+                  })}
+                </div>
               )}
             </div>
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <TableIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Select a table</h3>
-                <p className="text-sm text-muted-foreground">
-                  Choose a table from the sidebar to view its details
+          </div>
+        }
+      >
+        {selectedTableId && tableDetails ? (
+          <div className="space-y-6 p-6">
+            {/* Table header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  {tableDetails.dataTable?.name}
+                </h2>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  {tableDetails.fields.length} fields •{" "}
+                  {tableDetails.metrics.length} metrics
                 </p>
               </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => handleCreateInsight(selectedTableId)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Insight
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <LuMoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={handleDeleteTable}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Table
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-          )}
-        </main>
-      </div>
-    </div>
+
+            {/* Fields */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Fields</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {tableDetails.fields.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    No fields defined
+                  </p>
+                ) : (
+                  <div className="grid gap-2">
+                    {tableDetails.fields.map((field) => (
+                      <div
+                        key={field.id}
+                        className="bg-muted/30 flex items-center justify-between rounded-lg px-3 py-2"
+                      >
+                        <span className="text-sm font-medium">
+                          {field.name}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {field.type}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Metrics */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Metrics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {tableDetails.metrics.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    No metrics defined
+                  </p>
+                ) : (
+                  <div className="grid gap-2">
+                    {tableDetails.metrics.map((metric) => (
+                      <div
+                        key={metric.id}
+                        className="bg-muted/30 flex items-center justify-between rounded-lg px-3 py-2"
+                      >
+                        <span className="text-sm font-medium">
+                          {metric.name}
+                        </span>
+                        <Badge
+                          variant="secondary"
+                          className="font-mono text-xs"
+                        >
+                          {metric.aggregation}
+                          {metric.columnName && `(${metric.columnName})`}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Data preview */}
+            {dataFrame && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Data Preview</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="max-h-96 overflow-auto">
+                    <DataFrameTable
+                      dataFrame={dataFrame.data}
+                      fields={tableDetails.fields}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <TableIcon className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
+              <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
+              <p className="text-muted-foreground text-sm">
+                Choose a table from the sidebar to view its details
+              </p>
+            </div>
+          </div>
+        )}
+      </WorkbenchLayout>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmState.isOpen}
+        onOpenChange={(open) =>
+          !open &&
+          setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null })
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Table</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{deleteConfirmState.tableName}"?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setDeleteConfirmState({
+                  isOpen: false,
+                  tableId: null,
+                  tableName: null,
+                })
+              }
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDelete}>
+              Delete Table
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

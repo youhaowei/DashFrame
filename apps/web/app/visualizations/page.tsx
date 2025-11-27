@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "@dashframe/convex";
-import type { Id, Doc } from "@dashframe/convex/dataModel";
+import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useStoreQuery } from "@/hooks/useStoreQuery";
+import type { Visualization, Insight } from "@/lib/stores/types";
+import type { UUID } from "@dashframe/dataframe";
 import {
   Button,
   Card,
@@ -22,14 +25,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuLoader, LuCircleDot } from "react-icons/lu";
+import { LuSearch, LuExternalLink, LuCircleDot } from "react-icons/lu";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
-// Type for API response from visualizations.listWithDetails
+// Type for visualization with joined details
 type VisualizationWithDetails = {
-  visualization: Doc<"visualizations">;
-  insight: Doc<"insights"> | null;
-  dataTable: Doc<"dataTables"> | null;
+  visualization: Visualization;
+  insight: Insight | null;
   sourceType: string | null;
 };
 
@@ -42,14 +44,42 @@ type VisualizationWithDetails = {
 export default function VisualizationsPage() {
   const router = useRouter();
 
-  // Convex queries
-  const visualizationsData = useQuery(api.visualizations.listWithDetails);
-
-  // Convex mutations
-  const removeVisualization = useMutation(api.visualizations.remove);
+  // Local stores with useStoreQuery to prevent infinite loops
+  const { data: visualizations } = useStoreQuery(useVisualizationsStore, (state) => state.getAll());
+  const removeVisualizationLocal = useVisualizationsStore((state) => state.remove);
+  const getInsight = useInsightsStore((state) => state.getInsight);
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) => state.getAll());
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Join visualizations with insights and determine source type
+  const visualizationsData = useMemo((): VisualizationWithDetails[] => {
+    return visualizations.map((viz) => {
+      const insight = viz.source.insightId ? (getInsight(viz.source.insightId) ?? null) : null;
+
+      // Try to determine source type from insight -> dataTable -> dataSource
+      let sourceType: string | null = null;
+      if (insight) {
+        const dataTableId = insight.baseTable?.tableId;
+        if (dataTableId) {
+          // Find which data source contains this table
+          const dataSource = dataSources.find((ds) =>
+            Array.from(ds.dataTables.values()).some((dt) => dt.id === dataTableId)
+          );
+          if (dataSource) {
+            sourceType = dataSource.type;
+          }
+        }
+      }
+
+      return {
+        visualization: viz,
+        insight,
+        sourceType,
+      };
+    });
+  }, [visualizations, getInsight, dataSources]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // Filter visualizations by search query
@@ -93,22 +123,22 @@ export default function VisualizationsPage() {
     return labels[type] || "Chart";
   };
 
-  // Handle delete visualization
-  const handleDeleteVisualization = async (
-    visualizationId: Id<"visualizations">,
+  // Handle delete visualization (LOCAL ONLY)
+  const handleDeleteVisualization = (
+    visualizationId: UUID,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeVisualization({ id: visualizationId });
+    removeVisualizationLocal(visualizationId);
   };
 
   // Render visualization card
   const renderVisualizationCard = (item: VisualizationWithDetails) => (
     <Card
-      key={item.visualization._id}
+      key={item.visualization.id}
       className="group hover:shadow-md transition-shadow cursor-pointer"
-      onClick={() => router.push(`/visualizations/${item.visualization._id}`)}
+      onClick={() => router.push(`/visualizations/${item.visualization.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -164,7 +194,7 @@ export default function VisualizationsPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/visualizations/${item.visualization._id}`);
+                  router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
                 <LuExternalLink className="h-4 w-4 mr-2" />
@@ -174,7 +204,7 @@ export default function VisualizationsPage() {
                 className="text-destructive"
                 onClick={(e) =>
                   handleDeleteVisualization(
-                    item.visualization._id,
+                    item.visualization.id,
                     e as unknown as React.MouseEvent
                   )
                 }
@@ -188,18 +218,6 @@ export default function VisualizationsPage() {
       </CardContent>
     </Card>
   );
-
-  // Loading state
-  if (visualizationsData === undefined) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading visualizations...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen flex-col bg-background">
