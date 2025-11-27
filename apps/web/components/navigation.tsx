@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, LayoutDashboard, LifeBuoy, LineChart, Sparkles, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
+import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, Github, LayoutDashboard, LineChart, Sparkles, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type NavItem = {
@@ -166,23 +166,18 @@ function SidebarContent({
         })}
       </nav>
 
-      {/* Support + theme */}
+      {/* Open source link */}
       {!isCollapsed && (
         <div className="border-border/60 border-t px-4 py-4">
-          <div className="text-muted-foreground flex items-center justify-between text-xs">
-            <div className="text-foreground flex items-center gap-2 font-medium">
-              <LifeBuoy className="h-4 w-4" />
-              Support
-            </div>
-            <Button
-              asChild
-              variant="link"
-              size="sm"
-              className="text-primary px-0"
-            >
-              <a href="mailto:hello@dashframe.dev">Email us</a>
-            </Button>
-          </div>
+          <a
+            href="https://github.com/youhaowei/dashframe"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs transition-colors"
+          >
+            <Github className="h-4 w-4" />
+            <span>Open source</span>
+          </a>
         </div>
       )}
     </div>

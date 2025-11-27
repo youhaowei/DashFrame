@@ -52,7 +52,7 @@ import {
   LuCloud,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
-import { SiNotion } from "react-icons/si";
+import { SiGithub, SiNotion } from "react-icons/si";
 
 // Type export - maps to IconType for compatibility
 export type LucideIcon = IconType;
@@ -104,6 +104,9 @@ export { FiFileText as File };
 export { FiFileText as FileText };
 export { SiNotion as Notion };
 export { LuCloud as Cloud };
+
+// Brands
+export { SiGithub as Github };
 
 // UI Elements
 export { LuCheck as Check };
