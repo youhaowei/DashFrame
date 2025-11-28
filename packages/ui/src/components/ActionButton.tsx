@@ -5,30 +5,30 @@ import { Button } from "../primitives/button";
 import { cn } from "../lib/utils";
 
 export interface ItemAction {
-    label: string;
-    onClick?: () => void;
-    href?: string;
-    variant?:
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  variant?:
     | "default"
     | "outline"
     | "destructive"
     | "secondary"
     | "ghost"
     | "link";
-    icon?: LucideIcon;
-    size?: "default" | "sm" | "lg" | "icon";
-    asChild?: boolean;
-    children?: ReactNode;
-    className?: string;
-    tooltip?: string;
+  icon?: LucideIcon;
+  size?: "default" | "sm" | "lg" | "icon";
+  asChild?: boolean;
+  children?: ReactNode;
+  className?: string;
+  tooltip?: string;
 }
 
 export interface ActionButtonProps extends ItemAction {
-    /**
-     * Compact mode - when true, shows only icon (if available) or label
-     * Default sizing and styling changes based on compact mode
-     */
-    compact?: boolean;
+  /**
+   * Compact mode - when true, shows only icon (if available) or label
+   * Default sizing and styling changes based on compact mode
+   */
+  compact?: boolean;
 }
 
 /**
@@ -72,71 +72,64 @@ export interface ActionButtonProps extends ItemAction {
  * ```
  */
 export function ActionButton({
-    label,
-    onClick,
-    href,
-    variant = "default",
-    icon: Icon,
-    size,
-    asChild,
-    children,
-    className,
-    tooltip,
-    compact = false,
+  label,
+  onClick,
+  href,
+  variant = "default",
+  icon: Icon,
+  size,
+  asChild,
+  children,
+  className,
+  tooltip,
+  compact = false,
 }: ActionButtonProps) {
-    const shouldShowLabel = !compact || !Icon;
-    const buttonContent = children || (
-        <>
-            {Icon && (
-                <Icon
-                    className={cn("h-4 w-4", shouldShowLabel && "mr-2")}
-                    aria-hidden
-                />
-            )}
-            {shouldShowLabel ? (
-                label
-            ) : (
-                <span className="sr-only">{label}</span>
-            )}
-        </>
+  const shouldShowLabel = !compact || !Icon;
+  const buttonContent = children || (
+    <>
+      {Icon && (
+        <Icon
+          className={cn("h-4 w-4", shouldShowLabel && "mr-2")}
+          aria-hidden
+        />
+      )}
+      {shouldShowLabel ? label : <span className="sr-only">{label}</span>}
+    </>
+  );
+
+  const buttonSize = size || (compact ? "icon" : "sm");
+  const baseClass = compact ? "h-9 w-9 min-w-0" : "h-9 min-w-[140px] px-4";
+
+  const commonProps = {
+    variant,
+    size: buttonSize,
+    className: cn(
+      baseClass,
+      "flex items-center justify-center",
+      className,
+      compact && "rounded-full",
+    ),
+    title: tooltip || (compact ? label : undefined),
+    "aria-label": compact ? label : undefined,
+    onClick: href ? undefined : onClick,
+  };
+
+  let content: ReactNode;
+  if (href) {
+    content = (
+      <Link href={href} onClick={onClick}>
+        {buttonContent}
+      </Link>
     );
+  } else if (asChild) {
+    content = children;
+  } else {
+    content = buttonContent;
+  }
 
-    const buttonSize = size || (compact ? "icon" : "sm");
-    const baseClass = compact
-        ? "h-9 w-9 min-w-0"
-        : "h-9 min-w-[140px] px-4";
-
-    const commonProps = {
-        variant,
-        size: buttonSize,
-        className: cn(
-            baseClass,
-            "flex items-center justify-center",
-            className,
-            compact && "rounded-full",
-        ),
-        title: tooltip || (compact ? label : undefined),
-        "aria-label": compact ? label : undefined,
-        onClick: href ? undefined : onClick,
-    };
-
-    let content: ReactNode;
-    if (href) {
-        content = (
-            <Link href={href} onClick={onClick}>
-                {buttonContent}
-            </Link>
-        );
-    } else if (asChild) {
-        content = children;
-    } else {
-        content = buttonContent;
-    }
-
-    return (
-        <Button asChild={Boolean(href) || asChild} {...commonProps}>
-            {content}
-        </Button>
-    );
+  return (
+    <Button asChild={Boolean(href) || asChild} {...commonProps}>
+      {content}
+    </Button>
+  );
 }
-

@@ -141,10 +141,7 @@ export {
   type DataFrameTableProps,
   type ColumnConfig,
 } from "./components/DataFrameTable";
-export {
-  SectionList,
-  type SectionListProps,
-} from "./components/SectionList";
+export { SectionList, type SectionListProps } from "./components/SectionList";
 export {
   ItemList,
   type ItemListProps,

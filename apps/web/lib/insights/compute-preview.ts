@@ -25,19 +25,17 @@ export function computeInsightPreview(
   insight: Insight,
   dataTable: DataTable,
   sourceDataFrame: DataFrame,
-  maxRows = 50
+  maxRows = 50,
 ): PreviewResult {
   const { baseTable, metrics, filters } = insight;
 
   // Get selected fields
   const selectedFields = dataTable.fields.filter((f) =>
-    baseTable.selectedFields.includes(f.id)
+    baseTable.selectedFields.includes(f.id),
   );
 
   // Create field ID to field mapping for lookups
-  const fieldMap = new Map<UUID, Field>(
-    dataTable.fields.map((f) => [f.id, f])
-  );
+  const fieldMap = new Map<UUID, Field>(dataTable.fields.map((f) => [f.id, f]));
 
   // Apply excludeNulls filter if specified
   let rows = sourceDataFrame.rows;
@@ -66,7 +64,11 @@ export function computeInsightPreview(
 
     // Compute metrics for each group
     aggregatedRows = groups.map((group) => {
-      const groupKeys = extractGroupKeys(group.rows[0], selectedFields, fieldMap);
+      const groupKeys = extractGroupKeys(
+        group.rows[0],
+        selectedFields,
+        fieldMap,
+      );
       const computedMetrics = computeMetrics(group.rows, metrics, fieldMap);
       return { ...groupKeys, ...computedMetrics };
     });
@@ -125,10 +127,7 @@ export function computeInsightPreview(
 
   // Build preview DataFrame
   const previewDataFrame: DataFrame = {
-    fieldIds: [
-      ...baseTable.selectedFields,
-      ...metrics.map((m) => m.id),
-    ],
+    fieldIds: [...baseTable.selectedFields, ...metrics.map((m) => m.id)],
     columns,
     rows: limitedRows,
     primaryKey: sourceDataFrame.primaryKey,
@@ -152,7 +151,7 @@ export function computeInsightPreview(
 function groupRowsBy(
   rows: Record<string, unknown>[],
   fields: Field[],
-  fieldMap: Map<UUID, Field>
+  _fieldMap: Map<UUID, Field>,
 ): Array<{ key: string; rows: Record<string, unknown>[] }> {
   const groupMap = new Map<string, Record<string, unknown>[]>();
 
@@ -185,7 +184,7 @@ function groupRowsBy(
 function extractGroupKeys(
   row: Record<string, unknown>,
   fields: Field[],
-  fieldMap: Map<UUID, Field>
+  _fieldMap: Map<UUID, Field>,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
@@ -207,10 +206,11 @@ function extractGroupKeys(
  * @param fieldMap - Map of field IDs to Field objects
  * @returns Object with metric values
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: handles multiple aggregation types (count, sum, avg, min, max, count_distinct)
 function computeMetrics(
   rows: Record<string, unknown>[],
   metrics: InsightMetric[],
-  fieldMap: Map<UUID, Field>
+  _fieldMap: Map<UUID, Field>,
 ): Record<string, number> {
   const result: Record<string, number> = {};
 
@@ -228,7 +228,9 @@ function computeMetrics(
       case "count_distinct": {
         // Count distinct values
         if (columnName) {
-          const values = rows.map((r) => r[columnName]).filter((v) => v != null);
+          const values = rows
+            .map((r) => r[columnName])
+            .filter((v) => v != null);
           value = new Set(values).size;
         }
         break;
@@ -249,9 +251,10 @@ function computeMetrics(
           const values = rows
             .map((r) => r[columnName])
             .filter((v) => typeof v === "number") as number[];
-          value = values.length > 0
-            ? values.reduce((sum, v) => sum + v, 0) / values.length
-            : 0;
+          value =
+            values.length > 0
+              ? values.reduce((sum, v) => sum + v, 0) / values.length
+              : 0;
         }
         break;
       }
@@ -295,7 +298,7 @@ function computeMetrics(
 export function computeInsightDataFrame(
   insight: Insight,
   dataTable: DataTable,
-  sourceDataFrame: DataFrame
+  sourceDataFrame: DataFrame,
 ): DataFrame {
   // For full compute, call preview with maxRows = Infinity
   // This applies all filters and grouping without limiting preview rows
@@ -303,7 +306,7 @@ export function computeInsightDataFrame(
     insight,
     dataTable,
     sourceDataFrame,
-    Infinity
+    Infinity,
   );
   return result.dataFrame;
 }

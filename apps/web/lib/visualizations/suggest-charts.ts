@@ -236,12 +236,11 @@ export function suggestCharts(
 
   // Heuristic 5: Grouped Bar (2 categorical + 1 numerical)
   if (categorical.length >= 2 && numerical.length > 0) {
-    const triple =
-      pickBestTriple(categorical, numerical, columnTableMap) ?? [
-        categorical[0],
-        categorical[1],
-        numerical[0],
-      ];
+    const triple = pickBestTriple(categorical, numerical, columnTableMap) ?? [
+      categorical[0],
+      categorical[1],
+      numerical[0],
+    ];
     const xCol = triple[0];
     const colorCol = triple[1];
     const yCol = triple[2];
@@ -274,7 +273,7 @@ export function suggestCharts(
   return rankSuggestions(
     suggestions,
     columnTableMap,
-    1 + (insight.joins?.length ?? 0)
+    1 + (insight.joins?.length ?? 0),
   ).slice(0, limit);
 }
 
@@ -307,19 +306,28 @@ function createMiniSpec(
   colorField?: string,
   xType: "nominal" | "temporal" | "quantitative" = "nominal",
 ): TopLevelSpec {
-  const mark =
-    type === "bar"
-      ? "bar"
-      : type === "line"
-        ? "line"
-        : type === "area"
-          ? "area"
-          : "point";
+  // Map chart type to Vega-Lite mark type
+  const getMarkType = (
+    chartType: VisualizationType,
+  ): "bar" | "line" | "area" | "point" => {
+    switch (chartType) {
+      case "bar":
+        return "bar";
+      case "line":
+        return "line";
+      case "area":
+        return "area";
+      default:
+        return "point";
+    }
+  };
+  const mark = getMarkType(type);
 
   // For bar/line/area charts, we want to aggregate the Y values by X groups
   const shouldAggregate = type === "bar" || type === "line" || type === "area";
 
-  const encoding: any = {
+  // Using a record type here as Vega-Lite encoding types are complex generics
+  const encoding: Record<string, unknown> = {
     x: {
       field: xField,
       type: xType,
@@ -355,7 +363,9 @@ function createMiniSpec(
 
 function normalizeColumnReference(value?: string): string | null {
   if (!value) return null;
-  const match = value.match(/^(sum|avg|count|min|max|count_distinct)\((.+)\)$/i);
+  const match = value.match(
+    /^(sum|avg|count|min|max|count_distinct)\((.+)\)$/i,
+  );
   if (match) return match[2];
   return value;
 }
@@ -387,10 +397,7 @@ function pickBestPair(
   for (const a of first) {
     for (const b of second) {
       if (options.disallowSame && a.columnName === b.columnName) continue;
-      const score = coverageScore(
-        [a.columnName, b.columnName],
-        columnTableMap,
-      );
+      const score = coverageScore([a.columnName, b.columnName], columnTableMap);
       if (score <= bestScore) continue;
       best = [a, b];
       bestScore = score;

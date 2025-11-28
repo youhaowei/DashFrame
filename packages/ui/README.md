@@ -145,6 +145,7 @@ pnpm storybook
 ```
 
 This launches Storybook at http://localhost:6006 with:
+
 - Interactive component examples
 - Props documentation
 - Multiple variants and states

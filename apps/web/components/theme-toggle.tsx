@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Moon, Sun, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@dashframe/ui";
+import {
+  Moon,
+  Sun,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@dashframe/ui";
 import { useTheme } from "next-themes";
 
 export function ThemeToggle() {

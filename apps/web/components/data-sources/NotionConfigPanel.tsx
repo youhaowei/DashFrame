@@ -100,10 +100,10 @@ export function NotionConfigPanel({
     <Card className="space-y-4">
       <div className="flex items-center justify-between px-4 pt-4">
         <div>
-          <p className="text-xs font-medium text-muted-foreground">
+          <p className="text-muted-foreground text-xs font-medium">
             Configure Notion insight
           </p>
-          <p className="text-sm text-foreground">
+          <p className="text-foreground text-sm">
             Choose database and properties
           </p>
         </div>

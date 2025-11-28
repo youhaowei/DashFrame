@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
 
 /**
@@ -27,27 +27,58 @@ interface Props {
   children: React.ReactNode;
 }
 
+// Check if localStorage is available (runs once during module initialization)
+function checkStorageAvailability(): {
+  available: boolean;
+  error: string | null;
+} {
+  if (typeof window === "undefined") {
+    return { available: true, error: null }; // SSR - assume available
+  }
+  try {
+    const testKey = "__convex_auth_test__";
+    localStorage.setItem(testKey, "test");
+    localStorage.removeItem(testKey);
+    return { available: true, error: null };
+  } catch (e) {
+    console.warn("[AnonymousAuthInitializer] localStorage check failed:", e);
+    return {
+      available: false,
+      error:
+        "Browser storage is disabled. Please enable cookies and local storage or exit private browsing mode.",
+    };
+  }
+}
+
 export function AnonymousAuthInitializer({ children }: Props) {
   const { signIn } = useAuthActions();
   const token = useAuthToken();
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
+
+  // Check storage availability once via useMemo (no setState in effect)
+  const storageCheck = useMemo(() => checkStorageAvailability(), []);
+
+  const [authError, setAuthError] = useState<string | null>(storageCheck.error);
+  const [retryCount, setRetryCount] = useState(storageCheck.available ? 0 : 3);
   const [isReady, setIsReady] = useState(false);
   const isSigningIn = useRef(false);
-  const hasCheckedStorage = useRef(false);
 
   const isAuthenticated = token !== null;
 
   // Debug: Log token changes
   useEffect(() => {
-    console.log("[AnonymousAuthInitializer] Auth token:", token ? "PRESENT" : "NULL");
+    console.log(
+      "[AnonymousAuthInitializer] Auth token:",
+      token ? "PRESENT" : "NULL",
+    );
     console.log("[AnonymousAuthInitializer] isAuthenticated:", isAuthenticated);
   }, [token, isAuthenticated]);
 
   // Wait a brief moment after authentication to ensure connection is stable
   useEffect(() => {
     if (isAuthenticated && !isReady) {
-      console.log("[AnonymousAuthInitializer] Auth complete, waiting for connection to stabilize...");
+      console.log(
+        "[AnonymousAuthInitializer] Auth complete, waiting for connection to stabilize...",
+      );
       const timer = setTimeout(() => {
         console.log("[AnonymousAuthInitializer] Connection ready!");
         setIsReady(true);
@@ -56,76 +87,67 @@ export function AnonymousAuthInitializer({ children }: Props) {
     }
   }, [isAuthenticated, isReady]);
 
-  // Check localStorage availability on mount
-  useEffect(() => {
-    if (hasCheckedStorage.current) return;
-    hasCheckedStorage.current = true;
+  // Sign-in handler extracted to avoid nested function depth
+  const handleSignIn = useCallback(async () => {
+    isSigningIn.current = true;
+    setAuthError(null);
+
+    console.log("[AnonymousAuthInitializer] Starting anonymous sign-in...");
 
     try {
-      const testKey = "__convex_auth_test__";
-      localStorage.setItem(testKey, "test");
-      localStorage.removeItem(testKey);
+      const result = await signIn("anonymous", {});
+      console.log("[AnonymousAuthInitializer] Sign-in result:", result);
     } catch (error) {
-      setAuthError(
-        "Browser storage is disabled. Please enable cookies and local storage or exit private browsing mode."
-      );
-      setRetryCount(3); // Skip retries
-    }
-  }, []);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      const isConnectionError = errorMessage.includes("Connection lost");
 
-  // Perform anonymous sign-in
+      if (!isConnectionError) {
+        console.error(
+          "[AnonymousAuthInitializer] Authentication failed:",
+          error,
+        );
+      }
+
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : "Failed to establish anonymous session",
+      );
+
+      // Schedule retry with exponential backoff
+      if (retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000;
+        if (!isConnectionError) {
+          console.log(
+            `[AnonymousAuthInitializer] Retrying in ${delay}ms (attempt ${retryCount + 1}/3)`,
+          );
+        }
+        setTimeout(() => {
+          isSigningIn.current = false;
+          setRetryCount((prev) => prev + 1);
+        }, delay);
+      }
+    }
+  }, [signIn, retryCount]);
+
+  // Perform anonymous sign-in effect
+  // Note: handleSignIn sets state asynchronously in response to auth result,
+  // which is the correct pattern for triggering async operations from effects
   useEffect(() => {
     // Skip if already authenticated or currently signing in
     if (isAuthenticated || isSigningIn.current) {
       return;
     }
 
-    // Skip if localStorage check failed
+    // Skip if localStorage check failed or max retries reached
     if (authError && retryCount >= 3) {
       return;
     }
 
-    const performSignIn = async () => {
-      isSigningIn.current = true;
-      setAuthError(null);
-
-      console.log("[AnonymousAuthInitializer] Starting anonymous sign-in...");
-
-      try {
-        // Call anonymous sign-in (pass empty object as params)
-        const result = await signIn("anonymous", {});
-        console.log("[AnonymousAuthInitializer] Sign-in result:", result);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        const isConnectionError = errorMessage.includes("Connection lost");
-
-        // Only log non-connection errors (connection errors are expected during initial setup)
-        if (!isConnectionError) {
-          console.error("[AnonymousAuthInitializer] Authentication failed:", error);
-        }
-
-        setAuthError(
-          error instanceof Error
-            ? error.message
-            : "Failed to establish anonymous session"
-        );
-
-        // Retry with exponential backoff (max 3 attempts)
-        if (retryCount < 3) {
-          const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-          if (!isConnectionError) {
-            console.log(`[AnonymousAuthInitializer] Retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
-          }
-          setTimeout(() => {
-            isSigningIn.current = false;
-            setRetryCount((prev) => prev + 1);
-          }, delay);
-        }
-      }
-    };
-
-    performSignIn();
-  }, [signIn, isAuthenticated, retryCount, authError]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Async auth flow: setState occurs in callback after sign-in completes
+    handleSignIn();
+  }, [isAuthenticated, retryCount, authError, handleSignIn]);
 
   // Show error state if sign-in failed after retries
   if (authError && retryCount >= 3) {

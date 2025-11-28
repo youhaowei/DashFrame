@@ -2,9 +2,30 @@
 
 import { useState, useEffect } from "react";
 import type { Field, Metric } from "@dashframe/dataframe";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@dashframe/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Button,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@dashframe/ui";
 
-type AggregationType = "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
+type AggregationType =
+  | "sum"
+  | "avg"
+  | "count"
+  | "min"
+  | "max"
+  | "count_distinct";
 
 interface MetricEditorModalProps {
   isOpen: boolean;
@@ -191,9 +212,7 @@ export function MetricEditorModal({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={
-              !name.trim() || (needsField && !fieldColumnName)
-            }
+            disabled={!name.trim() || (needsField && !fieldColumnName)}
           >
             Add Metric
           </Button>

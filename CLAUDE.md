@@ -180,9 +180,11 @@ Before implementing any UI changes, follow this component-first approach:
    - Don't skip accessibility - use semantic HTML and aria-labels
 
 **Component extraction workflow**:
+
 - Recognize repeated pattern → Check if component exists in `@dashframe/ui` → Extract to `packages/ui/src/components/` if used 3+ times → Document with JSDoc → Export from `packages/ui/src/index.ts`
 
 **Storybook for UI Development**:
+
 - Run `pnpm storybook` to launch Storybook at http://localhost:6006
 - Browse all UI components with interactive examples
 - Located in `packages/ui/` with stories in `src/**/*.stories.tsx`

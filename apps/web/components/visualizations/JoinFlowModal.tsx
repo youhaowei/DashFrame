@@ -37,7 +37,7 @@ export function JoinFlowModal({
       // Navigate to join page with insight's DataFrame
       router.push(`/insights/${insight.id}/join/insight/${insightId}`);
     },
-    [insight.id, router, onOpenChange]
+    [insight.id, router, onOpenChange],
   );
 
   // When selecting a table, navigate to join configuration
@@ -46,7 +46,7 @@ export function JoinFlowModal({
       onOpenChange(false);
       router.push(`/insights/${insight.id}/join/${tableId}`);
     },
-    [insight.id, router, onOpenChange]
+    [insight.id, router, onOpenChange],
   );
 
   return (

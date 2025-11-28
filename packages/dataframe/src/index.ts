@@ -104,10 +104,10 @@ export type { JoinOptions, JoinType } from "./operations";
  * @param df - DataFrame to migrate
  * @returns Migrated DataFrame with _rowIndex and primaryKey
  */
-export function ensureIdFields(df: any): any {
+export function ensureIdFields(df: unknown): unknown {
   // This function needs to be refactored for the new architecture
   // For now, just return the DataFrame as-is
-  // TODO: Remove this function or update it to work with fieldIds
+  // Note: This function should be removed or updated to work with fieldIds
   return df;
 }
 

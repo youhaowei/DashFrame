@@ -9,6 +9,7 @@ Notion databases should be cached locally to minimize API calls and improve perf
 **Problem**: Every time a user navigates to a Notion data source or creates a visualization, the data is fetched from Notion's API, even if it was recently fetched.
 
 **Flow**:
+
 1. User connects to Notion or selects existing Notion source
 2. User selects a database and properties
 3. `queryDatabase` tRPC mutation fetches data from Notion API
@@ -18,6 +19,7 @@ Notion databases should be cached locally to minimize API calls and improve perf
 ## Desired Behavior
 
 **Cache-First Approach**:
+
 1. When fetching Notion data, cache the DataFrame in the DataTable
 2. Display cached data by default
 3. Show "last fetched" timestamp
@@ -122,7 +124,7 @@ interface DataSourcesActions {
   refreshDataTable: (
     dataSourceId: UUID,
     dataTableId: UUID,
-    dataFrameId: UUID
+    dataFrameId: UUID,
   ) => void;
 }
 ```
@@ -141,7 +143,7 @@ refreshDataTable: (dataSourceId, dataTableId, dataFrameId) => {
       }
     }
   });
-}
+};
 ```
 
 ### 4. Add Refresh UI to DataSourceDisplay
@@ -149,6 +151,7 @@ refreshDataTable: (dataSourceId, dataTableId, dataFrameId) => {
 **Location**: `apps/web/components/data-sources/DataSourceDisplay.tsx`
 
 **UI Elements**:
+
 1. Show "Last fetched: X minutes ago" below table count
 2. Add "Refresh" button next to table name
 3. Show loading state during refresh
@@ -161,9 +164,11 @@ refreshDataTable: (dataSourceId, dataTableId, dataFrameId) => {
   {selectedDataTable?.lastFetchedAt && (
     <> • Last fetched: {formatRelativeTime(selectedDataTable.lastFetchedAt)}</>
   )}
-</CardDescription>
+</CardDescription>;
 
-{/* Refresh button */}
+{
+  /* Refresh button */
+}
 <Button
   variant="outline"
   size="sm"
@@ -171,8 +176,8 @@ refreshDataTable: (dataSourceId, dataTableId, dataFrameId) => {
   disabled={isRefreshing}
 >
   <Refresh className="mr-2 h-4 w-4" />
-  {isRefreshing ? 'Refreshing...' : 'Refresh'}
-</Button>
+  {isRefreshing ? "Refreshing..." : "Refresh"}
+</Button>;
 ```
 
 ### 5. Implement Refresh Logic
@@ -197,19 +202,15 @@ const handleRefreshDataTable = async () => {
     // Update DataFrame in store
     const dataFrameId = updateDataFrame(
       selectedDataTable.dataFrameId!,
-      dataFrame
+      dataFrame,
     );
 
     // Update DataTable with new lastFetchedAt
-    refreshDataTable(
-      dataSource.id,
-      selectedDataTable.id,
-      dataFrameId
-    );
+    refreshDataTable(dataSource.id, selectedDataTable.id, dataFrameId);
 
-    toast.success('Data refreshed successfully');
+    toast.success("Data refreshed successfully");
   } catch (error) {
-    toast.error('Failed to refresh data');
+    toast.error("Failed to refresh data");
   } finally {
     setIsRefreshing(false);
   }
@@ -255,6 +256,7 @@ const handleRefreshDataTable = async () => {
 ### Missing Cached Data
 
 If `dataFrameId` is missing (old data or corrupted state):
+
 - Show "No data available" message
 - Provide "Fetch Data" button
 - Same flow as first-time setup
@@ -262,6 +264,7 @@ If `dataFrameId` is missing (old data or corrupted state):
 ### API Errors
 
 If refresh fails:
+
 - Show error message
 - Keep displaying cached data
 - Allow retry
@@ -269,6 +272,7 @@ If refresh fails:
 ### Stale Data
 
 If data is very old (e.g., > 7 days):
+
 - Show warning: "Data may be outdated"
 - Suggest refreshing
 

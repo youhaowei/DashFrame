@@ -4,7 +4,7 @@ import type {
   UUID,
   Field,
   TableColumn,
-  SourceSchema
+  SourceSchema,
 } from "@dashframe/dataframe";
 
 /**
@@ -74,9 +74,7 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
   });
 
   // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
-  const detectedIdColumn = userColumns.find((col) =>
-    /^_?id$/i.test(col.name),
-  );
+  const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
 
   // Add system columns with _rowIndex first
   const columns = [
@@ -122,23 +120,23 @@ export type CsvResult = {
  */
 export function csvToDataFrameWithFields(
   csvData: CSVData,
-  dataTableId: UUID
+  dataTableId: UUID,
 ): CsvResult {
   // Parse CSV using existing logic
   const parsed = csvToDataFrame(csvData);
 
   // Build source schema (no _rowIndex in source - it's computed)
   const columns: TableColumn[] = (parsed.columns || [])
-    .filter(col => col.name !== "_rowIndex")
-    .map(col => ({
+    .filter((col) => col.name !== "_rowIndex")
+    .map((col) => ({
       name: col.name,
-      type: col.type,  // Use inferred type as native type for CSV
+      type: col.type, // Use inferred type as native type for CSV
     }));
 
   const sourceSchema: SourceSchema = {
     columns,
     version: 1,
-    lastSyncedAt: Date.now()
+    lastSyncedAt: Date.now(),
   };
 
   // Auto-generate fields (including _rowIndex computed field)
@@ -148,25 +146,25 @@ export function csvToDataFrameWithFields(
       id: crypto.randomUUID(),
       name: "_rowIndex",
       tableId: dataTableId,
-      columnName: undefined,  // Computed field
+      columnName: undefined, // Computed field
       type: "number",
-      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
+      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
     },
     // User fields from source
-    ...columns.map(col => ({
+    ...columns.map((col) => ({
       id: crypto.randomUUID(),
       name: col.name,
       tableId: dataTableId,
       columnName: col.name,
       type: col.type as ColumnType,
-    }))
+    })),
   ];
 
   // Build DataFrame with fieldIds
   const dataFrame: DataFrame = {
-    fieldIds: fields.map(f => f.id),
+    fieldIds: fields.map((f) => f.id),
     rows: parsed.rows,
-    primaryKey: parsed.primaryKey
+    primaryKey: parsed.primaryKey,
   };
 
   return { dataFrame, fields, sourceSchema };

@@ -20,7 +20,6 @@ export default defineSchema({
   // =====================================================
   ...authTables,
 
-
   // =====================================================
   // DATA SOURCES - Top-level data connections
   // =====================================================
@@ -29,7 +28,7 @@ export default defineSchema({
     type: v.union(
       v.literal("local"),
       v.literal("notion"),
-      v.literal("postgresql")
+      v.literal("postgresql"),
     ),
     name: v.string(),
     // Type-specific credentials (encrypted in production)
@@ -57,9 +56,9 @@ export default defineSchema({
             name: v.string(),
             type: v.string(),
             notionType: v.optional(v.string()),
-          })
+          }),
         ),
-      })
+      }),
     ),
     // Client-side DataFrame reference (stored in localStorage)
     dataFrameId: v.optional(v.string()),
@@ -78,7 +77,7 @@ export default defineSchema({
       v.literal("string"),
       v.literal("number"),
       v.literal("date"),
-      v.literal("boolean")
+      v.literal("boolean"),
     ),
     isIdentifier: v.optional(v.boolean()),
     isReference: v.optional(v.boolean()),
@@ -98,7 +97,7 @@ export default defineSchema({
       v.literal("count"),
       v.literal("min"),
       v.literal("max"),
-      v.literal("count_distinct")
+      v.literal("count_distinct"),
     ),
     createdAt: v.number(),
   }).index("by_dataTableId", ["dataTableId"]),
@@ -122,9 +121,9 @@ export default defineSchema({
           v.object({
             fieldOrMetricId: v.string(),
             direction: v.union(v.literal("asc"), v.literal("desc")),
-          })
+          }),
         ),
-      })
+      }),
     ),
     // Forking support
     forkedFromId: v.optional(v.id("insights")),
@@ -151,7 +150,7 @@ export default defineSchema({
       v.literal("count"),
       v.literal("min"),
       v.literal("max"),
-      v.literal("count_distinct")
+      v.literal("count_distinct"),
     ),
     createdAt: v.number(),
   }).index("by_insightId", ["insightId"]),
@@ -173,7 +172,7 @@ export default defineSchema({
       v.literal("bar"),
       v.literal("line"),
       v.literal("scatter"),
-      v.literal("area")
+      v.literal("area"),
     ),
     // Column encodings
     encoding: v.optional(
@@ -185,20 +184,20 @@ export default defineSchema({
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         yType: v.optional(
           v.union(
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         color: v.optional(v.string()),
         size: v.optional(v.string()),
-      })
+      }),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useSyncExternalStore } from "react";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
@@ -11,19 +11,36 @@ import { FieldEditorModal } from "./FieldEditorModal";
 import { MetricEditorModal } from "./MetricEditorModal";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { useCSVUpload } from "@/hooks/useCSVUpload";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Button } from "@dashframe/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  Button,
+} from "@dashframe/ui";
 import { toast } from "sonner";
 import type { Field, Metric } from "@dashframe/dataframe";
 
+// Hydration detection using useSyncExternalStore (no setState in effect)
+const emptySubscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 export function DataSourcesWorkbench() {
-  const [isHydrated, setIsHydrated] = useState(false);
+  // Use useSyncExternalStore for SSR-safe hydration detection
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
 
   // Store hooks
   const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
   const removeDataTable = useDataSourcesStore((state) => state.removeDataTable);
-  const addField = useDataSourcesStore((state) => state.addField);
   const updateField = useDataSourcesStore((state) => state.updateField);
   const deleteField = useDataSourcesStore((state) => state.deleteField);
   const addMetric = useDataSourcesStore((state) => state.addMetric);
@@ -38,9 +55,13 @@ export function DataSourcesWorkbench() {
     [dataSourcesMap],
   );
 
-  // Selection state
-  const [selectedDataSourceId, setSelectedDataSourceId] = useState<string | null>(null);
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  // Selection state - user's explicit choice
+  const [userSelectedDataSourceId, setUserSelectedDataSourceId] = useState<
+    string | null
+  >(null);
+  const [userSelectedTableId, setUserSelectedTableId] = useState<string | null>(
+    null,
+  );
 
   // Modal state
   const [fieldEditorState, setFieldEditorState] = useState<{
@@ -54,51 +75,48 @@ export function DataSourcesWorkbench() {
     tableName: string | null;
   }>({ isOpen: false, tableId: null, tableName: null });
 
-  // Hydrate on mount
-  useEffect(() => {
-    setIsHydrated(true);
-
-    // Auto-select first data source after hydration
-    if (dataSources.length > 0 && !selectedDataSourceId) {
-      setSelectedDataSourceId(dataSources[0].id);
-    }
-  }, [dataSources, selectedDataSourceId]);
-
-  // Update selectedDataSourceId if it becomes invalid (source was deleted)
-  const previousDataSourcesRef = useRef(dataSources);
-  useEffect(() => {
-    if (!isHydrated) return;
-
-    const previousSources = previousDataSourcesRef.current;
-    const sourcesChanged = previousSources.length !== dataSources.length;
-
+  // Derive effective selectedDataSourceId using useMemo (no setState in effect)
+  // Falls back to first source if user selection is null or invalid
+  const selectedDataSourceId = useMemo(() => {
+    // If user has selected a valid source, use it
     if (
-      sourcesChanged &&
-      selectedDataSourceId &&
-      !dataSourcesMap.has(selectedDataSourceId) &&
-      dataSources.length > 0
+      userSelectedDataSourceId &&
+      dataSourcesMap.has(userSelectedDataSourceId)
     ) {
-      setSelectedDataSourceId(dataSources[0].id);
+      return userSelectedDataSourceId;
     }
-    previousDataSourcesRef.current = dataSources;
-  }, [dataSources, selectedDataSourceId, dataSourcesMap, isHydrated]);
+    // Otherwise, auto-select first source if available
+    return dataSources.length > 0 ? dataSources[0].id : null;
+  }, [userSelectedDataSourceId, dataSourcesMap, dataSources]);
 
-  // Auto-select first table when data source changes
-  useEffect(() => {
-    if (selectedDataSourceId) {
-      const dataSource = dataSourcesMap.get(selectedDataSourceId);
-      if (dataSource) {
-        const tables = Array.from(dataSource.dataTables.values());
-        if (tables.length > 0) {
-          setSelectedTableId(tables[0].id);
-        } else {
-          setSelectedTableId(null);
-        }
-      }
-    } else {
-      setSelectedTableId(null);
+  // Derive effective selectedTableId using useMemo
+  // Falls back to first table if user selection is null or invalid
+  const selectedTableId = useMemo(() => {
+    if (!selectedDataSourceId) return null;
+    const dataSource = dataSourcesMap.get(selectedDataSourceId);
+    if (!dataSource) return null;
+
+    const tables = Array.from(dataSource.dataTables.values());
+    if (tables.length === 0) return null;
+
+    // If user selected a valid table in this source, use it
+    if (userSelectedTableId && dataSource.dataTables.has(userSelectedTableId)) {
+      return userSelectedTableId;
     }
-  }, [selectedDataSourceId, dataSourcesMap]);
+    // Otherwise auto-select first table
+    return tables[0].id;
+  }, [selectedDataSourceId, userSelectedTableId, dataSourcesMap]);
+
+  // Handler to update both source and reset table selection
+  const handleDataSourceSelect = (sourceId: string | null) => {
+    setUserSelectedDataSourceId(sourceId);
+    setUserSelectedTableId(null); // Reset table when source changes
+  };
+
+  // Handler to update table selection
+  const handleTableSelect = (tableId: string | null) => {
+    setUserSelectedTableId(tableId);
+  };
 
   // Get selected data table and data frame
   const selectedDataTable = useMemo(() => {
@@ -175,7 +193,7 @@ export function DataSourcesWorkbench() {
 
   const handleCreateVisualization = () => {
     if (!selectedDataSourceId || !selectedTableId) return;
-    // TODO: Implement create insight flow
+    // Note: Implement create insight flow
     // For now, just navigate to create visualization page
     toast.info("Create visualization flow coming soon");
   };
@@ -195,7 +213,7 @@ export function DataSourcesWorkbench() {
           <div className="p-4">
             <DataSourceSelector
               selectedId={selectedDataSourceId}
-              onSelect={setSelectedDataSourceId}
+              onSelect={handleDataSourceSelect}
               onCreateClick={() => setIsCreateDialogOpen(true)}
             />
           </div>
@@ -205,7 +223,7 @@ export function DataSourcesWorkbench() {
             <DataSourceTree
               dataSourceId={selectedDataSourceId}
               selectedTableId={selectedTableId}
-              onTableSelect={setSelectedTableId}
+              onTableSelect={handleTableSelect}
               onDeleteTable={handleDeleteTable}
             />
           ) : null
@@ -221,16 +239,21 @@ export function DataSourcesWorkbench() {
             onAddField={handleAddField}
             onAddMetric={() => setMetricEditorOpen(true)}
             onDeleteMetric={handleDeleteMetric}
-            onDeleteTable={() => selectedTableId && handleDeleteTable(selectedTableId)}
+            onDeleteTable={() =>
+              selectedTableId && handleDeleteTable(selectedTableId)
+            }
           />
         </div>
       </WorkbenchLayout>
 
       {/* New Data Source Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
-        setIsCreateDialogOpen(open);
-        if (!open) clearError();
-      }}>
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) clearError();
+        }}
+      >
         <DialogContent className="max-w-2xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add data source</DialogTitle>
@@ -240,8 +263,8 @@ export function DataSourcesWorkbench() {
             onCsvSelect={(file) => {
               handleCSVUpload(file, (tableId, sourceId) => {
                 setIsCreateDialogOpen(false);
-                setSelectedDataSourceId(sourceId);
-                setSelectedTableId(tableId);
+                setUserSelectedDataSourceId(sourceId);
+                setUserSelectedTableId(tableId);
                 toast.success(`Uploaded ${file.name}`);
               });
             }}
@@ -273,15 +296,20 @@ export function DataSourcesWorkbench() {
         open={deleteConfirmState.isOpen}
         onOpenChange={(open) =>
           !open &&
-          setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null })
+          setDeleteConfirmState({
+            isOpen: false,
+            tableId: null,
+            tableName: null,
+          })
         }
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Table</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{deleteConfirmState.tableName}"?
-              This action cannot be undone.
+              Are you sure you want to delete &quot;
+              {deleteConfirmState.tableName}&quot;? This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

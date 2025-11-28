@@ -2,3 +2,6 @@ packages:
   - apps/*
   - packages/*
   - convex
+
+ignoredBuiltDependencies:
+  - esbuild

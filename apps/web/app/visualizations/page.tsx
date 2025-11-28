@@ -35,6 +35,14 @@ type VisualizationWithDetails = {
   sourceType: string | null;
 };
 
+// Helper to check if a data source contains a specific table
+function dataSourceContainsTable(
+  ds: { dataTables: Map<string, { id: UUID }> },
+  tableId: UUID,
+): boolean {
+  return Array.from(ds.dataTables.values()).some((dt) => dt.id === tableId);
+}
+
 /**
  * Visualizations Management Page
  *
@@ -45,10 +53,17 @@ export default function VisualizationsPage() {
   const router = useRouter();
 
   // Local stores with useStoreQuery to prevent infinite loops
-  const { data: visualizations } = useStoreQuery(useVisualizationsStore, (state) => state.getAll());
-  const removeVisualizationLocal = useVisualizationsStore((state) => state.remove);
+  const { data: visualizations } = useStoreQuery(
+    useVisualizationsStore,
+    (state) => state.getAll(),
+  );
+  const removeVisualizationLocal = useVisualizationsStore(
+    (state) => state.remove,
+  );
   const getInsight = useInsightsStore((state) => state.getInsight);
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) => state.getAll());
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
+    state.getAll(),
+  );
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,21 +71,19 @@ export default function VisualizationsPage() {
   // Join visualizations with insights and determine source type
   const visualizationsData = useMemo((): VisualizationWithDetails[] => {
     return visualizations.map((viz) => {
-      const insight = viz.source.insightId ? (getInsight(viz.source.insightId) ?? null) : null;
+      const insight = viz.source.insightId
+        ? (getInsight(viz.source.insightId) ?? null)
+        : null;
 
       // Try to determine source type from insight -> dataTable -> dataSource
       let sourceType: string | null = null;
-      if (insight) {
-        const dataTableId = insight.baseTable?.tableId;
-        if (dataTableId) {
-          // Find which data source contains this table
-          const dataSource = dataSources.find((ds) =>
-            Array.from(ds.dataTables.values()).some((dt) => dt.id === dataTableId)
-          );
-          if (dataSource) {
-            sourceType = dataSource.type;
-          }
-        }
+      const dataTableId = insight?.baseTable?.tableId;
+      if (dataTableId) {
+        // Find which data source contains this table
+        const dataSource = dataSources.find((ds) =>
+          dataSourceContainsTable(ds, dataTableId),
+        );
+        sourceType = dataSource?.type ?? null;
       }
 
       return {
@@ -91,7 +104,7 @@ export default function VisualizationsPage() {
       (item: VisualizationWithDetails) =>
         item.visualization.name.toLowerCase().includes(query) ||
         item.insight?.name.toLowerCase().includes(query) ||
-        item.visualization.visualizationType.toLowerCase().includes(query)
+        item.visualization.visualizationType.toLowerCase().includes(query),
     );
   }, [visualizationsData, searchQuery]);
 
@@ -126,7 +139,7 @@ export default function VisualizationsPage() {
   // Handle delete visualization (LOCAL ONLY)
   const handleDeleteVisualization = (
     visualizationId: UUID,
-    e: React.MouseEvent
+    e: React.MouseEvent,
   ) => {
     e.stopPropagation();
     e.preventDefault();
@@ -137,44 +150,53 @@ export default function VisualizationsPage() {
   const renderVisualizationCard = (item: VisualizationWithDetails) => (
     <Card
       key={item.visualization.id}
-      className="group hover:shadow-md transition-shadow cursor-pointer"
+      className="group cursor-pointer transition-shadow hover:shadow-md"
       onClick={() => router.push(`/visualizations/${item.visualization.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
             {getTypeIcon(item.visualization.visualizationType)}
           </div>
 
           {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-medium truncate">{item.visualization.name}</h4>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <h4 className="truncate font-medium">
+                {item.visualization.name}
+              </h4>
               <Badge variant="secondary" className="text-xs">
                 {getTypeLabel(item.visualization.visualizationType)}
               </Badge>
             </div>
             {item.insight && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 From: {item.insight.name}
                 {item.sourceType && ` • ${item.sourceType}`}
               </p>
             )}
             {item.visualization.encoding && (
-              <p className="text-xs text-muted-foreground">
-                {item.visualization.encoding.x && `X: ${item.visualization.encoding.x}`}
-                {item.visualization.encoding.x && item.visualization.encoding.y && " • "}
-                {item.visualization.encoding.y && `Y: ${item.visualization.encoding.y}`}
+              <p className="text-muted-foreground text-xs">
+                {item.visualization.encoding.x &&
+                  `X: ${item.visualization.encoding.x}`}
+                {item.visualization.encoding.x &&
+                  item.visualization.encoding.y &&
+                  " • "}
+                {item.visualization.encoding.y &&
+                  `Y: ${item.visualization.encoding.y}`}
               </p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-muted-foreground mt-1 text-xs">
               Created{" "}
-              {new Date(item.visualization.createdAt).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
+              {new Date(item.visualization.createdAt).toLocaleDateString(
+                "en-US",
+                {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                },
+              )}
             </p>
           </div>
 
@@ -184,7 +206,7 @@ export default function VisualizationsPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -197,7 +219,7 @@ export default function VisualizationsPage() {
                   router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
-                <LuExternalLink className="h-4 w-4 mr-2" />
+                <LuExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -205,11 +227,11 @@ export default function VisualizationsPage() {
                 onClick={(e) =>
                   handleDeleteVisualization(
                     item.visualization.id,
-                    e as unknown as React.MouseEvent
+                    e as unknown as React.MouseEvent,
                   )
                 }
               >
-                <Trash2 className="h-4 w-4 mr-2" />
+                <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -220,25 +242,25 @@ export default function VisualizationsPage() {
   );
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Visualizations</h1>
-              <p className="text-sm text-muted-foreground">
-                {visualizationsData.length} visualization{visualizationsData.length !== 1 ? "s" : ""}{" "}
-                created
+              <p className="text-muted-foreground text-sm">
+                {visualizationsData.length} visualization
+                {visualizationsData.length !== 1 ? "s" : ""} created
               </p>
             </div>
             <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               New Visualization
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -251,7 +273,7 @@ export default function VisualizationsPage() {
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-6 max-w-4xl">
+        <div className="container mx-auto max-w-4xl px-6 py-6">
           {/* Visualizations List */}
           {filteredVisualizations.length > 0 ? (
             <div className="grid gap-3">
@@ -259,16 +281,16 @@ export default function VisualizationsPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <BarChart3 className="h-8 w-8 text-muted-foreground" />
+              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
+                <BarChart3 className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No visualizations found
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    No visualizations match "{searchQuery}"
+                  <p className="text-muted-foreground mb-4 text-sm">
+                    No visualizations match &quot;{searchQuery}&quot;
                   </p>
                   <Button variant="outline" onClick={() => setSearchQuery("")}>
                     Clear search
@@ -276,14 +298,15 @@ export default function VisualizationsPage() {
                 </>
               ) : (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No visualizations yet
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Create your first visualization to see your data come to life
+                  <p className="text-muted-foreground mb-4 text-sm">
+                    Create your first visualization to see your data come to
+                    life
                   </p>
                   <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                    <Plus className="mr-2 h-4 w-4" />
                     New Visualization
                   </Button>
                 </>

@@ -30,7 +30,8 @@ export function CreateVisualizationModal({
   onClose,
 }: CreateVisualizationModalProps) {
   const router = useRouter();
-  const { createInsightFromTable, createInsightFromInsight } = useCreateInsight();
+  const { createInsightFromTable, createInsightFromInsight } =
+    useCreateInsight();
 
   // State for the "what do you want to do?" dialog
   const [selectedInsight, setSelectedInsight] = useState<{
@@ -43,7 +44,7 @@ export function CreateVisualizationModal({
     (insightId: string, insightName: string) => {
       setSelectedInsight({ id: insightId, name: insightName });
     },
-    []
+    [],
   );
 
   // User chose to edit the existing insight
@@ -69,7 +70,7 @@ export function CreateVisualizationModal({
       createInsightFromTable(tableId, tableName);
       onClose();
     },
-    [createInsightFromTable, onClose]
+    [createInsightFromTable, onClose],
   );
 
   // Close action dialog
@@ -104,7 +105,7 @@ export function CreateVisualizationModal({
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>
-              <span className="text-xs text-muted-foreground font-normal">
+              <span className="text-muted-foreground text-xs font-normal">
                 Open and modify the existing insight
               </span>
             </Button>
@@ -113,7 +114,7 @@ export function CreateVisualizationModal({
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Create new based on this</span>
-              <span className="text-xs text-muted-foreground font-normal">
+              <span className="text-muted-foreground text-xs font-normal">
                 Chain a new insight from this data
               </span>
             </Button>

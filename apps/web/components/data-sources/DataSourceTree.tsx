@@ -106,7 +106,7 @@ export function DataSourceTree({
                   "hover:border-border hover:bg-accent/50",
                   isSelected
                     ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border/60"
+                    : "border-border/60",
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -115,7 +115,7 @@ export function DataSourceTree({
                       "mt-0.5 rounded p-1.5",
                       isSelected
                         ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground"
+                        : "bg-muted text-muted-foreground",
                     )}
                   >
                     <File className="h-4 w-4" />
@@ -124,7 +124,7 @@ export function DataSourceTree({
                     <p
                       className={cn(
                         "truncate text-sm font-medium",
-                        isSelected ? "text-primary" : "text-foreground"
+                        isSelected ? "text-primary" : "text-foreground",
                       )}
                     >
                       {table.name}

@@ -28,14 +28,14 @@ export const Horizontal: Story = {
       <div className="space-y-4">
         <div>
           <h3 className="text-sm font-medium">Section 1</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Content for the first section.
           </p>
         </div>
         <Separator />
         <div>
           <h3 className="text-sm font-medium">Section 2</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Content for the second section.
           </p>
         </div>
@@ -64,10 +64,10 @@ export const Vertical: Story = {
 
 export const InCard: Story = {
   render: () => (
-    <div className="w-96 rounded-xl border bg-card p-6">
+    <div className="bg-card w-96 rounded-xl border p-6">
       <div>
         <h3 className="text-lg font-semibold">Dashboard Settings</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-muted-foreground mt-1 text-sm">
           Manage your dashboard preferences
         </p>
       </div>
@@ -75,17 +75,17 @@ export const InCard: Story = {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-sm">Auto-refresh</span>
-          <span className="text-sm text-muted-foreground">Every 5 minutes</span>
+          <span className="text-muted-foreground text-sm">Every 5 minutes</span>
         </div>
         <Separator />
         <div className="flex items-center justify-between">
           <span className="text-sm">Theme</span>
-          <span className="text-sm text-muted-foreground">System</span>
+          <span className="text-muted-foreground text-sm">System</span>
         </div>
         <Separator />
         <div className="flex items-center justify-between">
           <span className="text-sm">Language</span>
-          <span className="text-sm text-muted-foreground">English</span>
+          <span className="text-muted-foreground text-sm">English</span>
         </div>
       </div>
     </div>
@@ -99,7 +99,7 @@ export const WithDecorativeText: Story = {
         <p className="text-sm">Content before the separator</p>
         <div className="relative">
           <Separator />
-          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
+          <span className="bg-background text-muted-foreground absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-2 text-xs">
             OR
           </span>
         </div>
@@ -116,13 +116,22 @@ export const NavigationMenu: Story = {
         <span className="text-sm font-semibold">DashFrame</span>
         <Separator orientation="vertical" className="h-6" />
         <nav className="flex items-center gap-4">
-          <a href="#" className="text-sm hover:text-foreground text-muted-foreground">
+          <a
+            href="#"
+            className="hover:text-foreground text-muted-foreground text-sm"
+          >
             Dashboard
           </a>
-          <a href="#" className="text-sm hover:text-foreground text-muted-foreground">
+          <a
+            href="#"
+            className="hover:text-foreground text-muted-foreground text-sm"
+          >
             Insights
           </a>
-          <a href="#" className="text-sm hover:text-foreground text-muted-foreground">
+          <a
+            href="#"
+            className="hover:text-foreground text-muted-foreground text-sm"
+          >
             Settings
           </a>
         </nav>
@@ -134,13 +143,15 @@ export const NavigationMenu: Story = {
 
 export const ListWithSeparators: Story = {
   render: () => (
-    <div className="w-80 rounded-md border bg-card p-4">
-      {["Apple", "Banana", "Cherry", "Date", "Elderberry"].map((item, index, arr) => (
-        <div key={item}>
-          <div className="py-2 text-sm">{item}</div>
-          {index < arr.length - 1 && <Separator />}
-        </div>
-      ))}
+    <div className="bg-card w-80 rounded-md border p-4">
+      {["Apple", "Banana", "Cherry", "Date", "Elderberry"].map(
+        (item, index, arr) => (
+          <div key={item}>
+            <div className="py-2 text-sm">{item}</div>
+            {index < arr.length - 1 && <Separator />}
+          </div>
+        ),
+      )}
     </div>
   ),
 };

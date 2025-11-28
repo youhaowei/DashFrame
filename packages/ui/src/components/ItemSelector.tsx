@@ -126,7 +126,9 @@ export function ItemSelector({
                   options={items.map((item) => ({
                     value: item.id,
                     label: item.label,
-                    icon: item.icon ? <item.icon className="h-4 w-4" /> : undefined,
+                    icon: item.icon ? (
+                      <item.icon className="h-4 w-4" />
+                    ) : undefined,
                     badge: item.badge || item.metadata,
                   }))}
                   onValueChange={onItemSelect}

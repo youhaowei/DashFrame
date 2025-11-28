@@ -8,6 +8,7 @@ import {
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
+import type { Field, EnhancedDataFrame } from "@dashframe/dataframe";
 import {
   Card,
   CardContent,
@@ -33,6 +34,108 @@ import { mapNotionTypeToColumnType } from "@dashframe/notion";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
+}
+
+// Helper to get preview description text
+function getPreviewDescription(
+  selectedDataTable: { name: string; lastFetchedAt?: number } | null,
+  dataFrame: { data: unknown } | null | undefined,
+  formatRelativeTime: (ts: number) => string,
+): React.ReactNode {
+  if (!selectedDataTable) {
+    return "Select a table to preview data";
+  }
+  if (!dataFrame) {
+    return `No data available for ${JSON.stringify(selectedDataTable.name)}`;
+  }
+  return (
+    <>
+      Showing data from {JSON.stringify(selectedDataTable.name)} • First 50 rows
+      {selectedDataTable.lastFetchedAt && (
+        <>
+          {" "}
+          • Last fetched: {formatRelativeTime(selectedDataTable.lastFetchedAt)}
+        </>
+      )}
+    </>
+  );
+}
+
+// Helper to get files description text
+function getFilesDescription(fileCount: number): string {
+  if (fileCount === 0) return "No files uploaded";
+  const label = fileCount === 1 ? "file" : "files";
+  return `${fileCount} ${label} available`;
+}
+
+// Helper to get table stats description
+function getTableStatsDescription(
+  dataFrame:
+    | { metadata: { rowCount: number; columnCount: number } }
+    | null
+    | undefined,
+  lastFetchedAt: number | undefined,
+  formatRelativeTime: (ts: number) => string,
+): React.ReactNode {
+  if (!dataFrame) {
+    return "No data synced yet";
+  }
+  return (
+    <>
+      {dataFrame.metadata.rowCount} rows × {dataFrame.metadata.columnCount}{" "}
+      columns
+      {lastFetchedAt && (
+        <> • Last synced: {formatRelativeTime(lastFetchedAt)}</>
+      )}
+    </>
+  );
+}
+
+// Helper to determine preview content based on state
+function PreviewContent({
+  isPreviewCollapsed,
+  hasDataTables,
+  selectedDataTable,
+  dataFrame,
+  onExpandPreview,
+}: {
+  isPreviewCollapsed: boolean;
+  hasDataTables: boolean;
+  selectedDataTable: { fields: Field[] } | null;
+  dataFrame: EnhancedDataFrame | null | undefined;
+  onExpandPreview: () => void;
+}) {
+  if (isPreviewCollapsed) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="text-muted-foreground text-sm">Preview collapsed</p>
+        <Button variant="outline" size="sm" onClick={onExpandPreview}>
+          Expand preview
+        </Button>
+      </div>
+    );
+  }
+  if (!hasDataTables) {
+    return (
+      <EmptyState message="No data tables configured. Create a visualization to add Notion databases." />
+    );
+  }
+  if (!selectedDataTable) {
+    return <EmptyState message="Select a data table to preview its data." />;
+  }
+  if (!dataFrame) {
+    return (
+      <EmptyState message="No data available. Create a visualization to fetch data from this Notion database." />
+    );
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <DataFrameTable
+        dataFrame={dataFrame.data}
+        fields={selectedDataTable.fields}
+      />
+    </div>
+  );
 }
 
 // Helper component for local data source display
@@ -70,13 +173,7 @@ function LocalDataSourceView({
         <CardHeader>
           <CardTitle className="text-lg">Files</CardTitle>
           <CardDescription>
-            {(() => {
-              const fileCount = dataTables.length;
-              const fileLabel = fileCount === 1 ? "file" : "files";
-              return fileCount === 0
-                ? "No files uploaded"
-                : `${fileCount} ${fileLabel} available`;
-            })()}
+            {getFilesDescription(dataTables.length)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -228,6 +325,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     };
 
     fetchSchema();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getSchemaMutation is a stable mutation hook, adding it would cause infinite loops
   }, [selectedDataTable, dataSource]);
 
   // Get the DataFrame for the selected DataTable
@@ -400,22 +498,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                     </CardTitle>
                   </div>
                   <CardDescription className="mt-1.5">
-                    {dataFrame ? (
-                      <>
-                        {dataFrame.metadata.rowCount} rows ×{" "}
-                        {dataFrame.metadata.columnCount} columns
-                        {selectedDataTable.lastFetchedAt && (
-                          <>
-                            {" "}
-                            • Last synced:{" "}
-                            {formatRelativeTime(
-                              selectedDataTable.lastFetchedAt,
-                            )}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      "No data synced yet"
+                    {getTableStatsDescription(
+                      dataFrame,
+                      selectedDataTable.lastFetchedAt,
+                      formatRelativeTime,
                     )}
                   </CardDescription>
                 </div>
@@ -556,27 +642,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                   )}
               </div>
               <CardDescription>
-                {(() => {
-                  if (!selectedDataTable) {
-                    return "Select a table to preview data";
-                  }
-                  if (!dataFrame) {
-                    return `No data available for ${JSON.stringify(selectedDataTable.name)}`;
-                  }
-                  return (
-                    <>
-                      Showing data from {JSON.stringify(selectedDataTable.name)}{" "}
-                      • First 50 rows
-                      {selectedDataTable.lastFetchedAt && (
-                        <>
-                          {" "}
-                          • Last fetched:{" "}
-                          {formatRelativeTime(selectedDataTable.lastFetchedAt)}
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
+                {getPreviewDescription(
+                  selectedDataTable,
+                  dataFrame,
+                  formatRelativeTime,
+                )}
               </CardDescription>
             </div>
             {selectedDataTable && dataFrame && (
@@ -598,47 +668,13 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
             )}
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {(() => {
-              if (isPreviewCollapsed) {
-                return (
-                  <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-                    <p className="text-muted-foreground text-sm">
-                      Preview collapsed
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsPreviewCollapsed(false)}
-                    >
-                      Expand preview
-                    </Button>
-                  </div>
-                );
-              }
-              if (!hasDataTables) {
-                return (
-                  <EmptyState message="No data tables configured. Create a visualization to add Notion databases." />
-                );
-              }
-              if (!selectedDataTable) {
-                return (
-                  <EmptyState message="Select a data table to preview its data." />
-                );
-              }
-              if (!dataFrame) {
-                return (
-                  <EmptyState message="No data available. Create a visualization to fetch data from this Notion database." />
-                );
-              }
-              return (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <DataFrameTable
-                    dataFrame={dataFrame.data}
-                    fields={selectedDataTable.fields}
-                  />
-                </div>
-              );
-            })()}
+            <PreviewContent
+              isPreviewCollapsed={isPreviewCollapsed}
+              hasDataTables={hasDataTables}
+              selectedDataTable={selectedDataTable}
+              dataFrame={dataFrame}
+              onExpandPreview={() => setIsPreviewCollapsed(false)}
+            />
           </CardContent>
         </Card>
       </div>

@@ -75,6 +75,7 @@ Selector
 ```
 
 **User Actions:**
+
 1. Navigate to `/data-sources`
 2. Click "Local Storage" in selector
 3. View uploaded CSV files in main area
@@ -92,6 +93,7 @@ Selector
 ```
 
 **User Actions:**
+
 1. Navigate to `/data-sources`
 2. Click "Notion" in selector
 3. View configured databases
@@ -109,6 +111,7 @@ Controls Panel
 ```
 
 **User Actions:**
+
 1. Select data source
 2. Click name field in left panel
 3. Type new name
@@ -126,6 +129,7 @@ Controls Panel
 ```
 
 **User Actions:**
+
 1. Select Notion source
 2. Click API key field in left panel
 3. Paste new integration token
@@ -147,6 +151,7 @@ Controls Panel → Actions Footer
 ```
 
 **User Actions:**
+
 1. Select data source to delete
 2. Scroll to bottom of left panel
 3. Click "Actions" to expand collapsible section
@@ -155,6 +160,7 @@ Controls Panel → Actions Footer
 6. Source removed, next source selected
 
 **Cascade Delete:**
+
 - DataSource deleted
 - All associated DataTables deleted
 - All Insights referencing those DataTables deleted
@@ -175,6 +181,7 @@ Selector
 ```
 
 **User Actions:**
+
 1. Click "+ New Data Source" in selector
 2. Choose CSV upload or Notion connection
 3. Complete flow (handled by NewDataSourcePanel)
@@ -185,6 +192,7 @@ Selector
 ### Top Selector (DataSourceSelector)
 
 **Collapsible Section:**
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Data Sources                                        [▼] │
@@ -203,6 +211,7 @@ Selector
 ```
 
 **States:**
+
 - **Selected**: Blue border + blue background tint
 - **Hover**: Gray background
 - **Empty**: Shows only "+ New Source" with helpful message
@@ -210,6 +219,7 @@ Selector
 ### Left Panel (DataSourceControls)
 
 **For Local Source:**
+
 ```
 ┌────────────────────────────────┐
 │  Name                          │
@@ -238,6 +248,7 @@ Selector
 ```
 
 **For Notion Source:**
+
 ```
 ┌────────────────────────────────┐
 │  Name                          │
@@ -272,6 +283,7 @@ Selector
 ```
 
 **Collapsible Sections:**
+
 - **Configuration**: Always open by default
 - **Metadata**: Collapsed by default
 - **Actions**: Collapsed by default (safety measure)
@@ -279,6 +291,7 @@ Selector
 ### Main Display (DataSourceDisplay)
 
 **For Local Source:**
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Local Storage                                           │
@@ -296,6 +309,7 @@ Selector
 ```
 
 **For Notion Source:**
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Notion                                                  │
@@ -332,7 +346,8 @@ Selector
 
 **Empty States:**
 
-*No Data Source Selected:*
+_No Data Source Selected:_
+
 ```
 ┌──────────────────────────────────────┐
 │  📁                                  │
@@ -342,7 +357,8 @@ Selector
 └──────────────────────────────────────┘
 ```
 
-*No DataTables:*
+_No DataTables:_
+
 ```
 ┌──────────────────────────────────────┐
 │  🗂️                                   │
@@ -355,6 +371,7 @@ Selector
 ## Visual Design
 
 ### Spacing & Layout
+
 - **Selector**: Collapsible section, defaults to open
 - **Left panel**: Fixed 360px width
 - **Main content**: Flexible width, min-h-0 for proper scrolling
@@ -362,6 +379,7 @@ Selector
 - **Card padding**: 1.5rem (24px)
 
 ### Typography
+
 - **Source name input**: Base size, medium weight
 - **Section headers**: sm size, semibold weight
 - **Labels**: xs size, medium weight, muted color
@@ -369,6 +387,7 @@ Selector
 - **Metadata**: xs size, muted color
 
 ### Colors & States
+
 - **Selected source**: Primary blue border + blue-50 background
 - **Hover state**: Muted background
 - **Input focus**: Blue ring
@@ -376,6 +395,7 @@ Selector
 - **Borders**: border-border/60 for cards, border-border/40 for dividers
 
 ### Icons
+
 - **Local**: `FileText` or folder icon
 - **Notion**: Notion logo (SiNotion)
 - **PostgreSQL**: `Database` icon
@@ -391,6 +411,7 @@ Selector
 **Solution**: All sources now have `dataTables: Map<UUID, DataTable>`. CSV files become DataTable entries.
 
 **Benefits**:
+
 - Consistent API across all source types
 - Easier to add new source types (PostgreSQL, Snowflake, etc.)
 - Simpler component logic (no type-specific branches)
@@ -466,12 +487,14 @@ Selector
 ## Accessibility
 
 ### Keyboard Navigation
+
 - **Tab order**: Selector → Left panel fields → Main content → Footer actions
 - **Enter**: Activate buttons, submit inputs
 - **Escape**: Close expanded sections
 - **Arrow keys**: Navigate DataTable list (future)
 
 ### Screen Readers
+
 - All inputs have proper labels (`<Label>` components)
 - Section headers announced clearly
 - Button text descriptive (not icon-only)
@@ -479,6 +502,7 @@ Selector
 - Focus management when selecting sources
 
 ### Visual Accessibility
+
 - **Touch targets**: Minimum 44x44px
 - **Color contrast**: WCAG AA compliant
 - **Focus indicators**: 2px blue ring on inputs
@@ -488,6 +512,7 @@ Selector
 ## Future Enhancements
 
 ### Near-term
+
 1. **Search/filter sources** - When many sources exist
 2. **Duplicate source** - Clone configuration for similar sources
 3. **Test connection** - Verify API keys work
@@ -495,6 +520,7 @@ Selector
 5. **Rename DataTables** - Custom names instead of database IDs
 
 ### Long-term
+
 1. **Bulk operations** - Delete multiple DataTables at once
 2. **Source groups/tags** - Organize sources by project/category
 3. **Connection status** - Show if Notion connection is healthy
@@ -506,6 +532,7 @@ Selector
 ## Testing Checklist
 
 ### Manual Testing
+
 - [ ] Select Local source → shows correct info
 - [ ] Select Notion source → shows correct info
 - [ ] Edit source name → saves immediately
@@ -520,6 +547,7 @@ Selector
 - [ ] Mobile responsive (future)
 
 ### Integration Testing (Future)
+
 - [ ] Create Local source → appears in selector
 - [ ] Create Notion source → appears in selector
 - [ ] Delete source → removed from all stores

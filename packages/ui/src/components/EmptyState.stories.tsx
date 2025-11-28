@@ -65,7 +65,8 @@ export const LargeSize: Story = {
   args: {
     icon: Database,
     title: "No data sources connected",
-    description: "Connect a data source to start building visualizations and insights",
+    description:
+      "Connect a data source to start building visualizations and insights",
     size: "lg",
     action: {
       label: "Add Data Source",
@@ -185,7 +186,8 @@ export const NoDataTables: Story = {
   args: {
     icon: FileText,
     title: "No tables found",
-    description: "This data source doesn't contain any tables or they couldn't be loaded",
+    description:
+      "This data source doesn't contain any tables or they couldn't be loaded",
     size: "sm",
   },
 };

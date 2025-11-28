@@ -49,7 +49,8 @@ export const WithoutIcon: Story = {
     <Alert className="w-96">
       <AlertTitle>Update available</AlertTitle>
       <AlertDescription>
-        A new software update is available. Download it now to get the latest features.
+        A new software update is available. Download it now to get the latest
+        features.
       </AlertDescription>
     </Alert>
   ),

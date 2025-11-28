@@ -17,12 +17,25 @@ type InsightWithDetails = {
   visualizationCount: number;
 };
 
+// Type alias for insight state
+type InsightState = "with-viz" | "configured" | "draft";
+
 // Type for processed insight with state
 type InsightItem = InsightWithDetails & {
   isConfigured: boolean;
   hasVisualizations: boolean;
-  state: "with-viz" | "configured" | "draft";
+  state: InsightState;
 };
+
+// Helper to determine insight state
+function getInsightState(
+  hasVisualizations: boolean,
+  isConfigured: boolean,
+): InsightState {
+  if (hasVisualizations) return "with-viz";
+  if (isConfigured) return "configured";
+  return "draft";
+}
 import {
   Button,
   Card,
@@ -55,10 +68,17 @@ export default function InsightsPage() {
   const router = useRouter();
 
   // Local stores with useStoreQuery to prevent infinite loops
-  const { data: allInsights } = useStoreQuery(useInsightsStore, (state) => state.getAll());
+  const { data: allInsights } = useStoreQuery(useInsightsStore, (state) =>
+    state.getAll(),
+  );
   const removeInsightLocal = useInsightsStore((state) => state.removeInsight);
-  const { data: visualizations } = useStoreQuery(useVisualizationsStore, (state) => state.getAll());
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) => state.getAll());
+  const { data: visualizations } = useStoreQuery(
+    useVisualizationsStore,
+    (state) => state.getAll(),
+  );
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
+    state.getAll(),
+  );
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,7 +106,7 @@ export default function InsightsPage() {
 
       // Count visualizations for this insight
       const visualizationCount = visualizations.filter(
-        (viz) => viz.source.insightId === insight.id
+        (viz) => viz.source.insightId === insight.id,
       ).length;
 
       return {
@@ -102,18 +122,15 @@ export default function InsightsPage() {
   const insights = useMemo((): InsightItem[] => {
     return insightsData.map((item): InsightItem => {
       // Determine state
-      const isConfigured = (item.insight.baseTable?.selectedFields?.length ?? 0) > 0;
+      const isConfigured =
+        (item.insight.baseTable?.selectedFields?.length ?? 0) > 0;
       const hasVisualizations = item.visualizationCount > 0;
 
       return {
         ...item,
         isConfigured,
         hasVisualizations,
-        state: hasVisualizations
-          ? ("with-viz" as const)
-          : isConfigured
-            ? ("configured" as const)
-            : ("draft" as const),
+        state: getInsightState(hasVisualizations, isConfigured),
       };
     });
   }, [insightsData]);
@@ -125,15 +142,19 @@ export default function InsightsPage() {
     return insights.filter(
       (item: InsightItem) =>
         item.insight.name.toLowerCase().includes(query) ||
-        item.dataTable?.name.toLowerCase().includes(query)
+        item.dataTable?.name.toLowerCase().includes(query),
     );
   }, [insights, searchQuery]);
 
   // Group insights by state
   const groupedInsights = useMemo(() => {
     return {
-      withViz: filteredInsights.filter((i: InsightItem) => i.state === "with-viz"),
-      configured: filteredInsights.filter((i: InsightItem) => i.state === "configured"),
+      withViz: filteredInsights.filter(
+        (i: InsightItem) => i.state === "with-viz",
+      ),
+      configured: filteredInsights.filter(
+        (i: InsightItem) => i.state === "configured",
+      ),
       drafts: filteredInsights.filter((i: InsightItem) => i.state === "draft"),
     };
   }, [filteredInsights]);
@@ -141,7 +162,7 @@ export default function InsightsPage() {
   // Get state badge
   const getStateBadge = (
     state: "with-viz" | "configured" | "draft",
-    vizCount?: number
+    vizCount?: number,
   ) => {
     switch (state) {
       case "with-viz":
@@ -169,19 +190,16 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <BarChart3 className="h-5 w-5 text-primary" />;
+        return <BarChart3 className="text-primary h-5 w-5" />;
       case "configured":
-        return <Settings className="h-5 w-5 text-muted-foreground" />;
+        return <Settings className="text-muted-foreground h-5 w-5" />;
       case "draft":
-        return <FileText className="h-5 w-5 text-muted-foreground" />;
+        return <FileText className="text-muted-foreground h-5 w-5" />;
     }
   };
 
   // Handle delete insight (LOCAL ONLY)
-  const handleDeleteInsight = (
-    insightId: UUID,
-    e: React.MouseEvent
-  ) => {
+  const handleDeleteInsight = (insightId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
     removeInsightLocal(insightId);
@@ -198,27 +216,27 @@ export default function InsightsPage() {
   const renderInsightCard = (item: (typeof insights)[0]) => (
     <Card
       key={item.insight.id}
-      className="group hover:shadow-md transition-shadow cursor-pointer"
+      className="group cursor-pointer transition-shadow hover:shadow-md"
       onClick={() => router.push(`/insights/${item.insight.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
             {getStateIcon(item.state)}
           </div>
 
           {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h4 className="font-medium truncate">{item.insight.name}</h4>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <h4 className="truncate font-medium">{item.insight.name}</h4>
               {getStateBadge(item.state, item.visualizationCount)}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {item.dataTable?.name || "Unknown table"}
               {item.sourceType && ` • ${item.sourceType}`}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-muted-foreground mt-1 text-xs">
               Created{" "}
               {new Date(item.insight.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -234,7 +252,7 @@ export default function InsightsPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -247,7 +265,7 @@ export default function InsightsPage() {
                   router.push(`/insights/${item.insight.id}`);
                 }}
               >
-                <LuExternalLink className="h-4 w-4 mr-2" />
+                <LuExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -255,11 +273,11 @@ export default function InsightsPage() {
                 onClick={(e) =>
                   handleDeleteInsight(
                     item.insight.id,
-                    e as unknown as React.MouseEvent
+                    e as unknown as React.MouseEvent,
                   )
                 }
               >
-                <Trash2 className="h-4 w-4 mr-2" />
+                <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -270,25 +288,25 @@ export default function InsightsPage() {
   );
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Insights</h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 {insights.length} insight{insights.length !== 1 ? "s" : ""}{" "}
                 total
               </p>
             </div>
             <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               New Insight
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -301,12 +319,12 @@ export default function InsightsPage() {
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-6 max-w-4xl space-y-8">
+        <div className="container mx-auto max-w-4xl space-y-8 px-6 py-6">
           {/* With Visualizations */}
           {groupedInsights.withViz.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-muted-foreground text-sm font-semibold">
                   With Visualizations ({groupedInsights.withViz.length})
                 </h2>
               </div>
@@ -320,7 +338,7 @@ export default function InsightsPage() {
           {groupedInsights.configured.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-muted-foreground text-sm font-semibold">
                   Configured ({groupedInsights.configured.length})
                 </h2>
               </div>
@@ -334,7 +352,7 @@ export default function InsightsPage() {
           {groupedInsights.drafts.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-muted-foreground text-sm font-semibold">
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
                 <Button
@@ -343,7 +361,7 @@ export default function InsightsPage() {
                   className="text-destructive hover:text-destructive"
                   onClick={handleDeleteAllDrafts}
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
+                  <Trash2 className="mr-1 h-4 w-4" />
                   Delete all
                 </Button>
               </div>
@@ -356,16 +374,16 @@ export default function InsightsPage() {
           {/* Empty State */}
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <FileText className="h-8 w-8 text-muted-foreground" />
+              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
+                <FileText className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No insights found
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    No insights match "{searchQuery}"
+                  <p className="text-muted-foreground mb-4 text-sm">
+                    No insights match &quot;{searchQuery}&quot;
                   </p>
                   <Button variant="outline" onClick={() => setSearchQuery("")}>
                     Clear search
@@ -373,14 +391,14 @@ export default function InsightsPage() {
                 </>
               ) : (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No insights yet
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
+                  <p className="text-muted-foreground mb-4 text-sm">
                     Create your first insight to start analyzing data
                   </p>
                   <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                    <Plus className="mr-2 h-4 w-4" />
                     New Insight
                   </Button>
                 </>

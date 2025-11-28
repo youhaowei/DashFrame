@@ -50,9 +50,15 @@ export const Default: Story = {
     spacing: "md",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -67,9 +73,15 @@ export const Horizontal: Story = {
     spacing: "md",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -84,8 +96,8 @@ export const NoSpacing: Story = {
     spacing: "none",
     children: (
       <>
-        <div className="bg-card border-b border-border/60 p-4">Item 1</div>
-        <div className="bg-card border-b border-border/60 p-4">Item 2</div>
+        <div className="bg-card border-border/60 border-b p-4">Item 1</div>
+        <div className="bg-card border-border/60 border-b p-4">Item 2</div>
         <div className="bg-card p-4">Item 3</div>
       </>
     ),
@@ -101,9 +113,15 @@ export const ExtraSmallSpacing: Story = {
     spacing: "xs",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -118,9 +136,15 @@ export const SmallSpacing: Story = {
     spacing: "sm",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -135,9 +159,15 @@ export const LargeSpacing: Story = {
     spacing: "lg",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -152,9 +182,15 @@ export const ExtraLargeSpacing: Story = {
     spacing: "xl",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 1</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 2</div>
-        <div className="bg-card rounded-xl border border-border/60 p-4">Item 3</div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 1
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 2
+        </div>
+        <div className="bg-card border-border/60 rounded-xl border p-4">
+          Item 3
+        </div>
       </>
     ),
   },
@@ -194,7 +230,7 @@ export const CenterJustified: Story = {
   },
   decorators: [
     (Story) => (
-      <div className="w-full border border-border/60 rounded-2xl p-6">
+      <div className="border-border/60 w-full rounded-2xl border p-6">
         <Story />
       </div>
     ),
@@ -212,13 +248,13 @@ export const SpaceBetween: Story = {
     children: (
       <>
         <span className="text-sm font-medium">Total Items</span>
-        <span className="text-sm text-muted-foreground">42</span>
+        <span className="text-muted-foreground text-sm">42</span>
       </>
     ),
   },
   decorators: [
     (Story) => (
-      <div className="w-full border border-border/60 rounded-2xl p-4">
+      <div className="border-border/60 w-full rounded-2xl border p-4">
         <Story />
       </div>
     ),
@@ -236,17 +272,27 @@ export const WrappingStack: Story = {
     children: (
       <>
         <Button size="sm">Option 1</Button>
-        <Button size="sm" variant="outline">Option 2</Button>
-        <Button size="sm" variant="outline">Option 3</Button>
-        <Button size="sm" variant="outline">Option 4</Button>
-        <Button size="sm" variant="outline">Option 5</Button>
-        <Button size="sm" variant="outline">Option 6</Button>
+        <Button size="sm" variant="outline">
+          Option 2
+        </Button>
+        <Button size="sm" variant="outline">
+          Option 3
+        </Button>
+        <Button size="sm" variant="outline">
+          Option 4
+        </Button>
+        <Button size="sm" variant="outline">
+          Option 5
+        </Button>
+        <Button size="sm" variant="outline">
+          Option 6
+        </Button>
       </>
     ),
   },
   decorators: [
     (Story) => (
-      <div className="w-[300px] border border-border/60 rounded-2xl p-4">
+      <div className="border-border/60 w-[300px] rounded-2xl border p-4">
         <Story />
       </div>
     ),
@@ -263,9 +309,9 @@ export const IconAndText: Story = {
     align: "center",
     children: (
       <>
-        <Database className="h-4 w-4 text-primary" />
+        <Database className="text-primary h-4 w-4" />
         <span className="text-sm font-medium">Sales Database</span>
-        <span className="text-xs text-muted-foreground">12 tables</span>
+        <span className="text-muted-foreground text-xs">12 tables</span>
       </>
     ),
   },
@@ -281,25 +327,25 @@ export const FormLayout: Story = {
     children: (
       <>
         <div>
-          <label className="text-sm font-medium block mb-2">Name</label>
+          <label className="mb-2 block text-sm font-medium">Name</label>
           <input
             type="text"
-            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
             placeholder="Enter name"
           />
         </div>
         <div>
-          <label className="text-sm font-medium block mb-2">Email</label>
+          <label className="mb-2 block text-sm font-medium">Email</label>
           <input
             type="email"
-            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
             placeholder="Enter email"
           />
         </div>
         <div>
-          <label className="text-sm font-medium block mb-2">Message</label>
+          <label className="mb-2 block text-sm font-medium">Message</label>
           <textarea
-            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
             placeholder="Enter message"
             rows={3}
           />
@@ -327,10 +373,15 @@ export const CardGrid: Story = {
     children: (
       <>
         {[Database, BarChart3, FileText].map((Icon, i) => (
-          <div key={i} className="bg-card rounded-2xl border border-border/60 p-6 w-[200px]">
-            <Icon className="h-5 w-5 mb-3" />
-            <h3 className="text-sm font-semibold mb-1">Feature {i + 1}</h3>
-            <p className="text-xs text-muted-foreground">Description text here</p>
+          <div
+            key={i}
+            className="bg-card border-border/60 w-[200px] rounded-2xl border p-6"
+          >
+            <Icon className="mb-3 h-5 w-5" />
+            <h3 className="mb-1 text-sm font-semibold">Feature {i + 1}</h3>
+            <p className="text-muted-foreground text-xs">
+              Description text here
+            </p>
           </div>
         ))}
       </>
@@ -348,13 +399,14 @@ export const StretchAlignment: Story = {
     align: "stretch",
     children: (
       <>
-        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
+        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
           Flexible item 1
         </div>
-        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
-          Flexible item 2<br />with more content
+        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
+          Flexible item 2<br />
+          with more content
         </div>
-        <div className="bg-card rounded-xl border border-border/60 p-4 flex-1">
+        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
           Flexible item 3
         </div>
       </>
@@ -368,17 +420,21 @@ export const StretchAlignment: Story = {
 export const NestedStacks: Story = {
   render: () => (
     <Stack direction="vertical" spacing="lg">
-      <div className="bg-card rounded-2xl border border-border/60 p-6">
-        <h3 className="text-sm font-semibold mb-4">Horizontal nested stack</h3>
+      <div className="bg-card border-border/60 rounded-2xl border p-6">
+        <h3 className="mb-4 text-sm font-semibold">Horizontal nested stack</h3>
         <Stack direction="horizontal" spacing="sm">
           <Button size="sm">Button 1</Button>
-          <Button size="sm" variant="outline">Button 2</Button>
-          <Button size="sm" variant="outline">Button 3</Button>
+          <Button size="sm" variant="outline">
+            Button 2
+          </Button>
+          <Button size="sm" variant="outline">
+            Button 3
+          </Button>
         </Stack>
       </div>
 
-      <div className="bg-card rounded-2xl border border-border/60 p-6">
-        <h3 className="text-sm font-semibold mb-4">Vertical nested stack</h3>
+      <div className="bg-card border-border/60 rounded-2xl border p-6">
+        <h3 className="mb-4 text-sm font-semibold">Vertical nested stack</h3>
         <Stack direction="vertical" spacing="xs">
           <div className="text-sm">Item 1</div>
           <div className="text-sm">Item 2</div>
@@ -399,9 +455,15 @@ export const SemanticNav: Story = {
     spacing: "md",
     children: (
       <>
-        <Button variant="ghost" size="sm">Home</Button>
-        <Button variant="ghost" size="sm">About</Button>
-        <Button variant="ghost" size="sm">Contact</Button>
+        <Button variant="ghost" size="sm">
+          Home
+        </Button>
+        <Button variant="ghost" size="sm">
+          About
+        </Button>
+        <Button variant="ghost" size="sm">
+          Contact
+        </Button>
       </>
     ),
   },

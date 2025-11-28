@@ -22,7 +22,10 @@ export default function RootLayout({
   return (
     <ConvexAuthNextjsServerProvider>
       <html lang="en" suppressHydrationWarning>
-        <body className="bg-background text-foreground" suppressHydrationWarning>
+        <body
+          className="bg-background text-foreground"
+          suppressHydrationWarning
+        >
           <ThemeProvider
             attribute="class"
             defaultTheme="system"

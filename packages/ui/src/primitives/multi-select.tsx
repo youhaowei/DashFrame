@@ -146,7 +146,7 @@ export function MultiSelect({
                   ref={containerRef}
                   className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden"
                   style={{
-                    maxHeight: `calc(${maxLines} * 1.5rem + ${maxLines - 1} * 0.375rem)`
+                    maxHeight: `calc(${maxLines} * 1.5rem + ${maxLines - 1} * 0.375rem)`,
                   }}
                 >
                   {selectedOptions.map((opt) => {
@@ -162,7 +162,7 @@ export function MultiSelect({
                         )}
                         <span className="truncate">{opt.label}</span>
                         <X
-                          className="h-3 w-3 shrink-0 cursor-pointer hover:text-foreground"
+                          className="hover:text-foreground h-3 w-3 shrink-0 cursor-pointer"
                           onClick={(e) => handleRemove(e, opt.value)}
                         />
                       </Badge>
@@ -198,8 +198,8 @@ export function MultiSelect({
                 handleToggle(option.value);
               }}
               className={cn(
-                "flex items-start gap-2.5 cursor-pointer",
-                option.description && "py-2.5"
+                "flex cursor-pointer items-start gap-2.5",
+                option.description && "py-2.5",
               )}
             >
               <Checkbox

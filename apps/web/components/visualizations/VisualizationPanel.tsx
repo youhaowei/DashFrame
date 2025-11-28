@@ -53,7 +53,10 @@ export function VisualizationPanel() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium">Chart Preview</h2>
           </div>
-          <Surface elevation="inset" className="text-muted-foreground flex flex-1 items-center justify-center rounded-md text-sm">
+          <Surface
+            elevation="inset"
+            className="text-muted-foreground flex flex-1 items-center justify-center rounded-md text-sm"
+          >
             Upload a CSV or connect to Notion to create a visualization.
           </Surface>
         </CardContent>

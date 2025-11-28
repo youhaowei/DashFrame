@@ -1,19 +1,17 @@
 import { useMemo } from "react";
+import type { DataTable, DataSource } from "@/lib/stores/types";
+import type { Field } from "@dashframe/dataframe";
 
-const getFieldCount = (table: any): number => {
+const getFieldCount = (table: DataTable): number => {
   // Prefer discovered source schema columns (no system fields)
   if (table?.sourceSchema?.columns?.length) {
     return table.sourceSchema.columns.length;
   }
 
-  // Backwards compatibility for sourceSchema.fields shape
-  if (table?.sourceSchema?.fields?.length) {
-    return table.sourceSchema.fields.length;
-  }
-
   // Fallback to user-defined fields, skipping system fields
   if (table?.fields?.length) {
-    return table.fields.filter((field: any) => !field.name?.startsWith("_")).length;
+    return table.fields.filter((field: Field) => !field.name?.startsWith("_"))
+      .length;
   }
 
   return 0;
@@ -48,7 +46,10 @@ export interface DataTableInfo {
  * const sourceTables = getTablesForSource('source-id');
  * ```
  */
-export function useDataTables(localSources: any[], filterSourceId?: string | null) {
+export function useDataTables(
+  localSources: DataSource[],
+  filterSourceId?: string | null,
+) {
   const allDataTables = useMemo(() => {
     const tables: DataTableInfo[] = [];
 
@@ -60,13 +61,12 @@ export function useDataTables(localSources: any[], filterSourceId?: string | nul
 
       const dataTables = Array.from(source.dataTables?.values?.() ?? []);
       for (const table of dataTables) {
-        const localTable = table as any;
         tables.push({
-          tableId: localTable.id,
-          tableName: localTable.name,
+          tableId: table.id,
+          tableName: table.name,
           sourceId: source.id,
           sourceName: source.name,
-          fieldCount: getFieldCount(localTable),
+          fieldCount: getFieldCount(table),
           isLocal: true,
         });
       }
@@ -80,7 +80,7 @@ export function useDataTables(localSources: any[], filterSourceId?: string | nul
     () => (sourceId: string) => {
       return allDataTables.filter((table) => table.sourceId === sourceId);
     },
-    [allDataTables]
+    [allDataTables],
   );
 
   return {

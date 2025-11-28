@@ -90,7 +90,7 @@ export function useInsights(options?: {
     const dfByInsightId = new Map(
       dataFrames
         .filter((df) => df.metadata.source.insightId)
-        .map((df) => [df.metadata.source.insightId!, df])
+        .map((df) => [df.metadata.source.insightId!, df]),
     );
 
     return allInsights

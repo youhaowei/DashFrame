@@ -60,14 +60,15 @@ export const Success: Story = {
   ),
 };
 
-export const Error: Story = {
+export const ErrorToast: Story = {
   render: () => (
     <>
       <Toaster />
       <Button
         onClick={() =>
           toast.error("Error occurred", {
-            description: "Failed to connect to the data source. Please try again.",
+            description:
+              "Failed to connect to the data source. Please try again.",
           })
         }
       >
@@ -182,12 +183,18 @@ export const AllVariants: Story = {
       <Toaster />
       <div className="flex flex-col gap-2">
         <Button onClick={() => toast("Default toast message")}>Default</Button>
-        <Button onClick={() => toast.success("Operation completed successfully")}>
+        <Button
+          onClick={() => toast.success("Operation completed successfully")}
+        >
           Success
         </Button>
         <Button onClick={() => toast.error("An error occurred")}>Error</Button>
-        <Button onClick={() => toast.warning("Warning message")}>Warning</Button>
-        <Button onClick={() => toast.info("Informational message")}>Info</Button>
+        <Button onClick={() => toast.warning("Warning message")}>
+          Warning
+        </Button>
+        <Button onClick={() => toast.info("Informational message")}>
+          Info
+        </Button>
         <Button
           onClick={() =>
             toast("With action", {

@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/notion";
 import type { TopLevelSpec } from "vega-lite";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
+
 import {
   Card,
   CardContent,
@@ -16,7 +17,6 @@ import {
   SectionList,
   Button,
   ItemCard,
-  Badge,
   LineChart,
   Sparkles,
   Database,
@@ -26,8 +26,11 @@ import { LuArrowLeft, LuArrowRight, LuCircleDot } from "react-icons/lu";
 
 // Dynamic import to avoid SSR issues with Vega-Lite
 const VegaChart = dynamic(
-  () => import("@/components/visualizations/VegaChart").then((mod) => ({ default: mod.VegaChart })),
-  { ssr: false }
+  () =>
+    import("@/components/visualizations/VegaChart").then((mod) => ({
+      default: mod.VegaChart,
+    })),
+  { ssr: false },
 );
 import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 import { DataTableList } from "@/components/data-sources/DataTableList";
@@ -44,10 +47,15 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import type { DataSource, Visualization } from "@/lib/stores/types";
 
+// StandardType is not exported from vega-lite's main module
+type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
+
 // Utility: Get CSS color variable value
 function getCSSColor(variable: string): string {
   if (typeof window === "undefined") return "#000000";
-  return getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(variable)
+    .trim();
 }
 
 // Utility: Get Vega theme config matching app theme
@@ -83,7 +91,7 @@ function getVegaThemeConfig() {
 // Build Vega-Lite spec for preview (smaller height)
 function buildPreviewVegaSpec(
   viz: Visualization,
-  dataFrame: EnhancedDataFrame
+  dataFrame: EnhancedDataFrame,
 ): TopLevelSpec {
   const { visualizationType, encoding } = viz;
 
@@ -110,8 +118,11 @@ function buildPreviewVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -123,8 +134,11 @@ function buildPreviewVegaSpec(
         ...commonSpec,
         mark: "line" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -136,8 +150,14 @@ function buildPreviewVegaSpec(
         ...commonSpec,
         mark: "point" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "quantitative") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: {
+            field: x,
+            type: (encoding?.xType || "quantitative") as StandardType,
+          },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -152,8 +172,11 @@ function buildPreviewVegaSpec(
         ...commonSpec,
         mark: "area" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -166,8 +189,11 @@ function buildPreviewVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
         },
       };
   }
@@ -184,15 +210,26 @@ export default function HomePage() {
 
   // Stores
   const { isHydrated, localSources } = useLocalStoreHydration();
-  const { data: visualizations } = useStoreQuery(useVisualizationsStore, (state) => state.getAll());
-  const { data: insights } = useStoreQuery(useInsightsStore, (state) => state.getAll());
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) => state.getAll());
+  const { data: visualizations } = useStoreQuery(
+    useVisualizationsStore,
+    (state) => state.getAll(),
+  );
+  const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
+    state.getAll(),
+  );
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
+    state.getAll(),
+  );
   const getDataFrame = useDataFramesStore((state) => state.get);
 
   // Onboarding state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const { allDataTables } = useDataTables(localSources, selectedSourceId);
-  const { handleCSVUpload, error: csvError, clearError: clearCSVError } = useCSVUpload();
+  const {
+    handleCSVUpload,
+    error: csvError,
+    clearError: clearCSVError,
+  } = useCSVUpload();
   const { createInsightFromTable } = useCreateInsight();
 
   // Transform localSources for DataSourceList
@@ -206,7 +243,7 @@ export default function HomePage() {
   // Notion UI state
   const [notionApiKey, setNotionApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
-  const [notionDatabases, setNotionDatabases] = useState<NotionDatabase[]>([]);
+  const [, setNotionDatabases] = useState<NotionDatabase[]>([]);
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
   const [notionError, setNotionError] = useState<string | null>(null);
 
@@ -228,7 +265,7 @@ export default function HomePage() {
         createInsightFromTable(dataTableId, tableName);
       });
     },
-    [handleCSVUpload, createInsightFromTable, clearCSVError]
+    [handleCSVUpload, createInsightFromTable, clearCSVError],
   );
 
   // Handle Notion connection
@@ -262,7 +299,7 @@ export default function HomePage() {
       setIsLoadingDatabases(false);
     } catch (err) {
       setNotionError(
-        err instanceof Error ? err.message : "Failed to connect to Notion"
+        err instanceof Error ? err.message : "Failed to connect to Notion",
       );
       setIsLoadingDatabases(false);
     }
@@ -304,47 +341,56 @@ export default function HomePage() {
   // Recent items (last 3)
   const recentVisualizations = useMemo(() => {
     return [...visualizations]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
       .slice(0, 3);
   }, [visualizations]);
 
   const recentInsights = useMemo(() => {
     return [...insights]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
       .slice(0, 3);
   }, [insights]);
 
   // Stats
   const totalTables = useMemo(() => {
-    return dataSources.reduce((acc: number, ds: DataSource) => acc + (ds.dataTables?.size || 0), 0);
+    return dataSources.reduce(
+      (acc: number, ds: DataSource) => acc + (ds.dataTables?.size || 0),
+      0,
+    );
   }, [dataSources]);
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-12 max-w-4xl">
+        <div className="container mx-auto max-w-4xl px-6 py-12">
           {/* Onboarding View - Show when no visualizations exist */}
           {!hasVisualizations && (
             <>
               {/* Welcome Header - Only shown when completely empty */}
               {showWelcome && (
-                <Card className="text-center mb-8">
+                <Card className="mb-8 text-center">
                   <CardContent className="p-8">
                     {/* Icon */}
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <BarChart3 className="h-6 w-6 text-primary" />
+                    <div className="bg-primary/10 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
+                      <BarChart3 className="text-primary h-6 w-6" />
                     </div>
 
                     {/* Heading */}
-                    <h2 className="text-2xl font-bold mb-2">
+                    <h2 className="mb-2 text-2xl font-bold">
                       Welcome to DashFrame
                     </h2>
 
                     {/* Description */}
                     <p className="text-muted-foreground text-base">
-                      Create beautiful visualizations from your data.
-                      Upload a CSV file or connect to Notion to get started.
+                      Create beautiful visualizations from your data. Upload a
+                      CSV file or connect to Notion to get started.
                     </p>
                   </CardContent>
                 </Card>
@@ -352,7 +398,12 @@ export default function HomePage() {
 
               {/* Error Alert */}
               {error && (
-                <Alert variant={error.includes("connected") ? "default" : "destructive"} className="mb-6">
+                <Alert
+                  variant={
+                    error.includes("connected") ? "default" : "destructive"
+                  }
+                  className="mb-6"
+                >
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
@@ -412,7 +463,9 @@ export default function HomePage() {
                   onApiKeyChange: setNotionApiKey,
                   onToggleShowApiKey: () => setShowApiKey((prev) => !prev),
                   onConnectNotion: handleConnectNotion,
-                  connectButtonLabel: isLoadingDatabases ? "Connecting..." : "Connect Notion",
+                  connectButtonLabel: isLoadingDatabases
+                    ? "Connecting..."
+                    : "Connect Notion",
                   connectDisabled: !notionApiKey || isLoadingDatabases,
                 }}
               />
@@ -424,17 +477,26 @@ export default function HomePage() {
             <>
               {/* Welcome Header */}
               <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Welcome back to DashFrame</h1>
+                <h1 className="mb-2 text-3xl font-bold">
+                  Welcome back to DashFrame
+                </h1>
                 <p className="text-muted-foreground">
-                  {visualizations.length} visualization{visualizations.length !== 1 ? "s" : ""} · {insights.length} insight{insights.length !== 1 ? "s" : ""} · {dataSources.length} data source{dataSources.length !== 1 ? "s" : ""} · {totalTables} table{totalTables !== 1 ? "s" : ""}
+                  {visualizations.length} visualization
+                  {visualizations.length !== 1 ? "s" : ""} · {insights.length}{" "}
+                  insight{insights.length !== 1 ? "s" : ""} ·{" "}
+                  {dataSources.length} data source
+                  {dataSources.length !== 1 ? "s" : ""} · {totalTables} table
+                  {totalTables !== 1 ? "s" : ""}
                 </p>
               </div>
 
               {/* Recent Visualizations */}
               {recentVisualizations.length > 0 && (
                 <div className="mb-8">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-semibold">Recent Visualizations</h2>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-xl font-semibold">
+                      Recent Visualizations
+                    </h2>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -444,21 +506,26 @@ export default function HomePage() {
                       <LuArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {recentVisualizations.map((viz) => {
                       // Get DataFrame for this visualization
                       const dataFrameId = viz.source.dataFrameId;
-                      const dataFrame = dataFrameId ? getDataFrame(dataFrameId) : null;
+                      const dataFrame = dataFrameId
+                        ? getDataFrame(dataFrameId)
+                        : null;
                       const isChart = viz.visualizationType !== "table";
 
                       // Build preview element
-                      const previewElement = isChart && dataFrame ? (
-                        <VegaChart spec={buildPreviewVegaSpec(viz, dataFrame)} />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center bg-muted">
-                          {getTypeIcon(viz.visualizationType)}
-                        </div>
-                      );
+                      const previewElement =
+                        isChart && dataFrame ? (
+                          <VegaChart
+                            spec={buildPreviewVegaSpec(viz, dataFrame)}
+                          />
+                        ) : (
+                          <div className="bg-muted flex h-full w-full items-center justify-center">
+                            {getTypeIcon(viz.visualizationType)}
+                          </div>
+                        );
 
                       return (
                         <ItemCard
@@ -468,7 +535,9 @@ export default function HomePage() {
                           title={viz.name}
                           subtitle={`Created ${new Date(viz.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
                           badge={getTypeLabel(viz.visualizationType)}
-                          onClick={() => router.push(`/visualizations/${viz.id}`)}
+                          onClick={() =>
+                            router.push(`/visualizations/${viz.id}`)
+                          }
                         />
                       );
                     })}
@@ -479,7 +548,7 @@ export default function HomePage() {
               {/* Recent Insights */}
               {recentInsights.length > 0 && (
                 <div className="mb-8">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-xl font-semibold">Recent Insights</h2>
                     <Button
                       variant="ghost"
@@ -490,14 +559,18 @@ export default function HomePage() {
                       <LuArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                     {recentInsights.map((insight) => (
                       <ItemCard
                         key={insight.id}
                         icon={<Sparkles className="h-5 w-5" />}
                         title={insight.name}
                         subtitle={`${insight.metrics?.length || 0} metric${insight.metrics?.length !== 1 ? "s" : ""}`}
-                        badge={insight.baseTable?.selectedFields.length ? `${insight.baseTable.selectedFields.length} fields` : undefined}
+                        badge={
+                          insight.baseTable?.selectedFields.length
+                            ? `${insight.baseTable.selectedFields.length} fields`
+                            : undefined
+                        }
                         onClick={() => router.push(`/insights/${insight.id}`)}
                       />
                     ))}
@@ -507,8 +580,8 @@ export default function HomePage() {
 
               {/* Quick Links */}
               <div>
-                <h2 className="text-xl font-semibold mb-4">Quick Links</h2>
-                <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                <h2 className="mb-4 text-xl font-semibold">Quick Links</h2>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                   <ItemCard
                     icon={<BarChart3 className="h-5 w-5" />}
                     title="All Visualizations"

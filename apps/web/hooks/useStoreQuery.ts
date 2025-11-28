@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 type PersistedStore<TState> = {
-  (selector: (state: TState) => any): any;
+  <TResult>(selector: (state: TState) => TResult): TResult;
   getState: () => TState;
   subscribe: (listener: (state: TState) => void) => () => void;
   persist?: {

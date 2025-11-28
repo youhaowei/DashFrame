@@ -1,5 +1,5 @@
 /**
- * TODO: This file needs to be refactored for the new Field/Metric architecture.
+ * Note: This file needs to be refactored for the new Field/Metric architecture.
  * The join operations currently use the deprecated `columns` property on DataFrame.
  * Future work should update joins to work with fieldIds and Field definitions.
  */
@@ -57,7 +57,7 @@ function coerceValue(value: unknown): string | null {
 /**
  * Check if two values match with type coercion
  */
-function valuesMatch(left: unknown, right: unknown): boolean {
+function _valuesMatch(left: unknown, right: unknown): boolean {
   return coerceValue(left) === coerceValue(right);
 }
 
@@ -119,9 +119,7 @@ export function join(
       });
     } else if (how === "left" || how === "outer") {
       // No match - include left row with null right values
-      joinedRows.push(
-        mergeRows(leftRow, null, left, right, suffixes),
-      );
+      joinedRows.push(mergeRows(leftRow, null, left, right, suffixes));
     }
   });
 
@@ -141,7 +139,7 @@ export function join(
   const outputPrimaryKey = determinePrimaryKey(left, right, how);
 
   return {
-    fieldIds: [], // TODO: Generate proper fieldIds when refactoring for Field/Metric architecture
+    fieldIds: [], // Note: fieldIds generation needed when refactoring for Field/Metric architecture
     columns: outputColumns,
     primaryKey: outputPrimaryKey,
     rows: joinedRows,

@@ -35,7 +35,7 @@ const preview: Preview = {
       return createElement(
         ThemeWrapper,
         { theme },
-        createElement(TooltipProvider, null, createElement(Story))
+        createElement(TooltipProvider, null, createElement(Story)),
       );
     },
   ],

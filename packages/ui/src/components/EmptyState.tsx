@@ -105,7 +105,7 @@ export function EmptyState({
         className={cn(config.icon, "text-muted-foreground mb-4")}
         aria-hidden="true"
       />
-      <h3 className={cn(config.title, "font-medium mb-2")}>{title}</h3>
+      <h3 className={cn(config.title, "mb-2 font-medium")}>{title}</h3>
       {description && (
         <p className={cn(config.description, "text-muted-foreground mb-4")}>
           {description}
@@ -117,7 +117,7 @@ export function EmptyState({
           variant={action.variant || "default"}
           size="sm"
         >
-          {action.icon && <action.icon className="h-4 w-4 mr-2" />}
+          {action.icon && <action.icon className="mr-2 h-4 w-4" />}
           {action.label}
         </Button>
       )}

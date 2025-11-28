@@ -114,28 +114,35 @@ export function ItemCard({
   // Instead, we use a <div> with role="button" for accessibility.
   const useButtonWrapper = onClick && !hasActions;
   const Wrapper = useButtonWrapper ? "button" : "div";
-  const wrapperProps = useButtonWrapper
-    ? {
+
+  // Build wrapper props based on interaction mode
+  function getWrapperProps() {
+    if (useButtonWrapper) {
+      return {
         type: "button" as const,
         onClick,
         "aria-selected": active,
         role: "option",
-      }
-    : onClick
-      ? {
-          // When we have actions, use div with button role for accessibility
-          role: "button" as const,
-          tabIndex: 0,
-          "aria-selected": active,
-          onClick,
-          onKeyDown: (e: React.KeyboardEvent) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onClick();
-            }
-          },
-        }
-      : {};
+      };
+    }
+    if (onClick) {
+      // When we have actions, use div with button role for accessibility
+      return {
+        role: "button" as const,
+        tabIndex: 0,
+        "aria-selected": active,
+        onClick,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        },
+      };
+    }
+    return {};
+  }
+  const wrapperProps = getWrapperProps();
 
   // Content section (icon + title + subtitle + badge + actions)
   const contentSection = (
@@ -143,10 +150,10 @@ export function ItemCard({
       {/* Icon with background */}
       <div
         className={cn(
-          "mt-0.5 rounded p-1.5 transition-all flex-shrink-0",
+          "mt-0.5 flex-shrink-0 rounded p-1.5 transition-all",
           active
             ? "bg-primary/10 text-primary"
-            : "bg-muted text-muted-foreground"
+            : "bg-muted text-muted-foreground",
         )}
       >
         {icon}
@@ -158,19 +165,19 @@ export function ItemCard({
           <p
             className={cn(
               "truncate text-sm font-medium transition-all",
-              active ? "text-primary" : "text-foreground"
+              active ? "text-primary" : "text-foreground",
             )}
           >
             {title}
           </p>
           {badge && (
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="text-muted-foreground shrink-0 text-xs">
               {badge}
             </span>
           )}
         </div>
         {subtitle && (
-          <p className="text-muted-foreground mt-1 text-xs truncate">
+          <p className="text-muted-foreground mt-1 truncate text-xs">
             {subtitle}
           </p>
         )}
@@ -179,7 +186,7 @@ export function ItemCard({
       {/* Actions (hover-visible) */}
       {hasActions && (
         <div
-          className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+          className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           <ActionGroup actions={actions} compact />
@@ -194,17 +201,17 @@ export function ItemCard({
       <Wrapper
         {...wrapperProps}
         className={cn(
-          "group w-full rounded-xl border overflow-hidden text-left transition-all",
+          "group w-full overflow-hidden rounded-xl border text-left transition-all",
           onClick && "cursor-pointer hover:shadow-md",
           active
-            ? "border-primary ring-2 ring-primary"
+            ? "border-primary ring-primary ring-2"
             : "border-border/60 hover:border-border",
-          className
+          className,
         )}
       >
         {/* Preview Section */}
         <div
-          className="w-full bg-card border-b"
+          className="bg-card w-full border-b"
           style={{ height: `${previewHeight}px` }}
         >
           {preview}
@@ -226,7 +233,7 @@ export function ItemCard({
         active
           ? "border-primary bg-primary/5"
           : "border-border/60 hover:border-border",
-        className
+        className,
       )}
     >
       {contentSection}

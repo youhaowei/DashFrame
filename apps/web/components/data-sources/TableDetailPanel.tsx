@@ -3,7 +3,20 @@
 import { useState } from "react";
 import type { DataTable } from "@/lib/stores/types";
 import type { EnhancedDataFrame } from "@dashframe/dataframe";
-import { Button, Plus, Edit3, X, Sparkles, Layers, Panel, Toggle, EmptyState, cn, DataFrameTable, Trash2, ActionGroup } from "@dashframe/ui";
+import {
+  Button,
+  Plus,
+  Edit3,
+  X,
+  Sparkles,
+  Layers,
+  Panel,
+  Toggle,
+  EmptyState,
+  DataFrameTable,
+  Trash2,
+  ActionGroup,
+} from "@dashframe/ui";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -65,7 +78,8 @@ export function TableDetailPanel({
                   onClick: onDeleteTable,
                   icon: Trash2,
                   variant: "ghost",
-                  className: "text-destructive hover:bg-destructive hover:text-destructive-foreground",
+                  className:
+                    "text-destructive hover:bg-destructive hover:text-destructive-foreground",
                 },
                 {
                   label: "Create Visualization",
@@ -83,8 +97,16 @@ export function TableDetailPanel({
               value={activeTab}
               onValueChange={setActiveTab}
               options={[
-                { value: "fields", label: "Fields", badge: dataTable.fields.length },
-                { value: "metrics", label: "Metrics", badge: dataTable.metrics.length },
+                {
+                  value: "fields",
+                  label: "Fields",
+                  badge: dataTable.fields.length,
+                },
+                {
+                  value: "metrics",
+                  label: "Metrics",
+                  badge: dataTable.metrics.length,
+                },
                 { value: "preview", label: "Preview" },
               ]}
             />
@@ -109,7 +131,9 @@ export function TableDetailPanel({
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {dataTable.fields.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground text-sm">No fields defined</p>
+                <p className="text-muted-foreground text-sm">
+                  No fields defined
+                </p>
               </div>
             ) : (
               dataTable.fields.map((field) => (
@@ -167,7 +191,9 @@ export function TableDetailPanel({
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {dataTable.metrics.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground text-sm">No metrics defined</p>
+                <p className="text-muted-foreground text-sm">
+                  No metrics defined
+                </p>
               </div>
             ) : (
               dataTable.metrics.map((metric) => {
@@ -215,7 +241,10 @@ export function TableDetailPanel({
 
           <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
             {dataFrame ? (
-              <DataFrameTable dataFrame={dataFrame.data} fields={dataTable.fields} />
+              <DataFrameTable
+                dataFrame={dataFrame.data}
+                fields={dataTable.fields}
+              />
             ) : (
               <div className="flex h-full items-center justify-center">
                 <p className="text-muted-foreground text-sm">

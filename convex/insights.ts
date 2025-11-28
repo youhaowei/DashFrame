@@ -145,7 +145,7 @@ export const listWithDetails = query({
           sourceType: dataSource?.type ?? null,
           visualizationCount: vizCountByInsight.get(insight._id) ?? 0,
         };
-      })
+      }),
     );
 
     return results;
@@ -212,9 +212,9 @@ export const update = mutation({
           v.object({
             fieldOrMetricId: v.string(),
             direction: v.union(v.literal("asc"), v.literal("desc")),
-          })
+          }),
         ),
-      })
+      }),
     ),
     dataFrameId: v.optional(v.string()),
     lastComputedAt: v.optional(v.number()),
@@ -352,7 +352,7 @@ export const addMetric = mutation({
       v.literal("count"),
       v.literal("min"),
       v.literal("max"),
-      v.literal("count_distinct")
+      v.literal("count_distinct"),
     ),
   },
   handler: async (ctx, args) => {
@@ -397,8 +397,8 @@ export const updateMetric = mutation({
         v.literal("count"),
         v.literal("min"),
         v.literal("max"),
-        v.literal("count_distinct")
-      )
+        v.literal("count_distinct"),
+      ),
     ),
   },
   handler: async (ctx, args) => {

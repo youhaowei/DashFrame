@@ -88,7 +88,8 @@ export function Toggle<T extends string>({
       sm: "bg-muted rounded-xl p-0.5",
     },
     outline: {
-      default: "bg-background/80 border border-border/60 rounded-full px-1.5 py-1",
+      default:
+        "bg-background/80 border border-border/60 rounded-full px-1.5 py-1",
       sm: "bg-background/80 border border-border/60 rounded-full px-1 py-0.5",
     },
   };
@@ -98,12 +99,14 @@ export function Toggle<T extends string>({
       default: {
         base: "px-4 py-2 rounded-xl gap-2 text-sm font-medium transition-all min-h-10 border",
         active: "bg-background text-foreground shadow-md border-border/50",
-        inactive: "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
+        inactive:
+          "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
       },
       sm: {
         base: "px-2 py-1 rounded-lg gap-1 text-xs font-medium transition-all min-h-8 border",
         active: "bg-background text-foreground shadow-md border-border/50",
-        inactive: "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
+        inactive:
+          "text-muted-foreground hover:text-foreground hover:bg-background/50 border-transparent",
       },
     },
     outline: {
@@ -147,7 +150,7 @@ export function Toggle<T extends string>({
             aria-disabled={option.disabled}
             aria-label={option.ariaLabel || option.tooltip || option.label}
             className={cn(
-              "flex items-center justify-center whitespace-nowrap cursor-pointer disabled:pointer-events-none disabled:opacity-50",
+              "flex cursor-pointer items-center justify-center whitespace-nowrap disabled:pointer-events-none disabled:opacity-50",
               currentSizeClasses.base,
               isActive
                 ? currentSizeClasses.active
@@ -191,4 +194,3 @@ export function Toggle<T extends string>({
     </div>
   );
 }
-

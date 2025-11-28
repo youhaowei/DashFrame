@@ -49,7 +49,7 @@ export function WorkbenchLayout({
   return (
     <div
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-background",
+        "bg-background flex h-screen flex-col overflow-hidden",
         className,
       )}
     >
@@ -69,12 +69,7 @@ export function WorkbenchLayout({
 
         {/* Main content */}
         <main className="bg-background flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-          <div
-            className={cn(
-              "flex-1 overflow-y-auto p-0",
-              childrenClassName,
-            )}
-          >
+          <div className={cn("flex-1 overflow-y-auto p-0", childrenClassName)}>
             {children}
           </div>
         </main>
@@ -89,7 +84,7 @@ export function WorkbenchLayout({
 
       {/* Footer (optional) */}
       {footer && (
-        <footer className="bg-card/90 sticky bottom-0 shrink-0 border-t backdrop-blur-sm px-6 py-4">
+        <footer className="bg-card/90 sticky bottom-0 shrink-0 border-t px-6 py-4 backdrop-blur-sm">
           {footer}
         </footer>
       )}

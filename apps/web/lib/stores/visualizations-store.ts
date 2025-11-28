@@ -71,51 +71,60 @@ type VisualizationsStore = VisualizationsState & VisualizationsActions;
 // Storage Serialization (for Map support)
 // ============================================================================
 
-const storage = createJSONStorage<VisualizationsState>(() => localStorage, {
-  reviver: (_key, value: unknown) => {
-    // Convert array back to Map during deserialization
-    if (
-      value &&
-      typeof value === "object" &&
-      "visualizations" in value &&
-      Array.isArray((value as { visualizations: unknown }).visualizations)
-    ) {
-      // Migrate old visualizations that don't have visualizationType
-      type LegacyVisualization = Omit<Visualization, "visualizationType"> &
-        Partial<Pick<Visualization, "visualizationType">>;
+// Type for what we actually persist (subset of full state)
+type PersistedVisualizationsState = Pick<
+  VisualizationsState,
+  "visualizations" | "activeId"
+>;
 
-      const visualizations = new Map(
-        (
-          value as { visualizations: [UUID, LegacyVisualization][] }
-        ).visualizations.map(([id, viz]) => [
-          id,
-          {
-            ...viz,
-            // Add default visualizationType if missing (backward compatibility)
-            visualizationType: viz.visualizationType || "bar",
-            // encoding is optional, so no need to add default
-          } as Visualization,
-        ]),
-      );
+const storage = createJSONStorage<PersistedVisualizationsState>(
+  () => localStorage,
+  {
+    reviver: (_key, value: unknown) => {
+      // Convert array back to Map during deserialization
+      if (
+        value &&
+        typeof value === "object" &&
+        "visualizations" in value &&
+        Array.isArray((value as { visualizations: unknown }).visualizations)
+      ) {
+        // Migrate old visualizations that don't have visualizationType
+        type LegacyVisualization = Omit<Visualization, "visualizationType"> &
+          Partial<Pick<Visualization, "visualizationType">>;
 
-      return {
-        ...value,
-        visualizations,
-        _cachedVisualizations: Array.from(visualizations.values()), // Recreate cache
-      };
-    }
-    return value;
+        const visualizations = new Map(
+          (
+            value as { visualizations: [UUID, LegacyVisualization][] }
+          ).visualizations.map(([id, viz]) => [
+            id,
+            {
+              ...viz,
+              // Add default visualizationType if missing (backward compatibility)
+              visualizationType: viz.visualizationType || "bar",
+              // encoding is optional, so no need to add default
+            } as Visualization,
+          ]),
+        );
+
+        return {
+          ...value,
+          visualizations,
+          _cachedVisualizations: Array.from(visualizations.values()), // Recreate cache
+        };
+      }
+      return value;
+    },
+    replacer: (_key, value: unknown) => {
+      // Skip cached array (it's derived from the Map)
+      if (_key === "_cachedVisualizations") return undefined;
+      // Convert Map to array for JSON serialization
+      if (value instanceof Map) {
+        return Array.from(value.entries());
+      }
+      return value;
+    },
   },
-  replacer: (_key, value: unknown) => {
-    // Skip cached array (it's derived from the Map)
-    if (_key === "_cachedVisualizations") return undefined;
-    // Convert Map to array for JSON serialization
-    if (value instanceof Map) {
-      return Array.from(value.entries());
-    }
-    return value;
-  },
-});
+);
 
 // ============================================================================
 // Store Implementation
@@ -146,7 +155,9 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
 
         set((state) => {
           state.visualizations.set(id, visualization);
-          state._cachedVisualizations = Array.from(state.visualizations.values());
+          state._cachedVisualizations = Array.from(
+            state.visualizations.values(),
+          );
           state.activeId = id; // Auto-select new visualization
         });
 
@@ -197,7 +208,9 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       remove: (id) => {
         set((state) => {
           state.visualizations.delete(id);
-          state._cachedVisualizations = Array.from(state.visualizations.values());
+          state._cachedVisualizations = Array.from(
+            state.visualizations.values(),
+          );
           // Clear active if it was removed
           if (state.activeId === id) {
             state.activeId = null;

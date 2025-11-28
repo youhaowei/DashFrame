@@ -1,6 +1,7 @@
 import { EnhancedDataFrame, Field } from "./index";
 
 // Pattern detection helpers
+// eslint-disable-next-line sonarjs/slow-regex -- Email validation pattern, input is bounded
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_PATTERN = /^https?:\/\/.+/i;
 const UUID_PATTERN =
@@ -41,6 +42,7 @@ export function analyzeDataFrame(
   const rowCount = rows.length;
   const columns = Object.keys(rows[0] || {});
 
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
   return columns.map((columnName) => {
     const values = rows.map((row) => row[columnName]);
     const nonNullValues = values.filter((v) => v !== null && v !== undefined);
@@ -76,10 +78,12 @@ export function analyzeDataFrame(
       // Check camelCase: ends with "Id" (capital I) - userId, orderId
       const camelCaseId = /[a-z]Id$/.test(columnName);
 
-      if (idPatterns.some((pattern) => pattern.test(colName)) || camelCaseId) {
-        category = "identifier";
-      } else if (uniqueness > 0.95 && cardinality > 10) {
-        // High uniqueness (>95%) with sufficient distinct values is a strong ID indicator
+      // High uniqueness (>95%) with sufficient distinct values is also a strong ID indicator
+      if (
+        idPatterns.some((pattern) => pattern.test(colName)) ||
+        camelCaseId ||
+        (uniqueness > 0.95 && cardinality > 10)
+      ) {
         category = "identifier";
       }
     }
@@ -108,9 +112,6 @@ export function analyzeDataFrame(
             .map((v) => String(v))
             .filter((v) => v.length > 0);
 
-          // Pattern detection
-          let detectedPattern: string | undefined;
-
           if (stringValues.length > 0) {
             // Check if most values match a pattern
             const emailCount = stringValues.filter(isEmail).length;
@@ -121,13 +122,10 @@ export function analyzeDataFrame(
 
             if (emailCount >= threshold) {
               category = "email";
-              detectedPattern = "email";
             } else if (urlCount >= threshold) {
               category = "url";
-              detectedPattern = "url";
             } else if (uuidCount >= threshold) {
               category = "uuid";
-              detectedPattern = "uuid";
             } else if (uniqueness === 1 && rowCount > 1) {
               // High likelihood of being an identifier if unique
               category = "identifier";
@@ -183,6 +181,7 @@ export type JoinSuggestion = {
  * @param rightTableName - Optional name of right table for reverse reference pattern matching
  * @returns Array of join suggestions sorted by confidence
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex join matching with multiple strategies
 export function suggestJoinColumns(
   leftAnalysis: ColumnAnalysis[],
   rightAnalysis: ColumnAnalysis[],
@@ -203,14 +202,17 @@ export function suggestJoinColumns(
 
   // Filter analyses to exclude internal columns
   const filteredLeftAnalysis = leftAnalysis.filter(
-    (col) => !isInternalColumn(col.columnName)
+    (col) => !isInternalColumn(col.columnName),
   );
   const filteredRightAnalysis = rightAnalysis.filter(
-    (col) => !isInternalColumn(col.columnName)
+    (col) => !isInternalColumn(col.columnName),
   );
 
   // Helper to check if types are compatible for joining
-  const typesCompatible = (left: ColumnCategory, right: ColumnCategory): boolean => {
+  const typesCompatible = (
+    left: ColumnCategory,
+    right: ColumnCategory,
+  ): boolean => {
     // Identifiers and references are always compatible
     if (
       (left === "identifier" || left === "reference") &&
@@ -245,12 +247,19 @@ export function suggestJoinColumns(
 
   // Strategy 1: Exact name match on identifier/reference columns
   for (const leftCol of filteredLeftAnalysis) {
-    if (leftCol.category !== "identifier" && leftCol.category !== "reference") continue;
+    if (leftCol.category !== "identifier" && leftCol.category !== "reference")
+      continue;
 
     for (const rightCol of filteredRightAnalysis) {
-      if (rightCol.category !== "identifier" && rightCol.category !== "reference") continue;
+      if (
+        rightCol.category !== "identifier" &&
+        rightCol.category !== "reference"
+      )
+        continue;
 
-      if (normalizeName(leftCol.columnName) === normalizeName(rightCol.columnName)) {
+      if (
+        normalizeName(leftCol.columnName) === normalizeName(rightCol.columnName)
+      ) {
         suggestions.push({
           leftColumn: leftCol.columnName,
           rightColumn: rightCol.columnName,
@@ -266,7 +275,7 @@ export function suggestJoinColumns(
   const leftIdCol = filteredLeftAnalysis.find(
     (col) =>
       col.columnName.toLowerCase() === "id" &&
-      (col.category === "identifier" || col.category === "reference")
+      (col.category === "identifier" || col.category === "reference"),
   );
 
   if (leftIdCol && leftTableName) {
@@ -277,7 +286,9 @@ export function suggestJoinColumns(
       if (fkBaseName && fkBaseName === tableBaseName) {
         // Avoid duplicate suggestions
         const alreadySuggested = suggestions.some(
-          (s) => s.leftColumn === leftIdCol.columnName && s.rightColumn === rightCol.columnName
+          (s) =>
+            s.leftColumn === leftIdCol.columnName &&
+            s.rightColumn === rightCol.columnName,
         );
         if (!alreadySuggested) {
           suggestions.push({
@@ -296,7 +307,7 @@ export function suggestJoinColumns(
   const rightIdCol = filteredRightAnalysis.find(
     (col) =>
       col.columnName.toLowerCase() === "id" &&
-      (col.category === "identifier" || col.category === "reference")
+      (col.category === "identifier" || col.category === "reference"),
   );
 
   if (rightIdCol && rightTableName) {
@@ -307,7 +318,9 @@ export function suggestJoinColumns(
       if (fkBaseName && fkBaseName === tableBaseName) {
         // Avoid duplicate suggestions
         const alreadySuggested = suggestions.some(
-          (s) => s.leftColumn === leftCol.columnName && s.rightColumn === rightIdCol.columnName
+          (s) =>
+            s.leftColumn === leftCol.columnName &&
+            s.rightColumn === rightIdCol.columnName,
         );
         if (!alreadySuggested) {
           suggestions.push({
@@ -328,10 +341,12 @@ export function suggestJoinColumns(
 
     for (const rightCol of filteredRightAnalysis) {
       // Skip if already suggested
-      if (suggestions.some((s) => s.rightColumn === rightCol.columnName)) continue;
+      if (suggestions.some((s) => s.rightColumn === rightCol.columnName))
+        continue;
 
       if (
-        normalizeName(leftCol.columnName) === normalizeName(rightCol.columnName) &&
+        normalizeName(leftCol.columnName) ===
+          normalizeName(rightCol.columnName) &&
         typesCompatible(leftCol.category, rightCol.category)
       ) {
         suggestions.push({
@@ -347,18 +362,25 @@ export function suggestJoinColumns(
   // Strategy 4: ID pattern matching (look for *_id in right that might match left identifiers)
   for (const rightCol of filteredRightAnalysis) {
     // Skip if already suggested
-    if (suggestions.some((s) => s.rightColumn === rightCol.columnName)) continue;
+    if (suggestions.some((s) => s.rightColumn === rightCol.columnName))
+      continue;
 
     const fkBaseName = extractBaseName(rightCol.columnName);
     if (!fkBaseName) continue;
 
     // Look for matching identifier in left table
     for (const leftCol of filteredLeftAnalysis) {
-      if (suggestions.some((s) => s.leftColumn === leftCol.columnName)) continue;
+      if (suggestions.some((s) => s.leftColumn === leftCol.columnName))
+        continue;
       if (leftCol.category !== "identifier") continue;
 
-      const leftBaseName = extractBaseName(leftCol.columnName) || normalizeName(leftCol.columnName);
-      if (leftBaseName === fkBaseName || normalizeName(leftCol.columnName) === fkBaseName) {
+      const leftBaseName =
+        extractBaseName(leftCol.columnName) ||
+        normalizeName(leftCol.columnName);
+      if (
+        leftBaseName === fkBaseName ||
+        normalizeName(leftCol.columnName) === fkBaseName
+      ) {
         suggestions.push({
           leftColumn: leftCol.columnName,
           rightColumn: rightCol.columnName,
@@ -371,7 +393,9 @@ export function suggestJoinColumns(
 
   // Sort by confidence (high → medium → low)
   const confidenceOrder = { high: 0, medium: 1, low: 2 };
-  suggestions.sort((a, b) => confidenceOrder[a.confidence] - confidenceOrder[b.confidence]);
+  suggestions.sort(
+    (a, b) => confidenceOrder[a.confidence] - confidenceOrder[b.confidence],
+  );
 
   return suggestions;
 }

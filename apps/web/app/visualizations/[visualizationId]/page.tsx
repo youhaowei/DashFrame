@@ -26,8 +26,11 @@ import { VegaChart } from "@/components/visualizations/VegaChart";
 import { DataFrameTable } from "@dashframe/ui";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
 import type { EnhancedDataFrame, UUID } from "@dashframe/dataframe";
-import type { Visualization } from "@/lib/stores/types";
+import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+
+// StandardType is not exported from vega-lite's main module
+type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
@@ -80,7 +83,7 @@ function getVegaThemeConfig() {
 // The visualization just renders what's in the dataframe.
 function buildVegaSpec(
   viz: Visualization,
-  dataFrame: EnhancedDataFrame
+  dataFrame: EnhancedDataFrame,
 ): TopLevelSpec {
   const { visualizationType, encoding } = viz;
 
@@ -95,8 +98,11 @@ function buildVegaSpec(
 
   // Get field names from encoding or fall back to dataframe columns
   const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
-  const y = encoding?.y || dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-            dataFrame.data.columns?.[1]?.name || "y";
+  const y =
+    encoding?.y ||
+    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
+    dataFrame.data.columns?.[1]?.name ||
+    "y";
 
   switch (visualizationType) {
     case "bar":
@@ -104,8 +110,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -117,8 +126,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "line" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -130,8 +142,14 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "point" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "quantitative") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: {
+            field: x,
+            type: (encoding?.xType || "quantitative") as StandardType,
+          },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -146,8 +164,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "area" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -160,8 +181,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
         },
       };
   }
@@ -199,15 +223,21 @@ export default function VisualizationPage({ params }: PageProps) {
   // Local stores with hydration awareness
   const { data: visualization, isLoading: isVizLoading } = useStoreQuery(
     useVisualizationsStore,
-    (s) => s.get(visualizationId as UUID)
+    (s) => s.get(visualizationId as UUID),
   );
-  const updateVisualizationLocal = useVisualizationsStore((state) => state.update);
-  const updateEncodingLocal = useVisualizationsStore((state) => state.updateEncoding);
-  const removeVisualizationLocal = useVisualizationsStore((state) => state.remove);
+  const updateVisualizationLocal = useVisualizationsStore(
+    (state) => state.update,
+  );
+  const updateEncodingLocal = useVisualizationsStore(
+    (state) => state.updateEncoding,
+  );
+  const removeVisualizationLocal = useVisualizationsStore(
+    (state) => state.remove,
+  );
 
   const { data: getDataFrame, isLoading: isDfLoading } = useStoreQuery(
     useDataFramesStore,
-    (s) => s.get
+    (s) => s.get,
   );
 
   const isLoading = isVizLoading || isDfLoading;
@@ -306,7 +336,7 @@ export default function VisualizationPage({ params }: PageProps) {
   // Handle encoding change (LOCAL ONLY)
   const handleEncodingChange = (
     field: "x" | "y" | "color" | "size",
-    value: string
+    value: string,
   ) => {
     if (!visualization) return;
 
@@ -335,7 +365,7 @@ export default function VisualizationPage({ params }: PageProps) {
   // Handle visualization type change (LOCAL ONLY)
   const handleTypeChange = (type: string) => {
     updateVisualizationLocal(visualizationId as UUID, {
-      visualizationType: type as any,
+      visualizationType: type as VisualizationType,
     });
   };
 
@@ -352,8 +382,10 @@ export default function VisualizationPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading visualization...</p>
+          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <p className="text-muted-foreground text-sm">
+            Loading visualization...
+          </p>
         </div>
       </div>
     );
@@ -366,7 +398,7 @@ export default function VisualizationPage({ params }: PageProps) {
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
           <p className="text-muted-foreground mt-2 text-sm">
-            The visualization you're looking for doesn't exist.
+            The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
             Go to Insights
@@ -383,11 +415,7 @@ export default function VisualizationPage({ params }: PageProps) {
         header={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.back()}
-              >
+              <Button variant="ghost" size="sm" onClick={() => router.back()}>
                 <LuArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
@@ -395,38 +423,37 @@ export default function VisualizationPage({ params }: PageProps) {
             </div>
           </div>
         }
-        children={
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Card className="max-w-md">
-              <CardContent className="p-6 text-center">
-                <div className="bg-amber-100 dark:bg-amber-900/30 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
-                  {getVizIcon(visualization.visualizationType)}
-                </div>
-                <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
-                <p className="text-muted-foreground mb-4 text-sm">
-                  The data for this visualization is not cached locally. Please
-                  refresh from the source insight.
-                </p>
-                {visualization.source.insightId && (
-                  <Button
-                    onClick={() =>
-                      router.push(`/insights/${visualization.source.insightId}`)
-                    }
-                  >
-                    Go to Source Insight
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        }
-      />
+      >
+        <div className="flex flex-1 items-center justify-center p-6">
+          <Card className="max-w-md">
+            <CardContent className="p-6 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+                {getVizIcon(visualization.visualizationType)}
+              </div>
+              <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
+              <p className="text-muted-foreground mb-4 text-sm">
+                The data for this visualization is not cached locally. Please
+                refresh from the source insight.
+              </p>
+              {visualization.source.insightId && (
+                <Button
+                  onClick={() =>
+                    router.push(`/insights/${visualization.source.insightId}`)
+                  }
+                >
+                  Go to Source Insight
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </WorkbenchLayout>
     );
   }
 
   // Visualization type options
   const hasNumericColumns = dataFrame.data.columns?.some(
-    (col) => col.type === "number"
+    (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
     ? [
@@ -443,11 +470,7 @@ export default function VisualizationPage({ params }: PageProps) {
       header={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.back()}
-            >
+            <Button variant="ghost" size="sm" onClick={() => router.back()}>
               <LuArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
@@ -472,7 +495,9 @@ export default function VisualizationPage({ params }: PageProps) {
               <>
                 <span>•</span>
                 <button
-                  onClick={() => router.push(`/insights/${visualization.source.insightId}`)}
+                  onClick={() =>
+                    router.push(`/insights/${visualization.source.insightId}`)
+                  }
                   className="text-primary hover:underline"
                 >
                   From insight
@@ -584,8 +609,10 @@ export default function VisualizationPage({ params }: PageProps) {
               <div className="border-t pt-4">
                 <h3 className="mb-2 text-sm font-semibold">Source</h3>
                 <Card
-                  className="cursor-pointer transition-colors hover:bg-muted/50"
-                  onClick={() => router.push(`/insights/${visualization.source.insightId}`)}
+                  className="hover:bg-muted/50 cursor-pointer transition-colors"
+                  onClick={() =>
+                    router.push(`/insights/${visualization.source.insightId}`)
+                  }
                 >
                   <CardContent className="p-3">
                     <p className="truncate text-sm font-medium">
@@ -603,35 +630,47 @@ export default function VisualizationPage({ params }: PageProps) {
       }
     >
       <div ref={containerRef} className="h-full overflow-hidden">
-        {visualization.visualizationType === "table" ? (
+        {/* Table-only visualization */}
+        {visualization.visualizationType === "table" && (
           <div className="h-full p-6">
             <Surface elevation="inset" className="h-full p-4">
               <DataFrameTable dataFrame={dataFrame.data} />
             </Surface>
           </div>
-        ) : activeTab === "chart" ? (
-          <div className="h-full p-6">
-            <VegaChart spec={vegaSpec!} />
-          </div>
-        ) : activeTab === "table" ? (
-          <div className="h-full p-6">
-            <Surface elevation="inset" className="h-full">
-              <DataFrameTable dataFrame={dataFrame.data} />
-            </Surface>
-          </div>
-        ) : (
-          // Both view
-          <div className="flex h-full flex-col gap-4 p-6">
-            <div className="shrink-0">
+        )}
+
+        {/* Chart visualization - chart tab */}
+        {visualization.visualizationType !== "table" &&
+          activeTab === "chart" && (
+            <div className="h-full p-6">
               <VegaChart spec={vegaSpec!} />
             </div>
-            <div className="min-h-0 flex-1">
+          )}
+
+        {/* Chart visualization - table tab */}
+        {visualization.visualizationType !== "table" &&
+          activeTab === "table" && (
+            <div className="h-full p-6">
               <Surface elevation="inset" className="h-full">
                 <DataFrameTable dataFrame={dataFrame.data} />
               </Surface>
             </div>
-          </div>
-        )}
+          )}
+
+        {/* Chart visualization - both view */}
+        {visualization.visualizationType !== "table" &&
+          activeTab === "both" && (
+            <div className="flex h-full flex-col gap-4 p-6">
+              <div className="shrink-0">
+                <VegaChart spec={vegaSpec!} />
+              </div>
+              <div className="min-h-0 flex-1">
+                <Surface elevation="inset" className="h-full">
+                  <DataFrameTable dataFrame={dataFrame.data} />
+                </Surface>
+              </div>
+            </div>
+          )}
       </div>
     </WorkbenchLayout>
   );

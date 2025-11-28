@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ItemCard } from "./item-card";
-import { Database, BarChart3, LineChart, TableIcon, Edit3, Trash2 } from "../lib/icons";
+import {
+  Database,
+  BarChart3,
+  LineChart,
+  TableIcon,
+  Edit3,
+  Trash2,
+} from "../lib/icons";
 
 const meta = {
   title: "Primitives/Cards/ItemCard",
@@ -54,10 +61,10 @@ type Story = StoryObj<typeof meta>;
 
 // Mock preview component
 const MockPreview = ({ type }: { type: string }) => (
-  <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+  <div className="from-primary/10 to-primary/5 flex h-full w-full items-center justify-center bg-gradient-to-br">
     <div className="text-center">
-      <div className="text-4xl mb-2">📊</div>
-      <div className="text-xs text-muted-foreground">{type} Preview</div>
+      <div className="mb-2 text-4xl">📊</div>
+      <div className="text-muted-foreground text-xs">{type} Preview</div>
     </div>
   </div>
 );
@@ -107,7 +114,12 @@ export const CompactWithActions: Story = {
     subtitle: "500 rows",
     actions: [
       { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
-      { label: "Delete", icon: Trash2, onClick: () => alert("Delete"), variant: "destructive" },
+      {
+        label: "Delete",
+        icon: Trash2,
+        onClick: () => alert("Delete"),
+        variant: "destructive",
+      },
     ],
   },
 };
@@ -143,7 +155,12 @@ export const WithPreviewAndActions: Story = {
     badge: "Scatter",
     actions: [
       { label: "Open", icon: Edit3, onClick: () => alert("Open") },
-      { label: "Delete", icon: Trash2, onClick: () => alert("Delete"), variant: "destructive" },
+      {
+        label: "Delete",
+        icon: Trash2,
+        onClick: () => alert("Delete"),
+        variant: "destructive",
+      },
     ],
   },
 };
@@ -163,8 +180,10 @@ export const WithPreviewCustomHeight: Story = {
 export const LongText: Story = {
   args: {
     icon: <Database className="h-4 w-4" />,
-    title: "This is a very long title that should truncate with ellipsis when it exceeds the card width limits",
-    subtitle: "This is also a very long subtitle that should also truncate to prevent breaking the layout",
+    title:
+      "This is a very long title that should truncate with ellipsis when it exceeds the card width limits",
+    subtitle:
+      "This is also a very long subtitle that should also truncate to prevent breaking the layout",
     badge: "Very Long Badge Text Here",
   },
 };
@@ -192,7 +211,7 @@ export const GridCompact: Story = {
     title: "Grid Example",
   },
   render: () => (
-    <div className="grid grid-cols-2 gap-3 w-[600px]">
+    <div className="grid w-[600px] grid-cols-2 gap-3">
       <ItemCard
         icon={<Database className="h-4 w-4" />}
         title="Sales Data"
@@ -214,7 +233,12 @@ export const GridCompact: Story = {
         subtitle="Last 30 days"
         actions={[
           { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
-          { label: "Delete", icon: Trash2, onClick: () => alert("Delete"), variant: "destructive" },
+          {
+            label: "Delete",
+            icon: Trash2,
+            onClick: () => alert("Delete"),
+            variant: "destructive",
+          },
         ]}
       />
       <ItemCard
@@ -233,7 +257,7 @@ export const GridWithPreview: Story = {
     title: "Grid with Preview Example",
   },
   render: () => (
-    <div className="grid grid-cols-3 gap-4 w-[900px]">
+    <div className="grid w-[900px] grid-cols-3 gap-4">
       <ItemCard
         preview={<MockPreview type="Bar" />}
         icon={<BarChart3 className="h-8 w-8" />}
@@ -259,7 +283,12 @@ export const GridWithPreview: Story = {
         badge="Scatter"
         actions={[
           { label: "Open", icon: Edit3, onClick: () => alert("Open") },
-          { label: "Delete", icon: Trash2, onClick: () => alert("Delete"), variant: "destructive" },
+          {
+            label: "Delete",
+            icon: Trash2,
+            onClick: () => alert("Delete"),
+            variant: "destructive",
+          },
         ]}
       />
     </div>

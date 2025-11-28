@@ -82,8 +82,8 @@ export async function queryDatabase(
   apiKey: string,
   databaseId: string,
   options?: {
-    pageSize?: number;  // Limit number of rows fetched
-  }
+    pageSize?: number; // Limit number of rows fetched
+  },
 ): Promise<QueryDatabaseResponse> {
   const notion = new Client({ auth: apiKey });
 

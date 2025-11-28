@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Vega-Lite specs use dynamic types */
 "use client";
 
 import { useMemo, useState } from "react";
@@ -29,7 +30,14 @@ import {
   getJoinTypeLabel,
   type ListItem,
 } from "@dashframe/ui";
-import { LuDatabase, LuPlus, LuX, LuChevronDown, LuHash, LuCalculator } from "react-icons/lu";
+import {
+  LuDatabase,
+  LuPlus,
+  LuX,
+  LuChevronDown,
+  LuHash,
+  LuCalculator,
+} from "react-icons/lu";
 import {
   computeInsightPreview,
   computeInsightDataFrame,
@@ -39,8 +47,44 @@ import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import type { Insight, DataTable, DataSource, InsightMetric } from "@/lib/stores/types";
+import type {
+  Insight,
+  DataTable,
+  DataSource,
+  InsightMetric,
+} from "@/lib/stores/types";
 import type { UUID, Field as LocalField, Metric } from "@dashframe/dataframe";
+
+/**
+ * Helper to check if a field ID matches a column name in join preview
+ * Used to map selected field IDs to actual column names
+ */
+function matchFieldIdToColumn(
+  fieldId: string,
+  column: { name: string },
+  fields: LocalField[],
+  joinTableDetails: Array<{ joinFields: LocalField[] }>,
+): boolean {
+  const baseName = column.name.replace(/_base$/, "").replace(/_join$/, "");
+
+  // Check base table fields
+  const field = fields.find((f) => f.id === fieldId);
+  if (field) {
+    const fieldColName = field.columnName ?? field.name;
+    return fieldColName === column.name || fieldColName === baseName;
+  }
+
+  // Check joined table fields
+  for (const detail of joinTableDetails) {
+    const joinField = detail.joinFields.find((f) => f.id === fieldId);
+    if (joinField) {
+      const joinFieldColName = joinField.columnName ?? joinField.name;
+      return joinFieldColName === column.name || joinFieldColName === baseName;
+    }
+  }
+
+  return false;
+}
 
 // Utility to format dates consistently
 function formatDate(value: unknown): string | null {
@@ -106,16 +150,17 @@ export function InsightConfigureTab({
 
   // Local stores
   const getDataFrame = useDataFramesStore((state) => state.get);
-  const createVisualizationLocal = useVisualizationsStore((state) => state.create);
+  const createVisualizationLocal = useVisualizationsStore(
+    (state) => state.create,
+  );
   const updateInsightLocal = useInsightsStore((state) => state.updateInsight);
 
   // Local state
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
 
   // Data sources (for join metadata)
-  const { data: dataSources } = useStoreQuery(
-    useDataSourcesStore,
-    (state) => state.getAll()
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
+    state.getAll(),
   );
 
   // All visible fields from the table (for unconfigured preview)
@@ -132,10 +177,14 @@ export function InsightConfigureTab({
   // Helper to get source type label
   const getSourceTypeLabel = (type: string | undefined): string => {
     switch (type) {
-      case "notion": return "Notion";
-      case "local": return "CSV";
-      case "postgresql": return "PostgreSQL";
-      default: return "Unknown";
+      case "notion":
+        return "Notion";
+      case "local":
+        return "CSV";
+      case "postgresql":
+        return "PostgreSQL";
+      default:
+        return "Unknown";
     }
   };
 
@@ -157,15 +206,17 @@ export function InsightConfigureTab({
         }
 
         const joinFields = (joinTable?.fields ?? []).filter(
-          (field) => !field.name.startsWith("_")
+          (field) => !field.name.startsWith("_"),
         );
         const baseField = baseFieldById.get(join.joinOn.baseField);
         const joinedField = joinFields.find(
-          (field) => field.id === join.joinOn.joinedField
+          (field) => field.id === join.joinOn.joinedField,
         );
 
         // Get row count from DataFrame if available
-        const joinedDataFrame = joinTable?.dataFrameId ? getDataFrame(joinTable.dataFrameId) : undefined;
+        const joinedDataFrame = joinTable?.dataFrameId
+          ? getDataFrame(joinTable.dataFrameId)
+          : undefined;
         const joinRowCount = joinedDataFrame?.metadata.rowCount ?? 0;
 
         return {
@@ -175,46 +226,48 @@ export function InsightConfigureTab({
           joinTable,
           joinSource,
           joinFields,
-          baseFieldName: baseField?.name ?? baseField?.columnName ?? "Base field",
+          baseFieldName:
+            baseField?.name ?? baseField?.columnName ?? "Base field",
           joinedFieldName:
-            joinedField?.name ??
-            joinedField?.columnName ??
-            "Joined field",
+            joinedField?.name ?? joinedField?.columnName ?? "Joined field",
           tableName: joinTable?.name ?? "Joined table",
           rowCount: joinRowCount,
           fieldCount: joinFields.length,
           sourceType: getSourceTypeLabel(joinSource?.type),
         };
       }),
-    [insight.joins, dataSources, baseFieldById, getDataFrame]
+    [insight.joins, dataSources, baseFieldById, getDataFrame],
   );
 
   // Fields to display in Join preview
   // Combines fields from base table + all joined tables
   const previewFields = useMemo(() => {
     // Start with base table fields
-    const combined: Array<LocalField & { _isJoined?: boolean }> = allTableFields.map(f => ({
-      ...f,
-      _isJoined: false,
-    }));
+    const combined: Array<LocalField & { _isJoined?: boolean }> =
+      allTableFields.map((f) => ({
+        ...f,
+        _isJoined: false,
+      }));
 
     // Add fields from all joined tables
     if (insight.joins?.length && joinTableDetails.length > 0) {
-      joinTableDetails.forEach((join) => {
-        join.joinFields.forEach((field: LocalField) => {
-          // Avoid duplicates by checking if field name already exists
-          const fieldName = field.columnName ?? field.name;
-          const exists = combined.some(f =>
-            (f.columnName ?? f.name) === fieldName
-          );
-          if (!exists) {
-            combined.push({
-              ...field,
-              _isJoined: true,
-            });
-          }
-        });
-      });
+      // Collect all joined fields into a flat array first
+      const allJoinedFields = joinTableDetails.flatMap((join) =>
+        join.joinFields.map((field: LocalField) => field),
+      );
+      // Then add non-duplicate fields to combined
+      for (const field of allJoinedFields) {
+        const fieldName = field.columnName ?? field.name;
+        const exists = combined.some(
+          (f) => (f.columnName ?? f.name) === fieldName,
+        );
+        if (!exists) {
+          combined.push({
+            ...field,
+            _isJoined: true,
+          });
+        }
+      }
     }
 
     return combined;
@@ -226,7 +279,7 @@ export function InsightConfigureTab({
     const selectedIds = insight.baseTable?.selectedFields ?? [];
     if (selectedIds.length === 0) return [];
     return previewFields.filter(
-      (f) => selectedIds.includes(f.id) && !f.name.startsWith("_")
+      (f) => selectedIds.includes(f.id) && !f.name.startsWith("_"),
     );
   }, [previewFields, insight.baseTable?.selectedFields]);
 
@@ -337,33 +390,24 @@ export function InsightConfigureTab({
       return computeInsightPreview(
         insightForCompute as any,
         dataTableForCompute as any,
-        sourceDataFrameEnhanced.data
+        sourceDataFrameEnhanced.data,
       );
     } catch (error) {
       console.error("Failed to compute preview:", error);
       return null;
     }
-  }, [isConfigured, insight, insightId, dataTable, fields, insightMetrics, getDataFrame]);
+  }, [
+    isConfigured,
+    insight,
+    insightId,
+    dataTable,
+    fields,
+    insightMetrics,
+    getDataFrame,
+  ]);
 
   // Use appropriate preview based on state
   const preview = isConfigured ? aggregatedPreview : rawPreview;
-
-  // Raw data preview for configured state (shows source data with clickable headers)
-  // Must be called unconditionally to satisfy Rules of Hooks
-  const rawDataPreview = useMemo(() => {
-    if (!isConfigured) return null;
-    if (!activeDataFrameId) return null;
-    const sourceFrame = getDataFrame(activeDataFrameId);
-    if (!sourceFrame) return null;
-    return {
-      dataFrame: {
-        ...sourceFrame.data,
-        rows: sourceFrame.data.rows.slice(0, 20),
-      },
-      rowCount: sourceFrame.data.rows.length,
-      sampleSize: Math.min(20, sourceFrame.data.rows.length),
-    };
-  }, [isConfigured, activeDataFrameId, getDataFrame]);
 
   // Join preview data - computed ON-DEMAND from source tables using join config
   // This ensures we always show raw joined data, not aggregated data
@@ -374,7 +418,9 @@ export function InsightConfigureTab({
     if (!baseFrame) return null;
 
     // Helper to build columns from fields
-    const buildColumnsFromFields = (tableFields: LocalField[]): NonNullable<DataFrame["columns"]> => {
+    const buildColumnsFromFields = (
+      tableFields: LocalField[],
+    ): NonNullable<DataFrame["columns"]> => {
       return tableFields
         .filter((f) => !f.name.startsWith("_"))
         .map((f) => ({
@@ -385,7 +431,8 @@ export function InsightConfigureTab({
 
     // If no joins, just return base table data
     if (!insight.joins?.length) {
-      const baseColumns = baseFrame.data.columns ?? buildColumnsFromFields(fields);
+      const baseColumns =
+        baseFrame.data.columns ?? buildColumnsFromFields(fields);
       const columns = baseColumns
         .filter((col) => !col.name.startsWith("_"))
         .map((col) => ({
@@ -421,7 +468,7 @@ export function InsightConfigureTab({
       // Get join column names
       const baseField = fields.find((f) => f.id === join.joinOn.baseField);
       const joinedField = joinDetail.joinFields.find(
-        (f: LocalField) => f.id === join.joinOn.joinedField
+        (f: LocalField) => f.id === join.joinOn.joinedField,
       );
       if (!baseField || !joinedField) continue;
 
@@ -429,7 +476,8 @@ export function InsightConfigureTab({
       const rightColName = joinedField.columnName ?? joinedField.name;
 
       // Build join table columns
-      const joinColumns = joinFrame.data.columns ?? buildColumnsFromFields(joinDetail.joinFields);
+      const joinColumns =
+        joinFrame.data.columns ?? buildColumnsFromFields(joinDetail.joinFields);
 
       // Perform the join
       try {
@@ -440,7 +488,7 @@ export function InsightConfigureTab({
             on: { left: leftColName, right: rightColName },
             how: join.joinType,
             suffixes: { left: "_base", right: "_join" },
-          }
+          },
         );
       } catch (err) {
         console.error("On-demand join failed:", err);
@@ -455,7 +503,9 @@ export function InsightConfigureTab({
         // Determine if column is from a joined table
         const baseName = col.name.replace(/_base$/, "").replace(/_join$/, "");
         const isFromBase = allTableFields.some(
-          (f) => (f.columnName ?? f.name) === col.name || (f.columnName ?? f.name) === baseName
+          (f) =>
+            (f.columnName ?? f.name) === col.name ||
+            (f.columnName ?? f.name) === baseName,
         );
         return {
           id: col.name,
@@ -471,13 +521,21 @@ export function InsightConfigureTab({
       rows: currentData.rows.slice(0, 20),
       rowCount: currentData.rows.length,
     };
-  }, [dataTable?.dataFrameId, getDataFrame, fields, insight.joins, joinTableDetails, allTableFields]);
+  }, [
+    dataTable?.dataFrameId,
+    getDataFrame,
+    fields,
+    insight.joins,
+    joinTableDetails,
+    allTableFields,
+  ]);
 
   // Use the on-demand computed columns for join preview
   const joinPreviewColumns = onDemandJoinPreview?.columns ?? previewFields;
 
   // Compute aggregated result using the on-demand joined data
   // This properly handles joined column names (with suffixes like _join)
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex aggregation with multiple data transformations
   const joinedAggregatedPreview = useMemo<PreviewResult | null>(() => {
     if (!isConfigured) return null;
     if (!onDemandJoinPreview) return null;
@@ -487,28 +545,12 @@ export function InsightConfigureTab({
     if (selectedFieldIds.length === 0) return null;
 
     // Map selected field IDs to actual column names from the join preview
-    // For base table fields, use original ID; for joined columns, match by name
-    const selectedColumns = joinPreviewColumns.filter((col) => {
-      // Check if this column's ID matches a selected field
-      // Or if the column name (without suffix) matches
-      const baseName = col.name.replace(/_base$/, "").replace(/_join$/, "");
-      return selectedFieldIds.some((id) => {
-        const field = fields.find((f) => f.id === id);
-        if (field) {
-          const fieldColName = field.columnName ?? field.name;
-          return fieldColName === col.name || fieldColName === baseName;
-        }
-        // Also check joined table fields
-        for (const detail of joinTableDetails) {
-          const joinField = detail.joinFields.find((f: LocalField) => f.id === id);
-          if (joinField) {
-            const joinFieldColName = joinField.columnName ?? joinField.name;
-            return joinFieldColName === col.name || joinFieldColName === baseName;
-          }
-        }
-        return false;
-      });
-    });
+    // Using the helper function to reduce nesting depth
+    const selectedColumns = joinPreviewColumns.filter((col) =>
+      selectedFieldIds.some((id) =>
+        matchFieldIdToColumn(id, col, fields, joinTableDetails),
+      ),
+    );
 
     if (selectedColumns.length === 0) return null;
 
@@ -563,7 +605,9 @@ export function InsightConfigureTab({
             break;
           case "count_distinct":
             if (actualColumnName) {
-              const values = groupRows.map((r) => r[actualColumnName]).filter((v) => v != null);
+              const values = groupRows
+                .map((r) => r[actualColumnName])
+                .filter((v) => v != null);
               value = new Set(values).size;
             }
             break;
@@ -580,9 +624,10 @@ export function InsightConfigureTab({
               const values = groupRows
                 .map((r) => r[actualColumnName])
                 .filter((v) => typeof v === "number") as number[];
-              value = values.length > 0
-                ? values.reduce((sum, v) => sum + v, 0) / values.length
-                : 0;
+              value =
+                values.length > 0
+                  ? values.reduce((sum, v) => sum + v, 0) / values.length
+                  : 0;
             }
             break;
           case "min":
@@ -609,7 +654,10 @@ export function InsightConfigureTab({
     }
 
     // Build columns for the result
-    const resultColumns: Array<{ name: string; type: "string" | "number" | "boolean" | "date" | "unknown" }> = [
+    const resultColumns: Array<{
+      name: string;
+      type: "string" | "number" | "boolean" | "date" | "unknown";
+    }> = [
       ...selectedColumns.map((col) => ({
         name: col.name,
         type: col.type as "string" | "number" | "boolean" | "date" | "unknown",
@@ -628,7 +676,15 @@ export function InsightConfigureTab({
       rowCount: aggregatedRows.length,
       sampleSize: aggregatedRows.length,
     };
-  }, [isConfigured, onDemandJoinPreview, joinPreviewColumns, insight.baseTable?.selectedFields, fields, joinTableDetails, insightMetrics]);
+  }, [
+    isConfigured,
+    onDemandJoinPreview,
+    joinPreviewColumns,
+    insight.baseTable?.selectedFields,
+    fields,
+    joinTableDetails,
+    insightMetrics,
+  ]);
 
   // Use joined aggregation when we have joins, otherwise use base table aggregation
   const effectiveAggregatedPreview = insight.joins?.length
@@ -640,7 +696,9 @@ export function InsightConfigureTab({
   const columnCount = previewFields.length + visibleMetrics.length;
 
   // Build field map from preview fields (includes joined columns if present)
-  const fieldMap = useMemo<Record<string, { id: string; name: string; type: string }>>(() => {
+  const fieldMap = useMemo<
+    Record<string, { id: string; name: string; type: string }>
+  >(() => {
     const map: Record<string, { id: string; name: string; type: string }> = {};
     previewFields.forEach((f) => {
       map[f.name] = { id: f.id, name: f.name, type: f.type };
@@ -687,13 +745,23 @@ export function InsightConfigureTab({
         previewEnhanced,
         fieldMap as any,
         3,
-        columnTableMap
+        columnTableMap,
       );
     } catch (error) {
       console.error("Failed to generate suggestions:", error);
       return [];
     }
-  }, [isConfigured, rawPreview, insight, insightId, fieldMap, dataTable, activeDataFrameId, getDataFrame, columnTableMap]);
+  }, [
+    isConfigured,
+    rawPreview,
+    insight,
+    insightId,
+    fieldMap,
+    dataTable,
+    activeDataFrameId,
+    getDataFrame,
+    columnTableMap,
+  ]);
 
   // Get data source type label
   const dataSourceTypeLabel = useMemo(() => {
@@ -712,9 +780,14 @@ export function InsightConfigureTab({
 
   // Parse aggregate expression like "sum(amount)" → { aggregation: "sum", columnName: "amount" }
   const parseAggregateExpression = (
-    expr: string
-  ): { aggregation: InsightMetric["aggregation"]; columnName: string } | null => {
-    const match = expr.match(/^(sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i);
+    expr: string,
+  ): {
+    aggregation: InsightMetric["aggregation"];
+    columnName: string;
+  } | null => {
+    const match = expr.match(
+      /^(sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
+    );
     if (match) {
       return {
         aggregation: match[1].toLowerCase() as InsightMetric["aggregation"],
@@ -852,7 +925,7 @@ export function InsightConfigureTab({
     const aggregatedDataFrame = computeInsightDataFrame(
       computeInsight as any,
       computeDataTable as any,
-      sourceDataFrameEnhanced.data
+      sourceDataFrameEnhanced.data,
     );
 
     // Store the computed DataFrame
@@ -860,7 +933,7 @@ export function InsightConfigureTab({
     const computedDataFrameId = createFromInsight(
       insightId,
       `${suggestion.title} Data`,
-      aggregatedDataFrame
+      aggregatedDataFrame,
     );
 
     // Link the computed DataFrame to the insight
@@ -877,7 +950,7 @@ export function InsightConfigureTab({
       suggestion.title,
       suggestion.spec,
       suggestion.chartType,
-      cleanEncoding // Keep original encoding - columns match metric names like "sum(amount)"
+      cleanEncoding, // Keep original encoding - columns match metric names like "sum(amount)"
     );
 
     // Navigate to the visualization using route-based navigation
@@ -897,9 +970,7 @@ export function InsightConfigureTab({
   // Add a field from column header click
   const handleAddField = (columnName: string) => {
     // Find field by column name
-    const field = fields.find(
-      (f) => (f.columnName ?? f.name) === columnName
-    );
+    const field = fields.find((f) => (f.columnName ?? f.name) === columnName);
     if (!field) return;
 
     // Don't add if already selected
@@ -908,7 +979,10 @@ export function InsightConfigureTab({
     updateInsightLocal(insightId, {
       baseTable: {
         ...insight.baseTable,
-        selectedFields: [...(insight.baseTable?.selectedFields || []), field.id],
+        selectedFields: [
+          ...(insight.baseTable?.selectedFields || []),
+          field.id,
+        ],
       } as any,
     });
   };
@@ -919,7 +993,8 @@ export function InsightConfigureTab({
       baseTable: {
         ...insight.baseTable,
         selectedFields:
-          insight.baseTable?.selectedFields?.filter((id) => id !== fieldId) || [],
+          insight.baseTable?.selectedFields?.filter((id) => id !== fieldId) ||
+          [],
       } as any,
     });
   };
@@ -927,14 +1002,14 @@ export function InsightConfigureTab({
   // Add a metric from column header click
   const handleAddMetric = (
     columnName: string,
-    aggregation: InsightMetric["aggregation"]
+    aggregation: InsightMetric["aggregation"],
   ) => {
     const metricId = crypto.randomUUID() as UUID;
     const metricName = `${aggregation}(${columnName})`;
 
     // Check if metric already exists
     const exists = insightMetrics.some(
-      (m) => m.columnName === columnName && m.aggregation === aggregation
+      (m) => m.columnName === columnName && m.aggregation === aggregation,
     );
     if (exists) return;
 
@@ -969,7 +1044,8 @@ export function InsightConfigureTab({
     // If no joins remain, clear the joined DataFrame and revert to base table
     if (updatedJoins.length === 0 && insight.dataFrameId) {
       // Remove the computed DataFrame reference
-      const setInsightDataFrame = useInsightsStore.getState().setInsightDataFrame;
+      const setInsightDataFrame =
+        useInsightsStore.getState().setInsightDataFrame;
       setInsightDataFrame(insightId, undefined as any);
     }
   };
@@ -977,7 +1053,9 @@ export function InsightConfigureTab({
   // Build ItemList items for Data Sources section
   const dataSourceItems = useMemo<ListItem[]>(() => {
     // Get base table metadata
-    const baseDataFrame = dataTable?.dataFrameId ? getDataFrame(dataTable.dataFrameId) : undefined;
+    const baseDataFrame = dataTable?.dataFrameId
+      ? getDataFrame(dataTable.dataFrameId)
+      : undefined;
     const baseRowCount = baseDataFrame?.metadata.rowCount ?? 0;
     const baseFieldCount = allTableFields.length;
 
@@ -1008,7 +1086,13 @@ export function InsightConfigureTab({
     }));
 
     return [baseItem, ...joinItems];
-  }, [dataTable, dataSource, allTableFields, joinTableDetails, getDataFrame, getSourceTypeLabel, handleRemoveJoin]);
+  }, [
+    dataTable,
+    allTableFields,
+    joinTableDetails,
+    getDataFrame,
+    handleRemoveJoin,
+  ]);
 
   const dataSummary = `${rowCount.toLocaleString()} rows • ${columnCount} fields • ${visibleMetrics.length} metrics`;
 
@@ -1016,15 +1100,15 @@ export function InsightConfigureTab({
   if (!isConfigured) {
     return (
       <div className="flex-1">
-        <div className="container mx-auto px-6 py-6 max-w-6xl space-y-6">
+        <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
           {/* Data Sources Section with ItemList */}
-          <section className="space-y-3 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <section className="border-border bg-card space-y-3 rounded-2xl border p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-muted-foreground text-xs font-semibold">
                   Data sources
                 </p>
-                <p className="text-sm text-foreground">
+                <p className="text-foreground text-sm">
                   Tables used in this insight
                 </p>
               </div>
@@ -1033,7 +1117,7 @@ export function InsightConfigureTab({
                 size="sm"
                 onClick={() => setIsJoinFlowOpen(true)}
               >
-                <LuPlus className="h-4 w-4 mr-1" />
+                <LuPlus className="mr-1 h-4 w-4" />
                 Add join
               </Button>
             </div>
@@ -1049,32 +1133,32 @@ export function InsightConfigureTab({
           </section>
 
           {/* Data Preview Section */}
-          <section className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <section className="border-border bg-card space-y-4 rounded-2xl border p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">
+                <p className="text-muted-foreground text-xs font-semibold">
                   Data preview
                 </p>
-                <p className="text-sm text-foreground">
+                <p className="text-foreground text-sm">
                   First {sampleSize || rowCount} rows
                 </p>
               </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="text-muted-foreground flex items-center gap-3 text-xs">
                 <span>{dataSummary}</span>
                 <span>•</span>
                 <span>{dataSourceTypeLabel}</span>
               </div>
             </div>
             {preview ? (
-              <div className="relative overflow-hidden rounded-xl border bg-muted/20">
+              <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 260 }}>
-                  <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="sticky top-0 z-10 bg-card">
+                  <table className="w-full border-separate border-spacing-0 text-sm">
+                    <thead className="bg-card sticky top-0 z-10">
                       <tr>
                         {previewFields.map((field) => (
                           <th
                             key={field.id}
-                            className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground"
+                            className="text-muted-foreground px-3 py-2 text-left text-xs font-semibold"
                           >
                             {field.name}
                           </th>
@@ -1082,7 +1166,7 @@ export function InsightConfigureTab({
                         {visibleMetrics.map((metric) => (
                           <th
                             key={metric.id}
-                            className="px-3 py-2 text-left text-xs font-semibold text-primary"
+                            className="text-primary px-3 py-2 text-left text-xs font-semibold"
                           >
                             {metric.name}
                           </th>
@@ -1095,20 +1179,22 @@ export function InsightConfigureTab({
                           {previewFields.map((field) => (
                             <td
                               key={field.id}
-                              className="px-3 py-2 text-xs whitespace-nowrap"
+                              className="whitespace-nowrap px-3 py-2 text-xs"
                             >
                               {formatCellValue(
-                                (row as Record<string, unknown>)[field.columnName ?? field.name]
+                                (row as Record<string, unknown>)[
+                                  field.columnName ?? field.name
+                                ],
                               )}
                             </td>
                           ))}
                           {visibleMetrics.map((metric) => (
                             <td
                               key={metric.id}
-                              className="px-3 py-2 text-xs font-medium text-primary whitespace-nowrap"
+                              className="text-primary whitespace-nowrap px-3 py-2 text-xs font-medium"
                             >
                               {formatCellValue(
-                                (row as Record<string, unknown>)[metric.name]
+                                (row as Record<string, unknown>)[metric.name],
                               )}
                             </td>
                           ))}
@@ -1119,7 +1205,7 @@ export function InsightConfigureTab({
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 No data available. The data source may not have been loaded yet.
               </p>
             )}
@@ -1129,11 +1215,11 @@ export function InsightConfigureTab({
           <section className="space-y-4">
             <div className="flex items-end justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-foreground">
+                <h3 className="text-foreground text-lg font-semibold">
                   Suggested charts
                 </h3>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Click a suggestion to create a visualization
               </p>
             </div>
@@ -1145,10 +1231,10 @@ export function InsightConfigureTab({
         </div>
 
         {/* Sticky Footer Actions */}
-        <div className="sticky bottom-0 border-t bg-card/90 backdrop-blur-sm px-6 py-4">
+        <div className="bg-card/90 sticky bottom-0 border-t px-6 py-4 backdrop-blur-sm">
           <div className="container mx-auto max-w-6xl">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Need something custom? Build from scratch or join another
                 dataset.
               </p>
@@ -1182,7 +1268,10 @@ export function InsightConfigureTab({
     columnName: string;
     columnType: string;
   }) => {
-    const isNumeric = columnType === "number" || columnType === "integer" || columnType === "float";
+    const isNumeric =
+      columnType === "number" ||
+      columnType === "integer" ||
+      columnType === "float";
     const isAlreadyField = insight.baseTable?.selectedFields?.some((id) => {
       const f = fields.find((field) => field.id === id);
       return f && (f.columnName ?? f.name) === columnName;
@@ -1194,24 +1283,26 @@ export function InsightConfigureTab({
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1 px-3 py-2 text-left text-xs font-semibold text-muted-foreground hover:bg-muted/50 transition-colors">
+          <button className="text-muted-foreground hover:bg-muted/50 flex items-center gap-1 px-3 py-2 text-left text-xs font-semibold transition-colors">
             {columnName}
             <LuChevronDown className="h-3 w-3 opacity-50" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
-          <DropdownMenuLabel className="text-xs">Add "{columnName}" as</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-xs">
+            Add &quot;{columnName}&quot; as
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => handleAddField(columnName)}
             disabled={isAlreadyField}
           >
-            <LuHash className="h-4 w-4 mr-2" />
+            <LuHash className="mr-2 h-4 w-4" />
             Field (group by)
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <LuCalculator className="h-4 w-4 mr-2" />
+              <LuCalculator className="mr-2 h-4 w-4" />
               Metric
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -1233,15 +1324,15 @@ export function InsightConfigureTab({
   // Render configured state (edit fields, metrics, filters, joins)
   return (
     <div className="flex-1">
-      <div className="container mx-auto px-6 py-6 max-w-6xl space-y-6">
+      <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
         {/* Data Sources Section with ItemList */}
-        <section className="space-y-3 rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <section className="border-border bg-card space-y-3 rounded-2xl border p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold text-muted-foreground">
+              <p className="text-muted-foreground text-xs font-semibold">
                 Data sources
               </p>
-              <p className="text-sm text-foreground">
+              <p className="text-foreground text-sm">
                 Tables used in this insight
               </p>
             </div>
@@ -1250,7 +1341,7 @@ export function InsightConfigureTab({
               size="sm"
               onClick={() => setIsJoinFlowOpen(true)}
             >
-              <LuPlus className="h-4 w-4 mr-1" />
+              <LuPlus className="mr-1 h-4 w-4" />
               Add join
             </Button>
           </div>
@@ -1271,21 +1362,23 @@ export function InsightConfigureTab({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Join preview</h3>
-                <p className="text-xs text-muted-foreground">
-                  Combined data from {1 + (insight.joins?.length ?? 0)} table{(insight.joins?.length ?? 0) !== 0 ? "s" : ""} • Click headers to add fields
+                <p className="text-muted-foreground text-xs">
+                  Combined data from {1 + (insight.joins?.length ?? 0)} table
+                  {(insight.joins?.length ?? 0) !== 0 ? "s" : ""} • Click
+                  headers to add fields
                 </p>
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-muted-foreground text-xs">
                 {onDemandJoinPreview?.rowCount.toLocaleString()} rows
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {onDemandJoinPreview ? (
-              <div className="relative overflow-hidden rounded-xl border bg-muted/20">
+              <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 200 }}>
-                  <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="sticky top-0 z-10 bg-card">
+                  <table className="w-full border-separate border-spacing-0 text-sm">
+                    <thead className="bg-card sticky top-0 z-10">
                       <tr>
                         {joinPreviewColumns.map((field) => (
                           <th key={field.id} className="text-left">
@@ -1303,12 +1396,12 @@ export function InsightConfigureTab({
                           {joinPreviewColumns.map((field) => (
                             <td
                               key={field.id}
-                              className="px-3 py-2 text-xs whitespace-nowrap"
+                              className="whitespace-nowrap px-3 py-2 text-xs"
                             >
                               {formatCellValue(
                                 (row as Record<string, unknown>)[
                                   field.columnName ?? field.name
-                                ]
+                                ],
                               )}
                             </td>
                           ))}
@@ -1319,7 +1412,7 @@ export function InsightConfigureTab({
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 No data available.
               </p>
             )}
@@ -1332,7 +1425,7 @@ export function InsightConfigureTab({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Fields (Dimensions)</h3>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   Columns to group by
                 </p>
               </div>
@@ -1342,7 +1435,9 @@ export function InsightConfigureTab({
             {selectedFields.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {selectedFields.map((field) => {
-                  const isJoined = (field as LocalField & { _isJoined?: boolean })._isJoined;
+                  const isJoined = (
+                    field as LocalField & { _isJoined?: boolean }
+                  )._isJoined;
                   return (
                     <Badge
                       key={field.id}
@@ -1351,13 +1446,15 @@ export function InsightConfigureTab({
                     >
                       <LuHash className="h-3 w-3" />
                       <span>{field.name}</span>
-                      <span className="text-muted-foreground text-[10px]">{field.type}</span>
-                      <span className="bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                      <span className="text-muted-foreground text-[10px]">
+                        {field.type}
+                      </span>
+                      <span className="bg-muted rounded px-1.5 py-0.5 text-[10px]">
                         {isJoined ? "joined" : "base"}
                       </span>
                       <button
                         onClick={() => handleRemoveField(field.id)}
-                        className="ml-0.5 hover:bg-muted rounded-full p-0.5"
+                        className="hover:bg-muted ml-0.5 rounded-full p-0.5"
                       >
                         <LuX className="h-3 w-3" />
                       </button>
@@ -1366,7 +1463,7 @@ export function InsightConfigureTab({
                 })}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 No fields selected. Click a column header above to add.
               </p>
             )}
@@ -1379,7 +1476,7 @@ export function InsightConfigureTab({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Metrics</h3>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   Aggregations to compute
                 </p>
               </div>
@@ -1392,15 +1489,19 @@ export function InsightConfigureTab({
                   <Badge
                     key={metric.id}
                     variant="secondary"
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary"
+                    className="bg-primary/10 text-primary flex items-center gap-1.5 px-3 py-1.5 text-sm"
                   >
                     <LuCalculator className="h-3 w-3" />
                     <span>{metric.name}</span>
-                    <span className="text-primary/60 text-[10px]">{metric.aggregation}</span>
-                    <span className="bg-primary/20 px-1.5 py-0.5 rounded text-[10px]">base</span>
+                    <span className="text-primary/60 text-[10px]">
+                      {metric.aggregation}
+                    </span>
+                    <span className="bg-primary/20 rounded px-1.5 py-0.5 text-[10px]">
+                      base
+                    </span>
                     <button
                       onClick={() => handleRemoveMetric(metric.id)}
-                      className="ml-0.5 hover:bg-primary/20 rounded-full p-0.5"
+                      className="hover:bg-primary/20 ml-0.5 rounded-full p-0.5"
                     >
                       <LuX className="h-3 w-3" />
                     </button>
@@ -1408,7 +1509,7 @@ export function InsightConfigureTab({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 No metrics configured. Click a column header above to add.
               </p>
             )}
@@ -1422,25 +1523,28 @@ export function InsightConfigureTab({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold">Result preview</h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-muted-foreground text-xs">
                     {effectiveAggregatedPreview.rowCount} groups
                   </p>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="relative overflow-hidden rounded-xl border bg-muted/20">
+              <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 200 }}>
-                  <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="sticky top-0 z-10 bg-card">
+                  <table className="w-full border-separate border-spacing-0 text-sm">
+                    <thead className="bg-card sticky top-0 z-10">
                       <tr>
                         {/* Use columns from the aggregated result for correct names */}
                         {effectiveAggregatedPreview.dataFrame.columns
-                          ?.filter((col) => !visibleMetrics.some((m) => m.name === col.name))
+                          ?.filter(
+                            (col) =>
+                              !visibleMetrics.some((m) => m.name === col.name),
+                          )
                           .map((col) => (
                             <th
                               key={col.name}
-                              className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground"
+                              className="text-muted-foreground px-3 py-2 text-left text-xs font-semibold"
                             >
                               {col.name}
                             </th>
@@ -1448,7 +1552,7 @@ export function InsightConfigureTab({
                         {visibleMetrics.map((metric) => (
                           <th
                             key={metric.id}
-                            className="px-3 py-2 text-left text-xs font-semibold text-primary"
+                            className="text-primary px-3 py-2 text-left text-xs font-semibold"
                           >
                             {metric.name}
                           </th>
@@ -1456,32 +1560,39 @@ export function InsightConfigureTab({
                       </tr>
                     </thead>
                     <tbody>
-                      {effectiveAggregatedPreview.dataFrame.rows.slice(0, 10).map((row, idx) => (
-                        <tr key={idx} className="border-b last:border-0">
-                          {effectiveAggregatedPreview.dataFrame.columns
-                            ?.filter((col) => !visibleMetrics.some((m) => m.name === col.name))
-                            .map((col) => (
+                      {effectiveAggregatedPreview.dataFrame.rows
+                        .slice(0, 10)
+                        .map((row, idx) => (
+                          <tr key={idx} className="border-b last:border-0">
+                            {effectiveAggregatedPreview.dataFrame.columns
+                              ?.filter(
+                                (col) =>
+                                  !visibleMetrics.some(
+                                    (m) => m.name === col.name,
+                                  ),
+                              )
+                              .map((col) => (
+                                <td
+                                  key={col.name}
+                                  className="whitespace-nowrap px-3 py-2 text-xs"
+                                >
+                                  {formatCellValue(
+                                    (row as Record<string, unknown>)[col.name],
+                                  )}
+                                </td>
+                              ))}
+                            {visibleMetrics.map((metric) => (
                               <td
-                                key={col.name}
-                                className="px-3 py-2 text-xs whitespace-nowrap"
+                                key={metric.id}
+                                className="text-primary whitespace-nowrap px-3 py-2 text-xs font-medium"
                               >
                                 {formatCellValue(
-                                  (row as Record<string, unknown>)[col.name]
+                                  (row as Record<string, unknown>)[metric.name],
                                 )}
                               </td>
                             ))}
-                          {visibleMetrics.map((metric) => (
-                            <td
-                              key={metric.id}
-                              className="px-3 py-2 text-xs font-medium text-primary whitespace-nowrap"
-                            >
-                              {formatCellValue(
-                                (row as Record<string, unknown>)[metric.name]
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
@@ -1494,7 +1605,7 @@ export function InsightConfigureTab({
         <Card>
           <CardHeader className="pb-3">
             <h3 className="text-sm font-semibold">Filters</h3>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               Control which data is included
             </p>
           </CardHeader>
@@ -1512,11 +1623,10 @@ export function InsightConfigureTab({
             </div>
           </CardContent>
         </Card>
-
       </div>
 
       {/* Sticky Footer */}
-      <div className="sticky bottom-0 border-t bg-card/90 backdrop-blur-sm px-6 py-4">
+      <div className="bg-card/90 sticky bottom-0 border-t px-6 py-4 backdrop-blur-sm">
         <div className="container mx-auto max-w-6xl">
           <div className="flex justify-end">
             <Button disabled={selectedFields.length === 0}>

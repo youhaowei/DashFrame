@@ -12,7 +12,10 @@ import {
   type NotionDatabase,
   type NotionProperty,
 } from "./client";
-import { convertNotionToDataFrame, mapNotionTypeToColumnType } from "./converter";
+import {
+  convertNotionToDataFrame,
+  mapNotionTypeToColumnType,
+} from "./converter";
 
 // Re-export types
 export type { NotionDatabase, NotionProperty };
@@ -86,7 +89,7 @@ export async function notionToDataFrame(
  */
 export function generateFieldsFromNotionSchema(
   schema: NotionProperty[],
-  dataTableId: UUID
+  dataTableId: UUID,
 ): { fields: Field[]; sourceSchema: SourceSchema } {
   // System fields (computed)
   const systemFields: Field[] = [
@@ -94,17 +97,17 @@ export function generateFieldsFromNotionSchema(
       id: crypto.randomUUID(),
       name: "_rowIndex",
       tableId: dataTableId,
-      columnName: undefined,  // Computed from array index
+      columnName: undefined, // Computed from array index
       type: "number",
-      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
+      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
     },
     {
       id: crypto.randomUUID(),
       name: "_notionId",
       tableId: dataTableId,
-      columnName: undefined,  // Computed from page.id
+      columnName: undefined, // Computed from page.id
       type: "string",
-      isIdentifier: true  // Mark as identifier to exclude from chart suggestions
+      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
     },
   ];
 
@@ -120,8 +123,8 @@ export function generateFieldsFromNotionSchema(
   // Source schema with native Notion types
   const columns: TableColumn[] = schema.map((prop) => ({
     name: prop.name,
-    type: prop.type,  // Native: "status", "relation", etc.
-    // TODO: Detect foreign keys from relation properties
+    type: prop.type, // Native: "status", "relation", etc.
+    // Note: Foreign key detection from relation properties not yet implemented
   }));
 
   const sourceSchema: SourceSchema = {
@@ -142,7 +145,7 @@ export function generateFieldsFromNotionSchema(
 export async function notionToDataFrameSample(
   config: NotionConfig,
   fields: Field[],
-  pageSize: number = 100
+  pageSize: number = 100,
 ): Promise<DataFrame> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
 

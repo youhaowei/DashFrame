@@ -48,14 +48,20 @@ interface InsightPreviewTabProps {
  * 2. Visualizations that use this insight
  */
 export function InsightPreviewTab({
-  insightId,
-  insight,
+  insightId: _insightId,
+  insight: _insight,
   visualizations,
   aggregatedPreview,
   selectedFields,
   metrics,
 }: InsightPreviewTabProps) {
   const router = useRouter();
+
+  // Helper to get visualization count text
+  const getVisualizationCountText = (count: number): string => {
+    if (count === 0) return "No visualizations yet";
+    return `${count} visualization${count !== 1 ? "s" : ""}`;
+  };
 
   // Get icon for visualization type
   const getVizIcon = (type: string) => {
@@ -83,7 +89,7 @@ export function InsightPreviewTab({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="container mx-auto px-6 py-6 max-w-6xl space-y-6">
+      <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
         {/* Result Data Table */}
         {aggregatedPreview && (
           <Card>
@@ -91,22 +97,23 @@ export function InsightPreviewTab({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold">Result data</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {aggregatedPreview.rowCount} rows • {selectedFields.length} fields • {visibleMetrics.length} metrics
+                  <p className="text-muted-foreground text-xs">
+                    {aggregatedPreview.rowCount} rows • {selectedFields.length}{" "}
+                    fields • {visibleMetrics.length} metrics
                   </p>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="relative overflow-hidden rounded-xl border bg-muted/20">
+              <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 300 }}>
-                  <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="sticky top-0 z-10 bg-card">
+                  <table className="w-full border-separate border-spacing-0 text-sm">
+                    <thead className="bg-card sticky top-0 z-10">
                       <tr>
                         {selectedFields.map((field) => (
                           <th
                             key={field.id}
-                            className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground"
+                            className="text-muted-foreground px-3 py-2 text-left text-xs font-semibold"
                           >
                             {field.name}
                           </th>
@@ -114,7 +121,7 @@ export function InsightPreviewTab({
                         {visibleMetrics.map((metric) => (
                           <th
                             key={metric.id}
-                            className="px-3 py-2 text-left text-xs font-semibold text-primary"
+                            className="text-primary px-3 py-2 text-left text-xs font-semibold"
                           >
                             {metric.name}
                           </th>
@@ -127,20 +134,22 @@ export function InsightPreviewTab({
                           {selectedFields.map((field) => (
                             <td
                               key={field.id}
-                              className="px-3 py-2 text-xs whitespace-nowrap"
+                              className="whitespace-nowrap px-3 py-2 text-xs"
                             >
                               {formatCellValue(
-                                (row as Record<string, unknown>)[field.columnName ?? field.name]
+                                (row as Record<string, unknown>)[
+                                  field.columnName ?? field.name
+                                ],
                               )}
                             </td>
                           ))}
                           {visibleMetrics.map((metric) => (
                             <td
                               key={metric.id}
-                              className="px-3 py-2 text-xs font-medium text-primary whitespace-nowrap"
+                              className="text-primary whitespace-nowrap px-3 py-2 text-xs font-medium"
                             >
                               {formatCellValue(
-                                (row as Record<string, unknown>)[metric.name]
+                                (row as Record<string, unknown>)[metric.name],
                               )}
                             </td>
                           ))}
@@ -159,14 +168,12 @@ export function InsightPreviewTab({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">Visualizations</h3>
-              <p className="text-sm text-muted-foreground">
-                {visualizations.length === 0
-                  ? "No visualizations yet"
-                  : `${visualizations.length} visualization${visualizations.length !== 1 ? "s" : ""}`}
+              <p className="text-muted-foreground text-sm">
+                {getVisualizationCountText(visualizations.length)}
               </p>
             </div>
             <Button variant="outline">
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               Create visualization
             </Button>
           </div>
@@ -174,10 +181,10 @@ export function InsightPreviewTab({
           {visualizations.length === 0 ? (
             <Card className="bg-muted/30 border-dashed">
               <CardContent className="p-8 text-center">
-                <div className="h-12 w-12 mx-auto mb-3 rounded-full bg-muted flex items-center justify-center">
-                  <BarChart3 className="h-6 w-6 text-muted-foreground" />
+                <div className="bg-muted mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full">
+                  <BarChart3 className="text-muted-foreground h-6 w-6" />
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   Create a visualization to see your data come to life
                 </p>
               </CardContent>
@@ -187,36 +194,37 @@ export function InsightPreviewTab({
               {visualizations.map((viz) => (
                 <Card
                   key={viz.id}
-                  className="hover:shadow-md transition-shadow cursor-pointer"
+                  className="cursor-pointer transition-shadow hover:shadow-md"
                   onClick={() => handleOpenVisualization(viz.id)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
                       {/* Icon */}
-                      <div className="h-12 w-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+                      <div className="bg-muted flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl">
                         {getVizIcon(viz.visualizationType)}
                       </div>
 
                       {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium truncate">{viz.name}</h4>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex items-center gap-2">
+                          <h4 className="truncate font-medium">{viz.name}</h4>
                           <Badge variant="secondary" className="text-xs">
                             {viz.visualizationType}
                           </Badge>
                         </div>
                         {viz.encoding && (
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-muted-foreground text-xs">
                             {viz.encoding.x && `X: ${viz.encoding.x}`}
                             {viz.encoding.x && viz.encoding.y && " • "}
                             {viz.encoding.y && `Y: ${viz.encoding.y}`}
                             {(viz.encoding.x || viz.encoding.y) &&
                               viz.encoding.color &&
                               " • "}
-                            {viz.encoding.color && `Color: ${viz.encoding.color}`}
+                            {viz.encoding.color &&
+                              `Color: ${viz.encoding.color}`}
                           </p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-muted-foreground mt-1 text-xs">
                           Created{" "}
                           {new Date(viz.createdAt).toLocaleDateString("en-US", {
                             month: "short",
@@ -236,7 +244,7 @@ export function InsightPreviewTab({
                           handleOpenVisualization(viz.id);
                         }}
                       >
-                        <LuExternalLink className="h-4 w-4 mr-1" />
+                        <LuExternalLink className="mr-1 h-4 w-4" />
                         Open
                       </Button>
                     </div>

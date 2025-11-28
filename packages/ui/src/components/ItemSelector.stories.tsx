@@ -1,7 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
-import { Database, FileText, BarChart3, Plus, Trash2, Refresh } from "../lib/icons";
+import {
+  Database,
+  FileText,
+  BarChart3,
+  Plus,
+  Trash2,
+  Refresh,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Selection/ItemSelector",
@@ -301,9 +308,10 @@ export const ManyItems: Story = {
         label: `Data Source ${i + 1}`,
         active: i === 0,
         badge: i % 2 === 0 ? "PostgreSQL" : "MySQL",
+        // eslint-disable-next-line sonarjs/pseudo-random
         metadata: `${Math.floor(Math.random() * 50) + 1} tables`,
         icon: Database,
-      }))
+      })),
     );
 
     return (

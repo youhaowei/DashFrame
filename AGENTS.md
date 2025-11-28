@@ -27,6 +27,7 @@ This file serves as a brief entry point for automated agents and AI assistants w
 ## Essential Quick Reference
 
 ### Core Technologies
+
 - **Monorepo**: pnpm + Turborepo (`apps/*`, `packages/*`)
 - **Framework**: Next.js 16 (App Router) + React 19
 - **Styling**: Tailwind CSS v4 + shadcn/ui components
@@ -34,6 +35,7 @@ This file serves as a brief entry point for automated agents and AI assistants w
 - **Types**: TypeScript (strict mode)
 
 ### Key Commands
+
 ```bash
 pnpm check      # Run lint + typecheck + format (before committing)
 pnpm dev        # Run dev server + TypeScript watch mode
@@ -43,11 +45,13 @@ pnpm build      # Build all packages and apps
 **⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested.**
 
 ### Naming Conventions
+
 - **User-facing**: `DashFrame` (PascalCase)
 - **Packages**: `@dashframe/*` (lowercase scope)
 - **Storage keys**: `dashframe:*` (lowercase prefix)
 
 ### Development Workflow
+
 1. **Spec-first**: Create `docs/specs/<feature>.md` before implementing
 2. **Component-first**: Check `components/ui/` and `components/shared/` before writing custom JSX
 3. **Check before committing**: Run `pnpm check`

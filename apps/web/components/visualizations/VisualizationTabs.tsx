@@ -1,8 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Plus, Database, Button, ItemSelector, type SelectableItem, type ItemAction } from "@dashframe/ui";
+import {
+  Plus,
+  Database,
+  ItemSelector,
+  type SelectableItem,
+  type ItemAction,
+} from "@dashframe/ui";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 
@@ -78,8 +83,6 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
       </div>
     );
   }
-
-
 
   return (
     <ItemSelector

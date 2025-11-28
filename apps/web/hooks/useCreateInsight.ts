@@ -44,7 +44,7 @@ export function useCreateInsight() {
       const insightId = useInsightsStore.getState().createDraft(
         tableId,
         tableName,
-        [] // Empty fieldIds for draft state
+        [], // Empty fieldIds for draft state
       );
 
       // Navigate to insight page (action hub)
@@ -52,7 +52,7 @@ export function useCreateInsight() {
 
       return insightId;
     },
-    [router]
+    [router],
   );
 
   /**
@@ -72,7 +72,10 @@ export function useCreateInsight() {
       }
 
       if (!sourceInsight.dataFrameId) {
-        console.error("Source insight has no computed DataFrame:", sourceInsightId);
+        console.error(
+          "Source insight has no computed DataFrame:",
+          sourceInsightId,
+        );
         return null;
       }
 
@@ -80,7 +83,7 @@ export function useCreateInsight() {
       const insightId = store.createDraft(
         sourceInsight.baseTable.tableId,
         `${sourceInsightName} (derived)`,
-        [] // Empty fieldIds for draft state
+        [], // Empty fieldIds for draft state
       );
 
       // Link to source insight's DataFrame as starting point
@@ -91,7 +94,7 @@ export function useCreateInsight() {
 
       return insightId;
     },
-    [router]
+    [router],
   );
 
   return {

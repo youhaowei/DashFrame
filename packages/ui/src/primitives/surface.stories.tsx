@@ -33,27 +33,27 @@ export const Default: Story = {
 export const AllElevations: Story = {
   render: () => (
     <div className="flex flex-wrap gap-6">
-      <Surface elevation="plain" className="p-6 w-[200px]">
-        <h3 className="font-semibold mb-2">Plain</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="plain" className="w-[200px] p-6">
+        <h3 className="mb-2 font-semibold">Plain</h3>
+        <p className="text-muted-foreground text-sm">
           Minimal flat surface with border only
         </p>
       </Surface>
-      <Surface elevation="raised" className="p-6 w-[200px]">
-        <h3 className="font-semibold mb-2">Raised</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="raised" className="w-[200px] p-6">
+        <h3 className="mb-2 font-semibold">Raised</h3>
+        <p className="text-muted-foreground text-sm">
           Standard elevated surface with subtle shadow
         </p>
       </Surface>
-      <Surface elevation="floating" className="p-6 w-[200px]">
-        <h3 className="font-semibold mb-2">Floating</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="floating" className="w-[200px] p-6">
+        <h3 className="mb-2 font-semibold">Floating</h3>
+        <p className="text-muted-foreground text-sm">
           Prominent elevation with backdrop blur
         </p>
       </Surface>
-      <Surface elevation="inset" className="p-6 w-[200px]">
-        <h3 className="font-semibold mb-2">Inset</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="inset" className="w-[200px] p-6">
+        <h3 className="mb-2 font-semibold">Inset</h3>
+        <p className="text-muted-foreground text-sm">
           Sunken appearance with inset shadow
         </p>
       </Surface>
@@ -64,15 +64,15 @@ export const AllElevations: Story = {
 export const Interactive: Story = {
   render: () => (
     <div className="flex gap-4">
-      <Surface elevation="raised" interactive className="p-6 cursor-pointer">
-        <h3 className="font-semibold mb-2">Interactive Surface</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="raised" interactive className="cursor-pointer p-6">
+        <h3 className="mb-2 font-semibold">Interactive Surface</h3>
+        <p className="text-muted-foreground text-sm">
           Hover over me to see the effect
         </p>
       </Surface>
-      <Surface elevation="floating" interactive className="p-6 cursor-pointer">
-        <h3 className="font-semibold mb-2">Floating Interactive</h3>
-        <p className="text-sm text-muted-foreground">
+      <Surface elevation="floating" interactive className="cursor-pointer p-6">
+        <h3 className="mb-2 font-semibold">Floating Interactive</h3>
+        <p className="text-muted-foreground text-sm">
           Click or hover for interaction
         </p>
       </Surface>
@@ -82,16 +82,16 @@ export const Interactive: Story = {
 
 export const CardExample: Story = {
   render: () => (
-    <Surface elevation="raised" className="p-6 w-[350px]">
-      <h2 className="text-xl font-bold mb-2">Surface as Card</h2>
-      <p className="text-sm text-muted-foreground mb-4">
+    <Surface elevation="raised" className="w-[350px] p-6">
+      <h2 className="mb-2 text-xl font-bold">Surface as Card</h2>
+      <p className="text-muted-foreground mb-4 text-sm">
         Surface can be used as a card container with standardized elevation.
       </p>
       <div className="flex gap-2">
-        <button className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
+        <button className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-sm">
           Action
         </button>
-        <button className="px-4 py-2 border rounded-md text-sm">Cancel</button>
+        <button className="rounded-md border px-4 py-2 text-sm">Cancel</button>
       </div>
     </Surface>
   ),
@@ -99,10 +99,10 @@ export const CardExample: Story = {
 
 export const EmptyState: Story = {
   render: () => (
-    <Surface elevation="inset" className="p-8 w-[400px] text-center">
+    <Surface elevation="inset" className="w-[400px] p-8 text-center">
       <div className="text-muted-foreground">
         <svg
-          className="mx-auto h-12 w-12 mb-4"
+          className="mx-auto mb-4 h-12 w-12"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -114,7 +114,7 @@ export const EmptyState: Story = {
             d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
           />
         </svg>
-        <h3 className="font-semibold mb-2">No items found</h3>
+        <h3 className="mb-2 font-semibold">No items found</h3>
         <p className="text-sm">
           This sunken surface works well for empty states
         </p>

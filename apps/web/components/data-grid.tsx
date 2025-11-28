@@ -9,7 +9,23 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { MoreHorizontal, Button, Surface, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@dashframe/ui";
+import {
+  MoreHorizontal,
+  Button,
+  Surface,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@dashframe/ui";
 
 interface DataGridProps<TData> {
   data: TData[];
@@ -94,7 +110,10 @@ export function DataGrid<TData>({
   // Empty state
   if (data.length === 0) {
     return (
-      <Surface elevation="inset" className="flex flex-col items-center justify-center rounded-lg p-12 text-center">
+      <Surface
+        elevation="inset"
+        className="flex flex-col items-center justify-center rounded-lg p-12 text-center"
+      >
         <p className="text-foreground text-base font-medium">{emptyMessage}</p>
         <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (

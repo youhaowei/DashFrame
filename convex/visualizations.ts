@@ -91,7 +91,7 @@ export const listWithDetails = query({
           dataTable,
           sourceType,
         };
-      })
+      }),
     );
 
     return result;
@@ -137,7 +137,7 @@ export const create = mutation({
       v.literal("bar"),
       v.literal("line"),
       v.literal("scatter"),
-      v.literal("area")
+      v.literal("area"),
     ),
     encoding: v.optional(
       v.object({
@@ -148,20 +148,20 @@ export const create = mutation({
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         yType: v.optional(
           v.union(
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         color: v.optional(v.string()),
         size: v.optional(v.string()),
-      })
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -210,8 +210,8 @@ export const update = mutation({
         v.literal("bar"),
         v.literal("line"),
         v.literal("scatter"),
-        v.literal("area")
-      )
+        v.literal("area"),
+      ),
     ),
     encoding: v.optional(
       v.object({
@@ -222,20 +222,20 @@ export const update = mutation({
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         yType: v.optional(
           v.union(
             v.literal("quantitative"),
             v.literal("nominal"),
             v.literal("ordinal"),
-            v.literal("temporal")
-          )
+            v.literal("temporal"),
+          ),
         ),
         color: v.optional(v.string()),
         size: v.optional(v.string()),
-      })
+      }),
     ),
   },
   handler: async (ctx, args) => {
@@ -304,16 +304,16 @@ export const updateEncoding = mutation({
           v.literal("quantitative"),
           v.literal("nominal"),
           v.literal("ordinal"),
-          v.literal("temporal")
-        )
+          v.literal("temporal"),
+        ),
       ),
       yType: v.optional(
         v.union(
           v.literal("quantitative"),
           v.literal("nominal"),
           v.literal("ordinal"),
-          v.literal("temporal")
-        )
+          v.literal("temporal"),
+        ),
       ),
       color: v.optional(v.string()),
       size: v.optional(v.string()),

@@ -62,7 +62,10 @@ type InsightsStore = InsightsState & InsightsActions;
 // Storage Serialization (for Map support)
 // ============================================================================
 
-const storage = createJSONStorage<InsightsState>(() => localStorage, {
+// Type for what we actually persist (subset of full state)
+type PersistedInsightsState = Pick<InsightsState, "insights">;
+
+const storage = createJSONStorage<PersistedInsightsState>(() => localStorage, {
   reviver: (_key, value) => {
     // Convert arrays back to Maps during deserialization
     if (
@@ -133,7 +136,7 @@ export const useInsightsStore = create<InsightsStore>()(
       _cachedInsights: [],
 
       // Create draft Insight (new API)
-      createDraft: (tableId, tableName, fieldIds) => {
+      createDraft: (tableId, tableName, _fieldIds) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 
@@ -236,7 +239,9 @@ export const useInsightsStore = create<InsightsStore>()(
         const originalId = fork.forkedFrom;
         const original = get().insights.get(originalId);
         if (!original) {
-          console.error(`Cannot merge: original insight ${originalId} not found`);
+          console.error(
+            `Cannot merge: original insight ${originalId} not found`,
+          );
           return null;
         }
 

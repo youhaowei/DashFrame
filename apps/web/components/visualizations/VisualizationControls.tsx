@@ -89,6 +89,7 @@ function CollapsibleSection({
 /**
  * Get a warning message for a column selection based on analysis and context
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: evaluates multiple warning conditions based on chart type, axis, and data characteristics
 function getColumnWarning(
   columnName: string | undefined,
   axis: "x" | "y",
@@ -219,87 +220,90 @@ function getRankedColumnOptions(
   warning?: { message: string; reason: string };
 }> {
   return columns
-    .map((col) => {
-      const warning = getColumnWarning(
-        col,
-        axis,
-        chartType,
-        analysis,
-        otherAxisColumn,
-      );
-      const colAnalysis = analysis.find((a) => a.columnName === col);
+    .map(
+      // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: ranks columns based on multiple heuristics and chart type
+      (col) => {
+        const warning = getColumnWarning(
+          col,
+          axis,
+          chartType,
+          analysis,
+          otherAxisColumn,
+        );
+        const colAnalysis = analysis.find((a) => a.columnName === col);
 
-      if (!colAnalysis)
-        return {
-          label: col,
-          value: col,
-          score: 0,
-          warning: warning || undefined,
-        };
+        if (!colAnalysis)
+          return {
+            label: col,
+            value: col,
+            score: 0,
+            warning: warning || undefined,
+          };
 
-      const isNumerical = colAnalysis.category === "numerical";
-      const isTemporal = colAnalysis.category === "temporal";
-      const isCategorical = colAnalysis.category === "categorical";
-      const isIdentifier =
-        colAnalysis.category === "identifier" ||
-        colAnalysis.category === "uuid";
+        const isNumerical = colAnalysis.category === "numerical";
+        const isTemporal = colAnalysis.category === "temporal";
+        const isCategorical = colAnalysis.category === "categorical";
+        const isIdentifier =
+          colAnalysis.category === "identifier" ||
+          colAnalysis.category === "uuid";
 
-      // Base Score
-      let score = 50;
+        // Base Score
+        let score = 50;
 
-      // --- Y-AXIS SCORING ---
-      if (axis === "y") {
-        // Y-axis is almost always the "Measure" (Numerical)
-        if (isNumerical) score += 100;
+        // --- Y-AXIS SCORING ---
+        if (axis === "y") {
+          // Y-axis is almost always the "Measure" (Numerical)
+          if (isNumerical) score += 100;
 
-        // Penalize non-numericals heavily for standard charts
-        if (
-          !isNumerical &&
-          ["bar", "line", "area", "scatter"].includes(chartType)
-        ) {
+          // Penalize non-numericals heavily for standard charts
+          if (
+            !isNumerical &&
+            ["bar", "line", "area", "scatter"].includes(chartType)
+          ) {
+            score -= 50;
+          }
+
+          // Identifiers are terrible Y-axis candidates
+          if (isIdentifier) score -= 100;
+        }
+
+        // --- X-AXIS SCORING ---
+        else if (axis === "x") {
+          if (chartType === "bar") {
+            // Bar charts love Categories
+            if (isCategorical) score += 80;
+            if (isTemporal) score += 60; // Time is also good for bars (e.g. monthly sales)
+            if (isNumerical) score -= 20; // Numerical X is usually for histograms
+          } else if (chartType === "line" || chartType === "area") {
+            // Line charts love Time
+            if (isTemporal) score += 100;
+            if (isNumerical) score += 60; // Continuous X is good
+            if (isCategorical) score += 20; // Categories ok if low cardinality
+          } else if (chartType === "scatter") {
+            // Scatter needs Numerical X
+            if (isNumerical) score += 100;
+            if (!isNumerical) score -= 50;
+          }
+        }
+
+        // --- GENERAL PENALTIES ---
+
+        // Severe penalty for using the same column on both axes
+        if (otherAxisColumn && col === otherAxisColumn) {
+          score -= 200;
+        }
+
+        // Penalty for existing warnings (ensure warned items drop to bottom)
+        if (warning) {
           score -= 50;
         }
 
-        // Identifiers are terrible Y-axis candidates
-        if (isIdentifier) score -= 100;
-      }
+        // Format label with warning indicator if needed (though UI handles this separately now)
+        const label = col;
 
-      // --- X-AXIS SCORING ---
-      else if (axis === "x") {
-        if (chartType === "bar") {
-          // Bar charts love Categories
-          if (isCategorical) score += 80;
-          if (isTemporal) score += 60; // Time is also good for bars (e.g. monthly sales)
-          if (isNumerical) score -= 20; // Numerical X is usually for histograms
-        } else if (chartType === "line" || chartType === "area") {
-          // Line charts love Time
-          if (isTemporal) score += 100;
-          if (isNumerical) score += 60; // Continuous X is good
-          if (isCategorical) score += 20; // Categories ok if low cardinality
-        } else if (chartType === "scatter") {
-          // Scatter needs Numerical X
-          if (isNumerical) score += 100;
-          if (!isNumerical) score -= 50;
-        }
-      }
-
-      // --- GENERAL PENALTIES ---
-
-      // Severe penalty for using the same column on both axes
-      if (otherAxisColumn && col === otherAxisColumn) {
-        score -= 200;
-      }
-
-      // Penalty for existing warnings (ensure warned items drop to bottom)
-      if (warning) {
-        score -= 50;
-      }
-
-      // Format label with warning indicator if needed (though UI handles this separately now)
-      const label = col;
-
-      return { label, value: col, score, warning: warning || undefined };
-    })
+        return { label, value: col, score, warning: warning || undefined };
+      },
+    )
     .sort((a, b) => b.score - a.score); // Sort by score descending
 }
 
@@ -308,9 +312,18 @@ function getRankedColumnOptions(
  */
 interface ProvenanceSummaryProps {
   insight:
-  | { id: string; name: string; lastComputedAt?: number; filters?: { excludeNulls?: boolean; limit?: number; orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" } } }
-  | null
-  | undefined;
+    | {
+        id: string;
+        name: string;
+        lastComputedAt?: number;
+        filters?: {
+          excludeNulls?: boolean;
+          limit?: number;
+          orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" };
+        };
+      }
+    | null
+    | undefined;
   dataFrame: {
     metadata?: { rowCount: number; columnCount: number; timestamp?: number };
   };
@@ -376,8 +389,12 @@ function ProvenanceSummary({
 
     if (orderBy) {
       // Find field or metric name
-      const field = dataTableFields.find((f) => f.id === orderBy.fieldOrMetricId);
-      const metric = insightMetrics.find((m) => m.id === orderBy.fieldOrMetricId);
+      const field = dataTableFields.find(
+        (f) => f.id === orderBy.fieldOrMetricId,
+      );
+      const metric = insightMetrics.find(
+        (m) => m.id === orderBy.fieldOrMetricId,
+      );
       const name = field?.name || metric?.name || "unknown";
       parts.push(`Sorted by ${name} (${orderBy.direction})`);
     }
@@ -541,7 +558,7 @@ function MetricsStrip({ insight }: MetricsStripProps) {
   );
 }
 
-
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Main visualization controls component with multiple conditional rendering paths
 export function VisualizationControls() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
@@ -658,12 +675,12 @@ export function VisualizationControls() {
   // Only allow table visualization if there are no numeric columns
   const visualizationTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
     : [{ label: "Table", value: "table" }];
 
   const columnOptions = columns.map((col: string) => ({
@@ -891,7 +908,7 @@ export function VisualizationControls() {
       const aggregatedDataFrame = computeInsightDataFrame(
         insight,
         foundDataTable,
-        rawDataFrame
+        rawDataFrame,
       );
 
       // Update the DataFrame with aggregated data
@@ -967,8 +984,14 @@ export function VisualizationControls() {
         isRefreshing={isRefreshing}
         onRefresh={handleRefresh}
         refreshError={refreshError}
-        dataTableFields={dataTable?.fields?.map((f) => ({ id: f.id, name: f.name }))}
-        insightMetrics={insight?.metrics?.map((m) => ({ id: m.id, name: m.name }))}
+        dataTableFields={dataTable?.fields?.map((f) => ({
+          id: f.id,
+          name: f.name,
+        }))}
+        insightMetrics={insight?.metrics?.map((m) => ({
+          id: m.id,
+          name: m.name,
+        }))}
       />
 
       {/* Encodings Section */}

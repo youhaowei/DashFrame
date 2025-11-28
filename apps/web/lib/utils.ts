@@ -13,7 +13,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export function convertColumnsToFields(
   columns: DataFrameColumn[],
-  tableId: UUID
+  tableId: UUID,
 ): Field[] {
   return columns.map((column) => {
     const normalizedType: ColumnType =

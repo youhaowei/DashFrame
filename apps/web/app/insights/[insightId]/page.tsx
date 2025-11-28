@@ -2,11 +2,7 @@
 
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Button,
-  Input,
-  Toggle,
-} from "@dashframe/ui";
+import { Button, Input, Toggle } from "@dashframe/ui";
 import { LuArrowLeft, LuLoader, LuSettings, LuEye } from "react-icons/lu";
 import { InsightConfigureTab } from "@/components/insights/InsightConfigureTab";
 import { InsightPreviewTab } from "@/components/insights/InsightPreviewTab";
@@ -18,6 +14,13 @@ import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
+import type {
+  Visualization,
+  InsightMetric,
+  Insight,
+  DataTable,
+} from "@/lib/stores/types";
+import type { Field } from "@dashframe/dataframe";
 
 interface PageProps {
   params: Promise<{ insightId: string }>;
@@ -52,7 +55,7 @@ export default function InsightPage({ params }: PageProps) {
   // Filter visualizations to only those using this insight
   const visualizations = useMemo(() => {
     return allVisualizations.filter(
-      (viz: any) => viz.source.insightId === insightId,
+      (viz: Visualization) => viz.source.insightId === insightId,
     );
   }, [allVisualizations, insightId]);
 
@@ -103,8 +106,9 @@ export default function InsightPage({ params }: PageProps) {
   const selectedFields = useMemo(() => {
     if (!dataTableInfo) return [];
     return dataTableInfo.fields.filter(
-      (f: any) =>
-        insight?.baseTable?.selectedFields?.includes(f.id) && !f.name.startsWith("_")
+      (f) =>
+        insight?.baseTable?.selectedFields?.includes(f.id) &&
+        !f.name.startsWith("_"),
     );
   }, [dataTableInfo, insight?.baseTable?.selectedFields]);
 
@@ -125,7 +129,7 @@ export default function InsightPage({ params }: PageProps) {
           tableId: dataTable.id,
           selectedFields: insight.baseTable?.selectedFields || [],
         },
-        metrics: (insight.metrics || []).map((m: any) => ({
+        metrics: (insight.metrics || []).map((m: InsightMetric) => ({
           id: m.id,
           name: m.name,
           sourceTable: m.sourceTable,
@@ -137,23 +141,27 @@ export default function InsightPage({ params }: PageProps) {
         updatedAt: insight.updatedAt,
       };
 
-      const dataTableForCompute = {
+      const dataTableForCompute: DataTable = {
         id: dataTable.id,
         name: dataTable.name,
         table: dataTable.table,
+        dataSourceId: dataTable.dataSourceId,
         dataFrameId: dataTable.dataFrameId,
-        fields: fields.map((f: any) => ({
+        fields: fields.map((f: Field) => ({
           id: f.id,
           name: f.name,
+          tableId: f.tableId,
           columnName: f.columnName,
           type: f.type,
         })),
+        metrics: dataTable.metrics || [],
+        createdAt: dataTable.createdAt,
       };
 
       return computeInsightPreview(
-        insightForCompute as any,
-        dataTableForCompute as any,
-        sourceDataFrameEnhanced.data
+        insightForCompute as Insight,
+        dataTableForCompute,
+        sourceDataFrameEnhanced.data,
       );
     } catch (error) {
       console.error("Failed to compute preview:", error);
@@ -176,8 +184,8 @@ export default function InsightPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading insight...</p>
+          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <p className="text-muted-foreground text-sm">Loading insight...</p>
         </div>
       </div>
     );
@@ -189,8 +197,8 @@ export default function InsightPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Insight not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            The insight you're looking for doesn't exist.
+          <p className="text-muted-foreground mt-2 text-sm">
+            The insight you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
             Go to Insights
@@ -206,7 +214,7 @@ export default function InsightPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data table not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-2 text-sm">
             The data table for this insight no longer exists.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
@@ -229,10 +237,10 @@ export default function InsightPage({ params }: PageProps) {
               size="sm"
               onClick={() => router.push("/insights")}
             >
-              <LuArrowLeft className="h-4 w-4 mr-2" />
+              <LuArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
-            <div className="flex-1 min-w-[220px]">
+            <div className="min-w-[220px] flex-1">
               <Input
                 value={insightName}
                 onChange={(e) => handleNameChange(e.target.value)}
@@ -253,7 +261,10 @@ export default function InsightPage({ params }: PageProps) {
                   value: "preview",
                   icon: <LuEye />,
                   label: "Preview",
-                  badge: visualizations.length > 0 ? visualizations.length : undefined,
+                  badge:
+                    visualizations.length > 0
+                      ? visualizations.length
+                      : undefined,
                   disabled: !isConfigured && visualizations.length === 0,
                 },
               ]}
@@ -264,17 +275,17 @@ export default function InsightPage({ params }: PageProps) {
       childrenClassName="overflow-hidden flex flex-col"
     >
       {/* Tab Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {activeTab === "configure" && (
           <div className="flex-1 overflow-y-auto">
             <InsightConfigureTab
-              insightId={insightId as any}
-              insight={insight as any}
-              dataTable={dataTable as any}
-              fields={fields as any}
-              tableMetrics={metrics as any}
-              insightMetrics={insight.metrics as any}
-              dataSource={dataSource as any}
+              insightId={insightId}
+              insight={insight}
+              dataTable={dataTable}
+              fields={fields}
+              tableMetrics={metrics}
+              insightMetrics={insight.metrics || []}
+              dataSource={dataSource}
               isConfigured={isConfigured}
             />
           </div>
@@ -283,9 +294,9 @@ export default function InsightPage({ params }: PageProps) {
         {activeTab === "preview" && (
           <div className="flex-1 overflow-y-auto">
             <InsightPreviewTab
-              insightId={insightId as any}
-              insight={insight as any}
-              visualizations={visualizations as any}
+              insightId={insightId}
+              insight={insight}
+              visualizations={visualizations}
               aggregatedPreview={aggregatedPreview}
               selectedFields={selectedFields}
               metrics={insight.metrics || []}

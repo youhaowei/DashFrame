@@ -20,7 +20,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  ActionGroup,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -41,8 +40,7 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { DataFrameTable } from "@dashframe/ui";
-import type { DataSource, DataTable } from "@/lib/stores/types";
-import type { Field, UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/dataframe";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
 interface PageProps {
@@ -60,20 +58,6 @@ function getSourceTypeIcon(type: string) {
       return <Database className="h-5 w-5" />;
     default:
       return <Database className="h-5 w-5" />;
-  }
-}
-
-// Get label for data source type
-function getSourceTypeLabel(type: string) {
-  switch (type) {
-    case "notion":
-      return "Notion Database";
-    case "local":
-      return "Uploaded CSV";
-    case "postgresql":
-      return "PostgreSQL";
-    default:
-      return "Unknown";
   }
 }
 
@@ -96,7 +80,6 @@ export default function DataSourcePage({ params }: PageProps) {
     (s) => s.get(sourceId),
   );
   const updateDataSource = useDataSourcesStore((s) => s.update);
-  const removeDataSource = useDataSourcesStore((s) => s.remove);
   const removeDataTable = useDataSourcesStore((s) => s.removeDataTable);
   const getDataFrame = useDataFramesStore((state) => state.get);
 
@@ -112,7 +95,9 @@ export default function DataSourcePage({ params }: PageProps) {
   const tableDetails = useMemo(() => {
     if (!selectedTableId || !dataSource) return null;
     const table = dataSource.dataTables.get(selectedTableId);
-    return table ? { dataTable: table, fields: table.fields, metrics: table.metrics } : null;
+    return table
+      ? { dataTable: table, fields: table.fields, metrics: table.metrics }
+      : null;
   }, [selectedTableId, dataSource]);
 
   // Local state
@@ -187,7 +172,7 @@ export default function DataSourcePage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-muted-foreground">Loading data source…</p>
+          <p className="text-muted-foreground text-sm">Loading data source…</p>
         </div>
       </div>
     );
@@ -199,8 +184,8 @@ export default function DataSourcePage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data source not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            The data source you're looking for doesn't exist.
+          <p className="text-muted-foreground mt-2 text-sm">
+            The data source you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button onClick={() => router.push("/data-sources")} className="mt-4">
             Go to Data Sources
@@ -220,7 +205,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <BreadcrumbItem>
                   <BreadcrumbLink
                     onClick={() => router.push("/data-sources")}
-                    className="flex items-center gap-1 cursor-pointer hover:text-foreground"
+                    className="hover:text-foreground flex cursor-pointer items-center gap-1"
                   >
                     <LuArrowLeft className="h-4 w-4" />
                     Back
@@ -228,11 +213,15 @@ export default function DataSourcePage({ params }: PageProps) {
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
-                  <BreadcrumbLink href="/data-sources">Data Sources</BreadcrumbLink>
+                  <BreadcrumbLink href="/data-sources">
+                    Data Sources
+                  </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>{sourceName || "Untitled Source"}</BreadcrumbPage>
+                  <BreadcrumbPage>
+                    {sourceName || "Untitled Source"}
+                  </BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
@@ -417,15 +406,20 @@ export default function DataSourcePage({ params }: PageProps) {
         open={deleteConfirmState.isOpen}
         onOpenChange={(open) =>
           !open &&
-          setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null })
+          setDeleteConfirmState({
+            isOpen: false,
+            tableId: null,
+            tableName: null,
+          })
         }
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Table</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{deleteConfirmState.tableName}"?
-              This action cannot be undone.
+              Are you sure you want to delete &quot;
+              {deleteConfirmState.tableName}&quot;? This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

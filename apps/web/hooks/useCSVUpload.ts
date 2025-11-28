@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import Papa, { type ParseError, type ParseResult } from "papaparse";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import type { DataTable } from "@/lib/stores/types";
 
 /**
  * Handles CSV file upload with parsing and error handling.
@@ -39,7 +40,7 @@ export function useCSVUpload() {
   const handleCSVUpload = useCallback(
     async (
       file: File,
-      onSuccess?: (dataTableId: string, dataSourceId: string) => void
+      onSuccess?: (dataTableId: string, dataSourceId: string) => void,
     ) => {
       setError(null);
       setIsUploading(true);
@@ -50,7 +51,7 @@ export function useCSVUpload() {
         complete: async (result: ParseResult<string[]>) => {
           if (result.errors.length) {
             setError(
-              result.errors.map((err: ParseError) => err.message).join("\n")
+              result.errors.map((err: ParseError) => err.message).join("\n"),
             );
             setIsUploading(false);
             return;
@@ -61,15 +62,15 @@ export function useCSVUpload() {
             const localSource = useDataSourcesStore.getState().getLocal();
             const duplicateTable = localSource
               ? Array.from(localSource.dataTables?.values?.() ?? []).find(
-                  (table: any) =>
+                  (table: DataTable) =>
                     table.table === file.name ||
-                    table.name === file.name.replace(/\.csv$/i, "")
+                    table.name === file.name.replace(/\.csv$/i, ""),
                 )
               : null;
 
             if (duplicateTable) {
               const shouldOverride = window.confirm(
-                `"${file.name}" already exists. Replace the existing table with this file?`
+                `"${file.name}" already exists. Replace the existing table with this file?`,
               );
 
               if (!shouldOverride) {
@@ -84,14 +85,16 @@ export function useCSVUpload() {
             const { dataTableId, dataSourceId } = handleLocalCSVUpload(
               file,
               result.data,
-              duplicateTable ? { overrideTableId: duplicateTable.id } : undefined
+              duplicateTable
+                ? { overrideTableId: duplicateTable.id }
+                : undefined,
             );
 
             setIsUploading(false);
             onSuccess?.(dataTableId, dataSourceId);
           } catch (err) {
             setError(
-              err instanceof Error ? err.message : "Failed to process CSV"
+              err instanceof Error ? err.message : "Failed to process CSV",
             );
             setIsUploading(false);
           }
@@ -102,7 +105,7 @@ export function useCSVUpload() {
         },
       });
     },
-    []
+    [],
   );
 
   const clearError = useCallback(() => {

@@ -3,7 +3,24 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type LucideIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, Github, LayoutDashboard, LineChart, Sparkles, Menu, X, Button, Dialog, DialogContent, cn } from "@dashframe/ui";
+import {
+  type LucideIcon,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Database,
+  Github,
+  LayoutDashboard,
+  LineChart,
+  Sparkles,
+  Menu,
+  X,
+  Button,
+  Dialog,
+  DialogContent,
+  cn,
+} from "@dashframe/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type NavItem = {

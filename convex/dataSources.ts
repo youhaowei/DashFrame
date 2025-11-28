@@ -136,7 +136,9 @@ export const create = mutation({
     const userId = await auth.getUserId(ctx);
     console.log("[dataSources:create] userId:", userId);
     if (!userId) {
-      console.error("[dataSources:create] Authentication failed - userId is null");
+      console.error(
+        "[dataSources:create] Authentication failed - userId is null",
+      );
       throw new Error("Not authenticated");
     }
 

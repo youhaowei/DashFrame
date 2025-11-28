@@ -3,12 +3,7 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type {
-  UUID,
-  Field,
-  Metric,
-  SourceSchema,
-} from "@dashframe/dataframe";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
 import type {
   DataSource,
   LocalDataSource,
@@ -47,7 +42,7 @@ interface DataSourcesActions {
       fields?: Field[];
       metrics?: Metric[];
       dataFrameId?: UUID;
-    }
+    },
   ) => UUID;
   updateDataTable: (
     dataSourceId: UUID,
@@ -72,7 +67,7 @@ interface DataSourcesActions {
     dataSourceId: UUID,
     dataTableId: UUID,
     fieldId: UUID,
-    updates: Partial<Field>
+    updates: Partial<Field>,
   ) => void;
   deleteField: (dataSourceId: UUID, dataTableId: UUID, fieldId: UUID) => void;
 
@@ -82,7 +77,7 @@ interface DataSourcesActions {
     dataSourceId: UUID,
     dataTableId: UUID,
     metricId: UUID,
-    updates: Partial<Metric>
+    updates: Partial<Metric>,
   ) => void;
   deleteMetric: (dataSourceId: UUID, dataTableId: UUID, metricId: UUID) => void;
 
@@ -90,7 +85,7 @@ interface DataSourcesActions {
   updateSourceSchema: (
     dataSourceId: UUID,
     dataTableId: UUID,
-    sourceSchema: SourceSchema
+    sourceSchema: SourceSchema,
   ) => void;
 
   // General
@@ -130,112 +125,130 @@ const rebuildCache = (state: DataSourcesState) => {
 // Storage Serialization (for Map support)
 // ============================================================================
 
-const storage = createJSONStorage<DataSourcesState>(() => localStorage, {
-  reviver: (_key, value) => {
-    // Convert arrays back to Maps during deserialization
-    if (
-      value &&
-      typeof value === "object" &&
-      "dataSources" in value &&
-      Array.isArray(value.dataSources)
-    ) {
-      const dataSourcesMap = new Map(
-        value.dataSources.map((ds: DataSource) => {
-          // Always ensure dataTables is initialized as a Map
-          let dataTables: Map<UUID, DataTable>;
+// Type for legacy data tables that may have old field names from previous schema versions
+type LegacyDataTable = DataTable & {
+  sourceId?: UUID; // Old field name for dataSourceId
+  dimensions?: unknown; // Old field that was removed
+};
 
-          if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
-            // Convert dataTables array back to Map with migration
-            dataTables = new Map(
-              (ds.dataTables as unknown as [UUID, any][]).map(([id, dt]) => {
-                // MIGRATION: Old DataTable → New DataTable
+// Type for what we actually persist (subset of full state)
+type PersistedDataSourcesState = Pick<DataSourcesState, "dataSources">;
 
-                // Auto-generate default count metric if missing
-                const hasCountMetric = dt.metrics?.some(
-                  (m: Metric) => m.aggregation === "count" && !m.columnName
-                );
+const storage = createJSONStorage<PersistedDataSourcesState>(
+  () => localStorage,
+  {
+    reviver: (_key, value) => {
+      // Convert arrays back to Maps during deserialization
+      if (
+        value &&
+        typeof value === "object" &&
+        "dataSources" in value &&
+        Array.isArray(value.dataSources)
+      ) {
+        const dataSourcesMap = new Map(
+          value.dataSources.map((ds: DataSource) => {
+            // Always ensure dataTables is initialized as a Map
+            let dataTables: Map<UUID, DataTable>;
 
-                const defaultMetrics: Metric[] = hasCountMetric ? [] : [{
-                  id: crypto.randomUUID(),
-                  name: "Count",
-                  tableId: dt.id,
-                  columnName: undefined,
-                  aggregation: "count"
-                }];
+            if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
+              // Convert dataTables array back to Map with migration
+              dataTables = new Map(
+                (ds.dataTables as unknown as [UUID, LegacyDataTable][]).map(
+                  ([id, dt]) => {
+                    // MIGRATION: Old DataTable → New DataTable
 
-                const migrated: DataTable = {
-                  ...dt,
-                  dataSourceId: (dt as any).sourceId ?? dt.dataSourceId,
-                  table: dt.table ?? "",
-                  sourceSchema: dt.sourceSchema,
-                  fields: dt.fields ?? [],
-                  metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
-                };
+                    // Auto-generate default count metric if missing
+                    const hasCountMetric = dt.metrics?.some(
+                      (m: Metric) => m.aggregation === "count" && !m.columnName,
+                    );
 
-                // Cleanup old fields
-                delete (migrated as any).sourceId;
-                delete (migrated as any).dimensions;
+                    const defaultMetrics: Metric[] = hasCountMetric
+                      ? []
+                      : [
+                          {
+                            id: crypto.randomUUID(),
+                            name: "Count",
+                            tableId: dt.id,
+                            columnName: undefined,
+                            aggregation: "count",
+                          },
+                        ];
 
-                return [id, migrated];
-              })
-            );
-          } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
-            // Already a Map (shouldn't happen in serialized data, but handle it)
-            dataTables = ds.dataTables;
-          } else {
-            // Missing or invalid - initialize as empty Map (fixes old localStorage data)
-            dataTables = new Map();
+                    // Create migrated table, using legacy sourceId if present
+                    const migrated: DataTable = {
+                      id: dt.id,
+                      name: dt.name,
+                      dataSourceId: dt.sourceId ?? dt.dataSourceId,
+                      table: dt.table ?? "",
+                      dataFrameId: dt.dataFrameId,
+                      sourceSchema: dt.sourceSchema,
+                      fields: dt.fields ?? [],
+                      metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
+                      createdAt: dt.createdAt,
+                    };
+
+                    return [id, migrated];
+                  },
+                ),
+              );
+            } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
+              // Already a Map (shouldn't happen in serialized data, but handle it)
+              dataTables = ds.dataTables;
+            } else {
+              // Missing or invalid - initialize as empty Map (fixes old localStorage data)
+              dataTables = new Map();
+            }
+
+            return [
+              ds.id,
+              {
+                ...ds,
+                dataTables,
+              },
+            ];
+          }),
+        );
+
+        return {
+          ...value,
+          dataSources: dataSourcesMap,
+          _cachedDataSources: (() => {
+            const state: DataSourcesState = {
+              dataSources: dataSourcesMap,
+              _cachedDataSources: [],
+            };
+            rebuildCache(state);
+            return state._cachedDataSources;
+          })(), // Recreate cache without immer proxies
+        };
+      }
+      return value;
+    },
+    replacer: (_key, value) => {
+      // Skip cached array (it's derived from the Map)
+      if (_key === "_cachedDataSources") return undefined;
+      // Convert Maps to arrays for JSON serialization
+      if (value instanceof Map) {
+        return Array.from(value.entries()).map(([_id, item]) => {
+          // Also convert nested dataTables Maps to arrays
+          if (
+            typeof item === "object" &&
+            item !== null &&
+            "dataTables" in item &&
+            item.dataTables instanceof Map
+          ) {
+            return {
+              ...item,
+              dataTables: Array.from(item.dataTables.entries()),
+            };
           }
-
-          return [
-            ds.id,
-            {
-              ...ds,
-              dataTables,
-            },
-          ];
-        }),
-      );
-
-      return {
-        ...value,
-        dataSources: dataSourcesMap,
-        _cachedDataSources: (() => {
-          const state: DataSourcesState = {
-            dataSources: dataSourcesMap,
-            _cachedDataSources: [],
-          };
-          rebuildCache(state);
-          return state._cachedDataSources;
-        })(), // Recreate cache without immer proxies
-      };
-    }
-    return value;
+          return item;
+        });
+      }
+      return value;
+    },
   },
-  replacer: (_key, value) => {
-    // Skip cached array (it's derived from the Map)
-    if (_key === "_cachedDataSources") return undefined;
-    // Convert Maps to arrays for JSON serialization
-    if (value instanceof Map) {
-      return Array.from(value.entries()).map(([_id, item]) => {
-        // Also convert nested dataTables Maps to arrays
-        if (
-          typeof item === "object" &&
-          item !== null &&
-          "dataTables" in item &&
-          item.dataTables instanceof Map
-        ) {
-          return {
-            ...item,
-            dataTables: Array.from(item.dataTables.entries()),
-          };
-        }
-        return item;
-      });
-    }
-    return value;
-  },
-});
+);
 
 // ============================================================================
 // Store Implementation
@@ -335,13 +348,15 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
         const dataTableId = options.id ?? crypto.randomUUID();
 
         // Auto-generate default count metric
-        const defaultMetrics: Metric[] = [{
-          id: crypto.randomUUID(),
-          name: "Count",
-          tableId: dataTableId,
-          columnName: undefined,  // Count all rows
-          aggregation: "count"
-        }];
+        const defaultMetrics: Metric[] = [
+          {
+            id: crypto.randomUUID(),
+            name: "Count",
+            tableId: dataTableId,
+            columnName: undefined, // Count all rows
+            aggregation: "count",
+          },
+        ];
 
         const dataTable: DataTable = {
           id: dataTableId,
@@ -476,7 +491,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           if (source) {
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
-              const field = dataTable.fields.find(f => f.id === fieldId);
+              const field = dataTable.fields.find((f) => f.id === fieldId);
               if (field) {
                 Object.assign(field, updates);
                 rebuildCache(state);
@@ -492,7 +507,9 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           if (source) {
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
-              dataTable.fields = dataTable.fields.filter(f => f.id !== fieldId);
+              dataTable.fields = dataTable.fields.filter(
+                (f) => f.id !== fieldId,
+              );
               rebuildCache(state);
             }
           }
@@ -519,7 +536,7 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           if (source) {
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
-              const metric = dataTable.metrics.find(m => m.id === metricId);
+              const metric = dataTable.metrics.find((m) => m.id === metricId);
               if (metric) {
                 Object.assign(metric, updates);
                 rebuildCache(state);
@@ -535,7 +552,9 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
           if (source) {
             const dataTable = source.dataTables.get(dataTableId);
             if (dataTable) {
-              dataTable.metrics = dataTable.metrics.filter(m => m.id !== metricId);
+              dataTable.metrics = dataTable.metrics.filter(
+                (m) => m.id !== metricId,
+              );
               rebuildCache(state);
             }
           }

@@ -50,7 +50,7 @@ export const DirectionDown: Story = {
     const [isOpen, setIsOpen] = useState(true);
     return (
       <div className="space-y-4">
-        <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <div className="bg-card border-border/60 rounded-2xl border p-6">
           <p className="text-sm">Panel content above</p>
         </div>
         <div className="flex justify-center">
@@ -61,7 +61,7 @@ export const DirectionDown: Story = {
             onClick={() => setIsOpen(!isOpen)}
           />
         </div>
-        <p className="text-muted-foreground text-xs text-center">
+        <p className="text-muted-foreground text-center text-xs">
           {isOpen ? "Click to collapse" : "Click to expand"}
         </p>
       </div>
@@ -77,7 +77,7 @@ export const DirectionUp: Story = {
     const [isOpen, setIsOpen] = useState(true);
     return (
       <div className="space-y-4">
-        <p className="text-muted-foreground text-xs text-center">
+        <p className="text-muted-foreground text-center text-xs">
           {isOpen ? "Click to collapse" : "Click to expand"}
         </p>
         <div className="flex justify-center">
@@ -88,7 +88,7 @@ export const DirectionUp: Story = {
             onClick={() => setIsOpen(!isOpen)}
           />
         </div>
-        <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <div className="bg-card border-border/60 rounded-2xl border p-6">
           <p className="text-sm">Panel content below</p>
         </div>
       </div>
@@ -104,7 +104,7 @@ export const DirectionLeft: Story = {
     const [isOpen, setIsOpen] = useState(true);
     return (
       <div className="flex items-center gap-4">
-        <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <div className="bg-card border-border/60 rounded-2xl border p-6">
           <p className="text-sm">Content on the right</p>
         </div>
         <CollapseHandle
@@ -138,7 +138,7 @@ export const DirectionRight: Story = {
           isOpen={isOpen}
           onClick={() => setIsOpen(!isOpen)}
         />
-        <div className="bg-card rounded-2xl border border-border/60 p-6">
+        <div className="bg-card border-border/60 rounded-2xl border p-6">
           <p className="text-sm">Content on the left</p>
         </div>
       </div>
@@ -162,7 +162,7 @@ export const CollapsedDown: Story = {
             onClick={() => setIsOpen(!isOpen)}
           />
         </div>
-        <p className="text-muted-foreground text-xs text-center">
+        <p className="text-muted-foreground text-center text-xs">
           Collapsed state - click to expand
         </p>
       </div>
@@ -178,10 +178,10 @@ export const IntegratedBottomPanel: Story = {
     const [isOpen, setIsOpen] = useState(true);
     return (
       <div className="w-[400px]">
-        <div className="bg-card rounded-t-2xl border border-border/60 p-6">
-          <h3 className="text-base font-semibold mb-2">Panel Header</h3>
+        <div className="bg-card border-border/60 rounded-t-2xl border p-6">
+          <h3 className="mb-2 text-base font-semibold">Panel Header</h3>
           {isOpen && (
-            <div className="space-y-2 mt-4">
+            <div className="mt-4 space-y-2">
               <p className="text-sm">Panel content visible when expanded</p>
               <p className="text-muted-foreground text-xs">
                 This content is collapsible
@@ -189,7 +189,7 @@ export const IntegratedBottomPanel: Story = {
             </div>
           )}
         </div>
-        <div className="flex justify-center -mt-px">
+        <div className="-mt-px flex justify-center">
           <CollapseHandle
             {...args}
             direction="down"
@@ -209,11 +209,11 @@ export const IntegratedSidebar: Story = {
   render: (args) => {
     const [isOpen, setIsOpen] = useState(true);
     return (
-      <div className="flex items-stretch h-[300px]">
-        <div className="flex-1 bg-muted/20 rounded-l-2xl p-6 flex items-center justify-center">
+      <div className="flex h-[300px] items-stretch">
+        <div className="bg-muted/20 flex flex-1 items-center justify-center rounded-l-2xl p-6">
           <p className="text-muted-foreground text-sm">Main content area</p>
         </div>
-        <div className="flex items-center -ml-px">
+        <div className="-ml-px flex items-center">
           <CollapseHandle
             {...args}
             direction="right"
@@ -222,9 +222,9 @@ export const IntegratedSidebar: Story = {
           />
         </div>
         {isOpen && (
-          <div className="w-[250px] bg-card rounded-r-2xl border border-border/60 border-l-0 p-6">
-            <h3 className="text-sm font-semibold mb-4">Sidebar</h3>
-            <p className="text-xs text-muted-foreground">
+          <div className="bg-card border-border/60 w-[250px] rounded-r-2xl border border-l-0 p-6">
+            <h3 className="mb-4 text-sm font-semibold">Sidebar</h3>
+            <p className="text-muted-foreground text-xs">
               Collapsible sidebar content
             </p>
           </div>
@@ -265,10 +265,10 @@ export const AllDirections: Story = {
     });
 
     return (
-      <div className="grid grid-cols-2 gap-8 max-w-2xl">
+      <div className="grid max-w-2xl grid-cols-2 gap-8">
         {/* Down */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-center">Down</p>
+          <p className="text-center text-xs font-medium">Down</p>
           <div className="flex justify-center">
             <CollapseHandle
               direction="down"
@@ -282,7 +282,7 @@ export const AllDirections: Story = {
 
         {/* Up */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-center">Up</p>
+          <p className="text-center text-xs font-medium">Up</p>
           <div className="flex justify-center">
             <CollapseHandle
               direction="up"
@@ -296,7 +296,7 @@ export const AllDirections: Story = {
 
         {/* Left */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-center">Left</p>
+          <p className="text-center text-xs font-medium">Left</p>
           <div className="flex justify-center">
             <CollapseHandle
               direction="left"
@@ -310,7 +310,7 @@ export const AllDirections: Story = {
 
         {/* Right */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-center">Right</p>
+          <p className="text-center text-xs font-medium">Right</p>
           <div className="flex justify-center">
             <CollapseHandle
               direction="right"

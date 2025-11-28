@@ -42,6 +42,7 @@ The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildV
 **Location:** `/convex` (at repo root, separate from frontend apps)
 
 **Tables:**
+
 - `dataSources` - Data connections (local, notion, postgresql)
 - `dataTables` - Tables within data sources
 - `fields` - Columns in data tables
@@ -51,6 +52,7 @@ The upload form parses CSV into a typed `DataFrame`, stored client-side. `buildV
 - `visualizations` - Saved Vega-Lite specs
 
 **Import Pattern:**
+
 ```typescript
 import { api } from "@dashframe/convex";
 import { useQuery, useMutation } from "convex/react";
@@ -58,12 +60,14 @@ import type { Id, Doc } from "@dashframe/convex/dataModel";
 ```
 
 **Why Convex:**
+
 - Eliminates SSR hydration mismatches (data fetched server-side)
 - Real-time sync across tabs/devices
 - Type-safe queries with generated types
 - Built-in auth integration
 
 **Route Structure:**
+
 ```
 /                              → Dashboard (entity counts, quick actions)
 /data-sources                  → Data sources list
@@ -110,16 +114,16 @@ DataSource → DataTable → Field/Metric
 
 ### State Split: Convex vs Local
 
-| Data | Location | Reason |
-|------|----------|--------|
-| DataSources | Convex | User-owned, needs persistence |
-| DataTables | Convex | User-owned, needs persistence |
-| Fields/Metrics | Convex | User-owned, needs persistence |
-| Insights | Convex | User-owned, needs persistence |
-| Visualizations | Convex | User-owned, needs persistence |
-| DataFrames | localStorage | Large cached data, client-side only |
-| Active entity | URL params | Shareable, browser history |
-| UI state | React useState | Ephemeral, component-local |
+| Data           | Location       | Reason                              |
+| -------------- | -------------- | ----------------------------------- |
+| DataSources    | Convex         | User-owned, needs persistence       |
+| DataTables     | Convex         | User-owned, needs persistence       |
+| Fields/Metrics | Convex         | User-owned, needs persistence       |
+| Insights       | Convex         | User-owned, needs persistence       |
+| Visualizations | Convex         | User-owned, needs persistence       |
+| DataFrames     | localStorage   | Large cached data, client-side only |
+| Active entity  | URL params     | Shareable, browser history          |
+| UI state       | React useState | Ephemeral, component-local          |
 
 ### Convex Query Patterns
 
@@ -144,12 +148,12 @@ if (visualization === null) return <NotFound />;
 
 ### Stores After Migration
 
-| Store | Status | Purpose |
-|-------|--------|---------|
-| `dataframes-store.ts` | **Active** | Large DataFrame cache (localStorage) |
-| `data-sources-store.ts` | Legacy | Replaced by Convex queries |
-| `insights-store.ts` | Legacy | Replaced by Convex queries |
-| `visualizations-store.ts` | Legacy | Replaced by Convex queries |
+| Store                     | Status     | Purpose                              |
+| ------------------------- | ---------- | ------------------------------------ |
+| `dataframes-store.ts`     | **Active** | Large DataFrame cache (localStorage) |
+| `data-sources-store.ts`   | Legacy     | Replaced by Convex queries           |
+| `insights-store.ts`       | Legacy     | Replaced by Convex queries           |
+| `visualizations-store.ts` | Legacy     | Replaced by Convex queries           |
 
 ### Key Design Decisions
 

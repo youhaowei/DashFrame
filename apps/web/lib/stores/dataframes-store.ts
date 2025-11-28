@@ -37,37 +37,43 @@ type DataFramesStore = DataFramesState & DataFramesActions;
 // Storage Serialization (for Map support)
 // ============================================================================
 
-const storage = createJSONStorage<DataFramesState>(() => localStorage, {
-  reviver: (_key, value: unknown) => {
-    // Convert array back to Map during deserialization
-    if (
-      value &&
-      typeof value === "object" &&
-      "dataFrames" in value &&
-      Array.isArray((value as { dataFrames: unknown }).dataFrames)
-    ) {
-      const dataFramesMap = new Map(
-        (value as { dataFrames: [UUID, EnhancedDataFrame][] }).dataFrames,
-      );
+// Type for what we actually persist (subset of full state)
+type PersistedDataFramesState = Pick<DataFramesState, "dataFrames">;
 
-      return {
-        ...value,
-        dataFrames: dataFramesMap,
-        _cachedDataFrames: Array.from(dataFramesMap.values()), // Recreate cache
-      };
-    }
-    return value;
+const storage = createJSONStorage<PersistedDataFramesState>(
+  () => localStorage,
+  {
+    reviver: (_key, value: unknown) => {
+      // Convert array back to Map during deserialization
+      if (
+        value &&
+        typeof value === "object" &&
+        "dataFrames" in value &&
+        Array.isArray((value as { dataFrames: unknown }).dataFrames)
+      ) {
+        const dataFramesMap = new Map(
+          (value as { dataFrames: [UUID, EnhancedDataFrame][] }).dataFrames,
+        );
+
+        return {
+          ...value,
+          dataFrames: dataFramesMap,
+          _cachedDataFrames: Array.from(dataFramesMap.values()), // Recreate cache
+        };
+      }
+      return value;
+    },
+    replacer: (_key, value: unknown) => {
+      // Skip cached array (it's derived from the Map)
+      if (_key === "_cachedDataFrames") return undefined;
+      // Convert Map to array for JSON serialization
+      if (value instanceof Map) {
+        return Array.from(value.entries());
+      }
+      return value;
+    },
   },
-  replacer: (_key, value: unknown) => {
-    // Skip cached array (it's derived from the Map)
-    if (_key === "_cachedDataFrames") return undefined;
-    // Convert Map to array for JSON serialization
-    if (value instanceof Map) {
-      return Array.from(value.entries());
-    }
-    return value;
-  },
-});
+);
 
 // ============================================================================
 // Store Implementation

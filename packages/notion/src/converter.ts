@@ -8,7 +8,6 @@ import type {
   QueryDatabaseResponse,
   PageObjectResponse,
 } from "@notionhq/client/build/src/api-endpoints";
-import type { NotionProperty } from "./client";
 
 type PropertyValue = PageObjectResponse["properties"][string];
 
@@ -219,7 +218,7 @@ export function convertNotionToDataFrame(
     });
 
   return {
-    fieldIds: fields.map(f => f.id),
+    fieldIds: fields.map((f) => f.id),
     primaryKey: "_notionId",
     rows,
   };

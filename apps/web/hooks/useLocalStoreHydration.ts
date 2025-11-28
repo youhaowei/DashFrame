@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useStoresHydrated } from "@/hooks/useStoresHydrated";
+import type { DataSource } from "@/lib/stores/types";
 
 /**
  * Hydrates local Zustand stores with localStorage data.
@@ -21,24 +22,23 @@ import { useStoresHydrated } from "@/hooks/useStoresHydrated";
  * ```
  */
 export function useLocalStoreHydration() {
-  const isHydrated = useStoresHydrated(
-    useDataSourcesStore,
-    useInsightsStore,
-  );
-  const [localSources, setLocalSources] = useState<any[]>([]);
+  const isHydrated = useStoresHydrated(useDataSourcesStore, useInsightsStore);
+  const [localSources, setLocalSources] = useState<DataSource[]>([]);
 
   // Subscribe to data sources changes after hydration
   useEffect(() => {
     if (isHydrated) {
-      import("@/lib/stores/data-sources-store").then(({ useDataSourcesStore }) => {
-        setLocalSources(useDataSourcesStore.getState().getAll());
+      import("@/lib/stores/data-sources-store").then(
+        ({ useDataSourcesStore }) => {
+          setLocalSources(useDataSourcesStore.getState().getAll());
 
-        const unsubscribe = useDataSourcesStore.subscribe((state) => {
-          setLocalSources(state.getAll());
-        });
+          const unsubscribe = useDataSourcesStore.subscribe((state) => {
+            setLocalSources(state.getAll());
+          });
 
-        return unsubscribe;
-      });
+          return unsubscribe;
+        },
+      );
     }
   }, [isHydrated]);
 

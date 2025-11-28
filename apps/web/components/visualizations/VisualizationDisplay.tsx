@@ -10,6 +10,9 @@ import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { DataFrameTable } from "@dashframe/ui";
 import { VegaChart } from "./VegaChart";
 
+// StandardType is not exported from vega-lite's main module
+type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
+
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
@@ -81,8 +84,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -94,8 +100,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "line" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -107,8 +116,14 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "point" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "quantitative") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: {
+            field: x,
+            type: (encoding?.xType || "quantitative") as StandardType,
+          },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -123,8 +138,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: "area" as const,
         encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
           ...(encoding?.color && {
             color: { field: encoding.color, type: "nominal" as const },
           }),
@@ -137,8 +155,11 @@ function buildVegaSpec(
         ...commonSpec,
         mark: { type: "bar" as const, stroke: null },
         encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as any },
-          y: { field: y, type: (encoding?.yType || "quantitative") as any },
+          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
+          y: {
+            field: y,
+            type: (encoding?.yType || "quantitative") as StandardType,
+          },
         },
       };
   }
@@ -256,7 +277,10 @@ export function VisualizationDisplay() {
   if (!isMounted || !activeResolved) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
-        <Surface elevation="inset" className="w-full max-w-lg rounded-3xl p-10 text-center">
+        <Surface
+          elevation="inset"
+          className="w-full max-w-lg rounded-3xl p-10 text-center"
+        >
           <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
             <BarChart3 className="h-6 w-6" />
           </div>
@@ -307,9 +331,7 @@ export function VisualizationDisplay() {
       <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-foreground text-xl font-semibold">
-              {viz.name}
-            </p>
+            <p className="text-foreground text-xl font-semibold">{viz.name}</p>
             <div className="flex items-center gap-2">
               <p className="text-muted-foreground text-sm">
                 {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}

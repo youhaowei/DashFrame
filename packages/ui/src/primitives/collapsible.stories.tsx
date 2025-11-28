@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "./collapsible";
 import { Button } from "./button";
 import { ChevronDown } from "../lib/icons";
 import { useState } from "react";
@@ -25,8 +29,8 @@ export const Default: Story = {
           <ChevronDown className="h-4 w-4" />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 rounded-md border bg-card p-4">
-        <p className="text-sm text-muted-foreground">
+      <CollapsibleContent className="bg-card mt-2 rounded-md border p-4">
+        <p className="text-muted-foreground text-sm">
           This is additional content that can be shown or hidden.
         </p>
       </CollapsibleContent>
@@ -49,17 +53,23 @@ export const Controlled: Story = {
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 space-y-2">
-            <div className="rounded-md border bg-card p-3">
+            <div className="bg-card rounded-md border p-3">
               <p className="text-sm font-medium">Setting 1</p>
-              <p className="text-xs text-muted-foreground">Description for setting 1</p>
+              <p className="text-muted-foreground text-xs">
+                Description for setting 1
+              </p>
             </div>
-            <div className="rounded-md border bg-card p-3">
+            <div className="bg-card rounded-md border p-3">
               <p className="text-sm font-medium">Setting 2</p>
-              <p className="text-xs text-muted-foreground">Description for setting 2</p>
+              <p className="text-muted-foreground text-xs">
+                Description for setting 2
+              </p>
             </div>
-            <div className="rounded-md border bg-card p-3">
+            <div className="bg-card rounded-md border p-3">
               <p className="text-sm font-medium">Setting 3</p>
-              <p className="text-xs text-muted-foreground">Description for setting 3</p>
+              <p className="text-muted-foreground text-xs">
+                Description for setting 3
+              </p>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -75,17 +85,20 @@ export const FAQStyle: Story = {
       {
         id: "1",
         question: "What is DashFrame?",
-        answer: "DashFrame is a data visualization platform that helps you create beautiful dashboards and insights.",
+        answer:
+          "DashFrame is a data visualization platform that helps you create beautiful dashboards and insights.",
       },
       {
         id: "2",
         question: "How do I get started?",
-        answer: "Connect your data source, create a DataFrame, and start building visualizations with our intuitive interface.",
+        answer:
+          "Connect your data source, create a DataFrame, and start building visualizations with our intuitive interface.",
       },
       {
         id: "3",
         question: "What data sources are supported?",
-        answer: "We support CSV files, Notion databases, and many other popular data sources.",
+        answer:
+          "We support CSV files, Notion databases, and many other popular data sources.",
       },
     ];
 
@@ -98,7 +111,7 @@ export const FAQStyle: Story = {
             onOpenChange={(open) => setOpenItem(open ? faq.id : null)}
           >
             <CollapsibleTrigger asChild>
-              <button className="flex w-full items-center justify-between rounded-md border bg-card p-4 text-left hover:bg-accent">
+              <button className="bg-card hover:bg-accent flex w-full items-center justify-between rounded-md border p-4 text-left">
                 <span className="font-medium">{faq.question}</span>
                 <ChevronDown
                   className={`h-4 w-4 transition-transform ${openItem === faq.id ? "rotate-180" : ""}`}
@@ -106,7 +119,7 @@ export const FAQStyle: Story = {
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent className="px-4 pt-2">
-              <p className="text-sm text-muted-foreground">{faq.answer}</p>
+              <p className="text-muted-foreground text-sm">{faq.answer}</p>
             </CollapsibleContent>
           </Collapsible>
         ))}
@@ -124,7 +137,7 @@ export const DefaultOpen: Story = {
           <ChevronDown className="h-4 w-4" />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 rounded-md border bg-card p-4">
+      <CollapsibleContent className="bg-card mt-2 rounded-md border p-4">
         <div className="space-y-2 text-sm">
           <label className="flex items-center gap-2">
             <input type="checkbox" />

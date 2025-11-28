@@ -1,7 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { Toggle } from "./Toggle";
-import { BarChart3, TableIcon, List, LayoutGrid, Hash, Type, Calendar } from "../lib/icons";
+import {
+  BarChart3,
+  TableIcon,
+  List,
+  LayoutGrid,
+  Hash,
+  Type,
+  Calendar,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Actions/Toggle",
@@ -40,8 +48,16 @@ export const Default: Story = {
         value={value}
         onValueChange={setValue}
         options={[
-          { value: "chart", icon: <BarChart3 className="h-4 w-4" />, label: "Chart" },
-          { value: "table", icon: <TableIcon className="h-4 w-4" />, label: "Data Table" },
+          {
+            value: "chart",
+            icon: <BarChart3 className="h-4 w-4" />,
+            label: "Chart",
+          },
+          {
+            value: "table",
+            icon: <TableIcon className="h-4 w-4" />,
+            label: "Data Table",
+          },
           { value: "both", label: "Both" },
         ]}
       />
@@ -279,7 +295,7 @@ export const AxisTypeToggle: Story = {
     return (
       <div className="space-y-4">
         <div>
-          <label className="text-sm font-medium block mb-2">X-Axis Scale</label>
+          <label className="mb-2 block text-sm font-medium">X-Axis Scale</label>
           <Toggle
             {...args}
             variant="outline"

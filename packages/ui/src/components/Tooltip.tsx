@@ -25,12 +25,7 @@ export interface TooltipProps {
  * </Tooltip>
  * ```
  */
-export function Tooltip({
-  content,
-  children,
-  side,
-  className,
-}: TooltipProps) {
+export function Tooltip({ content, children, side, className }: TooltipProps) {
   return (
     <TooltipPrimitive>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
@@ -40,4 +35,3 @@ export function Tooltip({
     </TooltipPrimitive>
   );
 }
-

@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ActionButton } from "./ActionButton";
-import { Plus, Trash2, Refresh, Database, Edit3, X, ArrowRight } from "../lib/icons";
+import {
+  Plus,
+  Trash2,
+  Refresh,
+  Database,
+  Edit3,
+  ArrowRight,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Actions/ActionButton",
@@ -14,7 +21,14 @@ const meta = {
     },
     variant: {
       control: "select",
-      options: ["default", "outline", "destructive", "secondary", "ghost", "link"],
+      options: [
+        "default",
+        "outline",
+        "destructive",
+        "secondary",
+        "ghost",
+        "link",
+      ],
     },
     size: {
       control: "select",
@@ -63,7 +77,11 @@ export const Variants: Story = {
       <div className="flex gap-2">
         <ActionButton label="Default" onClick={() => {}} variant="default" />
         <ActionButton label="Outline" onClick={() => {}} variant="outline" />
-        <ActionButton label="Secondary" onClick={() => {}} variant="secondary" />
+        <ActionButton
+          label="Secondary"
+          onClick={() => {}}
+          variant="secondary"
+        />
         <ActionButton label="Ghost" onClick={() => {}} variant="ghost" />
         <ActionButton label="Link" onClick={() => {}} variant="link" />
       </div>
@@ -170,11 +188,14 @@ export const Sizes: Story = {
   render: () => (
     <div className="flex items-center gap-2">
       <ActionButton label="Small" onClick={() => {}} size="sm" icon={Plus} />
-      <ActionButton label="Default" onClick={() => {}} size="default" icon={Plus} />
+      <ActionButton
+        label="Default"
+        onClick={() => {}}
+        size="default"
+        icon={Plus}
+      />
       <ActionButton label="Large" onClick={() => {}} size="lg" icon={Plus} />
       <ActionButton label="Icon" onClick={() => {}} size="icon" icon={Plus} />
     </div>
   ),
 };
-
-

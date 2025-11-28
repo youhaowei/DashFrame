@@ -8,7 +8,7 @@ export { EmptyState } from "./EmptyState";
 export { DataFrameTable as TableView } from "@dashframe/ui";
 
 // Legacy components - kept for backward compatibility
-// TODO: These are being migrated to Convex and will be removed
+// Note: These are being migrated to Convex and will be removed
 export { VisualizationTabs } from "./VisualizationTabs";
 export { VisualizationControls } from "./VisualizationControls";
 export { VisualizationDisplay } from "./VisualizationDisplay";

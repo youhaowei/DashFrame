@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Button, Alert, AlertDescription, SectionList, Database } from "@dashframe/ui";
+import {
+  Button,
+  Alert,
+  AlertDescription,
+  SectionList,
+  Database,
+} from "@dashframe/ui";
 import { LuArrowLeft } from "react-icons/lu";
 import { useLocalStoreHydration } from "@/hooks/useLocalStoreHydration";
 import { useDataTables } from "@/hooks/useDataTables";
@@ -101,13 +107,14 @@ export function DataPickerContent({
         type: source.type,
         tableCount: source.dataTables?.size || 0,
       })),
-    [localSources]
+    [localSources],
   );
 
   // Filter out excluded tables
   const filteredTables = useMemo(
-    () => allDataTables.filter((table) => !excludeTableIds.includes(table.tableId)),
-    [allDataTables, excludeTableIds]
+    () =>
+      allDataTables.filter((table) => !excludeTableIds.includes(table.tableId)),
+    [allDataTables, excludeTableIds],
   );
 
   // Handle insight click
@@ -115,7 +122,7 @@ export function DataPickerContent({
     (insightId: string, insightName: string) => {
       onInsightSelect?.(insightId, insightName);
     },
-    [onInsightSelect]
+    [onInsightSelect],
   );
 
   // Handle table click
@@ -123,7 +130,7 @@ export function DataPickerContent({
     (tableId: string, tableName: string) => {
       onTableSelect(tableId, tableName);
     },
-    [onTableSelect]
+    [onTableSelect],
   );
 
   // Handle CSV upload
@@ -135,7 +142,7 @@ export function DataPickerContent({
         onTableSelect(dataTableId, tableName);
       });
     },
-    [handleCSVUpload, clearError, onTableSelect]
+    [handleCSVUpload, clearError, onTableSelect],
   );
 
   if (!isHydrated) {
@@ -155,7 +162,10 @@ export function DataPickerContent({
         {/* Section: Existing Insights (only if they have DataFrames) */}
         {hasInsights && !selectedSourceId && (
           <SectionList title="Use Existing Insight">
-            <InsightList insights={insights} onInsightClick={handleInsightClick} />
+            <InsightList
+              insights={insights}
+              onInsightClick={handleInsightClick}
+            />
           </SectionList>
         )}
 
@@ -181,7 +191,10 @@ export function DataPickerContent({
               Back
             </Button>
             <SectionList title="Select Table">
-              <DataTableList tables={filteredTables} onTableClick={handleTableClick} />
+              <DataTableList
+                tables={filteredTables}
+                onTableClick={handleTableClick}
+              />
             </SectionList>
           </>
         )}
@@ -189,9 +202,9 @@ export function DataPickerContent({
         {/* Empty state when nothing exists */}
         {!selectedSourceId && !hasDataSources && !hasInsights && (
           <div className="rounded-xl border border-dashed py-8 text-center">
-            <Database className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No data yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <Database className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
+            <p className="text-muted-foreground text-sm">No data yet</p>
+            <p className="text-muted-foreground mt-1 text-xs">
               Upload a CSV file below to get started
             </p>
           </div>

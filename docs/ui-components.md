@@ -66,17 +66,20 @@ import { Button, Card, Panel, Toggle, cn, RefreshCw } from "@dashframe/ui";
 - **Use for**: Backgrounds, containers, and any element needing standardized depth or visual hierarchy
 
 **Elevation variants**:
+
 - `plain` - Minimal flat surface with border only, no shadow
 - `raised` - Standard elevated surface with subtle shadow (default)
 - `floating` - Prominent elevation with backdrop blur and stronger shadow
 - `inset` - Sunken appearance with inset shadow for recessed areas
 
 **Props**:
+
 - `elevation?: "plain" | "raised" | "floating" | "inset"` - Visual depth variant (default: `"raised"`)
 - `interactive?: boolean` - Adds hover states for clickable surfaces (default: `false`)
 - Standard div props + `className` for spacing/customization
 
 **Examples**:
+
 ```tsx
 // Standard card surface
 <Surface elevation="raised" className="p-6">
@@ -170,6 +173,7 @@ Components in `components/data-sources/`, `components/visualizations/`, `compone
 **Pattern**: Use Surface for generic elevation effects, Card for structured content with headers/footers, Panel for full-height layouts with headers/footers, Stack for vertical/horizontal layouts, Container for max-width constraints.
 
 **Surface vs Card vs Panel decision tree**:
+
 - Use **Surface** for: Generic backgrounds, containers, panels without structured content
 - Use **Card** for: Content grouping with headers, titles, descriptions, actions (uses Surface internally)
 - Use **Panel** for: Full-height layouts with fixed header/footer and scrollable content (uses Surface internally)
@@ -317,6 +321,7 @@ Uses CSS custom properties for theming with dark mode support:
 ### When to Use shadcn/ui Components
 
 **Use shadcn/ui when**:
+
 - The UI pattern is standard across applications (buttons, inputs, cards, modals)
 - You need accessibility and keyboard navigation out of the box
 - The component exists in `components/ui/`
@@ -326,6 +331,7 @@ Uses CSS custom properties for theming with dark mode support:
 ### When to Use Custom Shared Components
 
 **Use custom shared components when**:
+
 - The pattern is specific to DashFrame but used across features
 - You need domain-specific composition (e.g., ItemSelector for data sources/insights/dataframes)
 - The component encapsulates DashFrame-specific behavior
@@ -335,6 +341,7 @@ Uses CSS custom properties for theming with dark mode support:
 ### When to Create Feature-Specific Components
 
 **Create feature-specific components when**:
+
 - The component is only used in one feature area
 - The component has domain-specific logic (e.g., visualization rendering, CSV parsing UI)
 - The component is unlikely to be reused elsewhere
@@ -344,12 +351,14 @@ Uses CSS custom properties for theming with dark mode support:
 ### When to Extract to Shared
 
 **Extract to `components/shared/` when**:
+
 - Pattern is used in 3+ places across different features
 - Component encapsulates meaningful UI logic (not just styling)
 - Component has clear, semantic purpose
 - You can document it with clear usage examples
 
 **Process**:
+
 1. Identify repeated pattern across features
 2. Extract to `components/shared/<ComponentName>.tsx`
 3. Add JSDoc documentation with usage examples
@@ -362,8 +371,9 @@ Uses CSS custom properties for theming with dark mode support:
 ### Example 1: ActionGroup Pattern
 
 **Good - Using ActionGroup**:
+
 ```tsx
-import { ActionGroup } from "@/components/shared/ActionGroup"
+import { ActionGroup } from "@/components/shared/ActionGroup";
 
 <ActionGroup
   actions={[
@@ -371,18 +381,18 @@ import { ActionGroup } from "@/components/shared/ActionGroup"
       label: "Create",
       icon: Plus,
       onClick: handleCreate,
-      variant: "default"
+      variant: "default",
     },
     {
       label: "Delete",
       icon: Trash2,
       onClick: handleDelete,
       variant: "destructive",
-      disabled: !selectedItem
-    }
+      disabled: !selectedItem,
+    },
   ]}
   compact={false}
-/>
+/>;
 ```
 
 **Benefits**: Consistent action button styling, automatic icon sizing, disabled state handling, responsive behavior.
@@ -390,8 +400,9 @@ import { ActionGroup } from "@/components/shared/ActionGroup"
 ### Example 2: ItemSelector Pattern
 
 **Good - Using ItemSelector**:
+
 ```tsx
-import { ItemSelector } from "@/components/shared/ItemSelector"
+import { ItemSelector } from "@/components/shared/ItemSelector";
 
 <ItemSelector
   items={dataSources}
@@ -402,7 +413,7 @@ import { ItemSelector } from "@/components/shared/ItemSelector"
   getItemMetadata={(ds) => ds.type}
   getItemIcon={(ds) => getDataSourceIcon(ds.type)}
   compact={false}
-/>
+/>;
 ```
 
 **Benefits**: Consistent selection UI across data sources, insights, and dataframes. Handles metadata display, badges, icons uniformly.
@@ -410,8 +421,9 @@ import { ItemSelector } from "@/components/shared/ItemSelector"
 ### Example 3: EmptyState Pattern
 
 **Good - Using EmptyState**:
+
 ```tsx
-import { EmptyState } from "@/components/shared/EmptyState"
+import { EmptyState } from "@/components/shared/EmptyState";
 
 <EmptyState
   icon={Database}
@@ -419,9 +431,9 @@ import { EmptyState } from "@/components/shared/EmptyState"
   description="Get started by adding your first data source"
   action={{
     label: "Add data source",
-    onClick: handleCreate
+    onClick: handleCreate,
   }}
-/>
+/>;
 ```
 
 **Benefits**: Consistent empty state design, proper icon sizing, centered layout, clear call-to-action.
@@ -429,8 +441,9 @@ import { EmptyState } from "@/components/shared/EmptyState"
 ### Example 4: Stack Layout
 
 **Good - Using Stack**:
+
 ```tsx
-import { Stack } from "@/components/shared/Stack"
+import { Stack } from "@/components/shared/Stack";
 
 <Stack direction="vertical" spacing="lg">
   <h1>Page Title</h1>
@@ -439,12 +452,13 @@ import { Stack } from "@/components/shared/Stack"
     <span>Metadata</span>
   </Stack>
   <Card>Content</Card>
-</Stack>
+</Stack>;
 ```
 
 **Benefits**: Consistent spacing, clear intent, easier refactoring, type-safe props.
 
 **Avoid - Custom flex divs**:
+
 ```tsx
 <div className="flex flex-col gap-6">
   <h1>Page Title</h1>
@@ -461,8 +475,9 @@ import { Stack } from "@/components/shared/Stack"
 ### Example 5: Panel Component
 
 **Good - Using Panel**:
+
 ```tsx
-import { Panel, PanelSection } from "@/components/shared/Panel"
+import { Panel, PanelSection } from "@/components/shared/Panel";
 
 // Standard panel with header and footer
 <Panel
@@ -486,20 +501,21 @@ import { Panel, PanelSection } from "@/components/shared/Panel"
   <PanelSection title="Advanced">
     <div>Advanced options</div>
   </PanelSection>
-</Panel>
+</Panel>;
 
 // Panel with forward ref for ResizeObserver
 const panelRef = useRef<HTMLDivElement>(null);
 <Panel ref={panelRef} header={<h2>Resizable Panel</h2>}>
   <div>Content that needs resize tracking</div>
-</Panel>
+</Panel>;
 ```
 
 **Benefits**: Fixed header/footer, automatic scrolling, consistent elevation via Surface, section dividers with PanelSection, forward ref support.
 
 **Avoid - Manual panel divs**:
+
 ```tsx
-<div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
+<div className="bg-card flex h-full flex-col overflow-hidden rounded-2xl border shadow-sm">
   <div className="border-b p-6">
     <div className="flex items-center justify-between">
       <h2 className="text-xl font-semibold">Settings</h2>
@@ -510,7 +526,9 @@ const panelRef = useRef<HTMLDivElement>(null);
   <div className="flex-1 overflow-y-auto p-6">
     <div className="border-b p-6">
       <h3 className="font-semibold">General</h3>
-      <p className="text-sm text-muted-foreground">Basic configuration options</p>
+      <p className="text-muted-foreground text-sm">
+        Basic configuration options
+      </p>
       <div>Settings content here</div>
     </div>
 
@@ -550,6 +568,7 @@ When creating a new shared component:
 ### Migrating from Custom Divs to Stack
 
 **Before**:
+
 ```tsx
 <div className="flex flex-col gap-4">
   <ComponentA />
@@ -558,6 +577,7 @@ When creating a new shared component:
 ```
 
 **After**:
+
 ```tsx
 <Stack direction="vertical" spacing="md">
   <ComponentA />
@@ -568,32 +588,39 @@ When creating a new shared component:
 ### Migrating from Custom Empty States to EmptyState
 
 **Before**:
+
 ```tsx
-{items.length === 0 && (
-  <div className="flex flex-col items-center justify-center p-8 text-center">
-    <Database className="h-12 w-12 text-muted-foreground mb-4" />
-    <h3 className="text-lg font-medium mb-2">No items</h3>
-    <p className="text-sm text-muted-foreground mb-4">Add your first item</p>
-    <Button onClick={handleAdd}>Add item</Button>
-  </div>
-)}
+{
+  items.length === 0 && (
+    <div className="flex flex-col items-center justify-center p-8 text-center">
+      <Database className="text-muted-foreground mb-4 h-12 w-12" />
+      <h3 className="mb-2 text-lg font-medium">No items</h3>
+      <p className="text-muted-foreground mb-4 text-sm">Add your first item</p>
+      <Button onClick={handleAdd}>Add item</Button>
+    </div>
+  );
+}
 ```
 
 **After**:
+
 ```tsx
-{items.length === 0 && (
-  <EmptyState
-    icon={Database}
-    title="No items"
-    description="Add your first item"
-    action={{ label: "Add item", onClick: handleAdd }}
-  />
-)}
+{
+  items.length === 0 && (
+    <EmptyState
+      icon={Database}
+      title="No items"
+      description="Add your first item"
+      action={{ label: "Add item", onClick: handleAdd }}
+    />
+  );
+}
 ```
 
 ### Migrating from Manual Card Divs to Surface
 
 **Before - Manual raised surface**:
+
 ```tsx
 <div className="border-border/60 bg-card/80 rounded-2xl border p-6 shadow-sm">
   <p className="text-muted-foreground text-sm">Content here</p>
@@ -601,6 +628,7 @@ When creating a new shared component:
 ```
 
 **After - Surface component**:
+
 ```tsx
 <Surface elevation="raised" className="p-6">
   <p className="text-muted-foreground text-sm">Content here</p>
@@ -608,18 +636,28 @@ When creating a new shared component:
 ```
 
 **Before - Manual inset surface (empty state)**:
+
 ```tsx
 <div className="border-border/70 bg-background/40 w-full rounded-2xl border border-dashed p-8 text-center shadow-inner shadow-black/5">
-  <p className="text-foreground text-base font-medium">No data source selected</p>
-  <p className="text-muted-foreground mt-2 text-sm">Select a data source to view its data.</p>
+  <p className="text-foreground text-base font-medium">
+    No data source selected
+  </p>
+  <p className="text-muted-foreground mt-2 text-sm">
+    Select a data source to view its data.
+  </p>
 </div>
 ```
 
 **After - Surface with inset elevation**:
+
 ```tsx
 <Surface elevation="inset" className="w-full p-8 text-center">
-  <p className="text-foreground text-base font-medium">No data source selected</p>
-  <p className="text-muted-foreground mt-2 text-sm">Select a data source to view its data.</p>
+  <p className="text-foreground text-base font-medium">
+    No data source selected
+  </p>
+  <p className="text-muted-foreground mt-2 text-sm">
+    Select a data source to view its data.
+  </p>
 </Surface>
 ```
 
@@ -639,6 +677,7 @@ When creating a new shared component:
 ---
 
 **See Also**:
+
 - `docs/architecture.md` - UI/UX Guidelines section (lines 239-307)
 - `docs/specs/create-visualization-flow.md` - Example spec with UI layout
 - `CLAUDE.md` - Development guidelines including UI component workflow

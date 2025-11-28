@@ -24,7 +24,9 @@ export function useStoresHydrated(...stores: PersistedStore[]): boolean {
     if (isHydrated) return;
 
     const checkHydrated = () => {
-      if (stableStores.every((store) => store.persist?.hasHydrated?.() ?? false)) {
+      if (
+        stableStores.every((store) => store.persist?.hasHydrated?.() ?? false)
+      ) {
         setIsHydrated(true);
       }
     };

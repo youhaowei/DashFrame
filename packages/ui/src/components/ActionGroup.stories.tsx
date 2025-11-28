@@ -25,7 +25,11 @@ export const Default: Story = {
   args: {
     actions: [
       { label: "Save", onClick: () => alert("Save clicked"), icon: Database },
-      { label: "Cancel", onClick: () => alert("Cancel clicked"), variant: "outline" },
+      {
+        label: "Cancel",
+        onClick: () => alert("Cancel clicked"),
+        variant: "outline",
+      },
     ],
   },
 };
@@ -37,9 +41,25 @@ export const Compact: Story = {
   args: {
     compact: true,
     actions: [
-      { label: "Create", onClick: () => alert("Create"), icon: Plus, tooltip: "Create new item" },
-      { label: "Refresh", onClick: () => alert("Refresh"), icon: Refresh, tooltip: "Refresh data" },
-      { label: "Delete", onClick: () => alert("Delete"), icon: Trash2, variant: "destructive", tooltip: "Delete item" },
+      {
+        label: "Create",
+        onClick: () => alert("Create"),
+        icon: Plus,
+        tooltip: "Create new item",
+      },
+      {
+        label: "Refresh",
+        onClick: () => alert("Refresh"),
+        icon: Refresh,
+        tooltip: "Refresh data",
+      },
+      {
+        label: "Delete",
+        onClick: () => alert("Delete"),
+        icon: Trash2,
+        variant: "destructive",
+        tooltip: "Delete item",
+      },
     ],
   },
 };
@@ -54,13 +74,13 @@ export const CreateDelete: Story = {
         label: "Create Data Source",
         onClick: () => alert("Create"),
         icon: Plus,
-        variant: "default"
+        variant: "default",
       },
       {
         label: "Delete",
         onClick: () => alert("Delete"),
         icon: Trash2,
-        variant: "destructive"
+        variant: "destructive",
       },
     ],
   },
@@ -76,13 +96,13 @@ export const SaveCancel: Story = {
         label: "Save Changes",
         onClick: () => alert("Save"),
         icon: Database,
-        variant: "default"
+        variant: "default",
       },
       {
         label: "Cancel",
         onClick: () => alert("Cancel"),
         icon: X,
-        variant: "outline"
+        variant: "outline",
       },
     ],
   },
@@ -99,14 +119,14 @@ export const RefreshSettings: Story = {
         label: "Refresh",
         onClick: () => alert("Refresh"),
         icon: Refresh,
-        tooltip: "Refresh data sources"
+        tooltip: "Refresh data sources",
       },
       {
         label: "Settings",
         onClick: () => alert("Settings"),
         icon: Database,
         variant: "outline",
-        tooltip: "Data source settings"
+        tooltip: "Data source settings",
       },
     ],
   },
@@ -121,7 +141,12 @@ export const MixedVariants: Story = {
       { label: "Primary", onClick: () => {}, variant: "default" },
       { label: "Secondary", onClick: () => {}, variant: "secondary" },
       { label: "Outline", onClick: () => {}, variant: "outline" },
-      { label: "Destructive", onClick: () => {}, variant: "destructive", icon: Trash2 },
+      {
+        label: "Destructive",
+        onClick: () => {},
+        variant: "destructive",
+        icon: Trash2,
+      },
     ],
   },
 };
@@ -137,28 +162,28 @@ export const CompactWithTooltips: Story = {
         label: "Add Data Source",
         onClick: () => {},
         icon: Database,
-        tooltip: "Add a new data source"
+        tooltip: "Add a new data source",
       },
       {
         label: "Edit Settings",
         onClick: () => {},
         icon: Edit3,
         variant: "outline",
-        tooltip: "Edit data source settings"
+        tooltip: "Edit data source settings",
       },
       {
         label: "Refresh All",
         onClick: () => {},
         icon: Refresh,
         variant: "outline",
-        tooltip: "Refresh all data sources"
+        tooltip: "Refresh all data sources",
       },
       {
         label: "Delete Selected",
         onClick: () => {},
         icon: Trash2,
         variant: "destructive",
-        tooltip: "Delete selected data source"
+        tooltip: "Delete selected data source",
       },
     ],
   },
@@ -185,7 +210,7 @@ export const SingleAction: Story = {
       {
         label: "Create Visualization",
         onClick: () => alert("Create"),
-        icon: Plus
+        icon: Plus,
       },
     ],
   },
@@ -207,16 +232,30 @@ export const CompactMixedIcons: Story = {
   args: {
     compact: true,
     actions: [
-      { label: "With Icon", onClick: () => {}, icon: Plus, tooltip: "Has icon" },
-      { label: "No Icon", onClick: () => {}, tooltip: "No icon - will show label" },
-      { label: "Another Icon", onClick: () => {}, icon: Refresh, tooltip: "Has icon" },
+      {
+        label: "With Icon",
+        onClick: () => {},
+        icon: Plus,
+        tooltip: "Has icon",
+      },
+      {
+        label: "No Icon",
+        onClick: () => {},
+        tooltip: "No icon - will show label",
+      },
+      {
+        label: "Another Icon",
+        onClick: () => {},
+        icon: Refresh,
+        tooltip: "Has icon",
+      },
     ],
   },
   decorators: [
     (Story) => (
       <div className="space-y-4">
         <Story />
-        <p className="text-muted-foreground text-xs max-w-md">
+        <p className="text-muted-foreground max-w-md text-xs">
           Note: In compact mode, buttons without icons will show labels instead
         </p>
       </div>

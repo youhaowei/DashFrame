@@ -9,7 +9,7 @@ export { useDataFramesStore } from "./dataframes-store";
 // Legacy Stores - Being migrated to Convex
 // These stores are kept for backward compatibility with components that
 // haven't been migrated yet (e.g., JoinFlowModal, legacy workbench components)
-// TODO: Remove once all components are migrated to Convex
+// Note: Remove once all components are migrated to Convex
 // ============================================================================
 export { useDataSourcesStore } from "./data-sources-store";
 export { useVisualizationsStore } from "./visualizations-store";

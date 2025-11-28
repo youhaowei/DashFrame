@@ -135,21 +135,20 @@ export function ItemList({
     return (
       <div
         className={cn(
-          "flex flex-col items-center justify-center text-center p-8",
-          className
+          "flex flex-col items-center justify-center p-8 text-center",
+          className,
         )}
       >
         {emptyIcon && (
           <div className="text-muted-foreground mb-3">{emptyIcon}</div>
         )}
-        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+        <p className="text-muted-foreground text-sm">{emptyMessage}</p>
       </div>
     );
   }
 
   // Convert maxSize to CSS value
-  const maxSizeValue =
-    typeof maxSize === "number" ? `${maxSize}px` : maxSize;
+  const maxSizeValue = typeof maxSize === "number" ? `${maxSize}px` : maxSize;
 
   // Render icon - handles both LucideIcon components and React nodes
   const renderIcon = (icon: ListItem["icon"]) => {
@@ -168,10 +167,10 @@ export function ItemList({
   const itemElements = items.map((item) => (
     <div
       key={item.id}
-      className={cn(
-        orientation === "horizontal" && "shrink-0",
-      )}
-      style={orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined}
+      className={cn(orientation === "horizontal" && "shrink-0")}
+      style={
+        orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined
+      }
     >
       <ItemCard
         icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
@@ -192,10 +191,7 @@ export function ItemList({
         className={cn("w-full", className)}
         style={maxSizeValue ? { maxHeight: maxSizeValue } : undefined}
       >
-        <div
-          className="flex flex-col"
-          style={{ gap: `${gap}px` }}
-        >
+        <div className="flex flex-col" style={{ gap: `${gap}px` }}>
           {itemElements}
         </div>
       </ScrollArea>
@@ -208,10 +204,7 @@ export function ItemList({
       className={cn("w-full", className)}
       style={maxSizeValue ? { maxWidth: maxSizeValue } : undefined}
     >
-      <div
-        className="flex flex-row pb-3"
-        style={{ gap: `${gap}px` }}
-      >
+      <div className="flex flex-row pb-3" style={{ gap: `${gap}px` }}>
         {itemElements}
       </div>
       <ScrollBar orientation="horizontal" />

@@ -22,7 +22,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuCloud, LuFileSpreadsheet } from "react-icons/lu";
+import {
+  LuSearch,
+  LuExternalLink,
+  LuCloud,
+  LuFileSpreadsheet,
+} from "react-icons/lu";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for data source with table count
@@ -66,7 +71,7 @@ export default function DataSourcesPage() {
     return allDataSources.filter(
       (item) =>
         item.dataSource.name.toLowerCase().includes(query) ||
-        item.dataSource.type.toLowerCase().includes(query)
+        item.dataSource.type.toLowerCase().includes(query),
     );
   }, [allDataSources, searchQuery]);
 
@@ -99,10 +104,7 @@ export default function DataSourcesPage() {
   };
 
   // Handle delete data source (LOCAL ONLY)
-  const handleDeleteDataSource = (
-    dataSourceId: UUID,
-    e: React.MouseEvent
-  ) => {
+  const handleDeleteDataSource = (dataSourceId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
     removeDataSourceLocal(dataSourceId);
@@ -112,29 +114,29 @@ export default function DataSourcesPage() {
   const renderDataSourceCard = (item: DataSourceWithTables) => (
     <Card
       key={item.dataSource.id}
-      className="group hover:shadow-md transition-shadow cursor-pointer"
+      className="group cursor-pointer transition-shadow hover:shadow-md"
       onClick={() => router.push(`/data-sources/${item.dataSource.id}`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
             {getTypeIcon(item.dataSource.type)}
           </div>
 
           {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h4 className="font-medium truncate">{item.dataSource.name}</h4>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <h4 className="truncate font-medium">{item.dataSource.name}</h4>
               <Badge variant="secondary" className="text-xs">
                 {getTypeLabel(item.dataSource.type)}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
-              <TableIcon className="h-3 w-3 inline mr-1" />
+            <p className="text-muted-foreground text-xs">
+              <TableIcon className="mr-1 inline h-3 w-3" />
               {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-muted-foreground mt-1 text-xs">
               Created{" "}
               {new Date(item.dataSource.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -150,7 +152,7 @@ export default function DataSourcesPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -163,7 +165,7 @@ export default function DataSourcesPage() {
                   router.push(`/data-sources/${item.dataSource.id}`);
                 }}
               >
-                <LuExternalLink className="h-4 w-4 mr-2" />
+                <LuExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -171,11 +173,11 @@ export default function DataSourcesPage() {
                 onClick={(e) =>
                   handleDeleteDataSource(
                     item.dataSource.id,
-                    e as unknown as React.MouseEvent
+                    e as unknown as React.MouseEvent,
                   )
                 }
               >
-                <Trash2 className="h-4 w-4 mr-2" />
+                <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -194,25 +196,25 @@ export default function DataSourcesPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Data Sources</h1>
-              <p className="text-sm text-muted-foreground">
-                {allDataSources.length} source{allDataSources.length !== 1 ? "s" : ""}{" "}
-                connected
+              <p className="text-muted-foreground text-sm">
+                {allDataSources.length} source
+                {allDataSources.length !== 1 ? "s" : ""} connected
               </p>
             </div>
             <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               Add Source
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}
@@ -225,7 +227,7 @@ export default function DataSourcesPage() {
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-6 py-6 max-w-4xl">
+        <div className="container mx-auto max-w-4xl px-6 py-6">
           {/* Data Sources List */}
           {filteredDataSources.length > 0 ? (
             <div className="grid gap-3">
@@ -233,16 +235,16 @@ export default function DataSourcesPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Database className="h-8 w-8 text-muted-foreground" />
+              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
+                <Database className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No data sources found
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    No data sources match "{searchQuery}"
+                  <p className="text-muted-foreground mb-4 text-sm">
+                    No data sources match &quot;{searchQuery}&quot;
                   </p>
                   <Button variant="outline" onClick={() => setSearchQuery("")}>
                     Clear search
@@ -250,14 +252,14 @@ export default function DataSourcesPage() {
                 </>
               ) : (
                 <>
-                  <h3 className="text-lg font-semibold mb-2">
+                  <h3 className="mb-2 text-lg font-semibold">
                     No data sources yet
                   </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
+                  <p className="text-muted-foreground mb-4 text-sm">
                     Connect your first data source to start analyzing
                   </p>
                   <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                    <Plus className="mr-2 h-4 w-4" />
                     Add Source
                   </Button>
                 </>

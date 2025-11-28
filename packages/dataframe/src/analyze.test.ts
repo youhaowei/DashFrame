@@ -180,6 +180,7 @@ describe("analyzeDataFrame", () => {
         fieldIds: [],
         rows: [
           { url: "https://example.com" },
+          // eslint-disable-next-line sonarjs/no-clear-text-protocols -- Testing URL detection with both http and https
           { url: "http://test.org/page" },
           { url: "https://domain.io/path/to/resource" },
         ],

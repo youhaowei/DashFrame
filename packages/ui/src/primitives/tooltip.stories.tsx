@@ -75,7 +75,7 @@ export const OnIcon: Story = {
     <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="p-2 rounded-md hover:bg-accent">
+          <button className="hover:bg-accent rounded-md p-2">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -103,7 +103,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="p-2 rounded-md hover:bg-accent">
+          <button className="hover:bg-accent rounded-md p-2">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -125,7 +125,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="p-2 rounded-md hover:bg-accent">
+          <button className="hover:bg-accent rounded-md p-2">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -151,7 +151,7 @@ export const OnIcon: Story = {
 
 export const Positions: Story = {
   render: () => (
-    <div className="grid grid-cols-3 gap-4 place-items-center">
+    <div className="grid grid-cols-3 place-items-center gap-4">
       <div />
       <Tooltip>
         <TooltipTrigger asChild>
@@ -170,7 +170,7 @@ export const Positions: Story = {
           <p>Tooltip on left</p>
         </TooltipContent>
       </Tooltip>
-      <div className="p-4 border rounded-md">Center</div>
+      <div className="rounded-md border p-4">Center</div>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="outline">Right</Button>
@@ -237,7 +237,7 @@ export const KeyboardShortcut: Story = {
         <TooltipContent>
           <div className="flex items-center gap-2">
             <span>Save changes</span>
-            <kbd className="px-1.5 py-0.5 text-xs border rounded">⌘S</kbd>
+            <kbd className="rounded border px-1.5 py-0.5 text-xs">⌘S</kbd>
           </div>
         </TooltipContent>
       </Tooltip>
@@ -248,7 +248,7 @@ export const KeyboardShortcut: Story = {
         <TooltipContent>
           <div className="flex items-center gap-2">
             <span>Copy to clipboard</span>
-            <kbd className="px-1.5 py-0.5 text-xs border rounded">⌘C</kbd>
+            <kbd className="rounded border px-1.5 py-0.5 text-xs">⌘C</kbd>
           </div>
         </TooltipContent>
       </Tooltip>
@@ -259,7 +259,7 @@ export const KeyboardShortcut: Story = {
         <TooltipContent>
           <div className="flex items-center gap-2">
             <span>Paste from clipboard</span>
-            <kbd className="px-1.5 py-0.5 text-xs border rounded">⌘V</kbd>
+            <kbd className="rounded border px-1.5 py-0.5 text-xs">⌘V</kbd>
           </div>
         </TooltipContent>
       </Tooltip>

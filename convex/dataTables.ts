@@ -32,7 +32,7 @@ export const list = query({
     const dataTables = await ctx.db
       .query("dataTables")
       .withIndex("by_dataSourceId", (q) =>
-        q.eq("dataSourceId", args.dataSourceId)
+        q.eq("dataSourceId", args.dataSourceId),
       )
       .collect();
 
@@ -121,9 +121,9 @@ export const create = mutation({
             name: v.string(),
             type: v.string(),
             notionType: v.optional(v.string()),
-          })
+          }),
         ),
-      })
+      }),
     ),
     dataFrameId: v.optional(v.string()),
   },
@@ -187,9 +187,9 @@ export const update = mutation({
             name: v.string(),
             type: v.string(),
             notionType: v.optional(v.string()),
-          })
+          }),
         ),
-      })
+      }),
     ),
     dataFrameId: v.optional(v.string()),
     lastFetchedAt: v.optional(v.number()),
@@ -213,9 +213,11 @@ export const update = mutation({
 
     const updates: Record<string, unknown> = {};
     if (args.name !== undefined) updates.name = args.name;
-    if (args.sourceSchema !== undefined) updates.sourceSchema = args.sourceSchema;
+    if (args.sourceSchema !== undefined)
+      updates.sourceSchema = args.sourceSchema;
     if (args.dataFrameId !== undefined) updates.dataFrameId = args.dataFrameId;
-    if (args.lastFetchedAt !== undefined) updates.lastFetchedAt = args.lastFetchedAt;
+    if (args.lastFetchedAt !== undefined)
+      updates.lastFetchedAt = args.lastFetchedAt;
 
     await ctx.db.patch(args.id, updates);
     return args.id;
@@ -276,10 +278,14 @@ export const remove = mutation({
  * Map source schema type to our field type
  */
 function mapSchemaType(
-  sourceType: string
+  sourceType: string,
 ): "string" | "number" | "date" | "boolean" {
   const type = sourceType.toLowerCase();
-  if (type.includes("number") || type.includes("int") || type.includes("float")) {
+  if (
+    type.includes("number") ||
+    type.includes("int") ||
+    type.includes("float")
+  ) {
     return "number";
   }
   if (type.includes("date") || type.includes("time")) {

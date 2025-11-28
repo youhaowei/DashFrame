@@ -75,6 +75,7 @@ export const ManyItems: Story = {
             key={i}
             icon={<LuDatabase className="h-4 w-4" />}
             title={`Table ${i + 1}`}
+            // eslint-disable-next-line sonarjs/pseudo-random
             subtitle={`${Math.floor(Math.random() * 1000)} rows × ${Math.floor(Math.random() * 20)} columns`}
             onClick={() => console.log(`table ${i + 1} clicked`)}
           />

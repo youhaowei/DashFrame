@@ -92,7 +92,7 @@ export const create = mutation({
       v.literal("count"),
       v.literal("min"),
       v.literal("max"),
-      v.literal("count_distinct")
+      v.literal("count_distinct"),
     ),
   },
   handler: async (ctx, args) => {
@@ -139,8 +139,8 @@ export const update = mutation({
         v.literal("count"),
         v.literal("min"),
         v.literal("max"),
-        v.literal("count_distinct")
-      )
+        v.literal("count_distinct"),
+      ),
     ),
   },
   handler: async (ctx, args) => {

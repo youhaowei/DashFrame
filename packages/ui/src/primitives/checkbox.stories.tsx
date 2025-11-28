@@ -86,7 +86,7 @@ export const WithDescription: Story = {
         <Checkbox id="analytics" className="mt-1" />
         <div className="grid gap-1.5">
           <Label htmlFor="analytics">Enable analytics</Label>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Help us improve by sending anonymous usage data
           </p>
         </div>
@@ -95,7 +95,7 @@ export const WithDescription: Story = {
         <Checkbox id="cookies" className="mt-1" defaultChecked />
         <div className="grid gap-1.5">
           <Label htmlFor="cookies">Allow cookies</Label>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Required for the website to function properly
           </p>
         </div>
@@ -134,7 +134,7 @@ export const MultipleStates: Story = {
 export const TaskList: Story = {
   render: () => (
     <div className="space-y-3">
-      <div className="font-semibold mb-4">Today's tasks</div>
+      <div className="mb-4 font-semibold">Today's tasks</div>
       <div className="flex items-center gap-2">
         <Checkbox id="task1" defaultChecked />
         <Label htmlFor="task1" className="line-through opacity-50">

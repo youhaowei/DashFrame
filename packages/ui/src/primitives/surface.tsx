@@ -73,7 +73,7 @@ function Surface({
           // Raised: Standard card appearance
           "border-border/60 bg-card/80 shadow-sm": elevation === "raised",
           // Floating: Elevated panel with glassmorphism
-          "border-border/60 bg-card/70 shadow-lg backdrop-blur supports-backdrop-filter:bg-card/60":
+          "border-border/60 bg-card/70 supports-backdrop-filter:bg-card/60 shadow-lg backdrop-blur":
             elevation === "floating",
           // Inset: Sunken surface with inset shadow
           "border-border/70 bg-background/40 shadow-inner shadow-black/5":

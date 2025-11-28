@@ -6,9 +6,7 @@ export type AxisSelection = {
   y: string | null;
 };
 
-const toVegaType = (
-  type: string,
-): "quantitative" | "temporal" | "nominal" => {
+const toVegaType = (type: string): "quantitative" | "temporal" | "nominal" => {
   switch (type) {
     case "number":
       return "quantitative";
@@ -28,12 +26,8 @@ export const buildVegaLiteSpec = (
 ): TopLevelSpec | null => {
   const { x: xColumnName, y: yColumnName } = selections;
   const columns = dataFrame.columns || [];
-  const xColumn = columns.find(
-    (column) => column.name === xColumnName,
-  );
-  const yColumn = columns.find(
-    (column) => column.name === yColumnName,
-  );
+  const xColumn = columns.find((column) => column.name === xColumnName);
+  const yColumn = columns.find((column) => column.name === yColumnName);
 
   if (!xColumn || !yColumn || !dataFrame.rows.length) {
     return null;

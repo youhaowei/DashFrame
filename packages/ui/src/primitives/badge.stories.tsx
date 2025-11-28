@@ -107,19 +107,28 @@ export const NotificationBadges: Story = {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <span className="text-sm">Messages</span>
-        <Badge variant="default" className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs">
+        <Badge
+          variant="default"
+          className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs"
+        >
           3
         </Badge>
       </div>
       <div className="flex items-center gap-2">
         <span className="text-sm">Notifications</span>
-        <Badge variant="destructive" className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs">
+        <Badge
+          variant="destructive"
+          className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs"
+        >
           12
         </Badge>
       </div>
       <div className="flex items-center gap-2">
         <span className="text-sm">Updates</span>
-        <Badge variant="secondary" className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs">
+        <Badge
+          variant="secondary"
+          className="h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs"
+        >
           99+
         </Badge>
       </div>
@@ -131,16 +140,16 @@ export const Sizes: Story = {
   render: () => (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Badge className="text-xs px-1.5 py-0.5">Small</Badge>
-        <span className="text-xs text-muted-foreground">Custom small size</span>
+        <Badge className="px-1.5 py-0.5 text-xs">Small</Badge>
+        <span className="text-muted-foreground text-xs">Custom small size</span>
       </div>
       <div className="flex items-center gap-2">
         <Badge>Default</Badge>
-        <span className="text-xs text-muted-foreground">Default size</span>
+        <span className="text-muted-foreground text-xs">Default size</span>
       </div>
       <div className="flex items-center gap-2">
-        <Badge className="text-sm px-3 py-1.5">Large</Badge>
-        <span className="text-xs text-muted-foreground">Custom large size</span>
+        <Badge className="px-3 py-1.5 text-sm">Large</Badge>
+        <span className="text-muted-foreground text-xs">Custom large size</span>
       </div>
     </div>
   ),

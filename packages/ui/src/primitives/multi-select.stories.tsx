@@ -33,13 +33,48 @@ const basicOptions = [
 ];
 
 const columnOptions = [
-  { value: "name", label: "Name", type: "string" as const, description: "User full name" },
-  { value: "age", label: "Age", type: "number" as const, description: "User age in years" },
-  { value: "email", label: "Email", type: "string" as const, description: "Contact email" },
-  { value: "created_at", label: "Created At", type: "date" as const, description: "Account creation date" },
-  { value: "is_active", label: "Is Active", type: "boolean" as const, description: "Account status" },
-  { value: "balance", label: "Balance", type: "number" as const, description: "Account balance" },
-  { value: "metadata", label: "Metadata", type: "object" as const, description: "Additional data" },
+  {
+    value: "name",
+    label: "Name",
+    type: "string" as const,
+    description: "User full name",
+  },
+  {
+    value: "age",
+    label: "Age",
+    type: "number" as const,
+    description: "User age in years",
+  },
+  {
+    value: "email",
+    label: "Email",
+    type: "string" as const,
+    description: "Contact email",
+  },
+  {
+    value: "created_at",
+    label: "Created At",
+    type: "date" as const,
+    description: "Account creation date",
+  },
+  {
+    value: "is_active",
+    label: "Is Active",
+    type: "boolean" as const,
+    description: "Account status",
+  },
+  {
+    value: "balance",
+    label: "Balance",
+    type: "number" as const,
+    description: "Account balance",
+  },
+  {
+    value: "metadata",
+    label: "Metadata",
+    type: "object" as const,
+    description: "Additional data",
+  },
 ];
 
 const manyOptions = Array.from({ length: 30 }, (_, i) => ({
@@ -82,7 +117,11 @@ export const WithSelectedItems: Story = {
 
 export const WithDataTypes: Story = {
   render: () => {
-    const [value, setValue] = useState<string[]>(["name", "email", "is_active"]);
+    const [value, setValue] = useState<string[]>([
+      "name",
+      "email",
+      "is_active",
+    ]);
     return (
       <div className="w-96">
         <MultiSelect

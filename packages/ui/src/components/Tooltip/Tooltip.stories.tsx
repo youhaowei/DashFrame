@@ -58,7 +58,8 @@ export const DestructiveButton: Story = {
  */
 export const LongContent: Story = {
   args: {
-    content: "This tooltip has longer content to demonstrate text wrapping behavior",
+    content:
+      "This tooltip has longer content to demonstrate text wrapping behavior",
     children: <Button variant="outline">Hover for long text</Button>,
   },
 };
@@ -97,7 +98,7 @@ export const OnTextSpan: Story = {
   args: {
     content: "Additional context about this term",
     children: (
-      <span className="text-sm underline decoration-dotted cursor-help">
+      <span className="cursor-help text-sm underline decoration-dotted">
         Hover this text
       </span>
     ),
@@ -135,7 +136,7 @@ export const DataSourceIcon: Story = {
   args: {
     content: "PostgreSQL database",
     children: (
-      <div className="bg-card rounded-xl border border-border/60 p-4 cursor-pointer hover:bg-muted/50 transition">
+      <div className="bg-card border-border/60 hover:bg-muted/50 cursor-pointer rounded-xl border p-4 transition">
         <Database className="h-5 w-5" />
       </div>
     ),
@@ -149,7 +150,7 @@ export const ChartTypeIndicator: Story = {
   args: {
     content: "Bar chart visualization",
     children: (
-      <div className="bg-primary/10 text-primary rounded-full px-3 py-1 text-xs font-semibold cursor-help">
+      <div className="bg-primary/10 text-primary cursor-help rounded-full px-3 py-1 text-xs font-semibold">
         Bar
       </div>
     ),
@@ -175,7 +176,7 @@ export const CompactStyle: Story = {
  */
 export const MultipleTooltips: Story = {
   render: () => (
-    <div className="flex gap-3 items-center">
+    <div className="flex items-center gap-3">
       <SharedTooltip content="Database connection">
         <Database className="h-4 w-4 cursor-help" />
       </SharedTooltip>
@@ -183,13 +184,13 @@ export const MultipleTooltips: Story = {
       <span className="text-sm font-medium">Sales Database</span>
 
       <SharedTooltip content="PostgreSQL">
-        <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide cursor-help">
+        <span className="bg-muted text-muted-foreground cursor-help rounded-full px-2 text-[11px] font-semibold tracking-wide">
           PostgreSQL
         </span>
       </SharedTooltip>
 
       <SharedTooltip content="12 tables available">
-        <span className="text-muted-foreground text-xs cursor-help">
+        <span className="text-muted-foreground cursor-help text-xs">
           12 tables
         </span>
       </SharedTooltip>
@@ -204,7 +205,7 @@ export const OnBadge: Story = {
   args: {
     content: "1,250 rows in this dataset",
     children: (
-      <span className="bg-muted text-muted-foreground rounded-full px-2 text-[11px] font-semibold tracking-wide cursor-help">
+      <span className="bg-muted text-muted-foreground cursor-help rounded-full px-2 text-[11px] font-semibold tracking-wide">
         1,250 rows
       </span>
     ),
@@ -218,7 +219,7 @@ export const StatusInfo: Story = {
   args: {
     content: "Connected to production database",
     children: (
-      <div className="flex items-center gap-2 cursor-help">
+      <div className="flex cursor-help items-center gap-2">
         <div className="h-2 w-2 rounded-full bg-green-500" />
         <span className="text-sm">Connected</span>
       </div>

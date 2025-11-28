@@ -30,7 +30,7 @@ export interface LocalCSVResult {
 export function handleLocalCSVUpload(
   file: File,
   csvData: string[][],
-  options?: { overrideTableId?: string }
+  options?: { overrideTableId?: string },
 ): LocalCSVResult {
   // 1. Ensure local data source exists
   let dataSource = useDataSourcesStore.getState().getLocal();
@@ -52,13 +52,13 @@ export function handleLocalCSVUpload(
   // 2. Convert CSV to DataFrame with fields (using the target table ID)
   const { dataFrame, fields, sourceSchema } = csvToDataFrameWithFields(
     csvData,
-    dataTableId
+    dataTableId,
   );
 
   // Helper: ensure a default count metric exists
   const ensureCountMetric = (existing: Metric[] = []): Metric[] => {
     const hasCount = existing.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName
+      (metric) => metric.aggregation === "count" && !metric.columnName,
     );
 
     if (hasCount) return existing;
@@ -81,21 +81,19 @@ export function handleLocalCSVUpload(
     // 3a. Override existing table instead of creating a new one
     const metrics = ensureCountMetric(overrideTable.metrics);
 
-    useDataSourcesStore.getState().updateDataTable(
-      dataSource.id,
-      dataTableId,
-      {
-        name: tableName,
-        table: file.name,
-        sourceSchema,
-        fields,
-        metrics,
-      }
-    );
+    useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
+      name: tableName,
+      table: file.name,
+      sourceSchema,
+      fields,
+      metrics,
+    });
 
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
-      useDataFramesStore.getState().updateById(overrideTable.dataFrameId, dataFrame);
+      useDataFramesStore
+        .getState()
+        .updateById(overrideTable.dataFrameId, dataFrame);
       dataFrameId = overrideTable.dataFrameId;
     } else {
       dataFrameId = useDataFramesStore
@@ -104,33 +102,28 @@ export function handleLocalCSVUpload(
     }
 
     // Ensure the DataTable points to the updated DataFrame
-    useDataSourcesStore.getState().updateDataTable(
-      dataSource.id,
-      dataTableId,
-      { dataFrameId }
-    );
+    useDataSourcesStore
+      .getState()
+      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
   } else {
     // 3b. Add DataTable to local store
-    useDataSourcesStore.getState().addDataTable(
-      dataSource.id,
-      tableName,
-      file.name,
-      { id: dataTableId, sourceSchema, fields }
-    );
+    useDataSourcesStore
+      .getState()
+      .addDataTable(dataSource.id, tableName, file.name, {
+        id: dataTableId,
+        sourceSchema,
+        fields,
+      });
 
     // 4. Create DataFrame in dataframes store
-    dataFrameId = useDataFramesStore.getState().createFromCSV(
-      dataSource.id,
-      tableName,
-      dataFrame
-    );
+    dataFrameId = useDataFramesStore
+      .getState()
+      .createFromCSV(dataSource.id, tableName, dataFrame);
 
     // 5. Link DataFrame to DataTable
-    useDataSourcesStore.getState().updateDataTable(
-      dataSource.id,
-      dataTableId,
-      { dataFrameId }
-    );
+    useDataSourcesStore
+      .getState()
+      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
   }
 
   return { dataTableId, dataFrameId, dataSourceId: dataSource.id };

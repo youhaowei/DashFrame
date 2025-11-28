@@ -55,22 +55,34 @@ export default function JoinConfigurePage({ params }: PageProps) {
   const { insightId, tableId: joinTableId } = use(params);
   const router = useRouter();
 
+  // Helper to get badge variant based on confidence level
+  const getConfidenceBadgeVariant = (
+    confidence: "high" | "medium" | "low",
+  ): "default" | "secondary" | "outline" => {
+    switch (confidence) {
+      case "high":
+        return "default";
+      case "medium":
+        return "secondary";
+      default:
+        return "outline";
+    }
+  };
+
   // Store hooks with hydration awareness
   const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
     useInsightsStore,
-    (s) => s.getInsight(insightId)
+    (s) => s.getInsight(insightId),
   );
   const updateInsight = useInsightsStore((state) => state.updateInsight);
 
   const { data: dataSources, isLoading: isSourcesLoading } = useStoreQuery(
     useDataSourcesStore,
-    (s) => s.getAll()
+    (s) => s.getAll(),
   );
 
-  const { data: dataFrameGetter, isLoading: isDataFramesLoading } = useStoreQuery(
-    useDataFramesStore,
-    (s) => s.get
-  );
+  const { data: dataFrameGetter, isLoading: isDataFramesLoading } =
+    useStoreQuery(useDataFramesStore, (s) => s.get);
 
   const isLoading = isInsightLoading || isSourcesLoading || isDataFramesLoading;
 
@@ -117,13 +129,15 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
   // Filter out internal fields (those starting with _)
   const baseFields = useMemo(
-    () => baseTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
-    [baseTableInfo]
+    () =>
+      baseTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
+    [baseTableInfo],
   );
 
   const joinFields = useMemo(
-    () => joinTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
-    [joinTableInfo]
+    () =>
+      joinTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
+    [joinTableInfo],
   );
 
   // Column configs for highlighting selected columns
@@ -145,10 +159,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
     // Get column names from each source table
     const baseColumnNames = new Set(
-      baseFields.map((f) => f.columnName ?? f.name)
+      baseFields.map((f) => f.columnName ?? f.name),
     );
     const joinColumnNames = new Set(
-      joinFields.map((f) => f.columnName ?? f.name)
+      joinFields.map((f) => f.columnName ?? f.name),
     );
 
     return previewResult.columns
@@ -189,11 +203,20 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
     try {
       // Analyze both tables
-      const baseAnalysis = analyzeDataFrame(baseTableInfo.dataFrame as EnhancedDataFrame);
-      const joinAnalysis = analyzeDataFrame(joinTableInfo.dataFrame as EnhancedDataFrame);
+      const baseAnalysis = analyzeDataFrame(
+        baseTableInfo.dataFrame as EnhancedDataFrame,
+      );
+      const joinAnalysis = analyzeDataFrame(
+        joinTableInfo.dataFrame as EnhancedDataFrame,
+      );
 
       // Get suggestions with table name for foreign key pattern matching
-      return suggestJoinColumns(baseAnalysis, joinAnalysis, baseTableInfo.table.name, joinTableInfo.table.name);
+      return suggestJoinColumns(
+        baseAnalysis,
+        joinAnalysis,
+        baseTableInfo.table.name,
+        joinTableInfo.table.name,
+      );
     } catch (err) {
       console.error("Failed to compute join suggestions:", err);
       return [];
@@ -205,27 +228,32 @@ export default function JoinConfigurePage({ params }: PageProps) {
     (suggestion: JoinSuggestion) => {
       // Find matching fields by column name
       const leftField = baseFields.find(
-        (f) => (f.columnName ?? f.name) === suggestion.leftColumn
+        (f) => (f.columnName ?? f.name) === suggestion.leftColumn,
       );
       const rightField = joinFields.find(
-        (f) => (f.columnName ?? f.name) === suggestion.rightColumn
+        (f) => (f.columnName ?? f.name) === suggestion.rightColumn,
       );
 
       if (leftField) setLeftFieldId(leftField.id);
       if (rightField) setRightFieldId(rightField.id);
     },
-    [baseFields, joinFields]
+    [baseFields, joinFields],
   );
 
   // Helper to build columns from fields (since DataFrame.columns may be missing)
   const buildColumnsFromFields = useCallback(
-    (fields: Field[]): { name: string; type: "string" | "number" | "boolean" | "date" | "unknown" }[] => {
+    (
+      fields: Field[],
+    ): {
+      name: string;
+      type: "string" | "number" | "boolean" | "date" | "unknown";
+    }[] => {
       return fields.map((field) => ({
         name: field.columnName ?? field.name,
         type: field.type,
       }));
     },
-    []
+    [],
   );
 
   // Compute preview when join config changes
@@ -262,8 +290,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
         // Build columns from fields if not present in DataFrame
         // (DataFrames may not have columns property populated)
-        const baseColumns = baseData.columns ?? buildColumnsFromFields(baseFields);
-        const joinColumns = joinData.columns ?? buildColumnsFromFields(joinFields);
+        const baseColumns =
+          baseData.columns ?? buildColumnsFromFields(baseFields);
+        const joinColumns =
+          joinData.columns ?? buildColumnsFromFields(joinFields);
 
         // Slice data for preview to avoid expensive full joins
         const previewBaseData: DataFrame = {
@@ -288,7 +318,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
         console.error("Preview join failed:", err);
         setPreviewResult(null);
         // Show the actual error message for debugging
-        const errorMessage = err instanceof Error ? err.message : "Unknown error";
+        const errorMessage =
+          err instanceof Error ? err.message : "Unknown error";
         setError(`Join preview failed: ${errorMessage}`);
       } finally {
         setIsComputingPreview(false);
@@ -385,10 +416,12 @@ export default function JoinConfigurePage({ params }: PageProps) {
   // Loading state - wait for all stores to hydrate before rendering
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="bg-background flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading join configuration...</p>
+          <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+          <p className="text-muted-foreground text-sm">
+            Loading join configuration...
+          </p>
         </div>
       </div>
     );
@@ -397,11 +430,11 @@ export default function JoinConfigurePage({ params }: PageProps) {
   // Error states
   if (!insight) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
+          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Insight not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-2 text-sm">
             The insight you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
@@ -414,11 +447,11 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
   if (!baseTableInfo) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
+          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Base table not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-2 text-sm">
             The data table for this insight no longer exists.
           </p>
           <Button onClick={() => router.push("/insights")} className="mt-4">
@@ -431,11 +464,11 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
   if (!joinTableInfo) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
+          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Join table not found</h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-2 text-sm">
             The table you&apos;re trying to join with doesn&apos;t exist.
           </p>
           <Button
@@ -452,9 +485,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
   const canJoin = leftFieldId && rightFieldId;
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -463,14 +496,14 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 size="sm"
                 onClick={() => router.push(`/insights/${insightId}`)}
               >
-                <ArrowLeft className="h-4 w-4 mr-2" />
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 Cancel
               </Button>
               <div>
                 <h1 className="text-xl font-semibold">
                   Join: {baseTableInfo.table.name} + {joinTableInfo.table.name}
                 </h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   Configure how to combine these datasets
                 </p>
               </div>
@@ -480,9 +513,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
               disabled={!canJoin || isSubmitting}
             >
               {isSubmitting ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
-                <Merge className="h-4 w-4 mr-2" />
+                <Merge className="mr-2 h-4 w-4" />
               )}
               {isSubmitting ? "Joining..." : "Join Tables"}
             </Button>
@@ -492,7 +525,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <div className="container mx-auto px-6 py-6 space-y-6">
+        <div className="container mx-auto space-y-6 px-6 py-6">
           {/* Dual Table Previews */}
           <div className="grid gap-6 md:grid-cols-2">
             {/* Base Table Preview */}
@@ -504,7 +537,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               columnConfigs={baseColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = baseFields.find(
-                  (f) => (f.columnName ?? f.name) === colName
+                  (f) => (f.columnName ?? f.name) === colName,
                 );
                 if (field) setLeftFieldId(field.id);
               }}
@@ -519,7 +552,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               columnConfigs={joinColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = joinFields.find(
-                  (f) => (f.columnName ?? f.name) === colName
+                  (f) => (f.columnName ?? f.name) === colName,
                 );
                 if (field) setRightFieldId(field.id);
               }}
@@ -527,41 +560,41 @@ export default function JoinConfigurePage({ params }: PageProps) {
           </div>
 
           {/* Join Configuration */}
-          <Surface elevation="raised" className="p-6 rounded-2xl">
-            <h2 className="text-lg font-semibold mb-4">Join Configuration</h2>
+          <Surface elevation="raised" className="rounded-2xl p-6">
+            <h2 className="mb-4 text-lg font-semibold">Join Configuration</h2>
 
             {/* Join Suggestions */}
             {joinSuggestions.length > 0 && (
-              <div className="mb-6 p-4 bg-muted/50 rounded-xl border border-border/60">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">Suggested join columns</span>
-                  <span className="text-xs text-muted-foreground">– click to apply</span>
+              <div className="bg-muted/50 border-border/60 mb-6 rounded-xl border p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Sparkles className="text-primary h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    Suggested join columns
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    – click to apply
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {joinSuggestions.slice(0, 3).map((suggestion, idx) => (
                     <button
                       key={idx}
                       type="button"
-                      className="group flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-border bg-card hover:bg-primary/10 hover:border-primary/50 transition-colors cursor-pointer"
+                      className="border-border bg-card hover:bg-primary/10 hover:border-primary/50 group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
                       onClick={() => applyJoinSuggestion(suggestion)}
                     >
-                      <span className="font-medium text-foreground group-hover:text-primary">
+                      <span className="text-foreground group-hover:text-primary font-medium">
                         {suggestion.leftColumn}
                       </span>
                       <span className="text-muted-foreground">↔</span>
-                      <span className="font-medium text-foreground group-hover:text-primary">
+                      <span className="text-foreground group-hover:text-primary font-medium">
                         {suggestion.rightColumn}
                       </span>
                       <Badge
-                        variant={
-                          suggestion.confidence === "high"
-                            ? "default"
-                            : suggestion.confidence === "medium"
-                              ? "secondary"
-                              : "outline"
-                        }
-                        className="text-[10px] px-1.5 ml-1"
+                        variant={getConfidenceBadgeVariant(
+                          suggestion.confidence,
+                        )}
+                        className="ml-1 px-1.5 text-[10px]"
                       >
                         {suggestion.confidence}
                       </Badge>
@@ -585,7 +618,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                     {baseFields.map((field) => (
                       <SelectItem key={field.id} value={field.id}>
                         {field.name}
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="text-muted-foreground ml-2 text-xs">
                           ({field.type})
                         </span>
                       </SelectItem>
@@ -607,7 +640,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                     {joinFields.map((field) => (
                       <SelectItem key={field.id} value={field.id}>
                         {field.name}
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="text-muted-foreground ml-2 text-xs">
                           ({field.type})
                         </span>
                       </SelectItem>
@@ -621,9 +654,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 <Select
                   value={joinType}
                   onValueChange={(value) =>
-                    setJoinType(
-                      value as "inner" | "left" | "right" | "outer"
-                    )
+                    setJoinType(value as "inner" | "left" | "right" | "outer")
                   }
                 >
                   <SelectTrigger id="join-type">
@@ -632,25 +663,25 @@ export default function JoinConfigurePage({ params }: PageProps) {
                   <SelectContent>
                     <SelectItem value="inner">
                       Inner
-                      <span className="ml-2 text-xs text-muted-foreground">
+                      <span className="text-muted-foreground ml-2 text-xs">
                         (only matching rows)
                       </span>
                     </SelectItem>
                     <SelectItem value="left">
                       Left
-                      <span className="ml-2 text-xs text-muted-foreground">
+                      <span className="text-muted-foreground ml-2 text-xs">
                         (all base + matching)
                       </span>
                     </SelectItem>
                     <SelectItem value="right">
                       Right
-                      <span className="ml-2 text-xs text-muted-foreground">
+                      <span className="text-muted-foreground ml-2 text-xs">
                         (matching + all join)
                       </span>
                     </SelectItem>
                     <SelectItem value="outer">
                       Outer
-                      <span className="ml-2 text-xs text-muted-foreground">
+                      <span className="text-muted-foreground ml-2 text-xs">
                         (all rows from both)
                       </span>
                     </SelectItem>
@@ -669,17 +700,17 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
           {/* Preview Result */}
           {canJoin && (
-            <Surface elevation="raised" className="p-6 rounded-2xl">
-              <div className="flex items-center justify-between mb-4">
+            <Surface elevation="raised" className="rounded-2xl p-6">
+              <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Preview Result</h2>
                 {isComputingPreview && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="text-muted-foreground flex items-center gap-2 text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Computing preview...
                   </div>
                 )}
                 {!isComputingPreview && previewResult && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-muted-foreground text-sm">
                     {previewResult.rows.length} rows
                     {previewResult.rows.length >= PREVIEW_ROW_LIMIT &&
                       ` (showing first ${PREVIEW_ROW_LIMIT})`}
@@ -689,25 +720,26 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 )}
               </div>
 
-              {!isComputingPreview && previewResult ? (
+              {/* Preview result or placeholder */}
+              {!isComputingPreview && previewResult && (
                 <>
                   {/* Legend for column colors */}
-                  <div className="flex items-center gap-4 mb-3 text-xs">
+                  <div className="mb-3 flex items-center gap-4 text-xs">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded bg-blue-600" />
+                      <div className="h-3 w-3 rounded bg-blue-600" />
                       <span className="text-muted-foreground">
                         From {baseTableInfo?.table.name ?? "base table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded bg-emerald-600" />
+                      <div className="h-3 w-3 rounded bg-emerald-600" />
                       <span className="text-muted-foreground">
                         From {joinTableInfo?.table.name ?? "join table"}
                       </span>
                     </div>
                   </div>
                   <div
-                    className="border border-border/60 rounded-xl overflow-hidden"
+                    className="border-border/60 overflow-hidden rounded-xl border"
                     style={{ maxHeight: 300 }}
                   >
                     <DataFrameTable
@@ -717,13 +749,14 @@ export default function JoinConfigurePage({ params }: PageProps) {
                     />
                   </div>
                 </>
-              ) : !isComputingPreview && !previewResult ? (
-                <div className="flex items-center justify-center h-40 text-muted-foreground">
+              )}
+              {!isComputingPreview && !previewResult && (
+                <div className="text-muted-foreground flex h-40 items-center justify-center">
                   {error
                     ? "Unable to generate preview"
                     : "Select join columns to see preview"}
                 </div>
-              ) : null}
+              )}
 
               {!isComputingPreview &&
                 previewResult &&
@@ -778,20 +811,20 @@ function TablePreviewSection({
   }, [dataFrame]);
 
   return (
-    <Surface elevation="raised" className="rounded-2xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-border/60">
+    <Surface elevation="raised" className="overflow-hidden rounded-2xl">
+      <div className="border-border/60 border-b px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide">
               {title}
             </p>
             <p className="font-semibold">{table.name}</p>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {rowCount.toLocaleString()} rows · {colCount} columns
           </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-muted-foreground mt-1 text-xs">
           Click a column header to select it for joining
         </p>
       </div>
@@ -805,7 +838,7 @@ function TablePreviewSection({
             compact
           />
         ) : (
-          <div className="flex items-center justify-center h-40 text-muted-foreground">
+          <div className="text-muted-foreground flex h-40 items-center justify-center">
             No data available
           </div>
         )}

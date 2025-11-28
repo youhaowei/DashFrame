@@ -90,7 +90,7 @@ export const create = mutation({
       v.literal("string"),
       v.literal("number"),
       v.literal("date"),
-      v.literal("boolean")
+      v.literal("boolean"),
     ),
     isIdentifier: v.optional(v.boolean()),
     isReference: v.optional(v.boolean()),
@@ -138,8 +138,8 @@ export const update = mutation({
         v.literal("string"),
         v.literal("number"),
         v.literal("date"),
-        v.literal("boolean")
-      )
+        v.literal("boolean"),
+      ),
     ),
     isIdentifier: v.optional(v.boolean()),
     isReference: v.optional(v.boolean()),
@@ -169,7 +169,8 @@ export const update = mutation({
     const updates: Record<string, unknown> = {};
     if (args.name !== undefined) updates.name = args.name;
     if (args.type !== undefined) updates.type = args.type;
-    if (args.isIdentifier !== undefined) updates.isIdentifier = args.isIdentifier;
+    if (args.isIdentifier !== undefined)
+      updates.isIdentifier = args.isIdentifier;
     if (args.isReference !== undefined) updates.isReference = args.isReference;
 
     await ctx.db.patch(args.id, updates);
@@ -223,11 +224,11 @@ export const batchCreate = mutation({
           v.literal("string"),
           v.literal("number"),
           v.literal("date"),
-          v.literal("boolean")
+          v.literal("boolean"),
         ),
         isIdentifier: v.optional(v.boolean()),
         isReference: v.optional(v.boolean()),
-      })
+      }),
     ),
   },
   handler: async (ctx, args) => {

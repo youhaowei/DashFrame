@@ -59,15 +59,13 @@ export function SectionList({
     <section className={cn("space-y-3", className)}>
       <h4
         className={cn(
-          "text-sm font-medium text-muted-foreground",
-          titleClassName
+          "text-muted-foreground text-sm font-medium",
+          titleClassName,
         )}
       >
         {title}
       </h4>
-      <div className={cn("grid gap-3", contentClassName)}>
-        {children}
-      </div>
+      <div className={cn("grid gap-3", contentClassName)}>{children}</div>
       {emptyMessage && !React.Children.count(children) && (
         <p className="text-muted-foreground text-sm">{emptyMessage}</p>
       )}

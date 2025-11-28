@@ -11,9 +11,12 @@ import {
   type ColumnFiltersState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef } from "react";
 import type { DataFrame, Field } from "@dashframe/dataframe";
 import { cn } from "../lib/utils";
+
+/** Highlight variant for columns */
+type HighlightVariant = "primary" | "base" | "join";
 
 /**
  * Per-column configuration for customizing individual columns
@@ -26,7 +29,7 @@ export interface ColumnConfig {
   /** Custom cell formatter function */
   format?: (value: unknown) => string;
   /** Visual highlight - true for primary color, or specify variant */
-  highlight?: boolean | "primary" | "base" | "join";
+  highlight?: boolean | HighlightVariant;
   /** Hide this column */
   hidden?: boolean;
   /** Custom width (default: minmax(120px, 1fr)) */
@@ -136,15 +139,6 @@ export function DataFrameTable({
     return map;
   }, [columnConfigs]);
 
-  // Get formatter for a column
-  const getFormatter = useCallback(
-    (columnName: string) => {
-      const config = configMap.get(columnName);
-      return config?.format || defaultFormatValue;
-    },
-    [configMap]
-  );
-
   // Build columns from Field definitions (modern) or deprecated columns field (legacy)
   const tableColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
     let columnDefs: { name: string; type?: string }[] = [];
@@ -220,7 +214,9 @@ export function DataFrameTable({
       .map((col) => {
         const meta = col.meta as { width?: number | string } | undefined;
         if (meta?.width) {
-          return typeof meta.width === "number" ? `${meta.width}px` : meta.width;
+          return typeof meta.width === "number"
+            ? `${meta.width}px`
+            : meta.width;
         }
         return "minmax(120px, 1fr)";
       })
@@ -254,14 +250,18 @@ export function DataFrameTable({
             <div key={headerGroup.id} className="contents">
               {headerGroup.headers.map((header) => {
                 const meta = header.column.columnDef.meta as
-                  | { align?: string; highlight?: boolean | "primary" | "base" | "join" }
+                  | {
+                      align?: string;
+                      highlight?: boolean | "primary" | "base" | "join";
+                    }
                   | undefined;
                 const highlight = meta?.highlight;
                 const isHighlighted = !!highlight;
-                const highlightVariant = typeof highlight === "string" ? highlight : "primary";
+                const highlightVariant =
+                  typeof highlight === "string" ? highlight : "primary";
                 const headerValue = flexRender(
                   header.column.columnDef.header,
-                  header.getContext()
+                  header.getContext(),
                 );
                 const headerString = header.column.id;
                 const isClickable = !!onHeaderClick;
@@ -281,8 +281,12 @@ export function DataFrameTable({
                       cellPadding,
                       fontSize,
                       isHighlighted && highlightHeaderStyles[highlightVariant],
-                      isClickable && !isHighlighted && "cursor-pointer hover:bg-muted/80",
-                      isClickable && isHighlighted && "cursor-pointer opacity-90 hover:opacity-100"
+                      isClickable &&
+                        !isHighlighted &&
+                        "hover:bg-muted/80 cursor-pointer",
+                      isClickable &&
+                        isHighlighted &&
+                        "cursor-pointer opacity-90 hover:opacity-100",
                     )}
                     title={headerString}
                     onClick={
@@ -296,7 +300,7 @@ export function DataFrameTable({
                         className={cn(
                           "flex items-center",
                           header.column.getCanSort() &&
-                            "hover:text-foreground cursor-pointer select-none gap-2"
+                            "hover:text-foreground cursor-pointer select-none gap-2",
                         )}
                         onClick={
                           !isClickable
@@ -343,16 +347,20 @@ export function DataFrameTable({
               >
                 {row.getVisibleCells().map((cell) => {
                   const meta = cell.column.columnDef.meta as
-                    | { align?: string; highlight?: boolean | "primary" | "base" | "join" }
+                    | {
+                        align?: string;
+                        highlight?: boolean | "primary" | "base" | "join";
+                      }
                     | undefined;
                   const highlight = meta?.highlight;
                   const isHighlighted = !!highlight;
-                  const highlightVariant = typeof highlight === "string" ? highlight : "primary";
+                  const highlightVariant =
+                    typeof highlight === "string" ? highlight : "primary";
                   const align = meta?.align || "left";
 
                   const cellValue = flexRender(
                     cell.column.columnDef.cell,
-                    cell.getContext()
+                    cell.getContext(),
                   );
 
                   // Get raw value for tooltip
@@ -378,7 +386,7 @@ export function DataFrameTable({
                         isHighlighted && highlightCellStyles[highlightVariant],
                         isClickable && "cursor-pointer",
                         align === "right" && "text-right",
-                        align === "center" && "text-center"
+                        align === "center" && "text-center",
                       )}
                       title={tooltipText}
                       onClick={
@@ -387,7 +395,7 @@ export function DataFrameTable({
                               onCellClick(
                                 cell.column.id,
                                 rawValue,
-                                virtualRow.index
+                                virtualRow.index,
                               )
                           : undefined
                       }

@@ -1,9 +1,18 @@
 "use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@dashframe/ui";
-import { DataPickerContent, type DataPickerContentProps } from "./DataPickerContent";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@dashframe/ui";
+import {
+  DataPickerContent,
+  type DataPickerContentProps,
+} from "./DataPickerContent";
 
-interface DataPickerModalProps extends Omit<DataPickerContentProps, "onCancel"> {
+interface DataPickerModalProps
+  extends Omit<DataPickerContentProps, "onCancel"> {
   /**
    * Whether the modal is open
    */

@@ -1,9 +1,12 @@
-import type { VisualizationType, VisualizationEncoding, Insight } from "../stores/types";
+import type {
+  VisualizationType,
+  VisualizationEncoding,
+  Insight,
+} from "../stores/types";
 import {
   analyzeDataFrame,
   type EnhancedDataFrame,
   type Field,
-  type ColumnAnalysis,
 } from "@dashframe/dataframe";
 
 /**
@@ -11,6 +14,7 @@ import {
  * Uses column categorization to make intelligent defaults.
  * Prefers metrics over raw fields for Y-axis when available.
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: intelligent axis selection based on chart type, column analysis, and heuristics
 export function autoSelectEncoding(
   type: VisualizationType,
   dataFrame: EnhancedDataFrame,
@@ -22,7 +26,7 @@ export function autoSelectEncoding(
   const analysis = analyzeDataFrame(dataFrame, fields);
 
   // Get metric names if insight is provided
-  const metricNames = new Set(insight?.metrics?.map(m => m.name) || []);
+  const metricNames = new Set(insight?.metrics?.map((m) => m.name) || []);
 
   // Helper to check if column exists in analysis
   const columnExists = (colName: string | undefined) =>
@@ -87,7 +91,9 @@ export function autoSelectEncoding(
 
         // PRIORITY 3: Fallback to any numerical column
         if (!yColumn) {
-          yColumn = analysis.find((a) => a.category === "numerical")?.columnName;
+          yColumn = analysis.find(
+            (a) => a.category === "numerical",
+          )?.columnName;
         }
       }
     }
