@@ -62,7 +62,7 @@
   "name": "@dashframe/web",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "convex deploy --cmd 'next build'",
     "clean": "rm -rf .next *.tsbuildinfo",
     "dev": "FORCE_COLOR=1 next dev",
     "format": "prettier --check .",
