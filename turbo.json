@@ -9,6 +9,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "../../convex/**"],
       "outputs": ["dist/**", "build/**", ".next/**"],
       "env": [
         "NEXT_PUBLIC_CONVEX_URL",
