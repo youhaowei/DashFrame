@@ -700,36 +700,58 @@ export function InsightConfigureTab({
     : preview?.sampleSize ?? 0;
   const columnCount = (insight.joins?.length ? joinPreviewColumns.length : previewFields.length) + visibleMetrics.length;
 
-  // Build field map from preview fields (includes joined columns if present)
+  // Build field map from preview fields (use joined columns when joins exist)
   const fieldMap = useMemo<
     Record<string, { id: string; name: string; type: string }>
   >(() => {
     const map: Record<string, { id: string; name: string; type: string }> = {};
-    previewFields.forEach((f) => {
+    const fieldsToUse = insight.joins?.length ? joinPreviewColumns : previewFields;
+    fieldsToUse.forEach((f) => {
       map[f.name] = { id: f.id, name: f.name, type: f.type };
     });
     return map;
-  }, [previewFields]);
+  }, [previewFields, joinPreviewColumns, insight.joins?.length]);
 
   // Generate chart suggestions (only for unconfigured state)
+  // Uses joined data when joins exist to suggest charts across all tables
   const suggestions = useMemo<ChartSuggestion[]>(() => {
-    if (isConfigured || !rawPreview) return [];
+    // Check if we have joins and joined preview data
+    const hasJoins = !!(insight.joins?.length && onDemandJoinPreview);
 
-    // Use active DataFrame (joined if available, otherwise base table)
+    // Need either rawPreview (no joins) or onDemandJoinPreview (with joins)
+    if (isConfigured || (!rawPreview && !hasJoins)) return [];
+
+    // Use active DataFrame for metadata (joined if available, otherwise base table)
     const sourceFrame = getDataFrame(activeDataFrameId ?? "");
-    if (!sourceFrame) return [];
+    if (!sourceFrame && !hasJoins) return [];
 
     try {
+      // Build preview data from joined data when available, otherwise use raw preview
+      const previewData = hasJoins
+        ? {
+            fieldIds: onDemandJoinPreview.columns.map((c) => c.id),
+            columns: onDemandJoinPreview.columns.map((c) => ({
+              name: c.columnName ?? c.name,
+              type: c.type,
+            })),
+            rows: onDemandJoinPreview.rows,
+          }
+        : rawPreview!.dataFrame;
+
       const previewEnhanced = {
         metadata: {
           id: "preview",
           name: insight.name,
           source: { insightId: insightId.toString() },
           timestamp: Date.now(),
-          rowCount: sourceFrame.metadata.rowCount,
-          columnCount: sourceFrame.metadata.columnCount,
+          rowCount: hasJoins
+            ? onDemandJoinPreview.rowCount
+            : sourceFrame?.metadata.rowCount ?? 0,
+          columnCount: hasJoins
+            ? onDemandJoinPreview.columns.length
+            : sourceFrame?.metadata.columnCount ?? 0,
         },
-        data: rawPreview.dataFrame,
+        data: previewData,
       };
 
       // Create a minimal insight object for suggestions
@@ -759,6 +781,7 @@ export function InsightConfigureTab({
   }, [
     isConfigured,
     rawPreview,
+    onDemandJoinPreview,
     insight,
     insightId,
     fieldMap,
