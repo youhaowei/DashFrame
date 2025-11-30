@@ -691,9 +691,14 @@ export function InsightConfigureTab({
     ? joinedAggregatedPreview
     : aggregatedPreview;
 
-  const rowCount = preview?.rowCount ?? 0;
-  const sampleSize = preview?.sampleSize ?? 0;
-  const columnCount = previewFields.length + visibleMetrics.length;
+  // Use joined preview row count when joins exist, otherwise use base preview
+  const rowCount = insight.joins?.length
+    ? onDemandJoinPreview?.rowCount ?? 0
+    : preview?.rowCount ?? 0;
+  const sampleSize = insight.joins?.length
+    ? Math.min(20, onDemandJoinPreview?.rowCount ?? 0)
+    : preview?.sampleSize ?? 0;
+  const columnCount = (insight.joins?.length ? joinPreviewColumns.length : previewFields.length) + visibleMetrics.length;
 
   // Build field map from preview fields (includes joined columns if present)
   const fieldMap = useMemo<
@@ -1149,13 +1154,14 @@ export function InsightConfigureTab({
                 <span>{dataSourceTypeLabel}</span>
               </div>
             </div>
-            {preview ? (
+            {(onDemandJoinPreview ?? preview) ? (
               <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 260 }}>
                   <table className="w-full border-separate border-spacing-0 text-sm">
                     <thead className="bg-card sticky top-0 z-10">
                       <tr>
-                        {previewFields.map((field) => (
+                        {/* Use joinPreviewColumns when joins exist, otherwise previewFields */}
+                        {(insight.joins?.length ? joinPreviewColumns : previewFields).map((field) => (
                           <th
                             key={field.id}
                             className="text-muted-foreground px-3 py-2 text-left text-xs font-semibold"
@@ -1174,9 +1180,13 @@ export function InsightConfigureTab({
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.dataFrame.rows.map((row, idx) => (
+                      {/* Use onDemandJoinPreview.rows when joins exist, otherwise preview.dataFrame.rows */}
+                      {(insight.joins?.length && onDemandJoinPreview
+                        ? onDemandJoinPreview.rows
+                        : preview?.dataFrame.rows ?? []
+                      ).map((row, idx) => (
                         <tr key={idx} className="border-b last:border-0">
-                          {previewFields.map((field) => (
+                          {(insight.joins?.length ? joinPreviewColumns : previewFields).map((field) => (
                             <td
                               key={field.id}
                               className="whitespace-nowrap px-3 py-2 text-xs"
