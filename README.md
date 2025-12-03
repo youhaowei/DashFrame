@@ -135,45 +135,32 @@ DashFrame supports importing data directly from Notion databases:
 
 ## License
 
-DashFrame is **source-available**.
+DashFrame is MIT licensed.
 
 You are welcome to:
 
-- use it locally,
-- view the code,
-- modify it,
-- experiment,
-- and build on top of it for personal or non-commercial purposes.
+- use it locally or in production,
+- view and modify the code,
+- fork and redistribute it,
+- and build commercial or open-source products with it.
 
-**Commercial use is not permitted** without an additional license.
-
-This includes:
-
-- hosting DashFrame as a service,
-- selling dashboards or analytics built directly from the software,
-- using DashFrame as part of a commercial SaaS or enterprise offering.
-
-If you're interested in a commercial license or partnership, reach out at  
-📧 **wei@youhao.me**
-
-See the full license in the [`LICENSE`](./LICENSE) file.
+The only requirement is to include the copyright notice and MIT license
+in copies or substantial portions of the software. See the full text in
+the [`LICENSE`](./LICENSE) file.
 
 ### FAQ
 
 **Can I run DashFrame locally for my personal projects or learning?**  
-Yes — personal and non-commercial internal use is allowed.
+Yes — the MIT License permits personal and educational use.
 
-**Can I use DashFrame at my company?**  
-Yes, as long as you do **not** charge for it, resell it, or include it in a commercial product or hosted service.
+**Can I use DashFrame at my company or in commercial products?**  
+Yes — commercial use is allowed under the MIT License.
 
 **Can I host DashFrame or offer it as SaaS?**  
-Not without a commercial license. The source-available license prohibits hosting or offering DashFrame as a service.
+Yes. You can host, resell, or integrate it, provided you keep the MIT license and copyright notice and comply with any third-party API terms.
 
 **Can I fork the project?**  
-Yes, you may fork and modify the code, but the same non-commercial rules apply.
+Yes. MIT allows forking and redistribution as long as the license and copyright notice remain.
 
-**Why not MIT or Apache?**  
-The project is early-stage, and this license protects against early commercial clones while still allowing developers to use and explore the software.
-
-**Will DashFrame ever switch to MIT/BSL/open-core/etc.?**  
-Possibly! As the project grows, the licensing model may evolve to support wider community adoption and commercial hosting options.
+**Do I need to attribute DashFrame?**  
+MIT requires preserving the copyright notice and license. Additional attribution is appreciated but not required.

@@ -1,43 +1,21 @@
-DashFrame Source-Available License
-Version 1.1 — 2025
+MIT License
 
 Copyright (c) 2025 Youhao Wei
 
-Permission is hereby granted to any person obtaining a copy of this software
-and associated documentation files (the "Software"), to use, copy, view,
-modify, and run the Software for personal, educational, research, or
-non-commercial internal purposes, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. No Commercial Use.
-   You may NOT use the Software, or any modified version of the Software,
-   to offer any product or service for which you charge a fee, collect
-   payment, receive commercial benefit, or that is used in a commercial
-   product or SaaS offering, without express written permission from
-   the copyright holder.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-2. Public Hosting and Managed Services.
-   You may host or provide the Software as a publicly accessible service
-   **only if the service is completely free to end users** AND includes
-   clear attribution to the DashFrame project.
-
-   Any hosting or service that charges fees, collects payments, or provides
-   commercial benefit (including paid tiers, enterprise plans, or usage-based
-   billing) is prohibited without express written permission from the
-   copyright holder.
-
-3. No Trademark Use.
-   This license does not grant you any rights to use the names "DashFrame",
-   "DashFrame Cloud", or any related project branding for commercial or
-   promotional purposes.
-
-4. Redistribution.
-   You may share or redistribute the Software in source form only if this
-   license is included and unmodified.
-
-5. No Warranty.
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-
-For commercial licensing or partnership inquiries, please contact:
-wei (at) youhao.me
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
