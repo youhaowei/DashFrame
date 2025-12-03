@@ -1,1 +1,0 @@
-export { AnonymousAuthInitializer } from "./AnonymousAuthInitializer";

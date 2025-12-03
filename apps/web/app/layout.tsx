@@ -8,8 +8,6 @@ import { Navigation } from "@/components/navigation";
 import { StoreHydration } from "@/components/providers/StoreHydration";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
-import { ConvexClientProvider } from "./ConvexClientProvider";
-import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 
 export const metadata: Metadata = {
   title: "DashFrame",
@@ -22,24 +20,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ConvexAuthNextjsServerProvider>
-      <html lang="en" suppressHydrationWarning>
-        <body
-          className="bg-background text-foreground"
-          suppressHydrationWarning
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className="bg-background text-foreground"
+        suppressHydrationWarning
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
         >
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <PostHogProvider>
-              <PostHogPageView />
-              <ConvexClientProvider>
-                <TooltipProvider>
-                  <TRPCProvider>
-                    <StoreHydration>
+          <PostHogProvider>
+            <PostHogPageView />
+            <TooltipProvider>
+              <TRPCProvider>
+                <StoreHydration>
                       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                         <div
                           className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(147,197,253,0.55),transparent_60%)] opacity-80 blur-3xl dark:opacity-60"
@@ -67,15 +63,13 @@ export default function RootLayout({
                           </div>
                         </main>
                       </div>
-                      <Toaster />
-                    </StoreHydration>
-                  </TRPCProvider>
-                </TooltipProvider>
-              </ConvexClientProvider>
-            </PostHogProvider>
-          </ThemeProvider>
-        </body>
-      </html>
-    </ConvexAuthNextjsServerProvider>
+                  <Toaster />
+                </StoreHydration>
+              </TRPCProvider>
+            </TooltipProvider>
+          </PostHogProvider>
+        </ThemeProvider>
+      </body>
+    </html>
   );
 }
