@@ -2,230 +2,56 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
-import type { TopLevelSpec } from "vega-lite";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
-import type { Visualization } from "@/lib/stores/types";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { DataFrameTable } from "@dashframe/ui";
 import { VegaChart } from "./VegaChart";
-
-// StandardType is not exported from vega-lite's main module
-type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
+import { buildVegaSpec } from "@/lib/visualizations/spec-builder";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
-// Helper to get CSS variable color value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-  return value || "#000000";
-}
-
-// Get theme-aware Vega-Lite config
-function getVegaThemeConfig() {
-  return {
-    background: getCSSColor("--color-card"),
-    view: {
-      stroke: getCSSColor("--color-border"),
-      strokeWidth: 1,
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    title: {
-      color: getCSSColor("--color-foreground"),
-      font: "inherit",
-    },
-  };
-}
-
-function buildVegaSpec(
-  viz: Visualization,
-  dataFrame: EnhancedDataFrame,
-): TopLevelSpec {
-  const { visualizationType, encoding } = viz;
-
-  // Common spec properties
-  const commonSpec = {
-    $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: dataFrame.data.rows },
-    width: "container" as const,
-    height: 400,
-    config: getVegaThemeConfig(),
-  };
-
-  // If no encoding is set, use defaults
-  const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
-  const y =
-    encoding?.y ||
-    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns?.[1]?.name ||
-    "y";
-
-  switch (visualizationType) {
-    case "bar":
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "line":
-      return {
-        ...commonSpec,
-        mark: "line" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "scatter":
-      return {
-        ...commonSpec,
-        mark: "point" as const,
-        encoding: {
-          x: {
-            field: x,
-            type: (encoding?.xType || "quantitative") as StandardType,
-          },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-          ...(encoding?.size && {
-            size: { field: encoding.size, type: "quantitative" as const },
-          }),
-        },
-      };
-
-    case "area":
-      return {
-        ...commonSpec,
-        mark: "area" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    default:
-      // Fallback to bar chart
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-        },
-      };
-  }
-}
-
-export function VisualizationDisplay() {
+export function VisualizationDisplay({ visualizationId }: { visualizationId?: string }) {
   const [isMounted] = useState(() => typeof window !== "undefined");
   const [visibleRows, setVisibleRows] = useState<number>(10);
   const [activeTab, setActiveTab] = useState<string>("both");
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  const activeId = useVisualizationsStore((state) => state.activeId);
+  const activeIdStore = useVisualizationsStore((state) => state.activeId);
+  const activeId = visualizationId || activeIdStore;
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );
   const dataFramesMap = useDataFramesStore((state) => state.dataFrames);
 
   // Watch container size changes to detect available space for "Show Both" mode
+  // Table takes max 40% of container height
   useEffect(() => {
     if (!containerRef.current || !headerRef.current) {
-      console.log("Refs not ready:", {
-        container: !!containerRef.current,
-        header: !!headerRef.current,
-      });
       return;
     }
-
-    console.log("Setting up ResizeObserver");
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const containerHeight = entry.contentRect.height;
-        // Measure actual header height from DOM
-        const headerHeight = headerRef.current?.offsetHeight || 100;
-        const chartHeight = 400; // Chart height from Vega spec
-        const tabContentPadding = 12; // mt-3 on TabsContent
-        const chartBottomPadding = 8; // pb-2 on chart container
-        const spacing = 40; // Additional spacing for borders, table wrapper padding, etc.
+        const headerHeight = headerRef.current?.offsetHeight || 60;
+        const contentPadding = 20; // mt-3 + gap
 
-        const availableForTable =
-          containerHeight -
-          headerHeight -
-          chartHeight -
-          tabContentPadding -
-          chartBottomPadding -
-          spacing;
-        const rowHeight = 30; // Compact row height
-        const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
+        // Table gets max 40% of the available content area
+        const availableContentHeight = containerHeight - headerHeight - contentPadding;
+        const maxTableHeight = Math.floor(availableContentHeight * 0.4);
 
-        // Debug logging
-        console.log("Space calculation:", {
-          containerHeight,
-          headerHeight,
-          availableForTable,
-          calculatedVisibleRows,
-          canShowBoth: calculatedVisibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH,
-        });
+        const rowHeight = 36; // Row height including header
+        const tableHeaderHeight = 40; // Table header row
+        const calculatedVisibleRows = Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight);
 
-        setVisibleRows(calculatedVisibleRows);
+        setVisibleRows(Math.max(0, calculatedVisibleRows));
       }
     });
 
     observer.observe(containerRef.current);
     return () => {
-      console.log("Cleaning up ResizeObserver");
       observer.disconnect();
     };
   }, [activeId]);
@@ -346,24 +172,25 @@ export function VisualizationDisplay() {
           </div>
           <div className="flex items-center gap-3">
             <Toggle
-              variant="default"
+              variant="outline"
+              size="sm"
               value={activeTab}
               onValueChange={setActiveTab}
               className="shrink-0"
               options={[
                 {
                   value: "chart",
-                  icon: <BarChart3 className="h-4 w-4" />,
+                  icon: <BarChart3 className="h-3.5 w-3.5" />,
                   label: "Chart",
                 },
                 {
                   value: "table",
-                  icon: <TableIcon className="h-4 w-4" />,
-                  label: "Data Table",
+                  icon: <TableIcon className="h-3.5 w-3.5" />,
+                  label: "Table",
                 },
                 {
                   value: "both",
-                  icon: <Layers className="h-4 w-4" />,
+                  icon: <Layers className="h-3.5 w-3.5" />,
                   label: "Both",
                   disabled: !canShowBoth,
                   tooltip: bothTooltip,
@@ -391,14 +218,14 @@ export function VisualizationDisplay() {
       )}
 
       {activeTab === "both" && (
-        <div className="mt-3 flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 px-4 pb-2">
+        <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Chart takes remaining space (at least 60%) */}
+          <div className="min-h-0 flex-1 px-4">
             <VegaChart spec={vegaSpec!} />
           </div>
-          <div className="min-h-0 flex-1">
-            <Surface elevation="inset" className="h-full">
-              <DataFrameTable dataFrame={dataFrame.data} />
-            </Surface>
+          {/* Table sticks to bottom, max 40% height */}
+          <div className="flex max-h-[40%] shrink-0 flex-col">
+            <DataFrameTable dataFrame={dataFrame.data} className="min-h-0 flex-1" />
           </div>
         </div>
       )}
