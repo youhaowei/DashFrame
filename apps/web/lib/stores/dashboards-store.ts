@@ -106,7 +106,12 @@ export const useDashboardsStore = create<DashboardsState & DashboardsActions>()(
             ...value.state,
             dashboards: Array.from(value.state.dashboards.entries()),
           };
-          localStorage.setItem(name, JSON.stringify({ state }));
+          try {
+            localStorage.setItem(name, JSON.stringify({ state }));
+          } catch (e) {
+            // Handle QuotaExceededError or other storage errors gracefully
+            console.error("Failed to save dashboards to localStorage:", e);
+          }
         },
         removeItem: (name) => localStorage.removeItem(name),
       },
