@@ -1,14 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Vega-Lite specs use dynamic types */
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { join as joinDataFrames, type DataFrame } from "@dashframe/dataframe";
+import type { DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import {
   Button,
   Card,
@@ -28,8 +30,11 @@ import {
   ItemList,
   JoinTypeIcon,
   getJoinTypeLabel,
+  VirtualTable,
+  type VirtualTableColumnConfig,
   type ListItem,
 } from "@dashframe/ui";
+import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import {
   LuDatabase,
   LuPlus,
@@ -53,7 +58,17 @@ import type {
   DataSource,
   InsightMetric,
 } from "@/lib/stores/types";
-import type { UUID, Field as LocalField, Metric } from "@dashframe/dataframe";
+import type { UUID, Field as LocalField, Metric, ColumnType } from "@dashframe/dataframe";
+import { cleanTableNameForDisplay } from "@dashframe/dataframe";
+
+/** Column-like structure used in preview tables */
+type PreviewColumn = {
+  id: string;
+  name: string;
+  columnName?: string;
+  type: string;
+  _isJoined?: boolean;
+};
 
 /**
  * Helper to check if a field ID matches a column name in join preview
@@ -149,14 +164,41 @@ export function InsightConfigureTab({
   const router = useRouter();
 
   // Local stores
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  const getDataFrameEntry = useDataFramesStore((state) => state.getEntry);
   const createVisualizationLocal = useVisualizationsStore(
     (state) => state.create,
   );
   const updateInsightLocal = useInsightsStore((state) => state.updateInsight);
 
+  // Load source DataFrame data asynchronously from IndexedDB
+  // Use Infinity to load all rows - aggregations need complete data for accurate results
+  const { data: sourceDataFrameData, isLoading: isLoadingSourceData } = useDataFrameData(
+    dataTable?.dataFrameId,
+    { limit: Infinity }
+  );
+
+  // Pagination hook for VirtualTable - enables efficient browsing of large datasets
+  const {
+    fetchData: fetchPreviewData,
+    totalCount: previewTotalCount,
+    isReady: isPreviewReady,
+  } = useDataFramePagination(dataTable?.dataFrameId);
+
+  // DuckDB connection for join computation
+  const { connection: duckDBConnection, isInitialized: isDuckDBReady } = useDuckDB();
+  const getDataFrame = useDataFramesStore((state) => state.getDataFrame);
+
   // Local state
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
+  const [suggestionSeed, setSuggestionSeed] = useState(0);
+
+  // State for DuckDB-computed joined data
+  const [joinedPreviewData, setJoinedPreviewData] = useState<{
+    rows: DataFrameRow[];
+    columns: Array<{ name: string; type?: string; _isJoined?: boolean }>;
+    totalCount: number;
+  } | null>(null);
+  const [isLoadingJoinedData, setIsLoadingJoinedData] = useState(false);
 
   // Data sources (for join metadata)
   const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
@@ -213,11 +255,11 @@ export function InsightConfigureTab({
           (field) => field.id === join.joinOn.joinedField,
         );
 
-        // Get row count from DataFrame if available
-        const joinedDataFrame = joinTable?.dataFrameId
-          ? getDataFrame(joinTable.dataFrameId)
+        // Get row count from DataFrame entry metadata if available
+        const joinedDataFrameEntry = joinTable?.dataFrameId
+          ? getDataFrameEntry(joinTable.dataFrameId)
           : undefined;
-        const joinRowCount = joinedDataFrame?.metadata.rowCount ?? 0;
+        const joinRowCount = joinedDataFrameEntry?.rowCount ?? 0;
 
         return {
           id: join.id,
@@ -236,7 +278,7 @@ export function InsightConfigureTab({
           sourceType: getSourceTypeLabel(joinSource?.type),
         };
       }),
-    [insight.joins, dataSources, baseFieldById, getDataFrame],
+    [insight.joins, dataSources, baseFieldById, getDataFrameEntry],
   );
 
   // Fields to display in Join preview
@@ -272,6 +314,171 @@ export function InsightConfigureTab({
 
     return combined;
   }, [allTableFields, insight.joins, joinTableDetails]);
+
+  // Effect to compute joined data using DuckDB when joins exist
+  useEffect(() => {
+    if (!insight.joins?.length) {
+      setJoinedPreviewData(null);
+      return;
+    }
+
+    if (!duckDBConnection || !isDuckDBReady) {
+      return;
+    }
+
+    if (!dataTable?.dataFrameId) {
+      return;
+    }
+
+    // Wait for base table to be loaded into DuckDB (via pagination hook)
+    // This prevents "Table does not exist" errors from race conditions
+    if (!isPreviewReady) {
+      return;
+    }
+
+    const computeJoinedData = async () => {
+      setIsLoadingJoinedData(true);
+
+      // dataTable.dataFrameId is verified non-null by the guard above
+      const baseDataFrameId = dataTable.dataFrameId!;
+
+      try {
+        // Base table should already be loaded by useDataFramePagination
+        const baseDataFrame = getDataFrame(baseDataFrameId);
+        if (!baseDataFrame) {
+          console.error("Base DataFrame not found");
+          setIsLoadingJoinedData(false);
+          return;
+        }
+
+        // Base table is already loaded via useDataFramePagination (isPreviewReady guard)
+        const baseTableName = `df_${baseDataFrameId.replace(/-/g, '_')}`;
+
+        // Get base column names
+        const baseColNames = fields
+          .filter(f => !f.name.startsWith('_'))
+          .map(f => f.columnName ?? f.name);
+
+        // Process each join
+        let currentTableSQL = baseTableName;
+        const allJoinColNames = new Set<string>();
+
+        // Get base table display name for column prefixing (cleaned of UUIDs)
+        const baseDisplayName = cleanTableNameForDisplay(dataTable.name);
+
+        for (const join of insight.joins ?? []) {
+          const joinDetail = joinTableDetails.find(j => j.id === join.id);
+          if (!joinDetail?.joinTable?.dataFrameId) continue;
+
+          // Load join table into DuckDB
+          const joinDataFrame = getDataFrame(joinDetail.joinTable.dataFrameId);
+          if (!joinDataFrame) continue;
+
+          // Load and trigger ensureLoaded() by calling sql() on the QueryBuilder
+          const joinQueryBuilder = await joinDataFrame.load(duckDBConnection);
+          await joinQueryBuilder.sql(); // This triggers the actual table creation in DuckDB
+          const joinTableName = `df_${joinDetail.joinTable.dataFrameId.replace(/-/g, '_')}`;
+
+          // Get join table display name for column prefixing (cleaned of UUIDs)
+          const joinDisplayName = cleanTableNameForDisplay(joinDetail.joinTable.name);
+
+          // Get join column info
+          const baseField = fields.find(f => f.id === join.joinOn.baseField);
+          const joinField = joinDetail.joinFields.find((f: LocalField) => f.id === join.joinOn.joinedField);
+
+          if (!baseField || !joinField) continue;
+
+          const leftColName = baseField.columnName ?? baseField.name;
+          const rightColName = joinField.columnName ?? joinField.name;
+
+          // Get column lists from join table
+          const joinColNames = joinDetail.joinFields
+            .filter((f: LocalField) => !f.name.startsWith('_'))
+            .map((f: LocalField) => f.columnName ?? f.name);
+
+          // Build SELECT clause with table name prefixes for duplicates
+          const selectParts: string[] = [];
+
+          for (const col of baseColNames) {
+            const isDuplicate = joinColNames.includes(col) && col !== leftColName;
+            if (isDuplicate) {
+              // Use table name prefix: "accounts.acctid" instead of "acctid_base"
+              selectParts.push(`base."${col}" AS "${baseDisplayName}.${col}"`);
+            } else {
+              selectParts.push(`base."${col}"`);
+            }
+          }
+
+          // Build lowercase set of base column names for case-insensitive duplicate detection
+          const baseColNamesLower = new Set(baseColNames.map(c => c.toLowerCase()));
+
+          for (const col of joinColNames) {
+            // Check for duplicate using case-insensitive comparison
+            // DuckDB treats column names case-insensitively, so "acctId" and "acctid" conflict
+            const isDuplicate = baseColNamesLower.has(col.toLowerCase());
+            if (isDuplicate) {
+              // Use table name prefix: "opportunities.acctid" instead of "acctid_1"
+              const prefixedName = `${joinDisplayName}.${col}`;
+              selectParts.push(`j."${col}" AS "${prefixedName}"`);
+              allJoinColNames.add(prefixedName);
+            } else {
+              selectParts.push(`j."${col}"`);
+              allJoinColNames.add(col);
+            }
+          }
+
+          const joinTypeSQL = (join.joinType ?? 'inner').toUpperCase();
+
+          currentTableSQL = `(
+            SELECT ${selectParts.join(', ')}
+            FROM ${currentTableSQL} AS base
+            ${joinTypeSQL} JOIN ${joinTableName} AS j
+            ON base."${leftColName}" = j."${rightColName}"
+          )`;
+        }
+
+        // Get total count
+        const countSQL = `SELECT COUNT(*) as count FROM ${currentTableSQL}`;
+        const countResult = await duckDBConnection.query(countSQL);
+        const totalCount = Number(countResult.toArray()[0]?.count ?? 0);
+
+        // Get preview rows (limit 100 for display)
+        const previewSQL = `SELECT * FROM ${currentTableSQL} LIMIT 100`;
+        console.log("[InsightConfigureTab] Join SQL:", previewSQL);
+        const previewResult = await duckDBConnection.query(previewSQL);
+        const rows = previewResult.toArray() as DataFrameRow[];
+
+        // Build columns from result
+        const columns = rows.length > 0
+          ? Object.keys(rows[0])
+              .filter(key => !key.startsWith('_'))
+              .map(name => ({
+                name,
+                _isJoined: allJoinColNames.has(name),
+              }))
+          : [];
+
+        setJoinedPreviewData({ rows, columns, totalCount });
+      } catch (err) {
+        console.error("Failed to compute joined data:", err);
+        setJoinedPreviewData(null);
+      } finally {
+        setIsLoadingJoinedData(false);
+      }
+    };
+
+    computeJoinedData();
+  }, [
+    insight.joins,
+    duckDBConnection,
+    isDuckDBReady,
+    dataTable?.dataFrameId,
+    dataTable.name,
+    fields,
+    joinTableDetails,
+    getDataFrame,
+    isPreviewReady,
+  ]);
 
   // Compute selected fields (for configured state)
   // Filters previewFields by the IDs stored in insight.baseTable.selectedFields
@@ -325,23 +532,21 @@ export function InsightConfigureTab({
   const activeDataFrameId = insight.dataFrameId ?? dataTable?.dataFrameId;
 
   // Raw preview for unconfigured state (shows source data directly)
+  // Display is limited for the inline HTML table; VirtualTable handles full dataset via async mode
+  const PREVIEW_TABLE_LIMIT = 100;
   const rawPreview = useMemo(() => {
     if (isConfigured) return null;
-    if (!activeDataFrameId) return null;
+    if (!sourceDataFrameData) return null;
 
-    const sourceFrame = getDataFrame(activeDataFrameId);
-    if (!sourceFrame) return null;
-
-    // Return first 50 rows of raw data
     return {
       dataFrame: {
-        ...sourceFrame.data,
-        rows: sourceFrame.data.rows.slice(0, 50),
+        fieldIds: [] as string[],
+        columns: sourceDataFrameData.columns,
+        rows: sourceDataFrameData.rows.slice(0, PREVIEW_TABLE_LIMIT),
       },
-      rowCount: sourceFrame.data.rows.length,
-      sampleSize: Math.min(50, sourceFrame.data.rows.length),
+      rowCount: sourceDataFrameData.rows.length,
     };
-  }, [isConfigured, activeDataFrameId, getDataFrame]);
+  }, [isConfigured, sourceDataFrameData]);
 
   // Aggregated preview for configured state
   // NOTE: This is computed AFTER onDemandJoinPreview is available, but we can't use it
@@ -349,9 +554,7 @@ export function InsightConfigureTab({
   const aggregatedPreview = useMemo<PreviewResult | null>(() => {
     if (!isConfigured) return null;
     if (!dataTable?.dataFrameId) return null;
-
-    const sourceDataFrameEnhanced = getDataFrame(dataTable.dataFrameId);
-    if (!sourceDataFrameEnhanced) return null;
+    if (!sourceDataFrameData) return null;
 
     try {
       // Convert local types to expected format for compute function
@@ -387,10 +590,19 @@ export function InsightConfigureTab({
         })),
       };
 
+      // Convert LoadedDataFrameData to DataFrameData format (add empty fieldIds)
+      const sourceDataForCompute = {
+        fieldIds: [] as string[],
+        columns: sourceDataFrameData.columns,
+        rows: sourceDataFrameData.rows,
+      };
+
+      // Use Infinity for maxRows to compute all aggregated groups (not just first 50)
       return computeInsightPreview(
         insightForCompute as any,
         dataTableForCompute as any,
-        sourceDataFrameEnhanced.data,
+        sourceDataForCompute,
+        Infinity,
       );
     } catch (error) {
       console.error("Failed to compute preview:", error);
@@ -403,7 +615,7 @@ export function InsightConfigureTab({
     dataTable,
     fields,
     insightMetrics,
-    getDataFrame,
+    sourceDataFrameData,
   ]);
 
   // Use appropriate preview based on state
@@ -411,16 +623,16 @@ export function InsightConfigureTab({
 
   // Join preview data - computed ON-DEMAND from source tables using join config
   // This ensures we always show raw joined data, not aggregated data
+  // Returns displayRows (limited for HTML table) and allRows (full data for aggregations)
   const onDemandJoinPreview = useMemo(() => {
     // Get base table DataFrame
     if (!dataTable?.dataFrameId) return null;
-    const baseFrame = getDataFrame(dataTable.dataFrameId);
-    if (!baseFrame) return null;
+    if (!sourceDataFrameData) return null;
 
     // Helper to build columns from fields
     const buildColumnsFromFields = (
       tableFields: LocalField[],
-    ): NonNullable<DataFrame["columns"]> => {
+    ): DataFrameColumn[] => {
       return tableFields
         .filter((f) => !f.name.startsWith("_"))
         .map((f) => ({
@@ -431,11 +643,11 @@ export function InsightConfigureTab({
 
     // If no joins, just return base table data
     if (!insight.joins?.length) {
-      const baseColumns =
-        baseFrame.data.columns ?? buildColumnsFromFields(fields);
+      const baseColumns: DataFrameColumn[] =
+        sourceDataFrameData.columns ?? buildColumnsFromFields(fields);
       const columns = baseColumns
-        .filter((col) => !col.name.startsWith("_"))
-        .map((col) => ({
+        .filter((col: DataFrameColumn) => !col.name.startsWith("_"))
+        .map((col: DataFrameColumn) => ({
           id: col.name,
           name: col.name,
           columnName: col.name,
@@ -445,85 +657,63 @@ export function InsightConfigureTab({
 
       return {
         columns,
-        rows: baseFrame.data.rows.slice(0, 20),
-        rowCount: baseFrame.data.rows.length,
+        rows: sourceDataFrameData.rows.slice(0, PREVIEW_TABLE_LIMIT), // For HTML table display
+        allRows: sourceDataFrameData.rows, // Full data for aggregations
+        rowCount: sourceDataFrameData.rows.length,
       };
     }
 
-    // Compute the join on-demand from source tables
-    let currentData: DataFrame = {
-      ...baseFrame.data,
-      columns: baseFrame.data.columns ?? buildColumnsFromFields(fields),
-    };
+    // Build base columns first
+    const baseColumns = (sourceDataFrameData.columns ?? buildColumnsFromFields(fields))
+      .filter((col: DataFrameColumn) => !col.name.startsWith("_"))
+      .map((col: DataFrameColumn) => ({
+        id: col.name,
+        name: col.name,
+        columnName: col.name,
+        type: col.type,
+        _isJoined: false,
+      }));
 
-    // Apply each join in sequence
-    for (const join of insight.joins) {
-      // Find the joined table's DataFrame
-      const joinDetail = joinTableDetails.find((j) => j.id === join.id);
-      if (!joinDetail?.joinTable?.dataFrameId) continue;
+    // NOTE: Client-side joins have been removed. Joins are now computed via DuckDB SQL.
+    // For now, when joins exist, we show base columns + join columns (without actual join computation).
+    // TODO: Implement DuckDB-based join preview using QueryBuilder
+    if (insight.joins.length > 0) {
+      // Collect all join table columns for display
+      const allJoinColumns: typeof baseColumns = [];
+      for (const join of insight.joins) {
+        const joinDetail = joinTableDetails.find((j) => j.id === join.id);
+        if (!joinDetail) continue;
 
-      const joinFrame = getDataFrame(joinDetail.joinTable.dataFrameId);
-      if (!joinFrame) continue;
-
-      // Get join column names
-      const baseField = fields.find((f) => f.id === join.joinOn.baseField);
-      const joinedField = joinDetail.joinFields.find(
-        (f: LocalField) => f.id === join.joinOn.joinedField,
-      );
-      if (!baseField || !joinedField) continue;
-
-      const leftColName = baseField.columnName ?? baseField.name;
-      const rightColName = joinedField.columnName ?? joinedField.name;
-
-      // Build join table columns
-      const joinColumns =
-        joinFrame.data.columns ?? buildColumnsFromFields(joinDetail.joinFields);
-
-      // Perform the join
-      try {
-        currentData = joinDataFrames(
-          currentData,
-          { ...joinFrame.data, columns: joinColumns },
-          {
-            on: { left: leftColName, right: rightColName },
-            how: join.joinType,
-            suffixes: { left: "_base", right: "_join" },
-          },
-        );
-      } catch (err) {
-        console.error("On-demand join failed:", err);
-        // Continue with what we have
+        for (const field of joinDetail.joinFields) {
+          allJoinColumns.push({
+            id: field.id,
+            name: field.name,
+            columnName: field.columnName ?? field.name,
+            type: field.type,
+            _isJoined: true,
+          });
+        }
       }
+
+      // Return base columns + join columns (without actual join computation)
+      return {
+        columns: [...baseColumns, ...allJoinColumns],
+        rows: sourceDataFrameData.rows.slice(0, PREVIEW_TABLE_LIMIT), // For HTML table display
+        allRows: sourceDataFrameData.rows, // Full data for aggregations
+        rowCount: sourceDataFrameData.rows.length,
+      };
     }
 
-    // Build column metadata for the preview
-    const columns = (currentData.columns ?? [])
-      .filter((col) => !col.name.startsWith("_"))
-      .map((col) => {
-        // Determine if column is from a joined table
-        const baseName = col.name.replace(/_base$/, "").replace(/_join$/, "");
-        const isFromBase = allTableFields.some(
-          (f) =>
-            (f.columnName ?? f.name) === col.name ||
-            (f.columnName ?? f.name) === baseName,
-        );
-        return {
-          id: col.name,
-          name: col.name,
-          columnName: col.name,
-          type: col.type,
-          _isJoined: !isFromBase || col.name.endsWith("_join"),
-        };
-      });
-
+    // No joins - return base table data
     return {
-      columns,
-      rows: currentData.rows.slice(0, 20),
-      rowCount: currentData.rows.length,
+      columns: baseColumns,
+      rows: sourceDataFrameData.rows.slice(0, PREVIEW_TABLE_LIMIT), // For HTML table display
+      allRows: sourceDataFrameData.rows, // Full data for aggregations
+      rowCount: sourceDataFrameData.rows.length,
     };
   }, [
     dataTable?.dataFrameId,
-    getDataFrame,
+    sourceDataFrameData,
     fields,
     insight.joins,
     joinTableDetails,
@@ -533,30 +723,59 @@ export function InsightConfigureTab({
   // Use the on-demand computed columns for join preview
   const joinPreviewColumns = onDemandJoinPreview?.columns ?? previewFields;
 
-  // Compute aggregated result using the on-demand joined data
-  // This properly handles joined column names (with suffixes like _join)
+  // Compute aggregated result using the DuckDB-computed joined data
+  // This properly handles joined column names (with table prefixes like tablename.column)
   // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex aggregation with multiple data transformations
   const joinedAggregatedPreview = useMemo<PreviewResult | null>(() => {
     if (!isConfigured) return null;
-    if (!onDemandJoinPreview) return null;
+    if (!joinedPreviewData) return null;
 
-    // Get the selected fields from joinPreviewColumns
+    // Get the selected fields
     const selectedFieldIds = insight.baseTable?.selectedFields ?? [];
     if (selectedFieldIds.length === 0) return null;
 
-    // Map selected field IDs to actual column names from the join preview
-    // Using the helper function to reduce nesting depth
-    const selectedColumns = joinPreviewColumns.filter((col) =>
-      selectedFieldIds.some((id) =>
-        matchFieldIdToColumn(id, col, fields, joinTableDetails),
-      ),
-    );
+    // Map selected field IDs to actual column names from the DuckDB join result
+    // We need to match field IDs to the new column names which may have table prefixes
+    const selectedColumns: Array<{ name: string; type: string }> = [];
+
+    for (const fieldId of selectedFieldIds) {
+      // First check base table fields
+      const baseField = fields.find(f => f.id === fieldId);
+      if (baseField) {
+        const colName = baseField.columnName ?? baseField.name;
+        // Check if this column exists in joinedPreviewData (might be prefixed)
+        const matchingCol = joinedPreviewData.columns.find(c =>
+          c.name === colName || c.name.endsWith(`.${colName}`)
+        );
+        if (matchingCol) {
+          selectedColumns.push({ name: matchingCol.name, type: matchingCol.type ?? 'unknown' });
+          continue;
+        }
+      }
+
+      // Check joined table fields
+      for (const joinDetail of joinTableDetails) {
+        const joinField = joinDetail.joinFields.find((f: LocalField) => f.id === fieldId);
+        if (joinField) {
+          const colName = joinField.columnName ?? joinField.name;
+          // Check if this column exists in joinedPreviewData (might be prefixed with table name)
+          const matchingCol = joinedPreviewData.columns.find(c =>
+            c.name === colName || c.name.endsWith(`.${colName}`)
+          );
+          if (matchingCol) {
+            selectedColumns.push({ name: matchingCol.name, type: matchingCol.type ?? 'unknown' });
+            break;
+          }
+        }
+      }
+    }
 
     if (selectedColumns.length === 0) return null;
 
-    // Group rows by selected columns
+    // Group rows by selected columns - using the preview rows (limited to 100)
+    // Note: For accurate aggregation, this should be computed in DuckDB
     const groupMap = new Map<string, Record<string, unknown>[]>();
-    for (const row of onDemandJoinPreview.rows) {
+    for (const row of joinedPreviewData.rows) {
       const keyParts = selectedColumns.map((col) => {
         const value = row[col.name];
         return value != null ? String(value) : "__NULL__";
@@ -573,7 +792,7 @@ export function InsightConfigureTab({
     for (const [, groupRows] of groupMap) {
       const row: Record<string, unknown> = {};
 
-      // Add group key values (using field.name as output key)
+      // Add group key values
       for (const col of selectedColumns) {
         row[col.name] = groupRows[0][col.name];
       }
@@ -583,19 +802,17 @@ export function InsightConfigureTab({
         if (metric.name.startsWith("_")) continue;
 
         // Find the actual column name in the joined data
-        // The metric.columnName might be the original name, but joined data has suffixes
+        // The metric.columnName might need table prefix matching
         let actualColumnName: string | undefined = metric.columnName;
-        const possibleNames = [
-          metric.columnName,
-          `${metric.columnName}_join`,
-          `${metric.columnName}_base`,
-        ];
 
-        for (const name of possibleNames) {
-          if (joinPreviewColumns.some((c) => c.name === name)) {
-            actualColumnName = name;
-            break;
-          }
+        // Check for exact match or table-prefixed match
+        const matchingCol = joinedPreviewData.columns.find(c =>
+          c.name === metric.columnName ||
+          c.name.endsWith(`.${metric.columnName}`)
+        );
+
+        if (matchingCol) {
+          actualColumnName = matchingCol.name;
         }
 
         let value = 0;
@@ -678,8 +895,7 @@ export function InsightConfigureTab({
     };
   }, [
     isConfigured,
-    onDemandJoinPreview,
-    joinPreviewColumns,
+    joinedPreviewData,
     insight.baseTable?.selectedFields,
     fields,
     joinTableDetails,
@@ -692,12 +908,10 @@ export function InsightConfigureTab({
     : aggregatedPreview;
 
   // Use joined preview row count when joins exist, otherwise use base preview
+  // Now uses DuckDB-computed joinedPreviewData for accurate row count
   const rowCount = insight.joins?.length
-    ? onDemandJoinPreview?.rowCount ?? 0
+    ? joinedPreviewData?.totalCount ?? 0
     : preview?.rowCount ?? 0;
-  const sampleSize = insight.joins?.length
-    ? Math.min(20, onDemandJoinPreview?.rowCount ?? 0)
-    : preview?.sampleSize ?? 0;
   const columnCount = (insight.joins?.length ? joinPreviewColumns.length : previewFields.length) + visibleMetrics.length;
 
   // Build field map from preview fields (use joined columns when joins exist)
@@ -705,54 +919,45 @@ export function InsightConfigureTab({
     Record<string, { id: string; name: string; type: string }>
   >(() => {
     const map: Record<string, { id: string; name: string; type: string }> = {};
-    const fieldsToUse = insight.joins?.length ? joinPreviewColumns : previewFields;
-    fieldsToUse.forEach((f) => {
-      map[f.name] = { id: f.id, name: f.name, type: f.type };
-    });
+
+    // Use DuckDB-computed joined columns when available, otherwise use previewFields
+    if (insight.joins?.length && joinedPreviewData) {
+      joinedPreviewData.columns.forEach((col) => {
+        map[col.name] = { id: col.name, name: col.name, type: col.type ?? 'unknown' };
+      });
+    } else {
+      previewFields.forEach((f: PreviewColumn) => {
+        map[f.name] = { id: f.id, name: f.name, type: f.type };
+      });
+    }
+
     return map;
-  }, [previewFields, joinPreviewColumns, insight.joins?.length]);
+  }, [previewFields, joinedPreviewData, insight.joins?.length]);
 
   // Generate chart suggestions (only for unconfigured state)
   // Uses joined data when joins exist to suggest charts across all tables
   const suggestions = useMemo<ChartSuggestion[]>(() => {
-    // Check if we have joins and joined preview data
-    const hasJoins = !!(insight.joins?.length && onDemandJoinPreview);
+    // Check if we have joins and DuckDB-computed joined preview data
+    const hasJoins = !!(insight.joins?.length && joinedPreviewData);
 
-    // Need either rawPreview (no joins) or onDemandJoinPreview (with joins)
+    // Need either rawPreview (no joins) or joinedPreviewData (with joins)
     if (isConfigured || (!rawPreview && !hasJoins)) return [];
 
-    // Use active DataFrame for metadata (joined if available, otherwise base table)
-    const sourceFrame = getDataFrame(activeDataFrameId ?? "");
-    if (!sourceFrame && !hasJoins) return [];
+    // Check if we have data available (either base table data or join preview)
+    if (!sourceDataFrameData && !hasJoins) return [];
 
     try {
       // Build preview data from joined data when available, otherwise use raw preview
       const previewData = hasJoins
         ? {
-            fieldIds: onDemandJoinPreview.columns.map((c) => c.id),
-            columns: onDemandJoinPreview.columns.map((c) => ({
-              name: c.columnName ?? c.name,
-              type: c.type,
+            fieldIds: joinedPreviewData.columns.map((c) => c.name),
+            columns: joinedPreviewData.columns.map((c) => ({
+              name: c.name,
+              type: (c.type ?? 'unknown') as ColumnType,
             })),
-            rows: onDemandJoinPreview.rows,
+            rows: joinedPreviewData.rows,
           }
         : rawPreview!.dataFrame;
-
-      const previewEnhanced = {
-        metadata: {
-          id: "preview",
-          name: insight.name,
-          source: { insightId: insightId.toString() },
-          timestamp: Date.now(),
-          rowCount: hasJoins
-            ? onDemandJoinPreview.rowCount
-            : sourceFrame?.metadata.rowCount ?? 0,
-          columnCount: hasJoins
-            ? onDemandJoinPreview.columns.length
-            : sourceFrame?.metadata.columnCount ?? 0,
-        },
-        data: previewData,
-      };
 
       // Create a minimal insight object for suggestions
       const insightForSuggestions = {
@@ -767,12 +972,15 @@ export function InsightConfigureTab({
         updatedAt: insight.updatedAt,
       };
 
+      // suggestCharts expects DataFrameData (plain object with rows/columns)
+      // Pass suggestionSeed for variety when user clicks "Regenerate"
       return suggestCharts(
         insightForSuggestions as any,
-        previewEnhanced,
+        previewData,
         fieldMap as any,
         3,
         columnTableMap,
+        suggestionSeed,
       );
     } catch (error) {
       console.error("Failed to generate suggestions:", error);
@@ -781,14 +989,14 @@ export function InsightConfigureTab({
   }, [
     isConfigured,
     rawPreview,
-    onDemandJoinPreview,
+    joinedPreviewData,
     insight,
     insightId,
     fieldMap,
     dataTable,
-    activeDataFrameId,
-    getDataFrame,
+    sourceDataFrameData,
     columnTableMap,
+    suggestionSeed,
   ]);
 
   // Get data source type label
@@ -828,9 +1036,7 @@ export function InsightConfigureTab({
   // Handle creating a chart from suggestion (LOCAL ONLY - no Convex)
   const handleCreateChart = async (suggestion: ChartSuggestion) => {
     if (!activeDataFrameId) return;
-
-    const sourceDataFrameEnhanced = getDataFrame(activeDataFrameId);
-    if (!sourceDataFrameEnhanced) return;
+    if (!sourceDataFrameData) return;
 
     // Parse encoding to determine fields and metrics for the insight
     const encoding = suggestion.encoding;
@@ -949,30 +1155,35 @@ export function InsightConfigureTab({
       })),
     };
 
-    // Compute aggregated data
-    const aggregatedDataFrame = computeInsightDataFrame(
+    // Compute aggregated data (convert LoadedDataFrameData to DataFrameData format)
+    const sourceDataForCompute = {
+      fieldIds: [] as string[],
+      columns: sourceDataFrameData.columns,
+      rows: sourceDataFrameData.rows,
+    };
+    const aggregatedData = computeInsightDataFrame(
       computeInsight as any,
       computeDataTable as any,
-      sourceDataFrameEnhanced.data,
+      sourceDataForCompute,
     );
 
-    // Store the computed DataFrame
-    const createFromInsight = useDataFramesStore.getState().createFromInsight;
-    const computedDataFrameId = createFromInsight(
-      insightId,
-      `${suggestion.title} Data`,
-      aggregatedDataFrame,
-    );
+    console.log("Computed aggregated data:", {
+      rows: aggregatedData.rows.length,
+      columns: aggregatedData.columns?.length ?? 0,
+    });
 
-    // Link the computed DataFrame to the insight
-    const setInsightDataFrame = useInsightsStore.getState().setInsightDataFrame;
-    setInsightDataFrame(insightId, computedDataFrameId);
-
-    // Create visualization using the computed (aggregated) DataFrame
-    // The encoding now references actual column names in the aggregated data
+    // Create visualization using the SOURCE DataFrame (not a computed one)
+    // The visualization will reference the insight for aggregation configuration.
+    // When rendering, the chart spec uses the pre-computed aggregated data from
+    // the insight's preview, which is computed on-the-fly from the source DataFrame.
+    //
+    // Architecture:
+    // - Source DataFrame: Raw data stored in IndexedDB
+    // - Insight: Configuration for dimensions, metrics, filters
+    // - Visualization: Points to source DataFrame + insight for live computation
     const vizId = createVisualizationLocal(
       {
-        dataFrameId: computedDataFrameId,
+        dataFrameId: activeDataFrameId, // Use SOURCE DataFrame, not a fake computed ID
         insightId: insightId,
       },
       suggestion.title,
@@ -1080,11 +1291,11 @@ export function InsightConfigureTab({
 
   // Build ItemList items for Data Sources section
   const dataSourceItems = useMemo<ListItem[]>(() => {
-    // Get base table metadata
-    const baseDataFrame = dataTable?.dataFrameId
-      ? getDataFrame(dataTable.dataFrameId)
+    // Get base table metadata from entry
+    const baseDataFrameEntry = dataTable?.dataFrameId
+      ? getDataFrameEntry(dataTable.dataFrameId)
       : undefined;
-    const baseRowCount = baseDataFrame?.metadata.rowCount ?? 0;
+    const baseRowCount = baseDataFrameEntry?.rowCount ?? 0;
     const baseFieldCount = allTableFields.length;
 
     // Base table item (always first)
@@ -1118,7 +1329,7 @@ export function InsightConfigureTab({
     dataTable,
     allTableFields,
     joinTableDetails,
-    getDataFrame,
+    getDataFrameEntry,
     handleRemoveJoin,
   ]);
 
@@ -1168,7 +1379,11 @@ export function InsightConfigureTab({
                   Data preview
                 </p>
                 <p className="text-foreground text-sm">
-                  First {sampleSize || rowCount} rows
+                  {/* Use joined data count when joins exist, otherwise base table count */}
+                  {(insight.joins?.length
+                    ? joinedPreviewData?.totalCount ?? 0
+                    : previewTotalCount || rowCount
+                  ).toLocaleString()} rows
                 </p>
               </div>
               <div className="text-muted-foreground flex items-center gap-3 text-xs">
@@ -1177,66 +1392,68 @@ export function InsightConfigureTab({
                 <span>{dataSourceTypeLabel}</span>
               </div>
             </div>
-            {(onDemandJoinPreview ?? preview) ? (
-              <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
-                <div className="overflow-auto" style={{ maxHeight: 260 }}>
-                  <table className="w-full border-separate border-spacing-0 text-sm">
-                    <thead className="bg-card sticky top-0 z-10">
-                      <tr>
-                        {/* Use joinPreviewColumns when joins exist, otherwise previewFields */}
-                        {(insight.joins?.length ? joinPreviewColumns : previewFields).map((field) => (
-                          <th
-                            key={field.id}
-                            className="text-muted-foreground px-3 py-2 text-left text-xs font-semibold"
-                          >
-                            {field.name}
-                          </th>
-                        ))}
-                        {visibleMetrics.map((metric) => (
-                          <th
-                            key={metric.id}
-                            className="text-primary px-3 py-2 text-left text-xs font-semibold"
-                          >
-                            {metric.name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* Use onDemandJoinPreview.rows when joins exist, otherwise preview.dataFrame.rows */}
-                      {(insight.joins?.length && onDemandJoinPreview
-                        ? onDemandJoinPreview.rows
-                        : preview?.dataFrame.rows ?? []
-                      ).map((row, idx) => (
-                        <tr key={idx} className="border-b last:border-0">
-                          {(insight.joins?.length ? joinPreviewColumns : previewFields).map((field) => (
-                            <td
-                              key={field.id}
-                              className="whitespace-nowrap px-3 py-2 text-xs"
-                            >
-                              {formatCellValue(
-                                (row as Record<string, unknown>)[
-                                  field.columnName ?? field.name
-                                ],
-                              )}
-                            </td>
-                          ))}
-                          {visibleMetrics.map((metric) => (
-                            <td
-                              key={metric.id}
-                              className="text-primary whitespace-nowrap px-3 py-2 text-xs font-medium"
-                            >
-                              {formatCellValue(
-                                (row as Record<string, unknown>)[metric.name],
-                              )}
-                            </td>
-                          ))}
-                        </tr>
+            {/* Use VirtualTable for efficient rendering of large datasets */}
+            {/* Show skeleton while data is loading */}
+            {isLoadingSourceData && !isPreviewReady && !preview ? (
+              <div className="bg-muted/20 relative overflow-hidden rounded-xl border" style={{ height: 260 }}>
+                <div className="bg-muted border-b px-3 py-2">
+                  <div className="flex gap-4">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="bg-muted-foreground/20 h-4 w-24 animate-pulse rounded" />
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2 p-3">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className="flex gap-4">
+                      {[1, 2, 3, 4].map((j) => (
+                        <div key={j} className="bg-muted-foreground/10 h-4 w-24 animate-pulse rounded" />
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  ))}
                 </div>
               </div>
+            ) : insight.joins?.length ? (
+              // Joins exist: use DuckDB-computed joined data
+              isLoadingJoinedData ? (
+                <div className="bg-muted/20 relative overflow-hidden rounded-xl border" style={{ height: 260 }}>
+                  <div className="flex h-full items-center justify-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      <span className="text-muted-foreground text-sm">Computing join...</span>
+                    </div>
+                  </div>
+                </div>
+              ) : joinedPreviewData ? (
+                <VirtualTable
+                  rows={joinedPreviewData.rows}
+                  columns={joinedPreviewData.columns.map((col) => ({
+                    name: col.name,
+                    type: col.type,
+                  }))}
+                  height={260}
+                  compact
+                />
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No data available. The data source may not have been loaded yet.
+                </p>
+              )
+            ) : isPreviewReady ? (
+              // No joins: use async mode with DuckDB pagination for full dataset browsing
+              <VirtualTable
+                onFetchData={fetchPreviewData}
+                height={260}
+                compact
+              />
+            ) : preview ? (
+              // Fallback to static preview while async mode initializes
+              <VirtualTable
+                rows={preview.dataFrame.rows}
+                columns={preview.dataFrame.columns}
+                height={260}
+                compact
+              />
             ) : (
               <p className="text-muted-foreground text-sm">
                 No data available. The data source may not have been loaded yet.
@@ -1253,13 +1470,27 @@ export function InsightConfigureTab({
                 </h3>
               </div>
               <p className="text-muted-foreground text-xs">
-                Click a suggestion to create a visualization
+                {isLoadingSourceData ? "Analyzing data..." : "Click a suggestion to create a visualization"}
               </p>
             </div>
-            <SuggestedInsights
-              suggestions={suggestions}
-              onCreateChart={handleCreateChart}
-            />
+            {isLoadingSourceData ? (
+              // Show skeleton cards while loading
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="border-border bg-card rounded-2xl border p-4 shadow-sm">
+                    <div className="bg-muted mb-3 h-32 animate-pulse rounded-xl" />
+                    <div className="bg-muted-foreground/20 mb-2 h-5 w-3/4 animate-pulse rounded" />
+                    <div className="bg-muted-foreground/10 h-4 w-1/2 animate-pulse rounded" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <SuggestedInsights
+                suggestions={suggestions}
+                onCreateChart={handleCreateChart}
+                onRegenerate={() => setSuggestionSeed((prev) => prev + 1)}
+              />
+            )}
           </section>
         </div>
 
@@ -1402,39 +1633,44 @@ export function InsightConfigureTab({
                 </p>
               </div>
               <div className="text-muted-foreground text-xs">
-                {onDemandJoinPreview?.rowCount.toLocaleString()} rows
+                {joinedPreviewData?.totalCount.toLocaleString()} rows
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            {onDemandJoinPreview ? (
+            {isLoadingJoinedData ? (
+              <div className="flex h-32 items-center justify-center">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span className="text-muted-foreground text-xs">Computing join...</span>
+                </div>
+              </div>
+            ) : joinedPreviewData ? (
               <div className="bg-muted/20 relative overflow-hidden rounded-xl border">
                 <div className="overflow-auto" style={{ maxHeight: 200 }}>
                   <table className="w-full border-separate border-spacing-0 text-sm">
                     <thead className="bg-card sticky top-0 z-10">
                       <tr>
-                        {joinPreviewColumns.map((field) => (
-                          <th key={field.id} className="text-left">
+                        {joinedPreviewData.columns.map((col) => (
+                          <th key={col.name} className="text-left">
                             <ColumnHeaderDropdown
-                              columnName={field.columnName ?? field.name}
-                              columnType={field.type}
+                              columnName={col.name}
+                              columnType={col.type ?? 'unknown'}
                             />
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {onDemandJoinPreview.rows.map((row, idx) => (
+                      {joinedPreviewData.rows.slice(0, 10).map((row, idx) => (
                         <tr key={idx} className="border-b last:border-0">
-                          {joinPreviewColumns.map((field) => (
+                          {joinedPreviewData.columns.map((col) => (
                             <td
-                              key={field.id}
+                              key={col.name}
                               className="whitespace-nowrap px-3 py-2 text-xs"
                             >
                               {formatCellValue(
-                                (row as Record<string, unknown>)[
-                                  field.columnName ?? field.name
-                                ],
+                                (row as Record<string, unknown>)[col.name],
                               )}
                             </td>
                           ))}

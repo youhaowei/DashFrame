@@ -26,7 +26,7 @@ Current MVP focuses on producing a `DataFrame` from CSV/Notion sources and rende
 - **Papaparse** for CSV parsing
 - **DuckDB-WASM** for client-side SQL query execution
 - **Mosaic vgplot** for declarative chart rendering (native DuckDB integration)
-- **Parquet** for columnar data storage in IndexedDB
+- **Arrow IPC** for columnar data storage in IndexedDB (future: Parquet for compression)
 - **IndexedDB** for persistent binary data storage (via idb-keyval)
 - **Zustand** for client-side state management (metadata + DataFrame references)
 - **tRPC** for external API calls (Notion integration)
@@ -42,7 +42,7 @@ SQL Query → DuckDB executes → vgplot renders from result
 **Full persist (CSV upload, saved data):**
 
 ```
-CSV Upload → Parquet → IndexedDB → DataFrame → DuckDB → vgplot
+CSV Upload → Arrow IPC → IndexedDB → DataFrame → DuckDB → vgplot
 ```
 
 vgplot renders directly from DuckDB query results - no intermediate storage needed for previews. DataFrame is only for persisting data across browser sessions.
@@ -125,18 +125,20 @@ DataSource → DataTable → Field/Metric
 
 ### State Split: Storage Locations
 
-| Data               | Location       | Reason                                   |
-| ------------------ | -------------- | ---------------------------------------- |
-| DataSources        | localStorage   | User-owned, local-first (future: Convex) |
-| DataTables         | localStorage   | Nested in DataSources                    |
-| Fields/Metrics     | localStorage   | Nested in DataTables                     |
-| Insights           | localStorage   | Query configurations (future: Convex)    |
-| Visualizations     | localStorage   | vgplot specs (future: Convex)            |
-| DataFrame metadata | localStorage   | Small references (id, storage location)  |
-| DataFrame data     | IndexedDB      | Large binary Parquet data (compressed)   |
-| Active entity      | URL params     | Shareable, browser history               |
-| UI state           | React useState | Ephemeral, component-local               |
-| DuckDB tables      | Memory         | Loaded on-demand by QueryBuilder         |
+| Data               | Location       | Reason                                         |
+| ------------------ | -------------- | ---------------------------------------------- |
+| DataSources        | localStorage   | User-owned, local-first (future: Convex)       |
+| DataTables         | localStorage   | Nested in DataSources                          |
+| Fields/Metrics     | localStorage   | Nested in DataTables                           |
+| Insights           | localStorage   | Query configurations (future: Convex)          |
+| Visualizations     | localStorage   | vgplot specs (future: Convex)                  |
+| DataFrame metadata | localStorage   | Small entries (id, name, insightId, rowCount)  |
+| DataFrame data     | IndexedDB      | Arrow IPC binary data (loaded via DuckDB)      |
+| Active entity      | URL params     | Shareable, browser history                     |
+| UI state           | React useState | Ephemeral, component-local                     |
+| DuckDB tables      | Memory         | Loaded on-demand from IndexedDB Arrow buffers  |
+
+**Important**: DataFrame data is stored in IndexedDB as Arrow IPC format, NOT in localStorage. This avoids the 5-10MB localStorage quota limit that would be exceeded by large CSV files.
 
 ### Convex Query Patterns
 
@@ -201,7 +203,7 @@ get(id: UUID): DataFrame {
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  SOURCE DATA (Persisted)              QUERY RESULTS (Direct)            │
 │  ───────────────────────              ──────────────────────            │
-│  CSV/Notion → Parquet → IndexedDB     SQL query → vgplot                │
+│  CSV/Notion → Arrow IPC → IndexedDB   SQL query → vgplot                │
 │            → DuckDB table             (no storage, no temp table)       │
 │            → DataFrame reference                                        │
 │                                                                         │
@@ -212,9 +214,9 @@ get(id: UUID): DataFrame {
 **Source Data (CSV, Notion)** - persisted as tables:
 
 ```
-Upload/Sync → Parquet → IndexedDB → DataFrame reference
-                                         ↓
-                              DuckDB loads as table (on-demand)
+Upload/Sync → Arrow IPC → IndexedDB → DataFrame reference
+                                           ↓
+                                DuckDB loads as table (on-demand)
 ```
 
 **Query Results** - rendered directly, no storage:
@@ -237,7 +239,7 @@ Phase 1: Discovery
 
 Phase 2: Sync
   User syncs database
-         → Fetch rows → Parquet → IndexedDB
+         → Fetch rows → Arrow IPC → IndexedDB
          → DataFrame reference
          → DuckDB table
 
@@ -272,17 +274,20 @@ localStorage (client):
   dashframe:insights       (insight configurations)
 
 IndexedDB (client):
-  dashframe:parquet:*      (Parquet binary data - actual DataFrame content)
+  dashframe:arrow:*        (Arrow IPC binary data - actual DataFrame content)
 ```
 
 **Storage Model:**
 
 - DataFrame metadata in localStorage (tiny, serializable) - **source data only**
-- Parquet in IndexedDB (compressed, columnar) - **source data only**
-- DuckDB tables for source data (loaded from Parquet on-demand)
+- Arrow IPC in IndexedDB (columnar, zero-copy load) - **source data only**
+- DuckDB tables for source data (loaded from Arrow IPC on-demand)
 - Query results render directly to vgplot (no storage)
 
 **Key Optimization:** Query results (joins, filters, aggregations) are never stored. vgplot renders directly from DuckDB query execution.
+
+**Future Enhancement - Parquet Compression:**
+Currently using Arrow IPC for fast zero-copy loading. For large datasets, Parquet would reduce IndexedDB storage by 2-5x through columnar compression. Trade-off: decompression overhead on each page load. Consider implementing when storage becomes a bottleneck.
 
 ## DataTable Schema Layers
 
@@ -492,7 +497,7 @@ Example:
 **Why DuckDB:**
 
 - 100x-1000x faster than JavaScript loops for aggregations
-- Columnar storage (Parquet) reduces memory and storage usage
+- Columnar storage (Arrow IPC) reduces memory usage
 - SQL query interface for complex transforms
 - Native integration with Mosaic vgplot for visualization
 - Runs entirely client-side (no server needed)
@@ -501,7 +506,7 @@ Example:
 
 ```
 SOURCE DATA:
-  CSV/Notion → Parquet → IndexedDB → DataFrame reference
+  CSV/Notion → Arrow IPC → IndexedDB → DataFrame reference
                                           ↓
                               DuckDB table (loaded on-demand)
 
@@ -517,7 +522,7 @@ QUERY & RENDER:
 │  SOURCE DATA (Persisted)                                        │
 │  ┌────────────────────┐          ┌────────────────────────────┐ │
 │  │ localStorage       │ ──ref──▶ │ IndexedDB                  │ │
-│  │ DataFrame metadata │          │ Parquet (source tables)    │ │
+│  │ DataFrame metadata │          │ Arrow IPC (source tables)  │ │
 │  └────────────────────┘          └────────────────────────────┘ │
 │                                            │                    │
 │                                            ▼ load on-demand     │
@@ -537,9 +542,48 @@ QUERY & RENDER:
 **Storage Locations:**
 
 - **localStorage**: Metadata (DataSources, Insights, Visualizations, DataFrame references)
-- **IndexedDB**: Parquet binary data (source tables only, compressed)
-- **DuckDB-WASM**: Tables for source data (loaded from Parquet on-demand)
+- **IndexedDB**: Arrow IPC binary data (source tables only)
+- **DuckDB-WASM**: Tables for source data (loaded from Arrow IPC on-demand)
 - **Mosaic vgplot**: Renders directly from DuckDB query results (no intermediate storage)
+
+### Async Data Loading Pattern
+
+Components access DataFrame data through the `useDataFrameData` hook, which handles async loading from IndexedDB via DuckDB:
+
+```typescript
+// Hook for async data loading
+const { data, isLoading, error } = useDataFrameData(dataFrameId);
+
+// data: LoadedDataFrameData | null (rows, columns when loaded)
+// isLoading: boolean
+// error: Error | null
+```
+
+**Key Patterns:**
+
+- **Metadata-only**: Use `getEntry(id)` or `getDataFrameEntry(id)` for display (rowCount, name, etc.)
+- **Full data**: Use `useDataFrameData(id)` hook for row/column access (triggers IndexedDB load)
+- **Store state**: `DataFrameEntry` contains metadata + storage reference, NOT inline data
+
+**Type Separation:**
+
+```typescript
+// Metadata (stored in localStorage via Zustand)
+interface DataFrameEntry extends DataFrameSerialization {
+  name: string;
+  insightId?: UUID;
+  rowCount?: number;
+  columnCount?: number;
+}
+
+// Loaded data (from IndexedDB via DuckDB)
+interface LoadedDataFrameData {
+  rows: Record<string, unknown>[];
+  columns: DataColumn[];
+}
+```
+
+This separation avoids the localStorage quota limit (~5-10MB) by storing only metadata in localStorage while large data lives in IndexedDB.
 
 ### Three-Layer Architecture
 
@@ -585,7 +629,7 @@ class DataFrame {
 
 **When DataFrame is Used:**
 
-- **Persistence**: Save data across browser sessions (Parquet in IndexedDB)
+- **Persistence**: Save data across browser sessions (Arrow IPC in IndexedDB)
 - **Sharing**: Reference data by ID across components
 - **Cloud storage**: Future S3/R2 integration
 
@@ -634,12 +678,9 @@ async function loadSourceTable(
   );
   if (exists.numRows > 0) return tableName;
 
-  // Load Parquet from IndexedDB
-  const parquetBuffer = await loadParquetFromIndexedDB(dataFrame.storage.key);
-  await db.registerFileBuffer(`${tableName}.parquet`, parquetBuffer);
-  await conn.query(
-    `CREATE TABLE ${tableName} AS SELECT * FROM '${tableName}.parquet'`,
-  );
+  // Load Arrow IPC from IndexedDB
+  const arrowBuffer = await loadArrowData(dataFrame.storage.key);
+  await conn.insertArrowFromIPCStream(arrowBuffer, { name: tableName });
 
   return tableName;
 }

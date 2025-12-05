@@ -49,8 +49,8 @@ export function VisualizationTabs({ onCreateClick }: VisualizationTabsProps) {
         label: viz.name,
         active: isActive,
         badge: visualizationLabels[viz.visualizationType] ?? "Chart",
-        metadata: frame?.metadata.rowCount
-          ? `${frame.metadata.rowCount.toLocaleString()} rows`
+        metadata: frame?.rowCount
+          ? `${frame.rowCount.toLocaleString()} rows`
           : undefined,
       };
     });

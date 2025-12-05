@@ -1,4 +1,4 @@
-import { EnhancedDataFrame, Field } from "./index";
+import type { DataFrameRow, DataFrameColumn, Field } from "./index";
 
 // Pattern detection helpers
 // eslint-disable-next-line sonarjs/slow-regex -- Email validation pattern, input is bounded
@@ -34,16 +34,27 @@ export type ColumnAnalysis = {
   pattern?: string; // Detected pattern if applicable
 };
 
+/**
+ * Analyze DataFrame rows to categorize columns and detect patterns.
+ *
+ * @param rows - Array of row data objects
+ * @param columns - Array of column definitions (used for column names if provided)
+ * @param fields - Optional field metadata for explicit categorization
+ * @returns Array of column analysis results
+ */
 export function analyzeDataFrame(
-  df: EnhancedDataFrame,
+  rows: DataFrameRow[],
+  columns?: DataFrameColumn[],
   fields?: Record<string, Field>,
 ): ColumnAnalysis[] {
-  const rows = df.data.rows;
   const rowCount = rows.length;
-  const columns = Object.keys(rows[0] || {});
+  // Get column names from columns array if provided, otherwise from first row
+  const columnNames = columns
+    ? columns.map((col) => col.name)
+    : Object.keys(rows[0] || {});
 
   // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
-  return columns.map((columnName) => {
+  return columnNames.map((columnName) => {
     const values = rows.map((row) => row[columnName]);
     const nonNullValues = values.filter((v) => v !== null && v !== undefined);
     const nullCount = rowCount - nonNullValues.length;
@@ -65,7 +76,8 @@ export function analyzeDataFrame(
     }
 
     // 2. Pattern-based ID detection (before type-based heuristics)
-    if (category === "unknown") {
+    // This check runs for ALL columns (not just unknown) to catch numeric IDs
+    if (category === "unknown" || category === "identifier") {
       const colName = columnName.toLowerCase();
       const idPatterns = [
         /_id$/, // Ends with _id (user_id, order_id)
@@ -78,11 +90,21 @@ export function analyzeDataFrame(
       // Check camelCase: ends with "Id" (capital I) - userId, orderId
       const camelCaseId = /[a-z]Id$/.test(columnName);
 
+      // Before marking as identifier, check if the values look like UUIDs
+      // UUIDs should be categorized as "uuid", not "identifier"
+      const stringValues = nonNullValues
+        .map((v) => String(v))
+        .filter((v) => v.length > 0);
+      const uuidCount = stringValues.filter(isUUID).length;
+      const isLikelyUUID =
+        stringValues.length > 0 && uuidCount >= stringValues.length * 0.8;
+
       // High uniqueness (>95%) with sufficient distinct values is also a strong ID indicator
       if (
-        idPatterns.some((pattern) => pattern.test(colName)) ||
-        camelCaseId ||
-        (uniqueness > 0.95 && cardinality > 10)
+        !isLikelyUUID &&
+        (idPatterns.some((pattern) => pattern.test(colName)) ||
+          camelCaseId ||
+          (uniqueness > 0.95 && cardinality > 10))
       ) {
         category = "identifier";
       }
@@ -99,7 +121,32 @@ export function analyzeDataFrame(
         if (type === "boolean") {
           category = "boolean";
         } else if (type === "number") {
-          category = "numerical";
+          // Check if this numeric column looks like an ID based on name
+          const colName = columnName.toLowerCase();
+          const numericIdPatterns = [
+            /id$/, // Ends with "id" (acctid, userid, orderid)
+            /_id$/, // Ends with _id
+            /^id$/, // Exactly "id"
+            /^id_/, // Starts with id_
+            /key$/, // Ends with "key"
+            /no$/, // Ends with "no" (orderno)
+            /num$/, // Ends with "num"
+            /index$/, // Ends with "index"
+            /seq$/, // Ends with "seq"
+          ];
+          const notIdPatterns = [
+            /zipcode$/, // Zip codes
+            /postcode$/, // Post codes
+            /areacode$/, // Area codes
+          ];
+          if (
+            numericIdPatterns.some((pattern) => pattern.test(colName)) &&
+            !notIdPatterns.some((pattern) => pattern.test(colName))
+          ) {
+            category = "identifier";
+          } else {
+            category = "numerical";
+          }
         } else if (
           firstValue instanceof Date ||
           (!isNaN(Date.parse(String(firstValue))) && isNaN(Number(firstValue)))

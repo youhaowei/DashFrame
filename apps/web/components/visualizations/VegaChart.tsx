@@ -12,6 +12,7 @@ type VegaChartProps = {
 
 export function VegaChart({ spec, className }: VegaChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<any>(null);
 
   useEffect(() => {
     if (!spec || !containerRef.current) return;
@@ -26,16 +27,27 @@ export function VegaChart({ spec, className }: VegaChartProps) {
       embed(container, spec, {
         actions: false,
         renderer: "canvas",
-      }).catch((error: Error) => {
-        console.error("Error rendering chart:", error);
-      });
+      })
+        .then((res) => {
+          if (!cancelled) {
+            viewRef.current = res.view;
+          }
+        })
+        .catch((error: Error) => {
+          console.error("Error rendering chart:", error);
+        });
     });
 
     return () => {
       cancelled = true;
+      if (viewRef.current) {
+        viewRef.current.finalize();
+        viewRef.current = null;
+      }
       container.innerHTML = "";
     };
   }, [spec]);
+
 
   return (
     <div

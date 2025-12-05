@@ -3,8 +3,9 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID } from "@dashframe/dataframe";
-import type { Insight, InsightExecutionType, InsightMetric } from "./types";
+import type { UUID, DataTableInfo } from "@dashframe/dataframe";
+import { Insight as InsightClass } from "@dashframe/dataframe";
+import type { Insight, InsightExecutionType, InsightMetric, DataTable, DataSource } from "./types";
 
 // ============================================================================
 // State Interface
@@ -42,6 +43,20 @@ interface InsightsActions {
   getInsight: (insightId: UUID) => Insight | undefined;
   getInsightsByDataTable: (dataTableId: UUID) => Insight[];
   getAll: () => Insight[];
+
+  /**
+   * Get an Insight class instance with resolved DataTable objects.
+   * This is the preferred method for SQL generation - the returned Insight
+   * has all the data needed for toSQL() without store access.
+   *
+   * @param insightId - The insight ID
+   * @param dataSources - Map of all data sources (from useDataSourcesStore)
+   * @returns InsightClass instance ready for toSQL(), or null if not found
+   */
+  getResolvedInsight: (
+    insightId: UUID,
+    dataSources: Map<UUID, DataSource>,
+  ) => InsightClass | null;
 
   // Clear all
   clear: () => void;
@@ -325,6 +340,67 @@ export const useInsightsStore = create<InsightsStore>()(
       // Get single Insight
       getInsight: (insightId) => {
         return get().insights.get(insightId);
+      },
+
+      // Get Insight class with resolved DataTable objects
+      getResolvedInsight: (insightId, dataSources) => {
+        const storeInsight = get().insights.get(insightId);
+        if (!storeInsight) return null;
+
+        // Helper to find DataTable by ID across all data sources
+        const findDataTable = (tableId: UUID): DataTable | null => {
+          for (const ds of dataSources.values()) {
+            const table = ds.dataTables.get(tableId);
+            if (table) return table;
+          }
+          return null;
+        };
+
+        // Helper to convert store DataTable to DataTableInfo
+        const toDataTableInfo = (table: DataTable): DataTableInfo => ({
+          id: table.id,
+          name: table.name,
+          dataFrameId: table.dataFrameId,
+          fields: table.fields.map((f) => ({
+            id: f.id,
+            name: f.name,
+            columnName: f.columnName,
+            type: f.type,
+          })),
+        });
+
+        // Resolve base table
+        const baseTable = findDataTable(storeInsight.baseTable.tableId);
+        if (!baseTable) {
+          console.error(`[getResolvedInsight] Base table not found: ${storeInsight.baseTable.tableId}`);
+          return null;
+        }
+
+        // Resolve joins (if any)
+        const resolvedJoins = (storeInsight.joins ?? []).map((join) => {
+          const joinTable = findDataTable(join.tableId);
+          if (!joinTable) {
+            throw new Error(`Join table not found: ${join.tableId}`);
+          }
+          return {
+            table: toDataTableInfo(joinTable),
+            selectedFields: join.selectedFields,
+            joinOn: join.joinOn,
+            joinType: join.joinType,
+          };
+        });
+
+        // Create and return InsightClass with resolved DataTable objects
+        return new InsightClass({
+          id: storeInsight.id,
+          name: storeInsight.name,
+          baseTable: toDataTableInfo(baseTable),
+          selectedFields: storeInsight.baseTable.selectedFields,
+          metrics: storeInsight.metrics,
+          joins: resolvedJoins,
+          // Note: Store's filters have different shape, convert if needed
+          filters: [],
+        });
       },
 
       // Get all Insights that use a specific DataTable

@@ -3,7 +3,8 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, EnhancedDataFrame } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/dataframe";
+import type { DataFrameEntry } from "./dataframes-store";
 import type {
   Visualization,
   VisualizationSource,
@@ -49,13 +50,14 @@ interface VisualizationsActions {
   setActive: (id: UUID | null) => void;
   getActive: () => Visualization | null;
 
-  // Get resolved visualization (with DataFrame)
+  // Get resolved visualization (with DataFrame entry metadata)
+  // Note: This only returns metadata, not actual data. Use useDataFrameData hook for data.
   getResolved: (
     id: UUID,
-  ) => { viz: Visualization; dataFrame: EnhancedDataFrame } | null;
+  ) => { viz: Visualization; entry: DataFrameEntry } | null;
   getActiveResolved: () => {
     viz: Visualization;
-    dataFrame: EnhancedDataFrame;
+    entry: DataFrameEntry;
   } | null;
 
   // General
@@ -236,18 +238,19 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         return visualizations.get(activeId) ?? null;
       },
 
-      // Get resolved visualization (with DataFrame)
+      // Get resolved visualization (with DataFrame entry metadata)
+      // Note: This only returns metadata, not actual data. Use useDataFrameData hook for data.
       getResolved: (id) => {
         const viz = get().visualizations.get(id);
         if (!viz) return null;
 
-        const dataFrame = useDataFramesStore
+        const entry = useDataFramesStore
           .getState()
-          .get(viz.source.dataFrameId);
+          .getEntry(viz.source.dataFrameId);
 
-        if (!dataFrame) return null;
+        if (!entry) return null;
 
-        return { viz, dataFrame };
+        return { viz, entry };
       },
 
       // Get active resolved visualization

@@ -137,10 +137,13 @@ export { Stack } from "./components/Stack";
 export { Toggle } from "./components/Toggle";
 export { Tooltip as CustomTooltip } from "./components/Tooltip";
 export {
-  DataFrameTable,
-  type DataFrameTableProps,
-  type ColumnConfig,
-} from "./components/DataFrameTable";
+  VirtualTable,
+  type VirtualTableProps,
+  type VirtualTableColumnConfig,
+  type VirtualTableColumn,
+  type FetchDataParams,
+  type FetchDataResult,
+} from "./components/VirtualTable";
 export { SectionList, type SectionListProps } from "./components/SectionList";
 export {
   ItemList,

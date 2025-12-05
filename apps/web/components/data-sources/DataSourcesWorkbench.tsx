@@ -45,7 +45,7 @@ export function DataSourcesWorkbench() {
   const deleteField = useDataSourcesStore((state) => state.deleteField);
   const addMetric = useDataSourcesStore((state) => state.addMetric);
   const deleteMetric = useDataSourcesStore((state) => state.deleteMetric);
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  const getEntry = useDataFramesStore((state) => state.getEntry);
 
   const dataSources = useMemo(
     () =>
@@ -126,10 +126,10 @@ export function DataSourcesWorkbench() {
     return dataSource.dataTables.get(selectedTableId) || null;
   }, [selectedDataSourceId, selectedTableId, dataSourcesMap]);
 
-  const selectedDataFrame = useMemo(() => {
+  const selectedDataFrameEntry = useMemo(() => {
     if (!selectedDataTable?.dataFrameId) return null;
-    return getDataFrame(selectedDataTable.dataFrameId) || null;
-  }, [selectedDataTable, getDataFrame]);
+    return getEntry(selectedDataTable.dataFrameId) || null;
+  }, [selectedDataTable, getEntry]);
 
   // Event Handlers
   const handleDeleteTable = (tableId: string) => {
@@ -232,7 +232,7 @@ export function DataSourcesWorkbench() {
         <div className="h-full overflow-hidden">
           <TableDetailPanel
             dataTable={selectedDataTable}
-            dataFrame={selectedDataFrame}
+            dataFrameEntry={selectedDataFrameEntry}
             onCreateVisualization={handleCreateVisualization}
             onEditField={handleEditField}
             onDeleteField={handleDeleteField}

@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dashframe/dataframe";
+import type { DataFrameData, DataFrameColumn } from "@dashframe/dataframe";
 import type { TopLevelSpec } from "vega-lite";
 
 export type AxisSelection = {
@@ -20,12 +20,16 @@ const toVegaType = (type: string): "quantitative" | "temporal" | "nominal" => {
   }
 };
 
+/**
+ * Build a Vega-Lite spec from a DataFrameData (plain object with rows).
+ * Used for chart previews and visualizations.
+ */
 export const buildVegaLiteSpec = (
-  dataFrame: DataFrame,
+  dataFrame: DataFrameData,
   selections: AxisSelection,
 ): TopLevelSpec | null => {
   const { x: xColumnName, y: yColumnName } = selections;
-  const columns = dataFrame.columns || [];
+  const columns: DataFrameColumn[] = dataFrame.columns || [];
   const xColumn = columns.find((column) => column.name === xColumnName);
   const yColumn = columns.find((column) => column.name === yColumnName);
 

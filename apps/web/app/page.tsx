@@ -2,11 +2,8 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/notion";
-import type { TopLevelSpec } from "vega-lite";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
 
 import {
   Card,
@@ -24,14 +21,7 @@ import {
 } from "@dashframe/ui";
 import { LuArrowLeft, LuArrowRight, LuCircleDot } from "react-icons/lu";
 
-// Dynamic import to avoid SSR issues with Vega-Lite
-const VegaChart = dynamic(
-  () =>
-    import("@/components/visualizations/VegaChart").then((mod) => ({
-      default: mod.VegaChart,
-    })),
-  { ssr: false },
-);
+import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel";
 import { DataTableList } from "@/components/data-sources/DataTableList";
 import { DataSourceList } from "@/components/data-sources/DataSourceList";
@@ -43,161 +33,8 @@ import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { DataSource, Visualization } from "@/lib/stores/types";
-
-// StandardType is not exported from vega-lite's main module
-type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
-
-// Utility: Get CSS color variable value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-}
-
-// Utility: Get Vega theme config matching app theme
-function getVegaThemeConfig() {
-  return {
-    background: getCSSColor("--color-card"),
-    view: {
-      stroke: getCSSColor("--color-border"),
-      strokeWidth: 1,
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    title: {
-      color: getCSSColor("--color-foreground"),
-      font: "inherit",
-    },
-  };
-}
-
-// Build Vega-Lite spec for preview (smaller height)
-function buildPreviewVegaSpec(
-  viz: Visualization,
-  dataFrame: EnhancedDataFrame,
-): TopLevelSpec {
-  const { visualizationType, encoding } = viz;
-
-  // Common spec properties
-  const commonSpec = {
-    $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: dataFrame.data.rows },
-    width: "container" as const,
-    height: 180, // Smaller height for preview
-    config: getVegaThemeConfig(),
-  };
-
-  // If no encoding is set, use defaults
-  const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
-  const y =
-    encoding?.y ||
-    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns?.[1]?.name ||
-    "y";
-
-  switch (visualizationType) {
-    case "bar":
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "line":
-      return {
-        ...commonSpec,
-        mark: "line" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "scatter":
-      return {
-        ...commonSpec,
-        mark: "point" as const,
-        encoding: {
-          x: {
-            field: x,
-            type: (encoding?.xType || "quantitative") as StandardType,
-          },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-          ...(encoding?.size && {
-            size: { field: encoding.size, type: "quantitative" as const },
-          }),
-        },
-      };
-
-    case "area":
-      return {
-        ...commonSpec,
-        mark: "area" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    default:
-      // Fallback to bar chart
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-        },
-      };
-  }
-}
+import type { DataSource } from "@/lib/stores/types";
 
 /**
  * Home Page
@@ -220,7 +57,6 @@ export default function HomePage() {
   const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
     state.getAll(),
   );
-  const getDataFrame = useDataFramesStore((state) => state.get);
 
   // Onboarding state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -324,18 +160,6 @@ export default function HomePage() {
       default:
         return <TableIcon className="h-5 w-5" />;
     }
-  };
-
-  // Get label for visualization type
-  const getTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      table: "Table",
-      bar: "Bar Chart",
-      line: "Line Chart",
-      scatter: "Scatter Plot",
-      area: "Area Chart",
-    };
-    return labels[type] || "Chart";
   };
 
   // Recent items (last 3)
@@ -507,40 +331,23 @@ export default function HomePage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {recentVisualizations.map((viz) => {
-                      // Get DataFrame for this visualization
-                      const dataFrameId = viz.source.dataFrameId;
-                      const dataFrame = dataFrameId
-                        ? getDataFrame(dataFrameId)
-                        : null;
-                      const isChart = viz.visualizationType !== "table";
-
-                      // Build preview element
-                      const previewElement =
-                        isChart && dataFrame ? (
-                          <VegaChart
-                            spec={buildPreviewVegaSpec(viz, dataFrame)}
+                    {recentVisualizations.map((viz) => (
+                      <ItemCard
+                        key={viz.id}
+                        preview={
+                          <VisualizationPreview
+                            visualization={viz}
+                            height={180}
+                            fallback={getTypeIcon(viz.visualizationType)}
                           />
-                        ) : (
-                          <div className="bg-muted flex h-full w-full items-center justify-center">
-                            {getTypeIcon(viz.visualizationType)}
-                          </div>
-                        );
-
-                      return (
-                        <ItemCard
-                          key={viz.id}
-                          preview={previewElement}
-                          icon={getTypeIcon(viz.visualizationType)}
-                          title={viz.name}
-                          subtitle={`Created ${new Date(viz.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-                          badge={getTypeLabel(viz.visualizationType)}
-                          onClick={() =>
-                            router.push(`/visualizations/${viz.id}`)
-                          }
-                        />
-                      );
-                    })}
+                        }
+                        title={viz.name}
+                        subtitle={`Created ${new Date(viz.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                        onClick={() =>
+                          router.push(`/visualizations/${viz.id}`)
+                        }
+                      />
+                    ))}
                   </div>
                 </div>
               )}

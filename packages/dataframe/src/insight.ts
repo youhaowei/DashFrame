@@ -1,0 +1,786 @@
+import type {
+  UUID,
+  FilterPredicate,
+  SortOrder,
+  InsightMetric,
+  JoinType,
+} from "./index";
+
+// ============================================================================
+// Resolved Types (for SQL Generation)
+// ============================================================================
+
+/**
+ * Field with resolved column name for SQL generation.
+ * Field IDs have been resolved to actual column names.
+ */
+export interface InsightField {
+  /** DuckDB table name: "df_xxx_yyy" */
+  sourceTable: string;
+  /** Actual column name: "leaddate" */
+  columnName: string;
+  /** User-friendly display name: "Lead Date" */
+  displayName: string;
+}
+
+/**
+ * Metric with resolved column name for SQL generation.
+ */
+export interface InsightMetricResolved {
+  /** Which table the column comes from: "df_xxx_yyy" */
+  sourceTable: string;
+  /** Column to aggregate (undefined for COUNT(*)) */
+  columnName?: string;
+  /** Aggregation function: "sum", "count", "avg", etc. */
+  aggregation: string;
+  /** SQL output alias: "sum_rooms" */
+  alias: string;
+  /** User-friendly display name: "Total Rooms" */
+  displayName: string;
+}
+
+/**
+ * Join with resolved column names.
+ */
+export interface InsightJoin {
+  /** DuckDB table name: "df_aaa_bbb" */
+  tableName: string;
+  /** Clean display name: "leads" */
+  displayName: string;
+  /** All column names from this table */
+  columns: string[];
+  /** Join type: "inner", "left", etc. */
+  joinType: JoinType;
+  /** Base table join key column name */
+  leftColumn: string;
+  /** Join table join key column name */
+  rightColumn: string;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Clean up table name for display in column prefixes.
+ * Removes UUID suffixes and file extensions from table names.
+ *
+ * @example
+ * cleanTableNameForDisplay("leads_710c8376-cff8-408b-a41c-332c16c48a51_1296")
+ * // → "leads"
+ *
+ * cleanTableNameForDisplay("sales_data.csv")
+ * // → "sales_data"
+ */
+export function cleanTableNameForDisplay(name: string): string {
+  // Remove file extensions
+  let cleaned = name.replace(/\.(csv|xlsx|json)$/i, "");
+
+  // Remove UUID patterns (with optional surrounding underscores/hyphens)
+  // UUID format: 8-4-4-4-12 hex chars
+  cleaned = cleaned.replace(
+    /[_-]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[_-]?/gi,
+    "",
+  );
+
+  // Remove trailing underscores and numbers (like "_1296")
+  cleaned = cleaned.replace(/[_-]\d+$/, "");
+
+  // Remove trailing/leading underscores
+  cleaned = cleaned.replace(/^_+|_+$/g, "");
+
+  // If we ended up with empty string, use original
+  return cleaned || name;
+}
+
+// ============================================================================
+// Store Interfaces
+// ============================================================================
+
+/**
+ * Field information needed for SQL generation
+ */
+export interface DataTableField {
+  id: UUID;
+  name: string;
+  columnName?: string;
+  type?: string;
+}
+
+/**
+ * DataTable information needed for SQL generation
+ */
+export interface DataTableInfo {
+  id: UUID;
+  name: string;
+  dataFrameId?: UUID;
+  fields: DataTableField[];
+}
+
+// ============================================================================
+// Insight Configuration Types
+// ============================================================================
+
+/**
+ * Configuration for Insight with DataTable objects.
+ *
+ * DataTable objects are passed directly so toSQL() can generate SQL
+ * without store access. The store's getInsight() method resolves
+ * table IDs and passes the full objects here.
+ */
+export type InsightConfiguration = {
+  id?: UUID;
+  name: string;
+
+  /** Base table with all field metadata */
+  baseTable: DataTableInfo;
+
+  /** Field IDs to include from base table */
+  selectedFields?: UUID[];
+
+  /** Metrics to compute */
+  metrics?: InsightMetric[];
+
+  /** Join configurations with full DataTable objects */
+  joins?: Array<{
+    table: DataTableInfo;
+    selectedFields: UUID[];
+    joinOn: { baseField: UUID; joinedField: UUID };
+    joinType: "inner" | "left" | "right" | "outer";
+  }>;
+
+  /** Filters to apply */
+  filters?: FilterPredicate[];
+
+  /** Explicit GROUP BY columns (if different from selectedFields) */
+  groupBy?: string[];
+
+  /** Sort order */
+  orderBy?: SortOrder[];
+
+  /** Row limit */
+  limit?: number;
+};
+
+// ============================================================================
+// Insight Class Implementation
+// ============================================================================
+
+/**
+ * Insight - Query configuration with embedded DataTable objects
+ *
+ * An Insight represents a specific analytical question or visualization configuration.
+ * DataTable objects are embedded directly, so toSQL() works without store access.
+ *
+ * Usage:
+ * ```typescript
+ * // Store resolves IDs and creates Insight with full objects
+ * const insight = insightsStore.getInsight(insightId);
+ * const sql = insight.toSQL(); // No store needed!
+ * await connection.query(sql);
+ * ```
+ */
+export class Insight {
+  #config: InsightConfiguration;
+
+  constructor(config: InsightConfiguration) {
+    // Validate required fields
+    if (!config.name) {
+      throw new Error("Insight must have a name");
+    }
+    if (!config.baseTable) {
+      throw new Error("Insight must have a baseTable");
+    }
+
+    this.#config = {
+      id: config.id || crypto.randomUUID(),
+      name: config.name,
+      baseTable: config.baseTable,
+      selectedFields: config.selectedFields || [],
+      metrics: config.metrics || [],
+      filters: config.filters || [],
+      groupBy: config.groupBy || [],
+      orderBy: config.orderBy || [],
+      limit: config.limit,
+      joins: config.joins || [],
+    };
+  }
+
+  // ============================================================================
+  // Property Accessors
+  // ============================================================================
+
+  get id(): UUID {
+    return this.#config.id!;
+  }
+
+  get name(): string {
+    return this.#config.name;
+  }
+
+  get baseTable(): DataTableInfo {
+    return this.#config.baseTable;
+  }
+
+  get selectedFields(): UUID[] {
+    return this.#config.selectedFields || [];
+  }
+
+  get metrics(): InsightMetric[] {
+    return this.#config.metrics || [];
+  }
+
+  get filters(): FilterPredicate[] {
+    return this.#config.filters || [];
+  }
+
+  get groupBy(): string[] {
+    return this.#config.groupBy || [];
+  }
+
+  get orderBy(): SortOrder[] {
+    return this.#config.orderBy || [];
+  }
+
+  get limit(): number | undefined {
+    return this.#config.limit;
+  }
+
+  get joins(): InsightConfiguration["joins"] {
+    return this.#config.joins || [];
+  }
+
+  get config(): InsightConfiguration {
+    return { ...this.#config };
+  }
+
+  // ============================================================================
+  // SQL Generation (Parameterless - all data is in config)
+  // ============================================================================
+
+  /**
+   * Generate SQL query string for this Insight.
+   *
+   * No store access needed - all DataTable objects are embedded in the config.
+   * The store's getInsight() method resolves IDs and passes full objects.
+   *
+   * Handles:
+   * - Join column aliasing with table name prefixes for duplicates
+   * - Case-insensitive column collision detection (DuckDB is case-insensitive)
+   * - Selected fields filtering
+   * - Metric aggregations
+   * - Filters, sorting, and limits
+   *
+   * @returns SQL query string
+   *
+   * @example
+   * ```typescript
+   * const insight = insightsStore.getInsight(insightId);
+   * const sql = insight.toSQL();
+   * const result = await connection.query(sql);
+   * ```
+   */
+  toSQL(): string {
+    const baseTable = this.baseTable;
+    if (!baseTable.dataFrameId) {
+      throw new Error(
+        `Base DataTable ${baseTable.name} has no cached data. Load data first.`,
+      );
+    }
+
+    // Convert dataFrameId to DuckDB table name
+    const baseTableName = `df_${baseTable.dataFrameId.replace(/-/g, "_")}`;
+
+    // Get base table fields (excluding internal fields)
+    const baseFields = baseTable.fields.filter((f) => !f.name.startsWith("_"));
+    const baseColNames = baseFields.map((f) => f.columnName ?? f.name);
+
+    // Build column alias map for resolving field IDs to column names
+    const fieldIdToColumn = new Map<string, string>();
+    for (const field of baseFields) {
+      fieldIdToColumn.set(field.id, field.columnName ?? field.name);
+    }
+
+    // If no joins, generate simple SQL
+    if (!this.joins?.length) {
+      return this.generateSimpleSQL(
+        baseTableName,
+        baseColNames,
+        baseFields,
+        fieldIdToColumn,
+      );
+    }
+
+    // Generate SQL with joins and column aliasing
+    return this.generateJoinSQL(
+      baseTable,
+      baseTableName,
+      baseFields,
+      baseColNames,
+      fieldIdToColumn,
+    );
+  }
+
+  /**
+   * Generate simple SQL without joins
+   *
+   * If selectedFields and metrics are configured, generates aggregated query.
+   * Otherwise returns all columns.
+   */
+  private generateSimpleSQL(
+    baseTableName: string,
+    baseColNames: string[],
+    baseFields: DataTableField[],
+    fieldIdToColumn: Map<string, string>,
+  ): string {
+    // Check if we have aggregation configuration
+    const hasAggregation =
+      (this.selectedFields.length > 0 || this.groupBy.length > 0) &&
+      this.metrics.length > 0;
+
+    if (!hasAggregation) {
+      // No aggregation - return all columns
+      const selectCols = baseColNames.map((col) => `"${col}"`).join(", ");
+      let sql = `SELECT ${selectCols} FROM ${baseTableName}`;
+
+      if (this.filters.length > 0) {
+        sql += ` WHERE ${this.buildWhereClause(this.filters)}`;
+      }
+      if (this.orderBy.length > 0) {
+        sql += ` ORDER BY ${this.orderBy.map((o) => `"${o.columnName}" ${o.direction.toUpperCase()}`).join(", ")}`;
+      }
+      if (this.limit !== undefined) {
+        sql += ` LIMIT ${this.limit}`;
+      }
+      return sql;
+    }
+
+    // Build aggregated query with GROUP BY
+    const selectParts: string[] = [];
+    const groupByParts: string[] = [];
+
+    // Add selected fields (dimensions) - these become GROUP BY columns
+    for (const fieldId of this.selectedFields) {
+      const colName = fieldIdToColumn.get(fieldId);
+      if (colName) {
+        selectParts.push(`"${colName}"`);
+        groupByParts.push(`"${colName}"`);
+      }
+    }
+
+    // Also add explicit groupBy columns if specified
+    for (const colName of this.groupBy) {
+      if (!groupByParts.includes(`"${colName}"`)) {
+        selectParts.push(`"${colName}"`);
+        groupByParts.push(`"${colName}"`);
+      }
+    }
+
+    // Add metrics (aggregations)
+    for (const metric of this.metrics) {
+      const aggFunc = metric.aggregation.toUpperCase();
+      const colRef = metric.columnName ? `"${metric.columnName}"` : "*";
+      const alias = metric.name;
+      selectParts.push(`${aggFunc}(${colRef}) AS "${alias}"`);
+    }
+
+    let sql = `SELECT ${selectParts.join(", ")} FROM ${baseTableName}`;
+
+    if (this.filters.length > 0) {
+      sql += ` WHERE ${this.buildWhereClause(this.filters)}`;
+    }
+
+    if (groupByParts.length > 0) {
+      sql += ` GROUP BY ${groupByParts.join(", ")}`;
+    }
+
+    if (this.orderBy.length > 0) {
+      sql += ` ORDER BY ${this.orderBy.map((o) => `"${o.columnName}" ${o.direction.toUpperCase()}`).join(", ")}`;
+    }
+
+    if (this.limit !== undefined) {
+      sql += ` LIMIT ${this.limit}`;
+    }
+
+    return sql;
+  }
+
+  /**
+   * Generate SQL with joins and proper column aliasing
+   *
+   * Uses table name prefixes for duplicate columns:
+   * - If "acctid" exists in both tables, becomes "base.acctid" and "joined.acctid"
+   * - Case-insensitive comparison (DuckDB treats "acctId" and "acctid" as same)
+   *
+   * If selectedFields and metrics are configured, applies aggregation after the join.
+   */
+  private generateJoinSQL(
+    baseTable: DataTableInfo,
+    baseTableName: string,
+    baseFields: DataTableField[],
+    baseColNames: string[],
+    fieldIdToColumn: Map<string, string>,
+  ): string {
+    // Build lowercase set for case-insensitive collision detection
+    const baseColNamesLower = new Set(baseColNames.map((c) => c.toLowerCase()));
+    const baseDisplayName = cleanTableNameForDisplay(baseTable.name);
+
+    // Track all column aliases we've created (maps fieldId -> aliased column name)
+    const fieldIdToAlias = new Map<string, string>();
+    const allColumnAliases: string[] = [];
+
+    // Build field ID to column mapping for base table
+    for (const field of baseFields) {
+      fieldIdToAlias.set(field.id, field.columnName ?? field.name);
+    }
+
+    // Start building the SQL
+    let currentSQL = baseTableName;
+
+    for (const join of this.joins!) {
+      const joinTable = join.table;
+      if (!joinTable?.dataFrameId) {
+        throw new Error(`Join table ${joinTable.name} has no data`);
+      }
+
+      const joinTableName = `df_${joinTable.dataFrameId.replace(/-/g, "_")}`;
+      const joinDisplayName = cleanTableNameForDisplay(joinTable.name);
+
+      // Get join table fields
+      const joinFields = joinTable.fields.filter((f) => !f.name.startsWith("_"));
+      const joinColNames = joinFields.map((f) => f.columnName ?? f.name);
+
+      // Find the join key fields
+      const baseKeyField = baseFields.find(
+        (f) => f.id === join.joinOn.baseField,
+      );
+      const joinKeyField = joinFields.find(
+        (f) => f.id === join.joinOn.joinedField,
+      );
+
+      if (!baseKeyField || !joinKeyField) {
+        throw new Error(
+          `Join key fields not found: base=${join.joinOn.baseField}, join=${join.joinOn.joinedField}`,
+        );
+      }
+
+      const leftColName = baseKeyField.columnName ?? baseKeyField.name;
+      const rightColName = joinKeyField.columnName ?? joinKeyField.name;
+
+      // Build SELECT parts with column aliasing
+      const selectParts: string[] = [];
+
+      // Add base table columns
+      for (const col of baseColNames) {
+        // Check if this column has a duplicate in the join table
+        const isDuplicate =
+          joinColNames.some((jc) => jc.toLowerCase() === col.toLowerCase()) &&
+          col.toLowerCase() !== leftColName.toLowerCase();
+
+        if (isDuplicate) {
+          const alias = `${baseDisplayName}.${col}`;
+          selectParts.push(`base."${col}" AS "${alias}"`);
+          allColumnAliases.push(alias);
+          // Update field mapping to use alias
+          const field = baseFields.find(
+            (f) => (f.columnName ?? f.name) === col,
+          );
+          if (field) {
+            fieldIdToAlias.set(field.id, alias);
+          }
+        } else {
+          selectParts.push(`base."${col}"`);
+          allColumnAliases.push(col);
+        }
+      }
+
+      // Add join table columns and build field mapping for joined fields
+      for (const col of joinColNames) {
+        // Case-insensitive duplicate detection
+        const isDuplicate = baseColNamesLower.has(col.toLowerCase());
+
+        const alias = isDuplicate ? `${joinDisplayName}.${col}` : col;
+        if (isDuplicate) {
+          selectParts.push(`j."${col}" AS "${alias}"`);
+        } else {
+          selectParts.push(`j."${col}"`);
+        }
+        allColumnAliases.push(alias);
+
+        // Map join field IDs to their aliases
+        const field = joinFields.find((f) => (f.columnName ?? f.name) === col);
+        if (field) {
+          fieldIdToAlias.set(field.id, alias);
+        }
+      }
+
+      const joinTypeSQL = (join.joinType ?? "inner").toUpperCase();
+
+      currentSQL = `(
+        SELECT ${selectParts.join(", ")}
+        FROM ${currentSQL} AS base
+        ${joinTypeSQL} JOIN ${joinTableName} AS j
+        ON base."${leftColName}" = j."${rightColName}"
+      )`;
+    }
+
+    // Check if we have aggregation configuration
+    const hasAggregation =
+      (this.selectedFields.length > 0 || this.groupBy.length > 0) &&
+      this.metrics.length > 0;
+
+    if (!hasAggregation) {
+      // No aggregation - return all columns from the join
+      let sql = `SELECT * FROM ${currentSQL}`;
+
+      if (this.filters.length > 0) {
+        sql += ` WHERE ${this.buildWhereClause(this.filters)}`;
+      }
+      if (this.orderBy.length > 0) {
+        sql += ` ORDER BY ${this.orderBy.map((o) => `"${o.columnName}" ${o.direction.toUpperCase()}`).join(", ")}`;
+      }
+      if (this.limit !== undefined) {
+        sql += ` LIMIT ${this.limit}`;
+      }
+      return sql;
+    }
+
+    // Build aggregated query with GROUP BY
+    const selectParts: string[] = [];
+    const groupByParts: string[] = [];
+
+    // Add selected fields (dimensions) - use aliased names from the join
+    for (const fieldId of this.selectedFields) {
+      const colAlias = fieldIdToAlias.get(fieldId);
+      if (colAlias) {
+        selectParts.push(`"${colAlias}"`);
+        groupByParts.push(`"${colAlias}"`);
+      }
+    }
+
+    // Also add explicit groupBy columns if specified
+    for (const colName of this.groupBy) {
+      // Check if this column name exists in our aliases
+      const quotedCol = `"${colName}"`;
+      if (!groupByParts.includes(quotedCol)) {
+        // Try to find the aliased version
+        const aliasedCol = allColumnAliases.find(
+          (a) => a === colName || a.endsWith(`.${colName}`),
+        );
+        if (aliasedCol) {
+          selectParts.push(`"${aliasedCol}"`);
+          groupByParts.push(`"${aliasedCol}"`);
+        } else {
+          selectParts.push(quotedCol);
+          groupByParts.push(quotedCol);
+        }
+      }
+    }
+
+    // Add metrics (aggregations)
+    for (const metric of this.metrics) {
+      const aggFunc = metric.aggregation.toUpperCase();
+      // Find the aliased column name for the metric's column
+      let colRef = metric.columnName ? `"${metric.columnName}"` : "*";
+      if (metric.columnName) {
+        // Check if this column has an alias
+        const aliasedCol = allColumnAliases.find(
+          (a) =>
+            a === metric.columnName ||
+            a.toLowerCase() === metric.columnName?.toLowerCase() ||
+            a.endsWith(`.${metric.columnName}`),
+        );
+        if (aliasedCol) {
+          colRef = `"${aliasedCol}"`;
+        }
+      }
+      const alias = metric.name;
+      selectParts.push(`${aggFunc}(${colRef}) AS "${alias}"`);
+    }
+
+    let sql = `SELECT ${selectParts.join(", ")} FROM ${currentSQL}`;
+
+    if (this.filters.length > 0) {
+      sql += ` WHERE ${this.buildWhereClause(this.filters)}`;
+    }
+
+    if (groupByParts.length > 0) {
+      sql += ` GROUP BY ${groupByParts.join(", ")}`;
+    }
+
+    if (this.orderBy.length > 0) {
+      sql += ` ORDER BY ${this.orderBy.map((o) => `"${o.columnName}" ${o.direction.toUpperCase()}`).join(", ")}`;
+    }
+
+    if (this.limit !== undefined) {
+      sql += ` LIMIT ${this.limit}`;
+    }
+
+    return sql;
+  }
+
+  /**
+   * Build WHERE clause from filter predicates
+   */
+  private buildWhereClause(filters: FilterPredicate[]): string {
+    return filters
+      .map((pred) => {
+        const { columnName, operator, value, values } = pred;
+
+        if (operator === "IS NULL" || operator === "IS NOT NULL") {
+          return `"${columnName}" ${operator}`;
+        }
+
+        if (operator === "IN" || operator === "NOT IN") {
+          const list =
+            values
+              ?.map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
+              .join(", ") || "";
+          return `"${columnName}" ${operator} (${list})`;
+        }
+
+        const formattedValue =
+          typeof value === "string" ? `'${value}'` : String(value ?? "NULL");
+        return `"${columnName}" ${operator} ${formattedValue}`;
+      })
+      .join(" AND ");
+  }
+
+  // ============================================================================
+  // Immutable Updates
+  // ============================================================================
+
+  /**
+   * Create new Insight with configuration updates
+   * Returns new instance - does not modify current Insight
+   */
+  with(updates: Partial<InsightConfiguration>): Insight {
+    const newConfig = {
+      ...this.config,
+      ...updates,
+      // Preserve ID if not explicitly updated
+      id: updates.id !== undefined ? updates.id : this.config.id,
+    };
+
+    return new Insight(newConfig);
+  }
+
+  /**
+   * Update selected fields
+   */
+  withSelectedFields(fieldIds: UUID[]): Insight {
+    return this.with({ selectedFields: fieldIds });
+  }
+
+  /**
+   * Update metrics
+   */
+  withMetrics(metrics: InsightMetric[]): Insight {
+    return this.with({ metrics });
+  }
+
+  /**
+   * Update filters
+   */
+  withFilters(filters: FilterPredicate[]): Insight {
+    return this.with({ filters });
+  }
+
+  /**
+   * Update grouping
+   */
+  withGroupBy(groupBy: string[]): Insight {
+    return this.with({ groupBy });
+  }
+
+  /**
+   * Update sorting
+   */
+  withOrderBy(orderBy: SortOrder[]): Insight {
+    return this.with({ orderBy });
+  }
+
+  /**
+   * Update limit
+   */
+  withLimit(limit: number | undefined): Insight {
+    return this.with({ limit });
+  }
+
+  /**
+   * Update name
+   */
+  withName(name: string): Insight {
+    return this.with({ name });
+  }
+
+  // ============================================================================
+  // Serialization
+  // ============================================================================
+
+  /**
+   * Serialize Insight for storage
+   */
+  toJSON(): InsightConfiguration {
+    return { ...this.config };
+  }
+
+  /**
+   * Deserialize Insight from storage
+   */
+  static fromJSON(config: InsightConfiguration): Insight {
+    return new Insight(config);
+  }
+
+  // ============================================================================
+  // Utility Methods
+  // ============================================================================
+
+  /**
+   * Check if Insight has any analytic operations (beyond simple field selection)
+   */
+  hasAnalytics(): boolean {
+    return (
+      this.metrics.length > 0 ||
+      this.groupBy.length > 0 ||
+      this.filters.length > 0
+    );
+  }
+
+  /**
+   * Check if Insight is ready for execution
+   */
+  isReady(): boolean {
+    return this.selectedFields.length > 0 || this.hasAnalytics();
+  }
+
+  /**
+   * Get human-readable description of the Insight
+   */
+  getDescription(): string {
+    const parts: string[] = [];
+
+    if (this.selectedFields.length > 0) {
+      parts.push(`show ${this.selectedFields.length} fields`);
+    }
+
+    if (this.groupBy.length > 0) {
+      parts.push(`grouped by ${this.groupBy.join(", ")}`);
+    }
+
+    if (this.metrics.length > 0) {
+      const metricNames = this.metrics.map((m) => m.name).join(", ");
+      parts.push(`with metrics: ${metricNames}`);
+    }
+
+    if (this.filters.length > 0) {
+      parts.push(`filtered by ${this.filters.length} conditions`);
+    }
+
+    if (this.limit) {
+      parts.push(`limited to ${this.limit} rows`);
+    }
+
+    return parts.length > 0 ? parts.join(", ") : "show all data";
+  }
+}

@@ -3,7 +3,7 @@ import "./config";
 // ============================================================================
 // Active Stores - Used with Convex for client-side data caching
 // ============================================================================
-export { useDataFramesStore } from "./dataframes-store";
+export { useDataFramesStore, type DataFrameEntry } from "./dataframes-store";
 
 // ============================================================================
 // Legacy Stores - Being migrated to Convex

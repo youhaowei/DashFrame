@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   isNotionDataSource,
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
-import type { Field, EnhancedDataFrame } from "@dashframe/dataframe";
+import type { Field } from "@dashframe/dataframe";
 import {
   Card,
   CardContent,
@@ -25,7 +25,8 @@ import {
   cn,
   InputField,
   MultiSelectField,
-  DataFrameTable,
+  VirtualTable,
+  type VirtualTableColumn,
 } from "@dashframe/ui";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
@@ -36,21 +37,28 @@ interface DataSourceDisplayProps {
   dataSourceId: string | null;
 }
 
+// Preview data type for Notion sources
+interface PreviewData {
+  rows: Record<string, unknown>[];
+  columns: VirtualTableColumn[];
+  rowCount: number;
+}
+
 // Helper to get preview description text
 function getPreviewDescription(
   selectedDataTable: { name: string; lastFetchedAt?: number } | null,
-  dataFrame: { data: unknown } | null | undefined,
+  previewData: PreviewData | null,
   formatRelativeTime: (ts: number) => string,
 ): React.ReactNode {
   if (!selectedDataTable) {
     return "Select a table to preview data";
   }
-  if (!dataFrame) {
+  if (!previewData) {
     return `No data available for ${JSON.stringify(selectedDataTable.name)}`;
   }
   return (
     <>
-      Showing data from {JSON.stringify(selectedDataTable.name)} • First 50 rows
+      Showing data from {JSON.stringify(selectedDataTable.name)} • {previewData.rowCount} rows
       {selectedDataTable.lastFetchedAt && (
         <>
           {" "}
@@ -70,20 +78,17 @@ function getFilesDescription(fileCount: number): string {
 
 // Helper to get table stats description
 function getTableStatsDescription(
-  dataFrame:
-    | { metadata: { rowCount: number; columnCount: number } }
-    | null
-    | undefined,
+  rowCount: number | undefined,
+  columnCount: number | undefined,
   lastFetchedAt: number | undefined,
   formatRelativeTime: (ts: number) => string,
 ): React.ReactNode {
-  if (!dataFrame) {
+  if (rowCount === undefined || columnCount === undefined) {
     return "No data synced yet";
   }
   return (
     <>
-      {dataFrame.metadata.rowCount} rows × {dataFrame.metadata.columnCount}{" "}
-      columns
+      {rowCount} rows × {columnCount} columns
       {lastFetchedAt && (
         <> • Last synced: {formatRelativeTime(lastFetchedAt)}</>
       )}
@@ -96,13 +101,13 @@ function PreviewContent({
   isPreviewCollapsed,
   hasDataTables,
   selectedDataTable,
-  dataFrame,
+  previewData,
   onExpandPreview,
 }: {
   isPreviewCollapsed: boolean;
   hasDataTables: boolean;
   selectedDataTable: { fields: Field[] } | null;
-  dataFrame: EnhancedDataFrame | null | undefined;
+  previewData: PreviewData | null;
   onExpandPreview: () => void;
 }) {
   if (isPreviewCollapsed) {
@@ -123,28 +128,27 @@ function PreviewContent({
   if (!selectedDataTable) {
     return <EmptyState message="Select a data table to preview its data." />;
   }
-  if (!dataFrame) {
+  if (!previewData) {
     return (
       <EmptyState message="No data available. Create a visualization to fetch data from this Notion database." />
     );
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <DataFrameTable
-        dataFrame={dataFrame.data}
-        fields={selectedDataTable.fields}
+      <VirtualTable
+        rows={previewData.rows}
+        columns={previewData.columns}
+        height="100%"
       />
     </div>
   );
 }
 
-// Helper component for local data source display
+// Helper component for local data source display with async data loading
 function LocalDataSourceView({
   dataSource,
-  getDataFrame,
 }: {
   dataSource: DataSource;
-  getDataFrame: ReturnType<typeof useDataFramesStore.getState>["get"];
 }) {
   const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(
@@ -152,9 +156,11 @@ function LocalDataSourceView({
   );
 
   const selectedDataTable = dataTables.find((dt) => dt.id === selectedTableId);
-  const localDataFrame = selectedDataTable?.dataFrameId
-    ? getDataFrame(selectedDataTable.dataFrameId)
-    : null;
+
+  // Use async data loading hook
+  const { data, isLoading, error, entry } = useDataFrameData(
+    selectedDataTable?.dataFrameId,
+  );
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -181,9 +187,6 @@ function LocalDataSourceView({
             <EmptyState message="Upload CSV files to get started." />
           ) : (
             dataTables.map((table) => {
-              const df = table.dataFrameId
-                ? getDataFrame(table.dataFrameId)
-                : null;
               const isSelected = table.id === selectedTableId;
               return (
                 <button
@@ -204,10 +207,11 @@ function LocalDataSourceView({
                       >
                         {table.name}
                       </p>
-                      {df && (
+                      {/* Show entry metadata if available */}
+                      {isSelected && entry && (
                         <p className="text-muted-foreground mt-1 text-xs">
-                          {df.metadata.rowCount} rows ×{" "}
-                          {df.metadata.columnCount} columns
+                          {entry.rowCount ?? "?"} rows ×{" "}
+                          {entry.columnCount ?? "?"} columns
                         </p>
                       )}
                     </div>
@@ -224,17 +228,30 @@ function LocalDataSourceView({
         <CardHeader>
           <CardTitle className="text-lg">Data Preview</CardTitle>
           <CardDescription>
-            {localDataFrame && selectedDataTable
-              ? `Showing ${selectedDataTable.name}`
-              : "No data available"}
+            {isLoading
+              ? "Loading..."
+              : error
+                ? `Error: ${error}`
+                : data && selectedDataTable
+                  ? `Showing ${selectedDataTable.name}`
+                  : "Select a file to preview"}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {localDataFrame && selectedDataTable ? (
+          {isLoading ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="bg-muted h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            </div>
+          ) : error ? (
+            <EmptyState message={`Failed to load data: ${error}`} />
+          ) : data && selectedDataTable ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <DataFrameTable
-                dataFrame={localDataFrame.data}
-                fields={selectedDataTable.fields}
+              <VirtualTable
+                rows={data.rows}
+                columns={selectedDataTable.fields
+                  .filter((f: Field) => !f.name.startsWith("_"))
+                  .map((f: Field) => ({ name: f.columnName ?? f.name, type: f.type }))}
+                height="100%"
               />
             </div>
           ) : (
@@ -256,14 +273,14 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [databaseSchema, setDatabaseSchema] = useState<NotionProperty[]>([]);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const [rowLimit, setRowLimit] = useState<number>(50);
+  // Preview data for Notion tables (rows + columns from last sync)
+  const [notionPreviewData, setNotionPreviewData] = useState<PreviewData | null>(null);
 
   // Get data source from store
   const dataSource = useDataSourcesStore((state) =>
     dataSourceId ? state.get(dataSourceId) : null,
   );
 
-  const getDataFrame = useDataFramesStore((state) => state.get);
-  const updateDataFrameById = useDataFramesStore((state) => state.updateById);
   const refreshDataTable = useDataSourcesStore(
     (state) => state.refreshDataTable,
   );
@@ -328,14 +345,6 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getSchemaMutation is a stable mutation hook, adding it would cause infinite loops
   }, [selectedDataTable, dataSource]);
 
-  // Get the DataFrame for the selected DataTable
-  const dataFrame = useMemo(() => {
-    if (!selectedDataTable?.dataFrameId) return null;
-    return getDataFrame(selectedDataTable.dataFrameId);
-  }, [selectedDataTable, getDataFrame]);
-
-  // Note: Insight tracking removed - not currently used in this component
-
   // Format relative time for "last fetched"
   const formatRelativeTime = (timestamp: number) => {
     const now = Date.now();
@@ -365,36 +374,31 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     setIsRefreshing(true);
     try {
       // Fetch data from Notion API with selected properties
-      const dataFrame = await queryDatabaseMutation.mutateAsync({
+      // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
+      const result = await queryDatabaseMutation.mutateAsync({
         apiKey: dataSource.apiKey,
         databaseId: selectedDataTable.table,
         selectedPropertyIds,
       });
 
-      if (!dataFrame.columns || !dataFrame.columns.length) {
+      if (!result.columns || !result.columns.length) {
         toast.error("No data found in the selected database");
         return;
       }
 
-      // Update or create DataFrame in store
-      const dataFramesStore = useDataFramesStore.getState();
-      if (selectedDataTable.dataFrameId) {
-        // Update existing DataFrame
-        updateDataFrameById(selectedDataTable.dataFrameId, dataFrame);
-        refreshDataTable(
-          dataSource.id,
-          selectedDataTable.id,
-          selectedDataTable.dataFrameId,
-        );
-      } else {
-        // Create new DataFrame
-        const newDataFrameId = dataFramesStore.createFromCSV(
-          dataSource.id,
-          `${selectedDataTable.name} (${new Date().toLocaleString()})`,
-          dataFrame,
-        );
-        refreshDataTable(dataSource.id, selectedDataTable.id, newDataFrameId);
-      }
+      // Update preview data for display
+      setNotionPreviewData({
+        rows: result.rows,
+        columns: result.columns.map((c) => ({ name: c.name, type: c.type })),
+        rowCount: result.rowCount,
+      });
+
+      // Update DataTable timestamp
+      refreshDataTable(
+        dataSource.id,
+        selectedDataTable.id,
+        selectedDataTable.dataFrameId ?? crypto.randomUUID(),
+      );
 
       toast.success("Data synced successfully");
     } catch (error) {
@@ -412,7 +416,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       return;
     }
 
-    if (!selectedDataTable.dataFrameId) {
+    if (!notionPreviewData) {
       toast.error("No cached data to refresh");
       return;
     }
@@ -420,25 +424,30 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     setIsRefreshing(true);
     try {
       // Re-fetch data from Notion API
-      const dataFrame = await queryDatabaseMutation.mutateAsync({
+      // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
+      const result = await queryDatabaseMutation.mutateAsync({
         apiKey: dataSource.apiKey,
         databaseId: selectedDataTable.table,
         selectedPropertyIds,
       });
 
-      if (!dataFrame.columns || !dataFrame.columns.length) {
+      if (!result.columns || !result.columns.length) {
         toast.error("No data found in the selected database");
         return;
       }
 
-      // Update DataFrame in store
-      updateDataFrameById(selectedDataTable.dataFrameId, dataFrame);
+      // Update preview data for display
+      setNotionPreviewData({
+        rows: result.rows,
+        columns: result.columns.map((c) => ({ name: c.name, type: c.type })),
+        rowCount: result.rowCount,
+      });
 
       // Update DataTable with new lastFetchedAt
       refreshDataTable(
         dataSource.id,
         selectedDataTable.id,
-        selectedDataTable.dataFrameId,
+        selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
 
       toast.success("Data refreshed successfully");
@@ -469,14 +478,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   const isLocal = isCSVDataSource(dataSource);
 
-  // For local sources, show DataTables
+  // For local sources, show DataTables with async data loading
   if (isLocal) {
-    return (
-      <LocalDataSourceView
-        dataSource={dataSource}
-        getDataFrame={getDataFrame}
-      />
-    );
+    return <LocalDataSourceView dataSource={dataSource} />;
   }
 
   // For Notion sources, show DataTables
@@ -499,7 +503,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                   </div>
                   <CardDescription className="mt-1.5">
                     {getTableStatsDescription(
-                      dataFrame,
+                      notionPreviewData?.rowCount,
+                      notionPreviewData?.columns.length,
                       selectedDataTable.lastFetchedAt,
                       formatRelativeTime,
                     )}
@@ -622,7 +627,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-lg">Data Preview</CardTitle>
                 {selectedDataTable &&
-                  dataFrame &&
+                  notionPreviewData &&
                   isNotionDataSource(dataSource) && (
                     <Button
                       variant="ghost"
@@ -644,12 +649,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <CardDescription>
                 {getPreviewDescription(
                   selectedDataTable,
-                  dataFrame,
+                  notionPreviewData,
                   formatRelativeTime,
                 )}
               </CardDescription>
             </div>
-            {selectedDataTable && dataFrame && (
+            {selectedDataTable && notionPreviewData && (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -672,7 +677,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               isPreviewCollapsed={isPreviewCollapsed}
               hasDataTables={hasDataTables}
               selectedDataTable={selectedDataTable}
-              dataFrame={dataFrame}
+              previewData={notionPreviewData}
               onExpandPreview={() => setIsPreviewCollapsed(false)}
             />
           </CardContent>

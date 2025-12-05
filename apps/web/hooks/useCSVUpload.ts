@@ -82,7 +82,7 @@ export function useCSVUpload() {
             const { handleLocalCSVUpload } = await import(
               "@/lib/local-csv-handler"
             );
-            const { dataTableId, dataSourceId } = handleLocalCSVUpload(
+            const { dataTableId, dataSourceId } = await handleLocalCSVUpload(
               file,
               result.data,
               duplicateTable

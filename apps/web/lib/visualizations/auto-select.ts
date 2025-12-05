@@ -5,7 +5,7 @@ import type {
 } from "../stores/types";
 import {
   analyzeDataFrame,
-  type EnhancedDataFrame,
+  type DataFrameData,
   type Field,
 } from "@dashframe/dataframe";
 
@@ -17,13 +17,13 @@ import {
 // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: intelligent axis selection based on chart type, column analysis, and heuristics
 export function autoSelectEncoding(
   type: VisualizationType,
-  dataFrame: EnhancedDataFrame,
+  dataFrame: DataFrameData,
   fields?: Record<string, Field>,
   currentEncoding: VisualizationEncoding = {},
   insight?: Insight,
 ): VisualizationEncoding {
   // Analyze the dataframe to categorize columns
-  const analysis = analyzeDataFrame(dataFrame, fields);
+  const analysis = analyzeDataFrame(dataFrame.rows, dataFrame.columns, fields);
 
   // Get metric names if insight is provided
   const metricNames = new Set(insight?.metrics?.map((m) => m.name) || []);

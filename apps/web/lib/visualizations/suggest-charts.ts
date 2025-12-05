@@ -3,10 +3,66 @@ import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";
 import {
   analyzeDataFrame,
-  type EnhancedDataFrame,
+  type DataFrameData,
   type Field,
   type ColumnAnalysis,
 } from "@dashframe/dataframe";
+
+/**
+ * Patterns that indicate a column is a meaningful metric for Y-axis.
+ * Higher score = more likely to be a good metric.
+ */
+const METRIC_PATTERNS: Array<{ pattern: RegExp; score: number }> = [
+  // High confidence metrics
+  { pattern: /^(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i, score: 10 },
+  { pattern: /(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i, score: 8 },
+  { pattern: /^(avg|average|mean|rate|ratio|percent|pct|score)$/i, score: 8 },
+  { pattern: /(avg|average|mean|rate|ratio|percent|pct|score)$/i, score: 6 },
+  // Medium confidence metrics
+  { pattern: /(spend|spent|income|expense|fee|charge|balance|budget)$/i, score: 6 },
+  { pattern: /(duration|time|hours|minutes|seconds|days|weeks|months)$/i, score: 5 },
+  { pattern: /(size|length|width|height|weight|distance)$/i, score: 4 },
+  // Low confidence - generic number-like names
+  { pattern: /^(n|num|number|val)$/i, score: 2 },
+];
+
+/**
+ * Patterns that indicate a column is NOT a good metric (likely an ID or code).
+ */
+const NON_METRIC_PATTERNS: RegExp[] = [
+  /id$/i, // Ends with "id"
+  /key$/i, // Ends with "key"
+  /code$/i, // Ends with "code"
+  /no$/i, // Ends with "no" (number abbreviation)
+  /num$/i, // Ends with "num"
+  /index$/i, // Ends with "index"
+  /seq$/i, // Ends with "seq"
+  /^_/, // Starts with underscore (internal)
+];
+
+/**
+ * Scores a column for how likely it is to be a meaningful metric.
+ * Higher score = better candidate for Y-axis aggregation.
+ * Returns 0 for columns that look like IDs.
+ */
+function getMetricScore(columnName: string): number {
+  const name = columnName.toLowerCase();
+
+  // Check if it looks like an ID first
+  if (NON_METRIC_PATTERNS.some((pattern) => pattern.test(name))) {
+    return 0;
+  }
+
+  // Find the highest matching metric pattern score
+  for (const { pattern, score } of METRIC_PATTERNS) {
+    if (pattern.test(name)) {
+      return score;
+    }
+  }
+
+  // Default score for unmatched numerical columns
+  return 1;
+}
 
 // Helper to get CSS variable color value
 function getCSSColor(variable: string): string {
@@ -58,6 +114,31 @@ export interface ChartSuggestion {
 }
 
 /**
+ * Simple seeded random number generator for reproducible shuffling.
+ * Uses a Linear Congruential Generator (LCG) algorithm.
+ */
+function createSeededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    // LCG parameters (same as glibc)
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+}
+
+/**
+ * Shuffle an array using Fisher-Yates algorithm with a seeded random.
+ */
+function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
  * Suggests up to 3 chart visualizations based on the insight's data structure.
  * Uses heuristics to match chart types to field categories.
  *
@@ -65,17 +146,22 @@ export interface ChartSuggestion {
  * @param preview - Preview DataFrame with sample data
  * @param fields - Field definitions for analysis
  * @param limit - Maximum number of suggestions (default: 3)
+ * @param columnTableMap - Optional mapping of columns to tables
+ * @param seed - Optional seed for randomness (default: 0 for deterministic behavior)
  * @returns Array of chart suggestions
  */
 export function suggestCharts(
   insight: Insight,
-  preview: EnhancedDataFrame,
+  preview: DataFrameData,
   fields: Record<string, Field>,
   limit = 3,
   columnTableMap?: Record<string, string[]>,
+  seed = 0,
 ): ChartSuggestion[] {
+  // Create seeded random for reproducible variety
+  const random = createSeededRandom(seed);
   // Analyze columns to categorize them
-  const analysis = analyzeDataFrame(preview, fields);
+  const analysis = analyzeDataFrame(preview.rows, preview.columns, fields);
 
   // Categories to avoid for chart encodings (identifiers/references should not be axes)
   const blockedAxisCategories = new Set([
@@ -85,6 +171,9 @@ export function suggestCharts(
     "url",
     "uuid",
   ]);
+
+  // Calculate total row count for null rate calculation
+  const rowCount = preview.rows.length;
 
   // Helper to check if a column should be blocked from axis usage
   const isBlocked = (col: ColumnAnalysis): boolean => {
@@ -97,29 +186,126 @@ export function suggestCharts(
     if (field && (field.isIdentifier || field.isReference)) {
       return true;
     }
+    // Skip columns with high null rate (>50% missing data)
+    // These are not useful for chart axes
+    if (rowCount > 0 && col.nullCount / rowCount > 0.5) {
+      return true;
+    }
     return false;
   };
 
+  // Helper to check if a categorical column is good for X-axis
+  // Good categorical X-axis columns should have:
+  // - More than 1 unique value (has variance)
+  // - Not too many unique values (readable chart, typically < 50)
+  const isGoodCategoricalXAxis = (col: ColumnAnalysis): boolean => {
+    // Must have variance (more than 1 unique value)
+    if (col.cardinality <= 1) {
+      return false;
+    }
+    // Should not have too many unique values for a readable chart
+    // A bar chart with 100+ categories is usually not useful
+    if (col.cardinality > 50) {
+      return false;
+    }
+    return true;
+  };
+
+  // Helper to check if a categorical column is good for color encoding
+  // Color legends should have few unique values (2-15 is ideal)
+  const isGoodColorColumn = (col: ColumnAnalysis): boolean => {
+    // Need at least 2 values to show color differentiation
+    if (col.cardinality < 2) {
+      return false;
+    }
+    // Too many colors makes the legend unreadable
+    if (col.cardinality > 15) {
+      return false;
+    }
+    return true;
+  };
+
+  // Helper to check if a numerical column has meaningful variance
+  // Skip columns that are mostly zeros or have the same value
+  const hasNumericalVariance = (col: ColumnAnalysis): boolean => {
+    // Get actual values from preview data for this column
+    const values = preview.rows
+      .map((row) => row[col.columnName])
+      .filter((v) => v !== null && v !== undefined) as number[];
+
+    if (values.length === 0) return false;
+
+    // Check if most values are zeros (>80% zeros is bad)
+    const zeroCount = values.filter((v) => v === 0).length;
+    if (zeroCount / values.length > 0.8) {
+      return false;
+    }
+
+    // Check if there's actual variance (not all same value)
+    const uniqueValues = new Set(values);
+    if (uniqueValues.size <= 1) {
+      return false;
+    }
+
+    // Check if there's meaningful range (not all clustered)
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (min === max) {
+      return false;
+    }
+
+    return true;
+  };
+
   // Find columns by category, excluding blocked ones
-  const numerical = analysis.filter(
-    (a) => a.category === "numerical" && !isBlocked(a),
+  // Shuffle with seed to introduce variety when regenerating
+  // For numerical columns, also check for meaningful variance (not all zeros)
+  const numerical = shuffleWithSeed(
+    analysis.filter(
+      (a) =>
+        a.category === "numerical" && !isBlocked(a) && hasNumericalVariance(a),
+    ),
+    random,
   );
-  const temporal = analysis.filter(
-    (a) => a.category === "temporal" && !isBlocked(a),
+  const temporal = shuffleWithSeed(
+    analysis.filter((a) => a.category === "temporal" && !isBlocked(a)),
+    random,
   );
-  const categorical = analysis.filter(
-    (a) =>
-      (a.category === "categorical" ||
-        a.category === "text" ||
-        a.category === "boolean") &&
-      !isBlocked(a),
+  // For categorical columns, also filter for good X-axis candidates
+  // (proper variance - not too few or too many unique values)
+  const categorical = shuffleWithSeed(
+    analysis.filter(
+      (a) =>
+        (a.category === "categorical" ||
+          a.category === "text" ||
+          a.category === "boolean") &&
+        !isBlocked(a) &&
+        isGoodCategoricalXAxis(a),
+    ),
+    random,
+  );
+
+  // Separate list for color-suitable columns (lower cardinality for readable legends)
+  const colorSuitable = shuffleWithSeed(
+    analysis.filter(
+      (a) =>
+        (a.category === "categorical" ||
+          a.category === "text" ||
+          a.category === "boolean") &&
+        !isBlocked(a) &&
+        isGoodColorColumn(a),
+    ),
+    random,
   );
 
   const suggestions: ChartSuggestion[] = [];
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
   if (categorical.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(categorical, numerical, columnTableMap);
+    const pair = pickBestPair(categorical, numerical, columnTableMap, {
+      preferMetricY: true,
+      random,
+    });
     const xCol = pair?.[0] ?? categorical[0];
     const yCol = pair?.[1] ?? numerical[0];
     const xAxisType = getAxisType(xCol);
@@ -138,7 +324,7 @@ export function suggestCharts(
         "bar",
         xCol.columnName,
         yCol.columnName,
-        preview.data.rows,
+        preview.rows,
         undefined,
         xAxisType,
       ),
@@ -148,7 +334,10 @@ export function suggestCharts(
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
   if (temporal.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap);
+    const pair = pickBestPair(temporal, numerical, columnTableMap, {
+      preferMetricY: true,
+      random,
+    });
     const xCol = pair?.[0] ?? temporal[0];
     const yCol = pair?.[1] ?? numerical[numerical.length > 1 ? 1 : 0];
 
@@ -166,7 +355,7 @@ export function suggestCharts(
         "line",
         xCol.columnName,
         yCol.columnName,
-        preview.data.rows,
+        preview.rows,
         undefined,
         "temporal",
       ),
@@ -178,6 +367,8 @@ export function suggestCharts(
   if (numerical.length >= 2) {
     const pair = pickBestPair(numerical, numerical, columnTableMap, {
       disallowSame: true,
+      preferMetricY: true,
+      random,
     });
     const xCol = pair?.[0] ?? numerical[0];
     const yCol = pair?.[1] ?? numerical[1];
@@ -196,7 +387,7 @@ export function suggestCharts(
         "scatter",
         xCol.columnName,
         yCol.columnName,
-        preview.data.rows,
+        preview.rows,
       ),
       rationale: "Two numeric dimensions for correlation",
     });
@@ -208,7 +399,10 @@ export function suggestCharts(
     numerical.length > 0 &&
     !suggestions.some((s) => s.chartType === "line")
   ) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap);
+    const pair = pickBestPair(temporal, numerical, columnTableMap, {
+      preferMetricY: true,
+      random,
+    });
     const xCol = pair?.[0] ?? temporal[0];
     const yCol = pair?.[1] ?? numerical[0];
 
@@ -226,7 +420,7 @@ export function suggestCharts(
         "area",
         xCol.columnName,
         yCol.columnName,
-        preview.data.rows,
+        preview.rows,
         undefined,
         "temporal",
       ),
@@ -234,13 +428,16 @@ export function suggestCharts(
     });
   }
 
-  // Heuristic 5: Grouped Bar (2 categorical + 1 numerical)
-  if (categorical.length >= 2 && numerical.length > 0) {
-    const triple = pickBestTriple(categorical, numerical, columnTableMap) ?? [
-      categorical[0],
-      categorical[1],
-      numerical[0],
-    ];
+  // Heuristic 5: Grouped Bar (categorical X + color + numerical Y)
+  // Use colorSuitable for color encoding (lower cardinality for readable legends)
+  if (categorical.length >= 1 && colorSuitable.length >= 1 && numerical.length > 0) {
+    const triple = pickBestTriple(
+      categorical,
+      colorSuitable,
+      numerical,
+      columnTableMap,
+      random,
+    ) ?? [categorical[0], colorSuitable[0], numerical[0]];
     const xCol = triple[0];
     const colorCol = triple[1];
     const yCol = triple[2];
@@ -261,7 +458,7 @@ export function suggestCharts(
         "bar",
         xCol.columnName,
         yCol.columnName,
-        preview.data.rows,
+        preview.rows,
         colorCol.columnName,
         xAxisType,
       ),
@@ -388,51 +585,144 @@ function pickBestPair(
   first: ColumnAnalysis[],
   second: ColumnAnalysis[],
   columnTableMap?: Record<string, string[]>,
-  options: { disallowSame?: boolean } = {},
+  options: { disallowSame?: boolean; preferMetricY?: boolean; random?: () => number } = {},
 ): [ColumnAnalysis, ColumnAnalysis] | null {
   if (first.length === 0 || second.length === 0) return null;
-  let best: [ColumnAnalysis, ColumnAnalysis] | null = null;
-  let bestScore = -1;
+
+  // Collect all valid pairs with their scores
+  const validPairs: Array<{ pair: [ColumnAnalysis, ColumnAnalysis]; score: number }> = [];
 
   for (const a of first) {
     for (const b of second) {
       if (options.disallowSame && a.columnName === b.columnName) continue;
-      const score = coverageScore([a.columnName, b.columnName], columnTableMap);
-      if (score <= bestScore) continue;
-      best = [a, b];
-      bestScore = score;
+
+      // Base score from table coverage
+      let score = coverageScore([a.columnName, b.columnName], columnTableMap);
+
+      // Add metric score for Y-axis candidate (second column) to prefer meaningful metrics
+      if (options.preferMetricY) {
+        const metricScore = getMetricScore(b.columnName);
+        // Skip columns that look like IDs (metric score = 0)
+        if (metricScore === 0) continue;
+        // Weight metric score heavily to prioritize good metrics
+        score += metricScore * 100;
+      }
+
+      // Prefer columns with more complete data (lower null rate)
+      // Add a small bonus for data completeness (0-10 points based on fill rate)
+      const aFillRate = 1 - (a.nullCount / Math.max(a.cardinality + a.nullCount, 1));
+      const bFillRate = 1 - (b.nullCount / Math.max(b.cardinality + b.nullCount, 1));
+      score += (aFillRate + bFillRate) * 5;
+
+      // For X-axis (first column), prefer moderate cardinality for readable charts
+      // Sweet spot is around 5-20 unique values for bar charts
+      if (a.cardinality >= 3 && a.cardinality <= 20) {
+        score += 10; // Ideal range bonus
+      } else if (a.cardinality >= 2 && a.cardinality <= 30) {
+        score += 5; // Good range bonus
+      }
+
+      validPairs.push({ pair: [a, b], score });
     }
   }
 
-  return best;
-}
+  if (validPairs.length === 0) return null;
 
-function pickBestTriple(
-  categories: ColumnAnalysis[],
-  numericals: ColumnAnalysis[],
-  columnTableMap?: Record<string, string[]>,
-): [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null {
-  if (categories.length < 2 || numericals.length === 0) return null;
+  // Sort by score descending
+  validPairs.sort((a, b) => b.score - a.score);
 
-  let best: [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null = null;
-  let bestScore = -1;
+  // If random is provided, pick from top candidates with weighted probability
+  // This adds variety while still preferring higher-scored options
+  if (options.random && validPairs.length > 1) {
+    // Consider top 5 candidates (or all if less than 5)
+    const topN = Math.min(5, validPairs.length);
+    const candidates = validPairs.slice(0, topN);
 
-  for (const xCol of categories) {
-    for (const colorCol of categories) {
-      if (colorCol.columnName === xCol.columnName) continue;
-      for (const yCol of numericals) {
-        const score = coverageScore(
-          [xCol.columnName, colorCol.columnName, yCol.columnName],
-          columnTableMap,
-        );
-        if (score <= bestScore) continue;
-        best = [xCol, colorCol, yCol];
-        bestScore = score;
+    // Weight selection towards higher scores but allow variety
+    // Use exponential weighting: score^2 gives more weight to better options
+    const weights = candidates.map((c) => Math.pow(c.score + 1, 2));
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+    let randomValue = options.random() * totalWeight;
+    for (let i = 0; i < candidates.length; i++) {
+      randomValue -= weights[i];
+      if (randomValue <= 0) {
+        return candidates[i].pair;
       }
     }
   }
 
-  return best;
+  // Default: return the best pair
+  return validPairs[0].pair;
+}
+
+function pickBestTriple(
+  xCategories: ColumnAnalysis[],
+  colorCategories: ColumnAnalysis[],
+  numericalCols: ColumnAnalysis[],
+  columnTableMap?: Record<string, string[]>,
+  random?: () => number,
+): [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null {
+  if (xCategories.length === 0 || colorCategories.length === 0 || numericalCols.length === 0) {
+    return null;
+  }
+
+  // Collect all valid triples with their scores
+  const validTriples: Array<{
+    triple: [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis];
+    score: number;
+  }> = [];
+
+  for (const xCol of xCategories) {
+    for (const colorCol of colorCategories) {
+      // Skip if same column (can happen if color and x categories overlap)
+      if (colorCol.columnName === xCol.columnName) continue;
+      for (const yCol of numericalCols) {
+        // Skip Y columns that look like IDs
+        const metricScore = getMetricScore(yCol.columnName);
+        if (metricScore === 0) continue;
+
+        let score = coverageScore(
+          [xCol.columnName, colorCol.columnName, yCol.columnName],
+          columnTableMap,
+        );
+        // Weight metric score heavily to prioritize good metrics
+        score += metricScore * 100;
+
+        // Bonus for lower cardinality color columns (more readable legends)
+        if (colorCol.cardinality <= 5) {
+          score += 20; // Ideal: 2-5 colors
+        } else if (colorCol.cardinality <= 10) {
+          score += 10; // Good: 6-10 colors
+        }
+
+        validTriples.push({ triple: [xCol, colorCol, yCol], score });
+      }
+    }
+  }
+
+  if (validTriples.length === 0) return null;
+
+  // Sort by score descending
+  validTriples.sort((a, b) => b.score - a.score);
+
+  // If random is provided, pick from top candidates with weighted probability
+  if (random && validTriples.length > 1) {
+    const topN = Math.min(5, validTriples.length);
+    const candidates = validTriples.slice(0, topN);
+    const weights = candidates.map((c) => Math.pow(c.score + 1, 2));
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+    let randomValue = random() * totalWeight;
+    for (let i = 0; i < candidates.length; i++) {
+      randomValue -= weights[i];
+      if (randomValue <= 0) {
+        return candidates[i].triple;
+      }
+    }
+  }
+
+  return validTriples[0].triple;
 }
 
 function tablesUsedBySuggestion(

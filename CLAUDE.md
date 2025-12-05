@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested by the user.**
 
-For planning, prefer concise style, don't include full code example, only core changes. Create the plan in the current project instead of the user root, and name it according to the feature being added.
+For planning, prefer concise style, don't include full code example, only core changes. Name it according to the feature being added.
 
 The user manages their own development environment. Only run these commands if the user specifically asks you to.
 
@@ -144,6 +144,11 @@ pnpm check  # Runs lint + typecheck + format
 5. Add tRPC router if calling external APIs (avoid CORS)
 6. Update `README.md` only for major user-facing features
 
+### Documentation
+
+- Update relevant docs in `docs/` for architecture, UI components, or new features
+- Add JSDoc comments for all new functions, types, and components
+
 ### UI Component Guidelines
 
 **See `docs/ui-components.md` for comprehensive component documentation.**
@@ -199,3 +204,6 @@ Before implementing any UI changes, follow this component-first approach:
 - **Functional > OOP**: Converter functions, not classes with methods
 - **Zustand + Immer**: State management with automatic persistence
 - **Type safety everywhere**: Leverage TypeScript strict mode
+- **Flowler Coding Style**: Focus on readability, maintainability, and simplicity
+- **Test driven development**: Write tests for critical logic, especially when it comes to handling data. For features that has spec, make sure to include a test plan as well.
+- **Detect Code Smells Early**: Watch for signs of complexity, duplication, or poor separation of concerns. Ask questions if something feels off, help user create tasks to refactor or improve code quality if found tech debt that might not be directly related to the feature being implemented.

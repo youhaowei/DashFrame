@@ -33,3 +33,5 @@ convex/node_modules
 convex/.env.local
 .vercel
 .env*.local
+.worktrees/
+.claude/plans

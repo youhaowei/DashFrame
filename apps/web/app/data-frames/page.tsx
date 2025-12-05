@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
+import { useDataFramesStore, type DataFrameEntry } from "@/lib/stores/dataframes-store";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -20,20 +19,17 @@ import {
 
 export default function DataFramesPage() {
   // Inline state access so Zustand can track dependencies properly
-  const dataFrames = useDataFramesStore((state) =>
-    Array.from(state.dataFrames.values()),
-  );
-  const remove = useDataFramesStore((state) => state.remove);
+  const dataFrames = useDataFramesStore((state) => state.getAllEntries());
+  const removeDataFrame = useDataFramesStore((state) => state.removeDataFrame);
+  const updateMetadata = useDataFramesStore((state) => state.updateMetadata);
 
-  const [editingFrame, setEditingFrame] = useState<EnhancedDataFrame | null>(
-    null,
-  );
+  const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
 
-  const columns = useMemo<ColumnDef<EnhancedDataFrame>[]>(
+  const columns = useMemo<ColumnDef<DataFrameEntry>[]>(
     () => [
       {
-        accessorKey: "metadata.name",
+        accessorKey: "name",
         header: ({ column }) => {
           return (
             <Button
@@ -48,19 +44,16 @@ export default function DataFramesPage() {
           );
         },
         cell: ({ row }) => (
-          <div className="font-medium">{row.original.metadata.name}</div>
+          <div className="font-medium">{row.original.name}</div>
         ),
       },
       {
         id: "source",
         header: "Source",
         cell: ({ row }) => {
-          // DataFrameSource now only has insightId
-          // For direct CSV loads, there's no insightId
-          const source = row.original.metadata.source;
           return (
             <span className="text-muted-foreground">
-              {source.insightId ? "From Insight" : "Direct Load"}
+              {row.original.insightId ? "From Insight" : "Direct Load"}
             </span>
           );
         },
@@ -69,16 +62,28 @@ export default function DataFramesPage() {
         id: "dimensions",
         header: "Dimensions",
         cell: ({ row }) => {
-          const { rowCount, columnCount } = row.original.metadata;
+          const { rowCount, columnCount } = row.original;
           return (
             <span className="text-muted-foreground">
-              {rowCount} rows × {columnCount} columns
+              {rowCount ?? "?"} rows × {columnCount ?? "?"} columns
             </span>
           );
         },
       },
       {
-        accessorKey: "metadata.timestamp",
+        id: "storage",
+        header: "Storage",
+        cell: ({ row }) => {
+          const storageType = row.original.storage?.type;
+          return (
+            <span className="text-muted-foreground capitalize">
+              {storageType === "indexeddb" ? "Browser" : storageType ?? "Unknown"}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "createdAt",
         header: ({ column }) => {
           return (
             <Button
@@ -94,7 +99,7 @@ export default function DataFramesPage() {
         },
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {new Date(row.original.metadata.timestamp).toLocaleDateString()}
+            {new Date(row.original.createdAt).toLocaleDateString()}
           </span>
         ),
       },
@@ -102,24 +107,22 @@ export default function DataFramesPage() {
     [],
   );
 
-  const handleEdit = (dataFrame: EnhancedDataFrame) => {
-    setEditingFrame(dataFrame);
-    setEditedName(dataFrame.metadata.name);
+  const handleEdit = (entry: DataFrameEntry) => {
+    setEditingFrame(entry);
+    setEditedName(entry.name);
   };
 
   const handleSaveEdit = () => {
-    // Note: DataFrame update functionality not yet implemented in store
-    // For now, just close the dialog. In the future, this will call
-    // a store action like: updateDataFrame(editingFrame.metadata.id, { name: editedName })
-    console.log("Save edit:", editedName);
+    if (editingFrame) {
+      updateMetadata(editingFrame.id, { name: editedName });
+    }
     setEditingFrame(null);
   };
 
-  const handleDelete = (dataFrame: EnhancedDataFrame) => {
-    if (
-      confirm(`Delete "${dataFrame.metadata.name}"? This cannot be undone.`)
-    ) {
-      remove(dataFrame.metadata.id);
+  const handleDelete = (entry: DataFrameEntry) => {
+    if (confirm(`Delete "${entry.name}"? This cannot be undone.`)) {
+      // Note: removeDataFrame is async but we don't need to await it for UI purposes
+      void removeDataFrame(entry.id);
     }
   };
 
