@@ -2,14 +2,8 @@
 
 import { use, useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import {
-  join as joinDataFrames,
-  analyzeDataFrame,
-  suggestJoinColumns,
-  type JoinSuggestion,
-  type EnhancedDataFrame,
-} from "@dashframe/dataframe";
-import type { DataFrame, Field } from "@dashframe/dataframe";
+import type { Field, DataFrameRow } from "@dashframe/dataframe";
+import { cleanTableNameForDisplay } from "@dashframe/dataframe";
 import {
   Button,
   Label,
@@ -21,23 +15,30 @@ import {
   Alert,
   AlertDescription,
   Surface,
-  DataFrameTable,
-  Badge,
-  type ColumnConfig,
+  VirtualTable,
+  type VirtualTableColumnConfig,
+  type VirtualTableColumn,
   ArrowLeft,
   Merge,
   Loader2,
   AlertCircle,
-  Sparkles,
 } from "@dashframe/ui";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import type { DataTable } from "@/lib/stores/types";
 
 interface PageProps {
   params: Promise<{ insightId: string; tableId: string }>;
+}
+
+/** Local type for join preview result (static data for VirtualTable) */
+interface JoinPreviewData {
+  columns: VirtualTableColumn[];
+  rows: DataFrameRow[];
 }
 
 const PREVIEW_ROW_LIMIT = 50;
@@ -55,20 +56,6 @@ export default function JoinConfigurePage({ params }: PageProps) {
   const { insightId, tableId: joinTableId } = use(params);
   const router = useRouter();
 
-  // Helper to get badge variant based on confidence level
-  const getConfidenceBadgeVariant = (
-    confidence: "high" | "medium" | "low",
-  ): "default" | "secondary" | "outline" => {
-    switch (confidence) {
-      case "high":
-        return "default";
-      case "medium":
-        return "secondary";
-      default:
-        return "outline";
-    }
-  };
-
   // Store hooks with hydration awareness
   const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
     useInsightsStore,
@@ -81,8 +68,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
     (s) => s.getAll(),
   );
 
-  const { data: dataFrameGetter, isLoading: isDataFramesLoading } =
-    useStoreQuery(useDataFramesStore, (s) => s.get);
+  const { data: dataFrameEntryGetter, isLoading: isDataFramesLoading } =
+    useStoreQuery(useDataFramesStore, (s) => s.getEntry);
 
   const isLoading = isInsightLoading || isSourcesLoading || isDataFramesLoading;
 
@@ -94,7 +81,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
   >("inner");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [previewResult, setPreviewResult] = useState<DataFrame | null>(null);
+  const [previewResult, setPreviewResult] = useState<JoinPreviewData | null>(
+    null,
+  );
   const [isComputingPreview, setIsComputingPreview] = useState(false);
 
   // Resolve base table (from insight)
@@ -104,28 +93,39 @@ export default function JoinConfigurePage({ params }: PageProps) {
     for (const source of dataSources) {
       const table = source.dataTables.get(insight.baseTable.tableId);
       if (table) {
-        const dataFrame = table.dataFrameId
-          ? dataFrameGetter(table.dataFrameId)
-          : null;
-        return { table, dataFrame, source };
+        return { table, source };
       }
     }
     return null;
-  }, [insight, dataSources, dataFrameGetter]);
+  }, [insight, dataSources]);
 
   // Resolve join table (from tableId param)
   const joinTableInfo = useMemo(() => {
     for (const source of dataSources) {
       const table = source.dataTables.get(joinTableId);
       if (table) {
-        const dataFrame = table.dataFrameId
-          ? dataFrameGetter(table.dataFrameId)
-          : null;
-        return { table, dataFrame, source };
+        return { table, source };
       }
     }
     return null;
-  }, [dataSources, joinTableId, dataFrameGetter]);
+  }, [dataSources, joinTableId]);
+
+  // DuckDB connection for join preview
+  const { connection, isInitialized: isDuckDBReady } = useDuckDB();
+  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
+
+  // Pagination hooks for async VirtualTable (full dataset browsing)
+  const {
+    fetchData: fetchBaseData,
+    totalCount: baseTotalCount,
+    isReady: isBaseReady,
+  } = useDataFramePagination(baseTableInfo?.table.dataFrameId);
+
+  const {
+    fetchData: fetchJoinData,
+    totalCount: joinTotalCount,
+    isReady: isJoinReady,
+  } = useDataFramePagination(joinTableInfo?.table.dataFrameId);
 
   // Filter out internal fields (those starting with _)
   const baseFields = useMemo(
@@ -140,21 +140,21 @@ export default function JoinConfigurePage({ params }: PageProps) {
     [joinTableInfo],
   );
 
-  // Column configs for highlighting selected columns
-  const baseColumnConfigs = useMemo((): ColumnConfig[] => {
+  // Column configs for highlighting selected columns in source tables
+  const baseColumnConfigs = useMemo((): VirtualTableColumnConfig[] => {
     const leftField = baseFields.find((f) => f.id === leftFieldId);
     if (!leftField) return [];
     return [{ id: leftField.columnName ?? leftField.name, highlight: true }];
   }, [baseFields, leftFieldId]);
 
-  const joinColumnConfigs = useMemo((): ColumnConfig[] => {
+  const joinColumnConfigs = useMemo((): VirtualTableColumnConfig[] => {
     const rightField = joinFields.find((f) => f.id === rightFieldId);
     if (!rightField) return [];
     return [{ id: rightField.columnName ?? rightField.name, highlight: true }];
   }, [joinFields, rightFieldId]);
 
   // Column configs for the preview result - highlight base vs join columns
-  const previewColumnConfigs = useMemo((): ColumnConfig[] => {
+  const previewColumnConfigs = useMemo((): VirtualTableColumnConfig[] => {
     if (!previewResult?.columns || !baseTableInfo || !joinTableInfo) return [];
 
     // Get column names from each source table
@@ -165,106 +165,281 @@ export default function JoinConfigurePage({ params }: PageProps) {
       joinFields.map((f) => f.columnName ?? f.name),
     );
 
+    // Get table display names for prefix detection
+    const baseDisplayName = baseTableInfo.table.name;
+    const joinDisplayName = joinTableInfo.table.name;
+
     return previewResult.columns
       .filter((col) => !col.name.startsWith("_"))
       .map((col) => {
         // Check if this column came from base or join table
-        // Handle suffix naming from join operation (_base, _join)
-        const baseName = col.name.replace(/_base$/, "").replace(/_join$/, "");
+        // Handle table name prefix format: "tableName.columnName"
+        const hasBasePrefix = col.name.startsWith(`${baseDisplayName}.`);
+        const hasJoinPrefix = col.name.startsWith(`${joinDisplayName}.`);
+
+        // Extract base column name (without table prefix)
+        const baseName = hasBasePrefix
+          ? col.name.slice(baseDisplayName.length + 1)
+          : hasJoinPrefix
+            ? col.name.slice(joinDisplayName.length + 1)
+            : col.name;
+
         const isFromBase =
           baseColumnNames.has(col.name) ||
           baseColumnNames.has(baseName) ||
-          col.name.endsWith("_base");
+          hasBasePrefix;
         const isFromJoin =
           joinColumnNames.has(col.name) ||
           joinColumnNames.has(baseName) ||
-          col.name.endsWith("_join");
+          hasJoinPrefix;
 
         // Determine highlight variant
-        let highlight: "base" | "join" | undefined;
-        if (isFromBase && !isFromJoin) {
+        let highlight: "base" | "join" | "both" | undefined;
+        if (isFromBase && isFromJoin) {
+          // Column exists in both tables (like the join key) - amber highlight
+          highlight = "both";
+        } else if (isFromBase) {
           highlight = "base";
-        } else if (isFromJoin && !isFromBase) {
+        } else if (isFromJoin) {
           highlight = "join";
         }
-        // Columns present in both (like the join key) get no highlight
 
         return {
           id: col.name,
           highlight,
         };
       })
-      .filter((config) => config.highlight !== undefined) as ColumnConfig[];
+      .filter(
+        (config) => config.highlight !== undefined,
+      ) as VirtualTableColumnConfig[];
   }, [previewResult, baseTableInfo, joinTableInfo, baseFields, joinFields]);
 
-  // Compute join column suggestions based on column analysis
-  const joinSuggestions = useMemo((): JoinSuggestion[] => {
-    if (!baseTableInfo?.dataFrame || !joinTableInfo?.dataFrame) return [];
+  // Join analysis results for Venn diagram visualization
+  const [joinAnalysis, setJoinAnalysis] = useState<{
+    baseUniqueCount: number;
+    joinUniqueCount: number;
+    matchingCount: number; // values that exist in both
+    estimatedResultRows: number; // approximate rows after join
+  } | null>(null);
 
-    try {
-      // Analyze both tables
-      const baseAnalysis = analyzeDataFrame(
-        baseTableInfo.dataFrame as EnhancedDataFrame,
-      );
-      const joinAnalysis = analyzeDataFrame(
-        joinTableInfo.dataFrame as EnhancedDataFrame,
-      );
+  // Find columns with matching names (for suggestions) with analysis
+  const [columnSuggestions, setColumnSuggestions] = useState<
+    Array<{
+      leftField: (typeof baseFields)[0];
+      rightField: (typeof joinFields)[0];
+      columnName: string;
+      matchingValues: number; // how many values match between tables
+      baseUniqueValues: number;
+    }>
+  >([]);
 
-      // Get suggestions with table name for foreign key pattern matching
-      return suggestJoinColumns(
-        baseAnalysis,
-        joinAnalysis,
-        baseTableInfo.table.name,
-        joinTableInfo.table.name,
-      );
-    } catch (err) {
-      console.error("Failed to compute join suggestions:", err);
-      return [];
+  // Analyze matching columns for suggestions
+  useEffect(() => {
+    if (!connection || !isDuckDBReady) return;
+    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
+      return;
+    // Wait for pagination hooks to be ready (they load the data into DuckDB)
+    if (!isBaseReady || !isJoinReady) return;
+
+    const baseColMap = new Map<
+      string,
+      { field: (typeof baseFields)[0]; name: string }
+    >();
+    for (const field of baseFields) {
+      const colName = field.columnName ?? field.name;
+      baseColMap.set(colName.toLowerCase(), { field, name: colName });
     }
-  }, [baseTableInfo, joinTableInfo]);
 
-  // Apply a join suggestion by setting both field selections
-  const applyJoinSuggestion = useCallback(
-    (suggestion: JoinSuggestion) => {
-      // Find matching fields by column name
-      const leftField = baseFields.find(
-        (f) => (f.columnName ?? f.name) === suggestion.leftColumn,
-      );
-      const rightField = joinFields.find(
-        (f) => (f.columnName ?? f.name) === suggestion.rightColumn,
-      );
+    const pairs: Array<{
+      leftField: (typeof baseFields)[0];
+      rightField: (typeof joinFields)[0];
+      columnName: string;
+    }> = [];
+    for (const joinField of joinFields) {
+      const joinColName = joinField.columnName ?? joinField.name;
+      const baseMatch = baseColMap.get(joinColName.toLowerCase());
+      if (baseMatch) {
+        pairs.push({
+          leftField: baseMatch.field,
+          rightField: joinField,
+          columnName: joinColName,
+        });
+      }
+    }
 
-      if (leftField) setLeftFieldId(leftField.id);
-      if (rightField) setRightFieldId(rightField.id);
-    },
-    [baseFields, joinFields],
-  );
+    if (pairs.length === 0) {
+      setColumnSuggestions([]);
+      return;
+    }
 
-  // Helper to build columns from fields (since DataFrame.columns may be missing)
-  const buildColumnsFromFields = useCallback(
-    (
-      fields: Field[],
-    ): {
-      name: string;
-      type: "string" | "number" | "boolean" | "date" | "unknown";
-    }[] => {
-      return fields.map((field) => ({
-        name: field.columnName ?? field.name,
-        type: field.type,
-      }));
-    },
-    [],
-  );
+    const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+    const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
 
-  // Compute preview when join config changes
+    const analyze = async () => {
+      try {
+        // Tables are already loaded by the pagination hooks
+
+        const results: typeof columnSuggestions = [];
+
+        for (const pair of pairs) {
+          const leftColName = pair.leftField.columnName ?? pair.leftField.name;
+          const rightColName =
+            pair.rightField.columnName ?? pair.rightField.name;
+
+          const sql = `
+            WITH base_vals AS (SELECT DISTINCT "${leftColName}" as val FROM ${baseTableName}),
+            join_vals AS (SELECT DISTINCT "${rightColName}" as val FROM ${joinTableName})
+            SELECT
+              (SELECT COUNT(*) FROM base_vals) as base_unique,
+              (SELECT COUNT(*) FROM base_vals b WHERE EXISTS (SELECT 1 FROM join_vals j WHERE j.val = b.val)) as matching
+          `;
+
+          const result = await connection.query(sql);
+          const row = result.toArray()[0] as {
+            base_unique: number;
+            matching: number;
+          };
+
+          results.push({
+            ...pair,
+            matchingValues: Number(row?.matching ?? 0),
+            baseUniqueValues: Number(row?.base_unique ?? 0),
+          });
+        }
+
+        // Sort by matching values (higher = better)
+        results.sort((a, b) => b.matchingValues - a.matchingValues);
+        setColumnSuggestions(results);
+      } catch (err) {
+        console.error("Failed to analyze column suggestions:", err);
+        // Fallback without analysis
+        setColumnSuggestions(
+          pairs.map((p) => ({ ...p, matchingValues: 0, baseUniqueValues: 0 })),
+        );
+      }
+    };
+
+    analyze();
+  }, [
+    connection,
+    isDuckDBReady,
+    baseTableInfo,
+    joinTableInfo,
+    baseFields,
+    joinFields,
+    isBaseReady,
+    isJoinReady,
+  ]);
+
+  // Apply a suggestion
+  const applySuggestion = useCallback((pair: (typeof columnSuggestions)[0]) => {
+    setLeftFieldId(pair.leftField.id);
+    setRightFieldId(pair.rightField.id);
+  }, []);
+
+  // Analyze selected columns for Venn diagram
+  useEffect(() => {
+    if (!leftFieldId || !rightFieldId) {
+      setJoinAnalysis(null);
+      return;
+    }
+    if (!connection || !isDuckDBReady) return;
+    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
+      return;
+
+    const leftField = baseFields.find((f) => f.id === leftFieldId);
+    const rightField = joinFields.find((f) => f.id === rightFieldId);
+    if (!leftField || !rightField) return;
+
+    const leftColumnName = leftField.columnName ?? leftField.name;
+    const rightColumnName = rightField.columnName ?? rightField.name;
+
+    const baseDataFrame = getDataFrame(baseTableInfo.table.dataFrameId);
+    const joinDataFrame = getDataFrame(joinTableInfo.table.dataFrameId);
+    if (!baseDataFrame || !joinDataFrame) return;
+
+    const analyze = async () => {
+      try {
+        await baseDataFrame.load(connection);
+        await joinDataFrame.load(connection);
+
+        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+
+        // Get Venn diagram stats
+        const vennSQL = `
+          WITH base_values AS (
+            SELECT DISTINCT "${leftColumnName}" as val FROM ${baseTableName}
+          ),
+          join_values AS (
+            SELECT DISTINCT "${rightColumnName}" as val FROM ${joinTableName}
+          ),
+          matching AS (
+            SELECT b.val FROM base_values b
+            INNER JOIN join_values j ON b.val = j.val
+          )
+          SELECT
+            (SELECT COUNT(*) FROM base_values) as base_unique,
+            (SELECT COUNT(*) FROM join_values) as join_unique,
+            (SELECT COUNT(*) FROM matching) as matching_count
+        `;
+
+        const vennResult = await connection.query(vennSQL);
+        const vennRow = vennResult.toArray()[0] as {
+          base_unique: number;
+          join_unique: number;
+          matching_count: number;
+        };
+
+        // Estimate result rows (for inner join)
+        const countSQL = `
+          SELECT COUNT(*) as cnt
+          FROM ${baseTableName} b
+          INNER JOIN ${joinTableName} j ON b."${leftColumnName}" = j."${rightColumnName}"
+        `;
+        const countResult = await connection.query(countSQL);
+        const countRow = countResult.toArray()[0] as { cnt: number };
+
+        setJoinAnalysis({
+          baseUniqueCount: Number(vennRow?.base_unique ?? 0),
+          joinUniqueCount: Number(vennRow?.join_unique ?? 0),
+          matchingCount: Number(vennRow?.matching_count ?? 0),
+          estimatedResultRows: Number(countRow?.cnt ?? 0),
+        });
+      } catch (err) {
+        console.error("Failed to analyze join:", err);
+        setJoinAnalysis(null);
+      }
+    };
+
+    analyze();
+  }, [
+    leftFieldId,
+    rightFieldId,
+    connection,
+    isDuckDBReady,
+    baseTableInfo,
+    joinTableInfo,
+    baseFields,
+    joinFields,
+    getDataFrame,
+  ]);
+
+  // Compute join preview using DuckDB (handles full dataset efficiently)
   useEffect(() => {
     if (!leftFieldId || !rightFieldId) {
       setPreviewResult(null);
       return;
     }
 
-    if (!baseTableInfo?.dataFrame || !joinTableInfo?.dataFrame) {
-      setPreviewResult(null);
+    if (!connection || !isDuckDBReady) {
+      return;
+    }
+
+    if (
+      !baseTableInfo?.table.dataFrameId ||
+      !joinTableInfo?.table.dataFrameId
+    ) {
       return;
     }
 
@@ -279,64 +454,142 @@ export default function JoinConfigurePage({ params }: PageProps) {
     const leftColumnName = leftField.columnName ?? leftField.name;
     const rightColumnName = rightField.columnName ?? rightField.name;
 
+    // Get DataFrames
+    const baseDataFrame = getDataFrame(baseTableInfo.table.dataFrameId);
+    const joinDataFrame = getDataFrame(joinTableInfo.table.dataFrameId);
+
+    if (!baseDataFrame || !joinDataFrame) {
+      setError("Could not load DataFrames");
+      return;
+    }
+
     setIsComputingPreview(true);
     setError(null);
 
-    // Use setTimeout to allow UI to update before heavy computation
-    const timeoutId = setTimeout(() => {
+    const computeJoin = async () => {
       try {
-        const baseData = baseTableInfo.dataFrame!.data;
-        const joinData = joinTableInfo.dataFrame!.data;
+        // Load both tables into DuckDB (side effect ensures tables exist)
+        await baseDataFrame.load(connection);
+        await joinDataFrame.load(connection);
 
-        // Build columns from fields if not present in DataFrame
-        // (DataFrames may not have columns property populated)
-        const baseColumns =
-          baseData.columns ?? buildColumnsFromFields(baseFields);
-        const joinColumns =
-          joinData.columns ?? buildColumnsFromFields(joinFields);
+        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
 
-        // Slice data for preview to avoid expensive full joins
-        const previewBaseData: DataFrame = {
-          ...baseData,
-          columns: baseColumns,
-          rows: baseData.rows.slice(0, PREVIEW_ROW_LIMIT),
-        };
-        const previewJoinData: DataFrame = {
-          ...joinData,
-          columns: joinColumns,
-          rows: joinData.rows.slice(0, PREVIEW_ROW_LIMIT),
-        };
+        // Build the JOIN SQL
+        const joinTypeSQL = joinType.toUpperCase();
 
-        const result = joinDataFrames(previewBaseData, previewJoinData, {
-          on: { left: leftColumnName, right: rightColumnName },
-          how: joinType,
-          suffixes: { left: "_base", right: "_join" },
+        // Get column lists, handling duplicates with table name prefixes
+        const baseColNames = baseFields.map((f) => f.columnName ?? f.name);
+        const joinColNames = joinFields.map((f) => f.columnName ?? f.name);
+
+        // Get display names for table prefixes (cleaned of UUIDs)
+        const baseDisplayName = cleanTableNameForDisplay(
+          baseTableInfo.table.name,
+        );
+        const joinDisplayName = cleanTableNameForDisplay(
+          joinTableInfo.table.name,
+        );
+
+        // Build SELECT clause with table name prefixes for duplicate columns
+        const selectParts: string[] = [];
+
+        for (const col of baseColNames) {
+          if (col.startsWith("_")) continue; // Skip internal columns
+          const isDuplicate =
+            joinColNames.includes(col) && col !== leftColumnName;
+          if (isDuplicate) {
+            // Use table name prefix: "accounts.acctid" instead of "acctid_base"
+            selectParts.push(`base."${col}" AS "${baseDisplayName}.${col}"`);
+          } else {
+            selectParts.push(`base."${col}"`);
+          }
+        }
+
+        // Build lowercase set of base column names for case-insensitive duplicate detection
+        const baseColNamesLower = new Set(
+          baseColNames.map((c) => c.toLowerCase()),
+        );
+
+        for (const col of joinColNames) {
+          if (col.startsWith("_")) continue; // Skip internal columns
+          // Check for duplicate using case-insensitive comparison
+          // DuckDB treats column names case-insensitively, so "acctId" and "acctid" conflict
+          const isDuplicate = baseColNamesLower.has(col.toLowerCase());
+          if (isDuplicate) {
+            // Use table name prefix: "opportunities.acctid" instead of "acctid_1"
+            selectParts.push(`j."${col}" AS "${joinDisplayName}.${col}"`);
+          } else {
+            selectParts.push(`j."${col}"`);
+          }
+        }
+
+        const joinSQL = `
+          SELECT ${selectParts.join(", ")}
+          FROM ${baseTableName} AS base
+          ${joinTypeSQL} JOIN ${joinTableName} AS j
+          ON base."${leftColumnName}" = j."${rightColumnName}"
+          LIMIT ${PREVIEW_ROW_LIMIT}
+        `;
+
+        console.log("[JoinPreview] Executing DuckDB join:", joinSQL);
+
+        const result = await connection.query(joinSQL);
+        const rows = result.toArray() as DataFrameRow[];
+
+        // Get total count for the join
+        const countSQL = `
+          SELECT COUNT(*) as count
+          FROM ${baseTableName} AS base
+          ${joinTypeSQL} JOIN ${joinTableName} AS j
+          ON base."${leftColumnName}" = j."${rightColumnName}"
+        `;
+        const countResult = await connection.query(countSQL);
+        const totalJoinCount = Number(countResult.toArray()[0]?.count ?? 0);
+
+        // Build columns from the result
+        const columns: VirtualTableColumn[] =
+          rows.length > 0
+            ? Object.keys(rows[0])
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({ name }))
+            : [];
+
+        console.log("[JoinPreview] DuckDB result:", {
+          previewRows: rows.length,
+          totalJoinCount,
+          columns: columns.length,
         });
 
-        setPreviewResult(result);
+        setPreviewResult({ columns, rows });
+        // Store total count for display
+        setPreviewTotalCount(totalJoinCount);
       } catch (err) {
-        console.error("Preview join failed:", err);
+        console.error("DuckDB join preview failed:", err);
         setPreviewResult(null);
-        // Show the actual error message for debugging
         const errorMessage =
           err instanceof Error ? err.message : "Unknown error";
         setError(`Join preview failed: ${errorMessage}`);
       } finally {
         setIsComputingPreview(false);
       }
-    }, 100);
+    };
 
-    return () => clearTimeout(timeoutId);
+    computeJoin();
   }, [
     leftFieldId,
     rightFieldId,
     joinType,
-    baseTableInfo?.dataFrame,
-    joinTableInfo?.dataFrame,
+    connection,
+    isDuckDBReady,
+    baseTableInfo,
+    joinTableInfo,
     baseFields,
     joinFields,
-    buildColumnsFromFields,
+    getDataFrame,
   ]);
+
+  // Track total join count for display
+  const [previewTotalCount, setPreviewTotalCount] = useState<number>(0);
 
   // Execute full join and add to existing insight
   // Note: We only store the join configuration here. The actual join is computed
@@ -357,11 +610,6 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
     if (!leftField || !rightField) {
       setError("Selected columns are no longer available.");
-      return;
-    }
-
-    if (!baseTableInfo.dataFrame || !joinTableInfo.dataFrame) {
-      setError("Unable to access data. Please refresh and try again.");
       return;
     }
 
@@ -532,7 +780,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
             <TablePreviewSection
               title="Base Table"
               table={baseTableInfo.table}
-              dataFrame={baseTableInfo.dataFrame?.data ?? null}
+              totalCount={baseTotalCount}
+              isReady={isBaseReady}
+              onFetchData={fetchBaseData}
               fields={baseTableInfo.table.fields}
               columnConfigs={baseColumnConfigs}
               onHeaderClick={(colName) => {
@@ -547,7 +797,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
             <TablePreviewSection
               title="Join Table"
               table={joinTableInfo.table}
-              dataFrame={joinTableInfo.dataFrame?.data ?? null}
+              totalCount={joinTotalCount}
+              isReady={isJoinReady}
+              onFetchData={fetchJoinData}
               fields={joinTableInfo.table.fields}
               columnConfigs={joinColumnConfigs}
               onHeaderClick={(colName) => {
@@ -563,131 +815,270 @@ export default function JoinConfigurePage({ params }: PageProps) {
           <Surface elevation="raised" className="rounded-2xl p-6">
             <h2 className="mb-4 text-lg font-semibold">Join Configuration</h2>
 
-            {/* Join Suggestions */}
-            {joinSuggestions.length > 0 && (
+            {/* Matching column suggestions */}
+            {columnSuggestions.length > 0 && (
               <div className="bg-muted/50 border-border/60 mb-6 rounded-xl border p-4">
                 <div className="mb-3 flex items-center gap-2">
-                  <Sparkles className="text-primary h-4 w-4" />
                   <span className="text-sm font-medium">
-                    Suggested join columns
+                    Matching columns found
                   </span>
                   <span className="text-muted-foreground text-xs">
-                    – click to apply
+                    – click to select
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {joinSuggestions.slice(0, 3).map((suggestion, idx) => (
+                  {columnSuggestions.map((pair) => (
                     <button
-                      key={idx}
+                      key={pair.columnName}
                       type="button"
+                      onClick={() => applySuggestion(pair)}
                       className="border-border bg-card hover:bg-primary/10 hover:border-primary/50 group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
-                      onClick={() => applyJoinSuggestion(suggestion)}
                     >
                       <span className="text-foreground group-hover:text-primary font-medium">
-                        {suggestion.leftColumn}
+                        {pair.leftField.columnName ?? pair.leftField.name}
                       </span>
                       <span className="text-muted-foreground">↔</span>
                       <span className="text-foreground group-hover:text-primary font-medium">
-                        {suggestion.rightColumn}
+                        {pair.rightField.columnName ?? pair.rightField.name}
                       </span>
-                      <Badge
-                        variant={getConfidenceBadgeVariant(
-                          suggestion.confidence,
-                        )}
-                        className="ml-1 px-1.5 text-[10px]"
-                      >
-                        {suggestion.confidence}
-                      </Badge>
+                      {pair.matchingValues > 0 && (
+                        <span className="text-muted-foreground ml-1 text-xs">
+                          ({pair.matchingValues.toLocaleString()} matching)
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="left-column">Base table column</Label>
-                <Select
-                  value={leftFieldId ?? ""}
-                  onValueChange={(value) => setLeftFieldId(value || null)}
-                >
-                  <SelectTrigger id="left-column">
-                    <SelectValue placeholder="Select column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {baseFields.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {field.name}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Column Selection */}
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="left-column">Base table column</Label>
+                    <Select
+                      value={leftFieldId ?? ""}
+                      onValueChange={(value) => setLeftFieldId(value || null)}
+                    >
+                      <SelectTrigger id="left-column">
+                        <SelectValue placeholder="Select column..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {baseFields.map((field) => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.name}
+                            <span className="text-muted-foreground ml-2 text-xs">
+                              ({field.type})
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="right-column">Join table column</Label>
+                    <Select
+                      value={rightFieldId ?? ""}
+                      onValueChange={(value) => setRightFieldId(value || null)}
+                    >
+                      <SelectTrigger id="right-column">
+                        <SelectValue placeholder="Select column..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {joinFields.map((field) => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.name}
+                            <span className="text-muted-foreground ml-2 text-xs">
+                              ({field.type})
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="join-type">Join type</Label>
+                  <Select
+                    value={joinType}
+                    onValueChange={(value) =>
+                      setJoinType(value as "inner" | "left" | "right" | "outer")
+                    }
+                  >
+                    <SelectTrigger id="join-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inner">
+                        Inner
                         <span className="text-muted-foreground ml-2 text-xs">
-                          ({field.type})
+                          (only matching rows)
                         </span>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="right-column">Join table column</Label>
-                <Select
-                  value={rightFieldId ?? ""}
-                  onValueChange={(value) => setRightFieldId(value || null)}
-                >
-                  <SelectTrigger id="right-column">
-                    <SelectValue placeholder="Select column..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {joinFields.map((field) => (
-                      <SelectItem key={field.id} value={field.id}>
-                        {field.name}
+                      <SelectItem value="left">
+                        Left
                         <span className="text-muted-foreground ml-2 text-xs">
-                          ({field.type})
+                          (all base + matching)
                         </span>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      <SelectItem value="right">
+                        Right
+                        <span className="text-muted-foreground ml-2 text-xs">
+                          (matching + all join)
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="outer">
+                        Outer
+                        <span className="text-muted-foreground ml-2 text-xs">
+                          (all rows from both)
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="join-type">Join type</Label>
-                <Select
-                  value={joinType}
-                  onValueChange={(value) =>
-                    setJoinType(value as "inner" | "left" | "right" | "outer")
-                  }
-                >
-                  <SelectTrigger id="join-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inner">
-                      Inner
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        (only matching rows)
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="left">
-                      Left
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        (all base + matching)
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="right">
-                      Right
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        (matching + all join)
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="outer">
-                      Outer
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        (all rows from both)
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Venn Diagram Visualization */}
+              {joinAnalysis && (
+                <div className="flex flex-col items-center justify-center">
+                  {/* SVG Venn Diagram */}
+                  <svg
+                    viewBox="0 0 200 120"
+                    className="h-auto w-full max-w-[280px]"
+                  >
+                    {/* Base table circle (left) */}
+                    <circle
+                      cx="70"
+                      cy="60"
+                      r="45"
+                      fill="rgba(59, 130, 246, 0.2)"
+                      stroke="rgb(59, 130, 246)"
+                      strokeWidth="2"
+                    />
+                    {/* Join table circle (right) */}
+                    <circle
+                      cx="130"
+                      cy="60"
+                      r="45"
+                      fill="rgba(16, 185, 129, 0.2)"
+                      stroke="rgb(16, 185, 129)"
+                      strokeWidth="2"
+                    />
+                    {/* Intersection highlight based on join type */}
+                    <clipPath id="leftClip">
+                      <circle cx="70" cy="60" r="45" />
+                    </clipPath>
+                    <clipPath id="rightClip">
+                      <circle cx="130" cy="60" r="45" />
+                    </clipPath>
+                    {/* Intersection area */}
+                    <circle
+                      cx="130"
+                      cy="60"
+                      r="45"
+                      clipPath="url(#leftClip)"
+                      fill={
+                        joinType === "inner"
+                          ? "rgba(251, 191, 36, 0.5)"
+                          : joinType === "left" || joinType === "right"
+                            ? "rgba(251, 191, 36, 0.3)"
+                            : "rgba(251, 191, 36, 0.2)"
+                      }
+                      stroke="rgb(251, 191, 36)"
+                      strokeWidth={joinType === "inner" ? "2" : "1"}
+                    />
+                    {/* Labels */}
+                    <text
+                      x="45"
+                      y="60"
+                      textAnchor="middle"
+                      className="fill-blue-600 text-[10px] font-medium"
+                    >
+                      {(
+                        joinAnalysis.baseUniqueCount -
+                        joinAnalysis.matchingCount
+                      ).toLocaleString()}
+                    </text>
+                    <text
+                      x="100"
+                      y="55"
+                      textAnchor="middle"
+                      className="fill-amber-600 text-[11px] font-bold"
+                    >
+                      {joinAnalysis.matchingCount.toLocaleString()}
+                    </text>
+                    <text
+                      x="100"
+                      y="68"
+                      textAnchor="middle"
+                      className="fill-amber-600 text-[8px]"
+                    >
+                      matching
+                    </text>
+                    <text
+                      x="155"
+                      y="60"
+                      textAnchor="middle"
+                      className="fill-emerald-600 text-[10px] font-medium"
+                    >
+                      {(
+                        joinAnalysis.joinUniqueCount -
+                        joinAnalysis.matchingCount
+                      ).toLocaleString()}
+                    </text>
+                    {/* Circle labels */}
+                    <text
+                      x="45"
+                      y="110"
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[9px]"
+                    >
+                      Base
+                    </text>
+                    <text
+                      x="155"
+                      y="110"
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[9px]"
+                    >
+                      Join
+                    </text>
+                  </svg>
+
+                  {/* Result summary */}
+                  <div className="mt-3 text-center">
+                    <p className="text-sm font-medium">
+                      {joinType === "inner" && (
+                        <>
+                          Result:{" "}
+                          <span className="text-amber-600">
+                            {joinAnalysis.estimatedResultRows.toLocaleString()}
+                          </span>{" "}
+                          rows
+                        </>
+                      )}
+                      {joinType === "left" && (
+                        <>Result: all base rows + matched join data</>
+                      )}
+                      {joinType === "right" && (
+                        <>Result: matched base data + all join rows</>
+                      )}
+                      {joinType === "outer" && (
+                        <>Result: all rows from both tables</>
+                      )}
+                    </p>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {joinAnalysis.matchingCount.toLocaleString()} of{" "}
+                      {joinAnalysis.baseUniqueCount.toLocaleString()} base
+                      values have matches
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </Surface>
 
@@ -711,8 +1102,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 )}
                 {!isComputingPreview && previewResult && (
                   <p className="text-muted-foreground text-sm">
-                    {previewResult.rows.length} rows
-                    {previewResult.rows.length >= PREVIEW_ROW_LIMIT &&
+                    {previewTotalCount.toLocaleString()} total rows
+                    {previewTotalCount > PREVIEW_ROW_LIMIT &&
                       ` (showing first ${PREVIEW_ROW_LIMIT})`}
                     {" · "}
                     {previewResult.columns?.length ?? 0} columns
@@ -724,7 +1115,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               {!isComputingPreview && previewResult && (
                 <>
                   {/* Legend for column colors */}
-                  <div className="mb-3 flex items-center gap-4 text-xs">
+                  <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-blue-600" />
                       <span className="text-muted-foreground">
@@ -737,14 +1128,22 @@ export default function JoinConfigurePage({ params }: PageProps) {
                         From {joinTableInfo?.table.name ?? "join table"}
                       </span>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-3 w-3 rounded bg-amber-500" />
+                      <span className="text-muted-foreground">
+                        In both tables
+                      </span>
+                    </div>
                   </div>
                   <div
                     className="border-border/60 overflow-hidden rounded-xl border"
                     style={{ maxHeight: 300 }}
                   >
-                    <DataFrameTable
-                      dataFrame={previewResult}
-                      columns={previewColumnConfigs}
+                    <VirtualTable
+                      rows={previewResult.rows}
+                      columns={previewResult.columns}
+                      columnConfigs={previewColumnConfigs}
+                      height={300}
                       compact
                     />
                   </div>
@@ -783,32 +1182,27 @@ export default function JoinConfigurePage({ params }: PageProps) {
 interface TablePreviewSectionProps {
   title: string;
   table: DataTable;
-  dataFrame: DataFrame | null;
+  totalCount: number;
+  isReady: boolean;
+  onFetchData: (
+    params: import("@dashframe/ui").FetchDataParams,
+  ) => Promise<import("@dashframe/ui").FetchDataResult>;
   fields: Field[];
-  columnConfigs?: ColumnConfig[];
+  columnConfigs?: VirtualTableColumnConfig[];
   onHeaderClick?: (columnName: string) => void;
 }
 
 function TablePreviewSection({
   title,
   table,
-  dataFrame,
+  totalCount,
+  isReady,
+  onFetchData,
   fields,
   columnConfigs,
   onHeaderClick,
 }: TablePreviewSectionProps) {
-  const rowCount = dataFrame?.rows.length ?? 0;
-  const colCount = dataFrame?.columns?.length ?? fields.length;
-
-  // Slice data for preview
-  const previewData = useMemo(() => {
-    if (!dataFrame) return null;
-    if (dataFrame.rows.length <= PREVIEW_ROW_LIMIT) return dataFrame;
-    return {
-      ...dataFrame,
-      rows: dataFrame.rows.slice(0, PREVIEW_ROW_LIMIT),
-    };
-  }, [dataFrame]);
+  const colCount = fields.filter((f) => !f.name.startsWith("_")).length;
 
   return (
     <Surface elevation="raised" className="overflow-hidden rounded-2xl">
@@ -821,26 +1215,29 @@ function TablePreviewSection({
             <p className="font-semibold">{table.name}</p>
           </div>
           <p className="text-muted-foreground text-xs">
-            {rowCount.toLocaleString()} rows · {colCount} columns
+            {totalCount.toLocaleString()} rows · {colCount} columns
           </p>
         </div>
         <p className="text-muted-foreground mt-1 text-xs">
           Click a column header to select it for joining
         </p>
       </div>
-      <div style={{ maxHeight: 260 }} className="overflow-hidden">
-        {previewData ? (
-          <DataFrameTable
-            dataFrame={previewData}
-            fields={fields}
-            columns={columnConfigs}
+      <div style={{ height: 260 }} className="overflow-hidden">
+        {!isReady ? (
+          <div className="text-muted-foreground flex h-40 items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span className="text-sm">Loading data...</span>
+            </div>
+          </div>
+        ) : (
+          <VirtualTable
+            onFetchData={onFetchData}
+            columnConfigs={columnConfigs}
+            height={260}
             onHeaderClick={onHeaderClick}
             compact
           />
-        ) : (
-          <div className="text-muted-foreground flex h-40 items-center justify-center">
-            No data available
-          </div>
         )}
       </div>
     </Surface>

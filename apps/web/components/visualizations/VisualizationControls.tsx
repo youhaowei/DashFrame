@@ -32,9 +32,13 @@ import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
 import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type {
   Visualization,
   VisualizationType,
@@ -324,9 +328,7 @@ interface ProvenanceSummaryProps {
       }
     | null
     | undefined;
-  dataFrame: {
-    metadata?: { rowCount: number; columnCount: number; timestamp?: number };
-  };
+  dataFrameEntry: DataFrameEntry | null;
   source: { name: string } | null;
   dataTable: { name: string } | null;
   isRefreshable: boolean;
@@ -339,7 +341,7 @@ interface ProvenanceSummaryProps {
 
 function ProvenanceSummary({
   insight,
-  dataFrame,
+  dataFrameEntry,
   source,
   dataTable,
   isRefreshable,
@@ -349,9 +351,9 @@ function ProvenanceSummary({
   dataTableFields = [],
   insightMetrics = [],
 }: ProvenanceSummaryProps) {
-  const rowCount = dataFrame?.metadata?.rowCount ?? 0;
-  const colCount = dataFrame?.metadata?.columnCount ?? 0;
-  const lastRefreshed = dataFrame?.metadata?.timestamp;
+  const rowCount = dataFrameEntry?.rowCount ?? 0;
+  const colCount = dataFrameEntry?.columnCount ?? 0;
+  const lastRefreshed = dataFrameEntry?.createdAt;
 
   // Determine freshness indicator
   const isStale =
@@ -580,16 +582,24 @@ export function VisualizationControls() {
   );
   const update = useVisualizationsStore((state) => state.update);
   const remove = useVisualizationsStore((state) => state.remove);
-  const getDataFrame = useDataFramesStore((state) => state.get);
-  const updateFromInsight = useDataFramesStore(
-    (state) => state.updateFromInsight,
-  );
+  const getDataFrameEntry = useDataFramesStore((state) => state.getEntry);
+  const addDataFrame = useDataFramesStore((state) => state.addDataFrame);
   const getInsight = useInsightsStore((state) => state.getInsight);
 
   const queryNotionDatabase = trpc.notion.queryDatabase.useMutation();
 
+  // Load DataFrame data asynchronously from IndexedDB
+  const { data: dataFrameData, isLoading: isLoadingData } = useDataFrameData(
+    activeViz?.source.dataFrameId,
+  );
+
+  // Get DataFrame entry for metadata
+  const dataFrameEntry = activeViz?.source.dataFrameId
+    ? (getDataFrameEntry(activeViz.source.dataFrameId) ?? null)
+    : null;
+
   // Don't render anything until hydrated to avoid hydration mismatch
-  if (!isHydrated) {
+  if (!isHydrated || isLoadingData) {
     return (
       <div className="text-muted-foreground flex h-full w-full items-center justify-center p-6 text-sm">
         Loading controls…
@@ -613,19 +623,17 @@ export function VisualizationControls() {
     );
   }
 
-  const dataFrame = getDataFrame(activeViz.source.dataFrameId);
-
-  // Get insight - try direct reference first, fallback to dataFrame metadata
+  // Get insight - try direct reference first, fallback to dataFrame entry metadata
   let insight = activeViz.source.insightId
     ? getInsight(activeViz.source.insightId)
     : null;
 
-  // Fallback: if no direct insight reference, try to find via dataFrame metadata
-  if (!insight && dataFrame?.metadata?.source?.insightId) {
-    insight = getInsight(dataFrame.metadata.source.insightId);
+  // Fallback: if no direct insight reference, try to find via dataFrame entry
+  if (!insight && dataFrameEntry?.insightId) {
+    insight = getInsight(dataFrameEntry.insightId);
   }
 
-  if (!dataFrame) {
+  if (!dataFrameEntry || !dataFrameData) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
         <div className="border-destructive/40 bg-destructive/10 rounded-2xl border px-4 py-6 text-center">
@@ -640,15 +648,18 @@ export function VisualizationControls() {
     );
   }
 
-  const columns = (dataFrame.data.columns || []).map(
+  const columns = (dataFrameData.columns || []).map(
     (col: { name: string }) => col.name,
   );
-  const numericColumns = (dataFrame.data.columns || [])
+  const numericColumns = (dataFrameData.columns || [])
     .filter((col: { type: string }) => col.type === "number")
     .map((col: { name: string }) => col.name);
 
   // Analyze columns for warnings
-  const columnAnalysis = analyzeDataFrame(dataFrame);
+  const columnAnalysis = analyzeDataFrame(
+    dataFrameData.rows,
+    dataFrameData.columns,
+  );
 
   const hasNumericColumns = numericColumns.length > 0;
 
@@ -709,9 +720,14 @@ export function VisualizationControls() {
     const newType = type as VisualizationType;
 
     // Auto-select axes using shared utility (pass insight to prefer metrics)
+    // Add empty fieldIds to make LoadedDataFrameData compatible with DataFrameData
+    const dataFrameDataWithFieldIds = {
+      ...dataFrameData,
+      fieldIds: [] as string[],
+    };
     const newEncoding = autoSelectEncoding(
       newType,
-      dataFrame,
+      dataFrameDataWithFieldIds,
       undefined, // fields - not available in this context yet
       activeViz.encoding,
       insight || undefined, // Pass insight to prioritize metrics for Y-axis
@@ -905,16 +921,29 @@ export function VisualizationControls() {
       });
 
       // Apply insight aggregation to raw data
-      const aggregatedDataFrame = computeInsightDataFrame(
+      const aggregatedData = computeInsightDataFrame(
         insight,
         foundDataTable,
         rawDataFrame,
       );
 
-      // Update the DataFrame with aggregated data
-      updateFromInsight(activeViz.source.insightId, aggregatedDataFrame);
+      // TODO: Implement refresh functionality with new IndexedDB storage
+      // This requires converting DataFrameData to Arrow buffer and creating a DataFrame class.
+      // For now, we just show that data was fetched but don't persist it.
+      // Future implementation should:
+      // 1. Convert aggregatedData to Arrow buffer using tableToArrow
+      // 2. Create DataFrame using DataFrame.create()
+      // 3. Call addDataFrame to persist
+      // 4. Update visualization source with new dataFrameId
+      console.log("Refreshed data:", {
+        rows: aggregatedData.rows.length,
+        columns: aggregatedData.columns?.length ?? 0,
+      });
 
-      toast.success("Data refreshed successfully!", { id: toastId });
+      toast.success(
+        "Data refreshed (preview only - persistence not yet implemented)",
+        { id: toastId },
+      );
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       setRefreshError(errorMsg);
@@ -977,7 +1006,7 @@ export function VisualizationControls() {
       {/* NEW: Provenance Summary (always visible) */}
       <ProvenanceSummary
         insight={insight}
-        dataFrame={dataFrame}
+        dataFrameEntry={dataFrameEntry}
         source={source}
         dataTable={dataTable}
         isRefreshable={isRefreshable}

@@ -1,9 +1,12 @@
 import type { TopLevelSpec } from "vega-lite";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
+import type { DataFrameRow, DataFrameColumn } from "@dashframe/dataframe";
 import type { Visualization } from "@/lib/stores/types";
 
 // StandardType is not exported from vega-lite's main module
 type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
+
+// Simple data format with rows and columns
+type DataFrameInput = { rows: DataFrameRow[]; columns: DataFrameColumn[] };
 
 // Helper to get CSS variable color value
 export function getCSSColor(variable: string): string {
@@ -46,14 +49,15 @@ export function getVegaThemeConfig() {
 
 export function buildVegaSpec(
   viz: Visualization,
-  dataFrame: EnhancedDataFrame,
+  dataFrame: DataFrameInput,
 ): TopLevelSpec {
   const { visualizationType, encoding } = viz;
+  const { rows, columns } = dataFrame;
 
   // Common spec properties
   const commonSpec = {
     $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: dataFrame.data.rows },
+    data: { values: rows },
     width: "container" as const,
     height: "container" as const,
     autosize: { type: "fit" as const, contains: "padding" as const },
@@ -61,11 +65,11 @@ export function buildVegaSpec(
   };
 
   // If no encoding is set, use defaults
-  const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
+  const x = encoding?.x || columns?.[0]?.name || "x";
   const y =
     encoding?.y ||
-    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns?.[1]?.name ||
+    columns?.find((col) => col.type === "number")?.name ||
+    columns?.[1]?.name ||
     "y";
 
   switch (visualizationType) {

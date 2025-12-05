@@ -20,7 +20,7 @@ export function DataSourceTree({
   onDeleteTable,
 }: DataSourceTreeProps) {
   const dataSource = useDataSourcesStore((state) => state.get(dataSourceId));
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  const getEntry = useDataFramesStore((state) => state.getEntry);
 
   const dataTables = useMemo(() => {
     if (!dataSource) return [];
@@ -90,8 +90,8 @@ export function DataSourceTree({
           />
         ) : (
           dataTables.map((table) => {
-            const dataFrame = table.dataFrameId
-              ? getDataFrame(table.dataFrameId)
+            const entry = table.dataFrameId
+              ? getEntry(table.dataFrameId)
               : null;
             const isSelected = table.id === selectedTableId;
 
@@ -129,10 +129,10 @@ export function DataSourceTree({
                     >
                       {table.name}
                     </p>
-                    {dataFrame && (
+                    {entry && (
                       <p className="text-muted-foreground mt-1 text-xs">
-                        {dataFrame.metadata.rowCount} rows ×{" "}
-                        {dataFrame.metadata.columnCount} columns
+                        {entry.rowCount ?? "?"} rows ×{" "}
+                        {entry.columnCount ?? "?"} columns
                       </p>
                     )}
                   </div>

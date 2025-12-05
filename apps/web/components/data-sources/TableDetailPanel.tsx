@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import type { DataTable } from "@/lib/stores/types";
-import type { EnhancedDataFrame } from "@dashframe/dataframe";
+import type { DataFrameEntry } from "@/lib/stores/dataframes-store";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   Button,
   Plus,
@@ -13,14 +14,14 @@ import {
   Panel,
   Toggle,
   EmptyState,
-  DataFrameTable,
+  VirtualTable,
   Trash2,
   ActionGroup,
 } from "@dashframe/ui";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
-  dataFrame: EnhancedDataFrame | null;
+  dataFrameEntry: DataFrameEntry | null;
   onCreateVisualization: () => void;
   onEditField: (fieldId: string) => void;
   onDeleteField: (fieldId: string) => void;
@@ -32,7 +33,7 @@ interface TableDetailPanelProps {
 
 export function TableDetailPanel({
   dataTable,
-  dataFrame,
+  dataFrameEntry,
   onCreateVisualization,
   onEditField,
   onDeleteField,
@@ -42,6 +43,12 @@ export function TableDetailPanel({
   onDeleteTable,
 }: TableDetailPanelProps) {
   const [activeTab, setActiveTab] = useState("fields");
+
+  // Load data only when preview tab is active (lazy loading)
+  const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
+    dataFrameEntry?.id,
+    { limit: 50, skip: activeTab !== "preview" },
+  );
 
   // Empty state when no table selected
   if (!dataTable) {
@@ -66,8 +73,8 @@ export function TableDetailPanel({
                 {dataTable.name}
               </h1>
               <p className="text-muted-foreground mt-1 text-sm">
-                {dataFrame
-                  ? `${dataFrame.metadata.rowCount} rows × ${dataFrame.metadata.columnCount} columns`
+                {dataFrameEntry
+                  ? `${dataFrameEntry.rowCount ?? "?"} rows × ${dataFrameEntry.columnCount ?? "?"} columns`
                   : "No data available"}
               </p>
             </div>
@@ -234,16 +241,29 @@ export function TableDetailPanel({
       {activeTab === "preview" && (
         <div className="flex h-full flex-col gap-4 p-4">
           <p className="text-muted-foreground text-sm">
-            {dataFrame
-              ? `Showing first ${Math.min(50, dataFrame.metadata.rowCount)} rows`
-              : "No data available"}
+            {isLoadingPreview
+              ? "Loading preview..."
+              : previewData
+                ? `Showing first ${Math.min(50, dataFrameEntry?.rowCount ?? previewData.rows.length)} rows`
+                : "No data available"}
           </p>
 
           <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
-            {dataFrame ? (
-              <DataFrameTable
-                dataFrame={dataFrame.data}
-                fields={dataTable.fields}
+            {isLoadingPreview ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <p className="text-muted-foreground text-sm">
+                    Loading data...
+                  </p>
+                </div>
+              </div>
+            ) : previewData ? (
+              <VirtualTable
+                rows={previewData.rows}
+                columns={previewData.columns}
+                height="100%"
+                className="flex-1"
               />
             ) : (
               <div className="flex h-full items-center justify-center">

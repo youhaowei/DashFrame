@@ -1,4 +1,4 @@
-import { csvToDataFrameWithFields } from "@dashframe/csv";
+import { csvToDataFrame } from "@dashframe/csv";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import type { Metric } from "@dashframe/dataframe";
@@ -17,9 +17,9 @@ export interface LocalCSVResult {
  *
  * Flow:
  * 1. Ensure "Local Files" data source exists in local store
- * 2. Parse CSV → DataFrame with fields
+ * 2. Parse CSV → DataFrame (stored in IndexedDB via Arrow IPC)
  * 3. Add DataTable to local data source
- * 4. Store DataFrame in dataframes store
+ * 4. Store DataFrame reference in dataframes store
  * 5. Link DataFrame to DataTable
  *
  * @param file - The CSV file object
@@ -27,11 +27,11 @@ export interface LocalCSVResult {
  * @param options - Optional override behavior for existing tables
  * @returns IDs for navigation and reference
  */
-export function handleLocalCSVUpload(
+export async function handleLocalCSVUpload(
   file: File,
   csvData: string[][],
   options?: { overrideTableId?: string },
-): LocalCSVResult {
+): Promise<LocalCSVResult> {
   // 1. Ensure local data source exists
   let dataSource = useDataSourcesStore.getState().getLocal();
   if (!dataSource) {
@@ -49,11 +49,9 @@ export function handleLocalCSVUpload(
     : undefined;
   const dataTableId = options?.overrideTableId ?? crypto.randomUUID();
 
-  // 2. Convert CSV to DataFrame with fields (using the target table ID)
-  const { dataFrame, fields, sourceSchema } = csvToDataFrameWithFields(
-    csvData,
-    dataTableId,
-  );
+  // 2. Convert CSV to DataFrame (data stored in IndexedDB)
+  const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
+    await csvToDataFrame(csvData, dataTableId);
 
   // Helper: ensure a default count metric exists
   const ensureCountMetric = (existing: Metric[] = []): Metric[] => {
@@ -91,14 +89,21 @@ export function handleLocalCSVUpload(
 
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
-      useDataFramesStore
+      // Replace the DataFrame data (delete old Arrow data, store new)
+      await useDataFramesStore
         .getState()
-        .updateById(overrideTable.dataFrameId, dataFrame);
+        .replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
+          rowCount,
+          columnCount,
+        });
       dataFrameId = overrideTable.dataFrameId;
     } else {
-      dataFrameId = useDataFramesStore
-        .getState()
-        .createFromCSV(dataSource.id, tableName, dataFrame);
+      // Create new DataFrame entry
+      dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+        name: tableName,
+        rowCount,
+        columnCount,
+      });
     }
 
     // Ensure the DataTable points to the updated DataFrame
@@ -115,10 +120,12 @@ export function handleLocalCSVUpload(
         fields,
       });
 
-    // 4. Create DataFrame in dataframes store
-    dataFrameId = useDataFramesStore
-      .getState()
-      .createFromCSV(dataSource.id, tableName, dataFrame);
+    // 4. Create DataFrame entry in dataframes store
+    dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+      name: tableName,
+      rowCount,
+      columnCount,
+    });
 
     // 5. Link DataFrame to DataTable
     useDataSourcesStore

@@ -81,7 +81,8 @@ export default function DashboardsPage() {
               No dashboards yet
             </h3>
             <p className="text-muted-foreground mt-2 max-w-sm text-sm">
-              Create your first dashboard to start organizing your visualizations.
+              Create your first dashboard to start organizing your
+              visualizations.
             </p>
             <Button className="mt-6" onClick={() => setIsCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -98,7 +99,7 @@ export default function DashboardsPage() {
               >
                 <Surface
                   elevation="raised"
-                  className="relative flex h-full flex-col p-5 transition-all hover:border-primary/50 hover:shadow-md"
+                  className="hover:border-primary/50 relative flex h-full flex-col p-5 transition-all hover:shadow-md"
                 >
                   <div className="mb-4 flex items-start justify-between">
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">

@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import type { Insight } from "@/lib/stores/types";
 
 export interface InsightInfo {
@@ -81,16 +84,17 @@ export function useInsights(options?: {
 }) {
   const { excludeIds = [], withComputedDataOnly = false } = options ?? {};
 
-  // Subscribe to store changes
+  // Subscribe to store changes (using cached arrays for stable references)
   const allInsights = useInsightsStore((state) => state._cachedInsights);
-  const dataFrames = useDataFramesStore((state) => state._cachedDataFrames);
+  const dataFrameEntries = useDataFramesStore((state) => state._cachedEntries);
 
   const insights = useMemo(() => {
-    // Build DataFrame lookup map for efficient access
-    const dfByInsightId = new Map(
-      dataFrames
-        .filter((df) => df.metadata.source.insightId)
-        .map((df) => [df.metadata.source.insightId!, df]),
+    // Build DataFrame entry lookup map for efficient access
+    // DataFrameEntry has insightId directly (not nested under metadata)
+    const dfByInsightId = new Map<string, DataFrameEntry>(
+      dataFrameEntries
+        .filter((entry) => entry.insightId)
+        .map((entry) => [entry.insightId!, entry]),
     );
 
     return allInsights
@@ -118,11 +122,11 @@ export function useInsights(options?: {
           fieldCount: insight.baseTable.selectedFields.length,
           metricCount: insight.metrics.length,
           hasComputedData: !!df,
-          rowCount: df?.metadata.rowCount,
+          rowCount: df?.rowCount,
           insight,
         };
       });
-  }, [allInsights, dataFrames, excludeIds, withComputedDataOnly]);
+  }, [allInsights, dataFrameEntries, excludeIds, withComputedDataOnly]);
 
   return {
     insights,

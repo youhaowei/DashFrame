@@ -38,8 +38,9 @@ import {
 } from "@dashframe/ui";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
-import { DataFrameTable } from "@dashframe/ui";
+import { VirtualTable } from "@dashframe/ui";
 import type { UUID } from "@dashframe/dataframe";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
@@ -81,7 +82,7 @@ export default function DataSourcePage({ params }: PageProps) {
   );
   const updateDataSource = useDataSourcesStore((s) => s.update);
   const removeDataTable = useDataSourcesStore((s) => s.removeDataTable);
-  const getDataFrame = useDataFramesStore((state) => state.get);
+  const getEntry = useDataFramesStore((state) => state.getEntry);
 
   // Get tables from data source
   const dataTables = useMemo(() => {
@@ -122,11 +123,17 @@ export default function DataSourcePage({ params }: PageProps) {
     }
   }, [dataSource?.name]);
 
-  // Get DataFrame for selected table preview
-  const dataFrame = useMemo(() => {
+  // Get DataFrame entry for metadata (row/column counts)
+  const dataFrameEntry = useMemo(() => {
     if (!tableDetails?.dataTable?.dataFrameId) return null;
-    return getDataFrame(tableDetails.dataTable.dataFrameId);
-  }, [tableDetails?.dataTable?.dataFrameId, getDataFrame]);
+    return getEntry(tableDetails.dataTable.dataFrameId);
+  }, [tableDetails?.dataTable?.dataFrameId, getEntry]);
+
+  // Load actual data for preview (async from IndexedDB)
+  const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
+    tableDetails?.dataTable?.dataFrameId,
+    { limit: 50 },
+  );
 
   // Handle name change
   const handleNameChange = (newName: string) => {
@@ -372,17 +379,35 @@ export default function DataSourcePage({ params }: PageProps) {
             </Card>
 
             {/* Data preview */}
-            {dataFrame && (
+            {dataFrameEntry && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Data Preview</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="max-h-96 overflow-auto">
-                    <DataFrameTable
-                      dataFrame={dataFrame.data}
-                      fields={tableDetails.fields}
-                    />
+                    {isLoadingPreview ? (
+                      <div className="flex h-40 items-center justify-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          <p className="text-muted-foreground text-sm">
+                            Loading data...
+                          </p>
+                        </div>
+                      </div>
+                    ) : previewData ? (
+                      <VirtualTable
+                        rows={previewData.rows}
+                        columns={previewData.columns}
+                        height={300}
+                      />
+                    ) : (
+                      <div className="flex h-40 items-center justify-center">
+                        <p className="text-muted-foreground text-sm">
+                          No data available
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

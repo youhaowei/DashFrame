@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   type LucideIcon,
   ChevronLeft,
@@ -16,12 +16,29 @@ import {
   Sparkles,
   Menu,
   X,
+  Settings,
+  Trash2,
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
   cn,
 } from "@dashframe/ui";
+import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  useDataSourcesStore,
+  useInsightsStore,
+  useDataFramesStore,
+  useVisualizationsStore,
+} from "@/lib/stores";
 
 type NavItem = {
   name: string;
@@ -54,11 +71,13 @@ const navItems: NavItem[] = [
 interface SidebarContentProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  onClearData?: () => void;
 }
 
 function SidebarContent({
   isCollapsed = false,
   onToggleCollapse,
+  onClearData,
 }: SidebarContentProps) {
   const pathname = usePathname();
 
@@ -183,9 +202,26 @@ function SidebarContent({
         })}
       </nav>
 
-      {/* Open source link */}
+      {/* Footer with Settings and GitHub */}
       {!isCollapsed && (
-        <div className="border-border/60 border-t px-4 py-4">
+        <div className="border-border/60 space-y-2 border-t px-4 py-4">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 text-xs transition-colors">
+                <Settings className="h-4 w-4" />
+                <span>Settings</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top">
+              <DropdownMenuItem
+                onClick={onClearData}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear all data
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <a
             href="https://github.com/youhaowei/dashframe"
             target="_blank"
@@ -202,9 +238,21 @@ function SidebarContent({
 }
 
 export function Navigation() {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const handleClearAllData = () => {
+    useDataSourcesStore.getState().clear();
+    useInsightsStore.getState().clear();
+    useDataFramesStore.getState().clear();
+    useVisualizationsStore.getState().clear();
+    setShowClearConfirm(false);
+    toast.success("All data cleared");
+    router.push("/");
+  };
 
   let sidebarWidth = "w-72";
   if (isHidden) sidebarWidth = "w-0";
@@ -226,6 +274,7 @@ export function Navigation() {
         <SidebarContent
           isCollapsed={isCollapsed}
           onToggleCollapse={() => setIsCollapsed((prev) => !prev)}
+          onClearData={() => setShowClearConfirm(true)}
         />
       </aside>
 
@@ -274,9 +323,33 @@ export function Navigation() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SidebarContent />
+              <SidebarContent onClearData={() => setShowClearConfirm(true)} />
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear Data Confirmation Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear all data?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete all data sources, insights, and
+              visualizations. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClearAllData}>
+              Clear all data
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

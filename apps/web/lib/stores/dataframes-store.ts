@@ -3,32 +3,99 @@ import "./config";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, DataFrame, EnhancedDataFrame } from "@dashframe/dataframe";
+import type { UUID, DataFrameSerialization } from "@dashframe/dataframe";
+import {
+  DataFrame as DataFrameClass,
+  deleteArrowData,
+} from "@dashframe/dataframe";
 
 // ============================================================================
 // State Interface
 // ============================================================================
 
+/**
+ * Extended serialization with metadata for UI display.
+ * The base DataFrameSerialization only contains storage info.
+ * We add name/source tracking for user-facing features.
+ */
+export interface DataFrameEntry extends DataFrameSerialization {
+  name: string;
+  insightId?: UUID; // Link to insight that produced this DataFrame
+  rowCount?: number; // Cached for display (may be stale)
+  columnCount?: number;
+}
+
 interface DataFramesState {
-  dataFrames: Map<UUID, EnhancedDataFrame>;
-  _cachedDataFrames: EnhancedDataFrame[]; // Cached array for stable references
+  dataFrames: Map<UUID, DataFrameEntry>;
+  _cachedEntries: DataFrameEntry[]; // Cached entries for stable selector references
 }
 
 interface DataFramesActions {
-  // Create from CSV DataSource
-  createFromCSV: (dataSourceId: UUID, name: string, data: DataFrame) => UUID;
+  /**
+   * Add a DataFrame instance to the store.
+   * Data is already persisted to IndexedDB by DataFrame.create().
+   * This only stores the serialization reference in localStorage.
+   */
+  addDataFrame: (
+    dataFrame: DataFrameClass,
+    metadata: {
+      name: string;
+      insightId?: UUID;
+      rowCount?: number;
+      columnCount?: number;
+    },
+  ) => UUID;
 
-  // Create/update from Insight
-  createFromInsight: (insightId: UUID, name: string, data: DataFrame) => UUID;
-  updateFromInsight: (insightId: UUID, data: DataFrame) => void;
-  updateById: (id: UUID, data: DataFrame) => void;
+  /**
+   * Get a DataFrame instance by ID.
+   * Returns the class instance that can load data from IndexedDB.
+   */
+  getDataFrame: (id: UUID) => DataFrameClass | undefined;
 
-  // General
-  get: (id: UUID) => EnhancedDataFrame | undefined;
-  getByInsight: (insightId: UUID) => EnhancedDataFrame | undefined;
-  remove: (id: UUID) => void;
-  getAll: () => EnhancedDataFrame[];
-  clear: () => void;
+  /**
+   * Get DataFrame entry with metadata (for UI display).
+   */
+  getEntry: (id: UUID) => DataFrameEntry | undefined;
+
+  /**
+   * Get DataFrame entry by insight ID.
+   */
+  getByInsight: (insightId: UUID) => DataFrameEntry | undefined;
+
+  /**
+   * Update DataFrame metadata (name, insightId, counts).
+   */
+  updateMetadata: (
+    id: UUID,
+    updates: Partial<
+      Pick<DataFrameEntry, "name" | "insightId" | "rowCount" | "columnCount">
+    >,
+  ) => void;
+
+  /**
+   * Replace DataFrame data (for re-uploads or updates).
+   * Deletes old Arrow data from IndexedDB and stores new reference.
+   */
+  replaceDataFrame: (
+    id: UUID,
+    newDataFrame: DataFrameClass,
+    metadata?: { rowCount?: number; columnCount?: number },
+  ) => Promise<void>;
+
+  /**
+   * Remove DataFrame and its IndexedDB data.
+   */
+  removeDataFrame: (id: UUID) => Promise<void>;
+
+  /**
+   * Get all entries with metadata.
+   */
+  getAllEntries: () => DataFrameEntry[];
+
+  /**
+   * Clear all DataFrames and their IndexedDB data.
+   */
+  clear: () => Promise<void>;
 }
 
 type DataFramesStore = DataFramesState & DataFramesActions;
@@ -37,36 +104,33 @@ type DataFramesStore = DataFramesState & DataFramesActions;
 // Storage Serialization (for Map support)
 // ============================================================================
 
-// Type for what we actually persist (subset of full state)
 type PersistedDataFramesState = Pick<DataFramesState, "dataFrames">;
 
 const storage = createJSONStorage<PersistedDataFramesState>(
   () => localStorage,
   {
     reviver: (_key, value: unknown) => {
-      // Convert array back to Map during deserialization
-      if (
-        value &&
-        typeof value === "object" &&
-        "dataFrames" in value &&
-        Array.isArray((value as { dataFrames: unknown }).dataFrames)
-      ) {
-        const dataFramesMap = new Map(
-          (value as { dataFrames: [UUID, EnhancedDataFrame][] }).dataFrames,
-        );
+      if (value && typeof value === "object") {
+        const obj = value as Record<string, unknown>;
 
-        return {
-          ...value,
-          dataFrames: dataFramesMap,
-          _cachedDataFrames: Array.from(dataFramesMap.values()), // Recreate cache
-        };
+        // Handle dataFrames Map
+        if ("dataFrames" in obj && Array.isArray(obj.dataFrames)) {
+          const dataFramesMap = new Map(
+            obj.dataFrames as [UUID, DataFrameEntry][],
+          );
+          obj.dataFrames = dataFramesMap;
+          // Rebuild cached entries array
+          obj._cachedEntries = Array.from(dataFramesMap.values());
+        }
+
+        return obj;
       }
       return value;
     },
     replacer: (_key, value: unknown) => {
-      // Skip cached array (it's derived from the Map)
-      if (_key === "_cachedDataFrames") return undefined;
-      // Convert Map to array for JSON serialization
+      // Skip cached arrays (they're derived from Maps)
+      if (_key === "_cachedEntries") return undefined;
+      // Convert Maps to arrays for JSON serialization
       if (value instanceof Map) {
         return Array.from(value.entries());
       }
@@ -79,149 +143,120 @@ const storage = createJSONStorage<PersistedDataFramesState>(
 // Store Implementation
 // ============================================================================
 
-const calculateColumnCount = (data: DataFrame): number => {
-  // Prefer columns count if available (join operations set fieldIds: [] but have columns)
-  // Fall back to fieldIds only if columns is not available
-  if (data.columns && data.columns.length > 0) {
-    return data.columns.length;
-  }
-  return data.fieldIds?.length ?? 0;
-};
-
-const refreshColumnCounts = (state: DataFramesState) => {
-  state.dataFrames.forEach((enhanced) => {
-    enhanced.metadata.columnCount = calculateColumnCount(enhanced.data);
-  });
-};
-
 export const useDataFramesStore = create<DataFramesStore>()(
   persist(
     immer((set, get) => ({
       // Initial state
       dataFrames: new Map(),
-      _cachedDataFrames: [],
+      _cachedEntries: [],
 
-      // Create from CSV
-      createFromCSV: (dataSourceId, name, data) => {
-        const id = crypto.randomUUID();
-        const now = Date.now();
+      addDataFrame: (dataFrame, metadata) => {
+        const id = dataFrame.id;
+        const serialization = dataFrame.toJSON();
 
-        const enhancedDataFrame: EnhancedDataFrame = {
-          metadata: {
-            id,
-            name,
-            source: {
-              // No insightId for direct CSV loads (data is already local)
-            },
-            timestamp: now,
-            rowCount: data.rows.length,
-            columnCount: calculateColumnCount(data),
-          },
-          data,
+        const entry: DataFrameEntry = {
+          ...serialization,
+          name: metadata.name,
+          insightId: metadata.insightId,
+          rowCount: metadata.rowCount,
+          columnCount: metadata.columnCount,
         };
 
         set((state) => {
-          state.dataFrames.set(id, enhancedDataFrame);
-          state._cachedDataFrames = Array.from(state.dataFrames.values());
+          state.dataFrames.set(id, entry);
+          state._cachedEntries = Array.from(state.dataFrames.values());
         });
 
         return id;
       },
 
-      // Create from Insight
-      createFromInsight: (insightId, name, data) => {
-        const id = crypto.randomUUID();
-        const now = Date.now();
-
-        const enhancedDataFrame: EnhancedDataFrame = {
-          metadata: {
-            id,
-            name,
-            source: {
-              insightId,
-            },
-            timestamp: now,
-            rowCount: data.rows.length,
-            columnCount: calculateColumnCount(data),
-          },
-          data,
-        };
-
-        set((state) => {
-          state.dataFrames.set(id, enhancedDataFrame);
-          state._cachedDataFrames = Array.from(state.dataFrames.values());
-        });
-
-        return id;
+      getDataFrame: (id) => {
+        const entry = get().dataFrames.get(id);
+        return entry ? DataFrameClass.fromJSON(entry) : undefined;
       },
 
-      // Update from Insight (refresh)
-      updateFromInsight: (insightId, data) => {
-        // Find existing DataFrame for this insight
-        const existing = get().getByInsight(insightId);
-
-        if (existing) {
-          // Update existing DataFrame (no cache refresh - Map didn't change)
-          set((state) => {
-            const df = state.dataFrames.get(existing.metadata.id);
-            if (df) {
-              df.data = data;
-              df.metadata.timestamp = Date.now();
-              df.metadata.rowCount = data.rows.length;
-              df.metadata.columnCount = calculateColumnCount(data);
-            }
-          });
-        } else {
-          // Create new DataFrame if it doesn't exist
-          get().createFromInsight(insightId, "Insight Data", data);
-        }
+      getEntry: (id) => {
+        return get().dataFrames.get(id);
       },
 
-      // Update by ID (refresh cached data)
-      updateById: (id, data) => {
-        // Update doesn't change Map structure, no cache refresh needed
+      getByInsight: (insightId) => {
+        const entries = Array.from(get().dataFrames.values());
+        return entries.find((e) => e.insightId === insightId);
+      },
+
+      updateMetadata: (id, updates) => {
         set((state) => {
-          const df = state.dataFrames.get(id);
-          if (df) {
-            df.data = data;
-            df.metadata.timestamp = Date.now();
-            df.metadata.rowCount = data.rows.length;
-            df.metadata.columnCount = calculateColumnCount(data);
+          const entry = state.dataFrames.get(id);
+          if (entry) {
+            if (updates.name !== undefined) entry.name = updates.name;
+            if (updates.insightId !== undefined)
+              entry.insightId = updates.insightId;
+            if (updates.rowCount !== undefined)
+              entry.rowCount = updates.rowCount;
+            if (updates.columnCount !== undefined)
+              entry.columnCount = updates.columnCount;
           }
         });
       },
 
-      // Get DataFrame by ID
-      get: (id) => {
-        return get().dataFrames.get(id);
-      },
+      replaceDataFrame: async (id, newDataFrame, metadata) => {
+        const oldEntry = get().dataFrames.get(id);
 
-      // Get DataFrame by Insight
-      getByInsight: (insightId) => {
-        const dataFrames = Array.from(get().dataFrames.values());
-        return dataFrames.find(
-          (df) => df.metadata.source.insightId === insightId,
-        );
-      },
+        // Delete old Arrow data from IndexedDB (safety check for legacy data)
+        if (oldEntry?.storage?.type === "indexeddb") {
+          await deleteArrowData(oldEntry.storage.key);
+        }
 
-      // Remove DataFrame
-      remove: (id) => {
+        // Update with new DataFrame reference
+        const newSerialization = newDataFrame.toJSON();
+
         set((state) => {
-          state.dataFrames.delete(id);
-          state._cachedDataFrames = Array.from(state.dataFrames.values());
+          const entry = state.dataFrames.get(id);
+          if (entry) {
+            entry.storage = newSerialization.storage;
+            entry.fieldIds = newSerialization.fieldIds;
+            entry.primaryKey = newSerialization.primaryKey;
+            entry.createdAt = newSerialization.createdAt;
+            if (metadata?.rowCount !== undefined)
+              entry.rowCount = metadata.rowCount;
+            if (metadata?.columnCount !== undefined)
+              entry.columnCount = metadata.columnCount;
+          }
+          state._cachedEntries = Array.from(state.dataFrames.values());
         });
       },
 
-      // Get all DataFrames (returns cached array for stable references)
-      getAll: () => {
-        return get()._cachedDataFrames;
+      removeDataFrame: async (id) => {
+        const entry = get().dataFrames.get(id);
+
+        // Delete Arrow data from IndexedDB (safety check for legacy data)
+        if (entry?.storage?.type === "indexeddb") {
+          await deleteArrowData(entry.storage.key);
+        }
+
+        set((state) => {
+          state.dataFrames.delete(id);
+          state._cachedEntries = Array.from(state.dataFrames.values());
+        });
       },
 
-      // Clear all DataFrames
-      clear: () => {
+      getAllEntries: () => {
+        return get()._cachedEntries;
+      },
+
+      clear: async () => {
+        // Delete all Arrow data from IndexedDB
+        const entries = get().dataFrames.values();
+        for (const entry of entries) {
+          // Safety check for entries that may not have storage (legacy data)
+          if (entry.storage?.type === "indexeddb") {
+            await deleteArrowData(entry.storage.key);
+          }
+        }
+
         set((state) => {
           state.dataFrames.clear();
-          state._cachedDataFrames = [];
+          state._cachedEntries = [];
         });
       },
     })),
@@ -231,13 +266,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
       partialize: (state) => ({
         dataFrames: state.dataFrames,
       }),
-      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
-      onRehydrateStorage: () => {
-        return (state) => {
-          if (!state) return;
-          refreshColumnCounts(state);
-        };
-      },
+      skipHydration: true,
     },
   ),
 );

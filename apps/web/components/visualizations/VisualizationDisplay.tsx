@@ -3,15 +3,19 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { DataFrameTable } from "@dashframe/ui";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { VirtualTable } from "@dashframe/ui";
 import { VegaChart } from "./VegaChart";
 import { buildVegaSpec } from "@/lib/visualizations/spec-builder";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
-export function VisualizationDisplay({ visualizationId }: { visualizationId?: string }) {
+export function VisualizationDisplay({
+  visualizationId,
+}: {
+  visualizationId?: string;
+}) {
   const [isMounted] = useState(() => typeof window !== "undefined");
   const [visibleRows, setVisibleRows] = useState<number>(10);
   const [activeTab, setActiveTab] = useState<string>("both");
@@ -23,7 +27,18 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
   const visualizationsMap = useVisualizationsStore(
     (state) => state.visualizations,
   );
-  const dataFramesMap = useDataFramesStore((state) => state.dataFrames);
+
+  // Get visualization and load its data
+  const activeViz = useMemo(() => {
+    if (!activeId) return null;
+    return visualizationsMap.get(activeId) ?? null;
+  }, [activeId, visualizationsMap]);
+
+  const {
+    data: dataFrameData,
+    isLoading: isLoadingData,
+    entry: dataFrameEntry,
+  } = useDataFrameData(activeViz?.source.dataFrameId);
 
   // Watch container size changes to detect available space for "Show Both" mode
   // Table takes max 40% of container height
@@ -39,12 +54,15 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
         const contentPadding = 20; // mt-3 + gap
 
         // Table gets max 40% of the available content area
-        const availableContentHeight = containerHeight - headerHeight - contentPadding;
+        const availableContentHeight =
+          containerHeight - headerHeight - contentPadding;
         const maxTableHeight = Math.floor(availableContentHeight * 0.4);
 
         const rowHeight = 36; // Row height including header
         const tableHeaderHeight = 40; // Table header row
-        const calculatedVisibleRows = Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight);
+        const calculatedVisibleRows = Math.floor(
+          (maxTableHeight - tableHeaderHeight) / rowHeight,
+        );
 
         setVisibleRows(Math.max(0, calculatedVisibleRows));
       }
@@ -57,13 +75,9 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
   }, [activeId]);
 
   const activeResolved = useMemo(() => {
-    if (!activeId) return null;
-    const viz = visualizationsMap.get(activeId);
-    if (!viz) return null;
-    const dataFrame = dataFramesMap.get(viz.source.dataFrameId);
-    if (!dataFrame) return null;
-    return { viz, dataFrame };
-  }, [activeId, visualizationsMap, dataFramesMap]);
+    if (!activeViz || !dataFrameData) return null;
+    return { viz: activeViz, dataFrame: dataFrameData, entry: dataFrameEntry };
+  }, [activeViz, dataFrameData, dataFrameEntry]);
 
   // Build Vega spec with theme awareness (must be called before any conditional returns)
   const vegaSpec = useMemo(() => {
@@ -99,8 +113,36 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
     previousStateRef.current = { canShowBoth, activeTab };
   }, [canShowBoth, activeTab]);
 
-  // Prevent hydration mismatch - always show empty state on server
-  if (!isMounted || !activeResolved) {
+  // Prevent hydration mismatch - show empty state on server or when loading
+  if (!isMounted || isLoadingData) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-6">
+        <Surface
+          elevation="inset"
+          className="w-full max-w-lg rounded-3xl p-10 text-center"
+        >
+          <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
+            {isLoadingData ? (
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : (
+              <BarChart3 className="h-6 w-6" />
+            )}
+          </div>
+          <p className="text-foreground text-lg font-semibold">
+            {isLoadingData ? "Loading data..." : "No visualization yet"}
+          </p>
+          <p className="text-muted-foreground mt-2 text-sm">
+            {isLoadingData
+              ? "Please wait while the data is being loaded."
+              : "Use the controls on the left to create or select a visualization to preview."}
+          </p>
+        </Surface>
+      </div>
+    );
+  }
+
+  // No visualization or data selected
+  if (!activeResolved) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <Surface
@@ -122,7 +164,7 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
     );
   }
 
-  const { viz, dataFrame } = activeResolved;
+  const { viz, dataFrame, entry } = activeResolved;
 
   if (viz.visualizationType === "table") {
     return (
@@ -142,9 +184,17 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
             </div>
           </div>
         </div>
-        <div className="min-h-0 flex-1 px-6 py-6">
-          <Surface elevation="inset" className="h-full p-4">
-            <DataFrameTable dataFrame={dataFrame.data} />
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-6">
+          <Surface
+            elevation="inset"
+            className="flex min-h-0 flex-1 flex-col p-4"
+          >
+            <VirtualTable
+              rows={dataFrame.rows}
+              columns={dataFrame.columns}
+              height="100%"
+              className="flex-1"
+            />
           </Surface>
         </div>
       </div>
@@ -160,8 +210,8 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
             <p className="text-foreground text-xl font-semibold">{viz.name}</p>
             <div className="flex items-center gap-2">
               <p className="text-muted-foreground text-sm">
-                {dataFrame.metadata.rowCount.toLocaleString()} rows ·{" "}
-                {dataFrame.metadata.columnCount} columns
+                {(entry?.rowCount ?? dataFrame.rows.length).toLocaleString()}{" "}
+                rows · {entry?.columnCount ?? dataFrame.columns.length} columns
               </p>
               {viz.encoding?.color && (
                 <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
@@ -202,30 +252,44 @@ export function VisualizationDisplay({ visualizationId }: { visualizationId?: st
       </div>
 
       {activeTab === "chart" && (
-        <div className="mt-3 flex min-h-0 flex-1 px-4">
-          <div className="h-full w-full">
-            <VegaChart spec={vegaSpec!} />
-          </div>
+        <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4">
+          <VegaChart spec={vegaSpec!} className="h-full w-full" />
         </div>
       )}
 
       {activeTab === "table" && (
-        <div className="mt-3 flex min-h-0 flex-1 px-4">
-          <Surface elevation="inset" className="h-full w-full">
-            <DataFrameTable dataFrame={dataFrame.data} />
+        <div className="mt-3 flex min-h-0 flex-1 flex-col px-4">
+          <Surface
+            elevation="inset"
+            className="flex min-h-0 flex-1 flex-col p-4"
+          >
+            <VirtualTable
+              rows={dataFrame.rows}
+              columns={dataFrame.columns}
+              height="100%"
+              className="flex-1"
+            />
           </Surface>
         </div>
       )}
 
       {activeTab === "both" && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Chart takes remaining space (at least 60%) */}
-          <div className="min-h-0 flex-1 px-4">
-            <VegaChart spec={vegaSpec!} />
+          <div className="h-1/2 min-h-[200px] shrink-0 overflow-hidden px-4 pb-2">
+            <VegaChart spec={vegaSpec!} className="h-full w-full" />
           </div>
-          {/* Table sticks to bottom, max 40% height */}
-          <div className="flex max-h-[40%] shrink-0 flex-col">
-            <DataFrameTable dataFrame={dataFrame.data} className="min-h-0 flex-1" />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4">
+            <Surface
+              elevation="inset"
+              className="flex min-h-0 flex-1 flex-col p-4"
+            >
+              <VirtualTable
+                rows={dataFrame.rows}
+                columns={dataFrame.columns}
+                height="100%"
+                className="flex-1"
+              />
+            </Surface>
           </div>
         </div>
       )}

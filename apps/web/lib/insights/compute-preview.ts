@@ -1,11 +1,18 @@
-import type { DataFrame, UUID, Field } from "@dashframe/dataframe";
+import type {
+  DataFrameData,
+  DataFrameRow,
+  UUID,
+  Field,
+  DataFrameColumn,
+} from "@dashframe/dataframe";
 import type { Insight, DataTable, InsightMetric } from "../stores/types";
 
 /**
- * Preview result containing sample data and metadata
+ * Preview result containing sample data and metadata.
+ * Uses DataFrameData (plain object with rows) for in-memory processing.
  */
 export interface PreviewResult {
-  dataFrame: DataFrame;
+  dataFrame: DataFrameData;
   rowCount: number; // Total rows (after aggregation)
   sampleSize: number; // Rows in preview
 }
@@ -17,14 +24,14 @@ export interface PreviewResult {
  *
  * @param insight - The insight to preview
  * @param dataTable - The base data table
- * @param sourceDataFrame - The source DataFrame containing the full data
+ * @param sourceDataFrame - The source DataFrameData containing the full data (plain object with rows)
  * @param maxRows - Maximum rows to include in preview (default: 50)
  * @returns Preview result with aggregated DataFrame
  */
 export function computeInsightPreview(
   insight: Insight,
   dataTable: DataTable,
-  sourceDataFrame: DataFrame,
+  sourceDataFrame: DataFrameData,
   maxRows = 50,
 ): PreviewResult {
   const { baseTable, metrics, filters } = insight;
@@ -114,7 +121,7 @@ export function computeInsightPreview(
     : aggregatedRows.slice(0, maxRows);
 
   // Build column metadata
-  const columns = [
+  const columns: DataFrameColumn[] = [
     ...selectedFields.map((field) => ({
       name: field.name,
       type: field.type,
@@ -125,12 +132,11 @@ export function computeInsightPreview(
     })),
   ];
 
-  // Build preview DataFrame
-  const previewDataFrame: DataFrame = {
+  // Build preview DataFrameData (plain object format)
+  const previewDataFrame: DataFrameData = {
     fieldIds: [...baseTable.selectedFields, ...metrics.map((m) => m.id)],
     columns,
     rows: limitedRows,
-    primaryKey: sourceDataFrame.primaryKey,
   };
 
   return {
@@ -292,14 +298,14 @@ function computeMetrics(
  *
  * @param insight - The insight to compute
  * @param dataTable - The base data table
- * @param sourceDataFrame - The source DataFrame containing the full data
- * @returns Full DataFrame with aggregated data
+ * @param sourceDataFrame - The source DataFrameData containing the full data (plain object with rows)
+ * @returns Full DataFrameData with aggregated data
  */
 export function computeInsightDataFrame(
   insight: Insight,
   dataTable: DataTable,
-  sourceDataFrame: DataFrame,
-): DataFrame {
+  sourceDataFrame: DataFrameData,
+): DataFrameData {
   // For full compute, call preview with maxRows = Infinity
   // This applies all filters and grouping without limiting preview rows
   const result = computeInsightPreview(

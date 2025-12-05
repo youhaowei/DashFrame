@@ -21,13 +21,21 @@ import {
 import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VegaChart } from "@/components/visualizations/VegaChart";
-import { DataFrameTable } from "@dashframe/ui";
+import { VirtualTable } from "@dashframe/ui";
 import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import type { EnhancedDataFrame, UUID } from "@dashframe/dataframe";
+import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import {
+  computeInsightPreview,
+  type PreviewResult,
+} from "@/lib/insights/compute-preview";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // StandardType is not exported from vega-lite's main module
 type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
@@ -83,25 +91,25 @@ function getVegaThemeConfig() {
 // The visualization just renders what's in the dataframe.
 function buildVegaSpec(
   viz: Visualization,
-  dataFrame: EnhancedDataFrame,
+  data: { rows: DataFrameRow[]; columns: DataFrameColumn[] },
 ): TopLevelSpec {
   const { visualizationType, encoding } = viz;
 
   // Common spec properties
   const commonSpec = {
     $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: dataFrame.data.rows },
+    data: { values: data.rows },
     width: "container" as const,
     height: 400,
     config: getVegaThemeConfig(),
   };
 
   // Get field names from encoding or fall back to dataframe columns
-  const x = encoding?.x || dataFrame.data.columns?.[0]?.name || "x";
+  const x = encoding?.x || data.columns?.[0]?.name || "x";
   const y =
     encoding?.y ||
-    dataFrame.data.columns?.find((col) => col.type === "number")?.name ||
-    dataFrame.data.columns?.[1]?.name ||
+    data.columns?.find((col: DataFrameColumn) => col.type === "number")?.name ||
+    data.columns?.[1]?.name ||
     "y";
 
   switch (visualizationType) {
@@ -235,12 +243,197 @@ export default function VisualizationPage({ params }: PageProps) {
     (state) => state.remove,
   );
 
-  const { data: getDataFrame, isLoading: isDfLoading } = useStoreQuery(
-    useDataFramesStore,
-    (s) => s.get,
+  // Load source DataFrame data async
+  const {
+    data: sourceDataFrame,
+    isLoading: isDataLoading,
+    entry: dataFrameEntry,
+  } = useDataFrameData(visualization?.source.dataFrameId);
+
+  // Load insight if visualization has one (for aggregation config)
+  const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
+    useInsightsStore,
+    (s) =>
+      visualization?.source.insightId
+        ? s.getInsight(visualization.source.insightId)
+        : undefined,
   );
 
-  const isLoading = isVizLoading || isDfLoading;
+  // DuckDB connection for join computation
+  const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
+    useDuckDB();
+  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
+
+  // Load data source and data table for field information
+  const dataSources = useDataSourcesStore((s) => s.dataSources);
+  const dataTable = useMemo(() => {
+    if (!insight?.baseTable?.tableId) return null;
+    for (const ds of dataSources.values()) {
+      const table = ds.dataTables.get(insight.baseTable.tableId);
+      if (table) return table;
+    }
+    return null;
+  }, [insight?.baseTable?.tableId, dataSources]);
+
+  // State for DuckDB-computed joined data (when insight has joins)
+  const [joinedData, setJoinedData] = useState<{
+    rows: DataFrameRow[];
+    columns: DataFrameColumn[];
+  } | null>(null);
+  const [isLoadingJoinedData, setIsLoadingJoinedData] = useState(false);
+
+  // Compute joined data using DuckDB when insight has joins
+  useEffect(() => {
+    // Skip if no joins configured
+    if (!insight?.joins?.length) {
+      setJoinedData(null);
+      return;
+    }
+
+    // Wait for DuckDB to be ready
+    if (!duckDBConnection || !isDuckDBReady) {
+      return;
+    }
+
+    // Need base dataTable for field info
+    if (!dataTable?.dataFrameId) {
+      return;
+    }
+
+    const computeJoinedData = async () => {
+      setIsLoadingJoinedData(true);
+
+      try {
+        // Get resolved Insight with DataTable objects embedded
+        const getResolvedInsight =
+          useInsightsStore.getState().getResolvedInsight;
+        const insightInstance = getResolvedInsight(insight.id, dataSources);
+        if (!insightInstance) {
+          throw new Error(`Could not resolve insight: ${insight.id}`);
+        }
+
+        // Generate SQL - no store access needed, all data is embedded
+        const sql = insightInstance.toSQL();
+        console.log("[VisualizationPage] Generated join SQL:", sql);
+
+        // First, ensure base table is loaded into DuckDB
+        const baseDataFrame = getDataFrame(dataTable.dataFrameId!);
+        if (!baseDataFrame) {
+          throw new Error("Base DataFrame not found");
+        }
+        const baseQueryBuilder = await baseDataFrame.load(duckDBConnection);
+        await baseQueryBuilder.sql(); // Triggers table creation
+
+        // Ensure join tables are loaded into DuckDB
+        for (const join of insight.joins ?? []) {
+          // Find the join table
+          for (const ds of dataSources.values()) {
+            const joinTable = ds.dataTables.get(join.tableId);
+            if (joinTable?.dataFrameId) {
+              const joinDataFrame = getDataFrame(joinTable.dataFrameId);
+              if (joinDataFrame) {
+                const joinQueryBuilder =
+                  await joinDataFrame.load(duckDBConnection);
+                await joinQueryBuilder.sql(); // Triggers table creation
+              }
+              break;
+            }
+          }
+        }
+
+        // Execute the generated SQL
+        const result = await duckDBConnection.query(sql);
+        const rows = result.toArray() as DataFrameRow[];
+
+        // Build columns from result
+        const columns: DataFrameColumn[] =
+          rows.length > 0
+            ? Object.keys(rows[0])
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  type:
+                    typeof rows[0][name] === "number"
+                      ? ("number" as const)
+                      : ("string" as const),
+                }))
+            : [];
+
+        setJoinedData({ rows, columns });
+      } catch (err) {
+        console.error(
+          "[VisualizationPage] Failed to compute joined data:",
+          err,
+        );
+        setJoinedData(null);
+      } finally {
+        setIsLoadingJoinedData(false);
+      }
+    };
+
+    computeJoinedData();
+  }, [
+    insight?.joins,
+    insight?.id,
+    insight?.name,
+    insight?.baseTable,
+    insight?.metrics,
+    duckDBConnection,
+    isDuckDBReady,
+    dataTable,
+    dataSources,
+    getDataFrame,
+  ]);
+
+  // Compute aggregated data if we have an insight with metrics/dimensions (non-join case)
+  const aggregatedPreview = useMemo<PreviewResult | null>(() => {
+    // If we have joins, use joinedData instead
+    if (insight?.joins?.length) return null;
+
+    if (!sourceDataFrame || !insight || !dataTable) return null;
+
+    // Check if insight has dimensions or metrics configured
+    const selectedFields = insight.baseTable?.selectedFields ?? [];
+    const metrics = insight.metrics ?? [];
+
+    // If no aggregation config, return null (use raw data)
+    if (selectedFields.length === 0 && metrics.length === 0) return null;
+
+    // Convert LoadedDataFrameData to DataFrameData format for computeInsightPreview
+    const sourceDataFrameData = {
+      fieldIds: [] as string[],
+      columns: sourceDataFrame.columns,
+      rows: sourceDataFrame.rows,
+    };
+
+    // Compute aggregated preview using insight config
+    return computeInsightPreview(
+      insight,
+      dataTable,
+      sourceDataFrameData,
+      1000, // Allow more rows for visualization
+    );
+  }, [sourceDataFrame, insight, dataTable]);
+
+  // Use joined data if available, then aggregated data, then source data
+  const dataFrame = useMemo(() => {
+    // Priority 1: DuckDB-computed joined data (when insight has joins)
+    if (joinedData) {
+      return joinedData;
+    }
+    // Priority 2: Aggregated preview (non-join case with metrics/dimensions)
+    if (aggregatedPreview) {
+      return {
+        rows: aggregatedPreview.dataFrame.rows,
+        columns: aggregatedPreview.dataFrame.columns ?? [],
+      };
+    }
+    // Priority 3: Raw source data
+    return sourceDataFrame;
+  }, [joinedData, aggregatedPreview, sourceDataFrame]);
+
+  const isLoading =
+    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData;
 
   // Local state
   const [vizName, setVizName] = useState("");
@@ -280,13 +473,7 @@ export default function VisualizationPage({ params }: PageProps) {
     return () => observer.disconnect();
   }, [visualization?.id]);
 
-  // Get DataFrame from client-side store
-  const dataFrame = useMemo(() => {
-    if (!visualization?.source.dataFrameId) return null;
-    return getDataFrame(visualization.source.dataFrameId);
-  }, [visualization?.source.dataFrameId, getDataFrame]);
-
-  // Build Vega spec
+  // Build Vega spec (dataFrame is loaded via useDataFrameData hook above)
   const vegaSpec = useMemo(() => {
     if (!visualization || !dataFrame) return null;
     if (visualization.visualizationType === "table") return null;
@@ -296,13 +483,13 @@ export default function VisualizationPage({ params }: PageProps) {
   // Analyze columns for encoding suggestions
   const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
     if (!dataFrame) return [];
-    return analyzeDataFrame(dataFrame);
+    return analyzeDataFrame(dataFrame.rows, dataFrame.columns);
   }, [dataFrame]);
 
   // Get column options for selects
   const columnOptions = useMemo(() => {
     if (!dataFrame) return [];
-    return (dataFrame.data.columns || []).map((col) => ({
+    return (dataFrame.columns || []).map((col: DataFrameColumn) => ({
       label: col.name,
       value: col.name,
     }));
@@ -452,7 +639,7 @@ export default function VisualizationPage({ params }: PageProps) {
   }
 
   // Visualization type options
-  const hasNumericColumns = dataFrame.data.columns?.some(
+  const hasNumericColumns = dataFrame?.columns?.some(
     (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
@@ -488,8 +675,8 @@ export default function VisualizationPage({ params }: PageProps) {
           {/* Metadata row */}
           <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-3 text-xs">
             <span>
-              {dataFrame.metadata.rowCount.toLocaleString()} rows •{" "}
-              {dataFrame.metadata.columnCount} columns
+              {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
+              {dataFrameEntry?.columnCount ?? "?"} columns
             </span>
             {visualization.source.insightId && (
               <>
@@ -632,9 +819,17 @@ export default function VisualizationPage({ params }: PageProps) {
       <div ref={containerRef} className="h-full overflow-hidden">
         {/* Table-only visualization */}
         {visualization.visualizationType === "table" && (
-          <div className="h-full p-6">
-            <Surface elevation="inset" className="h-full p-4">
-              <DataFrameTable dataFrame={dataFrame.data} />
+          <div className="flex h-full flex-col p-6">
+            <Surface
+              elevation="inset"
+              className="flex min-h-0 flex-1 flex-col p-4"
+            >
+              <VirtualTable
+                rows={dataFrame.rows}
+                columns={dataFrame.columns}
+                height="100%"
+                className="flex-1"
+              />
             </Surface>
           </div>
         )}
@@ -650,9 +845,17 @@ export default function VisualizationPage({ params }: PageProps) {
         {/* Chart visualization - table tab */}
         {visualization.visualizationType !== "table" &&
           activeTab === "table" && (
-            <div className="h-full p-6">
-              <Surface elevation="inset" className="h-full">
-                <DataFrameTable dataFrame={dataFrame.data} />
+            <div className="flex h-full flex-col p-6">
+              <Surface
+                elevation="inset"
+                className="flex min-h-0 flex-1 flex-col p-4"
+              >
+                <VirtualTable
+                  rows={dataFrame.rows}
+                  columns={dataFrame.columns}
+                  height="100%"
+                  className="flex-1"
+                />
               </Surface>
             </div>
           )}
@@ -664,9 +867,17 @@ export default function VisualizationPage({ params }: PageProps) {
               <div className="shrink-0">
                 <VegaChart spec={vegaSpec!} />
               </div>
-              <div className="min-h-0 flex-1">
-                <Surface elevation="inset" className="h-full">
-                  <DataFrameTable dataFrame={dataFrame.data} />
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Surface
+                  elevation="inset"
+                  className="flex min-h-0 flex-1 flex-col p-4"
+                >
+                  <VirtualTable
+                    rows={dataFrame.rows}
+                    columns={dataFrame.columns}
+                    height="100%"
+                    className="flex-1"
+                  />
                 </Surface>
               </div>
             </div>

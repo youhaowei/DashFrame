@@ -10,10 +10,12 @@ import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
+import type { UUID } from "@dashframe/dataframe";
 import type {
   Visualization,
   InsightMetric,
@@ -99,8 +101,16 @@ export default function InsightPage({ params }: PageProps) {
     return (insight.baseTable?.selectedFields?.length ?? 0) > 0;
   }, [insight]);
 
-  // Get DataFrame store
-  const getDataFrame = useDataFramesStore((s) => s.get);
+  // Get DataFrame entry for metadata
+  const getEntry = useDataFramesStore((s) => s.getEntry);
+
+  // Load source data for preview computation (async from IndexedDB)
+  // Use Infinity to load all rows - insight aggregations need complete data for accurate results
+  // Note: This is loaded progressively - don't block the UI on this
+  const { data: sourceData } = useDataFrameData(
+    dataTableInfo?.dataTable?.dataFrameId,
+    { limit: Infinity },
+  );
 
   // Compute selected fields for preview
   const selectedFields = useMemo(() => {
@@ -114,12 +124,9 @@ export default function InsightPage({ params }: PageProps) {
 
   // Compute aggregated preview for configured insights
   const aggregatedPreview = useMemo<PreviewResult | null>(() => {
-    if (!isConfigured || !insight || !dataTableInfo) return null;
+    if (!isConfigured || !insight || !dataTableInfo || !sourceData) return null;
     const { dataTable, fields } = dataTableInfo;
     if (!dataTable?.dataFrameId) return null;
-
-    const sourceDataFrameEnhanced = getDataFrame(dataTable.dataFrameId);
-    if (!sourceDataFrameEnhanced) return null;
 
     try {
       const insightForCompute = {
@@ -158,16 +165,25 @@ export default function InsightPage({ params }: PageProps) {
         createdAt: dataTable.createdAt,
       };
 
+      // Convert LoadedDataFrameData to DataFrameData format (add empty fieldIds)
+      const sourceDataFrame = {
+        fieldIds: [] as UUID[],
+        columns: sourceData.columns,
+        rows: sourceData.rows,
+      };
+
+      // Use Infinity for maxRows to compute all aggregated groups
       return computeInsightPreview(
         insightForCompute as Insight,
         dataTableForCompute,
-        sourceDataFrameEnhanced.data,
+        sourceDataFrame,
+        Infinity,
       );
     } catch (error) {
       console.error("Failed to compute preview:", error);
       return null;
     }
-  }, [isConfigured, insight, insightId, dataTableInfo, getDataFrame]);
+  }, [isConfigured, insight, insightId, dataTableInfo, sourceData]);
 
   // Handle name change
   const handleNameChange = (newName: string) => {
@@ -175,12 +191,13 @@ export default function InsightPage({ params }: PageProps) {
     updateInsightName(insightId, { name: newName });
   };
 
-  const isLoading = isInsightLoading || isSourcesLoading || isVizLoading;
+  // Only block on store hydration, not on heavy data loading
+  // This enables progressive loading - UI shows immediately, data streams in
+  const isHydrating = isInsightLoading || isSourcesLoading || isVizLoading;
 
   // Loading state during SSR/hydration
-  // Wait for ALL stores to hydrate before rendering to avoid race conditions
-  // where insight loads faster than data sources
-  if (isLoading) {
+  // Wait for stores to hydrate, but NOT for source data (loaded progressively)
+  if (isHydrating) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">

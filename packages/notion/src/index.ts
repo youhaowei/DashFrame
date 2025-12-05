@@ -1,5 +1,4 @@
 import type {
-  DataFrame,
   UUID,
   Field,
   TableColumn,
@@ -15,10 +14,11 @@ import {
 import {
   convertNotionToDataFrame,
   mapNotionTypeToColumnType,
+  type NotionConversionResult,
 } from "./converter";
 
 // Re-export types
-export type { NotionDatabase, NotionProperty };
+export type { NotionDatabase, NotionProperty, NotionConversionResult };
 
 // Re-export utilities
 export { mapNotionTypeToColumnType };
@@ -52,12 +52,14 @@ export async function fetchNotionDatabaseSchema(
 }
 
 /**
- * Main converter: Fetch data from Notion database and convert to DataFrame
+ * Main converter: Fetch data from Notion database and convert to plain data format.
+ * Returns NotionConversionResult with rows, columns, Arrow buffer, and metadata.
+ * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
  */
 export async function notionToDataFrame(
   config: NotionConfig,
   fields: Field[],
-): Promise<DataFrame> {
+): Promise<NotionConversionResult> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
 
   // Filter fields based on selectedPropertyIds if provided
@@ -140,13 +142,15 @@ export function generateFieldsFromNotionSchema(
 }
 
 /**
- * Fetch sample data (limited rows) from Notion database
+ * Fetch sample data (limited rows) from Notion database.
+ * Returns NotionConversionResult with rows, columns, Arrow buffer, and metadata.
+ * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
  */
 export async function notionToDataFrameSample(
   config: NotionConfig,
   fields: Field[],
   pageSize: number = 100,
-): Promise<DataFrame> {
+): Promise<NotionConversionResult> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
 
   // Filter fields based on selectedPropertyIds if provided

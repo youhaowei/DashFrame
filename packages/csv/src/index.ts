@@ -6,6 +6,8 @@ import type {
   TableColumn,
   SourceSchema,
 } from "@dashframe/dataframe";
+import { DataFrame as DataFrameClass } from "@dashframe/dataframe";
+import { tableFromArrays, tableToIPC } from "apache-arrow";
 
 /**
  * Represents CSV data as an array of string arrays.
@@ -14,6 +16,9 @@ import type {
  */
 export type CSVData = string[][] | string[];
 
+/**
+ * Infer column type from a sample value
+ */
 const inferType = (value: string): ColumnType => {
   if (!value?.length) return "unknown";
   if (!Number.isNaN(Number(value))) return "number";
@@ -23,6 +28,9 @@ const inferType = (value: string): ColumnType => {
   return "string";
 };
 
+/**
+ * Parse a raw CSV cell value into the appropriate typed value
+ */
 const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
   if (raw === undefined || raw === "") {
     return null;
@@ -43,17 +51,41 @@ const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
 };
 
 /**
- * Converts CSV data into a DataFrame structure.
- * Expects the first row to contain headers and subsequent rows to contain data.
+ * CSV conversion result.
+ * - dataFrame: DataFrame class instance (reference to IndexedDB storage)
+ * - fields: Field definitions for the columns
+ * - sourceSchema: Source column metadata
+ * - rowCount: Number of data rows (for metadata)
+ * - columnCount: Number of columns (for metadata)
  */
-export const csvToDataFrame = (csvData: CSVData): DataFrame => {
-  // Handle case where csvData might be a single row array
+export interface CSVConversionResult {
+  /** DataFrame class instance (data stored in IndexedDB) */
+  dataFrame: DataFrame;
+  /** Field definitions */
+  fields: Field[];
+  /** Source schema metadata */
+  sourceSchema: SourceSchema;
+  /** Row count for metadata */
+  rowCount: number;
+  /** Column count for metadata */
+  columnCount: number;
+}
+
+/**
+ * Converts CSV data into a DataFrame with IndexedDB storage.
+ * Data is stored as Arrow IPC format in IndexedDB, not in localStorage.
+ */
+export async function csvToDataFrame(
+  csvData: CSVData,
+  dataTableId: UUID,
+): Promise<CSVConversionResult> {
+  // Step 1: Parse CSV and infer schema
   const data = Array.isArray(csvData[0])
     ? (csvData as string[][])
     : [csvData as string[]];
 
   if (!data.length) {
-    return { fieldIds: [], columns: [], rows: [] };
+    throw new Error("CSV data is empty");
   }
 
   const [header, ...rawRows] = data;
@@ -61,7 +93,7 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
     row.some((cell) => cell !== undefined && cell !== ""),
   );
 
-  // Create columns from CSV headers
+  // Create columns from CSV headers and infer types
   const userColumns = header.map((name, index) => {
     const sampleValue =
       rowsData.find((row) => row[index] !== undefined && row[index] !== "")?.[
@@ -75,17 +107,9 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
 
   // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
   const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
+  const primaryKey = detectedIdColumn ? detectedIdColumn.name : "_rowIndex";
 
-  // Add system columns with _rowIndex first
-  const columns = [
-    {
-      name: "_rowIndex",
-      type: "number" as ColumnType,
-    },
-    ...userColumns,
-  ];
-
-  // Create rows with system columns
+  // Create rows with parsed values
   const rows = rowsData.map((row, index) =>
     header.reduce<Record<string, unknown>>(
       (acc, key, colIndex) => {
@@ -93,45 +117,15 @@ export const csvToDataFrame = (csvData: CSVData): DataFrame => {
         acc[key] = parseValue(row[colIndex], column.type);
         return acc;
       },
-      { _rowIndex: index }, // Start with _rowIndex
+      { _rowIndex: index },
     ),
   );
 
-  return {
-    fieldIds: [], // Legacy function - use csvToDataFrameWithFields for field-based architecture
-    columns,
-    primaryKey: detectedIdColumn ? detectedIdColumn.name : "_rowIndex",
-    rows,
-  };
-};
-
-/**
- * Result type for enhanced CSV conversion
- */
-export type CsvResult = {
-  dataFrame: DataFrame;
-  fields: Field[];
-  sourceSchema: SourceSchema;
-};
-
-/**
- * Converts CSV data into a DataFrame with field metadata.
- * Returns DataFrame, auto-generated fields, and source schema.
- */
-export function csvToDataFrameWithFields(
-  csvData: CSVData,
-  dataTableId: UUID,
-): CsvResult {
-  // Parse CSV using existing logic
-  const parsed = csvToDataFrame(csvData);
-
-  // Build source schema (no _rowIndex in source - it's computed)
-  const columns: TableColumn[] = (parsed.columns || [])
-    .filter((col) => col.name !== "_rowIndex")
-    .map((col) => ({
-      name: col.name,
-      type: col.type, // Use inferred type as native type for CSV
-    }));
+  // Step 2: Build source schema (no _rowIndex in source - it's computed)
+  const columns: TableColumn[] = userColumns.map((col) => ({
+    name: col.name,
+    type: col.type,
+  }));
 
   const sourceSchema: SourceSchema = {
     columns,
@@ -139,7 +133,7 @@ export function csvToDataFrameWithFields(
     lastSyncedAt: Date.now(),
   };
 
-  // Auto-generate fields (including _rowIndex computed field)
+  // Step 3: Auto-generate fields (including _rowIndex computed field)
   const fields: Field[] = [
     // System field - computed from array index
     {
@@ -160,12 +154,34 @@ export function csvToDataFrameWithFields(
     })),
   ];
 
-  // Build DataFrame with fieldIds
-  const dataFrame: DataFrame = {
-    fieldIds: fields.map((f) => f.id),
-    rows: parsed.rows,
-    primaryKey: parsed.primaryKey,
-  };
+  // Step 4: Convert to Arrow table (include _rowIndex for queries)
+  const columnNames = ["_rowIndex", ...userColumns.map((col) => col.name)];
+  const arrays = columnNames.reduce(
+    (acc, col) => {
+      acc[col] = rows.map((row) => row[col]);
+      return acc;
+    },
+    {} as Record<string, unknown[]>,
+  );
 
-  return { dataFrame, fields, sourceSchema };
+  const arrowTable = tableFromArrays(arrays);
+  const ipcBuffer = tableToIPC(arrowTable);
+
+  // Step 5: Create DataFrame with IndexedDB storage
+  const dataFrame = await DataFrameClass.create(
+    ipcBuffer,
+    fields.map((f) => f.id),
+    {
+      storageType: "indexeddb",
+      primaryKey,
+    },
+  );
+
+  return {
+    dataFrame,
+    fields,
+    sourceSchema,
+    rowCount: rows.length,
+    columnCount: userColumns.length,
+  };
 }

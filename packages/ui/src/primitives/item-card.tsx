@@ -6,9 +6,10 @@ export type { ItemAction };
 
 export interface ItemCardProps {
   /**
-   * Icon element to display on the left
+   * Icon element to display on the left.
+   * Optional when preview is provided.
    */
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   /**
    * Primary title text
    */
@@ -147,17 +148,19 @@ export function ItemCard({
   // Content section (icon + title + subtitle + badge + actions)
   const contentSection = (
     <div className={cn("flex items-start gap-3", preview ? "p-4" : "p-3")}>
-      {/* Icon with background */}
-      <div
-        className={cn(
-          "mt-0.5 flex-shrink-0 rounded p-1.5 transition-all",
-          active
-            ? "bg-primary/10 text-primary"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        {icon}
-      </div>
+      {/* Icon with background (optional) */}
+      {icon && (
+        <div
+          className={cn(
+            "mt-0.5 shrink-0 rounded p-1.5 transition-all",
+            active
+              ? "bg-primary/10 text-primary"
+              : "bg-muted text-muted-foreground",
+          )}
+        >
+          {icon}
+        </div>
+      )}
 
       {/* Content */}
       <div className="min-w-0 flex-1">

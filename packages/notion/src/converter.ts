@@ -1,13 +1,14 @@
 import type {
-  DataFrame,
   DataFrameRow,
   ColumnType,
   Field,
+  DataFrameColumn,
 } from "@dashframe/dataframe";
 import type {
   QueryDatabaseResponse,
   PageObjectResponse,
 } from "@notionhq/client/build/src/api-endpoints";
+import { tableFromArrays, tableToIPC } from "apache-arrow";
 
 type PropertyValue = PageObjectResponse["properties"][string];
 
@@ -187,12 +188,32 @@ export function extractPropertyValue(property: PropertyValue): unknown {
 }
 
 /**
- * Convert Notion query response to DataFrame using pre-generated fields
+ * Result of converting Notion data to a plain data format.
+ * Includes rows, columns, and Arrow IPC buffer for client-side DataFrame creation.
+ * Note: DataFrame instance creation happens on the client (requires IndexedDB).
+ */
+export interface NotionConversionResult {
+  /** Raw row data */
+  rows: DataFrameRow[];
+  /** Column definitions for validation/display */
+  columns: DataFrameColumn[];
+  /** Arrow IPC buffer (base64 encoded for JSON transport) */
+  arrowBuffer: string;
+  /** Field IDs for DataFrame creation */
+  fieldIds: string[];
+  /** Row count */
+  rowCount: number;
+}
+
+/**
+ * Convert Notion query response to plain data format.
+ * Returns rows, columns, and Arrow IPC buffer for client-side DataFrame creation.
+ * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
  */
 export function convertNotionToDataFrame(
   response: QueryDatabaseResponse,
   fields: Field[],
-): DataFrame {
+): NotionConversionResult {
   // Convert Notion pages to DataFrame rows
   const rows: DataFrameRow[] = response.results
     .filter((result): result is PageObjectResponse => result.object === "page")
@@ -217,9 +238,38 @@ export function convertNotionToDataFrame(
       return row;
     });
 
+  // Convert rows to Arrow table (exclude _rowIndex as it's computed)
+  const columnNames = fields
+    .filter((f) => f.name !== "_rowIndex")
+    .map((f) => f.name);
+
+  const arrays = columnNames.reduce(
+    (acc, colName) => {
+      acc[colName] = rows.map((row) => row[colName]);
+      return acc;
+    },
+    {} as Record<string, unknown[]>,
+  );
+
+  const arrowTable = tableFromArrays(arrays);
+  const ipcBuffer = tableToIPC(arrowTable);
+
+  // Encode Arrow buffer as base64 for JSON transport
+  const arrowBuffer = Buffer.from(ipcBuffer).toString("base64");
+
+  // Build column definitions for validation/display
+  const columns: DataFrameColumn[] = fields
+    .filter((f) => !f.name.startsWith("_"))
+    .map((f) => ({
+      name: f.columnName ?? f.name,
+      type: f.type,
+    }));
+
   return {
-    fieldIds: fields.map((f) => f.id),
-    primaryKey: "_notionId",
     rows,
+    columns,
+    arrowBuffer,
+    fieldIds: fields.map((f) => f.id),
+    rowCount: rows.length,
   };
 }
