@@ -17,5 +17,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "types": "src/index.ts",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.30.0",
+    "apache-arrow": "^21.1.0",
+    "idb-keyval": "^6.2.2"
+  }
 }

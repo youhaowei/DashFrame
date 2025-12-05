@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested by the user.**
 
+For planning, prefer concise style, don't include full code example, only core changes. Create the plan in the current project instead of the user root, and name it according to the feature being added.
+
 The user manages their own development environment. Only run these commands if the user specifically asks you to.
 
 ## Essential Commands
@@ -37,7 +39,8 @@ turbo build --force                     # Force rebuild ignoring cache
 ### Key Concepts
 
 - **DataFrame as central abstraction**: `CSV/Notion → DataFrame → Vega-Lite → Chart`
-- **Functional converter pattern**: Pure functions, no classes/inheritance
+- **Functional utilities**: For data conversion and transformation or utilities, prefer pure functions over classes for simplicity and testability.
+- **OOP Design**: Use classes and inheritance when make sense for entities with behavior, for encapsulation and code organization.
 - **Zustand + Immer**: State management with automatic localStorage persistence
 - **Entity hierarchy**: DataSource → Insight → DataFrame → Visualization
 - **tRPC for APIs**: Server-side proxy to avoid CORS issues
