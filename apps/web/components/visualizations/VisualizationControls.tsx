@@ -32,7 +32,10 @@ import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
 import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataFramesStore, type DataFrameEntry } from "@/lib/stores/dataframes-store";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -587,12 +590,12 @@ export function VisualizationControls() {
 
   // Load DataFrame data asynchronously from IndexedDB
   const { data: dataFrameData, isLoading: isLoadingData } = useDataFrameData(
-    activeViz?.source.dataFrameId
+    activeViz?.source.dataFrameId,
   );
 
   // Get DataFrame entry for metadata
   const dataFrameEntry = activeViz?.source.dataFrameId
-    ? getDataFrameEntry(activeViz.source.dataFrameId) ?? null
+    ? (getDataFrameEntry(activeViz.source.dataFrameId) ?? null)
     : null;
 
   // Don't render anything until hydrated to avoid hydration mismatch
@@ -653,7 +656,10 @@ export function VisualizationControls() {
     .map((col: { name: string }) => col.name);
 
   // Analyze columns for warnings
-  const columnAnalysis = analyzeDataFrame(dataFrameData.rows, dataFrameData.columns);
+  const columnAnalysis = analyzeDataFrame(
+    dataFrameData.rows,
+    dataFrameData.columns,
+  );
 
   const hasNumericColumns = numericColumns.length > 0;
 
@@ -934,7 +940,10 @@ export function VisualizationControls() {
         columns: aggregatedData.columns?.length ?? 0,
       });
 
-      toast.success("Data refreshed (preview only - persistence not yet implemented)", { id: toastId });
+      toast.success(
+        "Data refreshed (preview only - persistence not yet implemented)",
+        { id: toastId },
+      );
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       setRefreshError(errorMsg);

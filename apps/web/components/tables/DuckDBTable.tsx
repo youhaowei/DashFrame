@@ -75,7 +75,9 @@ export function DuckDBTable({
   onHeaderClick,
 }: DuckDBTableProps) {
   const { connection, isInitialized, error: dbError } = useDuckDB();
-  const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>([]);
+  const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
+    [],
+  );
 
   // Infer columns from table schema if not provided
   useEffect(() => {
@@ -85,10 +87,12 @@ export function DuckDBTable({
       try {
         const result = await connection.query(`DESCRIBE ${tableName}`);
         const rows = result.toArray();
-        const cols: VirtualTableColumn[] = rows.map((row: Record<string, unknown>) => ({
-          name: String(row.column_name ?? row.Field ?? row.name),
-          type: String(row.column_type ?? row.Type ?? row.type ?? "unknown"),
-        }));
+        const cols: VirtualTableColumn[] = rows.map(
+          (row: Record<string, unknown>) => ({
+            name: String(row.column_name ?? row.Field ?? row.name),
+            type: String(row.column_type ?? row.Type ?? row.type ?? "unknown"),
+          }),
+        );
         setInferredColumns(cols);
       } catch (err) {
         console.error("Failed to infer columns for table:", tableName, err);
@@ -126,7 +130,7 @@ export function DuckDBTable({
 
       return { rows, totalCount };
     },
-    [connection, tableName, selectColumns]
+    [connection, tableName, selectColumns],
   );
 
   // Handle loading and error states
@@ -143,7 +147,9 @@ export function DuckDBTable({
   if (!isInitialized) {
     return (
       <div className="flex h-32 items-center justify-center">
-        <span className="text-muted-foreground text-sm">Initializing DuckDB...</span>
+        <span className="text-muted-foreground text-sm">
+          Initializing DuckDB...
+        </span>
       </div>
     );
   }

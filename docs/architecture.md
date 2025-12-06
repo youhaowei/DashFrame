@@ -125,18 +125,18 @@ DataSource → DataTable → Field/Metric
 
 ### State Split: Storage Locations
 
-| Data               | Location       | Reason                                         |
-| ------------------ | -------------- | ---------------------------------------------- |
-| DataSources        | localStorage   | User-owned, local-first (future: Convex)       |
-| DataTables         | localStorage   | Nested in DataSources                          |
-| Fields/Metrics     | localStorage   | Nested in DataTables                           |
-| Insights           | localStorage   | Query configurations (future: Convex)          |
-| Visualizations     | localStorage   | vgplot specs (future: Convex)                  |
-| DataFrame metadata | localStorage   | Small entries (id, name, insightId, rowCount)  |
-| DataFrame data     | IndexedDB      | Arrow IPC binary data (loaded via DuckDB)      |
-| Active entity      | URL params     | Shareable, browser history                     |
-| UI state           | React useState | Ephemeral, component-local                     |
-| DuckDB tables      | Memory         | Loaded on-demand from IndexedDB Arrow buffers  |
+| Data               | Location       | Reason                                        |
+| ------------------ | -------------- | --------------------------------------------- |
+| DataSources        | localStorage   | User-owned, local-first (future: Convex)      |
+| DataTables         | localStorage   | Nested in DataSources                         |
+| Fields/Metrics     | localStorage   | Nested in DataTables                          |
+| Insights           | localStorage   | Query configurations (future: Convex)         |
+| Visualizations     | localStorage   | vgplot specs (future: Convex)                 |
+| DataFrame metadata | localStorage   | Small entries (id, name, insightId, rowCount) |
+| DataFrame data     | IndexedDB      | Arrow IPC binary data (loaded via DuckDB)     |
+| Active entity      | URL params     | Shareable, browser history                    |
+| UI state           | React useState | Ephemeral, component-local                    |
+| DuckDB tables      | Memory         | Loaded on-demand from IndexedDB Arrow buffers |
 
 **Important**: DataFrame data is stored in IndexedDB as Arrow IPC format, NOT in localStorage. This avoids the 5-10MB localStorage quota limit that would be exceeded by large CSV files.
 

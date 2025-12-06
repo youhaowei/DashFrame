@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useDataFramesStore, type DataFrameEntry } from "@/lib/stores/dataframes-store";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -77,7 +80,9 @@ export default function DataFramesPage() {
           const storageType = row.original.storage?.type;
           return (
             <span className="text-muted-foreground capitalize">
-              {storageType === "indexeddb" ? "Browser" : storageType ?? "Unknown"}
+              {storageType === "indexeddb"
+                ? "Browser"
+                : (storageType ?? "Unknown")}
             </span>
           );
         },

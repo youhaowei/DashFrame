@@ -14,13 +14,27 @@ import {
  */
 const METRIC_PATTERNS: Array<{ pattern: RegExp; score: number }> = [
   // High confidence metrics
-  { pattern: /^(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i, score: 10 },
-  { pattern: /(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i, score: 8 },
+  {
+    pattern:
+      /^(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i,
+    score: 10,
+  },
+  {
+    pattern:
+      /(total|sum|count|amount|revenue|sales|profit|cost|price|value|qty|quantity)$/i,
+    score: 8,
+  },
   { pattern: /^(avg|average|mean|rate|ratio|percent|pct|score)$/i, score: 8 },
   { pattern: /(avg|average|mean|rate|ratio|percent|pct|score)$/i, score: 6 },
   // Medium confidence metrics
-  { pattern: /(spend|spent|income|expense|fee|charge|balance|budget)$/i, score: 6 },
-  { pattern: /(duration|time|hours|minutes|seconds|days|weeks|months)$/i, score: 5 },
+  {
+    pattern: /(spend|spent|income|expense|fee|charge|balance|budget)$/i,
+    score: 6,
+  },
+  {
+    pattern: /(duration|time|hours|minutes|seconds|days|weeks|months)$/i,
+    score: 5,
+  },
   { pattern: /(size|length|width|height|weight|distance)$/i, score: 4 },
   // Low confidence - generic number-like names
   { pattern: /^(n|num|number|val)$/i, score: 2 },
@@ -430,7 +444,11 @@ export function suggestCharts(
 
   // Heuristic 5: Grouped Bar (categorical X + color + numerical Y)
   // Use colorSuitable for color encoding (lower cardinality for readable legends)
-  if (categorical.length >= 1 && colorSuitable.length >= 1 && numerical.length > 0) {
+  if (
+    categorical.length >= 1 &&
+    colorSuitable.length >= 1 &&
+    numerical.length > 0
+  ) {
     const triple = pickBestTriple(
       categorical,
       colorSuitable,
@@ -585,12 +603,19 @@ function pickBestPair(
   first: ColumnAnalysis[],
   second: ColumnAnalysis[],
   columnTableMap?: Record<string, string[]>,
-  options: { disallowSame?: boolean; preferMetricY?: boolean; random?: () => number } = {},
+  options: {
+    disallowSame?: boolean;
+    preferMetricY?: boolean;
+    random?: () => number;
+  } = {},
 ): [ColumnAnalysis, ColumnAnalysis] | null {
   if (first.length === 0 || second.length === 0) return null;
 
   // Collect all valid pairs with their scores
-  const validPairs: Array<{ pair: [ColumnAnalysis, ColumnAnalysis]; score: number }> = [];
+  const validPairs: Array<{
+    pair: [ColumnAnalysis, ColumnAnalysis];
+    score: number;
+  }> = [];
 
   for (const a of first) {
     for (const b of second) {
@@ -610,8 +635,10 @@ function pickBestPair(
 
       // Prefer columns with more complete data (lower null rate)
       // Add a small bonus for data completeness (0-10 points based on fill rate)
-      const aFillRate = 1 - (a.nullCount / Math.max(a.cardinality + a.nullCount, 1));
-      const bFillRate = 1 - (b.nullCount / Math.max(b.cardinality + b.nullCount, 1));
+      const aFillRate =
+        1 - a.nullCount / Math.max(a.cardinality + a.nullCount, 1);
+      const bFillRate =
+        1 - b.nullCount / Math.max(b.cardinality + b.nullCount, 1);
       score += (aFillRate + bFillRate) * 5;
 
       // For X-axis (first column), prefer moderate cardinality for readable charts
@@ -663,7 +690,11 @@ function pickBestTriple(
   columnTableMap?: Record<string, string[]>,
   random?: () => number,
 ): [ColumnAnalysis, ColumnAnalysis, ColumnAnalysis] | null {
-  if (xCategories.length === 0 || colorCategories.length === 0 || numericalCols.length === 0) {
+  if (
+    xCategories.length === 0 ||
+    colorCategories.length === 0 ||
+    numericalCols.length === 0
+  ) {
     return null;
   }
 

@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { UUID, DataFrameRow, DataFrameColumn, ColumnType } from "@dashframe/dataframe";
-import { useDataFramesStore, type DataFrameEntry } from "@/lib/stores/dataframes-store";
+import type {
+  UUID,
+  DataFrameRow,
+  DataFrameColumn,
+  ColumnType,
+} from "@dashframe/dataframe";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
@@ -147,7 +155,9 @@ export function useDataFrameData(
         // Load data from IndexedDB into DuckDB and query
         const queryBuilder = await dataFrame.load(connection);
         // Skip limit clause when Infinity is passed (load all rows)
-        const finalQuery = Number.isFinite(limit) ? queryBuilder.limit(limit) : queryBuilder;
+        const finalQuery = Number.isFinite(limit)
+          ? queryBuilder.limit(limit)
+          : queryBuilder;
         const sql = await finalQuery.sql();
         const result = await connection.query(sql);
         const rows = result.toArray() as DataFrameRow[];
@@ -166,7 +176,8 @@ export function useDataFrameData(
     } catch (err) {
       // Only update error if this is still the most recent load
       if (currentLoadCount === loadCountRef.current) {
-        const message = err instanceof Error ? err.message : "Failed to load DataFrame";
+        const message =
+          err instanceof Error ? err.message : "Failed to load DataFrame";
         setError(message);
         setData(null);
         console.error("Failed to load DataFrame:", err);

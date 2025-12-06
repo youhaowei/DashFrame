@@ -195,8 +195,20 @@ describe("analyzeDataFrame", () => {
   it("should detect other numeric ID patterns (key, no, num, seq, index)", () => {
     const rows: DataFrameRow[] = [
       { orderkey: 1001, invoiceno: 5001, seqnum: 1, rowindex: 0, price: 99.99 },
-      { orderkey: 1002, invoiceno: 5002, seqnum: 2, rowindex: 1, price: 149.99 },
-      { orderkey: 1003, invoiceno: 5003, seqnum: 3, rowindex: 2, price: 199.99 },
+      {
+        orderkey: 1002,
+        invoiceno: 5002,
+        seqnum: 2,
+        rowindex: 1,
+        price: 149.99,
+      },
+      {
+        orderkey: 1003,
+        invoiceno: 5003,
+        seqnum: 3,
+        rowindex: 2,
+        price: 199.99,
+      },
     ];
 
     const analysis = analyzeDataFrame(rows);

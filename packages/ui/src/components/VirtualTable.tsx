@@ -172,7 +172,9 @@ export function VirtualTable({
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>([]);
+  const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
+    [],
+  );
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // Track loaded page ranges for infinite scroll
@@ -237,38 +239,46 @@ export function VirtualTable({
   }, [isAsyncMode, staticRows, sortColumn, sortDirection]);
 
   // Evict pages outside the sliding window
-  const evictDistantPages = useCallback((currentCenter: number) => {
-    const halfWindow = Math.floor(MAX_CACHED_PAGES / 2);
-    const windowStart = Math.max(0, currentCenter - halfWindow);
-    const windowEnd = currentCenter + halfWindow;
+  const evictDistantPages = useCallback(
+    (currentCenter: number) => {
+      const halfWindow = Math.floor(MAX_CACHED_PAGES / 2);
+      const windowStart = Math.max(0, currentCenter - halfWindow);
+      const windowEnd = currentCenter + halfWindow;
 
-    const pagesToEvict: number[] = [];
-    loadedPagesRef.current.forEach((page) => {
-      if (page < windowStart || page > windowEnd) {
-        pagesToEvict.push(page);
-      }
-    });
-
-    if (pagesToEvict.length === 0) return;
-
-    pagesToEvict.forEach((page) => loadedPagesRef.current.delete(page));
-
-    setData((prev) => {
-      const newData = [...prev];
-      for (const page of pagesToEvict) {
-        const startIdx = page * pageSize;
-        const endIdx = Math.min(startIdx + pageSize, newData.length);
-        for (let i = startIdx; i < endIdx; i++) {
-          newData[i] = {} as Record<string, unknown>;
+      const pagesToEvict: number[] = [];
+      loadedPagesRef.current.forEach((page) => {
+        if (page < windowStart || page > windowEnd) {
+          pagesToEvict.push(page);
         }
-      }
-      return newData;
-    });
-  }, [pageSize, MAX_CACHED_PAGES]);
+      });
+
+      if (pagesToEvict.length === 0) return;
+
+      pagesToEvict.forEach((page) => loadedPagesRef.current.delete(page));
+
+      setData((prev) => {
+        const newData = [...prev];
+        for (const page of pagesToEvict) {
+          const startIdx = page * pageSize;
+          const endIdx = Math.min(startIdx + pageSize, newData.length);
+          for (let i = startIdx; i < endIdx; i++) {
+            newData[i] = {} as Record<string, unknown>;
+          }
+        }
+        return newData;
+      });
+    },
+    [pageSize, MAX_CACHED_PAGES],
+  );
 
   // Process fetch queue
   const processQueue = useCallback(async () => {
-    if (isFetchingRef.current || fetchQueueRef.current.length === 0 || !onFetchData) return;
+    if (
+      isFetchingRef.current ||
+      fetchQueueRef.current.length === 0 ||
+      !onFetchData
+    )
+      return;
 
     const pageIndex = fetchQueueRef.current.shift()!;
 
@@ -322,15 +332,26 @@ export function VirtualTable({
       isFetchingRef.current = false;
       setTimeout(processQueue, 10);
     }
-  }, [onFetchData, pageSize, inferredColumns.length, evictDistantPages, MAX_CACHED_PAGES, sortColumn, sortDirection]);
+  }, [
+    onFetchData,
+    pageSize,
+    inferredColumns.length,
+    evictDistantPages,
+    MAX_CACHED_PAGES,
+    sortColumn,
+    sortDirection,
+  ]);
 
   // Queue a page for fetching
-  const queuePage = useCallback((pageIndex: number) => {
-    if (loadedPagesRef.current.has(pageIndex)) return;
-    if (fetchQueueRef.current.includes(pageIndex)) return;
-    fetchQueueRef.current.push(pageIndex);
-    processQueue();
-  }, [processQueue]);
+  const queuePage = useCallback(
+    (pageIndex: number) => {
+      if (loadedPagesRef.current.has(pageIndex)) return;
+      if (fetchQueueRef.current.includes(pageIndex)) return;
+      fetchQueueRef.current.push(pageIndex);
+      processQueue();
+    },
+    [processQueue],
+  );
 
   // Fetch with reset (for initial load or sort change)
   const fetchWithReset = useCallback(
@@ -368,7 +389,7 @@ export function VirtualTable({
         isFetchingRef.current = false;
       }
     },
-    [onFetchData, pageSize, inferredColumns.length]
+    [onFetchData, pageSize, inferredColumns.length],
   );
 
   // Initial fetch for async mode
@@ -379,20 +400,24 @@ export function VirtualTable({
   }, [isAsyncMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle column header click for sorting
-  const handleSort = useCallback((columnName: string) => {
-    if (onHeaderClick) {
-      onHeaderClick(columnName);
-      return;
-    }
+  const handleSort = useCallback(
+    (columnName: string) => {
+      if (onHeaderClick) {
+        onHeaderClick(columnName);
+        return;
+      }
 
-    const newDirection = sortColumn === columnName && sortDirection === "asc" ? "desc" : "asc";
-    setSortColumn(columnName);
-    setSortDirection(newDirection);
+      const newDirection =
+        sortColumn === columnName && sortDirection === "asc" ? "desc" : "asc";
+      setSortColumn(columnName);
+      setSortDirection(newDirection);
 
-    if (isAsyncMode) {
-      fetchWithReset(columnName, newDirection);
-    }
-  }, [sortColumn, sortDirection, isAsyncMode, fetchWithReset, onHeaderClick]);
+      if (isAsyncMode) {
+        fetchWithReset(columnName, newDirection);
+      }
+    },
+    [sortColumn, sortDirection, isAsyncMode, fetchWithReset, onHeaderClick],
+  );
 
   // Row count for virtualization
   const virtualRowCount = isAsyncMode ? totalCount : sortedStaticRows.length;
@@ -442,7 +467,9 @@ export function VirtualTable({
         pagesToQueue.push(lastPage + 1);
       }
 
-      pagesToQueue.sort((a, b) => Math.abs(a - centerPage) - Math.abs(b - centerPage));
+      pagesToQueue.sort(
+        (a, b) => Math.abs(a - centerPage) - Math.abs(b - centerPage),
+      );
       fetchQueueRef.current = [];
 
       for (const page of pagesToQueue) {
@@ -455,7 +482,13 @@ export function VirtualTable({
         clearTimeout(scrollDebounceRef.current);
       }
     };
-  }, [rowVirtualizer.getVirtualItems(), isAsyncMode, totalCount, pageSize, queuePage]);
+  }, [
+    rowVirtualizer.getVirtualItems(),
+    isAsyncMode,
+    totalCount,
+    pageSize,
+    queuePage,
+  ]);
 
   // Grid template columns
   const gridTemplateColumns = useMemo(() => {
@@ -463,7 +496,9 @@ export function VirtualTable({
       .map((col) => {
         const config = configMap.get(col.name);
         if (config?.width) {
-          return typeof config.width === "number" ? `${config.width}px` : config.width;
+          return typeof config.width === "number"
+            ? `${config.width}px`
+            : config.width;
         }
         return "minmax(120px, 1fr)";
       })
@@ -529,18 +564,19 @@ export function VirtualTable({
             const config = configMap.get(col.name);
             const highlight = config?.highlight;
             const isHighlighted = !!highlight;
-            const highlightVariant = typeof highlight === "string" ? highlight : "primary";
+            const highlightVariant =
+              typeof highlight === "string" ? highlight : "primary";
             const isSorted = sortColumn === col.name;
 
             return (
               <div
                 key={col.name}
                 className={cn(
-                  "text-muted-foreground overflow-hidden font-medium cursor-pointer select-none",
+                  "text-muted-foreground cursor-pointer select-none overflow-hidden font-medium",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
-                  !isHighlighted && "hover:bg-muted/80"
+                  !isHighlighted && "hover:bg-muted/80",
                 )}
                 title={col.name}
                 onClick={() => handleSort(col.name)}
@@ -587,7 +623,11 @@ export function VirtualTable({
                   {visibleColumns.map((col) => (
                     <div
                       key={col.name}
-                      className={cn("text-muted-foreground/50", cellPadding, fontSize)}
+                      className={cn(
+                        "text-muted-foreground/50",
+                        cellPadding,
+                        fontSize,
+                      )}
                     >
                       <div className="bg-muted/50 h-3 w-16 animate-pulse rounded" />
                     </div>
@@ -614,7 +654,8 @@ export function VirtualTable({
                   const config = configMap.get(col.name);
                   const highlight = config?.highlight;
                   const isHighlighted = !!highlight;
-                  const highlightVariant = typeof highlight === "string" ? highlight : "primary";
+                  const highlightVariant =
+                    typeof highlight === "string" ? highlight : "primary";
                   const align = config?.align || "left";
 
                   const rawValue = rowData[col.name];
@@ -632,12 +673,13 @@ export function VirtualTable({
                         isHighlighted && highlightCellStyles[highlightVariant],
                         isClickable && "cursor-pointer",
                         align === "right" && "text-right",
-                        align === "center" && "text-center"
+                        align === "center" && "text-center",
                       )}
                       title={cellValue}
                       onClick={
                         isClickable
-                          ? () => onCellClick(col.name, rawValue, virtualRow.index)
+                          ? () =>
+                              onCellClick(col.name, rawValue, virtualRow.index)
                           : undefined
                       }
                     >
@@ -655,7 +697,9 @@ export function VirtualTable({
         {/* Empty state */}
         {virtualRowCount === 0 && !isLoading && (
           <div className="flex h-32 items-center justify-center">
-            <span className="text-muted-foreground text-sm">No data available</span>
+            <span className="text-muted-foreground text-sm">
+              No data available
+            </span>
           </div>
         )}
       </div>

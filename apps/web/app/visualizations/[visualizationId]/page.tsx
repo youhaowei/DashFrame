@@ -31,7 +31,10 @@ import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
-import { computeInsightPreview, type PreviewResult } from "@/lib/insights/compute-preview";
+import {
+  computeInsightPreview,
+  type PreviewResult,
+} from "@/lib/insights/compute-preview";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // StandardType is not exported from vega-lite's main module
@@ -241,18 +244,24 @@ export default function VisualizationPage({ params }: PageProps) {
   );
 
   // Load source DataFrame data async
-  const { data: sourceDataFrame, isLoading: isDataLoading, entry: dataFrameEntry } = useDataFrameData(
-    visualization?.source.dataFrameId
-  );
+  const {
+    data: sourceDataFrame,
+    isLoading: isDataLoading,
+    entry: dataFrameEntry,
+  } = useDataFrameData(visualization?.source.dataFrameId);
 
   // Load insight if visualization has one (for aggregation config)
   const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
     useInsightsStore,
-    (s) => visualization?.source.insightId ? s.getInsight(visualization.source.insightId) : undefined,
+    (s) =>
+      visualization?.source.insightId
+        ? s.getInsight(visualization.source.insightId)
+        : undefined,
   );
 
   // DuckDB connection for join computation
-  const { connection: duckDBConnection, isInitialized: isDuckDBReady } = useDuckDB();
+  const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
+    useDuckDB();
   const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
 
   // Load data source and data table for field information
@@ -296,7 +305,8 @@ export default function VisualizationPage({ params }: PageProps) {
 
       try {
         // Get resolved Insight with DataTable objects embedded
-        const getResolvedInsight = useInsightsStore.getState().getResolvedInsight;
+        const getResolvedInsight =
+          useInsightsStore.getState().getResolvedInsight;
         const insightInstance = getResolvedInsight(insight.id, dataSources);
         if (!insightInstance) {
           throw new Error(`Could not resolve insight: ${insight.id}`);
@@ -322,7 +332,8 @@ export default function VisualizationPage({ params }: PageProps) {
             if (joinTable?.dataFrameId) {
               const joinDataFrame = getDataFrame(joinTable.dataFrameId);
               if (joinDataFrame) {
-                const joinQueryBuilder = await joinDataFrame.load(duckDBConnection);
+                const joinQueryBuilder =
+                  await joinDataFrame.load(duckDBConnection);
                 await joinQueryBuilder.sql(); // Triggers table creation
               }
               break;
@@ -335,18 +346,25 @@ export default function VisualizationPage({ params }: PageProps) {
         const rows = result.toArray() as DataFrameRow[];
 
         // Build columns from result
-        const columns: DataFrameColumn[] = rows.length > 0
-          ? Object.keys(rows[0])
-              .filter((key) => !key.startsWith("_"))
-              .map((name) => ({
-                name,
-                type: typeof rows[0][name] === "number" ? "number" as const : "string" as const,
-              }))
-          : [];
+        const columns: DataFrameColumn[] =
+          rows.length > 0
+            ? Object.keys(rows[0])
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  type:
+                    typeof rows[0][name] === "number"
+                      ? ("number" as const)
+                      : ("string" as const),
+                }))
+            : [];
 
         setJoinedData({ rows, columns });
       } catch (err) {
-        console.error("[VisualizationPage] Failed to compute joined data:", err);
+        console.error(
+          "[VisualizationPage] Failed to compute joined data:",
+          err,
+        );
         setJoinedData(null);
       } finally {
         setIsLoadingJoinedData(false);
@@ -414,7 +432,8 @@ export default function VisualizationPage({ params }: PageProps) {
     return sourceDataFrame;
   }, [joinedData, aggregatedPreview, sourceDataFrame]);
 
-  const isLoading = isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData;
+  const isLoading =
+    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData;
 
   // Local state
   const [vizName, setVizName] = useState("");
@@ -801,7 +820,10 @@ export default function VisualizationPage({ params }: PageProps) {
         {/* Table-only visualization */}
         {visualization.visualizationType === "table" && (
           <div className="flex h-full flex-col p-6">
-            <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col p-4">
+            <Surface
+              elevation="inset"
+              className="flex min-h-0 flex-1 flex-col p-4"
+            >
               <VirtualTable
                 rows={dataFrame.rows}
                 columns={dataFrame.columns}
@@ -824,7 +846,10 @@ export default function VisualizationPage({ params }: PageProps) {
         {visualization.visualizationType !== "table" &&
           activeTab === "table" && (
             <div className="flex h-full flex-col p-6">
-              <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col p-4">
+              <Surface
+                elevation="inset"
+                className="flex min-h-0 flex-1 flex-col p-4"
+              >
                 <VirtualTable
                   rows={dataFrame.rows}
                   columns={dataFrame.columns}
@@ -843,7 +868,10 @@ export default function VisualizationPage({ params }: PageProps) {
                 <VegaChart spec={vegaSpec!} />
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
-                <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col p-4">
+                <Surface
+                  elevation="inset"
+                  className="flex min-h-0 flex-1 flex-col p-4"
+                >
                   <VirtualTable
                     rows={dataFrame.rows}
                     columns={dataFrame.columns}

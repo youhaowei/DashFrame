@@ -4,7 +4,10 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, DataFrameSerialization } from "@dashframe/dataframe";
-import { DataFrame as DataFrameClass, deleteArrowData } from "@dashframe/dataframe";
+import {
+  DataFrame as DataFrameClass,
+  deleteArrowData,
+} from "@dashframe/dataframe";
 
 // ============================================================================
 // State Interface
@@ -17,7 +20,7 @@ import { DataFrame as DataFrameClass, deleteArrowData } from "@dashframe/datafra
  */
 export interface DataFrameEntry extends DataFrameSerialization {
   name: string;
-  insightId?: UUID;  // Link to insight that produced this DataFrame
+  insightId?: UUID; // Link to insight that produced this DataFrame
   rowCount?: number; // Cached for display (may be stale)
   columnCount?: number;
 }
@@ -33,7 +36,15 @@ interface DataFramesActions {
    * Data is already persisted to IndexedDB by DataFrame.create().
    * This only stores the serialization reference in localStorage.
    */
-  addDataFrame: (dataFrame: DataFrameClass, metadata: { name: string; insightId?: UUID; rowCount?: number; columnCount?: number }) => UUID;
+  addDataFrame: (
+    dataFrame: DataFrameClass,
+    metadata: {
+      name: string;
+      insightId?: UUID;
+      rowCount?: number;
+      columnCount?: number;
+    },
+  ) => UUID;
 
   /**
    * Get a DataFrame instance by ID.
@@ -54,13 +65,22 @@ interface DataFramesActions {
   /**
    * Update DataFrame metadata (name, insightId, counts).
    */
-  updateMetadata: (id: UUID, updates: Partial<Pick<DataFrameEntry, "name" | "insightId" | "rowCount" | "columnCount">>) => void;
+  updateMetadata: (
+    id: UUID,
+    updates: Partial<
+      Pick<DataFrameEntry, "name" | "insightId" | "rowCount" | "columnCount">
+    >,
+  ) => void;
 
   /**
    * Replace DataFrame data (for re-uploads or updates).
    * Deletes old Arrow data from IndexedDB and stores new reference.
    */
-  replaceDataFrame: (id: UUID, newDataFrame: DataFrameClass, metadata?: { rowCount?: number; columnCount?: number }) => Promise<void>;
+  replaceDataFrame: (
+    id: UUID,
+    newDataFrame: DataFrameClass,
+    metadata?: { rowCount?: number; columnCount?: number },
+  ) => Promise<void>;
 
   /**
    * Remove DataFrame and its IndexedDB data.
@@ -95,7 +115,9 @@ const storage = createJSONStorage<PersistedDataFramesState>(
 
         // Handle dataFrames Map
         if ("dataFrames" in obj && Array.isArray(obj.dataFrames)) {
-          const dataFramesMap = new Map(obj.dataFrames as [UUID, DataFrameEntry][]);
+          const dataFramesMap = new Map(
+            obj.dataFrames as [UUID, DataFrameEntry][],
+          );
           obj.dataFrames = dataFramesMap;
           // Rebuild cached entries array
           obj._cachedEntries = Array.from(dataFramesMap.values());
@@ -167,9 +189,12 @@ export const useDataFramesStore = create<DataFramesStore>()(
           const entry = state.dataFrames.get(id);
           if (entry) {
             if (updates.name !== undefined) entry.name = updates.name;
-            if (updates.insightId !== undefined) entry.insightId = updates.insightId;
-            if (updates.rowCount !== undefined) entry.rowCount = updates.rowCount;
-            if (updates.columnCount !== undefined) entry.columnCount = updates.columnCount;
+            if (updates.insightId !== undefined)
+              entry.insightId = updates.insightId;
+            if (updates.rowCount !== undefined)
+              entry.rowCount = updates.rowCount;
+            if (updates.columnCount !== undefined)
+              entry.columnCount = updates.columnCount;
           }
         });
       },
@@ -192,8 +217,10 @@ export const useDataFramesStore = create<DataFramesStore>()(
             entry.fieldIds = newSerialization.fieldIds;
             entry.primaryKey = newSerialization.primaryKey;
             entry.createdAt = newSerialization.createdAt;
-            if (metadata?.rowCount !== undefined) entry.rowCount = metadata.rowCount;
-            if (metadata?.columnCount !== undefined) entry.columnCount = metadata.columnCount;
+            if (metadata?.rowCount !== undefined)
+              entry.rowCount = metadata.rowCount;
+            if (metadata?.columnCount !== undefined)
+              entry.columnCount = metadata.columnCount;
           }
           state._cachedEntries = Array.from(state.dataFrames.values());
         });

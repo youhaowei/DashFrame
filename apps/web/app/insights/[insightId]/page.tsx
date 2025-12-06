@@ -109,7 +109,7 @@ export default function InsightPage({ params }: PageProps) {
   // Note: This is loaded progressively - don't block the UI on this
   const { data: sourceData } = useDataFrameData(
     dataTableInfo?.dataTable?.dataFrameId,
-    { limit: Infinity }
+    { limit: Infinity },
   );
 
   // Compute selected fields for preview

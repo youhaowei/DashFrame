@@ -32,7 +32,7 @@ const loadedTables = new Set<string>();
  * @param dataFrameId - The UUID of the DataFrame to invalidate
  */
 export function invalidateTableCache(dataFrameId: string): void {
-  const tableName = `df_${dataFrameId.replace(/-/g, '_')}`;
+  const tableName = `df_${dataFrameId.replace(/-/g, "_")}`;
   loadedTables.delete(tableName);
 }
 
@@ -49,9 +49,18 @@ export function clearAllTableCaches(): void {
 // ============================================================================
 
 export type FilterOperator =
-  | "=" | "!=" | "<" | "<=" | ">" | ">="
-  | "LIKE" | "ILIKE" | "IN" | "NOT IN"
-  | "IS NULL" | "IS NOT NULL";
+  | "="
+  | "!="
+  | "<"
+  | "<="
+  | ">"
+  | ">="
+  | "LIKE"
+  | "ILIKE"
+  | "IN"
+  | "NOT IN"
+  | "IS NULL"
+  | "IS NOT NULL";
 
 export type FilterPredicate = {
   columnName: string;
@@ -68,7 +77,12 @@ export type SortOrder = {
 };
 
 export type AggregationFunction =
-  | "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
+  | "sum"
+  | "avg"
+  | "count"
+  | "min"
+  | "max"
+  | "count_distinct";
 
 export type Aggregation = {
   columnName: string;
@@ -89,13 +103,13 @@ export type JoinOptions = {
 // ============================================================================
 
 type Operation =
-  | { type: 'filter'; predicates: FilterPredicate[] }
-  | { type: 'sort'; orders: SortOrder[] }
-  | { type: 'group'; columns: string[]; aggregations?: Aggregation[] }
-  | { type: 'join'; rightDataFrame: DataFrame; options: JoinOptions }
-  | { type: 'limit'; count: number }
-  | { type: 'offset'; count: number }
-  | { type: 'select'; columns: string[] };
+  | { type: "filter"; predicates: FilterPredicate[] }
+  | { type: "sort"; orders: SortOrder[] }
+  | { type: "group"; columns: string[]; aggregations?: Aggregation[] }
+  | { type: "join"; rightDataFrame: DataFrame; options: JoinOptions }
+  | { type: "limit"; count: number }
+  | { type: "offset"; count: number }
+  | { type: "select"; columns: string[] };
 
 // ============================================================================
 // QueryBuilder Class Implementation
@@ -135,7 +149,7 @@ export class QueryBuilder {
       return this.tableName;
     }
 
-    const tableName = `df_${this.dataFrame.id.replace(/-/g, '_')}`;
+    const tableName = `df_${this.dataFrame.id.replace(/-/g, "_")}`;
 
     // Fast path: If table is already loaded in this session, just reuse it
     if (loadedTables.has(tableName)) {
@@ -166,10 +180,12 @@ export class QueryBuilder {
       await this.conn.query(`DROP TABLE IF EXISTS ${tableName}`);
 
       switch (this.dataFrame.storage.type) {
-        case 'indexeddb': {
+        case "indexeddb": {
           const buffer = await loadArrowData(this.dataFrame.storage.key);
           if (!buffer) {
-            throw new Error(`Data not found in IndexedDB: ${this.dataFrame.storage.key}`);
+            throw new Error(
+              `Data not found in IndexedDB: ${this.dataFrame.storage.key}`,
+            );
           }
 
           // Insert Arrow IPC data into DuckDB using the dedicated method
@@ -179,13 +195,15 @@ export class QueryBuilder {
           });
           break;
         }
-        case 's3':
-          throw new Error('S3 storage not yet implemented');
-        case 'r2':
-          throw new Error('R2 storage not yet implemented');
+        case "s3":
+          throw new Error("S3 storage not yet implemented");
+        case "r2":
+          throw new Error("R2 storage not yet implemented");
         default: {
           const _exhaustive: never = this.dataFrame.storage;
-          throw new Error(`Unsupported storage type: ${JSON.stringify(_exhaustive)}`);
+          throw new Error(
+            `Unsupported storage type: ${JSON.stringify(_exhaustive)}`,
+          );
         }
       }
 
@@ -212,7 +230,7 @@ export class QueryBuilder {
    * Filter rows based on predicates
    */
   filter(predicates: FilterPredicate[]): QueryBuilder {
-    this.operations.push({ type: 'filter', predicates });
+    this.operations.push({ type: "filter", predicates });
     return this;
   }
 
@@ -220,7 +238,7 @@ export class QueryBuilder {
    * Sort results by columns
    */
   sort(orders: SortOrder[]): QueryBuilder {
-    this.operations.push({ type: 'sort', orders });
+    this.operations.push({ type: "sort", orders });
     return this;
   }
 
@@ -228,7 +246,7 @@ export class QueryBuilder {
    * Group by columns with optional aggregations
    */
   groupBy(columns: string[], aggregations?: Aggregation[]): QueryBuilder {
-    this.operations.push({ type: 'group', columns, aggregations });
+    this.operations.push({ type: "group", columns, aggregations });
     return this;
   }
 
@@ -236,7 +254,7 @@ export class QueryBuilder {
    * Join with another DataFrame
    */
   join(other: DataFrame, options: JoinOptions): QueryBuilder {
-    this.operations.push({ type: 'join', rightDataFrame: other, options });
+    this.operations.push({ type: "join", rightDataFrame: other, options });
     return this;
   }
 
@@ -244,7 +262,7 @@ export class QueryBuilder {
    * Limit number of rows
    */
   limit(count: number): QueryBuilder {
-    this.operations.push({ type: 'limit', count });
+    this.operations.push({ type: "limit", count });
     return this;
   }
 
@@ -252,7 +270,7 @@ export class QueryBuilder {
    * Skip first N rows (for pagination)
    */
   offset(count: number): QueryBuilder {
-    this.operations.push({ type: 'offset', count });
+    this.operations.push({ type: "offset", count });
     return this;
   }
 
@@ -260,7 +278,7 @@ export class QueryBuilder {
    * Select specific columns
    */
   select(columns: string[]): QueryBuilder {
-    this.operations.push({ type: 'select', columns });
+    this.operations.push({ type: "select", columns });
     return this;
   }
 
@@ -278,78 +296,94 @@ export class QueryBuilder {
 
     for (const operation of this.operations) {
       switch (operation.type) {
-        case 'filter':
-          const whereClause = operation.predicates.map(pred => {
-            const { columnName, operator, value, values } = pred;
+        case "filter":
+          const whereClause = operation.predicates
+            .map((pred) => {
+              const { columnName, operator, value, values } = pred;
 
-            if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
-              return `${columnName} ${operator}`;
-            }
+              if (operator === "IS NULL" || operator === "IS NOT NULL") {
+                return `${columnName} ${operator}`;
+              }
 
-            if (operator === 'IN' || operator === 'NOT IN') {
-              const list = values?.map(v => typeof v === 'string' ? `'${v}'` : String(v)).join(', ') || '';
-              return `${columnName} ${operator} (${list})`;
-            }
+              if (operator === "IN" || operator === "NOT IN") {
+                const list =
+                  values
+                    ?.map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
+                    .join(", ") || "";
+                return `${columnName} ${operator} (${list})`;
+              }
 
-            const formattedValue = typeof value === 'string' ? `'${value}'` : String(value ?? 'NULL');
-            return `${columnName} ${operator} ${formattedValue}`;
-          }).join(' AND ');
+              const formattedValue =
+                typeof value === "string"
+                  ? `'${value}'`
+                  : String(value ?? "NULL");
+              return `${columnName} ${operator} ${formattedValue}`;
+            })
+            .join(" AND ");
 
           query += ` WHERE ${whereClause}`;
           break;
 
-        case 'sort':
-          const orderByClause = operation.orders.map(order =>
-            `${order.columnName} ${order.direction.toUpperCase()}`
-          ).join(', ');
-          query += hasGroupBy ? ` ORDER BY ${orderByClause}` : '';
+        case "sort":
+          const orderByClause = operation.orders
+            .map(
+              (order) => `${order.columnName} ${order.direction.toUpperCase()}`,
+            )
+            .join(", ");
+          query += hasGroupBy ? ` ORDER BY ${orderByClause}` : "";
           break;
 
-        case 'group':
+        case "group":
           hasGroupBy = true;
-          const groupByClause = operation.columns.join(', ');
-          const selectClause = operation.aggregations?.map(agg => {
-            const aggFunction = agg.function.toUpperCase();
-            const column = agg.columnName;
-            const alias = agg.alias ? ` AS ${agg.alias}` : '';
-            return `${aggFunction}(${column})${alias}`;
-          }).join(', ') || operation.columns;
+          const groupByClause = operation.columns.join(", ");
+          const selectClause =
+            operation.aggregations
+              ?.map((agg) => {
+                const aggFunction = agg.function.toUpperCase();
+                const column = agg.columnName;
+                const alias = agg.alias ? ` AS ${agg.alias}` : "";
+                return `${aggFunction}(${column})${alias}`;
+              })
+              .join(", ") || operation.columns;
 
           query = `SELECT ${selectClause}, ${groupByClause} FROM ${baseTableName} GROUP BY ${groupByClause}`;
           break;
 
-        case 'join':
-          const rightTable = `df_${operation.rightDataFrame.id.replace(/-/g, '_')}`;
+        case "join":
+          const rightTable = `df_${operation.rightDataFrame.id.replace(/-/g, "_")}`;
           // Load right table if needed
-          const rightQueryBuilder = new QueryBuilder(operation.rightDataFrame, this.conn);
+          const rightQueryBuilder = new QueryBuilder(
+            operation.rightDataFrame,
+            this.conn,
+          );
           await rightQueryBuilder.ensureLoaded();
 
           const joinType = operation.options.type.toUpperCase();
           query = `SELECT * FROM ${query} ${joinType} JOIN ${rightTable} ON ${baseTableName}.${operation.options.leftColumn} = ${rightTable}.${operation.options.rightColumn}`;
           break;
 
-        case 'limit':
+        case "limit":
           query += ` LIMIT ${operation.count}`;
           break;
 
-        case 'offset':
+        case "offset":
           query += ` OFFSET ${operation.count}`;
           break;
 
-        case 'select':
-          const selectList = operation.columns.join(', ');
-          query = query.replace('SELECT *', `SELECT ${selectList}`);
+        case "select":
+          const selectList = operation.columns.join(", ");
+          query = query.replace("SELECT *", `SELECT ${selectList}`);
           break;
       }
     }
 
     // Add ORDER BY for sort operations if not already added
-    const sortOperation = this.operations.find(op => op.type === 'sort');
+    const sortOperation = this.operations.find((op) => op.type === "sort");
     if (sortOperation && !hasGroupBy) {
-      const orderByClause = sortOperation.orders.map(order =>
-        `${order.columnName} ${order.direction.toUpperCase()}`
-      ).join(', ');
-      if (orderByClause && !query.includes('ORDER BY')) {
+      const orderByClause = sortOperation.orders
+        .map((order) => `${order.columnName} ${order.direction.toUpperCase()}`)
+        .join(", ");
+      if (orderByClause && !query.includes("ORDER BY")) {
         query += ` ORDER BY ${orderByClause}`;
       }
     }
@@ -362,7 +396,7 @@ export class QueryBuilder {
    */
   async run(): Promise<DataFrame> {
     const sql = await this.sql();
-    console.debug('Executing QueryBuilder SQL:', sql);
+    console.debug("Executing QueryBuilder SQL:", sql);
 
     // Export result to Arrow IPC buffer
     const exportResult = await this.conn.query(`
@@ -373,7 +407,7 @@ export class QueryBuilder {
 
     // Create new DataFrame with result
     // Note: For query results, we don't preserve fieldIds since the structure may have changed
-    const { DataFrame: DataFrameClass } = await import('./index');
+    const { DataFrame: DataFrameClass } = await import("./index");
     const resultDataFrame = await DataFrameClass.create(arrowBuffer, []);
 
     return resultDataFrame;
@@ -401,23 +435,29 @@ export class QueryBuilder {
     let query = `SELECT COUNT(*) as count FROM ${baseTableName}`;
 
     // Apply filters but ignore other operations for count
-    const filterOperation = this.operations.find(op => op.type === 'filter');
+    const filterOperation = this.operations.find((op) => op.type === "filter");
     if (filterOperation) {
-      const whereClause = filterOperation.predicates.map(pred => {
-        const { columnName, operator, value, values } = pred;
+      const whereClause = filterOperation.predicates
+        .map((pred) => {
+          const { columnName, operator, value, values } = pred;
 
-        if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
-          return `${columnName} ${operator}`;
-        }
+          if (operator === "IS NULL" || operator === "IS NOT NULL") {
+            return `${columnName} ${operator}`;
+          }
 
-        if (operator === 'IN' || operator === 'NOT IN') {
-          const list = values?.map(v => typeof v === 'string' ? `'${v}'` : String(v)).join(', ') || '';
-          return `${columnName} ${operator} (${list})`;
-        }
+          if (operator === "IN" || operator === "NOT IN") {
+            const list =
+              values
+                ?.map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
+                .join(", ") || "";
+            return `${columnName} ${operator} (${list})`;
+          }
 
-        const formattedValue = typeof value === 'string' ? `'${value}'` : String(value ?? 'NULL');
-        return `${columnName} ${operator} ${formattedValue}`;
-      }).join(' AND ');
+          const formattedValue =
+            typeof value === "string" ? `'${value}'` : String(value ?? "NULL");
+          return `${columnName} ${operator} ${formattedValue}`;
+        })
+        .join(" AND ");
 
       query += ` WHERE ${whereClause}`;
     }

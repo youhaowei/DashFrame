@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataFramesStore, type DataFrameEntry } from "@/lib/stores/dataframes-store";
+import {
+  useDataFramesStore,
+  type DataFrameEntry,
+} from "@/lib/stores/dataframes-store";
 import type { Insight } from "@/lib/stores/types";
 
 export interface InsightInfo {

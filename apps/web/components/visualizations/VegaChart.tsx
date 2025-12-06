@@ -28,10 +28,12 @@ export function VegaChart({ spec, className }: VegaChartProps) {
         actions: false,
         renderer: "canvas",
       })
-        .then((res) => {
-          if (!cancelled) {
-            viewRef.current = res.view;
+        .then((result) => {
+          if (cancelled) {
+            result.view.finalize();
+            return;
           }
+          viewRef.current = result.view;
         })
         .catch((error: Error) => {
           console.error("Error rendering chart:", error);
@@ -48,6 +50,35 @@ export function VegaChart({ spec, className }: VegaChartProps) {
     };
   }, [spec]);
 
+  // Handle container resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      if (!viewRef.current) return;
+
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          try {
+            // Explicitly set dimensions and re-run
+            viewRef.current
+              .width(Math.floor(width))
+              .height(Math.floor(height))
+              .run();
+          } catch (e) {
+            console.warn("Error resizing chart:", e);
+          }
+        }
+      }
+    });
+
+    observer.observe(containerRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   return (
     <div

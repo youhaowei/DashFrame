@@ -32,9 +32,9 @@ export type DataFrameData = {
  * This makes the storage location extensible for future cloud storage options
  */
 export type DataFrameStorage =
-  | { type: 'indexeddb'; key: string }              // Browser IndexedDB with Arrow IPC
-  | { type: 's3'; bucket: string; key: string }     // AWS S3 (future)
-  | { type: 'r2'; accountId: string; key: string }; // Cloudflare R2 (future)
+  | { type: "indexeddb"; key: string } // Browser IndexedDB with Arrow IPC
+  | { type: "s3"; bucket: string; key: string } // AWS S3 (future)
+  | { type: "r2"; accountId: string; key: string }; // Cloudflare R2 (future)
 
 /**
  * DataFrame serialization format for storage in Zustand
@@ -79,7 +79,7 @@ export class DataFrame {
    */
   async load(conn: AsyncDuckDBConnection): Promise<QueryBuilder> {
     // Import QueryBuilder dynamically to avoid circular dependency
-    const { QueryBuilder } = await import('./query-builder');
+    const { QueryBuilder } = await import("./query-builder");
     return new QueryBuilder(this, conn);
   }
 
@@ -110,27 +110,29 @@ export class DataFrame {
     arrowBuffer: Uint8Array,
     fieldIds: UUID[],
     options?: {
-      storageType?: 'indexeddb' | 's3' | 'r2';
+      storageType?: "indexeddb" | "s3" | "r2";
       primaryKey?: string | string[];
-    }
+    },
   ): Promise<DataFrame> {
     const id = crypto.randomUUID();
-    const storageType = options?.storageType ?? 'indexeddb';
-    const { persistArrowData, generateArrowKey } = await import('./persistence');
+    const storageType = options?.storageType ?? "indexeddb";
+    const { persistArrowData, generateArrowKey } = await import(
+      "./persistence"
+    );
 
     let storage: DataFrameStorage;
 
     switch (storageType) {
-      case 'indexeddb': {
+      case "indexeddb": {
         const key = generateArrowKey(id);
         await persistArrowData(key, arrowBuffer);
-        storage = { type: 'indexeddb', key };
+        storage = { type: "indexeddb", key };
         break;
       }
-      case 's3':
-        throw new Error('S3 storage not yet implemented');
-      case 'r2':
-        throw new Error('R2 storage not yet implemented');
+      case "s3":
+        throw new Error("S3 storage not yet implemented");
+      case "r2":
+        throw new Error("R2 storage not yet implemented");
       default:
         throw new Error(`Unsupported storage type: ${storageType}`);
     }
@@ -149,14 +151,14 @@ export class DataFrame {
    */
   getStorageType(): string {
     switch (this.storage.type) {
-      case 'indexeddb':
-        return 'Browser Storage';
-      case 's3':
-        return 'AWS S3';
-      case 'r2':
-        return 'Cloudflare R2';
+      case "indexeddb":
+        return "Browser Storage";
+      case "s3":
+        return "AWS S3";
+      case "r2":
+        return "Cloudflare R2";
       default:
-        return 'Unknown';
+        return "Unknown";
     }
   }
 }
@@ -248,7 +250,11 @@ export type SourceSchema = {
 // QueryBuilder and Operations
 // ============================================================================
 
-export { QueryBuilder, invalidateTableCache, clearAllTableCaches } from "./query-builder";
+export {
+  QueryBuilder,
+  invalidateTableCache,
+  clearAllTableCaches,
+} from "./query-builder";
 export type {
   FilterPredicate,
   FilterOperator,

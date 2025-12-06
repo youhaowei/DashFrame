@@ -343,9 +343,7 @@ export default function HomePage() {
                         }
                         title={viz.name}
                         subtitle={`Created ${new Date(viz.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-                        onClick={() =>
-                          router.push(`/visualizations/${viz.id}`)
-                        }
+                        onClick={() => router.push(`/visualizations/${viz.id}`)}
                       />
                     ))}
                   </div>

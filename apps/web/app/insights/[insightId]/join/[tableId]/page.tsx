@@ -81,7 +81,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
   >("inner");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [previewResult, setPreviewResult] = useState<JoinPreviewData | null>(null);
+  const [previewResult, setPreviewResult] = useState<JoinPreviewData | null>(
+    null,
+  );
   const [isComputingPreview, setIsComputingPreview] = useState(false);
 
   // Resolve base table (from insight)
@@ -179,8 +181,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
         const baseName = hasBasePrefix
           ? col.name.slice(baseDisplayName.length + 1)
           : hasJoinPrefix
-          ? col.name.slice(joinDisplayName.length + 1)
-          : col.name;
+            ? col.name.slice(joinDisplayName.length + 1)
+            : col.name;
 
         const isFromBase =
           baseColumnNames.has(col.name) ||
@@ -207,7 +209,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
           highlight,
         };
       })
-      .filter((config) => config.highlight !== undefined) as VirtualTableColumnConfig[];
+      .filter(
+        (config) => config.highlight !== undefined,
+      ) as VirtualTableColumnConfig[];
   }, [previewResult, baseTableInfo, joinTableInfo, baseFields, joinFields]);
 
   // Join analysis results for Venn diagram visualization
@@ -219,28 +223,38 @@ export default function JoinConfigurePage({ params }: PageProps) {
   } | null>(null);
 
   // Find columns with matching names (for suggestions) with analysis
-  const [columnSuggestions, setColumnSuggestions] = useState<Array<{
-    leftField: typeof baseFields[0];
-    rightField: typeof joinFields[0];
-    columnName: string;
-    matchingValues: number; // how many values match between tables
-    baseUniqueValues: number;
-  }>>([]);
+  const [columnSuggestions, setColumnSuggestions] = useState<
+    Array<{
+      leftField: (typeof baseFields)[0];
+      rightField: (typeof joinFields)[0];
+      columnName: string;
+      matchingValues: number; // how many values match between tables
+      baseUniqueValues: number;
+    }>
+  >([]);
 
   // Analyze matching columns for suggestions
   useEffect(() => {
     if (!connection || !isDuckDBReady) return;
-    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId) return;
+    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
+      return;
     // Wait for pagination hooks to be ready (they load the data into DuckDB)
     if (!isBaseReady || !isJoinReady) return;
 
-    const baseColMap = new Map<string, { field: typeof baseFields[0]; name: string }>();
+    const baseColMap = new Map<
+      string,
+      { field: (typeof baseFields)[0]; name: string }
+    >();
     for (const field of baseFields) {
       const colName = field.columnName ?? field.name;
       baseColMap.set(colName.toLowerCase(), { field, name: colName });
     }
 
-    const pairs: Array<{ leftField: typeof baseFields[0]; rightField: typeof joinFields[0]; columnName: string }> = [];
+    const pairs: Array<{
+      leftField: (typeof baseFields)[0];
+      rightField: (typeof joinFields)[0];
+      columnName: string;
+    }> = [];
     for (const joinField of joinFields) {
       const joinColName = joinField.columnName ?? joinField.name;
       const baseMatch = baseColMap.get(joinColName.toLowerCase());
@@ -258,8 +272,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
 
-    const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
-    const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
+    const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+    const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
 
     const analyze = async () => {
       try {
@@ -269,7 +283,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
         for (const pair of pairs) {
           const leftColName = pair.leftField.columnName ?? pair.leftField.name;
-          const rightColName = pair.rightField.columnName ?? pair.rightField.name;
+          const rightColName =
+            pair.rightField.columnName ?? pair.rightField.name;
 
           const sql = `
             WITH base_vals AS (SELECT DISTINCT "${leftColName}" as val FROM ${baseTableName}),
@@ -280,7 +295,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
           `;
 
           const result = await connection.query(sql);
-          const row = result.toArray()[0] as { base_unique: number; matching: number };
+          const row = result.toArray()[0] as {
+            base_unique: number;
+            matching: number;
+          };
 
           results.push({
             ...pair,
@@ -295,15 +313,26 @@ export default function JoinConfigurePage({ params }: PageProps) {
       } catch (err) {
         console.error("Failed to analyze column suggestions:", err);
         // Fallback without analysis
-        setColumnSuggestions(pairs.map(p => ({ ...p, matchingValues: 0, baseUniqueValues: 0 })));
+        setColumnSuggestions(
+          pairs.map((p) => ({ ...p, matchingValues: 0, baseUniqueValues: 0 })),
+        );
       }
     };
 
     analyze();
-  }, [connection, isDuckDBReady, baseTableInfo, joinTableInfo, baseFields, joinFields, isBaseReady, isJoinReady]);
+  }, [
+    connection,
+    isDuckDBReady,
+    baseTableInfo,
+    joinTableInfo,
+    baseFields,
+    joinFields,
+    isBaseReady,
+    isJoinReady,
+  ]);
 
   // Apply a suggestion
-  const applySuggestion = useCallback((pair: typeof columnSuggestions[0]) => {
+  const applySuggestion = useCallback((pair: (typeof columnSuggestions)[0]) => {
     setLeftFieldId(pair.leftField.id);
     setRightFieldId(pair.rightField.id);
   }, []);
@@ -315,7 +344,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
     if (!connection || !isDuckDBReady) return;
-    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId) return;
+    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
+      return;
 
     const leftField = baseFields.find((f) => f.id === leftFieldId);
     const rightField = joinFields.find((f) => f.id === rightFieldId);
@@ -333,8 +363,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
         await baseDataFrame.load(connection);
         await joinDataFrame.load(connection);
 
-        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
-        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
+        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
 
         // Get Venn diagram stats
         const vennSQL = `
@@ -383,7 +413,17 @@ export default function JoinConfigurePage({ params }: PageProps) {
     };
 
     analyze();
-  }, [leftFieldId, rightFieldId, connection, isDuckDBReady, baseTableInfo, joinTableInfo, baseFields, joinFields, getDataFrame]);
+  }, [
+    leftFieldId,
+    rightFieldId,
+    connection,
+    isDuckDBReady,
+    baseTableInfo,
+    joinTableInfo,
+    baseFields,
+    joinFields,
+    getDataFrame,
+  ]);
 
   // Compute join preview using DuckDB (handles full dataset efficiently)
   useEffect(() => {
@@ -396,7 +436,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
 
-    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId) {
+    if (
+      !baseTableInfo?.table.dataFrameId ||
+      !joinTableInfo?.table.dataFrameId
+    ) {
       return;
     }
 
@@ -429,26 +472,31 @@ export default function JoinConfigurePage({ params }: PageProps) {
         await baseDataFrame.load(connection);
         await joinDataFrame.load(connection);
 
-        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
-        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, '_')}`;
+        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
 
         // Build the JOIN SQL
         const joinTypeSQL = joinType.toUpperCase();
 
         // Get column lists, handling duplicates with table name prefixes
-        const baseColNames = baseFields.map(f => f.columnName ?? f.name);
-        const joinColNames = joinFields.map(f => f.columnName ?? f.name);
+        const baseColNames = baseFields.map((f) => f.columnName ?? f.name);
+        const joinColNames = joinFields.map((f) => f.columnName ?? f.name);
 
         // Get display names for table prefixes (cleaned of UUIDs)
-        const baseDisplayName = cleanTableNameForDisplay(baseTableInfo.table.name);
-        const joinDisplayName = cleanTableNameForDisplay(joinTableInfo.table.name);
+        const baseDisplayName = cleanTableNameForDisplay(
+          baseTableInfo.table.name,
+        );
+        const joinDisplayName = cleanTableNameForDisplay(
+          joinTableInfo.table.name,
+        );
 
         // Build SELECT clause with table name prefixes for duplicate columns
         const selectParts: string[] = [];
 
         for (const col of baseColNames) {
-          if (col.startsWith('_')) continue; // Skip internal columns
-          const isDuplicate = joinColNames.includes(col) && col !== leftColumnName;
+          if (col.startsWith("_")) continue; // Skip internal columns
+          const isDuplicate =
+            joinColNames.includes(col) && col !== leftColumnName;
           if (isDuplicate) {
             // Use table name prefix: "accounts.acctid" instead of "acctid_base"
             selectParts.push(`base."${col}" AS "${baseDisplayName}.${col}"`);
@@ -458,10 +506,12 @@ export default function JoinConfigurePage({ params }: PageProps) {
         }
 
         // Build lowercase set of base column names for case-insensitive duplicate detection
-        const baseColNamesLower = new Set(baseColNames.map(c => c.toLowerCase()));
+        const baseColNamesLower = new Set(
+          baseColNames.map((c) => c.toLowerCase()),
+        );
 
         for (const col of joinColNames) {
-          if (col.startsWith('_')) continue; // Skip internal columns
+          if (col.startsWith("_")) continue; // Skip internal columns
           // Check for duplicate using case-insensitive comparison
           // DuckDB treats column names case-insensitively, so "acctId" and "acctid" conflict
           const isDuplicate = baseColNamesLower.has(col.toLowerCase());
@@ -474,7 +524,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
         }
 
         const joinSQL = `
-          SELECT ${selectParts.join(', ')}
+          SELECT ${selectParts.join(", ")}
           FROM ${baseTableName} AS base
           ${joinTypeSQL} JOIN ${joinTableName} AS j
           ON base."${leftColumnName}" = j."${rightColumnName}"
@@ -497,11 +547,12 @@ export default function JoinConfigurePage({ params }: PageProps) {
         const totalJoinCount = Number(countResult.toArray()[0]?.count ?? 0);
 
         // Build columns from the result
-        const columns: VirtualTableColumn[] = rows.length > 0
-          ? Object.keys(rows[0])
-              .filter(key => !key.startsWith('_'))
-              .map(name => ({ name }))
-          : [];
+        const columns: VirtualTableColumn[] =
+          rows.length > 0
+            ? Object.keys(rows[0])
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({ name }))
+            : [];
 
         console.log("[JoinPreview] DuckDB result:", {
           previewRows: rows.length,
@@ -515,7 +566,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
       } catch (err) {
         console.error("DuckDB join preview failed:", err);
         setPreviewResult(null);
-        const errorMessage = err instanceof Error ? err.message : "Unknown error";
+        const errorMessage =
+          err instanceof Error ? err.message : "Unknown error";
         setError(`Join preview failed: ${errorMessage}`);
       } finally {
         setIsComputingPreview(false);
@@ -790,7 +842,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                         {pair.rightField.columnName ?? pair.rightField.name}
                       </span>
                       {pair.matchingValues > 0 && (
-                        <span className="text-muted-foreground text-xs ml-1">
+                        <span className="text-muted-foreground ml-1 text-xs">
                           ({pair.matchingValues.toLocaleString()} matching)
                         </span>
                       )}
@@ -894,7 +946,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
               {joinAnalysis && (
                 <div className="flex flex-col items-center justify-center">
                   {/* SVG Venn Diagram */}
-                  <svg viewBox="0 0 200 120" className="w-full max-w-[280px] h-auto">
+                  <svg
+                    viewBox="0 0 200 120"
+                    className="h-auto w-full max-w-[280px]"
+                  >
                     {/* Base table circle (left) */}
                     <circle
                       cx="70"
@@ -930,30 +985,66 @@ export default function JoinConfigurePage({ params }: PageProps) {
                         joinType === "inner"
                           ? "rgba(251, 191, 36, 0.5)"
                           : joinType === "left" || joinType === "right"
-                          ? "rgba(251, 191, 36, 0.3)"
-                          : "rgba(251, 191, 36, 0.2)"
+                            ? "rgba(251, 191, 36, 0.3)"
+                            : "rgba(251, 191, 36, 0.2)"
                       }
                       stroke="rgb(251, 191, 36)"
                       strokeWidth={joinType === "inner" ? "2" : "1"}
                     />
                     {/* Labels */}
-                    <text x="45" y="60" textAnchor="middle" className="text-[10px] fill-blue-600 font-medium">
-                      {(joinAnalysis.baseUniqueCount - joinAnalysis.matchingCount).toLocaleString()}
+                    <text
+                      x="45"
+                      y="60"
+                      textAnchor="middle"
+                      className="fill-blue-600 text-[10px] font-medium"
+                    >
+                      {(
+                        joinAnalysis.baseUniqueCount -
+                        joinAnalysis.matchingCount
+                      ).toLocaleString()}
                     </text>
-                    <text x="100" y="55" textAnchor="middle" className="text-[11px] fill-amber-600 font-bold">
+                    <text
+                      x="100"
+                      y="55"
+                      textAnchor="middle"
+                      className="fill-amber-600 text-[11px] font-bold"
+                    >
                       {joinAnalysis.matchingCount.toLocaleString()}
                     </text>
-                    <text x="100" y="68" textAnchor="middle" className="text-[8px] fill-amber-600">
+                    <text
+                      x="100"
+                      y="68"
+                      textAnchor="middle"
+                      className="fill-amber-600 text-[8px]"
+                    >
                       matching
                     </text>
-                    <text x="155" y="60" textAnchor="middle" className="text-[10px] fill-emerald-600 font-medium">
-                      {(joinAnalysis.joinUniqueCount - joinAnalysis.matchingCount).toLocaleString()}
+                    <text
+                      x="155"
+                      y="60"
+                      textAnchor="middle"
+                      className="fill-emerald-600 text-[10px] font-medium"
+                    >
+                      {(
+                        joinAnalysis.joinUniqueCount -
+                        joinAnalysis.matchingCount
+                      ).toLocaleString()}
                     </text>
                     {/* Circle labels */}
-                    <text x="45" y="110" textAnchor="middle" className="text-[9px] fill-muted-foreground">
+                    <text
+                      x="45"
+                      y="110"
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[9px]"
+                    >
                       Base
                     </text>
-                    <text x="155" y="110" textAnchor="middle" className="text-[9px] fill-muted-foreground">
+                    <text
+                      x="155"
+                      y="110"
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[9px]"
+                    >
                       Join
                     </text>
                   </svg>
@@ -962,7 +1053,13 @@ export default function JoinConfigurePage({ params }: PageProps) {
                   <div className="mt-3 text-center">
                     <p className="text-sm font-medium">
                       {joinType === "inner" && (
-                        <>Result: <span className="text-amber-600">{joinAnalysis.estimatedResultRows.toLocaleString()}</span> rows</>
+                        <>
+                          Result:{" "}
+                          <span className="text-amber-600">
+                            {joinAnalysis.estimatedResultRows.toLocaleString()}
+                          </span>{" "}
+                          rows
+                        </>
                       )}
                       {joinType === "left" && (
                         <>Result: all base rows + matched join data</>
@@ -974,8 +1071,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
                         <>Result: all rows from both tables</>
                       )}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {joinAnalysis.matchingCount.toLocaleString()} of {joinAnalysis.baseUniqueCount.toLocaleString()} base values have matches
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {joinAnalysis.matchingCount.toLocaleString()} of{" "}
+                      {joinAnalysis.baseUniqueCount.toLocaleString()} base
+                      values have matches
                     </p>
                   </div>
                 </div>
@@ -1085,7 +1184,9 @@ interface TablePreviewSectionProps {
   table: DataTable;
   totalCount: number;
   isReady: boolean;
-  onFetchData: (params: import("@dashframe/ui").FetchDataParams) => Promise<import("@dashframe/ui").FetchDataResult>;
+  onFetchData: (
+    params: import("@dashframe/ui").FetchDataParams,
+  ) => Promise<import("@dashframe/ui").FetchDataResult>;
   fields: Field[];
   columnConfigs?: VirtualTableColumnConfig[];
   onHeaderClick?: (columnName: string) => void;

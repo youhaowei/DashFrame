@@ -47,7 +47,7 @@ export function TableDetailPanel({
   // Load data only when preview tab is active (lazy loading)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
     dataFrameEntry?.id,
-    { limit: 50, skip: activeTab !== "preview" }
+    { limit: 50, skip: activeTab !== "preview" },
   );
 
   // Empty state when no table selected
@@ -253,7 +253,9 @@ export function TableDetailPanel({
               <div className="flex h-full items-center justify-center">
                 <div className="flex flex-col items-center gap-2">
                   <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  <p className="text-muted-foreground text-sm">Loading data...</p>
+                  <p className="text-muted-foreground text-sm">
+                    Loading data...
+                  </p>
                 </div>
               </div>
             ) : previewData ? (

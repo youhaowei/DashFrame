@@ -114,7 +114,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
     },
-    [dataFrameId, connection, isInitialized, getDataFrame, totalCount]
+    [dataFrameId, connection, isInitialized, getDataFrame, totalCount],
   );
 
   return {

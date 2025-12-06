@@ -58,7 +58,8 @@ function getPreviewDescription(
   }
   return (
     <>
-      Showing data from {JSON.stringify(selectedDataTable.name)} • {previewData.rowCount} rows
+      Showing data from {JSON.stringify(selectedDataTable.name)} •{" "}
+      {previewData.rowCount} rows
       {selectedDataTable.lastFetchedAt && (
         <>
           {" "}
@@ -145,11 +146,7 @@ function PreviewContent({
 }
 
 // Helper component for local data source display with async data loading
-function LocalDataSourceView({
-  dataSource,
-}: {
-  dataSource: DataSource;
-}) {
+function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
   const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(
     dataTables[0]?.id ?? null,
@@ -250,7 +247,10 @@ function LocalDataSourceView({
                 rows={data.rows}
                 columns={selectedDataTable.fields
                   .filter((f: Field) => !f.name.startsWith("_"))
-                  .map((f: Field) => ({ name: f.columnName ?? f.name, type: f.type }))}
+                  .map((f: Field) => ({
+                    name: f.columnName ?? f.name,
+                    type: f.type,
+                  }))}
                 height="100%"
               />
             </div>
@@ -274,7 +274,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const [rowLimit, setRowLimit] = useState<number>(50);
   // Preview data for Notion tables (rows + columns from last sync)
-  const [notionPreviewData, setNotionPreviewData] = useState<PreviewData | null>(null);
+  const [notionPreviewData, setNotionPreviewData] =
+    useState<PreviewData | null>(null);
 
   // Get data source from store
   const dataSource = useDataSourcesStore((state) =>

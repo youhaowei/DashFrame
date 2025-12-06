@@ -132,7 +132,7 @@ export default function DataSourcePage({ params }: PageProps) {
   // Load actual data for preview (async from IndexedDB)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
     tableDetails?.dataTable?.dataFrameId,
-    { limit: 50 }
+    { limit: 50 },
   );
 
   // Handle name change
@@ -390,7 +390,9 @@ export default function DataSourcePage({ params }: PageProps) {
                       <div className="flex h-40 items-center justify-center">
                         <div className="flex flex-col items-center gap-2">
                           <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                          <p className="text-muted-foreground text-sm">Loading data...</p>
+                          <p className="text-muted-foreground text-sm">
+                            Loading data...
+                          </p>
                         </div>
                       </div>
                     ) : previewData ? (
@@ -401,7 +403,9 @@ export default function DataSourcePage({ params }: PageProps) {
                       />
                     ) : (
                       <div className="flex h-40 items-center justify-center">
-                        <p className="text-muted-foreground text-sm">No data available</p>
+                        <p className="text-muted-foreground text-sm">
+                          No data available
+                        </p>
                       </div>
                     )}
                   </div>

@@ -34,7 +34,6 @@ export async function deleteArrowData(key: string): Promise<void> {
   await del(key);
 }
 
-
 // ============================================================================
 // Storage Key Generation
 // ============================================================================
@@ -53,4 +52,3 @@ export function extractDataFrameId(arrowKey: string): string | null {
   const match = arrowKey.match(/^dashframe:arrow:(.+)$/);
   return match ? match[1] : null;
 }
-

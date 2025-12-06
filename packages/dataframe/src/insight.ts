@@ -447,7 +447,9 @@ export class Insight {
       const joinDisplayName = cleanTableNameForDisplay(joinTable.name);
 
       // Get join table fields
-      const joinFields = joinTable.fields.filter((f) => !f.name.startsWith("_"));
+      const joinFields = joinTable.fields.filter(
+        (f) => !f.name.startsWith("_"),
+      );
       const joinColNames = joinFields.map((f) => f.columnName ?? f.name);
 
       // Find the join key fields

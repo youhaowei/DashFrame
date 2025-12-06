@@ -340,7 +340,10 @@ export function Navigation() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+            >
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleClearAllData}>

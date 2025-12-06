@@ -5,7 +5,13 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, DataTableInfo } from "@dashframe/dataframe";
 import { Insight as InsightClass } from "@dashframe/dataframe";
-import type { Insight, InsightExecutionType, InsightMetric, DataTable, DataSource } from "./types";
+import type {
+  Insight,
+  InsightExecutionType,
+  InsightMetric,
+  DataTable,
+  DataSource,
+} from "./types";
 
 // ============================================================================
 // State Interface
@@ -372,7 +378,9 @@ export const useInsightsStore = create<InsightsStore>()(
         // Resolve base table
         const baseTable = findDataTable(storeInsight.baseTable.tableId);
         if (!baseTable) {
-          console.error(`[getResolvedInsight] Base table not found: ${storeInsight.baseTable.tableId}`);
+          console.error(
+            `[getResolvedInsight] Base table not found: ${storeInsight.baseTable.tableId}`,
+          );
           return null;
         }
 
