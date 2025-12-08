@@ -17,6 +17,8 @@ import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList } from "./InsightList";
 import { AddConnectionPanel } from "./AddConnectionPanel";
+import { useNotionConnection } from "@/hooks/useNotionConnection";
+
 
 export interface DataPickerContentProps {
   /**
@@ -97,6 +99,17 @@ export function DataPickerContent({
     excludeIds: excludeInsightIds,
     withComputedDataOnly: true,
   });
+
+  // Notion connection (internal)
+  const {
+    apiKey: notionApiKey,
+    showApiKey: showNotionApiKey,
+    setApiKey: setNotionApiKey,
+    toggleShowApiKey: toggleShowNotionApiKey,
+    connect: connectNotion,
+    isLoading: isNotionLoading,
+    error: notionError,
+  } = useNotionConnection();
 
   // Transform sources for DataSourceList
   const dataSourcesInfo: DataSourceInfo[] = useMemo(
@@ -212,14 +225,16 @@ export function DataPickerContent({
               notion={
                 showNotion
                   ? {
-                      apiKey: "",
-                      showApiKey: false,
-                      onApiKeyChange: () => {},
-                      onToggleShowApiKey: () => {},
-                      onConnectNotion: () => {},
-                      connectDisabled: true,
-                      connectButtonLabel: "Coming soon",
-                    }
+                    apiKey: notionApiKey,
+                    showApiKey: showNotionApiKey,
+                    onApiKeyChange: setNotionApiKey,
+                    onToggleShowApiKey: toggleShowNotionApiKey,
+                    onConnectNotion: connectNotion,
+                    connectButtonLabel: isNotionLoading
+                      ? "Connecting..."
+                      : "Connect Notion",
+                    connectDisabled: !notionApiKey || isNotionLoading,
+                  }
                   : undefined
               }
             />
@@ -227,10 +242,13 @@ export function DataPickerContent({
         )}
       </div>
 
-      {/* Error */}
-      {csvError && (
+      {/* Errors */}
+      {(csvError || notionError) && (
         <Alert variant="destructive">
-          <AlertDescription>{csvError}</AlertDescription>
+          <AlertDescription>
+            {csvError && <div className="mb-1">{csvError}</div>}
+            {notionError && <div>{notionError}</div>}
+          </AlertDescription>
         </Alert>
       )}
 

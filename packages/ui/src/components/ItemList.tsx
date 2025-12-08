@@ -35,6 +35,14 @@ export interface ListItem {
    * Optional actions for this item (shown on hover)
    */
   actions?: ItemAction[];
+  /**
+   * Optional preview element to display above the card content
+   */
+  preview?: React.ReactNode;
+  /**
+   * Height of the preview section in pixels
+   */
+  previewHeight?: number;
 }
 
 export interface ItemListProps {
@@ -50,7 +58,7 @@ export interface ItemListProps {
    * Layout orientation
    * @default "vertical"
    */
-  orientation?: "vertical" | "horizontal";
+  orientation?: "vertical" | "horizontal" | "grid";
   /**
    * Maximum size constraint (height for vertical, width for horizontal)
    * Can be a number (pixels) or CSS string value
@@ -179,6 +187,8 @@ export function ItemList({
         badge={item.badge}
         active={item.active}
         actions={item.actions}
+        preview={item.preview}
+        previewHeight={item.previewHeight}
         onClick={() => onSelect(item.id)}
       />
     </div>
@@ -195,6 +205,28 @@ export function ItemList({
           {itemElements}
         </div>
       </ScrollArea>
+    );
+  }
+
+  // Grid orientation
+  if (orientation === "grid") {
+    return (
+      <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3", className)} style={{ gap: `${gap}px` }}>
+        {items.map((item) => (
+          <ItemCard
+            key={item.id}
+            icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
+            title={item.title}
+            subtitle={item.subtitle}
+            badge={item.badge}
+            active={item.active}
+            actions={item.actions}
+            preview={item.preview}
+            previewHeight={item.previewHeight}
+            onClick={() => onSelect(item.id)}
+          />
+        ))}
+      </div>
     );
   }
 

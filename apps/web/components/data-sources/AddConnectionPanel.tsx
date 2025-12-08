@@ -14,7 +14,7 @@ import {
   Notion,
 } from "@dashframe/ui";
 
-interface NotionConfig {
+export interface NotionConfig {
   title?: string;
   description?: string;
   hint?: string;
