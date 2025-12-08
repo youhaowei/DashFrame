@@ -1,3 +1,5 @@
+"use client";
+
 import "./config";
 
 import { create } from "zustand";
