@@ -28,7 +28,6 @@ import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useShallow } from "zustand/react/shallow";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import type { DashboardItemType } from "@/lib/types/dashboard";
-import { useStoreHydrated } from "@/components/providers/StoreHydration";
 import { generateUUID } from "@/lib/utils";
 
 export default function DashboardDetailPage({
@@ -38,7 +37,6 @@ export default function DashboardDetailPage({
 }) {
   const { dashboardId } = use(params);
   const router = useRouter();
-  const isHydrated = useStoreHydrated();
   const dashboard = useDashboardsStore((state) =>
     state.dashboards.get(dashboardId),
   );
@@ -48,20 +46,36 @@ export default function DashboardDetailPage({
     useShallow((state) => Array.from(state.visualizations.values())),
   );
 
+  // Track if we've checked for dashboard after hydration
+  const [hasChecked, setHasChecked] = useState(false);
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
-  // Redirect if not found - only after stores are hydrated from localStorage
+  // Redirect if not found after a brief delay (allows hydration to complete)
   useEffect(() => {
-    if (isHydrated && !dashboard) {
+    // Wait a tick for hydration to complete, then check
+    const timer = setTimeout(() => {
+      setHasChecked(true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (hasChecked && !dashboard) {
       router.push("/dashboards");
     }
-  }, [isHydrated, dashboard, router]);
+  }, [hasChecked, dashboard, router]);
 
-  // Show nothing until hydration completes to avoid flash
-  if (!isHydrated || !dashboard) return null;
+  // Show loading state until we have the dashboard
+  if (!dashboard) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading dashboard...</p>
+      </div>
+    );
+  }
 
   const handleAddItem = () => {
     const newItem = {

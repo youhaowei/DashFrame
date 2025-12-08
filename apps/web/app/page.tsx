@@ -26,7 +26,6 @@ import { AddConnectionPanel } from "@/components/data-sources/AddConnectionPanel
 import { DataTableList } from "@/components/data-sources/DataTableList";
 import { DataSourceList } from "@/components/data-sources/DataSourceList";
 import type { DataSourceInfo } from "@/components/data-sources/DataSourceList";
-import { useLocalStoreHydration } from "@/hooks/useLocalStoreHydration";
 import { useDataTables } from "@/hooks/useDataTables";
 import { useCSVUpload } from "@/hooks/useCSVUpload";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
@@ -46,7 +45,6 @@ export default function HomePage() {
   const router = useRouter();
 
   // Stores
-  const { isHydrated, localSources } = useLocalStoreHydration();
   const { data: visualizations } = useStoreQuery(
     useVisualizationsStore,
     (state) => state.getAll(),
@@ -60,7 +58,7 @@ export default function HomePage() {
 
   // Onboarding state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const { allDataTables } = useDataTables(localSources, selectedSourceId);
+  const { allDataTables } = useDataTables(dataSources, selectedSourceId);
   const {
     handleCSVUpload,
     error: csvError,
@@ -68,8 +66,8 @@ export default function HomePage() {
   } = useCSVUpload();
   const { createInsightFromTable } = useCreateInsight();
 
-  // Transform localSources for DataSourceList
-  const dataSourcesInfo: DataSourceInfo[] = localSources.map((source) => ({
+  // Transform dataSources for DataSourceList
+  const dataSourcesInfo: DataSourceInfo[] = dataSources.map((source) => ({
     id: source.id,
     name: source.name,
     type: source.type,
@@ -87,7 +85,7 @@ export default function HomePage() {
   const setNotionDataSource = useDataSourcesStore((state) => state.setNotion);
 
   // Check for existing Notion source (local only)
-  const notionSource = localSources.find((s) => s.type === "notion");
+  const notionSource = dataSources.find((s) => s.type === "notion");
 
   // tRPC for Notion API
   const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
@@ -143,7 +141,14 @@ export default function HomePage() {
 
   const error = csvError || notionError;
   const hasDataSources = dataSourcesInfo.length > 0;
-  const showWelcome = isHydrated && !hasDataSources;
+  // showWelcome happens when no visualizations exist
+  // We've removed hasDataSources check here to simplify - if no viz, show simplified view
+  // Actually, original logic was: showWelcome = isHydrated && !hasDataSources
+  // Now we just check !hasDataSources if that was the intent.
+  // But strictly, showWelcome was likely used to show the "Empty State" card.
+  // Let's keep it simple: if no visualizations, we show onboarding.
+  // Within onboarding, if no sources, we show the welcome card.
+  const showWelcome = !hasDataSources;
   const hasVisualizations = visualizations.length > 0;
 
   // Get icon for visualization type
@@ -233,7 +238,7 @@ export default function HomePage() {
               )}
 
               {/* Two-Level Hierarchy: Data Sources → Tables */}
-              {isHydrated && hasDataSources && (
+              {hasDataSources && (
                 <Card className="mb-6">
                   <CardContent className="p-6">
                     {/* Show data sources when no source is selected */}

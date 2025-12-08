@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID } from "@dashframe/dataframe";
 import type { Dashboard, DashboardItem } from "@/lib/types/dashboard";
+import { superjsonStorage } from "./storage";
 
 interface DashboardsState {
   dashboards: Map<UUID, Dashboard>;
@@ -91,42 +92,8 @@ export const useDashboardsStore = create<DashboardsState & DashboardsActions>()(
     })),
     {
       name: "dashframe:dashboards",
+      storage: superjsonStorage,
       skipHydration: true,
-      storage: {
-        getItem: (name) => {
-          const str = localStorage.getItem(name);
-          if (!str) return null;
-
-          try {
-            const { state } = JSON.parse(str);
-            return {
-              state: {
-                ...state,
-                dashboards: new Map(state.dashboards),
-              },
-            };
-          } catch (err) {
-            console.warn(
-              "dashframe:dashboards – failed to parse persisted state, resetting",
-              err,
-            );
-            return null;
-          }
-        },
-        setItem: (name, value) => {
-          const state = {
-            ...value.state,
-            dashboards: Array.from(value.state.dashboards.entries()),
-          };
-          try {
-            localStorage.setItem(name, JSON.stringify({ state }));
-          } catch (e) {
-            // Handle QuotaExceededError or other storage errors gracefully
-            console.error("Failed to save dashboards to localStorage:", e);
-          }
-        },
-        removeItem: (name) => localStorage.removeItem(name),
-      },
     },
   ),
 );

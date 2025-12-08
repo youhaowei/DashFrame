@@ -9,10 +9,10 @@ import {
   Database,
 } from "@dashframe/ui";
 import { LuArrowLeft } from "react-icons/lu";
-import { useLocalStoreHydration } from "@/hooks/useLocalStoreHydration";
 import { useDataTables } from "@/hooks/useDataTables";
 import { useCSVUpload } from "@/hooks/useCSVUpload";
 import { useInsights } from "@/hooks/useInsights";
+import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList } from "./InsightList";
@@ -89,7 +89,7 @@ export function DataPickerContent({
   showNotion = false,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { isHydrated, localSources } = useLocalStoreHydration();
+  const localSources = useDataSourcesStore((state) => state.getAll());
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const { allDataTables } = useDataTables(localSources, selectedSourceId);
   const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
@@ -144,14 +144,6 @@ export function DataPickerContent({
     },
     [handleCSVUpload, clearError, onTableSelect],
   );
-
-  if (!isHydrated) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-muted-foreground text-sm">Loading...</p>
-      </div>
-    );
-  }
 
   const hasInsights = showInsights && insights.length > 0 && onInsightSelect;
   const hasDataSources = dataSourcesInfo.length > 0;

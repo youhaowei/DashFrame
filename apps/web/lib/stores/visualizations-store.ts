@@ -1,7 +1,7 @@
 import "./config";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID } from "@dashframe/dataframe";
 import type { DataFrameEntry } from "./dataframes-store";
@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import type { TopLevelSpec } from "vega-lite";
 import { useDataFramesStore } from "./dataframes-store";
+import { superjsonStorage } from "./storage";
 
 // ============================================================================
 // State Interface
@@ -70,63 +71,52 @@ interface VisualizationsActions {
 type VisualizationsStore = VisualizationsState & VisualizationsActions;
 
 // ============================================================================
-// Storage Serialization (for Map support)
+// Migration Logic
 // ============================================================================
 
-// Type for what we actually persist (subset of full state)
 type PersistedVisualizationsState = Pick<
   VisualizationsState,
   "visualizations" | "activeId"
 >;
 
-const storage = createJSONStorage<PersistedVisualizationsState>(
-  () => localStorage,
-  {
-    reviver: (_key, value: unknown) => {
-      // Convert array back to Map during deserialization
-      if (
-        value &&
-        typeof value === "object" &&
-        "visualizations" in value &&
-        Array.isArray((value as { visualizations: unknown }).visualizations)
-      ) {
-        // Migrate old visualizations that don't have visualizationType
-        type LegacyVisualization = Omit<Visualization, "visualizationType"> &
-          Partial<Pick<Visualization, "visualizationType">>;
+/**
+ * Migrate legacy visualization data to current schema.
+ * Handles old visualizations that don't have visualizationType field.
+ */
+function migrateVisualizationsState(
+  state: PersistedVisualizationsState,
+): PersistedVisualizationsState {
+  // Handle legacy array format from old JSON storage
+  if (Array.isArray(state.visualizations)) {
+    type LegacyVisualization = Omit<Visualization, "visualizationType"> &
+      Partial<Pick<Visualization, "visualizationType">>;
 
-        const visualizations = new Map(
-          (
-            value as { visualizations: [UUID, LegacyVisualization][] }
-          ).visualizations.map(([id, viz]) => [
-            id,
-            {
-              ...viz,
-              // Add default visualizationType if missing (backward compatibility)
-              visualizationType: viz.visualizationType || "bar",
-              // encoding is optional, so no need to add default
-            } as Visualization,
-          ]),
-        );
+    const visualizations = new Map(
+      (state.visualizations as unknown as [UUID, LegacyVisualization][]).map(
+        ([id, viz]) => [
+          id,
+          {
+            ...viz,
+            // Add default visualizationType if missing (backward compatibility)
+            visualizationType: viz.visualizationType || "bar",
+          } as Visualization,
+        ],
+      ),
+    );
+    return { ...state, visualizations };
+  }
 
-        return {
-          ...value,
-          visualizations,
-          _cachedVisualizations: Array.from(visualizations.values()), // Recreate cache
-        };
+  // Handle Map format (superjson) - still need to migrate missing fields
+  if (state.visualizations instanceof Map) {
+    for (const [id, viz] of state.visualizations.entries()) {
+      if (!viz.visualizationType) {
+        state.visualizations.set(id, { ...viz, visualizationType: "bar" });
       }
-      return value;
-    },
-    replacer: (_key, value: unknown) => {
-      // Skip cached array (it's derived from the Map)
-      if (_key === "_cachedVisualizations") return undefined;
-      // Convert Map to array for JSON serialization
-      if (value instanceof Map) {
-        return Array.from(value.entries());
-      }
-      return value;
-    },
-  },
-);
+    }
+  }
+
+  return state;
+}
 
 // ============================================================================
 // Store Implementation
@@ -301,12 +291,21 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
     })),
     {
       name: "dashframe:visualizations",
-      storage,
+      storage: superjsonStorage,
       partialize: (state) => ({
         visualizations: state.visualizations,
         activeId: state.activeId,
       }),
-      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
+      version: 1,
+      migrate: (persistedState, version) => {
+        if (version === 0) {
+          return migrateVisualizationsState(
+            persistedState as PersistedVisualizationsState,
+          );
+        }
+        return persistedState as PersistedVisualizationsState;
+      },
+      skipHydration: true,
     },
   ),
 );
