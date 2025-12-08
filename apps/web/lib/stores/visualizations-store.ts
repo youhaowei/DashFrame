@@ -145,11 +145,18 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         const id = crypto.randomUUID();
         const now = Date.now();
 
+        // Strip embedded data from spec to avoid localStorage quota issues
+        // Data will be loaded from DuckDB when rendering
+        const specWithoutData = { ...spec } as Record<string, unknown>;
+        if ("data" in specWithoutData) {
+          delete specWithoutData.data;
+        }
+
         const visualization: Visualization = {
           id,
           name,
           source,
-          spec,
+          spec: specWithoutData as Omit<TopLevelSpec, "data">,
           visualizationType,
           encoding,
           createdAt: now,
@@ -178,10 +185,16 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
 
       // Update Vega-Lite spec
       updateSpec: (id, spec) => {
+        // Strip embedded data from spec to avoid localStorage quota issues
+        const specWithoutData = { ...spec } as Record<string, unknown>;
+        if ("data" in specWithoutData) {
+          delete specWithoutData.data;
+        }
+
         set((state) => {
           const viz = state.visualizations.get(id);
           if (viz) {
-            viz.spec = spec;
+            viz.spec = specWithoutData as Omit<TopLevelSpec, "data">;
           }
         });
       },

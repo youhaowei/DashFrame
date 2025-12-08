@@ -11,6 +11,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Generate a new UUID v4 using the Web Crypto API.
+ */
+export function generateUUID(): UUID {
+  return crypto.randomUUID() as UUID;
+}
+
 export function convertColumnsToFields(
   columns: DataFrameColumn[],
   tableId: UUID,

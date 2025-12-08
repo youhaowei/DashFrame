@@ -91,10 +91,10 @@ export function SuggestedInsights({
             className="hover:border-primary flex flex-col p-3 transition-colors"
           >
             {/* Chart Preview */}
-            <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-transparent">
+            <div className="mb-3 h-[120px] w-full overflow-hidden rounded-lg bg-transparent">
               <VegaChart
                 spec={suggestion.spec}
-                className="w-fit! flex-initial! mx-auto max-w-full"
+                className="h-[120px] w-full"
               />
             </div>
 

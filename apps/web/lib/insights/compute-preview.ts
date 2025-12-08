@@ -270,7 +270,10 @@ function computeMetrics(
           const values = rows
             .map((r) => r[columnName])
             .filter((v) => typeof v === "number") as number[];
-          value = values.length > 0 ? Math.min(...values) : 0;
+          value =
+            values.length > 0
+              ? values.reduce((a, b) => (a < b ? a : b), Infinity)
+              : 0;
         }
         break;
       }
@@ -280,7 +283,10 @@ function computeMetrics(
           const values = rows
             .map((r) => r[columnName])
             .filter((v) => typeof v === "number") as number[];
-          value = values.length > 0 ? Math.max(...values) : 0;
+          value =
+            values.length > 0
+              ? values.reduce((a, b) => (a > b ? a : b), -Infinity)
+              : 0;
         }
         break;
       }

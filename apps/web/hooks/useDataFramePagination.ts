@@ -24,6 +24,10 @@ import type { UUID } from "@dashframe/dataframe";
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const { connection, isInitialized } = useDuckDB();
   const getDataFrame = useDataFramesStore((state) => state.getDataFrame);
+  // Subscribe to entry changes to re-run init after store hydration
+  const entry = useDataFramesStore((s) =>
+    dataFrameId ? s.getEntry(dataFrameId) : undefined,
+  );
 
   const [totalCount, setTotalCount] = useState<number>(0);
   const [columns, setColumns] = useState<{ name: string; type?: string }[]>([]);
@@ -77,7 +81,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
     };
 
     init();
-  }, [dataFrameId, connection, isInitialized, getDataFrame]);
+  }, [dataFrameId, connection, isInitialized, getDataFrame, entry]);
 
   // Fetch callback for VirtualTable
   const fetchData = useCallback(
@@ -114,7 +118,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
     },
-    [dataFrameId, connection, isInitialized, getDataFrame, totalCount],
+    [dataFrameId, connection, isInitialized, getDataFrame, totalCount, entry],
   );
 
   return {

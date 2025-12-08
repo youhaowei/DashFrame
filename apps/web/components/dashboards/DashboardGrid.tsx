@@ -1,9 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useCallback } from "react";
 import { Responsive, WidthProvider } from "react-grid-layout";
-import "react-grid-layout/css/styles.css";
-import "react-resizable/css/styles.css";
 import type { Dashboard } from "@/lib/types/dashboard";
 import { DashboardItem } from "./DashboardItem";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
@@ -15,11 +13,17 @@ interface DashboardGridProps {
   isEditable: boolean;
 }
 
+/** Debounce delay in ms for layout changes during drag/resize */
+const LAYOUT_DEBOUNCE_MS = 150;
+
 export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
   const updateItem = useDashboardsStore((state) => state.updateItem);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLayoutRef = useRef<any[] | null>(null);
 
   const layouts = useMemo(() => {
-    const layout = dashboard.items.map((item) => ({
+    // Base layout from stored positions (designed for lg: 12 cols)
+    const lgLayout = dashboard.items.map((item) => ({
       i: item.id,
       x: item.layout.x,
       y: item.layout.y,
@@ -28,11 +32,46 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       minW: item.layout.minW || 2,
       minH: item.layout.minH || 2,
     }));
-    return { lg: layout, md: layout, sm: layout };
+
+    // Scale layouts for smaller breakpoints to prevent overflow
+    // md: 10 cols - slight scale down
+    const mdLayout = lgLayout.map((item) => ({
+      ...item,
+      x: Math.min(item.x, 10 - Math.min(item.w, 10)),
+      w: Math.min(item.w, 10),
+    }));
+
+    // sm: 6 cols - items stack more vertically
+    const smLayout = lgLayout.map((item) => ({
+      ...item,
+      x: 0,
+      w: Math.min(item.w, 6),
+    }));
+
+    // xs: 4 cols - full width items
+    const xsLayout = lgLayout.map((item) => ({
+      ...item,
+      x: 0,
+      w: Math.min(item.w, 4),
+    }));
+
+    // xxs: 2 cols - single column stacked layout
+    const xxsLayout = lgLayout.map((item) => ({
+      ...item,
+      x: 0,
+      w: 2,
+    }));
+
+    return { lg: lgLayout, md: mdLayout, sm: smLayout, xs: xsLayout, xxs: xxsLayout };
   }, [dashboard.items]);
 
-  const handleLayoutChange = (currentLayout: any[]) => {
-    if (!isEditable) return;
+  /**
+   * Persists pending layout changes to the store.
+   * Called after debounce delay or on drag/resize stop.
+   */
+  const flushLayoutChanges = useCallback(() => {
+    const currentLayout = pendingLayoutRef.current;
+    if (!currentLayout) return;
 
     currentLayout.forEach((l) => {
       const item = dashboard.items.find((i) => i.id === l.i);
@@ -57,7 +96,40 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
         }
       }
     });
-  };
+
+    pendingLayoutRef.current = null;
+  }, [dashboard.id, dashboard.items, updateItem]);
+
+  /**
+   * Debounced handler for layout changes during drag/resize.
+   * Stores pending changes and schedules a flush after delay.
+   */
+  const handleLayoutChange = useCallback(
+    (currentLayout: any[]) => {
+      if (!isEditable) return;
+
+      // Store the latest layout for deferred processing
+      pendingLayoutRef.current = currentLayout;
+
+      // Clear existing timer and schedule new flush
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(flushLayoutChanges, LAYOUT_DEBOUNCE_MS);
+    },
+    [isEditable, flushLayoutChanges],
+  );
+
+  /**
+   * Immediately flush on drag/resize stop for responsiveness.
+   */
+  const handleDragStop = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    flushLayoutChanges();
+  }, [flushLayoutChanges]);
 
   return (
     <ResponsiveGridLayout
@@ -70,6 +142,8 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       isResizable={isEditable}
       draggableHandle=".grid-drag-handle"
       onLayoutChange={handleLayoutChange}
+      onDragStop={handleDragStop}
+      onResizeStop={handleDragStop}
       margin={[16, 16]}
       resizeHandle={
         isEditable ? (

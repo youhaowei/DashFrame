@@ -349,14 +349,14 @@ export default function VisualizationPage({ params }: PageProps) {
         const columns: DataFrameColumn[] =
           rows.length > 0
             ? Object.keys(rows[0])
-                .filter((key) => !key.startsWith("_"))
-                .map((name) => ({
-                  name,
-                  type:
-                    typeof rows[0][name] === "number"
-                      ? ("number" as const)
-                      : ("string" as const),
-                }))
+              .filter((key) => !key.startsWith("_"))
+              .map((name) => ({
+                name,
+                type:
+                  typeof rows[0][name] === "number"
+                    ? ("number" as const)
+                    : ("string" as const),
+              }))
             : [];
 
         setJoinedData({ rows, columns });
@@ -432,12 +432,14 @@ export default function VisualizationPage({ params }: PageProps) {
     return sourceDataFrame;
   }, [joinedData, aggregatedPreview, sourceDataFrame]);
 
+  // Include dataFrame check to prevent "Data not available" flash during derived state computation
   const isLoading =
-    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData;
+    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData ||
+    (visualization && !dataFrame);
 
   // Local state
   const [vizName, setVizName] = useState("");
-  const [activeTab, setActiveTab] = useState<string>("chart");
+  const [activeTab, setActiveTab] = useState<string>("both");
   const [visibleRows, setVisibleRows] = useState<number>(10);
 
   // Refs for layout calculation
@@ -644,12 +646,12 @@ export default function VisualizationPage({ params }: PageProps) {
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-        { label: "Table", value: "table" },
-        { label: "Bar Chart", value: "bar" },
-        { label: "Line Chart", value: "line" },
-        { label: "Scatter Plot", value: "scatter" },
-        { label: "Area Chart", value: "area" },
-      ]
+      { label: "Table", value: "table" },
+      { label: "Bar Chart", value: "bar" },
+      { label: "Line Chart", value: "line" },
+      { label: "Scatter Plot", value: "scatter" },
+      { label: "Area Chart", value: "area" },
+    ]
     : [{ label: "Table", value: "table" }];
 
   return (
@@ -863,14 +865,14 @@ export default function VisualizationPage({ params }: PageProps) {
         {/* Chart visualization - both view */}
         {visualization.visualizationType !== "table" &&
           activeTab === "both" && (
-            <div className="flex h-full flex-col gap-4 p-6">
+            <div className="flex h-full flex-col">
               <div className="shrink-0">
                 <VegaChart spec={vegaSpec!} />
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
                 <Surface
                   elevation="inset"
-                  className="flex min-h-0 flex-1 flex-col p-4"
+                  className="flex min-h-0 flex-1 flex-col"
                 >
                   <VirtualTable
                     rows={dataFrame.rows}

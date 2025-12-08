@@ -24,6 +24,8 @@ export function VegaChart({ spec, className }: VegaChartProps) {
     import("vega-embed").then(({ default: embed }) => {
       if (cancelled || !container) return;
 
+      // Let Vega-Embed handle responsive sizing via width/height: "container" in spec
+      // Don't manually resize - it conflicts with Vega's internal ResizeObserver
       embed(container, spec, {
         actions: false,
         renderer: "canvas",
@@ -50,40 +52,10 @@ export function VegaChart({ spec, className }: VegaChartProps) {
     };
   }, [spec]);
 
-  // Handle container resize
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const observer = new ResizeObserver((entries) => {
-      if (!viewRef.current) return;
-
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          try {
-            // Explicitly set dimensions and re-run
-            viewRef.current
-              .width(Math.floor(width))
-              .height(Math.floor(height))
-              .run();
-          } catch (e) {
-            console.warn("Error resizing chart:", e);
-          }
-        }
-      }
-    });
-
-    observer.observe(containerRef.current);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
   return (
     <div
       ref={containerRef}
-      className={cn("h-full min-h-0 w-full flex-1 overflow-hidden", className)}
+      className={cn("h-full min-h-0 w-full overflow-hidden", className)}
     />
   );
 }

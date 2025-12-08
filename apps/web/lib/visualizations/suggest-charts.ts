@@ -262,8 +262,13 @@ export function suggestCharts(
     }
 
     // Check if there's meaningful range (not all clustered)
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    // Use reduce instead of spread to avoid stack overflow on large arrays
+    let min = Infinity;
+    let max = -Infinity;
+    for (const v of values) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
     if (min === max) {
       return false;
     }
@@ -567,9 +572,10 @@ function createMiniSpec(
 
   return {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-    width: 180,
+    width: "container",
     height: 120,
-    data: { values: data.slice(0, 100) }, // Use more rows for aggregation
+    autosize: { type: "fit", contains: "padding" },
+    data: { values: data },
     mark: { type: mark, tooltip: false },
     encoding,
     config: getVegaThemeConfig(),

@@ -15,7 +15,7 @@ class DuckDBLogger implements duckdb.Logger {
     const event = duckdb.getLogEventLabel(entry.event);
     const value = entry.value ? `: ${entry.value}` : "";
 
-    const message = `[DuckDB] ${topic} ${event}${value}`;
+    const message = `[DuckDB][${level}] ${topic} ${event}${value}`;
 
     switch (entry.level) {
       case duckdb.LogLevel.ERROR:
@@ -70,6 +70,10 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
     error: null,
   });
   const initRef = useRef(false);
+  /** Ref to track live connection for cleanup - avoids stale closure in useEffect */
+  const connectionRef = useRef<duckdb.AsyncDuckDBConnection | null>(null);
+  /** Ref to track live db instance for cleanup */
+  const dbRef = useRef<duckdb.AsyncDuckDB | null>(null);
 
   useEffect(() => {
     if (initRef.current) return;
@@ -121,6 +125,10 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
 
         if (cancelled) return;
 
+        // Store in refs for cleanup access
+        dbRef.current = db;
+        connectionRef.current = conn;
+
         setState({
           db,
           connection: conn,
@@ -145,8 +153,9 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
-      // Cleanup on unmount
-      state.connection?.close();
+      // Cleanup on unmount using refs to get live values
+      connectionRef.current?.close();
+      dbRef.current?.terminate();
     };
   }, []);
 

@@ -28,6 +28,8 @@ import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useShallow } from "zustand/react/shallow";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import type { DashboardItemType } from "@/lib/types/dashboard";
+import { useStoreHydrated } from "@/components/providers/StoreHydration";
+import { generateUUID } from "@/lib/utils";
 
 export default function DashboardDetailPage({
   params,
@@ -36,6 +38,7 @@ export default function DashboardDetailPage({
 }) {
   const { dashboardId } = use(params);
   const router = useRouter();
+  const isHydrated = useStoreHydrated();
   const dashboard = useDashboardsStore((state) =>
     state.dashboards.get(dashboardId),
   );
@@ -50,22 +53,19 @@ export default function DashboardDetailPage({
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
-  // Redirect if not found
+  // Redirect if not found - only after stores are hydrated from localStorage
   useEffect(() => {
-    // We need to wait for hydration
-    const timer = setTimeout(() => {
-      if (!dashboard) {
-        router.push("/dashboards");
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [dashboard, router]);
+    if (isHydrated && !dashboard) {
+      router.push("/dashboards");
+    }
+  }, [isHydrated, dashboard, router]);
 
-  if (!dashboard) return null;
+  // Show nothing until hydration completes to avoid flash
+  if (!isHydrated || !dashboard) return null;
 
   const handleAddItem = () => {
     const newItem = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: addType,
       layout: {
         x: 0,

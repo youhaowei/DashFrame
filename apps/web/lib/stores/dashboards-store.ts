@@ -1,3 +1,5 @@
+"use client";
+
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
@@ -89,17 +91,27 @@ export const useDashboardsStore = create<DashboardsState & DashboardsActions>()(
     })),
     {
       name: "dashframe:dashboards",
+      skipHydration: true,
       storage: {
         getItem: (name) => {
           const str = localStorage.getItem(name);
           if (!str) return null;
-          const { state } = JSON.parse(str);
-          return {
-            state: {
-              ...state,
-              dashboards: new Map(state.dashboards),
-            },
-          };
+
+          try {
+            const { state } = JSON.parse(str);
+            return {
+              state: {
+                ...state,
+                dashboards: new Map(state.dashboards),
+              },
+            };
+          } catch (err) {
+            console.warn(
+              "dashframe:dashboards – failed to parse persisted state, resetting",
+              err,
+            );
+            return null;
+          }
         },
         setItem: (name, value) => {
           const state = {

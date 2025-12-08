@@ -12,6 +12,7 @@ import {
   Database,
   Github,
   LayoutDashboard,
+  LayoutGrid,
   LineChart,
   Sparkles,
   Menu,
@@ -48,6 +49,12 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  {
+    name: "Dashboards",
+    href: "/dashboards",
+    description: "Build and view dashboards",
+    icon: LayoutGrid,
+  },
   {
     name: "Visualizations",
     href: "/visualizations",
