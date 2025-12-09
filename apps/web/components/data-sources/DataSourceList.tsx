@@ -1,4 +1,5 @@
-import { ItemCard, FileText } from "@dashframe/ui";
+import { ItemCard } from "@dashframe/ui";
+import { FileText } from "@dashframe/ui/icons";
 
 export interface DataSourceInfo {
   id: string;

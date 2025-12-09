@@ -3,11 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  RefreshCw,
-  Trash2,
-  ChevronDown,
-  CheckIcon,
-  ArrowUpDown,
   Input,
   Label,
   Button,
@@ -29,7 +24,18 @@ import {
   SelectField,
 } from "@dashframe/ui";
 import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
-import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
+import {
+  ArrowUpDown,
+  Calendar,
+  CheckIcon,
+  ChevronDown,
+  Copy,
+  Hash,
+  Info,
+  RefreshCw,
+  Trash2,
+  Type,
+} from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import {

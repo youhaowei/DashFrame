@@ -8,7 +8,7 @@ This package provides a comprehensive set of UI components used across the DashF
 
 - **23 shadcn/ui primitives** - Standard UI components built on Radix UI (Button, Card, Dialog, Select, etc.)
 - **11 custom shared components** - DashFrame-specific patterns (ActionGroup, ItemSelector, Panel, Toggle, etc.)
-- **Icon library** - Curated exports from react-icons (Lucide, Feather, Simple Icons)
+- **Icon library** - Curated exports from react-icons (Lucide, Feather, Simple Icons) via `@dashframe/ui/icons`
 - **Utilities** - `cn()` for className merging with tailwind-merge
 - **Design tokens** - Tailwind CSS v4 configuration with consistent spacing, colors, and typography
 
@@ -26,7 +26,7 @@ This package is part of the DashFrame monorepo and uses workspace dependencies:
 
 ## Usage
 
-Import components from the package root:
+Import components from the package root and icons from the dedicated icon entrypoint:
 
 ```typescript
 import {
@@ -41,9 +41,10 @@ import {
   ActionGroup,
   Toggle,
   cn,
-  RefreshCw,
-  CheckIcon,
 } from "@dashframe/ui";
+
+// Icons
+import { RefreshCw, CheckIcon } from "@dashframe/ui/icons";
 ```
 
 ### Examples
@@ -122,17 +123,17 @@ DashFrame-specific reusable patterns:
 - **CollapseHandle** - Visual affordance for collapsible areas
 - **Container**, **Stack**, **EmptyState**, **Card**, **Tooltip**
 
-### Icons (`src/lib/icons.tsx`)
+### Icons (`@dashframe/ui/icons`)
 
-Curated icon exports from react-icons with semantic names:
+Curated icon exports from react-icons with semantic names. Always import icons from `@dashframe/ui/icons` (never from `@dashframe/ui` or `react-icons` directly):
 
-- **Navigation**: ChevronDown, ChevronUp, ArrowUpDown, Menu
-- **Actions**: Plus, Edit3, Delete, Refresh, Close
-- **Data**: Table, Chart, Database, File
-- **UI**: Check, X, Circle, Hash, Calendar, Type
-- **Integrations**: Notion
+- **Navigation**: `ChevronDown`, `ChevronUp`, `ArrowUpDown`, `Menu`
+- **Actions**: `Plus`, `Edit3`, `Delete`, `Refresh`, `Close`
+- **Data**: `TableIcon`, `Chart`, `BarChart3`, `Database`, `File`, `FileSpreadsheet`
+- **UI**: `Check`, `X`, `Circle`, `Hash`, `Calendar`, `Type`
+- **Integrations**: `Notion`, `Github`
 
-All icons export both specific names (e.g., `RefreshCw`) and generic aliases (e.g., `Refresh`).
+Icons provide both specific names (e.g., `RefreshCw`) and generic aliases (e.g., `Refresh`).
 
 ## Development
 

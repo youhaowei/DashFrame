@@ -12,22 +12,22 @@ import {
   CardContent,
   Input,
   Badge,
-  Database,
-  TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
 import {
-  LuSearch,
-  LuExternalLink,
-  LuCloud,
-  LuFileSpreadsheet,
-} from "react-icons/lu";
+  Database,
+  TableIcon,
+  Plus,
+  Trash2,
+  MoreHorizontal,
+  Cloud,
+  ExternalLink,
+  Spreadsheet,
+  Search,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for data source with table count
@@ -79,9 +79,9 @@ export default function DataSourcesPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "notion":
-        return <LuCloud className="h-5 w-5" />;
+        return <Cloud className="h-5 w-5" />;
       case "local":
-        return <LuFileSpreadsheet className="h-5 w-5" />;
+        return <Spreadsheet className="h-5 w-5" />;
       case "postgresql":
         return <Database className="h-5 w-5" />;
       default:
@@ -165,7 +165,7 @@ export default function DataSourcesPage() {
                   router.push(`/data-sources/${item.dataSource.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -214,7 +214,7 @@ export default function DataSourcesPage() {
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}

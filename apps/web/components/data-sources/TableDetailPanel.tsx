@@ -6,18 +6,13 @@ import type { DataFrameEntry } from "@/lib/stores/dataframes-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   Button,
-  Plus,
-  Edit3,
-  X,
-  Sparkles,
-  Layers,
   Panel,
   Toggle,
   EmptyState,
   VirtualTable,
-  Trash2,
   ActionGroup,
 } from "@dashframe/ui";
+import { Edit3, Layers, Plus, Sparkles, Trash2, X } from "@dashframe/ui/icons";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;

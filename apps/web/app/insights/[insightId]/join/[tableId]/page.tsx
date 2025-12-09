@@ -18,11 +18,10 @@ import {
   VirtualTable,
   type VirtualTableColumnConfig,
   type VirtualTableColumn,
-  ArrowLeft,
-  Merge,
-  Loader2,
+} from "@dashframe/ui";
   AlertCircle,
 } from "@dashframe/ui";
+import { ArrowLeft, Loader2, Merge } from "@dashframe/ui/icons";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";

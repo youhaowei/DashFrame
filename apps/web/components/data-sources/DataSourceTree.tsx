@@ -4,7 +4,8 @@ import { useMemo } from "react";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { isLocalDataSource } from "@/lib/stores/types";
-import { File, Trash2, Button, Panel, EmptyState, cn } from "@dashframe/ui";
+import { Button, Panel, EmptyState, cn } from "@dashframe/ui";
+import { File, Trash2 } from "@dashframe/ui/icons";
 
 interface DataSourceTreeProps {
   dataSourceId: string;

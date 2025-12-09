@@ -14,18 +14,22 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  LineChart,
-  TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuCircleDot } from "react-icons/lu";
+import {
+  BarChart3,
+  DataPoint,
+  ExternalLink,
+  LineChart,
+  MoreHorizontal,
+  Plus,
+  Search,
+  TableIcon,
+  Trash2,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for visualization with joined details
@@ -117,7 +121,7 @@ export default function VisualizationsPage() {
       case "area":
         return <LineChart className="h-5 w-5" />;
       case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -219,7 +223,7 @@ export default function VisualizationsPage() {
                   router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -260,7 +264,7 @@ export default function VisualizationsPage() {
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}

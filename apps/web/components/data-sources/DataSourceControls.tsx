@@ -2,12 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  Trash2,
-  Database,
-  Plus,
-  RefreshCw,
-  Loader2,
-  ChevronDown,
   Button,
   Surface,
   Collapsible,
@@ -17,6 +11,14 @@ import {
   Panel,
   InputField,
 } from "@dashframe/ui";
+import {
+  ChevronDown,
+  Database,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";

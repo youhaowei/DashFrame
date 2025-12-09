@@ -9,16 +9,15 @@ import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Button,
-  ArrowUpDown,
   Input,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
   Label,
 } from "@dashframe/ui";
+import { ArrowUpDown } from "@dashframe/ui/icons";
 
 export default function DataFramesPage() {
   // Inline state access so Zustand can track dependencies properly

@@ -13,10 +13,8 @@ import {
   DialogTitle,
   DialogFooter,
   Label,
-  Plus,
-  LayoutDashboard,
-  Trash2,
 } from "@dashframe/ui";
+import { LayoutDashboard, Plus, Trash2 } from "@dashframe/ui/icons";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 
 import { useShallow } from "zustand/react/shallow";

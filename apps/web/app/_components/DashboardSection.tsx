@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Button, ItemList, type ListItem, type LucideIcon } from "@dashframe/ui";
-import { LuArrowRight } from "react-icons/lu";
+import { Button, ItemList, type ListItem } from "@dashframe/ui";
+import { ArrowRight, type LucideIcon } from "@dashframe/ui/icons";
 
 export interface DashboardSectionProps {
   /** Section title displayed in header */
@@ -53,7 +53,7 @@ export function DashboardSection({
           onClick={() => router.push(viewAllHref)}
         >
           View all
-          <LuArrowRight className="ml-2 h-4 w-4" />
+          <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </div>
       <ItemList

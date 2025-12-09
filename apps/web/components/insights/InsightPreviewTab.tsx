@@ -10,12 +10,15 @@ import {
   CardContent,
   CardHeader,
   Badge,
+} from "@dashframe/ui";
+import {
   Plus,
   LineChart,
   TableIcon,
   BarChart3,
-} from "@dashframe/ui";
-import { LuExternalLink, LuCircleDot } from "react-icons/lu";
+  ExternalLink,
+  DataPoint,
+} from "@dashframe/ui/icons";
 
 // Format cell value for display
 function formatCellValue(value: unknown): string {
@@ -71,8 +74,8 @@ export function InsightPreviewTab({
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
-      case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        case "scatter":
+          return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -244,7 +247,7 @@ export function InsightPreviewTab({
                           handleOpenVisualization(viz.id);
                         }}
                       >
-                        <LuExternalLink className="mr-1 h-4 w-4" />
+                            <ExternalLink className="mr-1 h-4 w-4" />
                         Open
                       </Button>
                     </div>

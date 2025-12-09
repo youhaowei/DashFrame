@@ -4,21 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  type LucideIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  Github,
-  LayoutDashboard,
-  LayoutGrid,
-  LineChart,
-  Sparkles,
-  Menu,
-  X,
-  Settings,
-  Trash2,
   Button,
   Dialog,
   DialogContent,
@@ -32,6 +17,23 @@ import {
   DropdownMenuItem,
   cn,
 } from "@dashframe/ui";
+import {
+  type LucideIcon,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Database,
+  Github,
+  LayoutDashboard,
+  LayoutGrid,
+  LineChart,
+  Menu,
+  Settings,
+  Sparkles,
+  Trash2,
+  X,
+} from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {

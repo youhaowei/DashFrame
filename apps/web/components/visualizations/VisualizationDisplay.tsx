@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
-import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
+import { Surface, Toggle } from "@dashframe/ui";
+import { BarChart3, TableIcon, Layers } from "@dashframe/ui/icons";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";

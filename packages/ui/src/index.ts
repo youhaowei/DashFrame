@@ -1,10 +1,6 @@
 // Utilities
 export { cn } from "./lib/utils";
 
-// Icons
-export * from "./lib/icons";
-export type { LucideIcon } from "./lib/icons";
-
 // UI Primitives (shadcn/ui components)
 export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";

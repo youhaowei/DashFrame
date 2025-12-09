@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, Sparkles, Database, ItemList } from "@dashframe/ui";
+import { ItemList } from "@dashframe/ui";
+import { BarChart3, Sparkles, Database } from "@dashframe/ui/icons";
 
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";

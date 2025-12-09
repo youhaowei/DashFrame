@@ -10,10 +10,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Database,
-  TableIcon,
-  Plus,
-  Trash2,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,10 +20,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeft as LuArrowLeft,
-  File as LuFileSpreadsheet,
-  Cloud as LuCloud,
-  MoreHorizontal as LuMoreHorizontal,
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
@@ -36,6 +28,16 @@ import {
   BreadcrumbSeparator,
   ItemCard,
 } from "@dashframe/ui";
+import {
+  ChevronLeft,
+  Cloud,
+  Database,
+  FileSpreadsheet,
+  MoreHorizontal,
+  Plus,
+  TableIcon,
+  Trash2,
+} from "@dashframe/ui/icons";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -52,9 +54,9 @@ interface PageProps {
 function getSourceTypeIcon(type: string) {
   switch (type) {
     case "notion":
-      return <LuCloud className="h-5 w-5" />;
+      return <Cloud className="h-5 w-5" />;
     case "local":
-      return <LuFileSpreadsheet className="h-5 w-5" />;
+      return <FileSpreadsheet className="h-5 w-5" />;
     case "postgresql":
       return <Database className="h-5 w-5" />;
     default:
@@ -214,7 +216,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     onClick={() => router.push("/data-sources")}
                     className="hover:text-foreground flex cursor-pointer items-center gap-1"
                   >
-                    <LuArrowLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-4 w-4" />
                     Back
                   </BreadcrumbLink>
                 </BreadcrumbItem>
@@ -298,7 +300,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon">
-                      <LuMoreHorizontal className="h-4 w-4" />
+                      <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">

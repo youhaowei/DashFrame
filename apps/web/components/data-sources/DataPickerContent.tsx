@@ -6,9 +6,8 @@ import {
   Alert,
   AlertDescription,
   SectionList,
-  Database,
 } from "@dashframe/ui";
-import { LuArrowLeft } from "react-icons/lu";
+import { ArrowLeft, Database } from "@dashframe/ui/icons";
 import { useDataTables } from "@/hooks/useDataTables";
 import { useCSVUpload } from "@/hooks/useCSVUpload";
 import { useInsights } from "@/hooks/useInsights";
@@ -192,7 +191,7 @@ export function DataPickerContent({
               size="sm"
               onClick={() => setSelectedSourceId(null)}
             >
-              <LuArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
             <SectionList title="Select Table">

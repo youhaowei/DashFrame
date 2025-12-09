@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 
-import { BarChart3 } from "@dashframe/ui";
+import { BarChart3 } from "@dashframe/ui/icons";
 import { DashboardSection } from "./DashboardSection";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";

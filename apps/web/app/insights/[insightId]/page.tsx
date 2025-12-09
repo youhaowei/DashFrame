@@ -3,7 +3,7 @@
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Toggle } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuSettings, LuEye } from "react-icons/lu";
+import { ArrowLeft, Eye, Loader, Settings } from "@dashframe/ui/icons";
 import { InsightConfigureTab } from "@/components/insights/InsightConfigureTab";
 import { InsightPreviewTab } from "@/components/insights/InsightPreviewTab";
 import { useInsightsStore } from "@/lib/stores/insights-store";
@@ -201,7 +201,7 @@ export default function InsightPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Loader className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">Loading insight...</p>
         </div>
       </div>
@@ -254,7 +254,7 @@ export default function InsightPage({ params }: PageProps) {
               size="sm"
               onClick={() => router.push("/insights")}
             >
-              <LuArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
             <div className="min-w-[220px] flex-1">
@@ -271,12 +271,12 @@ export default function InsightPage({ params }: PageProps) {
               options={[
                 {
                   value: "configure",
-                  icon: <LuSettings />,
+                  icon: <Settings />,
                   label: "Configure",
                 },
                 {
                   value: "preview",
-                  icon: <LuEye />,
+                  icon: <Eye />,
                   label: "Preview",
                   badge:
                     visualizations.length > 0

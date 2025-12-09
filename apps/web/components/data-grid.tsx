@@ -52,7 +52,6 @@ export function DataGrid<TData>({
   const columnsWithActions: ColumnDef<TData>[] = React.useMemo(
     () => [
       ...columns,
-      ...(onEdit || onDelete
         ? [
             {
               id: "actions",
@@ -61,6 +60,7 @@ export function DataGrid<TData>({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
+  import { MoreHorizontal } from "@dashframe/ui/icons";
                         <span className="sr-only">Open menu</span>
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>

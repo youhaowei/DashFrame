@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardContent, BarChart3 } from "@dashframe/ui";
+import { Card, CardContent } from "@dashframe/ui";
+import { BarChart3 } from "@dashframe/ui/icons";
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 

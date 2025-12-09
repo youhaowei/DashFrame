@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { SectionList } from "./SectionList";
 import { ItemCard } from "../primitives/item-card";
-import { LuDatabase, LuFileText, LuTable } from "react-icons/lu";
+import { Database, FileText, TableIcon } from "@dashframe/ui/icons";
 
 const meta: Meta<typeof SectionList> = {
   title: "Components/SectionList",
@@ -21,19 +21,19 @@ export const Default: Story = {
     children: (
       <>
         <ItemCard
-          icon={<LuDatabase className="h-4 w-4" />}
+          icon={<Database className="h-4 w-4" />}
           title="Sales Data"
           subtitle="150 rows × 8 columns"
           onClick={() => console.log("sales clicked")}
         />
         <ItemCard
-          icon={<LuFileText className="h-4 w-4" />}
+          icon={<FileText className="h-4 w-4" />}
           title="Customers"
           subtitle="Local • 5 fields"
           onClick={() => console.log("customers clicked")}
         />
         <ItemCard
-          icon={<LuTable className="h-4 w-4" />}
+          icon={<TableIcon className="h-4 w-4" />}
           title="Products"
           subtitle="Notion • 12 properties"
           onClick={() => console.log("products clicked")}
@@ -56,7 +56,7 @@ export const SingleItem: Story = {
     title: "Recent Sources",
     children: (
       <ItemCard
-        icon={<LuDatabase className="h-4 w-4" />}
+        icon={<Database className="h-4 w-4" />}
         title="Sales Q4 2024"
         subtitle="Last modified today"
         onClick={() => console.log("clicked")}
@@ -73,7 +73,7 @@ export const ManyItems: Story = {
         {Array.from({ length: 10 }, (_, i) => (
           <ItemCard
             key={i}
-            icon={<LuDatabase className="h-4 w-4" />}
+            icon={<Database className="h-4 w-4" />}
             title={`Table ${i + 1}`}
             // eslint-disable-next-line sonarjs/pseudo-random
             subtitle={`${Math.floor(Math.random() * 1000)} rows × ${Math.floor(Math.random() * 20)} columns`}
@@ -93,13 +93,13 @@ export const CustomStyling: Story = {
     children: (
       <>
         <ItemCard
-          icon={<LuDatabase className="h-4 w-4" />}
+          icon={<Database className="h-4 w-4" />}
           title="Sales"
           subtitle="150 rows"
           onClick={() => console.log("sales clicked")}
         />
         <ItemCard
-          icon={<LuFileText className="h-4 w-4" />}
+          icon={<FileText className="h-4 w-4" />}
           title="Customers"
           subtitle="200 rows"
           onClick={() => console.log("customers clicked")}

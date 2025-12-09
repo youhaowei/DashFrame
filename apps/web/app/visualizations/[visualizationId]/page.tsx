@@ -11,14 +11,18 @@ import {
   CardContent,
   Toggle,
   Surface,
-  BarChart3,
-  LineChart,
-  TableIcon,
-  Layers,
-  Trash2,
   SelectField,
 } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
+import {
+  ArrowLeft,
+  BarChart3,
+  DataPoint,
+  Layers,
+  LineChart,
+  Loader,
+  TableIcon,
+  Trash2,
+} from "@dashframe/ui/icons";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
@@ -208,7 +212,7 @@ function getVizIcon(type: string) {
     case "area":
       return <LineChart className="h-5 w-5" />;
     case "scatter":
-      return <LuCircleDot className="h-5 w-5" />;
+      return <DataPoint className="h-5 w-5" />;
     case "table":
     default:
       return <TableIcon className="h-5 w-5" />;
@@ -571,7 +575,7 @@ export default function VisualizationPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Loader className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">
             Loading visualization...
           </p>
@@ -605,7 +609,7 @@ export default function VisualizationPage({ params }: PageProps) {
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
               <Button variant="ghost" size="sm" onClick={() => router.back()}>
-                <LuArrowLeft className="mr-2 h-4 w-4" />
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
@@ -660,7 +664,7 @@ export default function VisualizationPage({ params }: PageProps) {
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.back()}>
-              <LuArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
             <div className="min-w-[220px] flex-1">

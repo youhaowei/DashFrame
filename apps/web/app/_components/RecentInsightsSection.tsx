@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "@dashframe/ui";
+import { Sparkles } from "@dashframe/ui/icons";
 
 import { DashboardSection } from "./DashboardSection";
 import { useInsightsStore } from "@/lib/stores/insights-store";

@@ -1,4 +1,5 @@
-import { ItemCard, Database } from "@dashframe/ui";
+import { ItemCard } from "@dashframe/ui";
+import { Database } from "@dashframe/ui/icons";
 import type { DataTableInfo } from "@/hooks/useDataTables";
 
 export interface DataTableListProps {

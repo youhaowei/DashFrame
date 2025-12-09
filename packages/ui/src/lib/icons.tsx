@@ -17,9 +17,14 @@ import {
   LuCircle,
   LuCircleAlert,
   LuCircleCheck,
+  LuCircleDot,
   LuCopy,
   LuDatabase,
   LuDot,
+  LuExternalLink,
+  LuFileSpreadsheet,
+  LuEye,
+  LuGripHorizontal,
   LuInfo,
   LuLightbulb,
   LuMerge,
@@ -50,11 +55,13 @@ import {
   LuUsers,
   LuX,
   LuCloud,
+  LuCalculator,
+  LuSearch,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
 import { SiGithub, SiNotion } from "react-icons/si";
 
-// Type export - maps to IconType for compatibility
+// Type export - maps to IconType for compatibility (import from "@dashframe/ui/icons")
 export type LucideIcon = IconType;
 
 // Navigation & Layout
@@ -81,6 +88,9 @@ export { LuMenu as Menu };
 export { LuSettings as Settings };
 export { LuShield as Shield };
 export { LuUsers as Users };
+export { LuExternalLink as ExternalLink };
+export { LuGripHorizontal as DragHandle };
+export { LuEye as Eye };
 
 // Theme & Appearance
 export { LuMoon as Moon };
@@ -97,6 +107,8 @@ export { LuLayoutGrid as Grid };
 export { LuLayoutGrid as LayoutGrid };
 export { LuList as List };
 export { LuLayers as Layers };
+export { LuCircleDot as DataPoint };
+export { LuCircleDot as CircleDot };
 
 // Data Sources & Files
 export { LuDatabase as Database };
@@ -104,6 +116,10 @@ export { FiFileText as File };
 export { FiFileText as FileText };
 export { SiNotion as Notion };
 export { LuCloud as Cloud };
+export { LuFileSpreadsheet as Spreadsheet };
+export { LuFileSpreadsheet as FileSpreadsheet };
+export { LuCalculator as Calculator };
+export { LuSearch as Search };
 
 // Brands
 export { SiGithub as Github };
@@ -125,6 +141,9 @@ export { LuPencil as Edit3 };
 export { LuTrash2 as Delete };
 export { LuTrash2 };
 export { LuTrash2 as Trash2 };
+export { LuExternalLink as LinkOut };
+export { LuExternalLink as LinkExternal };
+export { LuGripHorizontal as Grip };
 
 // Data Type Icons
 export { LuType as Type };
@@ -142,6 +161,7 @@ export { LuLifeBuoy as LifeBuoy };
 export { LuLoader as Spinner };
 export { LuLoader as Loader2 };
 export { LuLoader as Loader };
+export { LuCircleDot as Pending };
 
 // Feedback & Status
 export { LuCircleAlert as AlertCircle };

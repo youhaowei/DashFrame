@@ -42,18 +42,21 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  Plus,
-  Trash2,
-  Settings,
-  FileText,
-  MoreHorizontal,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink } from "react-icons/lu";
+import {
+  BarChart3,
+  ExternalLink,
+  FileText,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Settings,
+  Trash2,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
@@ -265,7 +268,7 @@ export default function InsightsPage() {
                   router.push(`/insights/${item.insight.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -306,7 +309,7 @@ export default function InsightsPage() {
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
