@@ -24,8 +24,11 @@ packages/ui/
 **Importing components**: All components are exported from the package root:
 
 ```typescript
-import { Button, Card, Panel, Toggle, cn, RefreshCw } from "@dashframe/ui";
+import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
+import { RefreshCw } from "@dashframe/ui/icons";
 ```
+
+**Icon imports**: Always import icons from `@dashframe/ui/icons` (never from the package root). A lint rule (`no-restricted-imports`) in `apps/web` enforces this.
 
 **Storybook**: Run `pnpm storybook` to browse components interactively at http://localhost:6006
 
