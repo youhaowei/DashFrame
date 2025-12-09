@@ -50,6 +50,42 @@ export function TableDetailPanel({
     { limit: 50, skip: activeTab !== "preview" },
   );
 
+  const previewStatus = isLoadingPreview
+    ? "Loading preview..."
+    : previewData
+      ? `Showing first ${Math.min(50, dataFrameEntry?.rowCount ?? previewData.rows.length)} rows`
+      : "No data available";
+
+  const renderPreviewContent = () => {
+    if (isLoadingPreview) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <p className="text-muted-foreground text-sm">Loading data...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (previewData) {
+      return (
+        <VirtualTable
+          rows={previewData.rows}
+          columns={previewData.columns}
+          height="100%"
+          className="flex-1"
+        />
+      );
+    }
+
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">No data preview available</p>
+      </div>
+    );
+  };
+
   // Empty state when no table selected
   if (!dataTable) {
     return (
@@ -240,38 +276,10 @@ export function TableDetailPanel({
       {/* Preview Content */}
       {activeTab === "preview" && (
         <div className="flex h-full flex-col gap-4 p-4">
-          <p className="text-muted-foreground text-sm">
-            {isLoadingPreview
-              ? "Loading preview..."
-              : previewData
-                ? `Showing first ${Math.min(50, dataFrameEntry?.rowCount ?? previewData.rows.length)} rows`
-                : "No data available"}
-          </p>
+          <p className="text-muted-foreground text-sm">{previewStatus}</p>
 
           <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
-            {isLoadingPreview ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  <p className="text-muted-foreground text-sm">
-                    Loading data...
-                  </p>
-                </div>
-              </div>
-            ) : previewData ? (
-              <VirtualTable
-                rows={previewData.rows}
-                columns={previewData.columns}
-                height="100%"
-                className="flex-1"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground text-sm">
-                  No data preview available
-                </p>
-              </div>
-            )}
+            {renderPreviewContent()}
           </div>
         </div>
       )}

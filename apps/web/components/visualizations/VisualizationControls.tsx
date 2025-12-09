@@ -583,7 +583,7 @@ export function VisualizationControls() {
   const update = useVisualizationsStore((state) => state.update);
   const remove = useVisualizationsStore((state) => state.remove);
   const getDataFrameEntry = useDataFramesStore((state) => state.getEntry);
-  const addDataFrame = useDataFramesStore((state) => state.addDataFrame);
+  const _addDataFrame = useDataFramesStore((state) => state.addDataFrame);
   const getInsight = useInsightsStore((state) => state.getInsight);
 
   const queryNotionDatabase = trpc.notion.queryDatabase.useMutation();

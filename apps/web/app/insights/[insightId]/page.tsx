@@ -102,7 +102,7 @@ export default function InsightPage({ params }: PageProps) {
   }, [insight]);
 
   // Get DataFrame entry for metadata
-  const getEntry = useDataFramesStore((s) => s.getEntry);
+  const _getEntry = useDataFramesStore((s) => s.getEntry);
 
   // Load source data for preview computation (async from IndexedDB)
   // Use Infinity to load all rows - insight aggregations need complete data for accurate results

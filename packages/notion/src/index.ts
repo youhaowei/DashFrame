@@ -176,3 +176,9 @@ export async function notionToDataFrameSample(
   // Convert to DataFrame
   return convertNotionToDataFrame(response, activeFields);
 }
+
+// ============================================================================
+// Connector Pattern
+// ============================================================================
+
+export { NotionConnector, notionConnector } from "./connector";

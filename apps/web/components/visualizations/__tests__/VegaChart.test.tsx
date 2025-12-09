@@ -50,7 +50,7 @@ describe("VegaChart", () => {
 
 describe("VegaChart infinite growth detection", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
-  let resizeObserverInstance: any;
+  let resizeObserverInstance: ResizeObserver | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,6 +61,7 @@ describe("VegaChart infinite growth detection", () => {
     global.ResizeObserver = class extends OriginalResizeObserver {
       constructor(callback: ResizeObserverCallback) {
         super(callback);
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         resizeObserverInstance = this;
       }
     } as typeof ResizeObserver;

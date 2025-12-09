@@ -386,28 +386,38 @@ export default function DataSourcePage({ params }: PageProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="max-h-96 overflow-auto">
-                    {isLoadingPreview ? (
-                      <div className="flex h-40 items-center justify-center">
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    {(() => {
+                      if (isLoadingPreview) {
+                        return (
+                          <div className="flex h-40 items-center justify-center">
+                            <div className="flex flex-col items-center gap-2">
+                              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                              <p className="text-muted-foreground text-sm">
+                                Loading data...
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (previewData) {
+                        return (
+                          <VirtualTable
+                            rows={previewData.rows}
+                            columns={previewData.columns}
+                            height={300}
+                          />
+                        );
+                      }
+
+                      return (
+                        <div className="flex h-40 items-center justify-center">
                           <p className="text-muted-foreground text-sm">
-                            Loading data...
+                            No data available
                           </p>
                         </div>
-                      </div>
-                    ) : previewData ? (
-                      <VirtualTable
-                        rows={previewData.rows}
-                        columns={previewData.columns}
-                        height={300}
-                      />
-                    ) : (
-                      <div className="flex h-40 items-center justify-center">
-                        <p className="text-muted-foreground text-sm">
-                          No data available
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>

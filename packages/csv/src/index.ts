@@ -185,3 +185,9 @@ export async function csvToDataFrame(
     columnCount: userColumns.length,
   };
 }
+
+// ============================================================================
+// Connector Pattern
+// ============================================================================
+
+export { CSVConnector, csvConnector } from "./connector";

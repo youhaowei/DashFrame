@@ -304,3 +304,24 @@ export {
 // - Row operations
 // - Aggregation functions
 export * from "./analyze";
+
+// ============================================================================
+// Connector Pattern
+// ============================================================================
+
+export {
+  BaseConnector,
+  FileSourceConnector,
+  RemoteApiConnector,
+} from "./connector";
+
+export type {
+  SourceType,
+  FormField,
+  ValidationResult,
+  FileParseResult,
+  RemoteDatabase,
+  QueryOptions,
+  QueryResult,
+  AnyConnector,
+} from "./connector";

@@ -24,12 +24,12 @@ pnpm format     # Prettier check
 pnpm format:write  # Prettier write
 ```
 
+Use `check` for comprehensive validation.
+
 ### Targeting Specific Packages
 
 ```bash
-pnpm --filter @dashframe/web dev      # Run only web app
-pnpm --filter @dashframe/notion build # Build only notion package
-turbo build --force                     # Force rebuild ignoring cache
+pnpm --filter @dashframe/web check
 ```
 
 ## Core Architecture

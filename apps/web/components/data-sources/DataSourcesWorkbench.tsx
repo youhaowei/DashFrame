@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useSyncExternalStore } from "react";
+import { useState, useMemo, useSyncExternalStore, useCallback } from "react";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { DataSourceSelector } from "./DataSourceSelector";
 import { DataSourceTree } from "./DataSourceTree";
@@ -10,7 +11,6 @@ import { TableDetailPanel } from "./TableDetailPanel";
 import { FieldEditorModal } from "./FieldEditorModal";
 import { MetricEditorModal } from "./MetricEditorModal";
 import { AddConnectionPanel } from "./AddConnectionPanel";
-import { useCSVUpload } from "@/hooks/useCSVUpload";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,13 @@ import {
   Button,
 } from "@dashframe/ui";
 import { toast } from "sonner";
-import type { Field, Metric } from "@dashframe/dataframe";
+import type {
+  Field,
+  Metric,
+  FileSourceConnector,
+  RemoteApiConnector,
+  RemoteDatabase,
+} from "@dashframe/dataframe";
 
 // Hydration detection using useSyncExternalStore (no setState in effect)
 const emptySubscribe = () => () => {};
@@ -36,7 +42,7 @@ export function DataSourcesWorkbench() {
     getServerSnapshot,
   );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Store hooks
   const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
@@ -191,6 +197,43 @@ export function DataSourcesWorkbench() {
     toast.success("Metric deleted successfully");
   };
 
+  // Handle file selection from connectors (CSV, Excel, etc.)
+  const handleFileSelect = useCallback(
+    async (connector: FileSourceConnector, file: File) => {
+      setUploadError(null);
+      try {
+        const tableId = crypto.randomUUID();
+        const result = await connector.parse(file, tableId);
+
+        const { dataTableId, dataSourceId } = await handleFileConnectorResult(
+          file.name,
+          result,
+        );
+
+        setIsCreateDialogOpen(false);
+        setUserSelectedDataSourceId(dataSourceId);
+        setUserSelectedTableId(dataTableId);
+        toast.success(`Uploaded ${file.name}`);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Failed to process file",
+        );
+      }
+    },
+    [],
+  );
+
+  // Handle remote connector connection (Notion, Airtable, etc.)
+  const handleRemoteConnect = useCallback(
+    (connector: RemoteApiConnector, databases: RemoteDatabase[]) => {
+      // For now, just log - full implementation requires database selection UI
+      console.log(`Connected to ${connector.name}:`, databases);
+      toast.info(`Found ${databases.length} databases in ${connector.name}`);
+      // TODO: Show database selection UI, then proceed with data import
+    },
+    [],
+  );
+
   const handleCreateVisualization = () => {
     if (!selectedDataSourceId || !selectedTableId) return;
     // Note: Implement create insight flow
@@ -251,7 +294,7 @@ export function DataSourcesWorkbench() {
         open={isCreateDialogOpen}
         onOpenChange={(open) => {
           setIsCreateDialogOpen(open);
-          if (!open) clearError();
+          if (!open) setUploadError(null);
         }}
       >
         <DialogContent className="max-w-2xl overflow-hidden">
@@ -259,17 +302,9 @@ export function DataSourcesWorkbench() {
             <DialogTitle>Add data source</DialogTitle>
           </DialogHeader>
           <AddConnectionPanel
-            error={csvError}
-            onCsvSelect={(file) => {
-              handleCSVUpload(file, (tableId, sourceId) => {
-                setIsCreateDialogOpen(false);
-                setUserSelectedDataSourceId(sourceId);
-                setUserSelectedTableId(tableId);
-                toast.success(`Uploaded ${file.name}`);
-              });
-            }}
-            csvDescription="Upload a CSV file with headers in the first row."
-            csvHelperText="Supports .csv files up to 5MB"
+            error={uploadError}
+            onFileSelect={handleFileSelect}
+            onConnect={handleRemoteConnect}
           />
         </DialogContent>
       </Dialog>

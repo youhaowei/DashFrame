@@ -68,7 +68,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     (s) => s.getAll(),
   );
 
-  const { data: dataFrameEntryGetter, isLoading: isDataFramesLoading } =
+  const { data: _dataFrameEntryGetter, isLoading: isDataFramesLoading } =
     useStoreQuery(useDataFramesStore, (s) => s.getEntry);
 
   const isLoading = isInsightLoading || isSourcesLoading || isDataFramesLoading;
@@ -79,6 +79,17 @@ export default function JoinConfigurePage({ params }: PageProps) {
   const [joinType, setJoinType] = useState<
     "inner" | "left" | "right" | "outer"
   >("inner");
+  const intersectionFill = useMemo(() => {
+    if (joinType === "inner") {
+      return "rgba(251, 191, 36, 0.5)";
+    }
+
+    if (joinType === "left" || joinType === "right") {
+      return "rgba(251, 191, 36, 0.3)";
+    }
+
+    return "rgba(251, 191, 36, 0.2)";
+  }, [joinType]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewResult, setPreviewResult] = useState<JoinPreviewData | null>(
@@ -998,13 +1009,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                       cy="60"
                       r="45"
                       clipPath="url(#leftClip)"
-                      fill={
-                        joinType === "inner"
-                          ? "rgba(251, 191, 36, 0.5)"
-                          : joinType === "left" || joinType === "right"
-                            ? "rgba(251, 191, 36, 0.3)"
-                            : "rgba(251, 191, 36, 0.2)"
-                      }
+                      fill={intersectionFill}
                       stroke="rgb(251, 191, 36)"
                       strokeWidth={joinType === "inner" ? "2" : "1"}
                     />

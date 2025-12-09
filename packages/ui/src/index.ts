@@ -67,7 +67,12 @@ export {
   BreadcrumbSeparator,
   BreadcrumbEllipsis,
 } from "./primitives/breadcrumb";
-export { Field, FieldLabel, FieldDescription } from "./primitives/field";
+export {
+  Field,
+  FieldLabel,
+  FieldDescription,
+  FieldError,
+} from "./primitives/field";
 export { Input } from "./primitives/input";
 export { Label } from "./primitives/label";
 export { MultiSelect } from "./primitives/multi-select";

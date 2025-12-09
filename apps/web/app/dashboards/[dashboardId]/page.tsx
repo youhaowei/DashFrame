@@ -14,15 +14,8 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
-  ArrowLeft,
-  Plus,
-  Edit3,
-  Check,
-  LayoutDashboard,
-  FileText,
-  BarChart3,
-  Toggle,
 } from "@dashframe/ui";
+import { ArrowLeft, BarChart3, Check, Edit3, FileText, Plus } from "@dashframe/ui/icons";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useShallow } from "zustand/react/shallow";

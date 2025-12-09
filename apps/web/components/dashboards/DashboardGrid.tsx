@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useCallback } from "react";
-import { Responsive, WidthProvider } from "react-grid-layout";
+import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import type { Dashboard } from "@/lib/types/dashboard";
 import { DashboardItem } from "./DashboardItem";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
@@ -19,7 +19,7 @@ const LAYOUT_DEBOUNCE_MS = 150;
 export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
   const updateItem = useDashboardsStore((state) => state.updateItem);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingLayoutRef = useRef<any[] | null>(null);
+  const pendingLayoutRef = useRef<Layout[] | null>(null);
 
   const layouts = useMemo(() => {
     // Base layout from stored positions (designed for lg: 12 cols)
@@ -105,7 +105,7 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
    * Stores pending changes and schedules a flush after delay.
    */
   const handleLayoutChange = useCallback(
-    (currentLayout: any[]) => {
+    (currentLayout: Layout[]) => {
       if (!isEditable) return;
 
       // Store the latest layout for deferred processing

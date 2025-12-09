@@ -5,6 +5,8 @@ import type { TopLevelSpec } from "vega-lite";
 
 import { cn } from "@/lib/utils";
 
+type VegaView = import("vega-embed").EmbedResult["view"];
+
 type VegaChartProps = {
   spec: TopLevelSpec;
   className?: string;
@@ -12,7 +14,7 @@ type VegaChartProps = {
 
 export function VegaChart({ spec, className }: VegaChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<any>(null);
+  const viewRef = useRef<VegaView | null>(null);
 
   useEffect(() => {
     if (!spec || !containerRef.current) return;
