@@ -435,11 +435,11 @@ export function InsightConfigureTab({
         const columns =
           sampleRows.length > 0
             ? Object.keys(sampleRows[0])
-              .filter((key) => !key.startsWith("_"))
-              .map((name) => ({
-                name,
-                _isJoined: allJoinColNames.has(name),
-              }))
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  _isJoined: allJoinColNames.has(name),
+                }))
             : [];
 
         // Store SQL for async pagination + sample rows for suggestions
@@ -908,14 +908,14 @@ export function InsightConfigureTab({
       name: string;
       type: "string" | "number" | "boolean" | "date" | "unknown";
     }> = [
-        ...selectedColumns.map((col) => ({
-          name: col.name,
-          type: col.type as "string" | "number" | "boolean" | "date" | "unknown",
-        })),
-        ...insightMetrics
-          .filter((m) => !m.name.startsWith("_"))
-          .map((m) => ({ name: m.name, type: "number" as const })),
-      ];
+      ...selectedColumns.map((col) => ({
+        name: col.name,
+        type: col.type as "string" | "number" | "boolean" | "date" | "unknown",
+      })),
+      ...insightMetrics
+        .filter((m) => !m.name.startsWith("_"))
+        .map((m) => ({ name: m.name, type: "number" as const })),
+    ];
 
     return {
       dataFrame: {
@@ -989,13 +989,13 @@ export function InsightConfigureTab({
       // Build preview data from joined data when available, otherwise use raw preview
       const previewData = hasJoins
         ? {
-          fieldIds: joinedPreviewData.columns.map((c) => c.name),
-          columns: joinedPreviewData.columns.map((c) => ({
-            name: c.name,
-            type: (c.type ?? "unknown") as ColumnType,
-          })),
-          rows: joinedPreviewData.sampleRows,
-        }
+            fieldIds: joinedPreviewData.columns.map((c) => c.name),
+            columns: joinedPreviewData.columns.map((c) => ({
+              name: c.name,
+              type: (c.type ?? "unknown") as ColumnType,
+            })),
+            rows: joinedPreviewData.sampleRows,
+          }
         : rawPreview!.dataFrame;
 
       // Create a minimal insight object for suggestions
@@ -1404,7 +1404,7 @@ export function InsightConfigureTab({
             </div>
             <ItemList
               items={dataSourceItems}
-              onSelect={() => { }}
+              onSelect={() => {}}
               orientation="horizontal"
               gap={12}
               itemWidth={260}
@@ -1670,7 +1670,7 @@ export function InsightConfigureTab({
           </div>
           <ItemList
             items={dataSourceItems}
-            onSelect={() => { }}
+            onSelect={() => {}}
             orientation="horizontal"
             gap={12}
             itemWidth={260}

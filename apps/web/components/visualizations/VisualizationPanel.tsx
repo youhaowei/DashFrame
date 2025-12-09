@@ -126,10 +126,10 @@ export function VisualizationPanel() {
               {entry?.name ?? "Unknown"} • Updated{" "}
               {entry?.createdAt
                 ? new Intl.DateTimeFormat("en-US", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                  timeZone: "UTC",
-                }).format(entry.createdAt)
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                    timeZone: "UTC",
+                  }).format(entry.createdAt)
                 : "Unknown"}
             </p>
           </div>

@@ -157,10 +157,11 @@ export default function DashboardDetailPage({
               <Label>Widget Type</Label>
               <div className="grid grid-cols-2 gap-4">
                 <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${addType === "visualization"
+                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
+                    addType === "visualization"
                       ? "border-primary bg-primary/5 ring-primary ring-1"
                       : "hover:border-primary/50"
-                    }`}
+                  }`}
                   onClick={() => setAddType("visualization")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
@@ -172,10 +173,11 @@ export default function DashboardDetailPage({
                   </p>
                 </div>
                 <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${addType === "markdown"
+                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
+                    addType === "markdown"
                       ? "border-primary bg-primary/5 ring-primary ring-1"
                       : "hover:border-primary/50"
-                    }`}
+                  }`}
                   onClick={() => setAddType("markdown")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">

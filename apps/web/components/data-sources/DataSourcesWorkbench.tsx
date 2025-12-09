@@ -30,7 +30,7 @@ import type {
 } from "@dashframe/dataframe";
 
 // Hydration detection using useSyncExternalStore (no setState in effect)
-const emptySubscribe = () => () => { };
+const emptySubscribe = () => () => {};
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 

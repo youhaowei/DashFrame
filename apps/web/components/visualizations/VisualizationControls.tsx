@@ -316,18 +316,18 @@ function getRankedColumnOptions(
  */
 interface ProvenanceSummaryProps {
   insight:
-  | {
-    id: string;
-    name: string;
-    lastComputedAt?: number;
-    filters?: {
-      excludeNulls?: boolean;
-      limit?: number;
-      orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" };
-    };
-  }
-  | null
-  | undefined;
+    | {
+        id: string;
+        name: string;
+        lastComputedAt?: number;
+        filters?: {
+          excludeNulls?: boolean;
+          limit?: number;
+          orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" };
+        };
+      }
+    | null
+    | undefined;
   dataFrameEntry: DataFrameEntry | null;
   source: { name: string } | null;
   dataTable: { name: string } | null;
@@ -685,12 +685,12 @@ export function VisualizationControls() {
   // Only allow table visualization if there are no numeric columns
   const visualizationTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
     : [{ label: "Table", value: "table" }];
 
   const columnOptions = columns.map((col: string) => ({
