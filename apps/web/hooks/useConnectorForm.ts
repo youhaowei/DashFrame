@@ -50,8 +50,8 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Get form fields from connector
-  const formFields = useMemo(() => connector.getFormFields(), [connector]);
+  // Get form fields from connector (use id as dependency for stable reference)
+  const formFields = useMemo(() => connector.getFormFields(), [connector.id]);
 
   // Build default values from form field definitions
   const defaultValues = useMemo(() => {
