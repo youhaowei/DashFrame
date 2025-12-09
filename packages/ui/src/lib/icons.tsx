@@ -3,6 +3,7 @@ import {
   LuArrowLeft,
   LuArrowRight,
   LuArrowUpDown,
+  LuCalculator,
   LuCalendar,
   LuCheck,
   LuChevronDown,
@@ -17,9 +18,13 @@ import {
   LuCircle,
   LuCircleAlert,
   LuCircleCheck,
+  LuCircleDot,
   LuCopy,
   LuDatabase,
   LuDot,
+  LuExternalLink,
+  LuEye,
+  LuGripHorizontal,
   LuInfo,
   LuLightbulb,
   LuMerge,
@@ -146,6 +151,13 @@ export { LuLoader as Loader };
 // Feedback & Status
 export { LuCircleAlert as AlertCircle };
 export { LuCircleCheck as CheckCircle };
+export { LuCircleDot as CircleDot };
 export { LuInfo as Info };
 export { LuTerminal as Terminal };
 export { LuLightbulb as Lightbulb };
+
+// Additional UI Icons
+export { LuCalculator as Calculator };
+export { LuExternalLink as ExternalLink };
+export { LuEye as Eye };
+export { LuGripHorizontal as GripHorizontal };

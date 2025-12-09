@@ -18,6 +18,7 @@ import { csvToDataFrame } from "./index";
  * Simple CSV parser that handles common CSV formats.
  * Handles quoted fields, escaped quotes, and various line endings.
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- State machine parser inherently complex; extracting helpers would hurt readability
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
   let currentRow: string[] = [];
@@ -31,9 +32,11 @@ function parseCSV(text: string): string[][] {
     if (inQuotes) {
       if (char === '"') {
         if (nextChar === '"') {
-          // Escaped quote
+          // Escaped quote - add single quote and skip the second quote
           currentField += '"';
-          i++; // Skip next quote
+          // eslint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip second quote, then continue skips rest of iteration
+          i++;
+          continue;
         } else {
           // End of quoted field
           inQuotes = false;
@@ -55,7 +58,8 @@ function parseCSV(text: string): string[][] {
         }
         currentRow = [];
         currentField = "";
-        i++; // Skip \n
+        // eslint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip \n in CRLF line ending
+        i++;
       } else if (char === "\n" || char === "\r") {
         // Unix or old Mac line ending
         currentRow.push(currentField);

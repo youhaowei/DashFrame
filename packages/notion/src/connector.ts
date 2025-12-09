@@ -123,8 +123,7 @@ export class NotionConnector extends RemoteApiConnector {
     const schema = await getDatabaseSchema(apiKey, databaseId);
 
     // Step 2: Generate fields from schema
-    const { fields, sourceSchema: _sourceSchema } =
-      generateFieldsFromNotionSchema(schema, tableId);
+    const { fields } = generateFieldsFromNotionSchema(schema, tableId);
 
     // Step 3: Query the database
     const pageSize = options?.pagination?.limit;
@@ -138,14 +137,19 @@ export class NotionConnector extends RemoteApiConnector {
     // Step 5: Create DataFrame from Arrow buffer
     // NOTE: This requires browser context (IndexedDB)
     // Decode base64 arrow buffer to Uint8Array
-    const arrowBuffer = Uint8Array.from(atob(conversionResult.arrowBuffer), (c) =>
-      c.charCodeAt(0),
+    const arrowBuffer = Uint8Array.from(
+      atob(conversionResult.arrowBuffer),
+      (c) => c.charCodeAt(0),
     );
 
-    const dataFrame = await DataFrame.create(arrowBuffer, conversionResult.fieldIds, {
-      storageType: "indexeddb",
-      primaryKey: "_notionId",
-    });
+    const dataFrame = await DataFrame.create(
+      arrowBuffer,
+      conversionResult.fieldIds,
+      {
+        storageType: "indexeddb",
+        primaryKey: "_notionId",
+      },
+    );
 
     return {
       dataFrame,

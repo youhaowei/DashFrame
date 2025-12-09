@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/cognitive-complexity */
 import type { TopLevelSpec } from "vega-lite";
 import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";

@@ -188,7 +188,7 @@ export function useDataFrameData(
         setIsLoading(false);
       }
     }
-  }, [dataFrameId, connection, isInitialized, getDataFrame, limit, skip, entry]);
+  }, [dataFrameId, connection, isInitialized, getDataFrame, limit, skip]);
 
   // Load data when dataFrameId changes or connection becomes available
   useEffect(() => {

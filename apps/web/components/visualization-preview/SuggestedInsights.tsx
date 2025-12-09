@@ -92,10 +92,7 @@ export function SuggestedInsights({
           >
             {/* Chart Preview */}
             <div className="mb-3 h-[120px] w-full overflow-hidden rounded-lg bg-transparent">
-              <VegaChart
-                spec={suggestion.spec}
-                className="h-[120px] w-full"
-              />
+              <VegaChart spec={suggestion.spec} className="h-[120px] w-full" />
             </div>
 
             {/* Chart Info */}

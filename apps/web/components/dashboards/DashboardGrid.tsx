@@ -62,7 +62,13 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       w: 2,
     }));
 
-    return { lg: lgLayout, md: mdLayout, sm: smLayout, xs: xsLayout, xxs: xxsLayout };
+    return {
+      lg: lgLayout,
+      md: mdLayout,
+      sm: smLayout,
+      xs: xsLayout,
+      xxs: xxsLayout,
+    };
   }, [dashboard.items]);
 
   /**
@@ -115,7 +121,10 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      debounceTimerRef.current = setTimeout(flushLayoutChanges, LAYOUT_DEBOUNCE_MS);
+      debounceTimerRef.current = setTimeout(
+        flushLayoutChanges,
+        LAYOUT_DEBOUNCE_MS,
+      );
     },
     [isEditable, flushLayoutChanges],
   );

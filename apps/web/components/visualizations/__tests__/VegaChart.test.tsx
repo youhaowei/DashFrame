@@ -15,6 +15,12 @@ vi.mock("vega-embed", () => ({
   }),
 }));
 
+// Interface for our mock ResizeObserver with simulateResize method
+interface MockResizeObserver extends ResizeObserver {
+  simulateResize: (target: Element, width: number, height: number) => void;
+  callback: ResizeObserverCallback;
+}
+
 // Sample Vega-Lite spec for testing
 const mockSpec: TopLevelSpec = {
   $schema: "https://vega.github.io/schema/vega-lite/v5.json",
@@ -50,21 +56,36 @@ describe("VegaChart", () => {
 
 describe("VegaChart infinite growth detection", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
-  let resizeObserverInstance: ResizeObserver | undefined;
+  let resizeObserverInstance: MockResizeObserver | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    // Capture ResizeObserver instance
-    const OriginalResizeObserver = global.ResizeObserver;
-    global.ResizeObserver = class extends OriginalResizeObserver {
+    // Create mock ResizeObserver with simulateResize method
+    global.ResizeObserver = class implements ResizeObserver {
+      callback: ResizeObserverCallback;
+
       constructor(callback: ResizeObserverCallback) {
-        super(callback);
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        resizeObserverInstance = this;
+        this.callback = callback;
+        resizeObserverInstance = this as MockResizeObserver;
       }
-    } as typeof ResizeObserver;
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+
+      simulateResize(target: Element, width: number, height: number) {
+        const entry: ResizeObserverEntry = {
+          target,
+          contentRect: { width, height } as DOMRectReadOnly,
+          borderBoxSize: [{ inlineSize: width, blockSize: height }],
+          contentBoxSize: [{ inlineSize: width, blockSize: height }],
+          devicePixelContentBoxSize: [{ inlineSize: width, blockSize: height }],
+        };
+        this.callback([entry], this);
+      }
+    } as unknown as typeof ResizeObserver;
   });
 
   afterEach(() => {
@@ -86,11 +107,11 @@ describe("VegaChart infinite growth detection", () => {
     const growthPerCycle = 60;
 
     // First resize - establishes baseline (300x200)
-    resizeObserverInstance.simulateResize(chartContainer!, 300, 200);
+    resizeObserverInstance!.simulateResize(chartContainer!, 300, 200);
     await vi.advanceTimersByTimeAsync(150); // Wait for throttle
 
     // Second resize - growth detected (360x260)
-    resizeObserverInstance.simulateResize(
+    resizeObserverInstance!.simulateResize(
       chartContainer!,
       300 + growthPerCycle,
       200 + growthPerCycle,
@@ -98,7 +119,7 @@ describe("VegaChart infinite growth detection", () => {
     await vi.advanceTimersByTimeAsync(150);
 
     // Third resize - second growth cycle (420x320)
-    resizeObserverInstance.simulateResize(
+    resizeObserverInstance!.simulateResize(
       chartContainer!,
       300 + growthPerCycle * 2,
       200 + growthPerCycle * 2,
@@ -106,7 +127,7 @@ describe("VegaChart infinite growth detection", () => {
     await vi.advanceTimersByTimeAsync(150);
 
     // Fourth resize - third growth cycle, should trigger error (480x380)
-    resizeObserverInstance.simulateResize(
+    resizeObserverInstance!.simulateResize(
       chartContainer!,
       300 + growthPerCycle * 3,
       200 + growthPerCycle * 3,
@@ -128,23 +149,23 @@ describe("VegaChart infinite growth detection", () => {
     });
 
     // First resize
-    resizeObserverInstance.simulateResize(chartContainer!, 300, 200);
+    resizeObserverInstance!.simulateResize(chartContainer!, 300, 200);
     await vi.advanceTimersByTimeAsync(150);
 
     // Growing resize (triggers growth counter)
-    resizeObserverInstance.simulateResize(chartContainer!, 360, 260);
+    resizeObserverInstance!.simulateResize(chartContainer!, 360, 260);
     await vi.advanceTimersByTimeAsync(150);
 
     // Stabilizing resize (small change, resets counter)
-    resizeObserverInstance.simulateResize(chartContainer!, 365, 265);
+    resizeObserverInstance!.simulateResize(chartContainer!, 365, 265);
     await vi.advanceTimersByTimeAsync(150);
 
     // Another growth cycle (counter was reset, so this is cycle 1 again)
-    resizeObserverInstance.simulateResize(chartContainer!, 425, 325);
+    resizeObserverInstance!.simulateResize(chartContainer!, 425, 325);
     await vi.advanceTimersByTimeAsync(150);
 
     // Stabilizing again
-    resizeObserverInstance.simulateResize(chartContainer!, 430, 330);
+    resizeObserverInstance!.simulateResize(chartContainer!, 430, 330);
     await vi.advanceTimersByTimeAsync(150);
 
     // No infinite growth error should be logged
@@ -162,10 +183,10 @@ describe("VegaChart infinite growth detection", () => {
     });
 
     // Rapid fire multiple resize events
-    resizeObserverInstance.simulateResize(chartContainer!, 300, 200);
-    resizeObserverInstance.simulateResize(chartContainer!, 310, 210);
-    resizeObserverInstance.simulateResize(chartContainer!, 320, 220);
-    resizeObserverInstance.simulateResize(chartContainer!, 330, 230);
+    resizeObserverInstance!.simulateResize(chartContainer!, 300, 200);
+    resizeObserverInstance!.simulateResize(chartContainer!, 310, 210);
+    resizeObserverInstance!.simulateResize(chartContainer!, 320, 220);
+    resizeObserverInstance!.simulateResize(chartContainer!, 330, 230);
 
     // Only the last one should be processed after throttle delay
     await vi.advanceTimersByTimeAsync(150);

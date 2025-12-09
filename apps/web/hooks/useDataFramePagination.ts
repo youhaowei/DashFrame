@@ -37,7 +37,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   // Fetch total count and column info on mount
   useEffect(() => {
     if (!dataFrameId || !connection || !isInitialized) {
-      setIsReady(false);
+      requestAnimationFrame(() => setIsReady(false));
       return;
     }
 
@@ -68,15 +68,19 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
           const cols = Object.keys(rows[0])
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
-          setColumns(cols);
+          requestAnimationFrame(() => setColumns(cols));
         }
 
-        setIsReady(true);
-        setError(null);
+        requestAnimationFrame(() => {
+          setIsReady(true);
+          setError(null);
+        });
       } catch (err) {
         console.error("Failed to initialize DataFrame pagination:", err);
-        setError(err instanceof Error ? err.message : "Failed to initialize");
-        setIsReady(false);
+        requestAnimationFrame(() => {
+          setError(err instanceof Error ? err.message : "Failed to initialize");
+          setIsReady(false);
+        });
       }
     };
 
@@ -118,7 +122,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
     },
-    [dataFrameId, connection, isInitialized, getDataFrame, totalCount, entry],
+    [dataFrameId, connection, isInitialized, getDataFrame, totalCount],
   );
 
   return {

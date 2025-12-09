@@ -59,7 +59,9 @@ export const superjsonStorage = createJSONStorage(() => superjsonLocalStorage, {
       "meta" in value
     ) {
       // This is superjson format - deserialize it
-      return superjson.deserialize(value as Parameters<typeof superjson.deserialize>[0]);
+      return superjson.deserialize(
+        value as Parameters<typeof superjson.deserialize>[0],
+      );
     }
     return value;
   },

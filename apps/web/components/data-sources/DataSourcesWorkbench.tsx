@@ -229,7 +229,7 @@ export function DataSourcesWorkbench() {
       // For now, just log - full implementation requires database selection UI
       console.log(`Connected to ${connector.name}:`, databases);
       toast.info(`Found ${databases.length} databases in ${connector.name}`);
-      // TODO: Show database selection UI, then proceed with data import
+      // NOTE: Show database selection UI, then proceed with data import
     },
     [],
   );

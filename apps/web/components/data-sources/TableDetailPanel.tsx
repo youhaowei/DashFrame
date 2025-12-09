@@ -50,11 +50,16 @@ export function TableDetailPanel({
     { limit: 50, skip: activeTab !== "preview" },
   );
 
-  const previewStatus = isLoadingPreview
-    ? "Loading preview..."
-    : previewData
-      ? `Showing first ${Math.min(50, dataFrameEntry?.rowCount ?? previewData.rows.length)} rows`
-      : "No data available";
+  let previewStatus = "No data available";
+  if (isLoadingPreview) {
+    previewStatus = "Loading preview...";
+  } else if (previewData) {
+    const rowCount = Math.min(
+      50,
+      dataFrameEntry?.rowCount ?? previewData.rows.length,
+    );
+    previewStatus = `Showing first ${rowCount} rows`;
+  }
 
   const renderPreviewContent = () => {
     if (isLoadingPreview) {
@@ -81,7 +86,9 @@ export function TableDetailPanel({
 
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground text-sm">No data preview available</p>
+        <p className="text-muted-foreground text-sm">
+          No data preview available
+        </p>
       </div>
     );
   };

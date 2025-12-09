@@ -20,7 +20,7 @@ export function VisualizationPanel() {
 
   // Set hydration flag after mount - this is a legitimate pattern for SSR hydration
   useLayoutEffect(() => {
-    setIsHydrated(true);
+    requestAnimationFrame(() => setIsHydrated(true));
   }, []);
 
   // Get active visualization

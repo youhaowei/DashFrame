@@ -211,7 +211,9 @@ export abstract class RemoteApiConnector extends BaseConnector {
    * @param formData - Configuration including API keys, etc.
    * @throws Error on connection failure (caught by hook, shown in UI)
    */
-  abstract connect(formData: Record<string, unknown>): Promise<RemoteDatabase[]>;
+  abstract connect(
+    formData: Record<string, unknown>,
+  ): Promise<RemoteDatabase[]>;
 
   /**
    * Query a specific database.

@@ -3,13 +3,12 @@
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Toggle } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuSettings, LuEye } from "react-icons/lu";
+import { ArrowLeft, Loader2, Settings, Eye } from "@dashframe/ui/icons";
 import { InsightConfigureTab } from "@/components/insights/InsightConfigureTab";
 import { InsightPreviewTab } from "@/components/insights/InsightPreviewTab";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
@@ -100,9 +99,6 @@ export default function InsightPage({ params }: PageProps) {
     if (!insight) return false;
     return (insight.baseTable?.selectedFields?.length ?? 0) > 0;
   }, [insight]);
-
-  // Get DataFrame entry for metadata
-  const _getEntry = useDataFramesStore((s) => s.getEntry);
 
   // Load source data for preview computation (async from IndexedDB)
   // Use Infinity to load all rows - insight aggregations need complete data for accurate results
@@ -201,7 +197,7 @@ export default function InsightPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">Loading insight...</p>
         </div>
       </div>
@@ -254,7 +250,7 @@ export default function InsightPage({ params }: PageProps) {
               size="sm"
               onClick={() => router.push("/insights")}
             >
-              <LuArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
             <div className="min-w-[220px] flex-1">
@@ -271,12 +267,12 @@ export default function InsightPage({ params }: PageProps) {
               options={[
                 {
                   value: "configure",
-                  icon: <LuSettings />,
+                  icon: <Settings />,
                   label: "Configure",
                 },
                 {
                   value: "preview",
-                  icon: <LuEye />,
+                  icon: <Eye />,
                   label: "Preview",
                   badge:
                     visualizations.length > 0

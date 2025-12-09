@@ -2,7 +2,11 @@
 
 import { useMemo } from "react";
 import { Alert, AlertDescription } from "@dashframe/ui";
-import type { FileSourceConnector, RemoteApiConnector, RemoteDatabase } from "@dashframe/dataframe";
+import type {
+  FileSourceConnector,
+  RemoteApiConnector,
+  RemoteDatabase,
+} from "@dashframe/dataframe";
 import { getConnectors } from "@/lib/connectors/registry";
 import { ConnectorCardWithForm } from "./renderers";
 
@@ -12,7 +16,10 @@ export interface AddConnectionPanelProps {
   /** Called when a file is selected from a file connector */
   onFileSelect: (connector: FileSourceConnector, file: File) => void;
   /** Called when a remote connector successfully connects */
-  onConnect: (connector: RemoteApiConnector, databases: RemoteDatabase[]) => void;
+  onConnect: (
+    connector: RemoteApiConnector,
+    databases: RemoteDatabase[],
+  ) => void;
   /** Whether to show Notion connector (feature flag) */
   showNotion?: boolean;
 }
@@ -37,10 +44,7 @@ export function AddConnectionPanel({
   showNotion = false,
 }: AddConnectionPanelProps) {
   // Get connectors from registry with feature flags
-  const connectors = useMemo(
-    () => getConnectors({ showNotion }),
-    [showNotion],
-  );
+  const connectors = useMemo(() => getConnectors({ showNotion }), [showNotion]);
 
   return (
     <div className="space-y-6">

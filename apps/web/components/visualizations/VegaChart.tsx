@@ -5,7 +5,7 @@ import type { TopLevelSpec } from "vega-lite";
 
 import { cn } from "@/lib/utils";
 
-type VegaView = import("vega-embed").EmbedResult["view"];
+type VegaView = import("vega-embed").Result["view"];
 
 type VegaChartProps = {
   spec: TopLevelSpec;

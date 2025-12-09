@@ -94,11 +94,7 @@ export function ConnectorCard({
 
         {/* Connect button for remote-api connectors */}
         {connector.sourceType === "remote-api" && (
-          <Button
-            onClick={onConnect}
-            disabled={isLoading}
-            className="w-full"
-          >
+          <Button onClick={onConnect} disabled={isLoading} className="w-full">
             {isLoading ? "Connecting..." : "Connect"}
           </Button>
         )}

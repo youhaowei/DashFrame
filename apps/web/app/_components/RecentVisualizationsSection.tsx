@@ -15,39 +15,39 @@ import { useStoreQuery } from "@/hooks/useStoreQuery";
  * Self-contained section that fetches its own data from the visualizations store.
  */
 export function RecentVisualizationsSection() {
-    const router = useRouter();
+  const router = useRouter();
 
-    const { data: visualizations } = useStoreQuery(
-        useVisualizationsStore,
-        (state) => state.getAll(),
-    );
+  const { data: visualizations } = useStoreQuery(
+    useVisualizationsStore,
+    (state) => state.getAll(),
+  );
 
-    const recentVisualizations = useMemo(() => {
-        return [...visualizations]
-            .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-            )
-            .slice(0, 3)
-            .map((viz) => ({
-                id: viz.id,
-                title: viz.name,
-                subtitle: `Created ${new Date(viz.createdAt).toLocaleDateString(
-                    "en-US",
-                    { month: "short", day: "numeric" },
-                )}`,
-                preview: <VisualizationPreview visualization={viz} height={180} />,
-            }));
-    }, [visualizations]);
+  const recentVisualizations = useMemo(() => {
+    return [...visualizations]
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 3)
+      .map((viz) => ({
+        id: viz.id,
+        title: viz.name,
+        subtitle: `Created ${new Date(viz.createdAt).toLocaleDateString(
+          "en-US",
+          { month: "short", day: "numeric" },
+        )}`,
+        preview: <VisualizationPreview visualization={viz} height={180} />,
+      }));
+  }, [visualizations]);
 
-    return (
-        <DashboardSection
-            title="Recent Visualizations"
-            icon={BarChart3}
-            viewAllHref="/visualizations"
-            items={recentVisualizations}
-            onItemSelect={(id) => router.push(`/visualizations/${id}`)}
-            gap={16}
-        />
-    );
+  return (
+    <DashboardSection
+      title="Recent Visualizations"
+      icon={BarChart3}
+      viewAllHref="/visualizations"
+      items={recentVisualizations}
+      onItemSelect={(id) => router.push(`/visualizations/${id}`)}
+      gap={16}
+    />
+  );
 }

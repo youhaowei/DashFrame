@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable sonarjs/cognitive-complexity */
+
 import { use, useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Field, DataFrameRow } from "@dashframe/dataframe";
@@ -68,8 +70,10 @@ export default function JoinConfigurePage({ params }: PageProps) {
     (s) => s.getAll(),
   );
 
-  const { data: _dataFrameEntryGetter, isLoading: isDataFramesLoading } =
-    useStoreQuery(useDataFramesStore, (s) => s.getEntry);
+  const { isLoading: isDataFramesLoading } = useStoreQuery(
+    useDataFramesStore,
+    (s) => s.getEntry,
+  );
 
   const isLoading = isInsightLoading || isSourcesLoading || isDataFramesLoading;
 

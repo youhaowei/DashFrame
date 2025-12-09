@@ -16,7 +16,10 @@ interface ConnectorCardWithFormProps {
   /** Called when a file is selected (file connectors only) */
   onFileSelect: (connector: FileSourceConnector, file: File) => void;
   /** Called when connection succeeds (remote-api connectors only) */
-  onConnect: (connector: RemoteApiConnector, databases: RemoteDatabase[]) => void;
+  onConnect: (
+    connector: RemoteApiConnector,
+    databases: RemoteDatabase[],
+  ) => void;
 }
 
 /**

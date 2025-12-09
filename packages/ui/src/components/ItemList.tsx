@@ -211,7 +211,13 @@ export function ItemList({
   // Grid orientation
   if (orientation === "grid") {
     return (
-      <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3", className)} style={{ gap: `${gap}px` }}>
+      <div
+        className={cn(
+          "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
+          className,
+        )}
+        style={{ gap: `${gap}px` }}
+      >
         {items.map((item) => (
           <ItemCard
             key={item.id}

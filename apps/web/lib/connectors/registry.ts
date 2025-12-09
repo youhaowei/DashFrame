@@ -80,7 +80,10 @@ export function getConnectorById(id: string): AnyConnector | undefined {
 export function getFileConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
 ): FileSourceConnector[] {
-  return getConnectors({ ...options, sourceType: "file" }) as FileSourceConnector[];
+  return getConnectors({
+    ...options,
+    sourceType: "file",
+  }) as FileSourceConnector[];
 }
 
 /**

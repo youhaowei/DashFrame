@@ -397,7 +397,7 @@ export function VirtualTable({
     if (isAsyncMode) {
       fetchWithReset();
     }
-  }, [isAsyncMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAsyncMode, fetchWithReset]);
 
   // Handle column header click for sorting
   const handleSort = useCallback(

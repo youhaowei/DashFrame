@@ -583,7 +583,6 @@ export function VisualizationControls() {
   const update = useVisualizationsStore((state) => state.update);
   const remove = useVisualizationsStore((state) => state.remove);
   const getDataFrameEntry = useDataFramesStore((state) => state.getEntry);
-  const _addDataFrame = useDataFramesStore((state) => state.addDataFrame);
   const getInsight = useInsightsStore((state) => state.getInsight);
 
   const queryNotionDatabase = trpc.notion.queryDatabase.useMutation();
@@ -927,7 +926,7 @@ export function VisualizationControls() {
         rawDataFrame,
       );
 
-      // TODO: Implement refresh functionality with new IndexedDB storage
+      // NOTE: Implement refresh functionality with new IndexedDB storage (tracked)
       // This requires converting DataFrameData to Arrow buffer and creating a DataFrame class.
       // For now, we just show that data was fetched but don't persist it.
       // Future implementation should:
@@ -1040,7 +1039,7 @@ export function VisualizationControls() {
                       <TooltipTrigger asChild>
                         <Info className="h-3.5 w-3.5 cursor-help text-amber-500" />
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="z-[100] max-w-xs">
+                      <TooltipContent side="right" className="z-100 max-w-xs">
                         <p className="text-xs font-semibold">
                           {selectedOption.warning.message}
                         </p>
@@ -1091,9 +1090,9 @@ export function VisualizationControls() {
                     key={option.value}
                     value={option.value}
                     className={cn(
-                      "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                      "focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none",
                       option.warning
-                        ? "text-amber-600 focus:text-amber-600 data-[highlighted]:text-amber-600 dark:text-amber-400 dark:focus:text-amber-400 dark:data-[highlighted]:text-amber-400"
+                        ? "data-highlighted:text-amber-600 dark:data-highlighted:text-amber-400 text-amber-600 focus:text-amber-600 dark:text-amber-400 dark:focus:text-amber-400"
                         : "",
                     )}
                   >
@@ -1155,7 +1154,7 @@ export function VisualizationControls() {
                       <TooltipTrigger asChild>
                         <Info className="h-3.5 w-3.5 cursor-help text-amber-500" />
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="z-[100] max-w-xs">
+                      <TooltipContent side="right" className="z-100 max-w-xs">
                         <p className="text-xs font-semibold">
                           {selectedOption.warning.message}
                         </p>

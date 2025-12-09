@@ -18,41 +18,41 @@ import type { DataSource } from "@/lib/stores/types";
  * visualizations, insights, and quick navigation links.
  */
 export function HomeView() {
-    const { data: visualizations } = useStoreQuery(
-        useVisualizationsStore,
-        (state) => state.getAll(),
-    );
-    const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
-        state.getAll(),
-    );
-    const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-        state.getAll(),
-    );
+  const { data: visualizations } = useStoreQuery(
+    useVisualizationsStore,
+    (state) => state.getAll(),
+  );
+  const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
+    state.getAll(),
+  );
+  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
+    state.getAll(),
+  );
 
-    const totalTables = useMemo(() => {
-        return dataSources.reduce(
-            (acc: number, ds: DataSource) => acc + (ds.dataTables?.size || 0),
-            0,
-        );
-    }, [dataSources]);
-
-    return (
-        <>
-            {/* Welcome Header */}
-            <div className="mb-8">
-                <h1 className="mb-2 text-3xl font-bold">Welcome back to DashFrame</h1>
-                <p className="text-muted-foreground">
-                    {visualizations.length} visualization
-                    {visualizations.length !== 1 ? "s" : ""} · {insights.length} insight
-                    {insights.length !== 1 ? "s" : ""} · {dataSources.length} data source
-                    {dataSources.length !== 1 ? "s" : ""} · {totalTables} table
-                    {totalTables !== 1 ? "s" : ""}
-                </p>
-            </div>
-
-            <RecentVisualizationsSection />
-            <RecentInsightsSection />
-            <QuickLinksSection />
-        </>
+  const totalTables = useMemo(() => {
+    return dataSources.reduce(
+      (acc: number, ds: DataSource) => acc + (ds.dataTables?.size || 0),
+      0,
     );
+  }, [dataSources]);
+
+  return (
+    <>
+      {/* Welcome Header */}
+      <div className="mb-8">
+        <h1 className="mb-2 text-3xl font-bold">Welcome back to DashFrame</h1>
+        <p className="text-muted-foreground">
+          {visualizations.length} visualization
+          {visualizations.length !== 1 ? "s" : ""} · {insights.length} insight
+          {insights.length !== 1 ? "s" : ""} · {dataSources.length} data source
+          {dataSources.length !== 1 ? "s" : ""} · {totalTables} table
+          {totalTables !== 1 ? "s" : ""}
+        </p>
+      </div>
+
+      <RecentVisualizationsSection />
+      <RecentInsightsSection />
+      <QuickLinksSection />
+    </>
+  );
 }

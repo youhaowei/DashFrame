@@ -3,6 +3,28 @@ import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import type { Metric, FileParseResult } from "@dashframe/dataframe";
 
+const ensureCountMetric = (
+  existing: Metric[] = [],
+  tableId: string,
+): Metric[] => {
+  const hasCount = existing.some(
+    (metric) => metric.aggregation === "count" && !metric.columnName,
+  );
+
+  if (hasCount) return existing;
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: "Count",
+      tableId,
+      columnName: undefined,
+      aggregation: "count",
+    },
+    ...existing,
+  ];
+};
+
 /**
  * Local CSV Upload Result
  */
@@ -53,31 +75,11 @@ export async function handleLocalCSVUpload(
   const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
     await csvToDataFrame(csvData, dataTableId);
 
-  // Helper: ensure a default count metric exists
-  const ensureCountMetric = (existing: Metric[] = []): Metric[] => {
-    const hasCount = existing.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName,
-    );
-
-    if (hasCount) return existing;
-
-    return [
-      {
-        id: crypto.randomUUID(),
-        name: "Count",
-        tableId: dataTableId,
-        columnName: undefined,
-        aggregation: "count",
-      },
-      ...existing,
-    ];
-  };
-
   let dataFrameId: string;
 
   if (overrideTable) {
     // 3a. Override existing table instead of creating a new one
-    const metrics = ensureCountMetric(overrideTable.metrics);
+    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
     useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
       name: tableName,
@@ -153,7 +155,8 @@ export async function handleFileConnectorResult(
   parseResult: FileParseResult,
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
-  const { dataFrame, fields, sourceSchema, rowCount, columnCount } = parseResult;
+  const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
+    parseResult;
 
   // 1. Ensure local data source exists
   let dataSource = useDataSourcesStore.getState().getLocal();
@@ -172,31 +175,11 @@ export async function handleFileConnectorResult(
     : undefined;
   const dataTableId = options?.overrideTableId ?? dataFrame.id;
 
-  // Helper: ensure a default count metric exists
-  const ensureCountMetric = (existing: Metric[] = []): Metric[] => {
-    const hasCount = existing.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName,
-    );
-
-    if (hasCount) return existing;
-
-    return [
-      {
-        id: crypto.randomUUID(),
-        name: "Count",
-        tableId: dataTableId,
-        columnName: undefined,
-        aggregation: "count",
-      },
-      ...existing,
-    ];
-  };
-
   let dataFrameId: string;
 
   if (overrideTable) {
     // Override existing table
-    const metrics = ensureCountMetric(overrideTable.metrics);
+    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
     useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
       name: tableName,

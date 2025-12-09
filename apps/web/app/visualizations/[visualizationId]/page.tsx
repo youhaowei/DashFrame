@@ -349,14 +349,14 @@ export default function VisualizationPage({ params }: PageProps) {
         const columns: DataFrameColumn[] =
           rows.length > 0
             ? Object.keys(rows[0])
-              .filter((key) => !key.startsWith("_"))
-              .map((name) => ({
-                name,
-                type:
-                  typeof rows[0][name] === "number"
-                    ? ("number" as const)
-                    : ("string" as const),
-              }))
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  type:
+                    typeof rows[0][name] === "number"
+                      ? ("number" as const)
+                      : ("string" as const),
+                }))
             : [];
 
         setJoinedData({ rows, columns });
@@ -434,7 +434,10 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Include dataFrame check to prevent "Data not available" flash during derived state computation
   const isLoading =
-    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData ||
+    isVizLoading ||
+    isDataLoading ||
+    isInsightLoading ||
+    isLoadingJoinedData ||
     (visualization && !dataFrame);
 
   // Local state
@@ -646,12 +649,12 @@ export default function VisualizationPage({ params }: PageProps) {
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
     : [{ label: "Table", value: "table" }];
 
   return (

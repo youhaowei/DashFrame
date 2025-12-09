@@ -4,18 +4,15 @@ import { useRouter } from "next/navigation";
 import type { UUID, Field } from "@dashframe/dataframe";
 import type { Insight, Visualization, InsightMetric } from "@/lib/stores/types";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
+import { Button, Card, CardContent, CardHeader, Badge } from "@dashframe/ui";
 import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  Badge,
-  Plus,
-  LineChart,
-  TableIcon,
   BarChart3,
-} from "@dashframe/ui";
-import { LuExternalLink, LuCircleDot } from "react-icons/lu";
+  CircleDot,
+  ExternalLink,
+  LineChart,
+  Plus,
+  TableIcon,
+} from "@dashframe/ui/icons";
 
 // Format cell value for display
 function formatCellValue(value: unknown): string {
@@ -72,7 +69,7 @@ export function InsightPreviewTab({
       case "area":
         return <LineChart className="h-5 w-5" />;
       case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        return <CircleDot className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -200,7 +197,7 @@ export function InsightPreviewTab({
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">
                       {/* Icon */}
-                      <div className="bg-muted flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl">
+                      <div className="bg-muted flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
                         {getVizIcon(viz.visualizationType)}
                       </div>
 
@@ -238,13 +235,13 @@ export function InsightPreviewTab({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="flex-shrink-0"
+                        className="shrink-0"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleOpenVisualization(viz.id);
                         }}
                       >
-                        <LuExternalLink className="mr-1 h-4 w-4" />
+                        <ExternalLink className="mr-1 h-4 w-4" />
                         Open
                       </Button>
                     </div>
