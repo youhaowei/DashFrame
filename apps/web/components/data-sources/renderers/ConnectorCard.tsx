@@ -10,7 +10,12 @@ import {
   Button,
   FieldError,
 } from "@dashframe/ui";
-import { ConnectorIcon } from "./ConnectorIcon";
+import dynamic from "next/dynamic";
+
+const ConnectorIcon = dynamic(
+  () => import("./ConnectorIcon").then((mod) => mod.ConnectorIcon),
+  { ssr: false }
+);
 
 interface ConnectorCardProps {
   /** The connector to render */

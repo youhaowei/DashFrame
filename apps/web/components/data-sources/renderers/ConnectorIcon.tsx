@@ -1,6 +1,6 @@
 "use client";
 
-import DOMPurify from "isomorphic-dompurify";
+import DOMPurify from "dompurify";
 
 interface ConnectorIconProps {
   /** SVG string to render */
