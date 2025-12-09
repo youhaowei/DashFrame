@@ -14,7 +14,7 @@ import dynamic from "next/dynamic";
 
 const ConnectorIcon = dynamic(
   () => import("./ConnectorIcon").then((mod) => mod.ConnectorIcon),
-  { ssr: false }
+  { ssr: false },
 );
 
 interface ConnectorCardProps {
