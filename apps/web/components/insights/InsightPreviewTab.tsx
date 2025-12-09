@@ -135,7 +135,7 @@ export function InsightPreviewTab({
                             >
                               {formatCellValue(
                                 (row as Record<string, unknown>)[
-                                  field.columnName ?? field.name
+                                field.columnName ?? field.name
                                 ],
                               )}
                             </td>
