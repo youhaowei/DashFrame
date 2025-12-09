@@ -53,47 +53,47 @@ export function DataGrid<TData>({
     () => [
       ...columns,
         ? [
-            {
-              id: "actions",
-              cell: ({ row }: { row: { original: TData } }) => {
-                return (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-  import { MoreHorizontal } from "@dashframe/ui/icons";
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      {onEdit && (
-                        <>
-                          <DropdownMenuItem
-                            onClick={() => onEdit(row.original)}
-                          >
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
-                      {onDelete && (
-                        <DropdownMenuItem
-                          onClick={() => onDelete(row.original)}
-                          className="text-destructive"
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                );
-              },
-            } as ColumnDef<TData>,
-          ]
-        : []),
+        {
+          id: "actions",
+          cell: ({ row }: { row: { original: TData } }) => {
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0">
+                    import {MoreHorizontal} from "@dashframe/ui/icons";
+                    <span className="sr-only">Open menu</span>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                  {onEdit && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={() => onEdit(row.original)}
+                      >
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem
+                      onClick={() => onDelete(row.original)}
+                      className="text-destructive"
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          },
+        } as ColumnDef<TData>,
+      ]
+      : []),
     ],
-    [columns, onEdit, onDelete],
+  [columns, onEdit, onDelete],
   );
 
   const table = useReactTable({
@@ -138,9 +138,9 @@ export function DataGrid<TData>({
                       {header.isPlaceholder
                         ? null
                         : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
                     </TableHead>
                   );
                 })}

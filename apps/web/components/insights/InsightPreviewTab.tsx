@@ -74,8 +74,8 @@ export function InsightPreviewTab({
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
-        case "scatter":
-          return <DataPoint className="h-5 w-5" />;
+      case "scatter":
+        return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -141,7 +141,7 @@ export function InsightPreviewTab({
                             >
                               {formatCellValue(
                                 (row as Record<string, unknown>)[
-                                  field.columnName ?? field.name
+                                field.columnName ?? field.name
                                 ],
                               )}
                             </td>
@@ -247,7 +247,7 @@ export function InsightPreviewTab({
                           handleOpenVisualization(viz.id);
                         }}
                       >
-                            <ExternalLink className="mr-1 h-4 w-4" />
+                        <ExternalLink className="mr-1 h-4 w-4" />
                         Open
                       </Button>
                     </div>

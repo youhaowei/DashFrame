@@ -173,7 +173,7 @@ function SidebarContent({
                 isActive && !isCollapsed
                   ? "bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
                   : !isCollapsed &&
-                      "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 isActive && isCollapsed && "bg-primary/10 text-primary",
               )}
               title={isCollapsed ? item.name : undefined}

@@ -19,7 +19,7 @@ import {
   type VirtualTableColumnConfig,
   type VirtualTableColumn,
 } from "@dashframe/ui";
-  AlertCircle,
+AlertCircle,
 } from "@dashframe/ui";
 import { ArrowLeft, Loader2, Merge } from "@dashframe/ui/icons";
 import { useInsightsStore } from "@/lib/stores/insights-store";
@@ -566,8 +566,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
         const columns: VirtualTableColumn[] =
           rows.length > 0
             ? Object.keys(rows[0])
-                .filter((key) => !key.startsWith("_"))
-                .map((name) => ({ name }))
+              .filter((key) => !key.startsWith("_"))
+              .map((name) => ({ name }))
             : [];
 
         console.log("[JoinPreview] DuckDB result:", {

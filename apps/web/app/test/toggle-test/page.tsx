@@ -174,7 +174,7 @@ export default function ToggleTestPage() {
             variant="outline"
             size="sm"
             value="light"
-            onValueChange={() => {}}
+            onValueChange={() => { }}
             options={[
               {
                 value: "light",
@@ -203,7 +203,7 @@ export default function ToggleTestPage() {
             variant="outline"
             size="sm"
             value="option1"
-            onValueChange={() => {}}
+            onValueChange={() => { }}
             options={[
               {
                 value: "option1",
