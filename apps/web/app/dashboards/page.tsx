@@ -14,7 +14,7 @@ import {
   DialogFooter,
   Label,
 } from "@dashframe/ui";
-import { LayoutDashboard, Plus, Trash2 } from "@dashframe/ui/icons";
+import { Dashboard, Plus, Delete } from "@dashframe/ui/icons";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 
 import { useShallow } from "zustand/react/shallow";
@@ -52,7 +52,7 @@ export default function DashboardsPage() {
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-xl">
-            <LayoutDashboard className="h-5 w-5" />
+            <Dashboard className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight">
@@ -73,7 +73,7 @@ export default function DashboardsPage() {
         {dashboards.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="bg-muted text-muted-foreground mb-4 flex h-20 w-20 items-center justify-center rounded-full">
-              <LayoutDashboard className="h-10 w-10" />
+              <Dashboard className="h-10 w-10" />
             </div>
             <h3 className="text-foreground text-lg font-semibold">
               No dashboards yet
@@ -101,7 +101,7 @@ export default function DashboardsPage() {
                 >
                   <div className="mb-4 flex items-start justify-between">
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
-                      <LayoutDashboard className="h-5 w-5" />
+                      <Dashboard className="h-5 w-5" />
                     </div>
                     <Button
                       variant="ghost"
@@ -113,7 +113,7 @@ export default function DashboardsPage() {
                         removeDashboard(dashboard.id);
                       }}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Delete className="h-4 w-4" />
                     </Button>
                   </div>
                   <h3 className="text-foreground mb-1 font-semibold">

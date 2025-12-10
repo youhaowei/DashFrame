@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ItemList } from "@dashframe/ui";
-import { BarChart3, Sparkles, Database } from "@dashframe/ui/icons";
+import { Chart, Sparkles, Database } from "@dashframe/ui/icons";
 
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useInsightsStore } from "@/lib/stores/insights-store";
@@ -35,7 +35,7 @@ export function QuickLinksSection() {
                 id: "visualizations",
                 title: "All Visualizations",
                 subtitle: `${visualizations.length} total`,
-                icon: BarChart3,
+                icon: Chart,
             },
             {
                 id: "insights",

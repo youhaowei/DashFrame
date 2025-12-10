@@ -8,7 +8,7 @@ import {
   type SelectableItem,
   type ItemAction,
 } from "@dashframe/ui";
-import { BarChart3, Database, File, Notion, Plus } from "@dashframe/ui/icons";
+import { Chart, Database, File, Notion, Plus } from "@dashframe/ui/icons";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
 import Link from "next/link";
@@ -67,7 +67,7 @@ export function DataSourceSelector({
         label: "Visualizations",
         variant: "outline",
         href: "/",
-        icon: BarChart3,
+        icon: Chart,
         tooltip: "View visualizations",
       },
       {

@@ -20,15 +20,15 @@ import {
   DropdownMenuTrigger,
 } from "@dashframe/ui";
 import {
-  BarChart3,
+  Chart,
   DataPoint,
   ExternalLink,
   LineChart,
-  MoreHorizontal,
+  More,
   Plus,
   Search,
-  TableIcon,
-  Trash2,
+  Table,
+  Delete,
 } from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
@@ -116,7 +116,7 @@ export default function VisualizationsPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "bar":
-        return <BarChart3 className="h-5 w-5" />;
+        return <Chart className="h-5 w-5" />;
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
@@ -124,7 +124,7 @@ export default function VisualizationsPage() {
         return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
-        return <TableIcon className="h-5 w-5" />;
+        return <Table className="h-5 w-5" />;
     }
   };
 
@@ -213,7 +213,7 @@ export default function VisualizationsPage() {
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <More className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -235,7 +235,7 @@ export default function VisualizationsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -286,7 +286,7 @@ export default function VisualizationsPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <BarChart3 className="text-muted-foreground h-8 w-8" />
+                <Chart className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>

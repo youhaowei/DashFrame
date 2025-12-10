@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { Toggle } from "./Toggle";
 import {
-  BarChart3,
-  TableIcon,
+  Chart,
+  Table,
   List,
   LayoutGrid,
   Hash,
@@ -50,12 +50,12 @@ export const Default: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Chart",
           },
           {
             value: "table",
-            icon: <TableIcon className="h-4 w-4" />,
+            icon: <Table className="h-4 w-4" />,
             label: "Data Table",
           },
           { value: "both", label: "Both" },
@@ -109,12 +109,12 @@ export const IconsAndLabels: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Chart",
           },
           {
             value: "table",
-            icon: <TableIcon className="h-4 w-4" />,
+            icon: <Table className="h-4 w-4" />,
             label: "Table",
             badge: 100,
           },
@@ -139,12 +139,12 @@ export const OutlineIconsAndLabels: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Chart",
           },
           {
             value: "table",
-            icon: <TableIcon className="h-4 w-4" />,
+            icon: <Table className="h-4 w-4" />,
             label: "Table",
           },
         ]}
@@ -168,12 +168,12 @@ export const WithBadges: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Chart",
           },
           {
             value: "table",
-            icon: <TableIcon className="h-4 w-4" />,
+            icon: <Table className="h-4 w-4" />,
             label: "Data Table",
             badge: 1250,
           },
@@ -233,17 +233,17 @@ export const ChartTypeSelection: Story = {
         options={[
           {
             value: "bar",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Bar",
           },
           {
             value: "line",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Line",
           },
           {
             value: "area",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Area",
           },
         ]}
@@ -358,12 +358,12 @@ export const WithDisabledOption: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <Chart className="h-4 w-4" />,
             label: "Chart",
           },
           {
             value: "table",
-            icon: <TableIcon className="h-4 w-4" />,
+            icon: <Table className="h-4 w-4" />,
             label: "Table",
             disabled: true,
             tooltip: "Table view is disabled",

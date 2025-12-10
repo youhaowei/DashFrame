@@ -58,7 +58,7 @@ export interface ActionButtonProps extends ItemAction {
  * <ActionButton
  *   label="Delete"
  *   onClick={handleDelete}
- *   icon={Trash2}
+ *   icon={Delete}
  *   variant="destructive"
  *   compact
  * />

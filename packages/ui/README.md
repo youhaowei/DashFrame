@@ -44,7 +44,7 @@ import {
 } from "@dashframe/ui";
 
 // Icons
-import { RefreshCw, CheckIcon } from "@dashframe/ui/icons";
+import { Refresh, Check } from "@dashframe/ui/icons";
 ```
 
 ### Examples
@@ -90,12 +90,12 @@ export function DataPanel() {
 #### Using icons
 
 ```typescript
-import { RefreshCw, CheckIcon, XIcon } from "@dashframe/ui";
+import { Loader, Check, Close } from "@dashframe/ui/icons";
 
 export function StatusIndicator({ status }: { status: "loading" | "success" | "error" }) {
-  if (status === "loading") return <RefreshCw className="h-4 w-4 animate-spin" />;
-  if (status === "success") return <CheckIcon className="h-4 w-4 text-green-500" />;
-  return <XIcon className="h-4 w-4 text-red-500" />;
+  if (status === "loading") return <Loader className="h-4 w-4 animate-spin" />;
+  if (status === "success") return <Check className="h-4 w-4 text-green-500" />;
+  return <Close className="h-4 w-4 text-red-500" />;
 }
 ```
 
@@ -125,15 +125,28 @@ DashFrame-specific reusable patterns:
 
 ### Icons (`@dashframe/ui/icons`)
 
-Curated icon exports from react-icons with semantic names. Always import icons from `@dashframe/ui/icons` (never from `@dashframe/ui` or `react-icons` directly):
+Curated icon exports from react-icons with **semantic names** that describe their purpose, not their visual appearance. Always import icons from `@dashframe/ui/icons` (never from `@dashframe/ui` or `react-icons` directly):
 
-- **Navigation**: `ChevronDown`, `ChevronUp`, `ArrowUpDown`, `Menu`
-- **Actions**: `Plus`, `Edit3`, `Delete`, `Refresh`, `Close`
-- **Data**: `TableIcon`, `Chart`, `BarChart3`, `Database`, `File`, `FileSpreadsheet`
-- **UI**: `Check`, `X`, `Circle`, `Hash`, `Calendar`, `Type`
-- **Integrations**: `Notion`, `Github`
+```typescript
+import { Chart, Delete, Edit, Close } from "@dashframe/ui/icons";
+```
 
-Icons provide both specific names (e.g., `RefreshCw`) and generic aliases (e.g., `Refresh`).
+**Icon categories**:
+
+- **Navigation & Layout**: `ArrowLeft`, `ArrowRight`, `ChevronDown`, `ChevronUp`, `Menu`, `DragHandle`
+- **Pages & Views**: `Dashboard`, `Grid`
+- **Actions**: `Plus`, `Edit`, `Delete`, `Copy`, `Refresh`, `Close`, `Eye`, `ExternalLink`, `Merge`
+- **Settings**: `Settings`, `Shield`, `More`
+- **Theme**: `Moon`, `Sun`
+- **Data Visualization**: `Chart`, `Table`, `List`, `Layers`
+- **Data Sources**: `Database`, `File`, `Notion`, `Cloud`, `Spreadsheet`, `Calculator`
+- **Brands**: `Github`, `Notion`
+- **Status & Feedback**: `Check`, `CheckCircle`, `Alert`, `Info`, `Loader`, `Pending`
+- **Data Types**: `TextType`, `NumberType`, `DateType`, `BooleanType`
+- **UI Elements**: `Circle`, `Dot`, `DataPoint`
+- **Utilities**: `Sparkles`, `Help`, `Terminal`, `Lightbulb`, `Search`, `Users`
+
+**Naming principle**: Icons use semantic names (e.g., `Delete` not `Trash2`, `Chart` not `BarChart3`, `Close` not `X`) to clearly communicate their purpose in code.
 
 ## Development
 

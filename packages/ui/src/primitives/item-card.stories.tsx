@@ -2,11 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { ItemCard } from "./item-card";
 import {
   Database,
-  BarChart3,
+  Chart,
   LineChart,
-  TableIcon,
-  Edit3,
-  Trash2,
+  Table,
+  Edit,
+  Delete,
 } from "../lib/icons";
 
 const meta = {
@@ -91,7 +91,7 @@ export const CompactWithBadge: Story = {
 
 export const CompactClickable: Story = {
   args: {
-    icon: <BarChart3 className="h-4 w-4" />,
+    icon: <Chart className="h-4 w-4" />,
     title: "Revenue Chart",
     subtitle: "Created Jan 15",
     badge: "Bar Chart",
@@ -109,14 +109,14 @@ export const CompactActive: Story = {
 
 export const CompactWithActions: Story = {
   args: {
-    icon: <TableIcon className="h-4 w-4" />,
+    icon: <Table className="h-4 w-4" />,
     title: "Data Table",
     subtitle: "500 rows",
     actions: [
-      { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
+      { label: "Edit", icon: Edit, onClick: () => alert("Edit") },
       {
         label: "Delete",
-        icon: Trash2,
+        icon: Delete,
         onClick: () => alert("Delete"),
         variant: "destructive",
       },
@@ -128,7 +128,7 @@ export const CompactWithActions: Story = {
 export const WithPreview: Story = {
   args: {
     preview: <MockPreview type="Bar Chart" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <Chart className="h-8 w-8" />,
     title: "Sales by Region",
     subtitle: "Created Jan 15, 2025",
     badge: "Bar Chart",
@@ -149,15 +149,15 @@ export const WithPreviewActive: Story = {
 export const WithPreviewAndActions: Story = {
   args: {
     preview: <MockPreview type="Scatter Plot" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <Chart className="h-8 w-8" />,
     title: "Correlation Analysis",
     subtitle: "Updated 2h ago",
     badge: "Scatter",
     actions: [
-      { label: "Open", icon: Edit3, onClick: () => alert("Open") },
+      { label: "Open", icon: Edit, onClick: () => alert("Open") },
       {
         label: "Delete",
-        icon: Trash2,
+        icon: Delete,
         onClick: () => alert("Delete"),
         variant: "destructive",
       },
@@ -168,7 +168,7 @@ export const WithPreviewAndActions: Story = {
 export const WithPreviewCustomHeight: Story = {
   args: {
     preview: <MockPreview type="Custom Height" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <Chart className="h-8 w-8" />,
     title: "Tall Preview",
     subtitle: "300px height",
     badge: "Custom",
@@ -190,7 +190,7 @@ export const LongText: Story = {
 
 export const NoSubtitle: Story = {
   args: {
-    icon: <BarChart3 className="h-4 w-4" />,
+    icon: <Chart className="h-4 w-4" />,
     title: "Simple Card",
     badge: "Minimal",
   },
@@ -220,7 +220,7 @@ export const GridCompact: Story = {
         onClick={() => alert("Sales")}
       />
       <ItemCard
-        icon={<BarChart3 className="h-4 w-4" />}
+        icon={<Chart className="h-4 w-4" />}
         title="Revenue Chart"
         subtitle="Created today"
         badge="Bar"
@@ -232,17 +232,17 @@ export const GridCompact: Story = {
         title="Trends"
         subtitle="Last 30 days"
         actions={[
-          { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
+          { label: "Edit", icon: Edit, onClick: () => alert("Edit") },
           {
             label: "Delete",
-            icon: Trash2,
+            icon: Delete,
             onClick: () => alert("Delete"),
             variant: "destructive",
           },
         ]}
       />
       <ItemCard
-        icon={<TableIcon className="h-4 w-4" />}
+        icon={<Table className="h-4 w-4" />}
         title="Data Table"
         subtitle="1,000 rows"
         onClick={() => alert("Table")}
@@ -253,14 +253,14 @@ export const GridCompact: Story = {
 
 export const GridWithPreview: Story = {
   args: {
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <Chart className="h-8 w-8" />,
     title: "Grid with Preview Example",
   },
   render: () => (
     <div className="grid w-[900px] grid-cols-3 gap-4">
       <ItemCard
         preview={<MockPreview type="Bar" />}
-        icon={<BarChart3 className="h-8 w-8" />}
+        icon={<Chart className="h-8 w-8" />}
         title="Sales Analysis"
         subtitle="Created today"
         badge="Bar Chart"
@@ -277,15 +277,15 @@ export const GridWithPreview: Story = {
       />
       <ItemCard
         preview={<MockPreview type="Scatter" />}
-        icon={<BarChart3 className="h-8 w-8" />}
+        icon={<Chart className="h-8 w-8" />}
         title="Correlation"
         subtitle="Last week"
         badge="Scatter"
         actions={[
-          { label: "Open", icon: Edit3, onClick: () => alert("Open") },
+          { label: "Open", icon: Edit, onClick: () => alert("Open") },
           {
             label: "Delete",
-            icon: Trash2,
+            icon: Delete,
             onClick: () => alert("Delete"),
             variant: "destructive",
           },

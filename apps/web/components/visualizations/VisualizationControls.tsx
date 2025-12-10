@@ -27,13 +27,13 @@ import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
 import {
   ArrowUpDown,
   Calendar,
-  CheckIcon,
+  Check,
   ChevronDown,
   Copy,
   Hash,
   Info,
-  RefreshCw,
-  Trash2,
+  Refresh,
+  Delete,
   Type,
 } from "@dashframe/ui/icons";
 import { toast } from "sonner";
@@ -496,7 +496,7 @@ function ProvenanceSummary({
           onClick={onRefresh}
           disabled={isRefreshing}
         >
-          <RefreshCw
+          <Refresh
             className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
           />
           {isRefreshing ? "Refreshing..." : "Refresh data"}
@@ -973,7 +973,7 @@ export function VisualizationControls() {
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw
+            <Refresh
               className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
             />
             {isRefreshing ? "Refreshing..." : "Refresh data"}
@@ -984,7 +984,7 @@ export function VisualizationControls() {
           Duplicate
         </Button>
         <Button variant="destructive" className="w-full" onClick={handleDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
+          <Delete className="mr-2 h-4 w-4" />
           Delete
         </Button>
       </div>
@@ -1105,7 +1105,7 @@ export function VisualizationControls() {
                   >
                     <span className="absolute right-2 flex size-3.5 items-center justify-center">
                       <RadixSelect.ItemIndicator>
-                        <CheckIcon className="size-4" />
+                        <Check className="size-4" />
                       </RadixSelect.ItemIndicator>
                     </span>
                     <div className="flex flex-col gap-0.5">
@@ -1220,7 +1220,7 @@ export function VisualizationControls() {
                   >
                     <span className="absolute right-2 flex size-3.5 items-center justify-center">
                       <RadixSelect.ItemIndicator>
-                        <CheckIcon className="size-4" />
+                        <Check className="size-4" />
                       </RadixSelect.ItemIndicator>
                     </span>
                     <div className="flex flex-col gap-0.5">

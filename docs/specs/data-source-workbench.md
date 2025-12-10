@@ -396,10 +396,10 @@ _No DataTables:_
 
 ### Icons
 
-- **Local**: `FileText` or folder icon
+- **Local**: `File` or folder icon
 - **Notion**: Notion logo (SiNotion)
 - **PostgreSQL**: `Database` icon
-- **Delete**: `Trash2` icon
+- **Delete**: `Delete` icon
 - **Expand/collapse**: `ChevronDown` icon
 
 ## Decision Rationale

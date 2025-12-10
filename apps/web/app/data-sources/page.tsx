@@ -19,10 +19,10 @@ import {
 } from "@dashframe/ui";
 import {
   Database,
-  TableIcon,
+  Table,
   Plus,
-  Trash2,
-  MoreHorizontal,
+  Delete,
+  More,
   Cloud,
   ExternalLink,
   Spreadsheet,
@@ -133,7 +133,7 @@ export default function DataSourcesPage() {
               </Badge>
             </div>
             <p className="text-muted-foreground text-xs">
-              <TableIcon className="mr-1 inline h-3 w-3" />
+              <Table className="mr-1 inline h-3 w-3" />
               {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
             </p>
             <p className="text-muted-foreground mt-1 text-xs">
@@ -155,7 +155,7 @@ export default function DataSourcesPage() {
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <More className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -177,7 +177,7 @@ export default function DataSourcesPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>

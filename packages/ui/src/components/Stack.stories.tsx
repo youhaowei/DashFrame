@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Stack } from "./Stack";
 import { Button } from "../primitives/button";
-import { Database, BarChart3, FileText } from "../lib/icons";
+import { Database, Chart, File } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Stack",
@@ -372,7 +372,7 @@ export const CardGrid: Story = {
     wrap: true,
     children: (
       <>
-        {[Database, BarChart3, FileText].map((Icon, i) => (
+        {[Database, Chart, File].map((Icon, i) => (
           <div
             key={i}
             className="bg-card border-border/60 w-[200px] rounded-2xl border p-6"

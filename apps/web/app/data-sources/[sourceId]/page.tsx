@@ -33,10 +33,10 @@ import {
   Cloud,
   Database,
   FileSpreadsheet,
-  MoreHorizontal,
+  More,
   Plus,
-  TableIcon,
-  Trash2,
+  Table,
+  Delete,
 } from "@dashframe/ui/icons";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
@@ -254,7 +254,7 @@ export default function DataSourcePage({ params }: PageProps) {
 
               {dataTables.length === 0 ? (
                 <div className="py-8 text-center">
-                  <TableIcon className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
+                  <Table className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
                   <p className="text-muted-foreground text-sm">No tables yet</p>
                 </div>
               ) : (
@@ -265,7 +265,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     return (
                       <ItemCard
                         key={table.id}
-                        icon={<TableIcon className="h-4 w-4" />}
+                        icon={<Table className="h-4 w-4" />}
                         title={table.name}
                         subtitle={`${fieldCount} fields`}
                         onClick={() => setSelectedTableId(table.id)}
@@ -300,7 +300,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon">
-                      <MoreHorizontal className="h-4 w-4" />
+                      <More className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -308,7 +308,7 @@ export default function DataSourcePage({ params }: PageProps) {
                       onClick={handleDeleteTable}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <Delete className="mr-2 h-4 w-4" />
                       Delete Table
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -418,7 +418,7 @@ export default function DataSourcePage({ params }: PageProps) {
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <TableIcon className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
+              <Table className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
               <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
               <p className="text-muted-foreground text-sm">
                 Choose a table from the sidebar to view its details

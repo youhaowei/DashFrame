@@ -21,7 +21,7 @@ import {
 } from "@dashframe/ui";
 AlertCircle,
 } from "@dashframe/ui";
-import { ArrowLeft, Loader2, Merge } from "@dashframe/ui/icons";
+import { ArrowLeft, Loader, Merge } from "@dashframe/ui/icons";
 import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
@@ -682,7 +682,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Loader className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">
             Loading join configuration...
           </p>
@@ -777,7 +777,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               disabled={!canJoin || isSubmitting}
             >
               {isSubmitting ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Merge className="mr-2 h-4 w-4" />
               )}
@@ -1112,7 +1112,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 <h2 className="text-lg font-semibold">Preview Result</h2>
                 {isComputingPreview && (
                   <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader className="h-4 w-4 animate-spin" />
                     Computing preview...
                   </div>
                 )}

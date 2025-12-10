@@ -15,7 +15,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@dashframe/ui";
-import { ArrowLeft, BarChart3, Check, Edit3, FileText, Plus } from "@dashframe/ui/icons";
+import { ArrowLeft, Chart, Check, Edit, File, Plus } from "@dashframe/ui/icons";
 import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useShallow } from "zustand/react/shallow";
@@ -121,7 +121,7 @@ export default function DashboardDetailPage({
             </Button>
           ) : (
             <Button variant="outline" onClick={() => setIsEditable(true)}>
-              <Edit3 className="mr-2 h-4 w-4" />
+              <Edit className="mr-2 h-4 w-4" />
               Edit Dashboard
             </Button>
           )}
@@ -157,7 +157,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("visualization")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <BarChart3 className="h-4 w-4" />
+                    <Chart className="h-4 w-4" />
                     Visualization
                   </div>
                   <p className="text-muted-foreground text-xs">
@@ -172,7 +172,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("markdown")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <FileText className="h-4 w-4" />
+                    <File className="h-4 w-4" />
                     Text / Markdown
                   </div>
                   <p className="text-muted-foreground text-xs">

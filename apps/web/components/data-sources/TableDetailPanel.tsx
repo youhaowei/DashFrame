@@ -12,7 +12,7 @@ import {
   VirtualTable,
   ActionGroup,
 } from "@dashframe/ui";
-import { Edit3, Layers, Plus, Sparkles, Trash2, X } from "@dashframe/ui/icons";
+import { Edit, Layers, Plus, Sparkles, Delete, Close } from "@dashframe/ui/icons";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -78,7 +78,7 @@ export function TableDetailPanel({
                 {
                   label: "Delete Table",
                   onClick: onDeleteTable,
-                  icon: Trash2,
+                  icon: Delete,
                   variant: "ghost",
                   className:
                     "text-destructive hover:bg-destructive hover:text-destructive-foreground",
@@ -158,7 +158,7 @@ export function TableDetailPanel({
                       onClick={() => onEditField(field.id)}
                       className="h-8 w-8"
                     >
-                      <Edit3 className="h-4 w-4" />
+                      <Edit className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -166,7 +166,7 @@ export function TableDetailPanel({
                       onClick={() => onDeleteField(field.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8"
                     >
-                      <X className="h-4 w-4" />
+                      <Close className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
@@ -222,7 +222,7 @@ export function TableDetailPanel({
                       onClick={() => onDeleteMetric(metric.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8 shrink-0"
                     >
-                      <X className="h-4 w-4" />
+                      <Close className="h-4 w-4" />
                     </Button>
                   </div>
                 );

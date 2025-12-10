@@ -25,13 +25,13 @@ import {
   ChevronsRight,
   Database,
   Github,
-  LayoutDashboard,
+  Dashboard,
   LayoutGrid,
   LineChart,
   Menu,
   Settings,
   Sparkles,
-  Trash2,
+  Delete,
   X,
 } from "@dashframe/ui/icons";
 import { toast } from "sonner";
@@ -61,7 +61,7 @@ const navItems: NavItem[] = [
     name: "Visualizations",
     href: "/visualizations",
     description: "Create, edit, and view visualizations",
-    icon: LayoutDashboard,
+    icon: Dashboard,
   },
   {
     name: "Insights",
@@ -226,7 +226,7 @@ function SidebarContent({
                 onClick={onClearData}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Clear all data
               </DropdownMenuItem>
             </DropdownMenuContent>

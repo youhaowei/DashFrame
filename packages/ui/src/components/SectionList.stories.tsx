@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { SectionList } from "./SectionList";
 import { ItemCard } from "../primitives/item-card";
-import { Database, FileText, TableIcon } from "@dashframe/ui/icons";
+import { Database, File, Table } from "@dashframe/ui/icons";
 
 const meta: Meta<typeof SectionList> = {
   title: "Components/SectionList",
@@ -27,13 +27,13 @@ export const Default: Story = {
           onClick={() => console.log("sales clicked")}
         />
         <ItemCard
-          icon={<FileText className="h-4 w-4" />}
+          icon={<File className="h-4 w-4" />}
           title="Customers"
           subtitle="Local • 5 fields"
           onClick={() => console.log("customers clicked")}
         />
         <ItemCard
-          icon={<TableIcon className="h-4 w-4" />}
+          icon={<Table className="h-4 w-4" />}
           title="Products"
           subtitle="Notion • 12 properties"
           onClick={() => console.log("products clicked")}
@@ -99,7 +99,7 @@ export const CustomStyling: Story = {
           onClick={() => console.log("sales clicked")}
         />
         <ItemCard
-          icon={<FileText className="h-4 w-4" />}
+          icon={<File className="h-4 w-4" />}
           title="Customers"
           subtitle="200 rows"
           onClick={() => console.log("customers clicked")}

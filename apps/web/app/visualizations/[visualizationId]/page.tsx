@@ -15,13 +15,13 @@ import {
 } from "@dashframe/ui";
 import {
   ArrowLeft,
-  BarChart3,
+  Chart,
   DataPoint,
   Layers,
   LineChart,
   Loader,
-  TableIcon,
-  Trash2,
+  Table,
+  Delete,
 } from "@dashframe/ui/icons";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
@@ -207,7 +207,7 @@ function buildVegaSpec(
 function getVizIcon(type: string) {
   switch (type) {
     case "bar":
-      return <BarChart3 className="h-5 w-5" />;
+      return <Chart className="h-5 w-5" />;
     case "line":
     case "area":
       return <LineChart className="h-5 w-5" />;
@@ -215,7 +215,7 @@ function getVizIcon(type: string) {
       return <DataPoint className="h-5 w-5" />;
     case "table":
     default:
-      return <TableIcon className="h-5 w-5" />;
+      return <Table className="h-5 w-5" />;
   }
 }
 
@@ -709,12 +709,12 @@ export default function VisualizationPage({ params }: PageProps) {
                 options={[
                   {
                     value: "chart",
-                    icon: <BarChart3 className="h-4 w-4" />,
+                    icon: <Chart className="h-4 w-4" />,
                     label: "Chart",
                   },
                   {
                     value: "table",
-                    icon: <TableIcon className="h-4 w-4" />,
+                    icon: <Table className="h-4 w-4" />,
                     label: "Data",
                   },
                   {
@@ -735,7 +735,7 @@ export default function VisualizationPage({ params }: PageProps) {
                 className="text-destructive hover:text-destructive"
                 onClick={handleDelete}
               >
-                <Trash2 className="mr-1 h-4 w-4" />
+                <Delete className="mr-1 h-4 w-4" />
                 Delete
               </Button>
             </div>

@@ -5,7 +5,7 @@ import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { isLocalDataSource } from "@/lib/stores/types";
 import { Button, Panel, EmptyState, cn } from "@dashframe/ui";
-import { File, Trash2 } from "@dashframe/ui/icons";
+import { File, Delete } from "@dashframe/ui/icons";
 
 interface DataSourceTreeProps {
   dataSourceId: string;
@@ -73,7 +73,7 @@ export function DataSourceTree({
               onClick={() => onDeleteTable(selectedTableId)}
               className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Delete className="mr-2 h-4 w-4" />
               Delete Table
             </Button>
           </div>

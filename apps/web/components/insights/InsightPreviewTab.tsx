@@ -14,8 +14,8 @@ import {
 import {
   Plus,
   LineChart,
-  TableIcon,
-  BarChart3,
+  Table,
+  Chart,
   ExternalLink,
   DataPoint,
 } from "@dashframe/ui/icons";
@@ -70,7 +70,7 @@ export function InsightPreviewTab({
   const getVizIcon = (type: string) => {
     switch (type) {
       case "bar":
-        return <BarChart3 className="h-5 w-5" />;
+        return <Chart className="h-5 w-5" />;
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
@@ -78,7 +78,7 @@ export function InsightPreviewTab({
         return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
-        return <TableIcon className="h-5 w-5" />;
+        return <Table className="h-5 w-5" />;
     }
   };
 
@@ -185,7 +185,7 @@ export function InsightPreviewTab({
             <Card className="bg-muted/30 border-dashed">
               <CardContent className="p-8 text-center">
                 <div className="bg-muted mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full">
-                  <BarChart3 className="text-muted-foreground h-6 w-6" />
+                  <Chart className="text-muted-foreground h-6 w-6" />
                 </div>
                 <p className="text-muted-foreground text-sm">
                   Create a visualization to see your data come to life

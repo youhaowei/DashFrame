@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { Surface, Toggle } from "@dashframe/ui";
-import { BarChart3, TableIcon, Layers } from "@dashframe/ui/icons";
+import { Chart, Table, Layers } from "@dashframe/ui/icons";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
@@ -163,7 +163,7 @@ export function VisualizationDisplay({
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
           <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
-            <BarChart3 className="h-6 w-6" />
+            <Chart className="h-6 w-6" />
           </div>
           <p className="text-foreground text-lg font-semibold">
             No visualization yet
@@ -185,7 +185,7 @@ export function VisualizationDisplay({
         <div className="border-border/60 bg-background/60 border-b px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="bg-primary/10 text-primary rounded-full p-2">
-              <TableIcon className="h-4 w-4" />
+              <Table className="h-4 w-4" />
             </div>
             <div>
               <p className="text-muted-foreground text-xs tracking-wide">
@@ -243,12 +243,12 @@ export function VisualizationDisplay({
               options={[
                 {
                   value: "chart",
-                  icon: <BarChart3 className="h-3.5 w-3.5" />,
+                  icon: <Chart className="h-3.5 w-3.5" />,
                   label: "Chart",
                 },
                 {
                   value: "table",
-                  icon: <TableIcon className="h-3.5 w-3.5" />,
+                  icon: <Table className="h-3.5 w-3.5" />,
                   label: "Table",
                 },
                 {

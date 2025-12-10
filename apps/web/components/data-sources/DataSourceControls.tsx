@@ -14,10 +14,10 @@ import {
 import {
   ChevronDown,
   Database,
-  Loader2,
+  Loader,
   Plus,
-  RefreshCw,
-  Trash2,
+  Refresh,
+  Delete,
 } from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
@@ -214,7 +214,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
       <div className="space-y-2">
         <Button variant="destructive" className="w-full" onClick={handleDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
+          <Delete className="mr-2 h-4 w-4" />
           Delete Data Source
         </Button>
       </div>
@@ -309,7 +309,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 title="Refresh databases list from Notion"
                 aria-label="Refresh databases list from Notion"
               >
-                <RefreshCw
+                <Refresh
                   className={cn(
                     "h-3 w-3",
                     isLoadingDatabases && "animate-spin",
@@ -390,7 +390,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               {/* Available Notion Databases */}
               {isLoadingDatabases ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+                  <Loader className="text-muted-foreground h-4 w-4 animate-spin" />
                 </div>
               ) : (
                 (() => {

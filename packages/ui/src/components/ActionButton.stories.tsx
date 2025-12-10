@@ -2,10 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { ActionButton } from "./ActionButton";
 import {
   Plus,
-  Trash2,
+  Delete,
   Refresh,
   Database,
-  Edit3,
+  Edit,
   ArrowRight,
 } from "../lib/icons";
 
@@ -61,7 +61,7 @@ export const Compact: Story = {
   args: {
     label: "Delete",
     onClick: () => alert("Delete clicked"),
-    icon: Trash2,
+    icon: Delete,
     variant: "destructive",
     compact: true,
     tooltip: "Delete item",
@@ -90,7 +90,7 @@ export const Variants: Story = {
           label="Destructive"
           onClick={() => {}}
           variant="destructive"
-          icon={Trash2}
+          icon={Delete}
         />
       </div>
     </div>
@@ -112,7 +112,7 @@ export const WithIcons: Story = {
       <ActionButton
         label="Edit"
         onClick={() => {}}
-        icon={Edit3}
+        icon={Edit}
         variant="outline"
       />
       <ActionButton
@@ -124,7 +124,7 @@ export const WithIcons: Story = {
       <ActionButton
         label="Delete"
         onClick={() => {}}
-        icon={Trash2}
+        icon={Delete}
         variant="destructive"
       />
     </div>
@@ -166,7 +166,7 @@ export const CompactMode: Story = {
       <ActionButton
         label="Delete"
         onClick={() => {}}
-        icon={Trash2}
+        icon={Delete}
         variant="destructive"
         compact
         tooltip="Delete item"

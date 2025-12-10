@@ -9,9 +9,9 @@ import {
 } from "./navigation-menu";
 import {
   Database,
-  BarChart3,
+  Chart,
   Settings,
-  FileText,
+  File,
   Users,
   Shield,
 } from "../lib/icons";
@@ -103,14 +103,14 @@ export const WithIcons: Story = {
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <FileText className="mb-2" />
+                <File className="mb-2" />
                 <div className="font-medium">DataFrames</div>
                 <div className="text-muted-foreground text-xs">
                   Transform and prepare your data
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <BarChart3 className="mb-2" />
+                <Chart className="mb-2" />
                 <div className="font-medium">Visualizations</div>
                 <div className="text-muted-foreground text-xs">
                   Create charts and dashboards
@@ -131,7 +131,7 @@ export const WithIcons: Story = {
           <NavigationMenuContent>
             <div className="grid w-[500px] grid-cols-2 gap-3 p-4">
               <NavigationMenuLink href="#">
-                <FileText className="mb-2" />
+                <File className="mb-2" />
                 <div className="font-medium">Documentation</div>
                 <div className="text-muted-foreground text-xs">
                   Complete guides and API reference
@@ -196,7 +196,7 @@ export const FullApplicationNav: Story = {
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
-                      <BarChart3 className="mb-2" />
+                      <Chart className="mb-2" />
                       <div className="font-medium">Analytics</div>
                       <div className="text-muted-foreground text-xs">
                         Create beautiful visualizations

@@ -6,12 +6,12 @@ import {
   Card,
 } from "@dashframe/ui";
 import {
-  BarChart3,
+  Chart,
   LayoutGrid,
   List,
   Moon,
   Sun,
-  TableIcon,
+  Table,
 } from "@dashframe/ui/icons";
 
 export default function ToggleTestPage() {
@@ -40,12 +40,12 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-4 w-4" />,
+                icon: <Chart className="h-4 w-4" />,
                 label: "Chart",
               },
               {
                 value: "table",
-                icon: <TableIcon className="h-4 w-4" />,
+                icon: <Table className="h-4 w-4" />,
                 label: "Data Table",
                 badge: 100,
               },
@@ -76,12 +76,12 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-3 w-3" />,
+                icon: <Chart className="h-3 w-3" />,
                 label: "Chart",
               },
               {
                 value: "table",
-                icon: <TableIcon className="h-3 w-3" />,
+                icon: <Table className="h-3 w-3" />,
                 label: "Table",
                 badge: 100,
               },

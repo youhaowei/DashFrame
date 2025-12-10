@@ -25,7 +25,7 @@ packages/ui/
 
 ```typescript
 import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
-import { RefreshCw } from "@dashframe/ui/icons";
+import { Refresh } from "@dashframe/ui/icons";
 ```
 
 **Icon imports**: Always import icons from `@dashframe/ui/icons` (never from the package root). A lint rule (`no-restricted-imports`) in `apps/web` enforces this.
@@ -288,14 +288,27 @@ Follow these design tokens for consistent visual language across the application
 
 **Rationale**: Larger radius on main containers creates visual hierarchy. Nested elements use slightly smaller radius to distinguish from parents.
 
-### Icon Sizing
+### Icons
 
+**Import from centralized icon system**: All icons are exported from `@dashframe/ui/icons` with semantic names.
+
+```typescript
+import { Chart, Delete, Edit, Close } from "@dashframe/ui/icons";
+```
+
+**Semantic naming**: Icons are named by their purpose or action, not their visual appearance:
+- Actions: `Edit`, `Delete`, `Close`, `Refresh`, `Search`, `Copy`
+- Navigation: `ArrowLeft`, `ChevronDown`, `Menu`, `Dashboard`
+- Data: `Database`, `File`, `Spreadsheet`, `Chart`, `Table`
+- Status: `Loader`, `Check`, `Alert`, `Info`, `Pending`
+
+**Icon sizing**:
 - **Inline with text**: `h-4 w-4`
 - **Standalone**: `h-5 w-5`
 - **Section headers**: `h-6 w-6`
 - **Empty states**: `h-12 w-12` or larger
 
-**Consistency**: Always use Lucide React icons (`lucide-react` package). Maintain consistent sizing within the same context.
+**Consistency**: All icons come from Lucide (via react-icons). Use the centralized exports to ensure consistency. ESLint enforces this via the `no-restricted-imports` rule.
 
 ### Typography
 
@@ -388,7 +401,7 @@ import { ActionGroup } from "@/components/shared/ActionGroup";
     },
     {
       label: "Delete",
-      icon: Trash2,
+      icon: Delete,
       onClick: handleDelete,
       variant: "destructive",
       disabled: !selectedItem,
