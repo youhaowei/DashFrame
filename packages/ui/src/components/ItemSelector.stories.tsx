@@ -1,14 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
-import {
-  Database,
-  File,
-  Chart,
-  Plus,
-  Delete,
-  Refresh,
-} from "../lib/icons";
+import { Database, File, Chart, Plus, Delete, Refresh } from "../lib/icons";
 
 const meta = {
   title: "Components/Selection/ItemSelector",

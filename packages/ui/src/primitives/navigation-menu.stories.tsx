@@ -7,14 +7,7 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
 } from "./navigation-menu";
-import {
-  Database,
-  Chart,
-  Settings,
-  File,
-  Users,
-  Shield,
-} from "../lib/icons";
+import { Database, Chart, Settings, File, Users, Shield } from "../lib/icons";
 
 const meta = {
   title: "Primitives/Navigation/NavigationMenu",

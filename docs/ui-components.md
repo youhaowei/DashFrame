@@ -299,8 +299,8 @@ import { Chart, Delete, Edit, Close } from "@dashframe/ui/icons";
 **Semantic naming**: Icons are named by their purpose or action, not their visual appearance:
 - Actions: `Edit`, `Delete`, `Close`, `Refresh`, `Search`, `Copy`
 - Navigation: `ArrowLeft`, `ChevronDown`, `Menu`, `Dashboard`
-- Data: `Database`, `File`, `Spreadsheet`, `Chart`, `Table`
-- Status: `Loader`, `Check`, `Alert`, `Info`, `Pending`
+- Data: `Database`, `File`, `Spreadsheet`, `Chart`, `TableIcon`
+- Status: `Loader`, `Check`, `AlertCircle`, `Info`, `Pending`
 
 **Icon sizing**:
 - **Inline with text**: `h-4 w-4`

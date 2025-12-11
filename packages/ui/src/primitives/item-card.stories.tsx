@@ -1,13 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ItemCard } from "./item-card";
-import {
-  Database,
-  Chart,
-  LineChart,
-  Table,
-  Edit,
-  Delete,
-} from "../lib/icons";
+import { Database, Chart, LineChart, Table, Edit, Delete } from "../lib/icons";
 
 const meta = {
   title: "Primitives/Cards/ItemCard",

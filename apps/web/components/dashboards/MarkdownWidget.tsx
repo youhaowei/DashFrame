@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button, cn } from "@dashframe/ui";
-import { Check, Edit, Close } from "@dashframe/ui/icons";
+import { Check, Close } from "@dashframe/ui/icons";
 
 interface MarkdownWidgetProps {
   content: string;

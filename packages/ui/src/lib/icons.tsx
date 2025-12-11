@@ -112,7 +112,7 @@ export { LuSun as Sun };
 
 // Data Visualization
 export { LuTrendingUp as Chart };
-export { LuTable as Table };
+export { LuTable as TableIcon };
 export { LuList as List };
 export { LuLayers as Layers };
 
@@ -131,7 +131,7 @@ export { SiGithub as Github };
 export { LuCheck as Check };
 export { LuCircleCheck as CheckCircle };
 export { LuSquareCheck as CheckSquare };
-export { LuCircleAlert as Alert };
+export { LuCircleAlert as AlertCircle };
 export { LuInfo as Info };
 export { LuLoader as Loader };
 export { LuCircleDot as Pending };

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { Surface, Toggle } from "@dashframe/ui";
-import { Chart, Table, Layers } from "@dashframe/ui/icons";
+import { Chart, TableIcon, Layers } from "@dashframe/ui/icons";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
@@ -185,7 +185,7 @@ export function VisualizationDisplay({
         <div className="border-border/60 bg-background/60 border-b px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="bg-primary/10 text-primary rounded-full p-2">
-              <Table className="h-4 w-4" />
+              <TableIcon className="h-4 w-4" />
             </div>
             <div>
               <p className="text-muted-foreground text-xs tracking-wide">
@@ -248,7 +248,7 @@ export function VisualizationDisplay({
                 },
                 {
                   value: "table",
-                  icon: <Table className="h-3.5 w-3.5" />,
+                  icon: <TableIcon className="h-3.5 w-3.5" />,
                   label: "Table",
                 },
                 {

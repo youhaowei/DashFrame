@@ -91,7 +91,7 @@ export default defineConfig([
                 "Sun",
                 // Data Visualization
                 "Chart",
-                "Table",
+                "TableIcon",
                 "List",
                 "Layers",
                 // Data Sources & Files
@@ -107,7 +107,7 @@ export default defineConfig([
                 "Check",
                 "CheckCircle",
                 "CheckSquare",
-                "Alert",
+                "AlertCircle",
                 "Info",
                 "Loader",
                 "Pending",

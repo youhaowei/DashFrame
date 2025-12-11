@@ -138,10 +138,10 @@ import { Chart, Delete, Edit, Close } from "@dashframe/ui/icons";
 - **Actions**: `Plus`, `Edit`, `Delete`, `Copy`, `Refresh`, `Close`, `Eye`, `ExternalLink`, `Merge`
 - **Settings**: `Settings`, `Shield`, `More`
 - **Theme**: `Moon`, `Sun`
-- **Data Visualization**: `Chart`, `Table`, `List`, `Layers`
+- **Data Visualization**: `Chart`, `TableIcon`, `List`, `Layers`
 - **Data Sources**: `Database`, `File`, `Notion`, `Cloud`, `Spreadsheet`, `Calculator`
 - **Brands**: `Github`, `Notion`
-- **Status & Feedback**: `Check`, `CheckCircle`, `Alert`, `Info`, `Loader`, `Pending`
+- **Status & Feedback**: `Check`, `CheckCircle`, `AlertCircle`, `Info`, `Loader`, `Pending`
 - **Data Types**: `TextType`, `NumberType`, `DateType`, `BooleanType`
 - **UI Elements**: `Circle`, `Dot`, `DataPoint`
 - **Utilities**: `Sparkles`, `Help`, `Terminal`, `Lightbulb`, `Search`, `Users`

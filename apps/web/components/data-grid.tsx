@@ -10,7 +10,6 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
-  More,
   Button,
   Surface,
   DropdownMenu,
@@ -26,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@dashframe/ui";
+import { More } from "@dashframe/ui/icons";
 
 interface DataGridProps<TData> {
   data: TData[];
@@ -52,48 +52,46 @@ export function DataGrid<TData>({
   const columnsWithActions: ColumnDef<TData>[] = React.useMemo(
     () => [
       ...columns,
+      ...(onEdit || onDelete
         ? [
-        {
-          id: "actions",
-          cell: ({ row }: { row: { original: TData } }) => {
-            return (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="h-8 w-8 p-0">
-                    import {More} from "@dashframe/ui/icons";
-                    <span className="sr-only">Open menu</span>
-                    <More className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                  {onEdit && (
-                    <>
-                      <DropdownMenuItem
-                        onClick={() => onEdit(row.original)}
-                      >
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  {onDelete && (
-                    <DropdownMenuItem
-                      onClick={() => onDelete(row.original)}
-                      className="text-destructive"
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            );
-          },
-        } as ColumnDef<TData>,
-      ]
-      : []),
+            {
+              id: "actions",
+              cell: ({ row }: { row: { original: TData } }) => {
+                return (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
+                        <span className="sr-only">Open menu</span>
+                        <More className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      {onEdit && (
+                        <>
+                          <DropdownMenuItem onClick={() => onEdit(row.original)}>
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      {onDelete && (
+                        <DropdownMenuItem
+                          onClick={() => onDelete(row.original)}
+                          className="text-destructive"
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              },
+            } as ColumnDef<TData>,
+          ]
+        : []),
     ],
-  [columns, onEdit, onDelete],
+    [columns, onEdit, onDelete],
   );
 
   const table = useReactTable({
