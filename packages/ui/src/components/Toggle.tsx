@@ -44,8 +44,8 @@ export interface ToggleProps<T extends string> {
  *   variant="default"
  *   value={activeTab}
  *   options={[
- *     { value: "chart", icon: <BarChart3 />, label: "Chart" },
- *     { value: "table", icon: <TableIcon />, label: "Data Table", badge: 100 }
+ *     { value: "chart", icon: <Chart />, label: "Chart" },
+ *     { value: "table", icon: <Table />, label: "Data Table", badge: 100 }
  *   ]}
  *   onValueChange={setActiveTab}
  * />

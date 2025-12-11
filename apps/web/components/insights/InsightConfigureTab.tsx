@@ -38,13 +38,13 @@ import {
 } from "@dashframe/ui";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import {
-  LuDatabase,
-  LuPlus,
-  LuX,
-  LuChevronDown,
-  LuHash,
-  LuCalculator,
-} from "react-icons/lu";
+  Calculator,
+  ChevronDown,
+  Database,
+  Hash,
+  Plus,
+  X,
+} from "@dashframe/ui/icons";
 import {
   computeInsightPreview,
   computeInsightDataFrame,
@@ -466,11 +466,11 @@ export function InsightConfigureTab({
         const columns =
           sampleRows.length > 0
             ? Object.keys(sampleRows[0])
-                .filter((key) => !key.startsWith("_"))
-                .map((name) => ({
-                  name,
-                  _isJoined: allJoinColNames.has(name),
-                }))
+              .filter((key) => !key.startsWith("_"))
+              .map((name) => ({
+                name,
+                _isJoined: allJoinColNames.has(name),
+              }))
             : [];
 
         // Store SQL for async pagination + sample rows for suggestions
@@ -936,14 +936,14 @@ export function InsightConfigureTab({
       name: string;
       type: "string" | "number" | "boolean" | "date" | "unknown";
     }> = [
-      ...selectedColumns.map((col) => ({
-        name: col.name,
-        type: col.type as "string" | "number" | "boolean" | "date" | "unknown",
-      })),
-      ...insightMetrics
-        .filter((m) => !m.name.startsWith("_"))
-        .map((m) => ({ name: m.name, type: "number" as const })),
-    ];
+        ...selectedColumns.map((col) => ({
+          name: col.name,
+          type: col.type as "string" | "number" | "boolean" | "date" | "unknown",
+        })),
+        ...insightMetrics
+          .filter((m) => !m.name.startsWith("_"))
+          .map((m) => ({ name: m.name, type: "number" as const })),
+      ];
 
     return {
       dataFrame: {
@@ -1017,13 +1017,13 @@ export function InsightConfigureTab({
       // Build preview data from joined data when available, otherwise use raw preview
       const previewData = hasJoins
         ? {
-            fieldIds: joinedPreviewData.columns.map((c) => c.name),
-            columns: joinedPreviewData.columns.map((c) => ({
-              name: c.name,
-              type: (c.type ?? "unknown") as ColumnType,
-            })),
-            rows: joinedPreviewData.sampleRows,
-          }
+          fieldIds: joinedPreviewData.columns.map((c) => c.name),
+          columns: joinedPreviewData.columns.map((c) => ({
+            name: c.name,
+            type: (c.type ?? "unknown") as ColumnType,
+          })),
+          rows: joinedPreviewData.sampleRows,
+        }
         : rawPreview!.dataFrame;
 
       // Create a minimal insight object for suggestions
@@ -1371,7 +1371,7 @@ export function InsightConfigureTab({
       title: dataTable.name,
       subtitle: `${baseRowCount.toLocaleString()} rows • ${baseFieldCount} fields`,
       badge: "base",
-      icon: <LuDatabase className="h-4 w-4" />,
+      icon: <Database className="h-4 w-4" />,
     };
 
     // Join items - show table name prominently, join info in subtitle
@@ -1383,7 +1383,7 @@ export function InsightConfigureTab({
       icon: <JoinTypeIcon type={join.joinType} size="sm" />,
       actions: [
         {
-          icon: LuX,
+          icon: X,
           label: "Remove",
           variant: "ghost" as const,
           onClick: () => handleRemoveJoin(join.id as UUID),
@@ -1423,18 +1423,18 @@ export function InsightConfigureTab({
                 size="sm"
                 onClick={() => setIsJoinFlowOpen(true)}
               >
-                <LuPlus className="mr-1 h-4 w-4" />
+                <Plus className="mr-1 h-4 w-4" />
                 Add join
               </Button>
             </div>
             <ItemList
               items={dataSourceItems}
-              onSelect={() => {}}
+              onSelect={() => { }}
               orientation="horizontal"
               gap={12}
               itemWidth={260}
               emptyMessage="No data sources"
-              emptyIcon={<LuDatabase className="h-8 w-8" />}
+              emptyIcon={<Database className="h-8 w-8" />}
             />
           </section>
 
@@ -1633,7 +1633,7 @@ export function InsightConfigureTab({
         <DropdownMenuTrigger asChild>
           <button className="text-muted-foreground hover:bg-muted/50 flex items-center gap-1 px-3 py-2 text-left text-xs font-semibold transition-colors">
             {columnName}
-            <LuChevronDown className="h-3 w-3 opacity-50" />
+            <ChevronDown className="h-3 w-3 opacity-50" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
@@ -1645,12 +1645,12 @@ export function InsightConfigureTab({
             onClick={() => handleAddField(columnName)}
             disabled={isAlreadyField}
           >
-            <LuHash className="mr-2 h-4 w-4" />
+            <Hash className="mr-2 h-4 w-4" />
             Field (group by)
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <LuCalculator className="mr-2 h-4 w-4" />
+              <Calculator className="mr-2 h-4 w-4" />
               Metric
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -1689,18 +1689,18 @@ export function InsightConfigureTab({
               size="sm"
               onClick={() => setIsJoinFlowOpen(true)}
             >
-              <LuPlus className="mr-1 h-4 w-4" />
+              <Plus className="mr-1 h-4 w-4" />
               Add join
             </Button>
           </div>
           <ItemList
             items={dataSourceItems}
-            onSelect={() => {}}
+            onSelect={() => { }}
             orientation="horizontal"
             gap={12}
             itemWidth={260}
             emptyMessage="No data sources"
-            emptyIcon={<LuDatabase className="h-8 w-8" />}
+            emptyIcon={<Database className="h-8 w-8" />}
           />
         </section>
 
@@ -1799,7 +1799,7 @@ export function InsightConfigureTab({
                       variant="secondary"
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm"
                     >
-                      <LuHash className="h-3 w-3" />
+                      <Hash className="h-3 w-3" />
                       <span>{field.name}</span>
                       <span className="text-muted-foreground text-[10px]">
                         {field.type}
@@ -1811,7 +1811,7 @@ export function InsightConfigureTab({
                         onClick={() => handleRemoveField(field.id)}
                         className="hover:bg-muted ml-0.5 rounded-full p-0.5"
                       >
-                        <LuX className="h-3 w-3" />
+                        <X className="h-3 w-3" />
                       </button>
                     </Badge>
                   );
@@ -1846,7 +1846,7 @@ export function InsightConfigureTab({
                     variant="secondary"
                     className="bg-primary/10 text-primary flex items-center gap-1.5 px-3 py-1.5 text-sm"
                   >
-                    <LuCalculator className="h-3 w-3" />
+                    <Calculator className="h-3 w-3" />
                     <span>{metric.name}</span>
                     <span className="text-primary/60 text-[10px]">
                       {metric.aggregation}
@@ -1858,7 +1858,7 @@ export function InsightConfigureTab({
                       onClick={() => handleRemoveMetric(metric.id)}
                       className="hover:bg-primary/20 ml-0.5 rounded-full p-0.5"
                     >
-                      <LuX className="h-3 w-3" />
+                      <X className="h-3 w-3" />
                     </button>
                   </Badge>
                 ))}

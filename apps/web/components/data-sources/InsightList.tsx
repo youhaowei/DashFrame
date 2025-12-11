@@ -1,4 +1,5 @@
-import { ItemCard, Lightbulb } from "@dashframe/ui";
+import { ItemCard } from "@dashframe/ui";
+import { Lightbulb } from "@dashframe/ui/icons";
 import type { InsightInfo } from "@/hooks/useInsights";
 
 export interface InsightListProps {

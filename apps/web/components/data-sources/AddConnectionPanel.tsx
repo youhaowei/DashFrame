@@ -11,10 +11,10 @@ import {
   Label,
   Alert,
   AlertDescription,
-  Notion,
 } from "@dashframe/ui";
+import { Notion } from "@dashframe/ui/icons";
 
-interface NotionConfig {
+export interface NotionConfig {
   title?: string;
   description?: string;
   hint?: string;

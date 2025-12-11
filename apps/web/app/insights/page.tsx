@@ -42,18 +42,21 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  Plus,
-  Trash2,
-  Settings,
-  FileText,
-  MoreHorizontal,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink } from "react-icons/lu";
+import {
+  Chart,
+  ExternalLink,
+  File,
+  More,
+  Plus,
+  Search,
+  Settings,
+  Delete,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
@@ -190,11 +193,11 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <BarChart3 className="text-primary h-5 w-5" />;
+        return <Chart className="text-primary h-5 w-5" />;
       case "configured":
         return <Settings className="text-muted-foreground h-5 w-5" />;
       case "draft":
-        return <FileText className="text-muted-foreground h-5 w-5" />;
+        return <File className="text-muted-foreground h-5 w-5" />;
     }
   };
 
@@ -255,7 +258,7 @@ export default function InsightsPage() {
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <More className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -265,7 +268,7 @@ export default function InsightsPage() {
                   router.push(`/insights/${item.insight.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -277,7 +280,7 @@ export default function InsightsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -306,7 +309,7 @@ export default function InsightsPage() {
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -361,7 +364,7 @@ export default function InsightsPage() {
                   className="text-destructive hover:text-destructive"
                   onClick={handleDeleteAllDrafts}
                 >
-                  <Trash2 className="mr-1 h-4 w-4" />
+                  <Delete className="mr-1 h-4 w-4" />
                   Delete all
                 </Button>
               </div>
@@ -375,7 +378,7 @@ export default function InsightsPage() {
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <FileText className="text-muted-foreground h-8 w-8" />
+                <File className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>

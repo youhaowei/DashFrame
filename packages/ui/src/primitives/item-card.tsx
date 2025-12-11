@@ -75,7 +75,7 @@ export interface ItemCardProps {
  * ```tsx
  * <ItemCard
  *   preview={<VegaChart spec={chartSpec} />}
- *   icon={<BarChart3 className="h-8 w-8" />}
+ *   icon={<Chart className="h-8 w-8" />}
  *   title="Revenue by Region"
  *   subtitle="Created Jan 15"
  *   badge="Bar Chart"
@@ -90,7 +90,7 @@ export interface ItemCardProps {
  *   title="Document"
  *   actions={[
  *     { label: "Edit", icon: Edit, onClick: handleEdit },
- *     { label: "Delete", icon: Trash2, onClick: handleDelete, variant: "destructive" }
+ *     { label: "Delete", icon: Delete, onClick: handleDelete, variant: "destructive" }
  *   ]}
  * />
  * ```

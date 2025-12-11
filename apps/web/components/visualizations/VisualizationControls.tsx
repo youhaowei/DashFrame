@@ -3,11 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  RefreshCw,
-  Trash2,
-  ChevronDown,
-  CheckIcon,
-  ArrowUpDown,
   Input,
   Label,
   Button,
@@ -29,7 +24,18 @@ import {
   SelectField,
 } from "@dashframe/ui";
 import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
-import { Copy, Info, Hash, Calendar, Type } from "@dashframe/ui/icons";
+import {
+  ArrowUpDown,
+  Calendar,
+  Check,
+  ChevronDown,
+  Copy,
+  Hash,
+  Info,
+  Refresh,
+  Delete,
+  Type,
+} from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import {
@@ -316,18 +322,18 @@ function getRankedColumnOptions(
  */
 interface ProvenanceSummaryProps {
   insight:
-    | {
-        id: string;
-        name: string;
-        lastComputedAt?: number;
-        filters?: {
-          excludeNulls?: boolean;
-          limit?: number;
-          orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" };
-        };
-      }
-    | null
-    | undefined;
+  | {
+    id: string;
+    name: string;
+    lastComputedAt?: number;
+    filters?: {
+      excludeNulls?: boolean;
+      limit?: number;
+      orderBy?: { fieldOrMetricId: string; direction: "asc" | "desc" };
+    };
+  }
+  | null
+  | undefined;
   dataFrameEntry: DataFrameEntry | null;
   source: { name: string } | null;
   dataTable: { name: string } | null;
@@ -490,7 +496,7 @@ function ProvenanceSummary({
           onClick={onRefresh}
           disabled={isRefreshing}
         >
-          <RefreshCw
+          <Refresh
             className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
           />
           {isRefreshing ? "Refreshing..." : "Refresh data"}
@@ -686,12 +692,12 @@ export function VisualizationControls() {
   // Only allow table visualization if there are no numeric columns
   const visualizationTypeOptions = hasNumericColumns
     ? [
-        { label: "Table", value: "table" },
-        { label: "Bar Chart", value: "bar" },
-        { label: "Line Chart", value: "line" },
-        { label: "Scatter Plot", value: "scatter" },
-        { label: "Area Chart", value: "area" },
-      ]
+      { label: "Table", value: "table" },
+      { label: "Bar Chart", value: "bar" },
+      { label: "Line Chart", value: "line" },
+      { label: "Scatter Plot", value: "scatter" },
+      { label: "Area Chart", value: "area" },
+    ]
     : [{ label: "Table", value: "table" }];
 
   const columnOptions = columns.map((col: string) => ({
@@ -967,7 +973,7 @@ export function VisualizationControls() {
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw
+            <Refresh
               className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
             />
             {isRefreshing ? "Refreshing..." : "Refresh data"}
@@ -978,7 +984,7 @@ export function VisualizationControls() {
           Duplicate
         </Button>
         <Button variant="destructive" className="w-full" onClick={handleDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
+          <Delete className="mr-2 h-4 w-4" />
           Delete
         </Button>
       </div>
@@ -1099,7 +1105,7 @@ export function VisualizationControls() {
                   >
                     <span className="absolute right-2 flex size-3.5 items-center justify-center">
                       <RadixSelect.ItemIndicator>
-                        <CheckIcon className="size-4" />
+                        <Check className="size-4" />
                       </RadixSelect.ItemIndicator>
                     </span>
                     <div className="flex flex-col gap-0.5">
@@ -1214,7 +1220,7 @@ export function VisualizationControls() {
                   >
                     <span className="absolute right-2 flex size-3.5 items-center justify-center">
                       <RadixSelect.ItemIndicator>
-                        <CheckIcon className="size-4" />
+                        <Check className="size-4" />
                       </RadixSelect.ItemIndicator>
                     </span>
                     <div className="flex flex-col gap-0.5">

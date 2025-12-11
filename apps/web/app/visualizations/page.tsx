@@ -14,18 +14,22 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  LineChart,
-  TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuCircleDot } from "react-icons/lu";
+import {
+  Chart,
+  DataPoint,
+  ExternalLink,
+  LineChart,
+  More,
+  Plus,
+  Search,
+  Table,
+  Delete,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for visualization with joined details
@@ -112,15 +116,15 @@ export default function VisualizationsPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "bar":
-        return <BarChart3 className="h-5 w-5" />;
+        return <Chart className="h-5 w-5" />;
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
       case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        return <DataPoint className="h-5 w-5" />;
       case "table":
       default:
-        return <TableIcon className="h-5 w-5" />;
+        return <Table className="h-5 w-5" />;
     }
   };
 
@@ -209,7 +213,7 @@ export default function VisualizationsPage() {
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreHorizontal className="h-4 w-4" />
+                <More className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -219,7 +223,7 @@ export default function VisualizationsPage() {
                   router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -231,7 +235,7 @@ export default function VisualizationsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -260,7 +264,7 @@ export default function VisualizationsPage() {
             </Button>
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -282,7 +286,7 @@ export default function VisualizationsPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <BarChart3 className="text-muted-foreground h-8 w-8" />
+                <Chart className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>

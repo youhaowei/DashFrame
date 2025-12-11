@@ -1,14 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
-import {
-  Database,
-  FileText,
-  BarChart3,
-  Plus,
-  Trash2,
-  Refresh,
-} from "../lib/icons";
+import { Database, File, Chart, Plus, Delete, Refresh } from "../lib/icons";
 
 const meta = {
   title: "Components/Selection/ItemSelector",
@@ -50,7 +43,7 @@ export const Default: Story = {
         active: false,
         badge: "CSV",
         metadata: "5,420 rows",
-        icon: FileText,
+        icon: File,
       },
     ]);
 
@@ -92,7 +85,7 @@ export const Visualizations: Story = {
         active: true,
         badge: "Bar",
         metadata: "1,250 rows",
-        icon: BarChart3,
+        icon: Chart,
       },
       {
         id: "2",
@@ -100,7 +93,7 @@ export const Visualizations: Story = {
         active: false,
         badge: "Line",
         metadata: "365 rows",
-        icon: BarChart3,
+        icon: Chart,
       },
       {
         id: "3",
@@ -108,7 +101,7 @@ export const Visualizations: Story = {
         active: false,
         badge: "Pie",
         metadata: "8 categories",
-        icon: BarChart3,
+        icon: Chart,
       },
     ]);
 
@@ -203,7 +196,7 @@ export const Insights: Story = {
         active: true,
         badge: "DataFrame",
         metadata: "2,500 rows",
-        icon: FileText,
+        icon: File,
       },
       {
         id: "2",
@@ -211,7 +204,7 @@ export const Insights: Story = {
         active: false,
         badge: "DataFrame",
         metadata: "1,820 rows",
-        icon: FileText,
+        icon: File,
       },
     ]);
 
@@ -416,7 +409,7 @@ export const MultipleActions: Story = {
           {
             label: "Delete",
             onClick: () => alert("Delete"),
-            icon: Trash2,
+            icon: Delete,
             variant: "destructive",
           },
           {

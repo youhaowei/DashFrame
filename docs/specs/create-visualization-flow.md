@@ -325,7 +325,7 @@ Shows only database/property selection (no tabs needed).
 
 ### Icons
 
-- **CSV files**: `LuFileText` icon from `react-icons/lu`
+- **CSV files**: `File` icon from `@dashframe/ui/icons`
 - **Notion connection**: Custom Notion SVG logo
 - **Insights**: `LuDatabase` icon from `react-icons/lu`
 - **Plus/Add**: `LuPlus` icon from `react-icons/lu`

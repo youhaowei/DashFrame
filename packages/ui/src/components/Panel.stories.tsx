@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Panel, PanelSection } from "./Panel";
 import { Button } from "../primitives/button";
-import { Database, Plus, Refresh, Trash2 } from "../lib/icons";
+import { Database, Plus, Refresh, Delete } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Panel",
@@ -181,7 +181,7 @@ export const WithSections: Story = {
         <PanelSection title="Danger Zone">
           <div className="pb-6">
             <Button variant="destructive" size="sm">
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Delete className="mr-2 h-4 w-4" />
               Delete Account
             </Button>
           </div>

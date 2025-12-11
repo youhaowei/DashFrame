@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { EmptyState } from "./EmptyState";
-import { Database, FileText, BarChart3, Layers, Plus } from "../lib/icons";
+import { Database, File, Chart, Layers, Plus } from "../lib/icons";
 
 const meta = {
   title: "Components/Feedback/EmptyState",
@@ -35,7 +35,7 @@ export const Default: Story = {
  */
 export const WithAction: Story = {
   args: {
-    icon: FileText,
+    icon: File,
     title: "No insights yet",
     description: "Create an insight to start exploring your data",
     action: {
@@ -51,7 +51,7 @@ export const WithAction: Story = {
  */
 export const SmallSize: Story = {
   args: {
-    icon: BarChart3,
+    icon: Chart,
     title: "No results",
     description: "Try adjusting your search",
     size: "sm",
@@ -114,7 +114,7 @@ export const NoInsights: Story = {
  */
 export const NoVisualizations: Story = {
   args: {
-    icon: BarChart3,
+    icon: Chart,
     title: "No visualizations",
     description: "Select an insight and create your first chart",
     action: {
@@ -130,7 +130,7 @@ export const NoVisualizations: Story = {
  */
 export const EmptySearchResults: Story = {
   args: {
-    icon: FileText,
+    icon: File,
     title: "No results found",
     description: "Try different keywords or check your filters",
     size: "sm",
@@ -184,7 +184,7 @@ export const OutlineAction: Story = {
  */
 export const NoDataTables: Story = {
   args: {
-    icon: FileText,
+    icon: File,
     title: "No tables found",
     description:
       "This data source doesn't contain any tables or they couldn't be loaded",
@@ -197,7 +197,7 @@ export const NoDataTables: Story = {
  */
 export const EmptyDataFrame: Story = {
   args: {
-    icon: FileText,
+    icon: File,
     title: "No data",
     description: "This DataFrame is empty or hasn't been loaded yet",
     size: "md",

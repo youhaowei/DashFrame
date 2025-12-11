@@ -17,17 +17,19 @@ import {
   CardTitle,
   Surface,
   Button,
-  ChevronDown,
-  ChevronUp,
-  Database,
-  Layers,
-  Refresh,
   cn,
   InputField,
   MultiSelectField,
   VirtualTable,
   type VirtualTableColumn,
 } from "@dashframe/ui";
+import {
+  ChevronDown,
+  ChevronUp,
+  Database,
+  Layers,
+  Refresh,
+} from "@dashframe/ui/icons";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
 import type { NotionProperty } from "@dashframe/notion";

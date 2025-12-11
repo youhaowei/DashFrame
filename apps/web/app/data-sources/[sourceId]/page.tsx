@@ -10,10 +10,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Database,
-  TableIcon,
-  Plus,
-  Trash2,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,10 +20,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeft as LuArrowLeft,
-  File as LuFileSpreadsheet,
-  Cloud as LuCloud,
-  MoreHorizontal as LuMoreHorizontal,
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
@@ -36,6 +28,16 @@ import {
   BreadcrumbSeparator,
   ItemCard,
 } from "@dashframe/ui";
+import {
+  ChevronLeft,
+  Cloud,
+  Database,
+  FileSpreadsheet,
+  More,
+  Plus,
+  Table,
+  Delete,
+} from "@dashframe/ui/icons";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -52,9 +54,9 @@ interface PageProps {
 function getSourceTypeIcon(type: string) {
   switch (type) {
     case "notion":
-      return <LuCloud className="h-5 w-5" />;
+      return <Cloud className="h-5 w-5" />;
     case "local":
-      return <LuFileSpreadsheet className="h-5 w-5" />;
+      return <FileSpreadsheet className="h-5 w-5" />;
     case "postgresql":
       return <Database className="h-5 w-5" />;
     default:
@@ -214,7 +216,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     onClick={() => router.push("/data-sources")}
                     className="hover:text-foreground flex cursor-pointer items-center gap-1"
                   >
-                    <LuArrowLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-4 w-4" />
                     Back
                   </BreadcrumbLink>
                 </BreadcrumbItem>
@@ -252,7 +254,7 @@ export default function DataSourcePage({ params }: PageProps) {
 
               {dataTables.length === 0 ? (
                 <div className="py-8 text-center">
-                  <TableIcon className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
+                  <Table className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
                   <p className="text-muted-foreground text-sm">No tables yet</p>
                 </div>
               ) : (
@@ -263,7 +265,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     return (
                       <ItemCard
                         key={table.id}
-                        icon={<TableIcon className="h-4 w-4" />}
+                        icon={<Table className="h-4 w-4" />}
                         title={table.name}
                         subtitle={`${fieldCount} fields`}
                         onClick={() => setSelectedTableId(table.id)}
@@ -298,7 +300,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon">
-                      <LuMoreHorizontal className="h-4 w-4" />
+                      <More className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -306,7 +308,7 @@ export default function DataSourcePage({ params }: PageProps) {
                       onClick={handleDeleteTable}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <Delete className="mr-2 h-4 w-4" />
                       Delete Table
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -416,7 +418,7 @@ export default function DataSourcePage({ params }: PageProps) {
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <TableIcon className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
+              <Table className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
               <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
               <p className="text-muted-foreground text-sm">
                 Choose a table from the sidebar to view its details

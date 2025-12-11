@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Button, cn, Edit3, Check, X } from "@dashframe/ui";
+import { Button, cn } from "@dashframe/ui";
+import { Check, Close } from "@dashframe/ui/icons";
 
 interface MarkdownWidgetProps {
   content: string;
@@ -44,7 +45,7 @@ export function MarkdownWidget({
               onCancel();
             }}
           >
-            <X className="mr-1 h-3 w-3" />
+            <Close className="mr-1 h-3 w-3" />
             Cancel
           </Button>
           <Button size="sm" onClick={() => onSave(value)}>

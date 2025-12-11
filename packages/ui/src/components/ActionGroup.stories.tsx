@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ActionGroup } from "./ActionGroup";
-import { Plus, Trash2, Refresh, Database, Edit3, X } from "../lib/icons";
+import { Plus, Delete, Refresh, Database, Edit, X } from "../lib/icons";
 
 const meta = {
   title: "Components/Actions/ActionGroup",
@@ -56,7 +56,7 @@ export const Compact: Story = {
       {
         label: "Delete",
         onClick: () => alert("Delete"),
-        icon: Trash2,
+        icon: Delete,
         variant: "destructive",
         tooltip: "Delete item",
       },
@@ -79,7 +79,7 @@ export const CreateDelete: Story = {
       {
         label: "Delete",
         onClick: () => alert("Delete"),
-        icon: Trash2,
+        icon: Delete,
         variant: "destructive",
       },
     ],
@@ -145,7 +145,7 @@ export const MixedVariants: Story = {
         label: "Destructive",
         onClick: () => {},
         variant: "destructive",
-        icon: Trash2,
+        icon: Delete,
       },
     ],
   },
@@ -167,7 +167,7 @@ export const CompactWithTooltips: Story = {
       {
         label: "Edit Settings",
         onClick: () => {},
-        icon: Edit3,
+        icon: Edit,
         variant: "outline",
         tooltip: "Edit data source settings",
       },
@@ -181,7 +181,7 @@ export const CompactWithTooltips: Story = {
       {
         label: "Delete Selected",
         onClick: () => {},
-        icon: Trash2,
+        icon: Delete,
         variant: "destructive",
         tooltip: "Delete selected data source",
       },

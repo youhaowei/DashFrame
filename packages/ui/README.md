@@ -8,7 +8,7 @@ This package provides a comprehensive set of UI components used across the DashF
 
 - **23 shadcn/ui primitives** - Standard UI components built on Radix UI (Button, Card, Dialog, Select, etc.)
 - **11 custom shared components** - DashFrame-specific patterns (ActionGroup, ItemSelector, Panel, Toggle, etc.)
-- **Icon library** - Curated exports from react-icons (Lucide, Feather, Simple Icons)
+- **Icon library** - Curated exports from react-icons (Lucide, Feather, Simple Icons) via `@dashframe/ui/icons`
 - **Utilities** - `cn()` for className merging with tailwind-merge
 - **Design tokens** - Tailwind CSS v4 configuration with consistent spacing, colors, and typography
 
@@ -26,7 +26,7 @@ This package is part of the DashFrame monorepo and uses workspace dependencies:
 
 ## Usage
 
-Import components from the package root:
+Import components from the package root and icons from the dedicated icon entrypoint:
 
 ```typescript
 import {
@@ -41,9 +41,10 @@ import {
   ActionGroup,
   Toggle,
   cn,
-  RefreshCw,
-  CheckIcon,
 } from "@dashframe/ui";
+
+// Icons
+import { Refresh, Check } from "@dashframe/ui/icons";
 ```
 
 ### Examples
@@ -89,12 +90,12 @@ export function DataPanel() {
 #### Using icons
 
 ```typescript
-import { RefreshCw, CheckIcon, XIcon } from "@dashframe/ui";
+import { Loader, Check, Close } from "@dashframe/ui/icons";
 
 export function StatusIndicator({ status }: { status: "loading" | "success" | "error" }) {
-  if (status === "loading") return <RefreshCw className="h-4 w-4 animate-spin" />;
-  if (status === "success") return <CheckIcon className="h-4 w-4 text-green-500" />;
-  return <XIcon className="h-4 w-4 text-red-500" />;
+  if (status === "loading") return <Loader className="h-4 w-4 animate-spin" />;
+  if (status === "success") return <Check className="h-4 w-4 text-green-500" />;
+  return <Close className="h-4 w-4 text-red-500" />;
 }
 ```
 
@@ -122,17 +123,30 @@ DashFrame-specific reusable patterns:
 - **CollapseHandle** - Visual affordance for collapsible areas
 - **Container**, **Stack**, **EmptyState**, **Card**, **Tooltip**
 
-### Icons (`src/lib/icons.tsx`)
+### Icons (`@dashframe/ui/icons`)
 
-Curated icon exports from react-icons with semantic names:
+Curated icon exports from react-icons with **semantic names** that describe their purpose, not their visual appearance. Always import icons from `@dashframe/ui/icons` (never from `@dashframe/ui` or `react-icons` directly):
 
-- **Navigation**: ChevronDown, ChevronUp, ArrowUpDown, Menu
-- **Actions**: Plus, Edit3, Delete, Refresh, Close
-- **Data**: Table, Chart, Database, File
-- **UI**: Check, X, Circle, Hash, Calendar, Type
-- **Integrations**: Notion
+```typescript
+import { Chart, Delete, Edit, Close } from "@dashframe/ui/icons";
+```
 
-All icons export both specific names (e.g., `RefreshCw`) and generic aliases (e.g., `Refresh`).
+**Icon categories**:
+
+- **Navigation & Layout**: `ArrowLeft`, `ArrowRight`, `ChevronDown`, `ChevronUp`, `Menu`, `DragHandle`
+- **Pages & Views**: `Dashboard`, `Grid`
+- **Actions**: `Plus`, `Edit`, `Delete`, `Copy`, `Refresh`, `Close`, `Eye`, `ExternalLink`, `Merge`
+- **Settings**: `Settings`, `Shield`, `More`
+- **Theme**: `Moon`, `Sun`
+- **Data Visualization**: `Chart`, `TableIcon`, `List`, `Layers`
+- **Data Sources**: `Database`, `File`, `Notion`, `Cloud`, `Spreadsheet`, `Calculator`
+- **Brands**: `Github`, `Notion`
+- **Status & Feedback**: `Check`, `CheckCircle`, `AlertCircle`, `Info`, `Loader`, `Pending`
+- **Data Types**: `TextType`, `NumberType`, `DateType`, `BooleanType`
+- **UI Elements**: `Circle`, `Dot`, `DataPoint`
+- **Utilities**: `Sparkles`, `Help`, `Terminal`, `Lightbulb`, `Search`, `Users`
+
+**Naming principle**: Icons use semantic names (e.g., `Delete` not `Trash2`, `Chart` not `BarChart3`, `Close` not `X`) to clearly communicate their purpose in code.
 
 ## Development
 

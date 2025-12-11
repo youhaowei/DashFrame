@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { SharedTooltip } from "./Tooltip";
 import { Button } from "../../primitives/button";
-import { Database, Plus, Trash2, RefreshCw, BarChart3 } from "../../lib/icons";
+import { Database, Plus, Delete, Refresh, Chart } from "../../lib/icons";
 
 const meta = {
   title: "Components/Feedback/Tooltip",
@@ -47,7 +47,7 @@ export const DestructiveButton: Story = {
     content: "Delete permanently",
     children: (
       <Button size="icon" variant="destructive">
-        <Trash2 className="h-4 w-4" />
+        <Delete className="h-4 w-4" />
       </Button>
     ),
   },
@@ -78,13 +78,13 @@ export const IconOnlyActions: Story = {
 
       <SharedTooltip content="Refresh data">
         <Button size="icon" variant="outline">
-          <RefreshCw className="h-4 w-4" />
+          <Refresh className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Delete item">
         <Button size="icon" variant="destructive">
-          <Trash2 className="h-4 w-4" />
+          <Delete className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>
@@ -235,7 +235,7 @@ export const CompactActionButtons: Story = {
     <div className="flex gap-2">
       <SharedTooltip content="Create visualization">
         <Button size="icon" className="h-9 w-9 rounded-full">
-          <BarChart3 className="h-4 w-4" />
+          <Chart className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
@@ -247,7 +247,7 @@ export const CompactActionButtons: Story = {
 
       <SharedTooltip content="Refresh all">
         <Button size="icon" variant="outline" className="h-9 w-9 rounded-full">
-          <RefreshCw className="h-4 w-4" />
+          <Refresh className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>

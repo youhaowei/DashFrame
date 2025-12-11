@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../primitives/select";
-import { CheckIcon } from "../lib/icons";
+import { Check } from "../lib/icons";
 import { cn } from "../lib/utils";
 import * as SelectPrimitiveParts from "@radix-ui/react-select";
 
@@ -55,7 +55,7 @@ export function Select({
             >
               <span className="absolute right-2 flex size-3.5 items-center justify-center">
                 <SelectPrimitiveParts.ItemIndicator>
-                  <CheckIcon className="size-4" />
+                  <Check className="size-4" />
                 </SelectPrimitiveParts.ItemIndicator>
               </span>
               <div className="flex flex-col gap-0.5">

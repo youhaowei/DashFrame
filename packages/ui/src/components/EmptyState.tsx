@@ -62,7 +62,7 @@ const sizeConfig = {
  *
  * // With action button
  * <EmptyState
- *   icon={FileText}
+ *   icon={File}
  *   title="No insights yet"
  *   description="Create an insight to start exploring your data"
  *   action={{

@@ -4,21 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  type LucideIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  Github,
-  LayoutDashboard,
-  LayoutGrid,
-  LineChart,
-  Sparkles,
-  Menu,
-  X,
-  Settings,
-  Trash2,
   Button,
   Dialog,
   DialogContent,
@@ -32,6 +17,23 @@ import {
   DropdownMenuItem,
   cn,
 } from "@dashframe/ui";
+import {
+  type LucideIcon,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Database,
+  Github,
+  Dashboard,
+  LayoutGrid,
+  LineChart,
+  Menu,
+  Settings,
+  Sparkles,
+  Delete,
+  X,
+} from "@dashframe/ui/icons";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -59,7 +61,7 @@ const navItems: NavItem[] = [
     name: "Visualizations",
     href: "/visualizations",
     description: "Create, edit, and view visualizations",
-    icon: LayoutDashboard,
+    icon: Dashboard,
   },
   {
     name: "Insights",
@@ -171,7 +173,7 @@ function SidebarContent({
                 isActive && !isCollapsed
                   ? "bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
                   : !isCollapsed &&
-                      "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 isActive && isCollapsed && "bg-primary/10 text-primary",
               )}
               title={isCollapsed ? item.name : undefined}
@@ -224,7 +226,7 @@ function SidebarContent({
                 onClick={onClearData}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Delete className="mr-2 h-4 w-4" />
                 Clear all data
               </DropdownMenuItem>
             </DropdownMenuContent>

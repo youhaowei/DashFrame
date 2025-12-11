@@ -3,13 +3,14 @@
 import "./config";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, DataFrameSerialization } from "@dashframe/dataframe";
 import {
   DataFrame as DataFrameClass,
   deleteArrowData,
 } from "@dashframe/dataframe";
+import { superjsonStorage } from "./storage";
 
 // ============================================================================
 // State Interface
@@ -101,45 +102,6 @@ interface DataFramesActions {
 }
 
 type DataFramesStore = DataFramesState & DataFramesActions;
-
-// ============================================================================
-// Storage Serialization (for Map support)
-// ============================================================================
-
-type PersistedDataFramesState = Pick<DataFramesState, "dataFrames">;
-
-const storage = createJSONStorage<PersistedDataFramesState>(
-  () => localStorage,
-  {
-    reviver: (_key, value: unknown) => {
-      if (value && typeof value === "object") {
-        const obj = value as Record<string, unknown>;
-
-        // Handle dataFrames Map
-        if ("dataFrames" in obj && Array.isArray(obj.dataFrames)) {
-          const dataFramesMap = new Map(
-            obj.dataFrames as [UUID, DataFrameEntry][],
-          );
-          obj.dataFrames = dataFramesMap;
-          // Rebuild cached entries array
-          obj._cachedEntries = Array.from(dataFramesMap.values());
-        }
-
-        return obj;
-      }
-      return value;
-    },
-    replacer: (_key, value: unknown) => {
-      // Skip cached arrays (they're derived from Maps)
-      if (_key === "_cachedEntries") return undefined;
-      // Convert Maps to arrays for JSON serialization
-      if (value instanceof Map) {
-        return Array.from(value.entries());
-      }
-      return value;
-    },
-  },
-);
 
 // ============================================================================
 // Store Implementation
@@ -264,7 +226,7 @@ export const useDataFramesStore = create<DataFramesStore>()(
     })),
     {
       name: "dashframe:dataframes",
-      storage,
+      storage: superjsonStorage,
       partialize: (state) => ({
         dataFrames: state.dataFrames,
       }),

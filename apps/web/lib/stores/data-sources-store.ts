@@ -3,7 +3,7 @@
 import "./config";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
 import type {
@@ -13,6 +13,7 @@ import type {
   DataTable,
 } from "./types";
 import { isNotionDataSource, isLocalDataSource } from "./types";
+import { superjsonStorage } from "./storage";
 
 // ============================================================================
 // State Interface
@@ -122,135 +123,6 @@ const rebuildCache = (state: DataSourcesState) => {
     },
   );
 };
-
-// ============================================================================
-// Storage Serialization (for Map support)
-// ============================================================================
-
-// Type for legacy data tables that may have old field names from previous schema versions
-type LegacyDataTable = DataTable & {
-  sourceId?: UUID; // Old field name for dataSourceId
-  dimensions?: unknown; // Old field that was removed
-};
-
-// Type for what we actually persist (subset of full state)
-type PersistedDataSourcesState = Pick<DataSourcesState, "dataSources">;
-
-const storage = createJSONStorage<PersistedDataSourcesState>(
-  () => localStorage,
-  {
-    reviver: (_key, value) => {
-      // Convert arrays back to Maps during deserialization
-      if (
-        value &&
-        typeof value === "object" &&
-        "dataSources" in value &&
-        Array.isArray(value.dataSources)
-      ) {
-        const dataSourcesMap = new Map(
-          value.dataSources.map((ds: DataSource) => {
-            // Always ensure dataTables is initialized as a Map
-            let dataTables: Map<UUID, DataTable>;
-
-            if ("dataTables" in ds && Array.isArray(ds.dataTables)) {
-              // Convert dataTables array back to Map with migration
-              dataTables = new Map(
-                (ds.dataTables as unknown as [UUID, LegacyDataTable][]).map(
-                  ([id, dt]) => {
-                    // MIGRATION: Old DataTable → New DataTable
-
-                    // Auto-generate default count metric if missing
-                    const hasCountMetric = dt.metrics?.some(
-                      (m: Metric) => m.aggregation === "count" && !m.columnName,
-                    );
-
-                    const defaultMetrics: Metric[] = hasCountMetric
-                      ? []
-                      : [
-                          {
-                            id: crypto.randomUUID(),
-                            name: "Count",
-                            tableId: dt.id,
-                            columnName: undefined,
-                            aggregation: "count",
-                          },
-                        ];
-
-                    // Create migrated table, using legacy sourceId if present
-                    const migrated: DataTable = {
-                      id: dt.id,
-                      name: dt.name,
-                      dataSourceId: dt.sourceId ?? dt.dataSourceId,
-                      table: dt.table ?? "",
-                      dataFrameId: dt.dataFrameId,
-                      sourceSchema: dt.sourceSchema,
-                      fields: dt.fields ?? [],
-                      metrics: [...defaultMetrics, ...(dt.metrics ?? [])],
-                      createdAt: dt.createdAt,
-                    };
-
-                    return [id, migrated];
-                  },
-                ),
-              );
-            } else if ("dataTables" in ds && ds.dataTables instanceof Map) {
-              // Already a Map (shouldn't happen in serialized data, but handle it)
-              dataTables = ds.dataTables;
-            } else {
-              // Missing or invalid - initialize as empty Map (fixes old localStorage data)
-              dataTables = new Map();
-            }
-
-            return [
-              ds.id,
-              {
-                ...ds,
-                dataTables,
-              },
-            ];
-          }),
-        );
-
-        return {
-          ...value,
-          dataSources: dataSourcesMap,
-          _cachedDataSources: (() => {
-            const state: DataSourcesState = {
-              dataSources: dataSourcesMap,
-              _cachedDataSources: [],
-            };
-            rebuildCache(state);
-            return state._cachedDataSources;
-          })(), // Recreate cache without immer proxies
-        };
-      }
-      return value;
-    },
-    replacer: (_key, value) => {
-      // Skip cached array (it's derived from the Map)
-      if (_key === "_cachedDataSources") return undefined;
-      // Convert Maps to arrays for JSON serialization
-      if (value instanceof Map) {
-        return Array.from(value.entries()).map(([_id, item]) => {
-          // Also convert nested dataTables Maps to arrays
-          if (
-            typeof item === "object" &&
-            item !== null &&
-            "dataTables" in item &&
-            item.dataTables instanceof Map
-          ) {
-            return {
-              ...item,
-              dataTables: Array.from(item.dataTables.entries()),
-            };
-          }
-          return item;
-        });
-      }
-      return value;
-    },
-  },
-);
 
 // ============================================================================
 // Store Implementation
@@ -579,11 +451,11 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
     })),
     {
       name: "dashframe:data-sources",
-      storage,
+      storage: superjsonStorage,
       partialize: (state) => ({
         dataSources: state.dataSources,
       }),
-      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
+      skipHydration: true,
     },
   ),
 );

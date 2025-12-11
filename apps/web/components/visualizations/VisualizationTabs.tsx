@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Plus,
-  Database,
   ItemSelector,
   type SelectableItem,
   type ItemAction,
 } from "@dashframe/ui";
+import { Database, Plus } from "@dashframe/ui/icons";
 import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 

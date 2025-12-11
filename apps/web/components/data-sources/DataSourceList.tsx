@@ -1,4 +1,5 @@
-import { ItemCard, FileText } from "@dashframe/ui";
+import { ItemCard } from "@dashframe/ui";
+import { File } from "@dashframe/ui/icons";
 
 export interface DataSourceInfo {
   id: string;
@@ -49,7 +50,7 @@ export function DataSourceList({
       {sources.map((source) => (
         <ItemCard
           key={source.id}
-          icon={<FileText className="h-4 w-4" />}
+          icon={<File className="h-4 w-4" />}
           title={source.name}
           subtitle={`${source.tableCount} ${source.tableCount === 1 ? "table" : "tables"}`}
           badge={source.type === "local" ? "Local" : undefined}

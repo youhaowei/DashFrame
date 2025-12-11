@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 import {
-  BarChart3,
-  TableIcon,
-  List,
-  LayoutGrid,
-  Sun,
-  Moon,
   Toggle,
   Card,
 } from "@dashframe/ui";
+import {
+  Chart,
+  LayoutGrid,
+  List,
+  Moon,
+  Sun,
+  Table,
+} from "@dashframe/ui/icons";
 
 export default function ToggleTestPage() {
   const [defaultVariantValue, setDefaultVariantValue] = useState("chart");
@@ -38,12 +40,12 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-4 w-4" />,
+                icon: <Chart className="h-4 w-4" />,
                 label: "Chart",
               },
               {
                 value: "table",
-                icon: <TableIcon className="h-4 w-4" />,
+                icon: <Table className="h-4 w-4" />,
                 label: "Data Table",
                 badge: 100,
               },
@@ -74,12 +76,12 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-3 w-3" />,
+                icon: <Chart className="h-3 w-3" />,
                 label: "Chart",
               },
               {
                 value: "table",
-                icon: <TableIcon className="h-3 w-3" />,
+                icon: <Table className="h-3 w-3" />,
                 label: "Table",
                 badge: 100,
               },
@@ -172,7 +174,7 @@ export default function ToggleTestPage() {
             variant="outline"
             size="sm"
             value="light"
-            onValueChange={() => {}}
+            onValueChange={() => { }}
             options={[
               {
                 value: "light",
@@ -201,7 +203,7 @@ export default function ToggleTestPage() {
             variant="outline"
             size="sm"
             value="option1"
-            onValueChange={() => {}}
+            onValueChange={() => { }}
             options={[
               {
                 value: "option1",

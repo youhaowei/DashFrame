@@ -1,7 +1,7 @@
 import "./config";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import type { UUID, DataTableInfo } from "@dashframe/dataframe";
 import { Insight as InsightClass } from "@dashframe/dataframe";
@@ -12,6 +12,7 @@ import type {
   DataTable,
   DataSource,
 } from "./types";
+import { superjsonStorage } from "./storage";
 
 // ============================================================================
 // State Interface
@@ -78,42 +79,6 @@ interface InsightsActions {
 }
 
 type InsightsStore = InsightsState & InsightsActions;
-
-// ============================================================================
-// Storage Serialization (for Map support)
-// ============================================================================
-
-// Type for what we actually persist (subset of full state)
-type PersistedInsightsState = Pick<InsightsState, "insights">;
-
-const storage = createJSONStorage<PersistedInsightsState>(() => localStorage, {
-  reviver: (_key, value) => {
-    // Convert arrays back to Maps during deserialization
-    if (
-      value &&
-      typeof value === "object" &&
-      "insights" in value &&
-      Array.isArray(value.insights)
-    ) {
-      const insightsMap = new Map(value.insights as [UUID, Insight][]);
-      return {
-        ...value,
-        insights: insightsMap,
-        _cachedInsights: Array.from(insightsMap.values()), // Recreate cache
-      };
-    }
-    return value;
-  },
-  replacer: (_key, value) => {
-    // Skip cached array (it's derived from the Map)
-    if (_key === "_cachedInsights") return undefined;
-    // Convert Maps to arrays for JSON serialization
-    if (value instanceof Map) {
-      return Array.from(value.entries());
-    }
-    return value;
-  },
-});
 
 // ============================================================================
 // Helper Functions
@@ -437,11 +402,11 @@ export const useInsightsStore = create<InsightsStore>()(
     })),
     {
       name: "dashframe:insights",
-      storage,
+      storage: superjsonStorage,
       partialize: (state) => ({
         insights: state.insights,
       }),
-      skipHydration: true, // Prevent automatic hydration to avoid SSR mismatch
+      skipHydration: true,
     },
   ),
 );
