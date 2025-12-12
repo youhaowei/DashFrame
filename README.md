@@ -133,6 +133,52 @@ DashFrame supports importing data directly from Notion databases:
 - Keep architecture notes in `docs/`
 - Prefer incremental commits per module (app, docs, packages)
 
+## Versioning
+
+DashFrame uses [Changesets](https://github.com/changesets/changesets) for version management with a **hybrid versioning strategy**:
+
+- **Library packages** (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/notion`, `@dashframe/ui`, `@dashframe/eslint-config`): Follow strict [Semantic Versioning](https://semver.org/)
+- **Web app** (`@dashframe/web`): Marketing-driven versioning where minor versions can include breaking changes
+
+### Creating a Changeset
+
+When you make changes to any package, create a changeset to document the change:
+
+```bash
+pnpm changeset
+```
+
+The CLI will prompt you to select which packages changed, the type of change (patch/minor/major), and a summary.
+
+### Version Bump Guidelines
+
+**Library Packages (v0.x - Pre-stable):**
+
+- **Patch**: Bug fixes only
+- **Minor**: New features OR breaking changes (allowed in v0)
+- **Major**: Reserved for 1.0 stable release
+
+**Library Packages (v1.0+ - Stable):**
+
+- **Patch**: Bug fixes only
+- **Minor**: New features (backward compatible)
+- **Major**: Breaking changes
+
+**Web App:**
+
+- **Patch**: Bug fixes only
+- **Minor**: New features OR breaking changes
+- **Major**: Marketing milestones (use "MAJOR:" prefix in changeset summary)
+
+### Release Process
+
+1. Create changeset and push to PR
+2. Merge PR to `main`
+3. GitHub Action creates "Version Packages" PR
+4. Review and merge Version PR → creates git tags and releases
+
+See [docs/versioning.md](./docs/versioning.md) for comprehensive documentation and [.changeset/README.md](./.changeset/README.md) for quick reference.
+
 ## License
 
 DashFrame is MIT licensed.
