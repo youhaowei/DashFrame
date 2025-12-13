@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Field, Metric } from "@dashframe/dataframe";
+import type { Field, Metric } from "@dashframe/core";
 import {
   Dialog,
   DialogContent,

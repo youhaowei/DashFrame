@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import * as duckdb from "@duckdb/duckdb-wasm";
-import { clearAllTableCaches } from "@dashframe/dataframe";
+import { clearAllTableCaches } from "@dashframe/engine-browser";
 
 /**
  * Custom DuckDB logger with cleaner console output.

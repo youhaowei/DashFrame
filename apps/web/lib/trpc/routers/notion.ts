@@ -6,7 +6,7 @@ import {
   notionToDataFrame,
   generateFieldsFromNotionSchema,
   type NotionConfig,
-} from "@dashframe/notion";
+} from "@dashframe/connector-notion";
 
 export const notionRouter = router({
   listDatabases: publicProcedure

@@ -1,7 +1,31 @@
-import { csvToDataFrame } from "@dashframe/csv";
+import { csvToDataFrame } from "@dashframe/connector-csv";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import type { Metric } from "@dashframe/dataframe";
+import type { Metric } from "@dashframe/core";
+import type { FileParseResult } from "@dashframe/engine";
+import type { BrowserDataFrame } from "@dashframe/engine-browser";
+
+const ensureCountMetric = (
+  existing: Metric[] = [],
+  tableId: string,
+): Metric[] => {
+  const hasCount = existing.some(
+    (metric) => metric.aggregation === "count" && !metric.columnName,
+  );
+
+  if (hasCount) return existing;
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: "Count",
+      tableId,
+      columnName: undefined,
+      aggregation: "count",
+    },
+    ...existing,
+  ];
+};
 
 /**
  * Local CSV Upload Result
@@ -53,31 +77,11 @@ export async function handleLocalCSVUpload(
   const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
     await csvToDataFrame(csvData, dataTableId);
 
-  // Helper: ensure a default count metric exists
-  const ensureCountMetric = (existing: Metric[] = []): Metric[] => {
-    const hasCount = existing.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName,
-    );
-
-    if (hasCount) return existing;
-
-    return [
-      {
-        id: crypto.randomUUID(),
-        name: "Count",
-        tableId: dataTableId,
-        columnName: undefined,
-        aggregation: "count",
-      },
-      ...existing,
-    ];
-  };
-
   let dataFrameId: string;
 
   if (overrideTable) {
     // 3a. Override existing table instead of creating a new one
-    const metrics = ensureCountMetric(overrideTable.metrics);
+    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
     useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
       name: tableName,
@@ -128,6 +132,104 @@ export async function handleLocalCSVUpload(
     });
 
     // 5. Link DataFrame to DataTable
+    useDataSourcesStore
+      .getState()
+      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+  }
+
+  return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
+}
+
+/**
+ * Handle file connector result - stores a pre-converted DataFrame
+ *
+ * Use this when you have a FileParseResult from a connector's parse() method.
+ * Unlike handleLocalCSVUpload which parses CSV data, this function works with
+ * pre-converted DataFrame results from any file connector (CSV, Excel, etc.)
+ *
+ * @param fileName - Original file name
+ * @param parseResult - Result from connector.parse()
+ * @param options - Optional override behavior for existing tables
+ * @returns IDs for navigation and reference
+ */
+export async function handleFileConnectorResult(
+  fileName: string,
+  parseResult: FileParseResult,
+  options?: { overrideTableId?: string },
+): Promise<LocalCSVResult> {
+  const { fields, sourceSchema, rowCount, columnCount } = parseResult;
+  // In browser context, all DataFrames are BrowserDataFrame instances
+  const dataFrame = parseResult.dataFrame as BrowserDataFrame;
+
+  // 1. Ensure local data source exists
+  let dataSource = useDataSourcesStore.getState().getLocal();
+  if (!dataSource) {
+    useDataSourcesStore.getState().addLocal("Local Files");
+    dataSource = useDataSourcesStore.getState().getLocal();
+
+    if (!dataSource) {
+      throw new Error("Failed to create local data source");
+    }
+  }
+
+  const tableName = fileName.replace(/\.(csv|xlsx?|json)$/i, "");
+  const overrideTable = options?.overrideTableId
+    ? dataSource.dataTables.get(options.overrideTableId)
+    : undefined;
+  const dataTableId = options?.overrideTableId ?? dataFrame.id;
+
+  let dataFrameId: string;
+
+  if (overrideTable) {
+    // Override existing table
+    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
+
+    useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
+      name: tableName,
+      table: fileName,
+      sourceSchema,
+      fields,
+      metrics,
+    });
+
+    // Update or create linked DataFrame
+    if (overrideTable.dataFrameId) {
+      await useDataFramesStore
+        .getState()
+        .replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
+          rowCount,
+          columnCount,
+        });
+      dataFrameId = overrideTable.dataFrameId;
+    } else {
+      dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+        name: tableName,
+        rowCount,
+        columnCount,
+      });
+    }
+
+    useDataSourcesStore
+      .getState()
+      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+  } else {
+    // Add new DataTable
+    useDataSourcesStore
+      .getState()
+      .addDataTable(dataSource.id, tableName, fileName, {
+        id: dataTableId,
+        sourceSchema,
+        fields,
+      });
+
+    // Create DataFrame entry
+    dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+      name: tableName,
+      rowCount,
+      columnCount,
+    });
+
+    // Link DataFrame to DataTable
     useDataSourcesStore
       .getState()
       .updateDataTable(dataSource.id, dataTableId, { dataFrameId });

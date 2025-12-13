@@ -7,7 +7,7 @@ import { useInsightsStore } from "@/lib/stores/insights-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import type { Visualization, Insight } from "@/lib/stores/types";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
 import {
   Button,
   Card,

@@ -26,6 +26,7 @@ corepack-home/
 # Build artifacts
 dist
 *.tsbuildinfo
+next-env.d.ts
 
 # Convex
 convex/_generated

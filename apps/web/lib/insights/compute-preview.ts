@@ -1,10 +1,9 @@
 import type {
   DataFrameData,
-  DataFrameRow,
   UUID,
   Field,
   DataFrameColumn,
-} from "@dashframe/dataframe";
+} from "@dashframe/core";
 import type { Insight, DataTable, InsightMetric } from "../stores/types";
 
 /**

@@ -59,7 +59,6 @@ export function JoinFlowModal({
       excludeInsightIds={[insight.id]} // Can't join with self
       excludeTableIds={[dataTable.id]} // Can't join with own base table
       showInsights={true}
-      showNotion={false}
     />
   );
 }

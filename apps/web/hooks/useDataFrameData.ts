@@ -4,7 +4,7 @@ import type {
   DataFrameRow,
   DataFrameColumn,
   ColumnType,
-} from "@dashframe/dataframe";
+} from "@dashframe/core";
 import {
   useDataFramesStore,
   type DataFrameEntry,
@@ -188,7 +188,7 @@ export function useDataFrameData(
         setIsLoading(false);
       }
     }
-  }, [dataFrameId, connection, isInitialized, getDataFrame, limit, skip, entry]);
+  }, [dataFrameId, connection, isInitialized, getDataFrame, limit, skip]);
 
   // Load data when dataFrameId changes or connection becomes available
   useEffect(() => {

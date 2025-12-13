@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@dashframe/dataframe": "workspace:*",
+    "@dashframe/engine-browser": "workspace:*",
     "@tanstack/react-virtual": "^3.13.9",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-collapsible": "^1.1.12",

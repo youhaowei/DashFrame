@@ -58,12 +58,16 @@ export function VisualizationDisplay({
     const contentPadding = 20; // mt-3 + gap
 
     // Table gets max 40% of the available content area
-    const availableContentHeight = containerHeight - headerHeight - contentPadding;
+    const availableContentHeight =
+      containerHeight - headerHeight - contentPadding;
     const maxTableHeight = Math.floor(availableContentHeight * 0.4);
 
     const rowHeight = 36;
     const tableHeaderHeight = 40;
-    return Math.max(0, Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight));
+    return Math.max(
+      0,
+      Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight),
+    );
   };
 
   // Watch container size changes to detect available space for "Show Both" mode
@@ -74,7 +78,7 @@ export function VisualizationDisplay({
     if (!isDataReady) return;
     const rows = calculateVisibleRows();
     if (rows !== null) {
-      setVisibleRows(rows);
+      requestAnimationFrame(() => setVisibleRows(rows));
     }
   }, [isDataReady]);
 
@@ -85,7 +89,7 @@ export function VisualizationDisplay({
     const observer = new ResizeObserver(() => {
       const rows = calculateVisibleRows();
       if (rows !== null) {
-        setVisibleRows(rows);
+        requestAnimationFrame(() => setVisibleRows(rows));
       }
     });
 
@@ -120,7 +124,7 @@ export function VisualizationDisplay({
 
     // Only react to canShowBoth changing from true to false
     if (prevCanShowBoth && !canShowBoth && activeTab === "both") {
-      setActiveTab("chart");
+      requestAnimationFrame(() => setActiveTab("chart"));
     }
 
     previousCanShowBothRef.current = canShowBoth;
@@ -131,7 +135,10 @@ export function VisualizationDisplay({
   // Also check for visualizationId from URL - if passed but no data yet, show loading
   // If store is empty but we have a URL ID, store might still be hydrating
   const isStoreHydrating = visualizationId && visualizationsMap.size === 0;
-  const isWaitingForData = (activeId && !activeResolved) || (visualizationId && !activeViz) || isStoreHydrating;
+  const isWaitingForData =
+    (activeId && !activeResolved) ||
+    (visualizationId && !activeViz) ||
+    isStoreHydrating;
   if (!isMounted || isLoadingData || isWaitingForData) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">

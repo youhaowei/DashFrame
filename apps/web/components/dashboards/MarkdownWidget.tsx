@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Button, cn, Edit3, Check, X } from "@dashframe/ui";
+import { Button, cn } from "@dashframe/ui";
+import { Check, X } from "@dashframe/ui/icons";
 
 interface MarkdownWidgetProps {
   content: string;
@@ -31,7 +32,7 @@ export function MarkdownWidget({
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[80px] w-full flex-1 resize-none rounded-md border px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-20 w-full flex-1 resize-none rounded-md border px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="Enter markdown..."
           autoFocus
         />

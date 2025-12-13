@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { ColumnType } from "@dashframe/dataframe";
+import type { ColumnType } from "@dashframe/core";
 import {
   ChevronDown,
   X,

@@ -8,7 +8,7 @@ import {
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
-import type { Field } from "@dashframe/dataframe";
+import type { Field } from "@dashframe/core";
 import {
   Card,
   CardContent,
@@ -30,8 +30,8 @@ import {
 } from "@dashframe/ui";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
-import type { NotionProperty } from "@dashframe/notion";
-import { mapNotionTypeToColumnType } from "@dashframe/notion";
+import type { NotionProperty } from "@dashframe/connector-notion";
+import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
@@ -159,6 +159,46 @@ function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
     selectedDataTable?.dataFrameId,
   );
 
+  const previewDescription = useMemo(() => {
+    if (isLoading) return "Loading...";
+    if (error) return `Error: ${error}`;
+    if (data && selectedDataTable) return `Showing ${selectedDataTable.name}`;
+    return "Select a file to preview";
+  }, [data, error, isLoading, selectedDataTable]);
+
+  const renderPreviewContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="bg-muted h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        </div>
+      );
+    }
+
+    if (error) {
+      return <EmptyState message={`Failed to load data: ${error}`} />;
+    }
+
+    if (data && selectedDataTable) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <VirtualTable
+            rows={data.rows}
+            columns={selectedDataTable.fields
+              .filter((f: Field) => !f.name.startsWith("_"))
+              .map((f: Field) => ({
+                name: f.columnName ?? f.name,
+                type: f.type,
+              }))}
+            height="100%"
+          />
+        </div>
+      );
+    }
+
+    return <EmptyState message="Select a file to preview its data." />;
+  };
+
   return (
     <div className="flex h-full flex-col gap-4">
       <Card>
@@ -224,39 +264,10 @@ function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
       <Card className="flex min-h-0 flex-1 flex-col">
         <CardHeader>
           <CardTitle className="text-lg">Data Preview</CardTitle>
-          <CardDescription>
-            {isLoading
-              ? "Loading..."
-              : error
-                ? `Error: ${error}`
-                : data && selectedDataTable
-                  ? `Showing ${selectedDataTable.name}`
-                  : "Select a file to preview"}
-          </CardDescription>
+          <CardDescription>{previewDescription}</CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {isLoading ? (
-            <div className="flex flex-1 items-center justify-center">
-              <div className="bg-muted h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            </div>
-          ) : error ? (
-            <EmptyState message={`Failed to load data: ${error}`} />
-          ) : data && selectedDataTable ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <VirtualTable
-                rows={data.rows}
-                columns={selectedDataTable.fields
-                  .filter((f: Field) => !f.name.startsWith("_"))
-                  .map((f: Field) => ({
-                    name: f.columnName ?? f.name,
-                    type: f.type,
-                  }))}
-                height="100%"
-              />
-            </div>
-          ) : (
-            <EmptyState message="Select a file to preview its data." />
-          )}
+          {renderPreviewContent()}
         </CardContent>
       </Card>
     </div>

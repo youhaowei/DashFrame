@@ -26,8 +26,11 @@ import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VegaChart } from "@/components/visualizations/VegaChart";
 import { VirtualTable } from "@dashframe/ui";
-import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
+import {
+  analyzeDataFrame,
+  type ColumnAnalysis,
+} from "@dashframe/engine-browser";
+import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
@@ -349,14 +352,14 @@ export default function VisualizationPage({ params }: PageProps) {
         const columns: DataFrameColumn[] =
           rows.length > 0
             ? Object.keys(rows[0])
-              .filter((key) => !key.startsWith("_"))
-              .map((name) => ({
-                name,
-                type:
-                  typeof rows[0][name] === "number"
-                    ? ("number" as const)
-                    : ("string" as const),
-              }))
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  type:
+                    typeof rows[0][name] === "number"
+                      ? ("number" as const)
+                      : ("string" as const),
+                }))
             : [];
 
         setJoinedData({ rows, columns });
@@ -434,7 +437,10 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Include dataFrame check to prevent "Data not available" flash during derived state computation
   const isLoading =
-    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData ||
+    isVizLoading ||
+    isDataLoading ||
+    isInsightLoading ||
+    isLoadingJoinedData ||
     (visualization && !dataFrame);
 
   // Local state
@@ -646,12 +652,12 @@ export default function VisualizationPage({ params }: PageProps) {
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
+        { label: "Table", value: "table" },
+        { label: "Bar Chart", value: "bar" },
+        { label: "Line Chart", value: "line" },
+        { label: "Scatter Plot", value: "scatter" },
+        { label: "Area Chart", value: "area" },
+      ]
     : [{ label: "Table", value: "table" }];
 
   return (

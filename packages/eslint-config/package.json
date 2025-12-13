@@ -4,7 +4,7 @@
   },
   "name": "@dashframe/eslint-config",
   "peerDependencies": {
-    "eslint": ">=9.0.0",
+    "eslint": ">=9.39.0",
     "eslint-config-prettier": ">=10.0.0",
     "eslint-plugin-sonarjs": ">=3.0.0",
     "typescript-eslint": ">=8.0.0"

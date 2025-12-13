@@ -1,5 +1,5 @@
 import type { TopLevelSpec } from "vega-lite";
-import type { DataFrameRow, DataFrameColumn } from "@dashframe/dataframe";
+import type { DataFrameRow, DataFrameColumn } from "@dashframe/core";
 import type { Visualization } from "@/lib/stores/types";
 
 // StandardType is not exported from vega-lite's main module
