@@ -47,7 +47,10 @@ import type {
 } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
 import { autoSelectEncoding } from "@/lib/visualizations/auto-select";
-import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
+import {
+  analyzeDataFrame,
+  type ColumnAnalysis,
+} from "@dashframe/engine-browser";
 import * as RadixSelect from "@radix-ui/react-select";
 
 interface CollapsibleSectionProps {

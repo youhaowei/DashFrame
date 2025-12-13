@@ -14,9 +14,19 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./"),
       "@dashframe/ui": path.resolve(__dirname, "../../packages/ui/src"),
-      "@dashframe/dataframe": path.resolve(
+      "@dashframe/core": path.resolve(__dirname, "../../packages/core/src"),
+      "@dashframe/engine": path.resolve(__dirname, "../../packages/engine/src"),
+      "@dashframe/engine-browser": path.resolve(
         __dirname,
-        "../../packages/dataframe/src",
+        "../../packages/engine-browser/src",
+      ),
+      "@dashframe/connector-csv": path.resolve(
+        __dirname,
+        "../../packages/connector-csv/src",
+      ),
+      "@dashframe/connector-notion": path.resolve(
+        __dirname,
+        "../../packages/connector-notion/src",
       ),
     },
   },

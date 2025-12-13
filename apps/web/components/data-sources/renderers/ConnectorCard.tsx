@@ -1,6 +1,6 @@
 "use client";
 
-import type { BaseConnector, FileSourceConnector } from "@dashframe/dataframe";
+import type { BaseConnector, FileSourceConnector } from "@dashframe/engine";
 import {
   Card,
   CardHeader,

@@ -18,13 +18,13 @@
  * ```
  */
 
-import { csvConnector } from "@dashframe/csv";
-import { notionConnector } from "@dashframe/notion";
+import { csvConnector } from "@dashframe/connector-csv";
+import { notionConnector } from "@dashframe/connector-notion";
 import type {
   AnyConnector,
   FileSourceConnector,
   RemoteApiConnector,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine";
 
 /**
  * All registered connectors (singletons - stateless).

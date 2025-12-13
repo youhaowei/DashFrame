@@ -3,11 +3,8 @@ import type {
   VisualizationEncoding,
   Insight,
 } from "../stores/types";
-import {
-  analyzeDataFrame,
-  type DataFrameData,
-  type Field,
-} from "@dashframe/dataframe";
+import type { DataFrameData, Field } from "@dashframe/core";
+import { analyzeDataFrame } from "@dashframe/engine-browser";
 
 /**
  * Auto-selects axes based on chart type and column analysis.

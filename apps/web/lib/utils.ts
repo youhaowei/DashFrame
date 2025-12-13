@@ -1,11 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type {
-  ColumnType,
-  DataFrameColumn,
-  Field,
-  UUID,
-} from "@dashframe/dataframe";
+import type { ColumnType, DataFrameColumn, Field, UUID } from "@dashframe/core";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

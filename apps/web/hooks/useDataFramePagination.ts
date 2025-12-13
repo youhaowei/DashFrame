@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
 
 /**
  * Hook for paginated DataFrame queries via DuckDB

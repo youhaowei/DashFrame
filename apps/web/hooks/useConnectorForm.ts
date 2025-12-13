@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useForm } from "@tanstack/react-form";
-import type { BaseConnector } from "@dashframe/dataframe";
+import type { BaseConnector } from "@dashframe/engine";
 
 /**
  * Creates a TanStack Form for a connector's form fields.
@@ -51,6 +51,7 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Get form fields from connector (use id as dependency for stable reference)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- connector.id is intentional: avoids re-compute when object ref changes but identity is same
   const formFields = useMemo(() => connector.getFormFields(), [connector.id]);
 
   // Build default values from form field definitions

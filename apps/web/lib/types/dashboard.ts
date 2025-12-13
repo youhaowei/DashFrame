@@ -1,4 +1,4 @@
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
 
 export type DashboardItemType = "visualization" | "markdown";
 

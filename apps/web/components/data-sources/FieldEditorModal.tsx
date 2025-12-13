@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Field, ColumnType } from "@dashframe/dataframe";
+import type { Field, ColumnType } from "@dashframe/core";
 import {
   Dialog,
   DialogContent,

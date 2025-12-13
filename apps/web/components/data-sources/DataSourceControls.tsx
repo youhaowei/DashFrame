@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { isNotionDataSource } from "@/lib/stores/types";
 import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase } from "@dashframe/notion";
+import type { NotionDatabase } from "@dashframe/connector-notion";
 
 interface CollapsibleSectionProps {
   title: string;

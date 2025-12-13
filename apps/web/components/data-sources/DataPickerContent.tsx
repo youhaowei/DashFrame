@@ -6,7 +6,7 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine";
 import { useDataTables } from "@/hooks/useDataTables";
 import { useInsights } from "@/hooks/useInsights";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { DataTable, DataSource } from "@/lib/stores/types";
-import type { Field } from "@dashframe/dataframe";
+import type { Field } from "@dashframe/core";
 
 const getFieldCount = (table: DataTable): number => {
   // Prefer discovered source schema columns (no system fields)

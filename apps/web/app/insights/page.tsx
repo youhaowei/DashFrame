@@ -7,7 +7,7 @@ import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import type { Insight, DataTable } from "@/lib/stores/types";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
 
 // Type for insight with joined details
 type InsightWithDetails = {

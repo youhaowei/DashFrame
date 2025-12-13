@@ -1,0 +1,80 @@
+/**
+ * @dashframe/engine
+ *
+ * Abstract engine interfaces for DashFrame computation.
+ * This package defines contracts that can be implemented for different runtimes:
+ * - @dashframe/engine-browser: DuckDB-WASM + IndexedDB (browser)
+ * - @dashframe/engine-server: DuckDB native + PostgreSQL (server)
+ * - @dashframe/engine-mobile: SQLite (mobile)
+ *
+ * Re-exports @dashframe/core for convenience.
+ */
+
+// Re-export all core types
+export * from "@dashframe/core";
+
+// ============================================================================
+// Engine Interfaces
+// ============================================================================
+
+export type {
+  // DataFrame
+  DataFrameStorageLocation,
+  DataFrameSerialization,
+  DataFrame,
+  DataFrameFactory,
+  // Storage
+  DataFrameStorage,
+  // Query Engine
+  QueryResult,
+  QueryEngine,
+  // Query Planner
+  Query,
+  QueryFilter,
+  QueryAggregation,
+  QuerySort,
+  ExecutionStrategy,
+  ExecutionReason,
+  ExecutionPlan,
+  QueryPlanner,
+  PushDownOperation,
+  QueryPushDownCapable,
+} from "./interfaces";
+
+export { isQueryPushDownCapable } from "./interfaces";
+
+// ============================================================================
+// Connector Pattern
+// ============================================================================
+
+export {
+  BaseConnector,
+  FileSourceConnector,
+  RemoteApiConnector,
+} from "./connector";
+
+export type {
+  SourceType,
+  FormField,
+  ValidationResult,
+  FileParseResult,
+  RemoteDatabase,
+  QueryOptions,
+  ConnectorQueryResult,
+  AnyConnector,
+} from "./connector";
+
+// ============================================================================
+// Query Types
+// ============================================================================
+
+export type {
+  FilterOperator,
+  FilterPredicate,
+  SortDirection,
+  SortOrder,
+  AggregationFunction,
+  Aggregation,
+  JoinType,
+  JoinOptions,
+} from "./types";

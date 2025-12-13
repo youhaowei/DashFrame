@@ -8,7 +8,7 @@ import {
   isCSVDataSource,
   type DataSource,
 } from "@/lib/stores/types";
-import type { Field } from "@dashframe/dataframe";
+import type { Field } from "@dashframe/core";
 import {
   Card,
   CardContent,
@@ -30,8 +30,8 @@ import {
 } from "@dashframe/ui";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
-import type { NotionProperty } from "@dashframe/notion";
-import { mapNotionTypeToColumnType } from "@dashframe/notion";
+import type { NotionProperty } from "@dashframe/connector-notion";
+import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;

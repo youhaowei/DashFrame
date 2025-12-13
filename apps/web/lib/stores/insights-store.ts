@@ -3,8 +3,8 @@ import "./config";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, DataTableInfo } from "@dashframe/dataframe";
-import { Insight as InsightClass } from "@dashframe/dataframe";
+import type { UUID, DataTableInfo } from "@dashframe/core";
+import { Insight as InsightClass } from "@dashframe/engine-browser";
 import type {
   Insight,
   InsightExecutionType,

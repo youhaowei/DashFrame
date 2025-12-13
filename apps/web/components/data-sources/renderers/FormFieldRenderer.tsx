@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import type { FormField } from "@dashframe/dataframe";
+import type { FormField } from "@dashframe/engine";
 import {
   Field,
   FieldLabel,

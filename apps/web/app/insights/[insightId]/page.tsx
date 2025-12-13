@@ -14,14 +14,13 @@ import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID, Field } from "@dashframe/core";
 import type {
   Visualization,
   InsightMetric,
   Insight,
   DataTable,
 } from "@/lib/stores/types";
-import type { Field } from "@dashframe/dataframe";
 
 interface PageProps {
   params: Promise<{ insightId: string }>;

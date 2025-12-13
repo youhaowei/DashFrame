@@ -1,4 +1,7 @@
-import type { NotionDatabase, NotionProperty } from "@dashframe/notion";
+import type {
+  NotionDatabase,
+  NotionProperty,
+} from "@dashframe/connector-notion";
 import {
   Card,
   CardContent,

@@ -5,7 +5,7 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
 import { ConnectorCard } from "./ConnectorCard";
 import { FormFieldRenderer } from "./FormFieldRenderer";

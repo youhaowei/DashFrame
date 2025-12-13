@@ -4,7 +4,7 @@ import type {
   DataFrameRow,
   DataFrameColumn,
   ColumnType,
-} from "@dashframe/dataframe";
+} from "@dashframe/core";
 import {
   useDataFramesStore,
   type DataFrameEntry,

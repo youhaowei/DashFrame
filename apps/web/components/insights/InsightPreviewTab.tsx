@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { UUID, Field } from "@dashframe/dataframe";
+import type { UUID, Field } from "@dashframe/core";
 import type { Insight, Visualization, InsightMetric } from "@/lib/stores/types";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { Button, Card, CardContent, CardHeader, Badge } from "@dashframe/ui";

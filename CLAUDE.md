@@ -79,7 +79,7 @@ packages/
 
 ## State Management & Persistence
 
-**Zustand + Immer** with automatic localStorage persistence. See `docs/architecture.md` for details.
+**Zustand + Immer** with automatic localStorage persistence. See `docs/state-management.md` for details.
 
 **localStorage keys**: All use the lowercase `dashframe:` prefix:
 
@@ -169,7 +169,7 @@ Before implementing any UI changes, follow this component-first approach:
    - **Create feature-specific components** for one-off, domain-specific UI
    - **Extract to shared/** when patterns emerge across multiple features
 
-3. **Design token enforcement** (from `docs/architecture.md`):
+3. **Design token enforcement** (from `docs/ui-components.md`):
    - **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
    - **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
    - **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)

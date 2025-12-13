@@ -6,7 +6,7 @@ import { useVisualizationsStore } from "@/lib/stores";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { Card, CardContent, Surface } from "@dashframe/ui";
 import type { TopLevelSpec } from "vega-lite";
-import type { DataFrameColumn } from "@dashframe/dataframe";
+import type { DataFrameColumn } from "@dashframe/core";
 
 // Dynamically import VegaChart with no SSR to prevent Set serialization issues
 const VegaChart = dynamic(

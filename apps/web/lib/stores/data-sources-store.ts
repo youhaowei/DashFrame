@@ -5,7 +5,7 @@ import "./config";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/core";
 import type {
   DataSource,
   LocalDataSource,
@@ -101,27 +101,9 @@ interface DataSourcesActions {
 
 type DataSourcesStore = DataSourcesState & DataSourcesActions;
 
-// Helper: rebuild cached sources with cloned tables to avoid immer proxies leaking
+// Helper: rebuild cached sources array for stable references
 const rebuildCache = (state: DataSourcesState) => {
-  state._cachedDataSources = Array.from(state.dataSources.values()).map(
-    (source) => {
-      const clonedTables = new Map(
-        Array.from(source.dataTables.entries()).map(([id, table]) => [
-          id,
-          {
-            ...table,
-            fields: [...(table.fields ?? [])],
-            metrics: [...(table.metrics ?? [])],
-          },
-        ]),
-      );
-
-      return {
-        ...source,
-        dataTables: clonedTables,
-      };
-    },
-  );
+  state._cachedDataSources = Array.from(state.dataSources.values());
 };
 
 // ============================================================================
@@ -456,6 +438,12 @@ export const useDataSourcesStore = create<DataSourcesStore>()(
         dataSources: state.dataSources,
       }),
       skipHydration: true,
+      onRehydrateStorage: () => () => {
+        // Rebuild cache after hydration completes
+        useDataSourcesStore.setState((state) => {
+          rebuildCache(state);
+        });
+      },
     },
   ),
 );

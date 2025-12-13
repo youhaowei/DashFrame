@@ -41,7 +41,7 @@ import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VirtualTable } from "@dashframe/ui";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
 interface PageProps {

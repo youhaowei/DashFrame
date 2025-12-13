@@ -5,11 +5,12 @@ import "./config";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, DataFrameSerialization } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/core";
+import type { DataFrameSerialization } from "@dashframe/engine";
 import {
   DataFrame as DataFrameClass,
   deleteArrowData,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine-browser";
 import { superjsonStorage } from "./storage";
 
 // ============================================================================

@@ -1,8 +1,11 @@
 {
   "dependencies": {
-    "@dashframe/csv": "workspace:*",
-    "@dashframe/dataframe": "workspace:*",
-    "@dashframe/notion": "workspace:*",
+    "@dashframe/connector-csv": "workspace:*",
+    "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/core": "workspace:*",
+    "@dashframe/core-dexie": "workspace:*",
+    "@dashframe/engine": "workspace:*",
+    "@dashframe/engine-browser": "workspace:*",
     "@dashframe/ui": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.30.0",
     "@radix-ui/react-checkbox": "^1.3.3",

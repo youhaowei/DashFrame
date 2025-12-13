@@ -2,12 +2,11 @@
 import type { TopLevelSpec } from "vega-lite";
 import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";
+import type { DataFrameData, Field } from "@dashframe/core";
 import {
   analyzeDataFrame,
-  type DataFrameData,
-  type Field,
   type ColumnAnalysis,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine-browser";
 
 /**
  * Patterns that indicate a column is a meaningful metric for Y-axis.

@@ -1,7 +1,9 @@
-import { csvToDataFrame } from "@dashframe/csv";
+import { csvToDataFrame } from "@dashframe/connector-csv";
 import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import type { Metric, FileParseResult } from "@dashframe/dataframe";
+import type { Metric } from "@dashframe/core";
+import type { FileParseResult } from "@dashframe/engine";
+import type { BrowserDataFrame } from "@dashframe/engine-browser";
 
 const ensureCountMetric = (
   existing: Metric[] = [],
@@ -155,8 +157,9 @@ export async function handleFileConnectorResult(
   parseResult: FileParseResult,
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
-  const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
-    parseResult;
+  const { fields, sourceSchema, rowCount, columnCount } = parseResult;
+  // In browser context, all DataFrames are BrowserDataFrame instances
+  const dataFrame = parseResult.dataFrame as BrowserDataFrame;
 
   // 1. Ensure local data source exists
   let dataSource = useDataSourcesStore.getState().getLocal();

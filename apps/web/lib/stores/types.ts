@@ -1,4 +1,4 @@
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/core";
 import type { TopLevelSpec } from "vega-lite";
 
 // ============================================================================

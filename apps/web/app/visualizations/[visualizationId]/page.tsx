@@ -26,8 +26,11 @@ import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
 import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VegaChart } from "@/components/visualizations/VegaChart";
 import { VirtualTable } from "@dashframe/ui";
-import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
+import {
+  analyzeDataFrame,
+  type ColumnAnalysis,
+} from "@dashframe/engine-browser";
+import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";

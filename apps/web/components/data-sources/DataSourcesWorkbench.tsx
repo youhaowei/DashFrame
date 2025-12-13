@@ -21,13 +21,12 @@ import {
   Button,
 } from "@dashframe/ui";
 import { toast } from "sonner";
+import type { Field, Metric } from "@dashframe/core";
 import type {
-  Field,
-  Metric,
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
-} from "@dashframe/dataframe";
+} from "@dashframe/engine";
 
 // Hydration detection using useSyncExternalStore (no setState in effect)
 const emptySubscribe = () => () => {};
