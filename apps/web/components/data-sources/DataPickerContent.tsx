@@ -7,13 +7,16 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { useDataTables } from "@/hooks/useDataTables";
-import { useInsights } from "@/hooks/useInsights";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import {
+  useDataSources,
+  useDataTables,
+  useInsights,
+  useDataFrames,
+} from "@dashframe/core-dexie";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
-import { InsightList } from "./InsightList";
+import { InsightList, type InsightDisplayInfo } from "./InsightList";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 
 export interface DataPickerContentProps {
@@ -59,24 +62,6 @@ export interface DataPickerContentProps {
  * 3. New data upload - via connector pattern (CSV, Notion, etc.)
  *
  * Used by both CreateVisualizationModal and JoinFlowModal.
- *
- * @example Basic usage (tables only)
- * ```tsx
- * <DataPickerContent
- *   onTableSelect={(tableId, tableName) => {
- *     createInsightFromTable(tableId, tableName);
- *   }}
- * />
- * ```
- *
- * @example With insights (for chaining)
- * ```tsx
- * <DataPickerContent
- *   onInsightSelect={(insightId, name) => handleInsightSelect(insightId)}
- *   onTableSelect={handleTableSelect}
- *   excludeInsightIds={[currentInsightId]}
- * />
- * ```
  */
 export function DataPickerContent({
   onInsightSelect,
@@ -87,33 +72,80 @@ export function DataPickerContent({
   showNotion = false,
   showInsights = true,
 }: DataPickerContentProps) {
-  const localSources = useDataSourcesStore((state) => state.getAll());
+  // Dexie hooks
+  const { data: dataSources = [] } = useDataSources();
+  const { data: allDataTables = [] } = useDataTables();
+  const { data: allInsights = [] } = useInsights();
+  const { data: dataFrames = [] } = useDataFrames();
+
+  // Local state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { allDataTables } = useDataTables(localSources, selectedSourceId);
-  const { insights } = useInsights({
-    excludeIds: excludeInsightIds,
-    withComputedDataOnly: true,
-  });
 
   // Transform sources for DataSourceList
-  const dataSourcesInfo: DataSourceInfo[] = useMemo(
-    () =>
-      localSources.map((source) => ({
+  const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
+    return dataSources.map((source) => {
+      const tableCount = allDataTables.filter(
+        (t) => t.dataSourceId === source.id,
+      ).length;
+      return {
         id: source.id,
         name: source.name,
         type: source.type,
-        tableCount: source.dataTables?.size || 0,
-      })),
-    [localSources],
-  );
+        tableCount,
+      };
+    });
+  }, [dataSources, allDataTables]);
 
-  // Filter out excluded tables
-  const filteredTables = useMemo(
-    () =>
-      allDataTables.filter((table) => !excludeTableIds.includes(table.tableId)),
-    [allDataTables, excludeTableIds],
-  );
+  // Filter tables by selected source and exclusions
+  const filteredTables = useMemo(() => {
+    let tables = allDataTables;
+
+    // Filter by selected source
+    if (selectedSourceId) {
+      tables = tables.filter((t) => t.dataSourceId === selectedSourceId);
+    }
+
+    // Filter out excluded
+    tables = tables.filter((t) => !excludeTableIds.includes(t.id));
+
+    // Transform to expected format for DataTableList
+    return tables.map((t) => {
+      const source = dataSources.find((ds) => ds.id === t.dataSourceId);
+      return {
+        sourceId: t.dataSourceId,
+        sourceName: source?.name || "Unknown",
+        tableId: t.id,
+        tableName: t.name,
+        fieldCount: t.fields?.length || 0,
+        isLocal: source?.type === "csv",
+      };
+    });
+  }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
+
+  // Build DataFrame lookup by insight ID
+  const dataFrameByInsightId = useMemo(() => {
+    return new Map(
+      dataFrames.filter((df) => df.insightId).map((df) => [df.insightId!, df]),
+    );
+  }, [dataFrames]);
+
+  // Filter and transform insights for display
+  const insightsForDisplay: InsightDisplayInfo[] = useMemo(() => {
+    return allInsights
+      .filter((insight) => {
+        // Exclude specified IDs
+        if (excludeInsightIds.includes(insight.id)) return false;
+        // Only show insights with computed data (have a DataFrame)
+        return dataFrameByInsightId.has(insight.id);
+      })
+      .map((insight) => ({
+        id: insight.id,
+        name: insight.name,
+        metricCount: insight.metrics?.length || 0,
+        rowCount: dataFrameByInsightId.get(insight.id)?.rowCount,
+      }));
+  }, [allInsights, excludeInsightIds, dataFrameByInsightId]);
 
   // Handle insight click
   const handleInsightClick = useCallback(
@@ -137,14 +169,11 @@ export function DataPickerContent({
       setError(null);
       try {
         // Check for duplicate table
-        const localSource = useDataSourcesStore.getState().getLocal();
-        const existingTable = localSource
-          ? Array.from(localSource.dataTables?.values?.() ?? []).find(
-              (table) =>
-                table.table === file.name ||
-                table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""),
-            )
-          : null;
+        const existingTable = allDataTables.find(
+          (table) =>
+            table.name === file.name ||
+            table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""),
+        );
 
         if (existingTable) {
           const shouldOverride = window.confirm(
@@ -172,7 +201,7 @@ export function DataPickerContent({
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
     },
-    [onTableSelect],
+    [onTableSelect, allDataTables],
   );
 
   // Handle remote connector connection (Notion, Airtable, etc.)
@@ -185,7 +214,8 @@ export function DataPickerContent({
     [],
   );
 
-  const hasInsights = showInsights && insights.length > 0 && onInsightSelect;
+  const hasInsights =
+    showInsights && insightsForDisplay.length > 0 && onInsightSelect;
   const hasDataSources = dataSourcesInfo.length > 0;
 
   return (
@@ -195,7 +225,7 @@ export function DataPickerContent({
         {hasInsights && !selectedSourceId && (
           <SectionList title="Use Existing Insight">
             <InsightList
-              insights={insights}
+              insights={insightsForDisplay}
               onInsightClick={handleInsightClick}
             />
           </SectionList>

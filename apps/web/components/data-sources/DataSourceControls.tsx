@@ -18,8 +18,12 @@ import {
   InputField,
 } from "@dashframe/ui";
 import { toast } from "sonner";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { isNotionDataSource } from "@/lib/stores/types";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+  useDataTableMutations,
+} from "@dashframe/core-dexie";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/connector-notion";
 
@@ -92,33 +96,37 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     }
   }, [dataSourceId]);
 
-  // Get data source from store
-  const dataSource = useDataSourcesStore((state) =>
-    dataSourceId ? state.get(dataSourceId) : null,
+  // Get data source from Dexie
+  const { data: dataSources } = useDataSources();
+  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const dataSourceMutations = useDataSourceMutations();
+  const tableMutations = useDataTableMutations();
+
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
+    [dataSources, dataSourceId],
   );
-  const update = useDataSourcesStore((state) => state.update);
-  const remove = useDataSourcesStore((state) => state.remove);
-  const addDataTable = useDataSourcesStore((state) => state.addDataTable);
 
   // tRPC mutation for fetching databases
   const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
 
   // Get configured DataTables
   const dataTables = useMemo(() => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return [];
-    return Array.from(dataSource.dataTables?.values() ?? []);
-  }, [dataSource]);
+    if (!dataSource || dataSource.type !== "notion") return [];
+    return allTables ?? [];
+  }, [dataSource, allTables]);
 
   // Filter unconfigured databases
   const unconfiguredDatabases = useMemo(() => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return [];
+    if (!dataSource || dataSource.type !== "notion") return [];
     const configuredIds = new Set(dataTables.map((dt) => dt.table));
     return availableDatabases.filter((db) => !configuredIds.has(db.id));
   }, [dataSource, dataTables, availableDatabases]);
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return;
+    if (!dataSource || dataSource.type !== "notion" || !dataSource.apiKey)
+      return;
 
     // Use cached data unless explicitly forced to refresh
     if (!force && lastFetchTime) {
@@ -160,11 +168,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   // Users must manually click the refresh button to sync from Notion.
 
   // Handler to add a database as DataTable
-  const handleAddDatabase = (database: NotionDatabase) => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return;
+  const handleAddDatabase = async (database: NotionDatabase) => {
+    if (!dataSource || dataSource.type !== "notion") return;
 
     try {
-      addDataTable(dataSource.id, database.title, database.id);
+      await tableMutations.add(dataSource.id, database.title, database.id);
       toast.success(`Added "${database.title}"`);
     } catch (error) {
       console.error("Failed to add database:", error);
@@ -187,24 +195,24 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     );
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (
       confirm(
         `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
       )
     ) {
-      remove(dataSource.id);
+      await dataSourceMutations.remove(dataSource.id);
       toast.success("Data source deleted");
     }
   };
 
-  const handleNameChange = (newName: string) => {
-    update(dataSource.id, { name: newName });
+  const handleNameChange = async (newName: string) => {
+    await dataSourceMutations.update(dataSource.id, { name: newName });
   };
 
-  const handleApiKeyChange = (newApiKey: string) => {
-    if (isNotionDataSource(dataSource)) {
-      update(dataSource.id, { apiKey: newApiKey });
+  const handleApiKeyChange = async (newApiKey: string) => {
+    if (dataSource.type === "notion") {
+      await dataSourceMutations.update(dataSource.id, { apiKey: newApiKey });
     }
   };
 
@@ -231,12 +239,12 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       </div>
 
       {/* API Key for Notion */}
-      {isNotionDataSource(dataSource) && (
+      {dataSource.type === "notion" && (
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
             <InputField
               type="password"
-              value={dataSource.apiKey}
+              value={dataSource.apiKey ?? ""}
               onChange={handleApiKeyChange}
               className="font-mono text-xs"
               placeholder="secret_..."
@@ -249,7 +257,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       )}
 
       {/* Data Tables section for Notion */}
-      {isNotionDataSource(dataSource) && (
+      {dataSource.type === "notion" && (
         <Collapsible
           open={isDataTablesOpen}
           onOpenChange={setIsDataTablesOpen}
@@ -448,13 +456,13 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         </Collapsible>
       )}
 
-      {/* Files count for Local */}
-      {dataSource.type === "local" && (
+      {/* Files count for CSV */}
+      {dataSource.type === "csv" && (
         <div className="border-border/40 border-b px-4 py-3">
           <p className="text-muted-foreground text-xs font-medium">Files</p>
           <p className="text-foreground mt-1 text-sm font-medium">
-            {dataSource.dataTables?.size ?? 0}{" "}
-            {(dataSource.dataTables?.size ?? 0) === 1 ? "file" : "files"}
+            {allTables?.length ?? 0}{" "}
+            {(allTables?.length ?? 0) === 1 ? "file" : "files"}
           </p>
         </div>
       )}

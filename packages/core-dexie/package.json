@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@dashframe/core": "workspace:*",
+    "@dashframe/engine": "workspace:*",
+    "@dashframe/engine-browser": "workspace:*",
     "dexie": "^4.0.0",
     "dexie-react-hooks": "^1.1.7",
     "react": "^19.0.0",

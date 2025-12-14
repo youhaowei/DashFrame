@@ -4,14 +4,12 @@ export type { UseQueryResult } from "./types";
 // Data Sources
 export type {
   DataSource,
-  LocalDataSource,
-  NotionDataSource,
+  CreateDataSourceInput,
   UseDataSourcesResult,
   DataSourceMutations,
   UseDataSources,
   UseDataSourceMutations,
 } from "./data-sources";
-export { isLocalDataSource, isNotionDataSource } from "./data-sources";
 
 // Data Tables
 export type {
@@ -24,7 +22,6 @@ export type {
 
 // Insights
 export type {
-  InsightStatus,
   InsightFilter,
   InsightSort,
   InsightJoinConfig,
@@ -38,6 +35,9 @@ export type {
 // Visualizations
 export type {
   VegaLiteSpec,
+  VisualizationType,
+  AxisType,
+  VisualizationEncoding,
   Visualization,
   UseVisualizationsResult,
   VisualizationMutations,
@@ -47,7 +47,9 @@ export type {
 
 // Dashboards
 export type {
-  DashboardPanel,
+  DashboardItemType,
+  DashboardItem,
+  CreateItemInput,
   Dashboard,
   UseDashboardsResult,
   DashboardMutations,

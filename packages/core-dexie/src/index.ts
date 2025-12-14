@@ -6,7 +6,6 @@
  * This package provides:
  * - Reactive hooks for reading data (useLiveQuery-based)
  * - Mutation functions for CRUD operations
- * - Automatic migration from localStorage (Zustand) to IndexedDB
  * - DatabaseProvider for app initialization
  *
  * @example
@@ -20,7 +19,7 @@
  *
  * function DataSourcesList() {
  *   const { data: sources, isLoading } = useDataSources();
- *   const { addLocal, remove } = useDataSourceMutations();
+ *   const { add, remove } = useDataSourceMutations();
  *
  *   if (isLoading) return <Loading />;
  *
@@ -71,8 +70,7 @@ export {
   useDataSources,
   useDataSourceMutations,
   getDataSource,
-  getLocalDataSource,
-  getNotionDataSource,
+  getDataSourceByType,
   getAllDataSources,
 } from "./repositories/data-sources";
 
@@ -100,7 +98,6 @@ export {
   getVisualization,
   getVisualizationsByInsight,
   getAllVisualizations,
-  getActiveVisualization,
 } from "./repositories/visualizations";
 
 // Dashboards
@@ -111,15 +108,18 @@ export {
   getAllDashboards,
 } from "./repositories/dashboards";
 
-// ============================================================================
-// Migration Utilities
-// ============================================================================
-
+// DataFrames
 export {
-  migrateFromLocalStorage,
-  isMigrationComplete,
-  resetMigration,
-} from "./migration";
+  useDataFrames,
+  useDataFrameMutations,
+  getDataFrame,
+  getDataFrameEntry,
+  getDataFrameByInsight,
+  getAllDataFrames,
+  type DataFrameEntry,
+  type UseDataFramesResult,
+  type DataFrameMutations,
+} from "./repositories/data-frames";
 
 // ============================================================================
 // Direct Database Access (advanced use cases only)
@@ -132,4 +132,5 @@ export type {
   InsightEntity,
   VisualizationEntity,
   DashboardEntity,
+  DataFrameEntity,
 } from "./db";

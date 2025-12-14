@@ -17,37 +17,34 @@ import {
   LayoutDashboard,
   Trash2,
 } from "@dashframe/ui";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
-
-import { useShallow } from "zustand/react/shallow";
+import { useDashboards, useDashboardMutations } from "@dashframe/core-dexie";
 
 export default function DashboardsPage() {
   const router = useRouter();
-  const dashboards = useDashboardsStore(
-    useShallow((state) => Array.from(state.dashboards.values())),
-  );
-  const addDashboard = useDashboardsStore((state) => state.addDashboard);
-  const removeDashboard = useDashboardsStore((state) => state.removeDashboard);
+  const { data: dashboards = [], isLoading } = useDashboards();
+  const { create: createDashboard, remove: removeDashboard } =
+    useDashboardMutations();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newDashboardName.trim()) return;
 
-    const id = crypto.randomUUID();
-    addDashboard({
-      id,
-      name: newDashboardName,
-      items: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const id = await createDashboard(newDashboardName);
 
     setIsCreateOpen(false);
     setNewDashboardName("");
     router.push(`/dashboards/${id}`);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading dashboards...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -123,7 +120,9 @@ export default function DashboardsPage() {
                   </h3>
                   <p className="text-muted-foreground text-sm">
                     {dashboard.items.length} items · Updated{" "}
-                    {new Date(dashboard.updatedAt).toLocaleDateString()}
+                    {dashboard.updatedAt
+                      ? new Date(dashboard.updatedAt).toLocaleDateString()
+                      : new Date(dashboard.createdAt).toLocaleDateString()}
                   </p>
                 </Surface>
               </Link>

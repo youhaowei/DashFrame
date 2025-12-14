@@ -1,15 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
-
+import {
+  useVisualizations,
+  useInsights,
+  useDataSources,
+  useDataTables,
+} from "@dashframe/core-dexie";
 import { RecentVisualizationsSection } from "./RecentVisualizationsSection";
 import { RecentInsightsSection } from "./RecentInsightsSection";
 import { QuickLinksSection } from "./QuickLinksSection";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { DataSource } from "@/lib/stores/types";
 
 /**
  * HomeView - Main view for returning users with existing data
@@ -18,23 +17,12 @@ import type { DataSource } from "@/lib/stores/types";
  * visualizations, insights, and quick navigation links.
  */
 export function HomeView() {
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
-  const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
-    state.getAll(),
-  );
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-    state.getAll(),
-  );
+  const { data: visualizations = [] } = useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataSources = [] } = useDataSources();
+  const { data: dataTables = [] } = useDataTables();
 
-  const totalTables = useMemo(() => {
-    return dataSources.reduce(
-      (acc: number, ds: DataSource) => acc + (ds.dataTables?.size || 0),
-      0,
-    );
-  }, [dataSources]);
+  const totalTables = dataTables.length;
 
   return (
     <>

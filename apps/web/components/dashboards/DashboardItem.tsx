@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { cn, Surface, Button } from "@dashframe/ui";
 import { Edit3, GripHorizontal, Trash2 } from "@dashframe/ui/icons";
-import type { DashboardItem as DashboardItemType } from "@/lib/types/dashboard";
+import type { DashboardItem as DashboardItemType } from "@dashframe/core";
+import { useDashboardMutations } from "@dashframe/core-dexie";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 
 interface DashboardItemProps {
   item: DashboardItemType;
@@ -32,8 +32,7 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const updateItem = useDashboardsStore((state) => state.updateItem);
-  const removeItem = useDashboardsStore((state) => state.removeItem);
+  const { updateItem, removeItem } = useDashboardMutations();
 
   return (
     <div

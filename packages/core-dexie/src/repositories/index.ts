@@ -3,8 +3,7 @@ export {
   useDataSources,
   useDataSourceMutations,
   getDataSource,
-  getLocalDataSource,
-  getNotionDataSource,
+  getDataSourceByType,
   getAllDataSources,
 } from "./data-sources";
 
@@ -32,7 +31,6 @@ export {
   getVisualization,
   getVisualizationsByInsight,
   getAllVisualizations,
-  getActiveVisualization,
 } from "./visualizations";
 
 // Dashboards

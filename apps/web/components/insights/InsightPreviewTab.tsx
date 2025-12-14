@@ -1,8 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { UUID, Field } from "@dashframe/core";
-import type { Insight, Visualization, InsightMetric } from "@/lib/stores/types";
+import type {
+  UUID,
+  Field,
+  Insight,
+  Visualization,
+  InsightMetric,
+} from "@dashframe/core";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { Button, Card, CardContent, CardHeader, Badge } from "@dashframe/ui";
 import {
@@ -26,6 +31,64 @@ function formatCellValue(value: unknown): string {
     });
   }
   return String(value);
+}
+
+/**
+ * Extract chart type from Vega-Lite spec mark property
+ */
+function getChartTypeFromSpec(spec: Visualization["spec"]): string {
+  if (!spec?.mark) return "table";
+
+  const mark = spec.mark as unknown;
+  // Mark can be a string or an object with type property
+  if (typeof mark === "string") {
+    return mark;
+  }
+  if (typeof mark === "object" && mark !== null && "type" in mark) {
+    return String((mark as { type: unknown }).type);
+  }
+  return "table";
+}
+
+// Type for Vega-Lite encoding channel with field
+interface EncodingChannel {
+  field?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Extract encoding fields from Vega-Lite spec
+ */
+function getEncodingFromSpec(spec: Visualization["spec"]): {
+  x?: string;
+  y?: string;
+  color?: string;
+} {
+  // Cast encoding to a more flexible type since VegaLiteSpec typing is complex
+  const encoding = spec?.encoding as
+    | Record<string, EncodingChannel | unknown>
+    | undefined;
+  if (!encoding) return {};
+
+  const result: { x?: string; y?: string; color?: string } = {};
+
+  // Extract field names from each encoding channel
+  // Encoding values can be various forms - look for field property
+  const xEnc = encoding.x as EncodingChannel | undefined;
+  const yEnc = encoding.y as EncodingChannel | undefined;
+  const colorEnc = encoding.color as EncodingChannel | undefined;
+
+  if (xEnc && typeof xEnc === "object" && "field" in xEnc) {
+    result.x = String(xEnc.field);
+  }
+  if (yEnc && typeof yEnc === "object" && "field" in yEnc) {
+    result.y = String(yEnc.field);
+  }
+  if (colorEnc && typeof colorEnc === "object" && "field" in colorEnc) {
+    result.color = String(colorEnc.field);
+  }
+
+  return result;
 }
 
 interface InsightPreviewTabProps {
@@ -68,6 +131,7 @@ export function InsightPreviewTab({
       case "line":
       case "area":
         return <LineChart className="h-5 w-5" />;
+      case "point":
       case "scatter":
         return <CircleDot className="h-5 w-5" />;
       case "table":
@@ -188,66 +252,74 @@ export function InsightPreviewTab({
             </Card>
           ) : (
             <div className="grid gap-4">
-              {visualizations.map((viz) => (
-                <Card
-                  key={viz.id}
-                  className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() => handleOpenVisualization(viz.id)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-4">
-                      {/* Icon */}
-                      <div className="bg-muted flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
-                        {getVizIcon(viz.visualizationType)}
-                      </div>
+              {visualizations.map((viz) => {
+                // Extract chart type and encoding from Vega-Lite spec
+                const chartType = getChartTypeFromSpec(viz.spec);
+                const encoding = getEncodingFromSpec(viz.spec);
 
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1 flex items-center gap-2">
-                          <h4 className="truncate font-medium">{viz.name}</h4>
-                          <Badge variant="secondary" className="text-xs">
-                            {viz.visualizationType}
-                          </Badge>
+                return (
+                  <Card
+                    key={viz.id}
+                    className="cursor-pointer transition-shadow hover:shadow-md"
+                    onClick={() => handleOpenVisualization(viz.id)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-4">
+                        {/* Icon */}
+                        <div className="bg-muted flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
+                          {getVizIcon(chartType)}
                         </div>
-                        {viz.encoding && (
-                          <p className="text-muted-foreground text-xs">
-                            {viz.encoding.x && `X: ${viz.encoding.x}`}
-                            {viz.encoding.x && viz.encoding.y && " • "}
-                            {viz.encoding.y && `Y: ${viz.encoding.y}`}
-                            {(viz.encoding.x || viz.encoding.y) &&
-                              viz.encoding.color &&
-                              " • "}
-                            {viz.encoding.color &&
-                              `Color: ${viz.encoding.color}`}
-                          </p>
-                        )}
-                        <p className="text-muted-foreground mt-1 text-xs">
-                          Created{" "}
-                          {new Date(viz.createdAt).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
 
-                      {/* Action */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenVisualization(viz.id);
-                        }}
-                      >
-                        <ExternalLink className="mr-1 h-4 w-4" />
-                        Open
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                        {/* Info */}
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-center gap-2">
+                            <h4 className="truncate font-medium">{viz.name}</h4>
+                            <Badge variant="secondary" className="text-xs">
+                              {chartType}
+                            </Badge>
+                          </div>
+                          {(encoding.x || encoding.y || encoding.color) && (
+                            <p className="text-muted-foreground text-xs">
+                              {encoding.x && `X: ${encoding.x}`}
+                              {encoding.x && encoding.y && " • "}
+                              {encoding.y && `Y: ${encoding.y}`}
+                              {(encoding.x || encoding.y) &&
+                                encoding.color &&
+                                " • "}
+                              {encoding.color && `Color: ${encoding.color}`}
+                            </p>
+                          )}
+                          <p className="text-muted-foreground mt-1 text-xs">
+                            Created{" "}
+                            {new Date(viz.createdAt).toLocaleDateString(
+                              "en-US",
+                              {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              },
+                            )}
+                          </p>
+                        </div>
+
+                        {/* Action */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenVisualization(viz.id);
+                          }}
+                        >
+                          <ExternalLink className="mr-1 h-4 w-4" />
+                          Open
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </section>

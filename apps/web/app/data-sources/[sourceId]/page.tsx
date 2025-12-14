@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect, useMemo } from "react";
+import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -36,10 +36,14 @@ import {
   BreadcrumbSeparator,
   ItemCard,
 } from "@dashframe/ui";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+  useDataTableMutations,
+  useDataFrames,
+} from "@dashframe/core-dexie";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VirtualTable } from "@dashframe/ui";
 import type { UUID } from "@dashframe/core";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
@@ -75,59 +79,50 @@ export default function DataSourcePage({ params }: PageProps) {
   const { sourceId } = use(params);
   const router = useRouter();
 
-  // Local stores
-  const { data: dataSource, isLoading } = useStoreQuery(
-    useDataSourcesStore,
-    (s) => s.get(sourceId),
-  );
-  const updateDataSource = useDataSourcesStore((s) => s.update);
-  const removeDataTable = useDataSourcesStore((s) => s.removeDataTable);
-  const getEntry = useDataFramesStore((state) => state.getEntry);
+  // Dexie hooks
+  const { data: allDataSources = [] } = useDataSources();
+  const { update: updateDataSource } = useDataSourceMutations();
+  const { remove: removeDataTable } = useDataTableMutations();
+  const { data: allDataFrames = [] } = useDataFrames();
 
-  // Get tables from data source
-  const dataTables = useMemo(() => {
-    return dataSource ? Array.from(dataSource.dataTables.values()) : [];
-  }, [dataSource]);
+  // Find the data source
+  const dataSource = allDataSources.find((s) => s.id === sourceId);
+  const isLoading = false; // DataSources hook handles loading
 
-  // Local state for selected table
+  // Get tables for this data source (flat in Dexie)
+  const { data: dataTables = [] } = useDataTables(sourceId);
+
+  // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
+
+  // Effective selected table ID - either user selection or first table as default
+  const effectiveSelectedTableId = selectedTableId ?? dataTables[0]?.id ?? null;
 
   // Get selected table details
   const tableDetails = useMemo(() => {
-    if (!selectedTableId || !dataSource) return null;
-    const table = dataSource.dataTables.get(selectedTableId);
+    if (!effectiveSelectedTableId) return null;
+    const table = dataTables.find((t) => t.id === effectiveSelectedTableId);
     return table
       ? { dataTable: table, fields: table.fields, metrics: table.metrics }
       : null;
-  }, [selectedTableId, dataSource]);
+  }, [effectiveSelectedTableId, dataTables]);
 
-  // Local state
-  const [sourceName, setSourceName] = useState("");
+  // Use source name directly - mutations update database which triggers re-render
+  const sourceName = dataSource?.name ?? "";
+
+  // Local state for delete confirmation
   const [deleteConfirmState, setDeleteConfirmState] = useState<{
     isOpen: boolean;
     tableId: UUID | null;
     tableName: string | null;
   }>({ isOpen: false, tableId: null, tableName: null });
 
-  // Auto-select first table when data loads
-  useEffect(() => {
-    if (dataTables.length > 0 && !selectedTableId) {
-      setSelectedTableId(dataTables[0].id);
-    }
-  }, [dataTables, selectedTableId]);
-
-  // Sync source name when data loads
-  useEffect(() => {
-    if (dataSource?.name) {
-      setSourceName(dataSource.name);
-    }
-  }, [dataSource?.name]);
-
   // Get DataFrame entry for metadata (row/column counts)
   const dataFrameEntry = useMemo(() => {
-    if (!tableDetails?.dataTable?.dataFrameId) return null;
-    return getEntry(tableDetails.dataTable.dataFrameId);
-  }, [tableDetails?.dataTable?.dataFrameId, getEntry]);
+    const dataFrameId = tableDetails?.dataTable?.dataFrameId;
+    if (!dataFrameId) return null;
+    return allDataFrames.find((e) => e.id === dataFrameId);
+  }, [tableDetails, allDataFrames]);
 
   // Load actual data for preview (async from IndexedDB)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -135,10 +130,9 @@ export default function DataSourcePage({ params }: PageProps) {
     { limit: 50 },
   );
 
-  // Handle name change
-  const handleNameChange = (newName: string) => {
-    setSourceName(newName);
-    updateDataSource(sourceId, { name: newName });
+  // Handle name change - directly update database, triggers re-render via hook
+  const handleNameChange = async (newName: string) => {
+    await updateDataSource(sourceId, { name: newName });
   };
 
   // Handle create insight from table
@@ -160,12 +154,12 @@ export default function DataSourcePage({ params }: PageProps) {
   };
 
   // Handle confirm delete
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteConfirmState.tableId) return;
 
     try {
       // Delete from local store
-      removeDataTable(sourceId, deleteConfirmState.tableId);
+      await removeDataTable(deleteConfirmState.tableId);
 
       // Clear selection and close dialog
       setSelectedTableId(null);

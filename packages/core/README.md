@@ -23,7 +23,7 @@ src/
     column.ts      # ColumnType, TableColumn, DataFrameColumn
     field.ts       # Field, SourceSchema
     metric.ts      # Metric, AggregationType, InsightMetric
-    dataframe.ts   # DataFrameRow, DataFrameData, EnhancedDataFrame
+    dataframe.ts   # DataFrameRow, DataFrameData
     data-table-info.ts  # DataTableField, DataTableInfo
 
   repositories/    # Repository interfaces (contracts for persistence)
@@ -55,8 +55,7 @@ Type alias for string UUIDs used as entity identifiers.
 ### DataFrame Types
 
 - `DataFrameRow` - Single row as key-value record
-- `DataFrameData` - Collection of rows and columns
-- `EnhancedDataFrame` - Full DataFrame with metadata
+- `DataFrameData` - Collection of rows with optional column metadata
 
 ## Data Model Architecture
 
@@ -143,16 +142,6 @@ const { addLocal, remove } = useDataSourceMutations();
 | Insights       | `UseInsights`       | `UseInsightMutations`       |
 | Visualizations | `UseVisualizations` | `UseVisualizationMutations` |
 | Dashboards     | `UseDashboards`     | `UseDashboardMutations`     |
-
-## Type Guards
-
-```typescript
-import { isLocalDataSource, isNotionDataSource } from "@dashframe/core";
-
-if (isNotionDataSource(source)) {
-  console.log(source.apiKey); // TypeScript knows this exists
-}
-```
 
 ## Design Principles
 

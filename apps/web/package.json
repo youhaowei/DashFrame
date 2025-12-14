@@ -59,7 +59,6 @@
     "@dashframe/eslint-config": "workspace:*",
     "@tailwindcss/postcss": "4.1.16",
     "@testing-library/react": "^16.3.0",
-    "@types/dompurify": "^3.2.0",
     "@types/node": "24.9.1",
     "@types/papaparse": "5.3.16",
     "@types/react": "19.2.7",

@@ -1,7 +1,6 @@
 "use client";
 
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import { useVisualizations } from "@dashframe/core-dexie";
 import { OnboardingView } from "./_components/OnboardingView";
 import { HomeView } from "./_components/HomeView";
 
@@ -12,12 +11,17 @@ import { HomeView } from "./_components/HomeView";
  * or a dashboard overview when visualizations are present.
  */
 export default function HomePage() {
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
+  const { data: visualizations = [], isLoading } = useVisualizations();
 
   const hasVisualizations = visualizations.length > 0;
+
+  if (isLoading) {
+    return (
+      <div className="bg-background flex h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background flex h-screen flex-col">

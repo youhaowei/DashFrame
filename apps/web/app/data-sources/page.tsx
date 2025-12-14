@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import type { DataSource } from "@/lib/stores/types";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+} from "@dashframe/core-dexie";
+import type { DataSource } from "@dashframe/core";
 import type { UUID } from "@dashframe/core";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
 import {
   Button,
   Card,
@@ -45,12 +48,12 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const router = useRouter();
 
-  // Local stores
-  const { data: dataSources, isLoading } = useStoreQuery(
-    useDataSourcesStore,
-    (state) => state.getAll(),
-  );
-  const removeDataSourceLocal = useDataSourcesStore((state) => state.remove);
+  // Dexie hooks
+  const { data: dataSources = [], isLoading } = useDataSources();
+  const { remove: removeDataSourceLocal } = useDataSourceMutations();
+
+  // Get all data tables to count them per source
+  const { data: allDataTables = [] } = useDataTables();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -58,11 +61,16 @@ export default function DataSourcesPage() {
 
   // Transform data sources for display
   const allDataSources = useMemo((): DataSourceWithTables[] => {
-    return dataSources.map((source) => ({
-      dataSource: source,
-      tableCount: source.dataTables.size,
-    }));
-  }, [dataSources]);
+    return dataSources.map((source) => {
+      const tableCount = allDataTables.filter(
+        (table) => table.dataSourceId === source.id,
+      ).length;
+      return {
+        dataSource: source,
+        tableCount,
+      };
+    });
+  }, [dataSources, allDataTables]);
 
   // Filter data sources by search query
   const filteredDataSources = useMemo(() => {
@@ -103,11 +111,14 @@ export default function DataSourcesPage() {
     }
   };
 
-  // Handle delete data source (LOCAL ONLY)
-  const handleDeleteDataSource = (dataSourceId: UUID, e: React.MouseEvent) => {
+  // Handle delete data source
+  const handleDeleteDataSource = async (
+    dataSourceId: UUID,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    removeDataSourceLocal(dataSourceId);
+    await removeDataSourceLocal(dataSourceId);
   };
 
   // Render data source card

@@ -1,6 +1,6 @@
 import { csvToDataFrame } from "@dashframe/connector-csv";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { getDataSourceByType, getDataTable, db } from "@dashframe/core-dexie";
+import { deleteArrowData } from "@dashframe/engine-browser";
 import type { Metric } from "@dashframe/core";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
@@ -37,13 +37,13 @@ export interface LocalCSVResult {
 }
 
 /**
- * Handle CSV upload using local Zustand stores (no Convex, no auth required)
+ * Handle CSV upload using Dexie database (no Convex, no auth required)
  *
  * Flow:
- * 1. Ensure "Local Files" data source exists in local store
+ * 1. Ensure "Local Files" data source exists in Dexie
  * 2. Parse CSV → DataFrame (stored in IndexedDB via Arrow IPC)
  * 3. Add DataTable to local data source
- * 4. Store DataFrame reference in dataframes store
+ * 4. Store DataFrame reference in Dexie
  * 5. Link DataFrame to DataTable
  *
  * @param file - The CSV file object
@@ -56,22 +56,27 @@ export async function handleLocalCSVUpload(
   csvData: string[][],
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
-  // 1. Ensure local data source exists
-  let dataSource = useDataSourcesStore.getState().getLocal();
+  // 1. Ensure local data source exists (uses "csv" connector type)
+  let dataSource = await getDataSourceByType("csv");
   if (!dataSource) {
-    useDataSourcesStore.getState().addLocal("Local Files");
-    dataSource = useDataSourcesStore.getState().getLocal();
-
+    const id = crypto.randomUUID();
+    await db.dataSources.add({
+      id,
+      type: "csv",
+      name: "Local Files",
+      createdAt: Date.now(),
+    });
+    dataSource = await getDataSourceByType("csv");
     if (!dataSource) {
       throw new Error("Failed to create local data source");
     }
   }
 
   const tableName = file.name.replace(/\.csv$/i, "");
-  const overrideTable = options?.overrideTableId
-    ? dataSource.dataTables.get(options.overrideTableId)
-    : undefined;
   const dataTableId = options?.overrideTableId ?? crypto.randomUUID();
+  const overrideTable = options?.overrideTableId
+    ? await getDataTable(options.overrideTableId)
+    : undefined;
 
   // 2. Convert CSV to DataFrame (data stored in IndexedDB)
   const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
@@ -83,7 +88,7 @@ export async function handleLocalCSVUpload(
     // 3a. Override existing table instead of creating a new one
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
-    useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
+    await db.dataTables.update(dataTableId, {
       name: tableName,
       table: file.name,
       sourceSchema,
@@ -94,47 +99,70 @@ export async function handleLocalCSVUpload(
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
       // Replace the DataFrame data (delete old Arrow data, store new)
-      await useDataFramesStore
-        .getState()
-        .replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
-          rowCount,
-          columnCount,
-        });
+      const oldEntity = await db.dataFrames.get(overrideTable.dataFrameId);
+      if (oldEntity?.storage?.type === "indexeddb") {
+        await deleteArrowData(oldEntity.storage.key);
+      }
+
+      const newSerialization = dataFrame.toJSON();
+      await db.dataFrames.update(overrideTable.dataFrameId, {
+        storage: newSerialization.storage,
+        fieldIds: newSerialization.fieldIds,
+        primaryKey: newSerialization.primaryKey,
+        createdAt: newSerialization.createdAt,
+        rowCount,
+        columnCount,
+      });
       dataFrameId = overrideTable.dataFrameId;
     } else {
       // Create new DataFrame entry
-      dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+      const serialization = dataFrame.toJSON();
+      await db.dataFrames.add({
+        ...serialization,
         name: tableName,
         rowCount,
         columnCount,
       });
+      dataFrameId = dataFrame.id;
     }
 
     // Ensure the DataTable points to the updated DataFrame
-    useDataSourcesStore
-      .getState()
-      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+    await db.dataTables.update(dataTableId, { dataFrameId });
   } else {
-    // 3b. Add DataTable to local store
-    useDataSourcesStore
-      .getState()
-      .addDataTable(dataSource.id, tableName, file.name, {
-        id: dataTableId,
-        sourceSchema,
-        fields,
-      });
+    // 3b. Add DataTable to Dexie
+    const defaultMetrics: Metric[] = [
+      {
+        id: crypto.randomUUID(),
+        name: "Count",
+        tableId: dataTableId,
+        columnName: undefined,
+        aggregation: "count",
+      },
+    ];
 
-    // 4. Create DataFrame entry in dataframes store
-    dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+    await db.dataTables.add({
+      id: dataTableId,
+      dataSourceId: dataSource.id,
+      name: tableName,
+      table: file.name,
+      sourceSchema,
+      fields,
+      metrics: defaultMetrics,
+      createdAt: Date.now(),
+    });
+
+    // 4. Create DataFrame entry in Dexie
+    const serialization = dataFrame.toJSON();
+    await db.dataFrames.add({
+      ...serialization,
       name: tableName,
       rowCount,
       columnCount,
     });
+    dataFrameId = dataFrame.id;
 
     // 5. Link DataFrame to DataTable
-    useDataSourcesStore
-      .getState()
-      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+    await db.dataTables.update(dataTableId, { dataFrameId });
   }
 
   return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
@@ -161,22 +189,27 @@ export async function handleFileConnectorResult(
   // In browser context, all DataFrames are BrowserDataFrame instances
   const dataFrame = parseResult.dataFrame as BrowserDataFrame;
 
-  // 1. Ensure local data source exists
-  let dataSource = useDataSourcesStore.getState().getLocal();
+  // 1. Ensure local data source exists (uses "csv" connector type)
+  let dataSource = await getDataSourceByType("csv");
   if (!dataSource) {
-    useDataSourcesStore.getState().addLocal("Local Files");
-    dataSource = useDataSourcesStore.getState().getLocal();
-
+    const id = crypto.randomUUID();
+    await db.dataSources.add({
+      id,
+      type: "csv",
+      name: "Local Files",
+      createdAt: Date.now(),
+    });
+    dataSource = await getDataSourceByType("csv");
     if (!dataSource) {
       throw new Error("Failed to create local data source");
     }
   }
 
   const tableName = fileName.replace(/\.(csv|xlsx?|json)$/i, "");
-  const overrideTable = options?.overrideTableId
-    ? dataSource.dataTables.get(options.overrideTableId)
-    : undefined;
   const dataTableId = options?.overrideTableId ?? dataFrame.id;
+  const overrideTable = options?.overrideTableId
+    ? await getDataTable(options.overrideTableId)
+    : undefined;
 
   let dataFrameId: string;
 
@@ -184,7 +217,7 @@ export async function handleFileConnectorResult(
     // Override existing table
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
-    useDataSourcesStore.getState().updateDataTable(dataSource.id, dataTableId, {
+    await db.dataTables.update(dataTableId, {
       name: tableName,
       table: fileName,
       sourceSchema,
@@ -194,45 +227,68 @@ export async function handleFileConnectorResult(
 
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
-      await useDataFramesStore
-        .getState()
-        .replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
-          rowCount,
-          columnCount,
-        });
+      const oldEntity = await db.dataFrames.get(overrideTable.dataFrameId);
+      if (oldEntity?.storage?.type === "indexeddb") {
+        await deleteArrowData(oldEntity.storage.key);
+      }
+
+      const newSerialization = dataFrame.toJSON();
+      await db.dataFrames.update(overrideTable.dataFrameId, {
+        storage: newSerialization.storage,
+        fieldIds: newSerialization.fieldIds,
+        primaryKey: newSerialization.primaryKey,
+        createdAt: newSerialization.createdAt,
+        rowCount,
+        columnCount,
+      });
       dataFrameId = overrideTable.dataFrameId;
     } else {
-      dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+      const serialization = dataFrame.toJSON();
+      await db.dataFrames.add({
+        ...serialization,
         name: tableName,
         rowCount,
         columnCount,
       });
+      dataFrameId = dataFrame.id;
     }
 
-    useDataSourcesStore
-      .getState()
-      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+    await db.dataTables.update(dataTableId, { dataFrameId });
   } else {
     // Add new DataTable
-    useDataSourcesStore
-      .getState()
-      .addDataTable(dataSource.id, tableName, fileName, {
-        id: dataTableId,
-        sourceSchema,
-        fields,
-      });
+    const defaultMetrics: Metric[] = [
+      {
+        id: crypto.randomUUID(),
+        name: "Count",
+        tableId: dataTableId,
+        columnName: undefined,
+        aggregation: "count",
+      },
+    ];
+
+    await db.dataTables.add({
+      id: dataTableId,
+      dataSourceId: dataSource.id,
+      name: tableName,
+      table: fileName,
+      sourceSchema,
+      fields,
+      metrics: defaultMetrics,
+      createdAt: Date.now(),
+    });
 
     // Create DataFrame entry
-    dataFrameId = useDataFramesStore.getState().addDataFrame(dataFrame, {
+    const serialization = dataFrame.toJSON();
+    await db.dataFrames.add({
+      ...serialization,
       name: tableName,
       rowCount,
       columnCount,
     });
+    dataFrameId = dataFrame.id;
 
     // Link DataFrame to DataTable
-    useDataSourcesStore
-      .getState()
-      .updateDataTable(dataSource.id, dataTableId, { dataFrameId });
+    await db.dataTables.update(dataTableId, { dataFrameId });
   }
 
   return { dataTableId, dataFrameId, dataSourceId: dataSource.id };

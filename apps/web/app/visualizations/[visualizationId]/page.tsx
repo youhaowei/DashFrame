@@ -19,20 +19,30 @@ import {
   SelectField,
 } from "@dashframe/ui";
 import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import {
+  useVisualizations,
+  useVisualizationMutations,
+  useInsights,
+  useDataSources,
+  useDataTables,
+  useDataFrames,
+  getDataFrame as getDexieDataFrame,
+} from "@dashframe/core-dexie";
 import { VegaChart } from "@/components/visualizations/VegaChart";
 import { VirtualTable } from "@dashframe/ui";
 import {
   analyzeDataFrame,
   type ColumnAnalysis,
 } from "@dashframe/engine-browser";
-import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/core";
+import type {
+  UUID,
+  DataFrameColumn,
+  DataFrameRow,
+  Visualization,
+  VisualizationType,
+  VisualizationEncoding,
+} from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { Visualization, VisualizationType } from "@/lib/stores/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import {
   computeInsightPreview,
@@ -90,8 +100,6 @@ function getVegaThemeConfig() {
 }
 
 // Build Vega-Lite spec from visualization and dataframe
-// NOTE: The dataframe should already contain pre-computed/aggregated data.
-// The visualization just renders what's in the dataframe.
 function buildVegaSpec(
   viz: Visualization,
   data: { rows: DataFrameRow[]; columns: DataFrameColumn[] },
@@ -231,52 +239,56 @@ export default function VisualizationPage({ params }: PageProps) {
   const { visualizationId } = use(params);
   const router = useRouter();
 
-  // Local stores with hydration awareness
-  const { data: visualization, isLoading: isVizLoading } = useStoreQuery(
-    useVisualizationsStore,
-    (s) => s.get(visualizationId as UUID),
+  // Dexie hooks for data
+  const { data: visualizations = [], isLoading: isVizLoading } =
+    useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
+  const { data: dataSources = [] } = useDataSources();
+  const { data: dataFrameEntries = [] } = useDataFrames();
+  const {
+    update: updateVisualization,
+    updateEncoding,
+    remove: removeVisualization,
+  } = useVisualizationMutations();
+
+  // Find the visualization
+  const visualization = useMemo(
+    () => visualizations.find((v) => v.id === visualizationId),
+    [visualizations, visualizationId],
   );
-  const updateVisualizationLocal = useVisualizationsStore(
-    (state) => state.update,
+
+  // Find the insight
+  const insight = useMemo(
+    () =>
+      visualization?.insightId
+        ? insights.find((i) => i.id === visualization.insightId)
+        : undefined,
+    [insights, visualization?.insightId],
   );
-  const updateEncodingLocal = useVisualizationsStore(
-    (state) => state.updateEncoding,
+
+  // Find the data table
+  const dataTable = useMemo(
+    () =>
+      insight?.baseTableId
+        ? dataTables.find((t) => t.id === insight.baseTableId)
+        : undefined,
+    [dataTables, insight?.baseTableId],
   );
-  const removeVisualizationLocal = useVisualizationsStore(
-    (state) => state.remove,
-  );
+
+  // Get the dataFrameId from the dataTable
+  const dataFrameId = dataTable?.dataFrameId;
 
   // Load source DataFrame data async
   const {
     data: sourceDataFrame,
     isLoading: isDataLoading,
     entry: dataFrameEntry,
-  } = useDataFrameData(visualization?.source.dataFrameId);
-
-  // Load insight if visualization has one (for aggregation config)
-  const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
-    useInsightsStore,
-    (s) =>
-      visualization?.source.insightId
-        ? s.getInsight(visualization.source.insightId)
-        : undefined,
-  );
+  } = useDataFrameData(dataFrameId);
 
   // DuckDB connection for join computation
   const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
     useDuckDB();
-  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
-
-  // Load data source and data table for field information
-  const dataSources = useDataSourcesStore((s) => s.dataSources);
-  const dataTable = useMemo(() => {
-    if (!insight?.baseTable?.tableId) return null;
-    for (const ds of dataSources.values()) {
-      const table = ds.dataTables.get(insight.baseTable.tableId);
-      if (table) return table;
-    }
-    return null;
-  }, [insight?.baseTable?.tableId, dataSources]);
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -307,44 +319,35 @@ export default function VisualizationPage({ params }: PageProps) {
       setIsLoadingJoinedData(true);
 
       try {
-        // Get resolved Insight with DataTable objects embedded
-        const getResolvedInsight =
-          useInsightsStore.getState().getResolvedInsight;
-        const insightInstance = getResolvedInsight(insight.id, dataSources);
-        if (!insightInstance) {
-          throw new Error(`Could not resolve insight: ${insight.id}`);
-        }
-
-        // Generate SQL - no store access needed, all data is embedded
-        const sql = insightInstance.toSQL();
-        console.log("[VisualizationPage] Generated join SQL:", sql);
-
-        // First, ensure base table is loaded into DuckDB
-        const baseDataFrame = getDataFrame(dataTable.dataFrameId!);
+        // Get the base DataFrame
+        const baseDataFrame = await getDexieDataFrame(dataTable.dataFrameId!);
         if (!baseDataFrame) {
           throw new Error("Base DataFrame not found");
         }
+
+        // Load base table into DuckDB
         const baseQueryBuilder = await baseDataFrame.load(duckDBConnection);
         await baseQueryBuilder.sql(); // Triggers table creation
 
-        // Ensure join tables are loaded into DuckDB
+        // Load join tables into DuckDB
         for (const join of insight.joins ?? []) {
-          // Find the join table
-          for (const ds of dataSources.values()) {
-            const joinTable = ds.dataTables.get(join.tableId);
-            if (joinTable?.dataFrameId) {
-              const joinDataFrame = getDataFrame(joinTable.dataFrameId);
-              if (joinDataFrame) {
-                const joinQueryBuilder =
-                  await joinDataFrame.load(duckDBConnection);
-                await joinQueryBuilder.sql(); // Triggers table creation
-              }
-              break;
+          const joinTable = dataTables.find((t) => t.id === join.rightTableId);
+          if (joinTable?.dataFrameId) {
+            const joinDataFrame = await getDexieDataFrame(
+              joinTable.dataFrameId,
+            );
+            if (joinDataFrame) {
+              const joinQueryBuilder =
+                await joinDataFrame.load(duckDBConnection);
+              await joinQueryBuilder.sql(); // Triggers table creation
             }
           }
         }
 
-        // Execute the generated SQL
+        // Build and execute join SQL
+        // [Future] Generate proper SQL from insight joins configuration
+        // For now, just use the base table data
+        const sql = await baseQueryBuilder.sql();
         const result = await duckDBConnection.query(sql);
         const rows = result.toArray() as DataFrameRow[];
 
@@ -378,14 +381,10 @@ export default function VisualizationPage({ params }: PageProps) {
   }, [
     insight?.joins,
     insight?.id,
-    insight?.name,
-    insight?.baseTable,
-    insight?.metrics,
     duckDBConnection,
     isDuckDBReady,
     dataTable,
-    dataSources,
-    getDataFrame,
+    dataTables,
   ]);
 
   // Compute aggregated data if we have an insight with metrics/dimensions (non-join case)
@@ -396,22 +395,31 @@ export default function VisualizationPage({ params }: PageProps) {
     if (!sourceDataFrame || !insight || !dataTable) return null;
 
     // Check if insight has dimensions or metrics configured
-    const selectedFields = insight.baseTable?.selectedFields ?? [];
+    const selectedFields = insight.selectedFields ?? [];
     const metrics = insight.metrics ?? [];
 
     // If no aggregation config, return null (use raw data)
     if (selectedFields.length === 0 && metrics.length === 0) return null;
 
-    // Convert LoadedDataFrameData to DataFrameData format for computeInsightPreview
+    // Use source data directly (DataFrameData format)
     const sourceDataFrameData = {
-      fieldIds: [] as string[],
       columns: sourceDataFrame.columns,
       rows: sourceDataFrame.rows,
     };
 
-    // Compute aggregated preview using insight config
+    // Build insight object for computation
+    const insightForCompute = {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      selectedFields: selectedFields,
+      metrics: metrics,
+      createdAt: insight.createdAt,
+      updatedAt: insight.updatedAt,
+    };
+
     return computeInsightPreview(
-      insight,
+      insightForCompute,
       dataTable,
       sourceDataFrameData,
       1000, // Allow more rows for visualization
@@ -435,11 +443,10 @@ export default function VisualizationPage({ params }: PageProps) {
     return sourceDataFrame;
   }, [joinedData, aggregatedPreview, sourceDataFrame]);
 
-  // Include dataFrame check to prevent "Data not available" flash during derived state computation
+  // Include dataFrame check to prevent "Data not available" flash
   const isLoading =
     isVizLoading ||
     isDataLoading ||
-    isInsightLoading ||
     isLoadingJoinedData ||
     (visualization && !dataFrame);
 
@@ -465,7 +472,6 @@ export default function VisualizationPage({ params }: PageProps) {
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const containerHeight = entry.contentRect.height;
-        // No header height needed as we are measuring the content area directly
         const chartHeight = 400;
         const spacing = 60;
 
@@ -481,16 +487,19 @@ export default function VisualizationPage({ params }: PageProps) {
     return () => observer.disconnect();
   }, [visualization?.id]);
 
-  // Build Vega spec (dataFrame is loaded via useDataFrameData hook above)
+  // Build Vega spec
   const vegaSpec = useMemo(() => {
-    if (!visualization || !dataFrame) return null;
+    if (!visualization || !dataFrame || !dataFrame.columns) return null;
     if (visualization.visualizationType === "table") return null;
-    return buildVegaSpec(visualization, dataFrame);
+    return buildVegaSpec(visualization, {
+      rows: dataFrame.rows,
+      columns: dataFrame.columns,
+    });
   }, [visualization, dataFrame]);
 
   // Analyze columns for encoding suggestions
   const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
-    if (!dataFrame) return [];
+    if (!dataFrame || !dataFrame.columns) return [];
     return analyzeDataFrame(dataFrame.rows, dataFrame.columns);
   }, [dataFrame]);
 
@@ -522,20 +531,23 @@ export default function VisualizationPage({ params }: PageProps) {
     previousStateRef.current = { canShowBoth, activeTab };
   }, [canShowBoth, activeTab]);
 
-  // Handle name change (LOCAL ONLY)
-  const handleNameChange = (newName: string) => {
+  // Handle name change
+  const handleNameChange = async (newName: string) => {
     setVizName(newName);
-    updateVisualizationLocal(visualizationId as UUID, { name: newName });
+    await updateVisualization(visualizationId as UUID, { name: newName });
   };
 
-  // Handle encoding change (LOCAL ONLY)
-  const handleEncodingChange = (
+  // Handle encoding change
+  const handleEncodingChange = async (
     field: "x" | "y" | "color" | "size",
     value: string,
   ) => {
     if (!visualization) return;
 
-    const newEncoding = { ...visualization.encoding, [field]: value };
+    const newEncoding: VisualizationEncoding = {
+      ...visualization.encoding,
+      [field]: value,
+    };
 
     // Auto-detect type if changing x or y
     if (field === "x" || field === "y") {
@@ -554,25 +566,25 @@ export default function VisualizationPage({ params }: PageProps) {
       }
     }
 
-    updateEncodingLocal(visualizationId as UUID, newEncoding);
+    await updateEncoding(visualizationId as UUID, newEncoding);
   };
 
-  // Handle visualization type change (LOCAL ONLY)
-  const handleTypeChange = (type: string) => {
-    updateVisualizationLocal(visualizationId as UUID, {
+  // Handle visualization type change
+  const handleTypeChange = async (type: string) => {
+    await updateVisualization(visualizationId as UUID, {
       visualizationType: type as VisualizationType,
     });
   };
 
-  // Handle delete (LOCAL ONLY)
-  const handleDelete = () => {
+  // Handle delete
+  const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      removeVisualizationLocal(visualizationId as UUID);
-      router.push("/insights"); // Navigate back after delete
+      await removeVisualization(visualizationId as UUID);
+      router.push("/insights");
     }
   };
 
-  // Loading state - wait for all stores to hydrate before rendering
+  // Loading state
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -586,7 +598,7 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // Not found state (local store returns undefined if not found)
+  // Not found state
   if (!visualization) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -603,7 +615,7 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // No DataFrame state (data not cached locally)
+  // No DataFrame state
   if (!dataFrame) {
     return (
       <WorkbenchLayout
@@ -627,13 +639,13 @@ export default function VisualizationPage({ params }: PageProps) {
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
               <p className="text-muted-foreground mb-4 text-sm">
-                The data for this visualization is not cached locally. Please
-                refresh from the source insight.
+                The data for this visualization is not available. Please refresh
+                from the source insight.
               </p>
-              {visualization.source.insightId && (
+              {visualization.insightId && (
                 <Button
                   onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
+                    router.push(`/insights/${visualization.insightId}`)
                   }
                 >
                   Go to Source Insight
@@ -686,12 +698,12 @@ export default function VisualizationPage({ params }: PageProps) {
               {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
               {dataFrameEntry?.columnCount ?? "?"} columns
             </span>
-            {visualization.source.insightId && (
+            {visualization.insightId && (
               <>
                 <span>•</span>
                 <button
                   onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
+                    router.push(`/insights/${visualization.insightId}`)
                   }
                   className="text-primary hover:underline"
                 >
@@ -800,13 +812,13 @@ export default function VisualizationPage({ params }: PageProps) {
             </div>
 
             {/* Source insight link */}
-            {visualization.source.insightId && (
+            {visualization.insightId && (
               <div className="border-t pt-4">
                 <h3 className="mb-2 text-sm font-semibold">Source</h3>
                 <Card
                   className="hover:bg-muted/50 cursor-pointer transition-colors"
                   onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
+                    router.push(`/insights/${visualization.insightId}`)
                   }
                 >
                   <CardContent className="p-3">

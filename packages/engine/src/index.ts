@@ -20,7 +20,7 @@ export * from "@dashframe/core";
 export type {
   // DataFrame
   DataFrameStorageLocation,
-  DataFrameSerialization,
+  DataFrameJSON,
   DataFrame,
   DataFrameFactory,
   // Storage

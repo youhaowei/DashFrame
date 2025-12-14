@@ -25,13 +25,15 @@ import {
   Loader2,
   AlertCircle,
 } from "@dashframe/ui";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import {
+  useInsights,
+  useInsightMutations,
+  useDataTables,
+  getDataFrame,
+} from "@dashframe/core-dexie";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { DataTable } from "@/lib/stores/types";
+import type { DataTable, InsightJoinConfig } from "@dashframe/core";
 
 interface PageProps {
   params: Promise<{ insightId: string; tableId: string }>;
@@ -58,24 +60,18 @@ export default function JoinConfigurePage({ params }: PageProps) {
   const { insightId, tableId: joinTableId } = use(params);
   const router = useRouter();
 
-  // Store hooks with hydration awareness
-  const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
-    useInsightsStore,
-    (s) => s.getInsight(insightId),
-  );
-  const updateInsight = useInsightsStore((state) => state.updateInsight);
+  // Dexie hooks for data access
+  const { data: allInsights, isLoading: isInsightsLoading } = useInsights();
+  const { data: allDataTables, isLoading: isTablesLoading } = useDataTables();
+  const { update: updateInsight } = useInsightMutations();
 
-  const { data: dataSources, isLoading: isSourcesLoading } = useStoreQuery(
-    useDataSourcesStore,
-    (s) => s.getAll(),
-  );
+  const isLoading = isInsightsLoading || isTablesLoading;
 
-  const { isLoading: isDataFramesLoading } = useStoreQuery(
-    useDataFramesStore,
-    (s) => s.getEntry,
+  // Find the current insight
+  const insight = useMemo(
+    () => allInsights?.find((i) => i.id === insightId),
+    [allInsights, insightId],
   );
-
-  const isLoading = isInsightLoading || isSourcesLoading || isDataFramesLoading;
 
   // Join configuration state
   const [leftFieldId, setLeftFieldId] = useState<string | null>(null);
@@ -101,58 +97,43 @@ export default function JoinConfigurePage({ params }: PageProps) {
   );
   const [isComputingPreview, setIsComputingPreview] = useState(false);
 
-  // Resolve base table (from insight)
-  const baseTableInfo = useMemo(() => {
-    if (!insight) return null;
-
-    for (const source of dataSources) {
-      const table = source.dataTables.get(insight.baseTable.tableId);
-      if (table) {
-        return { table, source };
-      }
-    }
-    return null;
-  }, [insight, dataSources]);
+  // Resolve base table (from insight's baseTableId)
+  const baseTable = useMemo(() => {
+    if (!insight || !allDataTables) return null;
+    return allDataTables.find((t) => t.id === insight.baseTableId) ?? null;
+  }, [insight, allDataTables]);
 
   // Resolve join table (from tableId param)
-  const joinTableInfo = useMemo(() => {
-    for (const source of dataSources) {
-      const table = source.dataTables.get(joinTableId);
-      if (table) {
-        return { table, source };
-      }
-    }
-    return null;
-  }, [dataSources, joinTableId]);
+  const joinTable = useMemo(() => {
+    if (!allDataTables) return null;
+    return allDataTables.find((t) => t.id === joinTableId) ?? null;
+  }, [allDataTables, joinTableId]);
 
   // DuckDB connection for join preview
   const { connection, isInitialized: isDuckDBReady } = useDuckDB();
-  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
 
   // Pagination hooks for async VirtualTable (full dataset browsing)
   const {
     fetchData: fetchBaseData,
     totalCount: baseTotalCount,
     isReady: isBaseReady,
-  } = useDataFramePagination(baseTableInfo?.table.dataFrameId);
+  } = useDataFramePagination(baseTable?.dataFrameId);
 
   const {
     fetchData: fetchJoinData,
     totalCount: joinTotalCount,
     isReady: isJoinReady,
-  } = useDataFramePagination(joinTableInfo?.table.dataFrameId);
+  } = useDataFramePagination(joinTable?.dataFrameId);
 
   // Filter out internal fields (those starting with _)
   const baseFields = useMemo(
-    () =>
-      baseTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
-    [baseTableInfo],
+    () => baseTable?.fields?.filter((f) => !f.name.startsWith("_")) ?? [],
+    [baseTable],
   );
 
   const joinFields = useMemo(
-    () =>
-      joinTableInfo?.table.fields.filter((f) => !f.name.startsWith("_")) ?? [],
-    [joinTableInfo],
+    () => joinTable?.fields?.filter((f) => !f.name.startsWith("_")) ?? [],
+    [joinTable],
   );
 
   // Column configs for highlighting selected columns in source tables
@@ -170,7 +151,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
 
   // Column configs for the preview result - highlight base vs join columns
   const previewColumnConfigs = useMemo((): VirtualTableColumnConfig[] => {
-    if (!previewResult?.columns || !baseTableInfo || !joinTableInfo) return [];
+    if (!previewResult?.columns || !baseTable || !joinTable) return [];
 
     // Get column names from each source table
     const baseColumnNames = new Set(
@@ -181,8 +162,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
     );
 
     // Get table display names for prefix detection (must match SQL generation)
-    const baseDisplayName = shortenAutoGeneratedName(baseTableInfo.table.name);
-    const joinDisplayName = shortenAutoGeneratedName(joinTableInfo.table.name);
+    const baseDisplayName = shortenAutoGeneratedName(baseTable.name);
+    const joinDisplayName = shortenAutoGeneratedName(joinTable.name);
 
     return previewResult.columns
       .filter((col) => !col.name.startsWith("_"))
@@ -240,7 +221,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
       .filter(
         (config) => config.highlight !== undefined,
       ) as VirtualTableColumnConfig[];
-  }, [previewResult, baseTableInfo, joinTableInfo, baseFields, joinFields]);
+  }, [previewResult, baseTable, joinTable, baseFields, joinFields]);
 
   // Join analysis results for Venn diagram visualization
   const [joinAnalysis, setJoinAnalysis] = useState<{
@@ -264,8 +245,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
   // Analyze matching columns for suggestions
   useEffect(() => {
     if (!connection || !isDuckDBReady) return;
-    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
-      return;
+    if (!baseTable?.dataFrameId || !joinTable?.dataFrameId) return;
     // Wait for pagination hooks to be ready (they load the data into DuckDB)
     if (!isBaseReady || !isJoinReady) return;
 
@@ -300,8 +280,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
 
-    const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
-    const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+    const baseTableName = `df_${baseTable.dataFrameId!.replace(/-/g, "_")}`;
+    const joinTableName = `df_${joinTable.dataFrameId!.replace(/-/g, "_")}`;
 
     const analyze = async () => {
       try {
@@ -351,8 +331,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
   }, [
     connection,
     isDuckDBReady,
-    baseTableInfo,
-    joinTableInfo,
+    baseTable,
+    joinTable,
     baseFields,
     joinFields,
     isBaseReady,
@@ -372,8 +352,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
     if (!connection || !isDuckDBReady) return;
-    if (!baseTableInfo?.table.dataFrameId || !joinTableInfo?.table.dataFrameId)
-      return;
+    if (!baseTable?.dataFrameId || !joinTable?.dataFrameId) return;
 
     const leftField = baseFields.find((f) => f.id === leftFieldId);
     const rightField = joinFields.find((f) => f.id === rightFieldId);
@@ -382,17 +361,18 @@ export default function JoinConfigurePage({ params }: PageProps) {
     const leftColumnName = leftField.columnName ?? leftField.name;
     const rightColumnName = rightField.columnName ?? rightField.name;
 
-    const baseDataFrame = getDataFrame(baseTableInfo.table.dataFrameId);
-    const joinDataFrame = getDataFrame(joinTableInfo.table.dataFrameId);
-    if (!baseDataFrame || !joinDataFrame) return;
-
     const analyze = async () => {
       try {
+        // Get DataFrames from Dexie (async)
+        const baseDataFrame = await getDataFrame(baseTable.dataFrameId!);
+        const joinDataFrame = await getDataFrame(joinTable.dataFrameId!);
+        if (!baseDataFrame || !joinDataFrame) return;
+
         await baseDataFrame.load(connection);
         await joinDataFrame.load(connection);
 
-        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
-        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const baseTableName = `df_${baseTable.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTable.dataFrameId!.replace(/-/g, "_")}`;
 
         // Get Venn diagram stats
         const vennSQL = `
@@ -446,8 +426,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
     rightFieldId,
     connection,
     isDuckDBReady,
-    baseTableInfo,
-    joinTableInfo,
+    baseTable,
+    joinTable,
     baseFields,
     joinFields,
     getDataFrame,
@@ -464,10 +444,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
 
-    if (
-      !baseTableInfo?.table.dataFrameId ||
-      !joinTableInfo?.table.dataFrameId
-    ) {
+    if (!baseTable?.dataFrameId || !joinTable?.dataFrameId) {
       return;
     }
 
@@ -482,26 +459,26 @@ export default function JoinConfigurePage({ params }: PageProps) {
     const leftColumnName = leftField.columnName ?? leftField.name;
     const rightColumnName = rightField.columnName ?? rightField.name;
 
-    // Get DataFrames
-    const baseDataFrame = getDataFrame(baseTableInfo.table.dataFrameId);
-    const joinDataFrame = getDataFrame(joinTableInfo.table.dataFrameId);
-
-    if (!baseDataFrame || !joinDataFrame) {
-      setError("Could not load DataFrames");
-      return;
-    }
-
     setIsComputingPreview(true);
     setError(null);
 
     const computeJoin = async () => {
       try {
+        // Get DataFrames from Dexie (async)
+        const baseDataFrame = await getDataFrame(baseTable.dataFrameId!);
+        const joinDataFrame = await getDataFrame(joinTable.dataFrameId!);
+
+        if (!baseDataFrame || !joinDataFrame) {
+          setError("Could not load DataFrames");
+          return;
+        }
+
         // Load both tables into DuckDB (side effect ensures tables exist)
         await baseDataFrame.load(connection);
         await joinDataFrame.load(connection);
 
-        const baseTableName = `df_${baseTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
-        const joinTableName = `df_${joinTableInfo.table.dataFrameId!.replace(/-/g, "_")}`;
+        const baseTableName = `df_${baseTable.dataFrameId!.replace(/-/g, "_")}`;
+        const joinTableName = `df_${joinTable.dataFrameId!.replace(/-/g, "_")}`;
 
         // Build the JOIN SQL
         const joinTypeSQL = joinType.toUpperCase();
@@ -511,12 +488,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
         const joinColNames = joinFields.map((f) => f.columnName ?? f.name);
 
         // Get display names for table prefixes (cleaned of UUIDs)
-        const baseDisplayName = shortenAutoGeneratedName(
-          baseTableInfo.table.name,
-        );
-        const joinDisplayName = shortenAutoGeneratedName(
-          joinTableInfo.table.name,
-        );
+        const baseDisplayName = shortenAutoGeneratedName(baseTable.name);
+        const joinDisplayName = shortenAutoGeneratedName(joinTable.name);
 
         // Build SELECT clause with table name prefixes for duplicate columns
         const selectParts: string[] = [];
@@ -613,8 +586,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
     joinType,
     connection,
     isDuckDBReady,
-    baseTableInfo,
-    joinTableInfo,
+    baseTable,
+    joinTable,
     baseFields,
     joinFields,
     getDataFrame,
@@ -632,7 +605,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
       return;
     }
 
-    if (!baseTableInfo || !joinTableInfo || !insight) {
+    if (!baseTable || !joinTable || !insight) {
       setError("Unable to load table data.");
       return;
     }
@@ -655,20 +628,19 @@ export default function JoinConfigurePage({ params }: PageProps) {
       // Just warn them in the UI (handled by the existing Alert component)
     }
 
-    // Create join metadata - this is all we need to store
-    // The actual join is computed on-demand in InsightConfigureTab
-    const joinMeta = {
-      id: crypto.randomUUID(),
-      tableId: joinTableInfo.table.id,
-      selectedFields: joinFields.map((f) => f.id), // Include all fields from join table
-      joinOn: { baseField: leftField.id, joinedField: rightField.id },
-      joinType,
+    // Create join config using the Core schema
+    // Uses column names (strings) as join keys, not field UUIDs
+    const joinConfig: InsightJoinConfig = {
+      type: joinType === "outer" ? "full" : joinType, // "outer" → "full" for Core type
+      rightTableId: joinTable!.id,
+      leftKey: leftField.columnName ?? leftField.name,
+      rightKey: rightField.columnName ?? rightField.name,
     };
 
     // Add join to existing insight (append to existing joins if any)
     const existingJoins = insight.joins ?? [];
-    updateInsight(insightId, {
-      joins: [...existingJoins, joinMeta],
+    await updateInsight(insightId, {
+      joins: [...existingJoins, joinConfig],
     });
 
     // Note: We intentionally do NOT store a pre-computed joined DataFrame here.
@@ -682,8 +654,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
     leftFieldId,
     rightFieldId,
     joinType,
-    baseTableInfo,
-    joinTableInfo,
+    baseTable,
+    joinTable,
     baseFields,
     joinFields,
     insight,
@@ -725,7 +697,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     );
   }
 
-  if (!baseTableInfo) {
+  if (!baseTable) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
@@ -742,7 +714,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     );
   }
 
-  if (!joinTableInfo) {
+  if (!joinTable) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
@@ -781,7 +753,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               </Button>
               <div>
                 <h1 className="text-xl font-semibold">
-                  Join: {baseTableInfo.table.name} + {joinTableInfo.table.name}
+                  Join: {baseTable.name} + {joinTable.name}
                 </h1>
                 <p className="text-muted-foreground text-sm">
                   Configure how to combine these datasets
@@ -811,11 +783,11 @@ export default function JoinConfigurePage({ params }: PageProps) {
             {/* Base Table Preview */}
             <TablePreviewSection
               title="Base Table"
-              table={baseTableInfo.table}
+              table={baseTable}
               totalCount={baseTotalCount}
               isReady={isBaseReady}
               onFetchData={fetchBaseData}
-              fields={baseTableInfo.table.fields}
+              fields={baseTable.fields}
               columnConfigs={baseColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = baseFields.find(
@@ -828,11 +800,11 @@ export default function JoinConfigurePage({ params }: PageProps) {
             {/* Join Table Preview */}
             <TablePreviewSection
               title="Join Table"
-              table={joinTableInfo.table}
+              table={joinTable}
               totalCount={joinTotalCount}
               isReady={isJoinReady}
               onFetchData={fetchJoinData}
-              fields={joinTableInfo.table.fields}
+              fields={joinTable.fields}
               columnConfigs={joinColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = joinFields.find(
@@ -1145,13 +1117,13 @@ export default function JoinConfigurePage({ params }: PageProps) {
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-blue-600" />
                       <span className="text-muted-foreground">
-                        From {baseTableInfo?.table.name ?? "base table"}
+                        From {baseTable.name ?? "base table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-emerald-600" />
                       <span className="text-muted-foreground">
-                        From {joinTableInfo?.table.name ?? "join table"}
+                        From {joinTable.name ?? "join table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">

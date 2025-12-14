@@ -102,8 +102,8 @@ class BrowserDataFrame implements DataFrame {
   async load(conn: AsyncDuckDBConnection): Promise<QueryBuilder>;
 
   // Serialization (only metadata stored in localStorage)
-  toJSON(): DataFrameSerialization;
-  static fromJSON(data: DataFrameSerialization): BrowserDataFrame;
+  toJSON(): DataFrameJSON;
+  static fromJSON(data: DataFrameJSON): BrowserDataFrame;
 
   // Factory for creating new DataFrames
   static async create(

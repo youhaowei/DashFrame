@@ -1,17 +1,23 @@
 import { createBdd } from "playwright-bdd";
 import { expect } from "@playwright/test";
 
-const { Given, When, Then } = createBdd();
+const { Given, Then } = createBdd();
 
 Given("I am on the DashFrame home page", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /DashFrame/i })).toBeVisible();
+  // Wait for the main content to be visible to ensure hydration
+  await expect(
+    page.getByRole("heading", { name: "Welcome to DashFrame" }),
+  ).toBeVisible();
 });
 
-When("I click {string}", async ({ page }, buttonText: string) => {
-  await page.getByRole("button", { name: buttonText }).click();
-});
+Then(
+  "I should be redirected to the insight configuration page",
+  async ({ page }) => {
+    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
+  },
+);
 
-Then("I should see {string}", async ({ page }, text: string) => {
-  await expect(page.getByText(text)).toBeVisible();
+Then("I should be redirected to the visualization page", async ({ page }) => {
+  await expect(page).toHaveURL(/\/visualizations\/[a-zA-Z0-9-]+/);
 });

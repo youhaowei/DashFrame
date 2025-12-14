@@ -2,7 +2,12 @@
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
+import {
+  useVisualizations,
+  useInsights,
+  useDataTables,
+} from "@dashframe/core-dexie";
+import type { Visualization } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
 import { VegaChart } from "./VegaChart";
@@ -23,30 +28,38 @@ export function VisualizationDisplay({
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  // Set mounted state after hydration - use requestAnimationFrame to ensure
-  // we wait until after Zustand's persist middleware has hydrated from localStorage
+  // Set mounted state after hydration
   useEffect(() => {
     const raf = requestAnimationFrame(() => setIsMounted(true));
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const activeIdStore = useVisualizationsStore((state) => state.activeId);
-  const activeId = visualizationId || activeIdStore;
-  const visualizationsMap = useVisualizationsStore(
-    (state) => state.visualizations,
-  );
+  // Dexie hooks for data
+  const { data: visualizations = [], isLoading: isVizLoading } =
+    useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
 
-  // Get visualization and load its data
-  const activeViz = useMemo(() => {
-    if (!activeId) return null;
-    return visualizationsMap.get(activeId) ?? null;
-  }, [activeId, visualizationsMap]);
+  // Get the visualization
+  const activeViz = useMemo((): Visualization | null => {
+    if (!visualizationId) return null;
+    return visualizations.find((v) => v.id === visualizationId) ?? null;
+  }, [visualizationId, visualizations]);
+
+  // Derive dataFrameId through relationship chain
+  const dataFrameId = useMemo(() => {
+    if (!activeViz) return undefined;
+    const insight = insights.find((i) => i.id === activeViz.insightId);
+    if (!insight) return undefined;
+    const dataTable = dataTables.find((t) => t.id === insight.baseTableId);
+    return dataTable?.dataFrameId;
+  }, [activeViz, insights, dataTables]);
 
   const {
     data: dataFrameData,
     isLoading: isLoadingData,
     entry: dataFrameEntry,
-  } = useDataFrameData(activeViz?.source.dataFrameId);
+  } = useDataFrameData(dataFrameId);
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -107,7 +120,11 @@ export function VisualizationDisplay({
     if (!activeResolved) return null;
     const { viz, dataFrame } = activeResolved;
     if (viz.visualizationType === "table") return null;
-    return buildVegaSpec(viz, dataFrame);
+    if (!dataFrame.columns) return null;
+    return buildVegaSpec(viz, {
+      rows: dataFrame.rows,
+      columns: dataFrame.columns,
+    });
   }, [activeResolved]);
 
   // Check if there's enough space to show both views
@@ -117,7 +134,6 @@ export function VisualizationDisplay({
     : `Not enough space (${visibleRows} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
 
   // Automatically switch to "chart" when space becomes insufficient
-  // Only switch away from "both" if there's not enough space - don't force back to "both" automatically
   const previousCanShowBothRef = useRef(canShowBoth);
   useEffect(() => {
     const prevCanShowBoth = previousCanShowBothRef.current;
@@ -130,15 +146,12 @@ export function VisualizationDisplay({
     previousCanShowBothRef.current = canShowBoth;
   }, [canShowBoth, activeTab]);
 
-  // Show loading when: not mounted, explicitly loading, or have activeId but resolved data not ready yet
-  // This covers: store hydration (activeViz null), data loading (dataFrameData null)
-  // Also check for visualizationId from URL - if passed but no data yet, show loading
-  // If store is empty but we have a URL ID, store might still be hydrating
-  const isStoreHydrating = visualizationId && visualizationsMap.size === 0;
+  // Show loading when not mounted, loading data, or have ID but no data yet
   const isWaitingForData =
-    (activeId && !activeResolved) ||
+    (visualizationId && !activeResolved) ||
     (visualizationId && !activeViz) ||
-    isStoreHydrating;
+    isVizLoading;
+
   if (!isMounted || isLoadingData || isWaitingForData) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
@@ -230,7 +243,8 @@ export function VisualizationDisplay({
             <div className="flex items-center gap-2">
               <p className="text-muted-foreground text-sm">
                 {(entry?.rowCount ?? dataFrame.rows.length).toLocaleString()}{" "}
-                rows · {entry?.columnCount ?? dataFrame.columns.length} columns
+                rows · {entry?.columnCount ?? dataFrame.columns?.length ?? 0}{" "}
+                columns
               </p>
               {viz.encoding?.color && (
                 <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">

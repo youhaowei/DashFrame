@@ -3,6 +3,8 @@ import { useMemo } from "react";
 import type {
   UUID,
   VegaLiteSpec,
+  VisualizationType,
+  VisualizationEncoding,
   Visualization,
   UseVisualizationsResult,
   VisualizationMutations,
@@ -18,8 +20,9 @@ function entityToVisualization(entity: VisualizationEntity): Visualization {
     id: entity.id,
     name: entity.name,
     insightId: entity.insightId,
+    visualizationType: entity.visualizationType,
+    encoding: entity.encoding,
     spec: entity.spec,
-    isActive: entity.isActive,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };
@@ -53,6 +56,19 @@ export function useVisualizations(insightId?: UUID): UseVisualizationsResult {
 }
 
 /**
+ * Strips embedded data from a Vega-Lite spec before storing.
+ * Data should be loaded from the source DataFrame at render time, not stored.
+ * This prevents storage bloat and avoids serialization issues with Arrow Row objects.
+ */
+function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
+  const specWithoutData = { ...spec } as Record<string, unknown>;
+  if ("data" in specWithoutData) {
+    delete specWithoutData.data;
+  }
+  return specWithoutData as VegaLiteSpec;
+}
+
+/**
  * Hook to get visualization mutations.
  */
 export function useVisualizationMutations(): VisualizationMutations {
@@ -61,15 +77,20 @@ export function useVisualizationMutations(): VisualizationMutations {
       create: async (
         name: string,
         insightId: UUID,
+        visualizationType: VisualizationType,
         spec: VegaLiteSpec,
+        encoding?: VisualizationEncoding,
       ): Promise<UUID> => {
         const id = crypto.randomUUID();
+        // Strip data from spec - data will be loaded from source at render time
+        const specToStore = stripDataFromSpec(spec);
         await db.visualizations.add({
           id,
           name,
           insightId,
-          spec,
-          isActive: true,
+          visualizationType,
+          encoding,
+          spec: specToStore,
           createdAt: Date.now(),
         });
         return id;
@@ -79,8 +100,12 @@ export function useVisualizationMutations(): VisualizationMutations {
         id: UUID,
         updates: Partial<Omit<Visualization, "id" | "createdAt" | "insightId">>,
       ): Promise<void> => {
+        // If spec is being updated, strip embedded data
+        const updatesToStore = updates.spec
+          ? { ...updates, spec: stripDataFromSpec(updates.spec) }
+          : updates;
         await db.visualizations.update(id, {
-          ...updates,
+          ...updatesToStore,
           updatedAt: Date.now(),
         });
       },
@@ -89,27 +114,21 @@ export function useVisualizationMutations(): VisualizationMutations {
         await db.visualizations.delete(id);
       },
 
-      setActive: async (id: UUID): Promise<void> => {
-        // Get the visualization to find its insight
-        const viz = await db.visualizations.get(id);
-        if (!viz) return;
-
-        // Deactivate all other visualizations for this insight
-        const others = await db.visualizations
-          .where("insightId")
-          .equals(viz.insightId)
-          .toArray();
-
-        await Promise.all(
-          others.map((v) =>
-            db.visualizations.update(v.id, { isActive: v.id === id }),
-          ),
-        );
+      updateSpec: async (id: UUID, spec: VegaLiteSpec): Promise<void> => {
+        // Strip data from spec - data will be loaded from source at render time
+        const specToStore = stripDataFromSpec(spec);
+        await db.visualizations.update(id, {
+          spec: specToStore,
+          updatedAt: Date.now(),
+        });
       },
 
-      updateSpec: async (id: UUID, spec: VegaLiteSpec): Promise<void> => {
+      updateEncoding: async (
+        id: UUID,
+        encoding: VisualizationEncoding,
+      ): Promise<void> => {
         await db.visualizations.update(id, {
-          spec,
+          encoding,
           updatedAt: Date.now(),
         });
       },
@@ -142,15 +161,4 @@ export async function getVisualizationsByInsight(
 export async function getAllVisualizations(): Promise<Visualization[]> {
   const entities = await db.visualizations.toArray();
   return entities.map(entityToVisualization);
-}
-
-export async function getActiveVisualization(
-  insightId: UUID,
-): Promise<Visualization | undefined> {
-  const entities = await db.visualizations
-    .where("insightId")
-    .equals(insightId)
-    .toArray();
-  const active = entities.find((e) => e.isActive);
-  return active ? entityToVisualization(active) : undefined;
 }

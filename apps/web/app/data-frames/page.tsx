@@ -2,9 +2,10 @@
 
 import { useState, useMemo } from "react";
 import {
-  useDataFramesStore,
+  useDataFrames,
+  useDataFrameMutations,
   type DataFrameEntry,
-} from "@/lib/stores/dataframes-store";
+} from "@dashframe/core-dexie";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -21,10 +22,9 @@ import {
 } from "@dashframe/ui";
 
 export default function DataFramesPage() {
-  // Inline state access so Zustand can track dependencies properly
-  const dataFrames = useDataFramesStore((state) => state.getAllEntries());
-  const removeDataFrame = useDataFramesStore((state) => state.removeDataFrame);
-  const updateMetadata = useDataFramesStore((state) => state.updateMetadata);
+  // Use Dexie hooks for reactive data
+  const { data: dataFrames, isLoading } = useDataFrames();
+  const mutations = useDataFrameMutations();
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
@@ -117,19 +117,27 @@ export default function DataFramesPage() {
     setEditedName(entry.name);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (editingFrame) {
-      updateMetadata(editingFrame.id, { name: editedName });
+      await mutations.updateMetadata(editingFrame.id, { name: editedName });
     }
     setEditingFrame(null);
   };
 
-  const handleDelete = (entry: DataFrameEntry) => {
+  const handleDelete = async (entry: DataFrameEntry) => {
     if (confirm(`Delete "${entry.name}"? This cannot be undone.`)) {
-      // Note: removeDataFrame is async but we don't need to await it for UI purposes
-      void removeDataFrame(entry.id);
+      await mutations.removeDataFrame(entry.id);
     }
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-muted-foreground">Loading data frames...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-4">
@@ -143,7 +151,7 @@ export default function DataFramesPage() {
       <section className="border-border/60 bg-card/80 supports-[backdrop-filter]:bg-card/60 flex flex-1 flex-col rounded-2xl border shadow-lg backdrop-blur">
         <div className="flex-1 p-6">
           <DataGrid
-            data={dataFrames}
+            data={dataFrames ?? []}
             columns={columns}
             onEdit={handleEdit}
             onDelete={handleDelete}

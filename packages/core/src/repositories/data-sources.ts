@@ -6,45 +6,27 @@ import type { UseQueryResult } from "./types";
 // ============================================================================
 
 /**
- * Base DataSource interface.
- * Extended by LocalDataSource and NotionDataSource.
+ * DataSource interface - generic for any connector type.
+ * Type is the connector ID from the registry (e.g., "csv", "notion").
  */
 export interface DataSource {
   id: UUID;
-  type: "local" | "notion";
+  type: string; // Connector ID from registry
   name: string;
+  // Connector-specific fields (optional based on connector type)
+  apiKey?: string; // For remote API connectors (e.g., Notion)
+  connectionString?: string; // For database connectors (future)
   createdAt: number;
 }
 
 /**
- * Local data source for CSV uploads and local files.
+ * Input for creating a new data source.
  */
-export interface LocalDataSource extends DataSource {
-  type: "local";
-}
-
-/**
- * Notion data source with API key.
- */
-export interface NotionDataSource extends DataSource {
-  type: "notion";
-  apiKey: string;
-}
-
-// ============================================================================
-// Type Guards
-// ============================================================================
-
-export function isLocalDataSource(
-  source: DataSource,
-): source is LocalDataSource {
-  return source.type === "local";
-}
-
-export function isNotionDataSource(
-  source: DataSource,
-): source is NotionDataSource {
-  return source.type === "notion";
+export interface CreateDataSourceInput {
+  type: string;
+  name: string;
+  apiKey?: string;
+  connectionString?: string;
 }
 
 // ============================================================================
@@ -57,17 +39,19 @@ export function isNotionDataSource(
 export type UseDataSourcesResult = UseQueryResult<DataSource[]>;
 
 /**
- * Mutation methods for data sources.
+ * Mutation methods for data sources - pure CRUD operations.
+ * Connector-specific validation should happen at the UI/hook layer.
  */
 export interface DataSourceMutations {
-  /** Add a new local data source */
-  addLocal: (name: string) => Promise<UUID>;
-  /** Set (create or update) the Notion connection */
-  setNotion: (name: string, apiKey: string) => Promise<UUID>;
+  /** Add a new data source */
+  add: (input: CreateDataSourceInput) => Promise<UUID>;
+  /** Update a data source by ID */
+  update: (
+    id: UUID,
+    updates: Partial<Pick<DataSource, "name" | "apiKey" | "connectionString">>,
+  ) => Promise<void>;
   /** Remove a data source by ID */
   remove: (id: UUID) => Promise<void>;
-  /** Clear the Notion connection */
-  clearNotion: () => Promise<void>;
 }
 
 /**

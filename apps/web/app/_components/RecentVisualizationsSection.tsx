@@ -6,28 +6,21 @@ import { useRouter } from "next/navigation";
 import { BarChart3 } from "@dashframe/ui";
 import { DashboardSection } from "./DashboardSection";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import { useVisualizations } from "@dashframe/core-dexie";
 
 /**
  * RecentVisualizationsSection - Displays the 3 most recent visualizations
  *
- * Self-contained section that fetches its own data from the visualizations store.
+ * Self-contained section that fetches its own data from Dexie.
  */
 export function RecentVisualizationsSection() {
   const router = useRouter();
 
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
+  const { data: visualizations = [] } = useVisualizations();
 
   const recentVisualizations = useMemo(() => {
     return [...visualizations]
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 3)
       .map((viz) => ({
         id: viz.id,

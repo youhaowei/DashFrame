@@ -1,7 +1,7 @@
 // DataFrame interface and types
 export type {
   DataFrameStorageLocation,
-  DataFrameSerialization,
+  DataFrameJSON,
   DataFrame,
   DataFrameFactory,
 } from "./dataframe";

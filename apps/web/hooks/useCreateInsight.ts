@@ -1,9 +1,11 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useInsightsStore } from "@/lib/stores/insights-store";
+import { useInsightMutations, getInsight } from "@dashframe/core-dexie";
 
 /**
  * Creates insights and navigates to their pages.
+ *
+ * Uses Dexie (IndexedDB) for persistence via core-dexie hooks.
  *
  * Provides two creation methods:
  * 1. `createInsightFromTable` - Start fresh from a data table
@@ -34,17 +36,19 @@ import { useInsightsStore } from "@/lib/stores/insights-store";
  */
 export function useCreateInsight() {
   const router = useRouter();
+  const { create: createInsight } = useInsightMutations();
 
   /**
    * Creates a draft insight from a data table and navigates to it.
    */
   const createInsightFromTable = useCallback(
-    (tableId: string, tableName: string) => {
+    async (tableId: string, tableName: string) => {
       // Create draft insight with empty fields (shows preview + suggestions)
-      const insightId = useInsightsStore.getState().createDraft(
-        tableId,
-        tableName,
-        [], // Empty fieldIds for draft state
+      // Uses Dexie mutation which stores in IndexedDB
+      const insightId = await createInsight(
+        tableName, // name
+        tableId, // baseTableId
+        { selectedFields: [] }, // Empty for draft state
       );
 
       // Navigate to insight page (action hub)
@@ -52,7 +56,7 @@ export function useCreateInsight() {
 
       return insightId;
     },
-    [router],
+    [router, createInsight],
   );
 
   /**
@@ -62,39 +66,28 @@ export function useCreateInsight() {
    * allowing users to build on their previous analysis.
    */
   const createInsightFromInsight = useCallback(
-    (sourceInsightId: string, sourceInsightName: string) => {
-      const store = useInsightsStore.getState();
-      const sourceInsight = store.getInsight(sourceInsightId);
+    async (sourceInsightId: string, sourceInsightName: string) => {
+      // Fetch source insight from Dexie
+      const sourceInsight = await getInsight(sourceInsightId);
 
       if (!sourceInsight) {
         console.error("Source insight not found:", sourceInsightId);
         return null;
       }
 
-      if (!sourceInsight.dataFrameId) {
-        console.error(
-          "Source insight has no computed DataFrame:",
-          sourceInsightId,
-        );
-        return null;
-      }
-
       // Create a new insight using the same base table
-      const insightId = store.createDraft(
-        sourceInsight.baseTable.tableId,
+      const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
-        [], // Empty fieldIds for draft state
+        sourceInsight.baseTableId,
+        { selectedFields: [] }, // Empty for draft state
       );
-
-      // Link to source insight's DataFrame as starting point
-      store.setInsightDataFrame(insightId, sourceInsight.dataFrameId);
 
       // Navigate to new insight
       router.push(`/insights/${insightId}`);
 
       return insightId;
     },
-    [router],
+    [router, createInsight],
   );
 
   return {

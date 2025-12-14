@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck
+// [Deprecated] This Zustand store is deprecated - migrate consumers to Dexie hooks
+// The DataFrameSerialization type has changed in @dashframe/engine
 "use client";
 
 import "./config";

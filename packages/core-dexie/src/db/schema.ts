@@ -6,6 +6,9 @@ import type {
   SourceSchema,
   InsightMetric,
   VegaLiteSpec,
+  VisualizationType,
+  VisualizationEncoding,
+  DataFrameJSON,
 } from "@dashframe/core";
 
 // ============================================================================
@@ -14,12 +17,15 @@ import type {
 
 /**
  * DataSource entity - stored as flat record.
+ * Type is the connector ID from the registry (e.g., "csv", "notion").
  */
 export interface DataSourceEntity {
   id: UUID;
-  type: "local" | "notion";
+  type: string; // Connector ID from registry (e.g., "csv", "notion")
   name: string;
-  apiKey?: string; // Only for Notion
+  // Connector-specific fields (optional based on connector type)
+  apiKey?: string; // For remote API connectors (e.g., Notion)
+  connectionString?: string; // For database connectors (future)
   createdAt: number;
 }
 
@@ -40,7 +46,8 @@ export interface DataTableEntity {
 }
 
 /**
- * Insight entity.
+ * Insight entity - query configuration for data analysis.
+ * Results are computed on-demand via DuckDB, not cached.
  */
 export interface InsightEntity {
   id: UUID;
@@ -60,46 +67,70 @@ export interface InsightEntity {
   joins?: Array<{
     type: "inner" | "left" | "right" | "full";
     rightTableId: UUID;
+    // Simple single-key joins. Complex conditions (composite keys, expressions)
+    // can be added later if needed.
     leftKey: string;
     rightKey: string;
   }>;
-  status: "pending" | "computing" | "ready" | "error";
-  error?: string;
-  dataFrameId?: UUID;
   createdAt: number;
   updatedAt?: number;
 }
 
 /**
- * Visualization entity.
+ * Visualization entity - Vega-Lite chart configuration.
+ * Active selection is managed in UI state, not persisted.
  */
 export interface VisualizationEntity {
   id: UUID;
   name: string;
   insightId: UUID;
+  visualizationType: VisualizationType;
+  encoding?: VisualizationEncoding;
   spec: VegaLiteSpec;
-  isActive?: boolean;
   createdAt: number;
   updatedAt?: number;
 }
 
 /**
- * Dashboard entity.
+ * Dashboard item type - supports visualizations and markdown content.
+ */
+export type DashboardItemType = "visualization" | "markdown";
+
+/**
+ * Dashboard item - a positioned widget on a dashboard.
+ */
+export interface DashboardItemEntity {
+  id: UUID;
+  type: DashboardItemType;
+  visualizationId?: UUID; // Only for type="visualization"
+  content?: string; // Only for type="markdown"
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Dashboard entity - layout of items.
  */
 export interface DashboardEntity {
   id: UUID;
   name: string;
   description?: string;
-  panels: Array<{
-    id: UUID;
-    visualizationId: UUID;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>;
+  items: DashboardItemEntity[];
   createdAt: number;
   updatedAt?: number;
+}
+
+/**
+ * DataFrame entity - metadata for DataFrame instances.
+ * The actual Arrow data is stored separately in IndexedDB via @dashframe/engine-browser.
+ */
+export interface DataFrameEntity extends DataFrameJSON {
+  name: string;
+  insightId?: UUID; // Link to insight that produced this DataFrame
+  rowCount?: number; // Cached for display (may be stale)
+  columnCount?: number;
 }
 
 // ============================================================================
@@ -115,6 +146,7 @@ export interface DashboardEntity {
  * - insights: Query configurations (baseTableId FK)
  * - visualizations: Charts (insightId FK)
  * - dashboards: Dashboard layouts
+ * - dataFrames: DataFrame metadata (insightId FK)
  */
 export class DashFrameDB extends Dexie {
   dataSources!: EntityTable<DataSourceEntity, "id">;
@@ -122,6 +154,7 @@ export class DashFrameDB extends Dexie {
   insights!: EntityTable<InsightEntity, "id">;
   visualizations!: EntityTable<VisualizationEntity, "id">;
   dashboards!: EntityTable<DashboardEntity, "id">;
+  dataFrames!: EntityTable<DataFrameEntity, "id">;
 
   constructor() {
     super("dashframe");
@@ -129,9 +162,10 @@ export class DashFrameDB extends Dexie {
     this.version(1).stores({
       dataSources: "id, type, createdAt",
       dataTables: "id, dataSourceId, createdAt",
-      insights: "id, baseTableId, status, createdAt",
+      insights: "id, baseTableId, createdAt",
       visualizations: "id, insightId, createdAt",
       dashboards: "id, createdAt",
+      dataFrames: "id, insightId, createdAt",
     });
   }
 }

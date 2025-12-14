@@ -5,7 +5,7 @@ import { TooltipProvider } from "@dashframe/ui";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
-import { StoreHydration } from "@/components/providers/StoreHydration";
+import { DatabaseProvider } from "@dashframe/core-dexie";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
@@ -33,8 +33,8 @@ export default function RootLayout({
             <PostHogPageView />
             <TooltipProvider>
               <TRPCProvider>
-                <DuckDBProvider>
-                  <StoreHydration>
+                <DatabaseProvider>
+                  <DuckDBProvider>
                     <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                       <div
                         className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(147,197,253,0.55),transparent_60%)] opacity-80 blur-3xl dark:opacity-60"
@@ -63,8 +63,8 @@ export default function RootLayout({
                       </main>
                     </div>
                     <Toaster />
-                  </StoreHydration>
-                </DuckDBProvider>
+                  </DuckDBProvider>
+                </DatabaseProvider>
               </TRPCProvider>
             </TooltipProvider>
           </PostHogProvider>

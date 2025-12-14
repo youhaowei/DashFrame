@@ -3,8 +3,10 @@ import type {
   UUID,
   Field,
   DataFrameColumn,
+  Insight,
+  DataTable,
+  InsightMetric,
 } from "@dashframe/core";
-import type { Insight, DataTable, InsightMetric } from "../stores/types";
 
 /**
  * Preview result containing sample data and metadata.
@@ -21,7 +23,7 @@ export interface PreviewResult {
  * Implements implicit GROUP BY: selected fields define grouping dimensions,
  * metrics define aggregations to compute per group.
  *
- * @param insight - The insight to preview
+ * @param insight - The insight to preview (uses flat schema: selectedFields, not baseTable.selectedFields)
  * @param dataTable - The base data table
  * @param sourceDataFrame - The source DataFrameData containing the full data (plain object with rows)
  * @param maxRows - Maximum rows to include in preview (default: 50)
@@ -33,27 +35,22 @@ export function computeInsightPreview(
   sourceDataFrame: DataFrameData,
   maxRows = 50,
 ): PreviewResult {
-  const { baseTable, metrics, filters } = insight;
+  // Use flat schema: selectedFields directly on insight, not insight.baseTable.selectedFields
+  const selectedFieldIds = insight.selectedFields ?? [];
+  const metrics = insight.metrics ?? [];
+  // Note: filters is now InsightFilter[] array, not object with excludeNulls/limit/orderBy
+  // [Future] Implement InsightFilter array processing when filter UI is built
 
   // Get selected fields
   const selectedFields = dataTable.fields.filter((f) =>
-    baseTable.selectedFields.includes(f.id),
+    selectedFieldIds.includes(f.id),
   );
 
   // Create field ID to field mapping for lookups
   const fieldMap = new Map<UUID, Field>(dataTable.fields.map((f) => [f.id, f]));
 
-  // Apply excludeNulls filter if specified
-  let rows = sourceDataFrame.rows;
-  if (filters?.excludeNulls) {
-    rows = rows.filter((row) => {
-      // Exclude row if any selected field is null
-      return selectedFields.every((field) => {
-        const value = field.columnName ? row[field.columnName] : null;
-        return value != null;
-      });
-    });
-  }
+  // Use source data rows
+  const rows = sourceDataFrame.rows;
 
   // Implicit GROUP BY logic:
   // - If no selected fields → grand total (single aggregated row)
@@ -80,44 +77,9 @@ export function computeInsightPreview(
     });
   }
 
-  // Apply orderBy if specified
-  if (filters?.orderBy) {
-    const { fieldOrMetricId, direction } = filters.orderBy;
-
-    // Find the field or metric name to sort by
-    const field = fieldMap.get(fieldOrMetricId);
-    const metric = metrics.find((m) => m.id === fieldOrMetricId);
-    const sortKey = field?.name || metric?.name;
-
-    if (sortKey) {
-      aggregatedRows.sort((a, b) => {
-        const aVal = a[sortKey];
-        const bVal = b[sortKey];
-
-        // Handle null/undefined
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
-
-        // Numeric comparison
-        if (typeof aVal === "number" && typeof bVal === "number") {
-          return direction === "asc" ? aVal - bVal : bVal - aVal;
-        }
-
-        // String comparison
-        const aStr = String(aVal);
-        const bStr = String(bVal);
-        return direction === "asc"
-          ? aStr.localeCompare(bStr)
-          : bStr.localeCompare(aStr);
-      });
-    }
-  }
-
   // Apply limit for preview
   const totalRows = aggregatedRows.length;
-  const limitedRows = filters?.limit
-    ? aggregatedRows.slice(0, Math.min(filters.limit, maxRows))
-    : aggregatedRows.slice(0, maxRows);
+  const limitedRows = aggregatedRows.slice(0, maxRows);
 
   // Build column metadata
   const columns: DataFrameColumn[] = [
@@ -133,7 +95,6 @@ export function computeInsightPreview(
 
   // Build preview DataFrameData (plain object format)
   const previewDataFrame: DataFrameData = {
-    fieldIds: [...baseTable.selectedFields, ...metrics.map((m) => m.id)],
     columns,
     rows: limitedRows,
   };

@@ -79,13 +79,15 @@ packages/
 
 ## State Management & Persistence
 
-**Zustand + Immer** with automatic localStorage persistence. See `docs/state-management.md` for details.
+**Dexie (IndexedDB)** for client-side persistence. Data model uses flat entities:
 
-**localStorage keys**: All use the lowercase `dashframe:` prefix:
+- **DataSource** - Connector type (e.g., "csv", "notion") + connection config
+- **DataTable** - Schema, fields, metrics. Links to DataSource
+- **Insight** - Analytics definition with selected fields, metrics, filters
+- **Visualization** - Vega-Lite spec. Links to Insight
+- **Dashboard** - Layout of visualization panels
 
-- `dashframe:data-sources` - DataSources with nested Insights
-- `dashframe:dataframes` - EnhancedDataFrames with metadata
-- `dashframe:visualizations` - Vega-Lite specs + active tracking
+Legacy Zustand stores are deprecated. Migrate to `@dashframe/core-dexie` hooks.
 
 ## Critical Gotchas
 

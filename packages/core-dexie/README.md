@@ -19,6 +19,7 @@ This package implements the repository interfaces defined in `@dashframe/core` u
 | Insights       | `useInsights`       | `useInsightMutations`       |
 | Visualizations | `useVisualizations` | `useVisualizationMutations` |
 | Dashboards     | `useDashboards`     | `useDashboardMutations`     |
+| DataFrames     | `useDataFrames`     | `useDataFrameMutations`     |
 
 **Key Features:**
 
@@ -26,6 +27,14 @@ This package implements the repository interfaces defined in `@dashframe/core` u
 - Stable mutation functions (safe to use in effects/callbacks)
 - Automatic migration from localStorage (Zustand) to IndexedDB
 - Re-exports all types from `@dashframe/core`
+
+## Entities vs Entries (and Instances)
+
+- **Entity**: The exact row shape stored in Dexie tables (defined in `db.ts`). Entities should mirror IndexedDB schema and stay storage-focused.
+- **Entry**: The enriched read shape returned by repository hooks. Entries often layer on UI metadata (e.g., `DataFrameEntry` adds `name`, `insightId`, row/column counts on top of the serialized `DataFrameJSON`).
+- **Instance**: The runtime class object used by the engine (e.g., `DataFrame` from `@dashframe/engine-browser`). Entities only store the serialized reference; instances load data on demand.
+
+Repository helpers like `entityToEntry` adapt entities to entries so UI callers get a single object that includes both storage reference and display metadata, while keeping Dexie-specific details isolated.
 
 ## Usage
 

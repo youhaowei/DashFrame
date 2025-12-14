@@ -28,12 +28,14 @@ export type {
   AggregationType,
   Metric,
   InsightMetric,
-  // DataFrame types
+  // DataFrame interface types (storage references)
+  DataFrameStorageLocation,
+  DataFrameJSON,
+  DataFrame,
+  DataFrameFactory,
+  // DataFrame data types (in-memory)
   DataFrameRow,
   DataFrameData,
-  DataFrameSource,
-  DataFrameMetadata,
-  EnhancedDataFrame,
   // DataTable metadata types
   DataTableField,
   DataTableInfo,
@@ -48,8 +50,7 @@ export type {
   UseQueryResult,
   // Data Sources
   DataSource,
-  LocalDataSource,
-  NotionDataSource,
+  CreateDataSourceInput,
   UseDataSourcesResult,
   DataSourceMutations,
   UseDataSources,
@@ -61,7 +62,6 @@ export type {
   UseDataTables,
   UseDataTableMutations,
   // Insights
-  InsightStatus,
   InsightFilter,
   InsightSort,
   InsightJoinConfig,
@@ -72,19 +72,21 @@ export type {
   UseInsightMutations,
   // Visualizations
   VegaLiteSpec,
+  VisualizationType,
+  AxisType,
+  VisualizationEncoding,
   Visualization,
   UseVisualizationsResult,
   VisualizationMutations,
   UseVisualizations,
   UseVisualizationMutations,
   // Dashboards
-  DashboardPanel,
+  DashboardItemType,
+  DashboardItem,
+  CreateItemInput,
   Dashboard,
   UseDashboardsResult,
   DashboardMutations,
   UseDashboards,
   UseDashboardMutations,
 } from "./repositories";
-
-// Type guards
-export { isLocalDataSource, isNotionDataSource } from "./repositories";

@@ -2,9 +2,9 @@
 
 import { useMemo, useRef, useCallback } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
-import type { Dashboard } from "@/lib/types/dashboard";
+import type { Dashboard } from "@dashframe/core";
+import { useDashboardMutations } from "@dashframe/core-dexie";
 import { DashboardItem } from "./DashboardItem";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -17,7 +17,7 @@ interface DashboardGridProps {
 const LAYOUT_DEBOUNCE_MS = 150;
 
 export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
-  const updateItem = useDashboardsStore((state) => state.updateItem);
+  const { updateItem } = useDashboardMutations();
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingLayoutRef = useRef<Layout[] | null>(null);
 
@@ -25,12 +25,12 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
     // Base layout from stored positions (designed for lg: 12 cols)
     const lgLayout = dashboard.items.map((item) => ({
       i: item.id,
-      x: item.layout.x,
-      y: item.layout.y,
-      w: item.layout.w,
-      h: item.layout.h,
-      minW: item.layout.minW || 2,
-      minH: item.layout.minH || 2,
+      x: item.x,
+      y: item.y,
+      w: item.width,
+      h: item.height,
+      minW: 2,
+      minH: 2,
     }));
 
     // Scale layouts for smaller breakpoints to prevent overflow
@@ -84,20 +84,16 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       if (item) {
         // Only update if changed
         if (
-          item.layout.x !== l.x ||
-          item.layout.y !== l.y ||
-          item.layout.w !== l.w ||
-          item.layout.h !== l.h
+          item.x !== l.x ||
+          item.y !== l.y ||
+          item.width !== l.w ||
+          item.height !== l.h
         ) {
           updateItem(dashboard.id, item.id, {
-            layout: {
-              x: l.x,
-              y: l.y,
-              w: l.w,
-              h: l.h,
-              minW: item.layout.minW,
-              minH: item.layout.minH,
-            },
+            x: l.x,
+            y: l.y,
+            width: l.w,
+            height: l.h,
           });
         }
       }

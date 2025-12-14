@@ -5,4 +5,5 @@ export type {
   InsightEntity,
   VisualizationEntity,
   DashboardEntity,
+  DataFrameEntity,
 } from "./schema";

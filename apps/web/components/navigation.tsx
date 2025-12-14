@@ -35,11 +35,12 @@ import {
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
-  useDataSourcesStore,
-  useInsightsStore,
-  useDataFramesStore,
-  useVisualizationsStore,
-} from "@/lib/stores";
+  useDataSourceMutations,
+  useInsightMutations,
+  useDataFrameMutations,
+  useVisualizationMutations,
+  useDashboardMutations,
+} from "@dashframe/core-dexie";
 
 type NavItem = {
   name: string;
@@ -251,11 +252,43 @@ export function Navigation() {
   const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  const handleClearAllData = () => {
-    useDataSourcesStore.getState().clear();
-    useInsightsStore.getState().clear();
-    useDataFramesStore.getState().clear();
-    useVisualizationsStore.getState().clear();
+  const { remove: removeDataSource } = useDataSourceMutations();
+  const { remove: removeInsight } = useInsightMutations();
+  const { clear: clearDataFrames } = useDataFrameMutations();
+  const { remove: removeVisualization } = useVisualizationMutations();
+  const { remove: removeDashboard } = useDashboardMutations();
+
+  const handleClearAllData = async () => {
+    // Get all items first
+    const { db } = await import("@dashframe/core-dexie");
+    const allDataSources = await db.dataSources.toArray();
+    const allInsights = await db.insights.toArray();
+    const allVisualizations = await db.visualizations.toArray();
+    const allDashboards = await db.dashboards.toArray();
+
+    // Remove all data sources (this will cascade delete data tables)
+    for (const source of allDataSources) {
+      await removeDataSource(source.id);
+    }
+
+    // Remove all insights
+    for (const insight of allInsights) {
+      await removeInsight(insight.id);
+    }
+
+    // Remove all visualizations
+    for (const viz of allVisualizations) {
+      await removeVisualization(viz.id);
+    }
+
+    // Remove all dashboards
+    for (const dashboard of allDashboards) {
+      await removeDashboard(dashboard.id);
+    }
+
+    // Clear data frames
+    await clearDataFrames();
+
     setShowClearConfirm(false);
     toast.success("All data cleared");
     router.push("/");

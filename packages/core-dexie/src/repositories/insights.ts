@@ -4,7 +4,6 @@ import type {
   UUID,
   InsightMetric,
   Insight,
-  InsightStatus,
   InsightFilter,
   UseInsightsResult,
   InsightMutations,
@@ -37,9 +36,6 @@ function entityToInsight(entity: InsightEntity): Insight {
       leftKey: j.leftKey,
       rightKey: j.rightKey,
     })),
-    status: entity.status,
-    error: entity.error,
-    dataFrameId: entity.dataFrameId,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };
@@ -54,9 +50,8 @@ function entityToInsight(entity: InsightEntity): Insight {
  */
 export function useInsights(options?: {
   excludeIds?: UUID[];
-  withComputedDataOnly?: boolean;
 }): UseInsightsResult {
-  const { excludeIds = [], withComputedDataOnly = false } = options ?? {};
+  const { excludeIds = [] } = options ?? {};
 
   const data = useLiveQuery(async () => {
     let entities = await db.insights.toArray();
@@ -66,13 +61,8 @@ export function useInsights(options?: {
       entities = entities.filter((e) => !excludeIds.includes(e.id));
     }
 
-    // Filter to only those with computed data
-    if (withComputedDataOnly) {
-      entities = entities.filter((e) => e.dataFrameId !== undefined);
-    }
-
     return entities.map(entityToInsight);
-  }, [excludeIds.join(","), withComputedDataOnly]);
+  }, [excludeIds.join(",")]);
 
   return {
     data,
@@ -101,7 +91,6 @@ export function useInsightMutations(): InsightMutations {
           baseTableId,
           selectedFields: options?.selectedFields ?? [],
           metrics: options?.metrics ?? [],
-          status: "pending",
           createdAt: Date.now(),
         });
         return id;
@@ -121,26 +110,6 @@ export function useInsightMutations(): InsightMutations {
         // Also delete related visualizations
         await db.visualizations.where("insightId").equals(id).delete();
         await db.insights.delete(id);
-      },
-
-      setStatus: async (
-        id: UUID,
-        status: InsightStatus,
-        error?: string,
-      ): Promise<void> => {
-        await db.insights.update(id, {
-          status,
-          error,
-          updatedAt: Date.now(),
-        });
-      },
-
-      setDataFrame: async (id: UUID, dataFrameId: UUID): Promise<void> => {
-        await db.insights.update(id, {
-          dataFrameId,
-          status: "ready",
-          updatedAt: Date.now(),
-        });
       },
 
       addField: async (insightId: UUID, fieldId: UUID): Promise<void> => {

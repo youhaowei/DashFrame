@@ -3,7 +3,8 @@ import { useMemo } from "react";
 import type {
   UUID,
   Dashboard,
-  DashboardPanel,
+  DashboardItem,
+  CreateItemInput,
   UseDashboardsResult,
   DashboardMutations,
 } from "@dashframe/core";
@@ -18,7 +19,7 @@ function entityToDashboard(entity: DashboardEntity): Dashboard {
     id: entity.id,
     name: entity.name,
     description: entity.description,
-    panels: entity.panels,
+    items: entity.items,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };
@@ -55,7 +56,7 @@ export function useDashboardMutations(): DashboardMutations {
           id,
           name,
           description,
-          panels: [],
+          items: [],
           createdAt: Date.now(),
         });
         return id;
@@ -75,53 +76,54 @@ export function useDashboardMutations(): DashboardMutations {
         await db.dashboards.delete(id);
       },
 
-      addPanel: async (
+      addItem: async (
         dashboardId: UUID,
-        visualizationId: UUID,
-        position: { x: number; y: number; width: number; height: number },
+        input: CreateItemInput,
       ): Promise<UUID> => {
         const dashboard = await db.dashboards.get(dashboardId);
         if (!dashboard) throw new Error(`Dashboard ${dashboardId} not found`);
 
-        const panelId = crypto.randomUUID();
-        const panel: DashboardPanel = {
-          id: panelId,
-          visualizationId,
-          ...position,
+        const itemId = crypto.randomUUID();
+        const item: DashboardItem = {
+          id: itemId,
+          type: input.type,
+          visualizationId: input.visualizationId,
+          content: input.content,
+          ...input.position,
         };
 
         await db.dashboards.update(dashboardId, {
-          panels: [...dashboard.panels, panel],
+          items: [...dashboard.items, item],
           updatedAt: Date.now(),
         });
 
-        return panelId;
+        return itemId;
       },
 
-      updatePanel: async (
+      updateItem: async (
         dashboardId: UUID,
-        panelId: UUID,
-        updates: Partial<Omit<DashboardPanel, "id" | "visualizationId">>,
+        itemId: UUID,
+        updates: Partial<Omit<DashboardItem, "id" | "type">>,
       ): Promise<void> => {
         const dashboard = await db.dashboards.get(dashboardId);
         if (!dashboard) return;
 
-        const panels = dashboard.panels.map((p) =>
-          p.id === panelId ? { ...p, ...updates } : p,
+        const items = dashboard.items.map((item) =>
+          item.id === itemId ? { ...item, ...updates } : item,
         );
 
         await db.dashboards.update(dashboardId, {
-          panels,
+          items,
           updatedAt: Date.now(),
         });
       },
 
-      removePanel: async (dashboardId: UUID, panelId: UUID): Promise<void> => {
+      removeItem: async (dashboardId: UUID, itemId: UUID): Promise<void> => {
         const dashboard = await db.dashboards.get(dashboardId);
         if (!dashboard) return;
 
         await db.dashboards.update(dashboardId, {
-          panels: dashboard.panels.filter((p) => p.id !== panelId),
+          items: dashboard.items.filter((item) => item.id !== itemId),
           updatedAt: Date.now(),
         });
       },

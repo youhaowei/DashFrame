@@ -3,7 +3,7 @@ import type {
   UUID,
   DataFrame,
   DataFrameStorageLocation,
-  DataFrameSerialization,
+  DataFrameJSON,
   DataFrameFactory,
 } from "@dashframe/engine";
 import { persistArrowData, generateArrowKey } from "./storage";
@@ -21,7 +21,7 @@ export class BrowserDataFrame implements DataFrame {
   readonly primaryKey?: string | string[];
   readonly createdAt: number;
 
-  constructor(config: DataFrameSerialization) {
+  constructor(config: DataFrameJSON) {
     this.id = config.id;
     this.storage = config.storage;
     this.fieldIds = config.fieldIds;
@@ -41,7 +41,7 @@ export class BrowserDataFrame implements DataFrame {
   /**
    * Serialize DataFrame for storage.
    */
-  toJSON(): DataFrameSerialization {
+  toJSON(): DataFrameJSON {
     return {
       id: this.id,
       storage: this.storage,
@@ -54,7 +54,7 @@ export class BrowserDataFrame implements DataFrame {
   /**
    * Deserialize DataFrame from storage.
    */
-  static fromJSON(data: DataFrameSerialization): BrowserDataFrame {
+  static fromJSON(data: DataFrameJSON): BrowserDataFrame {
     return new BrowserDataFrame(data);
   }
 

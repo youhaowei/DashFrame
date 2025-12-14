@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { isLocalDataSource } from "@/lib/stores/types";
+import {
+  useDataSources,
+  useDataTables,
+  useDataFrames,
+} from "@dashframe/core-dexie";
 import { File, Trash2, Button, Panel, EmptyState, cn } from "@dashframe/ui";
 
 interface DataSourceTreeProps {
@@ -19,15 +21,25 @@ export function DataSourceTree({
   onTableSelect,
   onDeleteTable,
 }: DataSourceTreeProps) {
-  const dataSource = useDataSourcesStore((state) => state.get(dataSourceId));
-  const getEntry = useDataFramesStore((state) => state.getEntry);
+  const { data: dataSources } = useDataSources();
+  const { data: tables } = useDataTables(dataSourceId);
+  const { data: dataFrames } = useDataFrames();
 
-  const dataTables = useMemo(() => {
-    if (!dataSource) return [];
-    return Array.from(dataSource.dataTables?.values() ?? []);
-  }, [dataSource]);
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId),
+    [dataSources, dataSourceId],
+  );
 
-  const isLocal = dataSource && isLocalDataSource(dataSource);
+  // Create a map for quick DataFrame lookup
+  const dataFrameMap = useMemo(() => {
+    const map = new Map<string, { rowCount?: number; columnCount?: number }>();
+    for (const df of dataFrames ?? []) {
+      map.set(df.id, { rowCount: df.rowCount, columnCount: df.columnCount });
+    }
+    return map;
+  }, [dataFrames]);
+
+  const isLocal = dataSource?.type === "csv";
 
   if (!dataSource) {
     return (
@@ -48,7 +60,7 @@ export function DataSourceTree({
                 {dataSource.name}
               </h2>
               <p className="text-muted-foreground text-xs">
-                {dataSource.type === "local" ? "Local storage" : "Data source"}
+                {dataSource.type === "csv" ? "CSV files" : "Data source"}
               </p>
             </div>
 
@@ -57,7 +69,7 @@ export function DataSourceTree({
               <File className="text-muted-foreground h-4 w-4" />
               <h3 className="text-foreground text-sm font-semibold">Tables</h3>
               <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
-                {dataTables.length}
+                {tables?.length ?? 0}
               </span>
             </div>
           </div>
@@ -81,7 +93,7 @@ export function DataSourceTree({
     >
       {/* Tables List */}
       <div className="space-y-2 p-4">
-        {dataTables.length === 0 ? (
+        {!tables || tables.length === 0 ? (
           <EmptyState
             icon={File}
             title="No tables yet"
@@ -89,9 +101,9 @@ export function DataSourceTree({
             size="sm"
           />
         ) : (
-          dataTables.map((table) => {
+          tables.map((table) => {
             const entry = table.dataFrameId
-              ? getEntry(table.dataFrameId)
+              ? dataFrameMap.get(table.dataFrameId)
               : null;
             const isSelected = table.id === selectedTableId;
 

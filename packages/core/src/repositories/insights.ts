@@ -6,11 +6,6 @@ import type { UseQueryResult } from "./types";
 // ============================================================================
 
 /**
- * Insight status - tracks computation state.
- */
-export type InsightStatus = "pending" | "computing" | "ready" | "error";
-
-/**
  * Filter predicate for insights.
  */
 export interface InsightFilter {
@@ -29,6 +24,7 @@ export interface InsightSort {
 
 /**
  * Join configuration for insights.
+ * Simple single-key joins. Complex conditions can be added later if needed.
  */
 export interface InsightJoinConfig {
   type: "inner" | "left" | "right" | "full";
@@ -45,6 +41,8 @@ export interface InsightJoinConfig {
  * - Which fields to include
  * - Which metrics to compute
  * - Filters, sorts, joins
+ *
+ * Results are computed on-demand via DuckDB, not cached.
  */
 export interface Insight {
   id: UUID;
@@ -61,12 +59,6 @@ export interface Insight {
   sorts?: InsightSort[];
   /** Optional joins */
   joins?: InsightJoinConfig[];
-  /** Computation status */
-  status: InsightStatus;
-  /** Error message if status is 'error' */
-  error?: string;
-  /** Associated DataFrame ID (when computed) */
-  dataFrameId?: UUID;
   createdAt: number;
   updatedAt?: number;
 }
@@ -103,12 +95,6 @@ export interface InsightMutations {
   /** Remove an insight */
   remove: (id: UUID) => Promise<void>;
 
-  /** Set insight status */
-  setStatus: (id: UUID, status: InsightStatus, error?: string) => Promise<void>;
-
-  /** Link computed DataFrame to insight */
-  setDataFrame: (id: UUID, dataFrameId: UUID) => Promise<void>;
-
   /** Add a field to insight */
   addField: (insightId: UUID, fieldId: UUID) => Promise<void>;
 
@@ -134,7 +120,6 @@ export interface InsightMutations {
  */
 export type UseInsights = (options?: {
   excludeIds?: UUID[];
-  withComputedDataOnly?: boolean;
 }) => UseInsightsResult;
 
 /**

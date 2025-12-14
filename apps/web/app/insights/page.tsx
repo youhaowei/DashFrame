@@ -2,11 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { Insight, DataTable } from "@/lib/stores/types";
+import {
+  useInsights,
+  useInsightMutations,
+  useVisualizations,
+  useDataSources,
+  useDataTables,
+} from "@dashframe/core-dexie";
+import type { Insight, DataTable } from "@dashframe/core";
 import type { UUID } from "@dashframe/core";
 
 // Type for insight with joined details
@@ -67,18 +70,12 @@ import { CreateVisualizationModal } from "@/components/visualizations/CreateVisu
 export default function InsightsPage() {
   const router = useRouter();
 
-  // Local stores with useStoreQuery to prevent infinite loops
-  const { data: allInsights } = useStoreQuery(useInsightsStore, (state) =>
-    state.getAll(),
-  );
-  const removeInsightLocal = useInsightsStore((state) => state.removeInsight);
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-    state.getAll(),
-  );
+  // Dexie hooks
+  const { data: allInsights = [] } = useInsights();
+  const { remove: removeInsightLocal } = useInsightMutations();
+  const { data: visualizations = [] } = useVisualizations();
+  const { data: dataSources = [] } = useDataSources();
+  const { data: allDataTables = [] } = useDataTables();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,22 +88,23 @@ export default function InsightsPage() {
       let dataTable: DataTable | null = null;
       let sourceType: string | null = null;
 
-      const dataTableId = insight.baseTable?.tableId;
+      const dataTableId = insight.baseTableId;
       if (dataTableId) {
-        // Find which data source contains this table
-        for (const ds of dataSources) {
-          const table = ds.dataTables.get(dataTableId);
-          if (table) {
-            dataTable = table;
+        // Find the data table (flat in Dexie)
+        const table = allDataTables.find((t) => t.id === dataTableId);
+        if (table) {
+          dataTable = table;
+          // Find the data source for this table
+          const ds = dataSources.find((s) => s.id === table.dataSourceId);
+          if (ds) {
             sourceType = ds.type;
-            break;
           }
         }
       }
 
       // Count visualizations for this insight
       const visualizationCount = visualizations.filter(
-        (viz) => viz.source.insightId === insight.id,
+        (viz) => viz.insightId === insight.id,
       ).length;
 
       return {
@@ -116,14 +114,13 @@ export default function InsightsPage() {
         visualizationCount,
       };
     });
-  }, [allInsights, dataSources, visualizations]);
+  }, [allInsights, allDataTables, dataSources, visualizations]);
 
   // Process insights data
   const insights = useMemo((): InsightItem[] => {
     return insightsData.map((item): InsightItem => {
       // Determine state
-      const isConfigured =
-        (item.insight.baseTable?.selectedFields?.length ?? 0) > 0;
+      const isConfigured = (item.insight.selectedFields?.length ?? 0) > 0;
       const hasVisualizations = item.visualizationCount > 0;
 
       return {
@@ -198,17 +195,17 @@ export default function InsightsPage() {
     }
   };
 
-  // Handle delete insight (LOCAL ONLY)
-  const handleDeleteInsight = (insightId: UUID, e: React.MouseEvent) => {
+  // Handle delete insight
+  const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    removeInsightLocal(insightId);
+    await removeInsightLocal(insightId);
   };
 
-  // Handle delete all drafts (LOCAL ONLY)
-  const handleDeleteAllDrafts = () => {
+  // Handle delete all drafts
+  const handleDeleteAllDrafts = async () => {
     for (const item of groupedInsights.drafts) {
-      removeInsightLocal(item.insight.id);
+      await removeInsightLocal(item.insight.id);
     }
   };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -23,12 +23,13 @@ import {
   FileText,
   Plus,
 } from "@dashframe/ui/icons";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useShallow } from "zustand/react/shallow";
+import {
+  useDashboards,
+  useDashboardMutations,
+  useVisualizations,
+} from "@dashframe/core-dexie";
+import type { DashboardItemType } from "@dashframe/core";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import type { DashboardItemType } from "@/lib/types/dashboard";
-import { generateUUID } from "@/lib/utils";
 
 export default function DashboardDetailPage({
   params,
@@ -37,29 +38,31 @@ export default function DashboardDetailPage({
 }) {
   const { dashboardId } = use(params);
   const router = useRouter();
-  const dashboard = useDashboardsStore((state) =>
-    state.dashboards.get(dashboardId),
-  );
-  const addItem = useDashboardsStore((state) => state.addItem);
-  const visualizations = useVisualizationsStore(
-    useShallow((state) => Array.from(state.visualizations.values())),
+
+  // Dexie hooks
+  const { data: dashboards = [], isLoading } = useDashboards();
+  const { data: visualizations = [] } = useVisualizations();
+  const { addItem } = useDashboardMutations();
+
+  // Find the dashboard
+  const dashboard = useMemo(
+    () => dashboards.find((d) => d.id === dashboardId),
+    [dashboards, dashboardId],
   );
 
-  // Track if we've checked for dashboard after hydration
+  // Local state
   const [hasChecked, setHasChecked] = useState(false);
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
-  // Redirect if not found after a brief delay (allows hydration to complete)
+  // Redirect if not found after loading completes
   useEffect(() => {
-    // Wait a tick for hydration to complete, then check
-    const timer = setTimeout(() => {
+    if (!isLoading) {
       setHasChecked(true);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+    }
+  }, [isLoading]);
 
   useEffect(() => {
     if (hasChecked && !dashboard) {
@@ -68,7 +71,7 @@ export default function DashboardDetailPage({
   }, [hasChecked, dashboard, router]);
 
   // Show loading state until we have the dashboard
-  if (!dashboard) {
+  if (isLoading || !dashboard) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-muted-foreground text-sm">Loading dashboard...</p>
@@ -76,24 +79,22 @@ export default function DashboardDetailPage({
     );
   }
 
-  const handleAddItem = () => {
-    const newItem = {
-      id: generateUUID(),
+  const handleAddItem = async () => {
+    await addItem(dashboardId, {
       type: addType,
-      layout: {
+      position: {
         x: 0,
         y: Infinity, // Put at bottom
-        w: addType === "visualization" ? 6 : 4,
-        h: addType === "visualization" ? 6 : 4,
+        width: addType === "visualization" ? 6 : 4,
+        height: addType === "visualization" ? 6 : 4,
       },
       visualizationId: addType === "visualization" ? selectedVizId : undefined,
       content:
         addType === "markdown"
           ? "## New Text Widget\n\nEdit this text..."
           : undefined,
-    };
+    });
 
-    addItem(dashboard.id, newItem);
     setIsAddOpen(false);
     setAddType("visualization");
     setSelectedVizId("");

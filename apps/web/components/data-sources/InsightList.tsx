@@ -1,11 +1,20 @@
 import { ItemCard, Lightbulb } from "@dashframe/ui";
-import type { InsightInfo } from "@/hooks/useInsights";
+
+/**
+ * Display info for an insight in the list.
+ */
+export interface InsightDisplayInfo {
+  id: string;
+  name: string;
+  rowCount?: number;
+  metricCount: number;
+}
 
 export interface InsightListProps {
   /**
    * List of insights to display
    */
-  insights: InsightInfo[];
+  insights: InsightDisplayInfo[];
   /**
    * Callback when an insight is clicked
    */
@@ -17,16 +26,6 @@ export interface InsightListProps {
  *
  * Shows insights that have computed DataFrames for chaining.
  * Used in DataPickerContent to allow users to build on existing work.
- *
- * @example
- * ```tsx
- * const { insights } = useInsights({ withComputedDataOnly: true });
- *
- * <InsightList
- *   insights={insights}
- *   onInsightClick={(id, name) => handleSelect(id)}
- * />
- * ```
  */
 export function InsightList({ insights, onInsightClick }: InsightListProps) {
   return (

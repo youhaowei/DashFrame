@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Database,
   Plus,
@@ -13,8 +13,7 @@ import {
   type SelectableItem,
   type ItemAction,
 } from "@dashframe/ui";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { isNotionDataSource } from "@/lib/stores/types";
+import { useDataSources, useDataTables } from "@dashframe/core-dexie";
 import Link from "next/link";
 
 interface DataSourceSelectorProps {
@@ -28,31 +27,38 @@ export function DataSourceSelector({
   onSelect,
   onCreateClick,
 }: DataSourceSelectorProps) {
-  const [isHydrated] = useState(() => typeof window !== "undefined");
-  const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
-  const dataSources = useMemo(
-    () =>
-      Array.from(dataSourcesMap.values()).sort(
-        (a, b) => b.createdAt - a.createdAt,
-      ),
-    [dataSourcesMap],
+  const { data: dataSources, isLoading } = useDataSources();
+  const { data: allTables } = useDataTables();
+
+  // Sort data sources by creation time (newest first)
+  const sortedSources = useMemo(
+    () => [...(dataSources ?? [])].sort((a, b) => b.createdAt - a.createdAt),
+    [dataSources],
   );
 
+  // Count tables per data source
+  const tableCountBySource = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const table of allTables ?? []) {
+      counts.set(table.dataSourceId, (counts.get(table.dataSourceId) ?? 0) + 1);
+    }
+    return counts;
+  }, [allTables]);
+
   const items: SelectableItem[] = useMemo(() => {
-    return dataSources.map((source) => {
+    return sortedSources.map((source) => {
       const isActive = source.id === selectedId;
+      const tableCount = tableCountBySource.get(source.id) ?? 0;
 
       let icon;
       let metadata = "";
 
-      if (isNotionDataSource(source)) {
+      if (source.type === "notion") {
         icon = Notion;
-        const tableCount = source.dataTables?.size ?? 0;
         metadata = `${tableCount} ${tableCount === 1 ? "table" : "tables"}`;
-      } else if (source.type === "local") {
+      } else if (source.type === "csv") {
         icon = File;
-        const fileCount = source.dataTables?.size ?? 0;
-        metadata = `${fileCount} ${fileCount === 1 ? "file" : "files"}`;
+        metadata = `${tableCount} ${tableCount === 1 ? "file" : "files"}`;
       }
 
       return {
@@ -63,7 +69,7 @@ export function DataSourceSelector({
         metadata,
       };
     });
-  }, [dataSources, selectedId]);
+  }, [sortedSources, selectedId, tableCountBySource]);
 
   const actions: ItemAction[] = useMemo(
     () => [
@@ -83,7 +89,7 @@ export function DataSourceSelector({
     [onCreateClick],
   );
 
-  if (!isHydrated) {
+  if (isLoading) {
     return (
       <Surface elevation="raised" className="p-6">
         <p className="text-muted-foreground text-sm">Preparing data sources…</p>
@@ -91,7 +97,7 @@ export function DataSourceSelector({
     );
   }
 
-  if (dataSources.length === 0) {
+  if (sortedSources.length === 0) {
     return (
       <Surface elevation="inset" className="p-8 text-center">
         <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">

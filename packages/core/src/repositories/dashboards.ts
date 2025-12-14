@@ -6,11 +6,18 @@ import type { UseQueryResult } from "./types";
 // ============================================================================
 
 /**
- * Dashboard panel - A visualization placed on a dashboard.
+ * Dashboard item type - supports visualizations and markdown content.
  */
-export interface DashboardPanel {
+export type DashboardItemType = "visualization" | "markdown";
+
+/**
+ * Dashboard item - A positioned widget on a dashboard.
+ */
+export interface DashboardItem {
   id: UUID;
-  visualizationId: UUID;
+  type: DashboardItemType;
+  visualizationId?: UUID; // Only for type="visualization"
+  content?: string; // Only for type="markdown"
   /** Grid position */
   x: number;
   y: number;
@@ -20,13 +27,13 @@ export interface DashboardPanel {
 }
 
 /**
- * Dashboard - A collection of visualization panels.
+ * Dashboard - A collection of items.
  */
 export interface Dashboard {
   id: UUID;
   name: string;
   description?: string;
-  panels: DashboardPanel[];
+  items: DashboardItem[];
   createdAt: number;
   updatedAt?: number;
 }
@@ -39,6 +46,16 @@ export interface Dashboard {
  * Result type for useDashboards hook.
  */
 export type UseDashboardsResult = UseQueryResult<Dashboard[]>;
+
+/**
+ * Input for creating a new item.
+ */
+export interface CreateItemInput {
+  type: DashboardItemType;
+  visualizationId?: UUID; // Required for type="visualization"
+  content?: string; // Required for type="markdown"
+  position: { x: number; y: number; width: number; height: number };
+}
 
 /**
  * Mutation methods for dashboards.
@@ -56,22 +73,18 @@ export interface DashboardMutations {
   /** Remove a dashboard */
   remove: (id: UUID) => Promise<void>;
 
-  /** Add a panel to dashboard */
-  addPanel: (
-    dashboardId: UUID,
-    visualizationId: UUID,
-    position: { x: number; y: number; width: number; height: number },
-  ) => Promise<UUID>;
+  /** Add an item to dashboard */
+  addItem: (dashboardId: UUID, input: CreateItemInput) => Promise<UUID>;
 
-  /** Update panel position/size */
-  updatePanel: (
+  /** Update item position/size/content */
+  updateItem: (
     dashboardId: UUID,
-    panelId: UUID,
-    updates: Partial<Omit<DashboardPanel, "id" | "visualizationId">>,
+    itemId: UUID,
+    updates: Partial<Omit<DashboardItem, "id" | "type">>,
   ) => Promise<void>;
 
-  /** Remove a panel */
-  removePanel: (dashboardId: UUID, panelId: UUID) => Promise<void>;
+  /** Remove an item */
+  removeItem: (dashboardId: UUID, itemId: UUID) => Promise<void>;
 }
 
 /**

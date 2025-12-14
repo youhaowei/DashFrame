@@ -3,9 +3,9 @@
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { TopLevelSpec } from "vega-lite";
+import type { DataFrameData, Visualization } from "@dashframe/core";
+import { useInsights, useDataTables } from "@dashframe/core-dexie";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { Visualization } from "@/lib/stores/types";
-import type { LoadedDataFrameData } from "@/hooks/useDataFrameData";
 
 function PreviewLoading() {
   return (
@@ -30,11 +30,11 @@ const VegaChart = dynamic(
  */
 function buildPreviewSpec(
   viz: Visualization,
-  data: LoadedDataFrameData,
+  data: DataFrameData,
   height: number,
 ): TopLevelSpec {
   // Use the visualization's existing spec as the base
-  const baseSpec = viz.spec as TopLevelSpec;
+  const baseSpec = viz.spec as unknown as TopLevelSpec;
 
   // Preview-optimized config: minimal chrome, transparent background
   const previewConfig = {
@@ -93,7 +93,17 @@ export function VisualizationPreview({
   height = 160,
   fallback,
 }: VisualizationPreviewProps) {
-  const dataFrameId = visualization.source.dataFrameId;
+  // Derive dataFrameId through the relationship chain:
+  // visualization.insightId → insight.baseTableId → dataTable.dataFrameId
+  const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
+
+  const dataFrameId = useMemo(() => {
+    const insight = insights.find((i) => i.id === visualization.insightId);
+    if (!insight) return undefined;
+    const dataTable = dataTables.find((t) => t.id === insight.baseTableId);
+    return dataTable?.dataFrameId;
+  }, [insights, dataTables, visualization.insightId]);
 
   // Load full data for accurate preview (no limit)
   const { data, isLoading, error } = useDataFrameData(dataFrameId);
@@ -106,7 +116,7 @@ export function VisualizationPreview({
   }, [data, visualization, height]);
 
   // Loading state
-  if (isLoading) {
+  if (isLoading || !dataFrameId) {
     return <PreviewLoading />;
   }
 

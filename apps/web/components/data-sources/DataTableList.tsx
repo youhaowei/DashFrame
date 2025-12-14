@@ -1,5 +1,16 @@
 import { ItemCard, Database } from "@dashframe/ui";
-import type { DataTableInfo } from "@/hooks/useDataTables";
+
+/**
+ * Display info for a data table in lists.
+ */
+export interface DataTableInfo {
+  tableId: string;
+  tableName: string;
+  sourceId: string;
+  sourceName: string;
+  fieldCount: number;
+  isLocal: boolean;
+}
 
 export interface DataTableListProps {
   /**

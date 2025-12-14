@@ -12,21 +12,44 @@ import type { UseQueryResult } from "./types";
 export type VegaLiteSpec = Record<string, unknown>;
 
 /**
+ * Visualization chart types.
+ */
+export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
+
+/**
+ * Axis type for chart encoding.
+ */
+export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
+
+/**
+ * Column encoding for chart visualization.
+ */
+export interface VisualizationEncoding {
+  x?: string;
+  y?: string;
+  xType?: AxisType;
+  yType?: AxisType;
+  color?: string;
+  size?: string;
+}
+
+/**
  * Visualization - A chart/graph configuration.
  *
- * Visualizations are linked to Insights and contain:
- * - Vega-Lite specification
- * - UI state (selected, expanded, etc.)
+ * Visualizations are linked to Insights and contain a Vega-Lite specification.
+ * Active selection is managed in UI state, not persisted.
  */
 export interface Visualization {
   id: UUID;
   name: string;
   /** Parent insight ID */
   insightId: UUID;
+  /** Chart type (table, bar, line, etc.) */
+  visualizationType: VisualizationType;
+  /** Column encodings for chart axes and aesthetics */
+  encoding?: VisualizationEncoding;
   /** Vega-Lite chart specification */
   spec: VegaLiteSpec;
-  /** Whether this is the active visualization */
-  isActive?: boolean;
   createdAt: number;
   updatedAt?: number;
 }
@@ -45,7 +68,13 @@ export type UseVisualizationsResult = UseQueryResult<Visualization[]>;
  */
 export interface VisualizationMutations {
   /** Create a new visualization */
-  create: (name: string, insightId: UUID, spec: VegaLiteSpec) => Promise<UUID>;
+  create: (
+    name: string,
+    insightId: UUID,
+    visualizationType: VisualizationType,
+    spec: VegaLiteSpec,
+    encoding?: VisualizationEncoding,
+  ) => Promise<UUID>;
 
   /** Update a visualization */
   update: (
@@ -56,11 +85,11 @@ export interface VisualizationMutations {
   /** Remove a visualization */
   remove: (id: UUID) => Promise<void>;
 
-  /** Set active visualization */
-  setActive: (id: UUID) => Promise<void>;
-
   /** Update the Vega-Lite spec */
   updateSpec: (id: UUID, spec: VegaLiteSpec) => Promise<void>;
+
+  /** Update the column encoding */
+  updateEncoding: (id: UUID, encoding: VisualizationEncoding) => Promise<void>;
 }
 
 /**

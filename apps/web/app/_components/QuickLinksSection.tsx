@@ -4,29 +4,23 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { BarChart3, Sparkles, Database, ItemList } from "@dashframe/ui";
 
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import {
+  useVisualizations,
+  useInsights,
+  useDataSources,
+} from "@dashframe/core-dexie";
 
 /**
  * QuickLinksSection - Navigation links to main app sections
  *
- * Self-contained section that fetches counts from all stores.
+ * Self-contained section that fetches counts from Dexie.
  */
 export function QuickLinksSection() {
   const router = useRouter();
 
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
-  const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
-    state.getAll(),
-  );
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-    state.getAll(),
-  );
+  const { data: visualizations = [] } = useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataSources = [] } = useDataSources();
 
   const quickLinks = useMemo(
     () => [

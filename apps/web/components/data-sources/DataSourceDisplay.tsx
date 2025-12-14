@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  isNotionDataSource,
-  isCSVDataSource,
-  type DataSource,
-} from "@/lib/stores/types";
+  useDataSources,
+  useDataTables,
+  useDataTableMutations,
+  type DataTable,
+} from "@dashframe/core-dexie";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { Field } from "@dashframe/core";
 import {
   Card,
@@ -146,8 +146,13 @@ function PreviewContent({
 }
 
 // Helper component for local data source display with async data loading
-function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
-  const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
+function LocalDataSourceView({
+  dataSource,
+  dataTables,
+}: {
+  dataSource: { id: string; name: string; type: string };
+  dataTables: DataTable[];
+}) {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(
     dataTables[0]?.id ?? null,
   );
@@ -288,27 +293,25 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [notionPreviewData, setNotionPreviewData] =
     useState<PreviewData | null>(null);
 
-  // Get data source from store
-  const dataSource = useDataSourcesStore((state) =>
-    dataSourceId ? state.get(dataSourceId) : null,
-  );
+  // Get data source from Dexie
+  const { data: dataSources } = useDataSources();
+  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const tableMutations = useDataTableMutations();
 
-  const refreshDataTable = useDataSourcesStore(
-    (state) => state.refreshDataTable,
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
+    [dataSources, dataSourceId],
   );
 
   // tRPC mutations for Notion
   const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
   const getSchemaMutation = trpc.notion.getDatabaseSchema.useMutation();
 
-  // Get DataTables for the selected source
+  // Get DataTables for the selected source (already filtered by dataSourceId)
   const dataTables = useMemo(() => {
     if (!dataSource) return [];
-    if (isNotionDataSource(dataSource)) {
-      return Array.from(dataSource.dataTables?.values() ?? []);
-    }
-    return [];
-  }, [dataSource]);
+    return allTables ?? [];
+  }, [dataSource, allTables]);
 
   // Auto-select first DataTable if none selected
   useEffect(() => {
@@ -329,7 +332,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       if (
         !selectedDataTable ||
         !dataSource ||
-        !isNotionDataSource(dataSource)
+        dataSource.type !== "notion" ||
+        !dataSource.apiKey
       ) {
         return;
       }
@@ -374,7 +378,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   // Handle syncing data with selected properties
   const handleSyncData = async () => {
-    if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+    if (
+      !selectedDataTable ||
+      !dataSource ||
+      dataSource.type !== "notion" ||
+      !dataSource.apiKey
+    ) {
       return;
     }
 
@@ -406,8 +415,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       });
 
       // Update DataTable timestamp
-      refreshDataTable(
-        dataSource.id,
+      await tableMutations.refresh(
         selectedDataTable.id,
         selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
@@ -424,7 +432,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   // Handle refreshing Notion data (uses existing property selection)
   const handleRefreshDataTable = async () => {
-    if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+    if (
+      !selectedDataTable ||
+      !dataSource ||
+      dataSource.type !== "notion" ||
+      !dataSource.apiKey
+    ) {
       return;
     }
 
@@ -456,8 +469,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       });
 
       // Update DataTable with new lastFetchedAt
-      refreshDataTable(
-        dataSource.id,
+      await tableMutations.refresh(
         selectedDataTable.id,
         selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
@@ -488,15 +500,17 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  const isLocal = isCSVDataSource(dataSource);
+  const isLocal = dataSource.type === "csv";
 
-  // For local sources, show DataTables with async data loading
+  // For CSV sources, show DataTables with async data loading
   if (isLocal) {
-    return <LocalDataSourceView dataSource={dataSource} />;
+    return (
+      <LocalDataSourceView dataSource={dataSource} dataTables={dataTables} />
+    );
   }
 
   // For Notion sources, show DataTables
-  if (isNotionDataSource(dataSource)) {
+  if (dataSource.type === "notion") {
     const hasDataTables = dataTables.length > 0;
 
     return (
@@ -640,7 +654,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 <CardTitle className="text-lg">Data Preview</CardTitle>
                 {selectedDataTable &&
                   notionPreviewData &&
-                  isNotionDataSource(dataSource) && (
+                  dataSource.type === "notion" && (
                     <Button
                       variant="ghost"
                       size="sm"

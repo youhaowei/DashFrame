@@ -5,34 +5,28 @@ import { useRouter } from "next/navigation";
 import { Sparkles } from "@dashframe/ui";
 
 import { DashboardSection } from "./DashboardSection";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import { useInsights } from "@dashframe/core-dexie";
 
 /**
  * RecentInsightsSection - Displays the 3 most recent insights
  *
- * Self-contained section that fetches its own data from the insights store.
+ * Self-contained section that fetches its own data from Dexie.
  */
 export function RecentInsightsSection() {
   const router = useRouter();
 
-  const { data: insights } = useStoreQuery(useInsightsStore, (state) =>
-    state.getAll(),
-  );
+  const { data: insights = [] } = useInsights();
 
   const recentInsights = useMemo(() => {
     return [...insights]
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 3)
       .map((insight) => ({
         id: insight.id,
         title: insight.name,
         subtitle: `${insight.metrics?.length || 0} metric${insight.metrics?.length !== 1 ? "s" : ""}`,
-        badge: insight.baseTable?.selectedFields.length
-          ? `${insight.baseTable.selectedFields.length} fields`
+        badge: insight.selectedFields.length
+          ? `${insight.selectedFields.length} fields`
           : undefined,
       }));
   }, [insights]);
