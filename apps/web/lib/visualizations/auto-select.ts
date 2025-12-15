@@ -3,7 +3,7 @@ import type {
   VisualizationEncoding,
   Insight,
 } from "../stores/types";
-import type { DataFrameData, Field } from "@dashframe/core";
+import type { DataFrameData, Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 
 /**

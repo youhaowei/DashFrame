@@ -1,98 +1,37 @@
 /**
  * @dashframe/core
  *
- * Core types and repository interfaces for DashFrame.
- * This package has ZERO runtime dependencies.
+ * Core package with environment-based backend selection.
  *
- * Types are pure data definitions used throughout the system.
- * Repository interfaces define the contract for persistence implementations
- * (e.g., @dashframe/core-dexie, @dashframe/core-convex).
+ * This package selects the backend implementation based on the
+ * NEXT_PUBLIC_DATA_BACKEND environment variable:
+ * - "dexie" (default) → @dashframe/core-dexie (IndexedDB)
+ * - "convex" → @dashframe/core-convex (Cloud sync)
+ *
+ * Components import from @dashframe/core and remain backend-agnostic.
+ * To switch backends, just change the environment variable and rebuild.
+ *
+ * @example
+ * ```bash
+ * # Use Dexie backend (OSS)
+ * NEXT_PUBLIC_DATA_BACKEND=dexie pnpm dev
+ *
+ * # Use Convex backend (Cloud) - Future
+ * NEXT_PUBLIC_DATA_BACKEND=convex pnpm dev
+ * ```
  */
 
 // ============================================================================
-// Core Types
+// Backend Implementation Exports
 // ============================================================================
 
-export type {
-  // UUID
-  UUID,
-  // Column types
-  ColumnType,
-  DataFrameColumn,
-  ForeignKey,
-  TableColumn,
-  // Field types
-  Field,
-  SourceSchema,
-  // Metric types
-  AggregationType,
-  Metric,
-  InsightMetric,
-  // DataFrame interface types (storage references)
-  DataFrameStorageLocation,
-  DataFrameJSON,
-  DataFrame,
-  DataFrameFactory,
-  // DataFrame data types (in-memory)
-  DataFrameRow,
-  DataFrameData,
-  // DataTable metadata types
-  DataTableField,
-  DataTableInfo,
-} from "./types";
+// The backend module selects the implementation based on
+// NEXT_PUBLIC_DATA_BACKEND environment variable.
+// See ./backend.ts for the selection logic.
+export * from "./backend";
 
 // ============================================================================
-// Repository Interfaces
-// ============================================================================
-
-export type {
-  // Common
-  UseQueryResult,
-  // Data Sources
-  DataSource,
-  CreateDataSourceInput,
-  UseDataSourcesResult,
-  DataSourceMutations,
-  UseDataSources,
-  UseDataSourceMutations,
-  // Data Tables
-  DataTable,
-  UseDataTablesResult,
-  DataTableMutations,
-  UseDataTables,
-  UseDataTableMutations,
-  // Insights
-  InsightFilter,
-  InsightSort,
-  InsightJoinConfig,
-  Insight,
-  UseInsightsResult,
-  InsightMutations,
-  UseInsights,
-  UseInsightMutations,
-  // Visualizations
-  VegaLiteSpec,
-  VisualizationType,
-  AxisType,
-  VisualizationEncoding,
-  Visualization,
-  UseVisualizationsResult,
-  VisualizationMutations,
-  UseVisualizations,
-  UseVisualizationMutations,
-  // Dashboards
-  DashboardItemType,
-  DashboardItem,
-  CreateItemInput,
-  Dashboard,
-  UseDashboardsResult,
-  DashboardMutations,
-  UseDashboards,
-  UseDashboardMutations,
-} from "./repositories";
-
-// ============================================================================
-// Chart Renderer Types
+// Chart Renderer Types (Defined in Core)
 // ============================================================================
 
 export type {
@@ -102,3 +41,20 @@ export type {
   ChartRenderer,
   ChartRendererRegistry,
 } from "./chart-renderers";
+
+// ============================================================================
+// Backend Info (Debug Helper)
+// ============================================================================
+
+/**
+ * Get information about the currently active backend.
+ * Useful for debugging and feature detection.
+ */
+export function getBackendInfo() {
+  const backend = process.env.NEXT_PUBLIC_DATA_BACKEND || "dexie";
+  return {
+    backend,
+    isCloud: backend === "convex",
+    isLocal: backend === "dexie",
+  };
+}

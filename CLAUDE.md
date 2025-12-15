@@ -35,15 +35,43 @@ pnpm --filter @dashframe/web check
 ## Core Architecture
 
 **See `docs/architecture.md` for complete architecture details.**
+**See `docs/backend-architecture.md` for backend plugin system.**
 
 ### Key Concepts
 
 - **DataFrame as central abstraction**: `CSV/Notion → DataFrame → Vega-Lite → Chart`
+- **Pluggable backend architecture**: Env-based backend selection
 - **Functional utilities**: For data conversion and transformation or utilities, prefer pure functions over classes for simplicity and testability.
 - **OOP Design**: Use classes and inheritance when make sense for entities with behavior, for encapsulation and code organization.
-- **Zustand + Immer**: State management with automatic localStorage persistence
 - **Entity hierarchy**: DataSource → Insight → DataFrame → Visualization
 - **tRPC for APIs**: Server-side proxy to avoid CORS issues
+
+### Backend Plugin System
+
+DashFrame uses **environment-based backend selection** to support multiple deployment scenarios:
+
+```bash
+# IndexDB backend with Dexie
+NEXT_PUBLIC_DATA_BACKEND=dexie
+
+# Convex backend - future
+NEXT_PUBLIC_DATA_BACKEND=convex
+```
+
+**Package structure**:
+
+- `@dashframe/types` - Pure type contracts (repository interfaces)
+- `@dashframe/core-dexie` - Dexie/IndexedDB implementation
+- `@dashframe/core-convex` - Convex implementation (future cloud)
+- `@dashframe/core` - Env-based backend selector
+
+**Components import from `@dashframe/core` and remain backend-agnostic**. The env var switches implementations at build time. This enables:
+
+- Local-first version with Dexie backend
+- Cloud version with real-time Convex backend
+- Custom backends via community plugins
+
+See `docs/backend-architecture.md` for full details on creating custom backends.
 
 ### Adding New Data Sources
 
@@ -65,21 +93,26 @@ pnpm --filter @dashframe/web check
 ## Monorepo Structure
 
 ```
-apps/web/         # Next.js 16 (App Router)
+apps/web/                  # Next.js 16 (App Router)
 packages/
-  dataframe/      # Core types
-  csv/            # csvToDataFrame converter
-  notion/         # notionToDataFrame + tRPC integration
-  ui/             # Shared UI components (shadcn/ui primitives + custom components)
-                  # Includes Storybook for component development
-  eslint-config/  # Shared ESLint 9 flat config
+  types/                   # Pure type contracts (zero deps)
+  core/                    # Backend selector (env-based)
+  core-dexie/              # Dexie/IndexedDB backend (local-first)
+  engine/                  # Abstract engine interfaces
+  engine-browser/          # DuckDB-WASM + IndexedDB
+  connector-csv/           # CSV file connector
+  connector-notion/        # Notion API connector
+  visualization/           # Vega-Lite chart rendering
+  ui/                      # Shared UI components (shadcn/ui primitives + custom)
+                           # Includes Storybook for component development
+  eslint-config/           # Shared ESLint 9 flat config
 ```
 
 **Critical**: Packages export TypeScript source directly (`main: "src/index.ts"`), not compiled JS. Web app uses TypeScript path mappings for hot reload. See `tsconfig.json` files.
 
 ## State Management & Persistence
 
-**Dexie (IndexedDB)** for client-side persistence. Data model uses flat entities:
+**Backend-agnostic data layer**. Currently uses **Dexie (IndexedDB)** for local-first deployment. Data model uses flat entities:
 
 - **DataSource** - Connector type (e.g., "csv", "notion") + connection config
 - **DataTable** - Schema, fields, metrics. Links to DataSource
@@ -87,7 +120,13 @@ packages/
 - **Visualization** - Vega-Lite spec. Links to Insight
 - **Dashboard** - Layout of visualization panels
 
-Legacy Zustand stores are deprecated. Migrate to `@dashframe/core-dexie` hooks.
+**Import pattern**: Always import hooks from `@dashframe/core` (not `@dashframe/core-dexie` directly):
+
+```typescript
+import { useDataSources, useDataSourceMutations } from "@dashframe/core";
+```
+
+This keeps components backend-agnostic. The backend implementation is selected via `NEXT_PUBLIC_DATA_BACKEND` env var.
 
 ## Critical Gotchas
 

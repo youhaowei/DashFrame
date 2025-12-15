@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Sparkles } from "@dashframe/ui";
 
 import { DashboardSection } from "./DashboardSection";
-import { useInsights } from "@dashframe/core-dexie";
+import { useInsights } from "@dashframe/core";
 
 /**
  * RecentInsightsSection - Displays the 3 most recent insights

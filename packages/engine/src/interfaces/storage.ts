@@ -1,4 +1,4 @@
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 
 /**
  * DataFrameStorage interface - Persistence for DataFrame binary data.

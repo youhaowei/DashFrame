@@ -10,12 +10,9 @@
  *
  * @example
  * ```tsx
- * // Basic usage - import types and implementations together
- * import {
- *   useDataSources,
- *   useDataSourceMutations,
- *   type DataSource,
- * } from '@dashframe/core-dexie';
+ * // Basic usage - import types from @dashframe/types, hooks from @dashframe/core
+ * import type { DataSource } from '@dashframe/types';
+ * import { useDataSources, useDataSourceMutations } from '@dashframe/core';
  *
  * function DataSourcesList() {
  *   const { data: sources, isLoading } = useDataSources();
@@ -49,13 +46,6 @@
  */
 
 // ============================================================================
-// Re-export all types from @dashframe/core
-// This allows consumers to import types and implementations from a single package
-// ============================================================================
-
-export * from "@dashframe/core";
-
-// ============================================================================
 // Database Provider & Context
 // ============================================================================
 
@@ -86,6 +76,7 @@ export {
 // Insights
 export {
   useInsights,
+  useInsight,
   useInsightMutations,
   getInsight,
   getAllInsights,

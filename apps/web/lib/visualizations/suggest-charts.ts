@@ -1,7 +1,7 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";
-import type { Field } from "@dashframe/core";
+import type { Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 
 /**

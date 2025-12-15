@@ -2,7 +2,7 @@ import type { UUID } from "./uuid";
 import type { DataFrameColumn } from "./column";
 
 // ============================================================================
-// DataFrame Storage Types (moved from @dashframe/engine)
+// DataFrame Storage Types
 // ============================================================================
 
 /**

@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import type { Dashboard, DashboardItem } from "@/lib/types/dashboard";
 import { superjsonStorage } from "./storage";
 

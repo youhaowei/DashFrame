@@ -6,7 +6,7 @@ import type {
   CreateDataSourceInput,
   UseDataSourcesResult,
   DataSourceMutations,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { db, type DataSourceEntity } from "../db";
 
 // ============================================================================

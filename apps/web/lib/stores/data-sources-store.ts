@@ -5,7 +5,7 @@ import "./config";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/core";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/types";
 import type {
   DataSource,
   LocalDataSource,

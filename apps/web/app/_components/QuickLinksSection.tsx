@@ -8,7 +8,7 @@ import {
   useVisualizations,
   useInsights,
   useDataSources,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 
 /**
  * QuickLinksSection - Navigation links to main app sections

@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { cn, Surface, Button } from "@dashframe/ui";
 import { Edit3, GripHorizontal, Trash2 } from "@dashframe/ui/icons";
-import type { DashboardItem as DashboardItemType } from "@dashframe/core";
-import { useDashboardMutations } from "@dashframe/core-dexie";
+import type { DashboardItem as DashboardItemType } from "@dashframe/types";
+import { useDashboardMutations } from "@dashframe/core";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 

@@ -1,4 +1,4 @@
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import type { DataFrame } from "./dataframe";
 import type { RemoteApiConnector } from "../connector/base";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useVisualizations } from "@dashframe/core-dexie";
+import { useVisualizations } from "@dashframe/core";
 import { OnboardingView } from "./_components/OnboardingView";
 import { HomeView } from "./_components/HomeView";
 

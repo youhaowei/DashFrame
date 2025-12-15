@@ -5,7 +5,7 @@ import {
   useDataFrames,
   useDataFrameMutations,
   type DataFrameEntry,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {

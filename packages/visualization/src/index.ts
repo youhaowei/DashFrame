@@ -103,15 +103,20 @@ export { Chart, type ChartProps } from "./components";
 export { createVgplotRenderer, VGPLOT_SUPPORTED_TYPES } from "./renderers";
 
 // ============================================================================
-// Re-export Types from @dashframe/core
+// Re-export Types
 // ============================================================================
 
+// Chart renderer types from @dashframe/core
 export type {
   ChartTheme,
   ChartConfig,
   ChartCleanup,
   ChartRenderer,
   ChartRendererRegistry,
+} from "@dashframe/core";
+
+// Visualization types from @dashframe/types
+export type {
   VisualizationType,
   VisualizationEncoding,
-} from "@dashframe/core";
+} from "@dashframe/types";

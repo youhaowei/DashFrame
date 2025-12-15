@@ -16,7 +16,10 @@
  * ```
  */
 
-import type { VisualizationEncoding, VisualizationType } from "../repositories";
+import type {
+  VisualizationEncoding,
+  VisualizationType,
+} from "@dashframe/types";
 
 // ============================================================================
 // Chart Theme

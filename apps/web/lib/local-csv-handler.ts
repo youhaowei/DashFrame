@@ -1,7 +1,7 @@
 import { csvToDataFrame } from "@dashframe/connector-csv";
-import { getDataSourceByType, getDataTable, db } from "@dashframe/core-dexie";
+import { getDataSourceByType, getDataTable, db } from "@dashframe/core";
 import { deleteArrowData } from "@dashframe/engine-browser";
-import type { Metric } from "@dashframe/core";
+import type { Metric } from "@dashframe/types";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
 

@@ -6,7 +6,7 @@ import type {
   Insight,
   DataTable,
   InsightMetric,
-} from "@dashframe/core";
+} from "@dashframe/types";
 
 /**
  * Preview result containing sample data and metadata.

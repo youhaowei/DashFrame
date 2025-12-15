@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import {
   DataFrame as DataFrameClass,
   deleteArrowData,

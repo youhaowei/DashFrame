@@ -42,10 +42,10 @@ import {
   useDataTables,
   useDataTableMutations,
   useDataFrames,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 
 interface PageProps {

@@ -8,7 +8,7 @@ import type {
   DataTable,
   UseDataTablesResult,
   DataTableMutations,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { db, type DataTableEntity } from "../db";
 
 // ============================================================================

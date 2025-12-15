@@ -26,7 +26,6 @@ export type {
   InsightSort,
   InsightJoinConfig,
   Insight,
-  UseInsightsResult,
   InsightMutations,
   UseInsights,
   UseInsightMutations,

@@ -9,7 +9,7 @@ import type {
   VisualizationType,
   VisualizationEncoding,
   DataFrameJSON,
-} from "@dashframe/core";
+} from "@dashframe/types";
 
 // ============================================================================
 // Database Entity Types (Flat Tables)

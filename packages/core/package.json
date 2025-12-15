@@ -14,6 +14,10 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
+  "dependencies": {
+    "@dashframe/types": "workspace:*",
+    "@dashframe/core-dexie": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.6.0"
   }

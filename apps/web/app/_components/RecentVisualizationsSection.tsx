@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { BarChart3 } from "@dashframe/ui";
 import { DashboardSection } from "./DashboardSection";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useVisualizations } from "@dashframe/core-dexie";
+import { useVisualizations } from "@dashframe/core";
 
 /**
  * RecentVisualizationsSection - Displays the 3 most recent visualizations

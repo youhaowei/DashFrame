@@ -17,7 +17,7 @@ import {
   LayoutDashboard,
   Trash2,
 } from "@dashframe/ui";
-import { useDashboards, useDashboardMutations } from "@dashframe/core-dexie";
+import { useDashboards, useDashboardMutations } from "@dashframe/core";
 
 export default function DashboardsPage() {
   const router = useRouter();

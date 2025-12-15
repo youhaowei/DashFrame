@@ -12,7 +12,7 @@ import {
   useDataTables,
   useInsights,
   useDataFrames,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";

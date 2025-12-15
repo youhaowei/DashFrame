@@ -6,9 +6,8 @@ import {
   useDataSources,
   useDataSourceMutations,
   useDataTables,
-} from "@dashframe/core-dexie";
-import type { DataSource } from "@dashframe/core";
-import type { UUID } from "@dashframe/core";
+} from "@dashframe/core";
+import type { DataSource, UUID } from "@dashframe/types";
 import {
   Button,
   Card,

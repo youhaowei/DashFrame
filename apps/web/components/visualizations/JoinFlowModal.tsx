@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
-import type { Insight, DataTable } from "@dashframe/core";
+import type { Insight, DataTable } from "@dashframe/types";
 
 interface JoinFlowModalProps {
   insight: Insight;

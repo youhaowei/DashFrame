@@ -24,7 +24,7 @@ import {
   useInsights,
   useDataTables,
   getDataFrame as getDexieDataFrame,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { Chart } from "@dashframe/visualization";
 import { VirtualTable } from "@dashframe/ui";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
@@ -34,7 +34,7 @@ import type {
   DataFrameRow,
   VisualizationType,
   VisualizationEncoding,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import {

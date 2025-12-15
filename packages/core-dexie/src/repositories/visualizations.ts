@@ -8,7 +8,7 @@ import type {
   Visualization,
   UseVisualizationsResult,
   VisualizationMutations,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { db, type VisualizationEntity } from "../db";
 
 // ============================================================================

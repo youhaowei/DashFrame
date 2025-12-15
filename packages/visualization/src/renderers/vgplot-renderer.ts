@@ -27,13 +27,11 @@
  * ```
  */
 
+import type { ChartConfig, ChartCleanup, ChartRenderer } from "@dashframe/core";
 import type {
-  ChartConfig,
-  ChartCleanup,
-  ChartRenderer,
   VisualizationType,
   VisualizationEncoding,
-} from "@dashframe/core";
+} from "@dashframe/types";
 
 /**
  * vgplot API type from dynamic import.

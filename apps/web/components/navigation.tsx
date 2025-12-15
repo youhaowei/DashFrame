@@ -40,7 +40,7 @@ import {
   useDataFrameMutations,
   useVisualizationMutations,
   useDashboardMutations,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 
 type NavItem = {
   name: string;

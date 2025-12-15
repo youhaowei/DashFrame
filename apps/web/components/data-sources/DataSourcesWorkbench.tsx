@@ -6,7 +6,7 @@ import {
   useDataTables,
   useDataTableMutations,
   useDataFrames,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
 import { DataSourceSelector } from "./DataSourceSelector";
@@ -25,7 +25,7 @@ import {
   Button,
 } from "@dashframe/ui";
 import { toast } from "sonner";
-import type { Field, Metric } from "@dashframe/core";
+import type { Field, Metric } from "@dashframe/types";
 import type {
   FileSourceConnector,
   RemoteApiConnector,

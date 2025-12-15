@@ -27,8 +27,8 @@ import {
   useDashboards,
   useDashboardMutations,
   useVisualizations,
-} from "@dashframe/core-dexie";
-import type { DashboardItemType } from "@dashframe/core";
+} from "@dashframe/core";
+import type { DashboardItemType } from "@dashframe/types";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 
 export default function DashboardDetailPage({

@@ -7,7 +7,7 @@ import type {
   Insight,
   Visualization,
   InsightMetric,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { Button, Card, CardContent, CardHeader, Badge } from "@dashframe/ui";
 import {

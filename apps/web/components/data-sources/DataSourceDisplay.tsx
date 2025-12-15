@@ -5,10 +5,9 @@ import {
   useDataSources,
   useDataTables,
   useDataTableMutations,
-  type DataTable,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { Field } from "@dashframe/core";
+import type { DataTable, Field } from "@dashframe/types";
 import {
   Card,
   CardContent,

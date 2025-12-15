@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { DataTable } from "@dashframe/core";
-import type { DataFrameEntry } from "@dashframe/core-dexie";
+import type { DataTable } from "@dashframe/types";
+import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   Button,

@@ -1,4 +1,4 @@
-import type { Field, SourceSchema } from "@dashframe/core";
+import type { Field, SourceSchema } from "@dashframe/types";
 import type { DataFrame } from "../interfaces/dataframe";
 
 /**

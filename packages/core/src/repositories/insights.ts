@@ -68,11 +68,6 @@ export interface Insight {
 // ============================================================================
 
 /**
- * Result type for useInsights hook.
- */
-export type UseInsightsResult = UseQueryResult<Insight[]>;
-
-/**
  * Mutation methods for insights.
  */
 export interface InsightMutations {
@@ -120,7 +115,7 @@ export interface InsightMutations {
  */
 export type UseInsights = (options?: {
   excludeIds?: UUID[];
-}) => UseInsightsResult;
+}) => UseQueryResult<Insight[]>;
 
 /**
  * Hook type for insight mutations.

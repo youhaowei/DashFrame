@@ -1,8 +1,8 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useDataFrames, getDataFrame } from "@dashframe/core-dexie";
+import { useDataFrames, getDataFrame } from "@dashframe/core";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 
 /**
  * Hook for paginated DataFrame queries via DuckDB

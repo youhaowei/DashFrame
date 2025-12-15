@@ -13,7 +13,7 @@ import {
   type SelectableItem,
   type ItemAction,
 } from "@dashframe/ui";
-import { useDataSources, useDataTables } from "@dashframe/core-dexie";
+import { useDataSources, useDataTables } from "@dashframe/core";
 import Link from "next/link";
 
 interface DataSourceSelectorProps {

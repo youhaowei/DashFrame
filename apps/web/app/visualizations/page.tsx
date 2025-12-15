@@ -8,8 +8,8 @@ import {
   useInsights,
   useDataSources,
   useDataTables,
-} from "@dashframe/core-dexie";
-import type { Visualization, Insight, UUID } from "@dashframe/core";
+} from "@dashframe/core";
+import type { Visualization, Insight, UUID } from "@dashframe/types";
 import {
   Button,
   Card,

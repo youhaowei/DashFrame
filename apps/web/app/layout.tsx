@@ -5,7 +5,7 @@ import { TooltipProvider } from "@dashframe/ui";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
-import { DatabaseProvider } from "@dashframe/core-dexie";
+import { DatabaseProvider } from "@dashframe/core";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";

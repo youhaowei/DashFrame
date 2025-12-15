@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Visualization } from "@dashframe/core";
-import { useInsights, useDataTables } from "@dashframe/core-dexie";
+import type { Visualization } from "@dashframe/types";
+import { useInsights, useDataTables } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { Chart } from "@dashframe/visualization";
 

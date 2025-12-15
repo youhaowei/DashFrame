@@ -10,8 +10,8 @@
  * Re-exports @dashframe/core for convenience.
  */
 
-// Re-export all core types
-export * from "@dashframe/core";
+// Re-export all types
+export * from "@dashframe/types";
 
 // ============================================================================
 // Engine Interfaces

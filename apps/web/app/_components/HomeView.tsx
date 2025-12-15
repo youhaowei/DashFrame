@@ -5,7 +5,7 @@ import {
   useInsights,
   useDataSources,
   useDataTables,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { RecentVisualizationsSection } from "./RecentVisualizationsSection";
 import { RecentInsightsSection } from "./RecentInsightsSection";
 import { QuickLinksSection } from "./QuickLinksSection";

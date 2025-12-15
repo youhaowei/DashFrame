@@ -1,4 +1,4 @@
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/core";
+import type { UUID, Field, Metric, SourceSchema } from "@dashframe/types";
 
 // ============================================================================
 // DataTables (raw table data from sources)

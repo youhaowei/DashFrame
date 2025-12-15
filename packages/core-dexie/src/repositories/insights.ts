@@ -5,9 +5,9 @@ import type {
   InsightMetric,
   Insight,
   InsightFilter,
-  UseInsightsResult,
+  UseQueryResult,
   InsightMutations,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { db, type InsightEntity } from "../db";
 
 // ============================================================================
@@ -50,7 +50,7 @@ function entityToInsight(entity: InsightEntity): Insight {
  */
 export function useInsights(options?: {
   excludeIds?: UUID[];
-}): UseInsightsResult {
+}): UseQueryResult<Insight[]> {
   const { excludeIds = [] } = options ?? {};
 
   const data = useLiveQuery(async () => {
@@ -60,7 +60,6 @@ export function useInsights(options?: {
     if (excludeIds.length > 0) {
       entities = entities.filter((e) => !excludeIds.includes(e.id));
     }
-
     return entities.map(entityToInsight);
   }, [excludeIds.join(",")]);
 
@@ -176,6 +175,17 @@ export function useInsightMutations(): InsightMutations {
     }),
     [],
   );
+}
+
+export function useInsight(id: UUID): UseQueryResult<Insight | null> {
+  const insight = useLiveQuery(async () => {
+    const entity = await db.insights.get(id);
+    return entity ? entityToInsight(entity) : null;
+  }, [id]);
+  return {
+    data: insight,
+    isLoading: insight === undefined,
+  };
 }
 
 // ============================================================================

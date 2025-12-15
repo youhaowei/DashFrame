@@ -5,12 +5,12 @@ import type {
   DataFrameColumn,
   DataFrameData,
   ColumnType,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import {
   useDataFrames,
   getDataFrame,
   type DataFrameEntry,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // Global mutex to prevent concurrent loads of the same DataFrame

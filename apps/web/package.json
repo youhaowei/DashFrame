@@ -6,6 +6,7 @@
     "@dashframe/core-dexie": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",
+    "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
     "@dashframe/visualization": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.30.0",

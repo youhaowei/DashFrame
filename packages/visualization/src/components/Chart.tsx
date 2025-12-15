@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type {
-  ChartConfig,
-  ChartTheme,
   VisualizationEncoding,
   VisualizationType,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { getRenderer, hasRenderer } from "../registry";
 
 // ============================================================================

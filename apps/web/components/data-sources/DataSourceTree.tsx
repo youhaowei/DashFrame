@@ -1,11 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  useDataSources,
-  useDataTables,
-  useDataFrames,
-} from "@dashframe/core-dexie";
+import { useDataSources, useDataTables, useDataFrames } from "@dashframe/core";
 import { File, Trash2, Button, Panel, EmptyState, cn } from "@dashframe/ui";
 
 interface DataSourceTreeProps {

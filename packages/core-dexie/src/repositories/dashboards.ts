@@ -7,7 +7,7 @@ import type {
   CreateItemInput,
   UseDashboardsResult,
   DashboardMutations,
-} from "@dashframe/core";
+} from "@dashframe/types";
 import { db, type DashboardEntity } from "../db";
 
 // ============================================================================

@@ -1,4 +1,4 @@
-import type { TableColumn } from "@dashframe/core";
+import type { TableColumn } from "@dashframe/types";
 import type { DataFrame } from "./dataframe";
 
 /**

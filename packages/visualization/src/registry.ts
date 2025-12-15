@@ -20,11 +20,8 @@
  * ```
  */
 
-import type {
-  ChartRenderer,
-  ChartRendererRegistry,
-  VisualizationType,
-} from "@dashframe/core";
+import type { ChartRenderer, ChartRendererRegistry } from "@dashframe/core";
+import type { VisualizationType } from "@dashframe/types";
 
 // ============================================================================
 // Registry Implementation

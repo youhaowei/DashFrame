@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dashframe/core": "workspace:*",
+    "@dashframe/types": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.30.0",
     "@uwdata/vgplot": "^0.21.1",
     "react": "^19.0.0"

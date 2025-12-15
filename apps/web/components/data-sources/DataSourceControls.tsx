@@ -23,7 +23,7 @@ import {
   useDataSourceMutations,
   useDataTables,
   useDataTableMutations,
-} from "@dashframe/core-dexie";
+} from "@dashframe/core";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/connector-notion";
 

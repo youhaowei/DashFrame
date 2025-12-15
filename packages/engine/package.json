@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@dashframe/core": "workspace:*"
+    "@dashframe/types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

@@ -2,12 +2,8 @@
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
-import {
-  useVisualizations,
-  useInsights,
-  useDataTables,
-} from "@dashframe/core-dexie";
-import type { Visualization } from "@dashframe/core";
+import { useVisualizations, useInsights, useDataTables } from "@dashframe/core";
+import type { Visualization } from "@dashframe/types";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";

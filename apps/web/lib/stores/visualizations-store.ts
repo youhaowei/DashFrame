@@ -3,7 +3,7 @@ import "./config";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { UUID } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import type { DataFrameEntry } from "./dataframes-store";
 import type {
   Visualization,

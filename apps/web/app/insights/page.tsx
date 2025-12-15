@@ -8,9 +8,8 @@ import {
   useVisualizations,
   useDataSources,
   useDataTables,
-} from "@dashframe/core-dexie";
-import type { Insight, DataTable } from "@dashframe/core";
-import type { UUID } from "@dashframe/core";
+} from "@dashframe/core";
+import type { Insight, DataTable, UUID } from "@dashframe/types";
 
 // Type for insight with joined details
 type InsightWithDetails = {
