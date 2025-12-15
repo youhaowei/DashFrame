@@ -76,6 +76,110 @@ See each package's README.md for detailed documentation.
 - **Packages**: `@dashframe/*` (lowercase)
 - **Storage keys**: `dashframe:*` (lowercase)
 
+## Visualization Rendering Pipeline
+
+DashFrame uses a pluggable chart rendering system that separates data, orchestration, and rendering concerns.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          VISUALIZATION RENDERING PIPELINE                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
+│  Data Source │     │   DuckDB     │     │   Insight    │     │Visualization│
+│  (CSV/Notion)│────▶│   (WASM)     │────▶│  (Query)     │────▶│  (Config)   │
+└──────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
+                            │                                         │
+                            │         ┌───────────────────────────────┘
+                            │         │
+                            ▼         ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │                    Chart                          │
+                     │  React component that orchestrates chart rendering       │
+                     │  • Receives: tableName, visualizationType, encoding      │
+                     │  • Delegates to appropriate renderer via registry        │
+                     └─────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │                  ChartRenderer Interface                 │
+                     │  render(container, type, config) → cleanup()            │
+                     └─────────────────────────────────────────────────────────┘
+                          │                    │                    │
+                    ┌─────┴─────┐       ┌─────┴─────┐       ┌─────┴─────┐
+                    │VgplotRenderer│   │ D3Renderer │   │CustomRenderer│
+                    │bar,line,area │   │sankey,tree │   │your types   │
+                    │scatter       │   │funnel      │   │             │
+                    └──────────────┘   └────────────┘   └─────────────┘
+                          │                    │                    │
+                          ▼                    ▼                    ▼
+                    ┌──────────┐         ┌──────────┐         ┌──────────┐
+                    │  Mosaic  │         │    D3    │         │  Custom  │
+                    │Coordinator│        │  Library │         │  Logic   │
+                    └────┬─────┘         └────┬─────┘         └────┬─────┘
+                         │                    │                    │
+                         └────────────────────┼────────────────────┘
+                                              │
+                                              ▼
+                                    ┌─────────────────┐
+                                    │   DuckDB Query  │
+                                    │   (via table)   │
+                                    └────────┬────────┘
+                                             │
+                                             ▼
+                                    ┌─────────────────┐
+                                    │  SVG / Canvas   │
+                                    │    Rendering    │
+                                    └─────────────────┘
+```
+
+### Data Flow
+
+1. **Data Ingestion**: CSV/Notion → Arrow IPC → IndexedDB → DuckDB Table
+2. **Query Execution**: Insight (filters, aggregations) → DuckDB SQL → Result Set
+3. **Chart Rendering**: Chart receives `tableName`, `visualizationType`, `encoding`
+4. **Renderer Dispatch**: Registry maps type to appropriate renderer
+5. **Render Execution**: Renderer builds marks, Mosaic generates SQL, DuckDB executes, SVG renders
+6. **Cleanup**: Cleanup function called on unmount
+
+### Key Design Decisions
+
+- **Encoding-driven**: Charts are configured via encoding (x, y, color, size), not full specs
+- **Query pushdown**: Aggregations happen in DuckDB, not JavaScript
+- **Pluggable renderers**: New chart types only require implementing ChartRenderer interface
+- **Table name references**: Charts reference DuckDB tables by name (`df_${dataFrameId}`)
+
+### Packages
+
+| Package                    | Purpose                                    |
+| -------------------------- | ------------------------------------------ |
+| `@dashframe/core`          | ChartRenderer types, ChartConfig interface |
+| `@dashframe/visualization` | VisualizationProvider, registry, renderers |
+
+### Adding New Chart Types
+
+To add a custom chart type (e.g., Sankey diagram):
+
+1. Create renderer implementing `ChartRenderer` interface
+2. Register with `registerRenderer(renderer)`
+3. Add type to `VisualizationType` in `@dashframe/core`
+4. Chart automatically dispatches to your renderer
+
+```typescript
+// Example: Custom D3 Sankey renderer
+const sankeyRenderer: ChartRenderer = {
+  supportedTypes: ["sankey"],
+  render(container, type, config) {
+    // D3 Sankey implementation
+    return () => (container.innerHTML = "");
+  },
+};
+
+registerRenderer(sankeyRenderer);
+```
+
 ## Detailed Documentation
 
 | Topic                   | Location                            |
@@ -84,5 +188,6 @@ See each package's README.md for detailed documentation.
 | Engine interfaces       | `packages/engine/README.md`         |
 | DuckDB integration      | `packages/engine-browser/README.md` |
 | Persistence             | `packages/core-dexie/README.md`     |
-| UI components           | `packages/ui/README.md`             |
+| UI components           | `docs/ui-components.md`             |
+| Visualization rendering | `packages/visualization/README.md`  |
 | State & UI flows        | `apps/web/STATE-MANAGEMENT.md`      |

@@ -10,8 +10,8 @@ import type {
   VisualizationSource,
   VisualizationType,
   VisualizationEncoding,
+  ChartSpec,
 } from "./types";
-import type { TopLevelSpec } from "vega-lite";
 import { useDataFramesStore } from "./dataframes-store";
 import { superjsonStorage } from "./storage";
 
@@ -30,7 +30,7 @@ interface VisualizationsActions {
   create: (
     source: VisualizationSource,
     name: string,
-    spec: Omit<TopLevelSpec, "data">,
+    spec: ChartSpec,
     visualizationType?: VisualizationType,
     encoding?: VisualizationEncoding,
   ) => UUID;
@@ -40,7 +40,8 @@ interface VisualizationsActions {
     id: UUID,
     updates: Partial<Omit<Visualization, "id" | "createdAt">>,
   ) => void;
-  updateSpec: (id: UUID, spec: Omit<TopLevelSpec, "data">) => void;
+  /** @deprecated Rendering now uses encoding directly */
+  updateSpec: (id: UUID, spec: ChartSpec) => void;
   updateVisualizationType: (id: UUID, type: VisualizationType) => void;
   updateEncoding: (id: UUID, encoding: VisualizationEncoding) => void;
 
@@ -146,7 +147,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
           id,
           name,
           source,
-          spec: specWithoutData as Omit<TopLevelSpec, "data">,
+          spec: specWithoutData as ChartSpec,
           visualizationType,
           encoding,
           createdAt: now,
@@ -173,7 +174,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         });
       },
 
-      // Update Vega-Lite spec
+      // Update spec (deprecated - rendering now uses encoding directly)
       updateSpec: (id, spec) => {
         // Strip embedded data from spec to avoid localStorage quota issues
         const specWithoutData = { ...spec } as Record<string, unknown>;
@@ -184,7 +185,7 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
         set((state) => {
           const viz = state.visualizations.get(id);
           if (viz) {
-            viz.spec = specWithoutData as Omit<TopLevelSpec, "data">;
+            viz.spec = specWithoutData as ChartSpec;
           }
         });
       },

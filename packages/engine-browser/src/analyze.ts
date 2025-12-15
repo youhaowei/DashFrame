@@ -1,4 +1,5 @@
-import type { DataFrameRow, DataFrameColumn, Field } from "@dashframe/engine";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import type { DataFrameColumn, Field } from "@dashframe/engine";
 
 // Pattern detection helpers
 // eslint-disable-next-line sonarjs/slow-regex -- Email validation pattern, input is bounded
@@ -32,140 +33,189 @@ export type ColumnAnalysis = {
   nullCount: number;
   sampleValues: unknown[];
   pattern?: string; // Detected pattern if applicable
+  min?: number;
+  max?: number;
+  stdDev?: number;
+  zeroCount?: number;
 };
 
 /**
- * Analyze DataFrame rows to categorize columns and detect patterns.
+ * Analyze a DuckDB table using SQL queries for accurate full-dataset statistics.
+ * Uses SQL aggregations for cardinality, null counts, and type detection.
  *
- * @param rows - Array of row data objects
- * @param columns - Array of column definitions (used for column names if provided)
+ * @param conn - DuckDB connection
+ * @param tableName - Name of the table to analyze (already loaded in DuckDB)
+ * @param columns - Column definitions (for column names)
  * @param fields - Optional field metadata for explicit categorization
  * @returns Array of column analysis results
  */
-export function analyzeDataFrame(
-  rows: DataFrameRow[],
-  columns?: DataFrameColumn[],
+// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
+export async function analyzeDataFrame(
+  conn: AsyncDuckDBConnection,
+  tableName: string,
+  columns: DataFrameColumn[],
   fields?: Record<string, Field>,
-): ColumnAnalysis[] {
-  const rowCount = rows.length;
-  // Get column names from columns array if provided, otherwise from first row
-  const columnNames = columns
-    ? columns.map((col) => col.name)
-    : Object.keys(rows[0] || {});
+): Promise<ColumnAnalysis[]> {
+  const columnNames = columns.map((col) => col.name);
+  const quotedTable = `"${tableName}"`;
 
-  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
-  return columnNames.map((columnName) => {
-    const values = rows.map((row) => row[columnName]);
-    const nonNullValues = values.filter((v) => v !== null && v !== undefined);
-    const nullCount = rowCount - nonNullValues.length;
-    const uniqueValues = new Set(nonNullValues.map((v) => String(v)));
-    const cardinality = uniqueValues.size;
-    const uniqueness =
-      nonNullValues.length > 0 ? cardinality / nonNullValues.length : 0;
+  // Get total row count once
+  const countResult = await conn.query(
+    `SELECT COUNT(*) as cnt FROM ${quotedTable}`,
+  );
+  const totalRows = Number((countResult.toArray()[0] as { cnt: bigint }).cnt);
 
-    let category: ColumnCategory = "unknown";
+  // Analyze each column using SQL
+  const analysisPromises = columnNames.map(async (columnName) => {
+    const quotedColumn = `"${columnName}"`;
 
-    // 1. Check explicit field metadata
-    if (fields && fields[columnName]) {
-      const field = fields[columnName];
-      if (field.isIdentifier) {
-        category = "identifier";
-      } else if (field.isReference) {
-        category = "reference";
+    try {
+      // Get column statistics in one query
+      // We use TRY_CAST to safely calculate numeric stats for all columns
+      // If conversion fails, these will be NULL which is fine
+      // Use ANY_VALUE for typeof() since DuckDB requires aggregate functions when not in GROUP BY
+      const statsQuery = `
+        SELECT
+          COUNT(DISTINCT ${quotedColumn}) as cardinality,
+          COUNT(*) - COUNT(${quotedColumn}) as null_count,
+          ANY_VALUE(typeof(${quotedColumn})) as data_type,
+          MIN(TRY_CAST(${quotedColumn} AS DOUBLE)) as min_val,
+          MAX(TRY_CAST(${quotedColumn} AS DOUBLE)) as max_val,
+          STDDEV(TRY_CAST(${quotedColumn} AS DOUBLE)) as std_dev,
+          COUNT(CASE WHEN TRY_CAST(${quotedColumn} AS DOUBLE) = 0 THEN 1 END) as zero_count
+        FROM ${quotedTable}
+      `;
+      const statsResult = await conn.query(statsQuery);
+      const stats = statsResult.toArray()[0] as {
+        cardinality: bigint;
+        null_count: bigint;
+        data_type: string;
+        min_val: number | null;
+        max_val: number | null;
+        std_dev: number | null;
+        zero_count: bigint;
+      };
+
+      const cardinality = Number(stats.cardinality);
+      const nullCount = Number(stats.null_count);
+      const dataType = stats.data_type || "unknown";
+      const nonNullCount = totalRows - nullCount;
+      const uniqueness = nonNullCount > 0 ? cardinality / nonNullCount : 0;
+
+      const min = stats.min_val ?? undefined;
+      const max = stats.max_val ?? undefined;
+      const stdDev = stats.std_dev ?? undefined;
+      const zeroCount = Number(stats.zero_count);
+
+      // Get sample values for pattern detection
+      const sampleQuery = `
+        SELECT DISTINCT ${quotedColumn} as value
+        FROM ${quotedTable}
+        WHERE ${quotedColumn} IS NOT NULL
+        LIMIT 10
+      `;
+      const sampleResult = await conn.query(sampleQuery);
+      const sampleValues = sampleResult
+        .toArray()
+        .map((row) => (row as { value: unknown }).value);
+
+      // Determine category
+      let category: ColumnCategory = "unknown";
+
+      // 1. Check explicit field metadata
+      if (fields?.[columnName]) {
+        const field = fields[columnName];
+        if (field.isIdentifier) category = "identifier";
+        else if (field.isReference) category = "reference";
       }
-    }
 
-    // 2. Pattern-based ID detection (before type-based heuristics)
-    // This check runs for ALL columns (not just unknown) to catch numeric IDs
-    if (category === "unknown" || category === "identifier") {
-      const colName = columnName.toLowerCase();
-      const idPatterns = [
-        /_id$/, // Ends with _id (user_id, order_id)
-        /^id$/, // Exactly "id"
-        /^id_/, // Starts with id_
-        /^uuid$/, // Exactly "uuid"
-        /^guid$/, // Exactly "guid"
-        /^_rowindex$/, // Internal row index identifier
-      ];
-      // Check camelCase: ends with "Id" (capital I) - userId, orderId
-      const camelCaseId = /[a-z]Id$/.test(columnName);
+      // 2. Pattern-based ID detection
+      if (category === "unknown") {
+        const colName = columnName.toLowerCase();
+        const idPatterns = [
+          /_id$/,
+          /^id$/,
+          /^id_/,
+          /^uuid$/,
+          /^guid$/,
+          /^_rowindex$/,
+        ];
+        const camelCaseId = /[a-z]Id$/.test(columnName);
 
-      // Before marking as identifier, check if the values look like UUIDs
-      // UUIDs should be categorized as "uuid", not "identifier"
-      const stringValues = nonNullValues
-        .map((v) => String(v))
-        .filter((v) => v.length > 0);
-      const uuidCount = stringValues.filter(isUUID).length;
-      const isLikelyUUID =
-        stringValues.length > 0 && uuidCount >= stringValues.length * 0.8;
+        const stringValues = sampleValues
+          .map((v) => String(v))
+          .filter((v) => v.length > 0);
+        const uuidCount = stringValues.filter(isUUID).length;
+        const isLikelyUUID =
+          stringValues.length > 0 && uuidCount >= stringValues.length * 0.8;
 
-      // High uniqueness (>95%) with sufficient distinct values is also a strong ID indicator
-      if (
-        !isLikelyUUID &&
-        (idPatterns.some((pattern) => pattern.test(colName)) ||
-          camelCaseId ||
-          (uniqueness > 0.95 && cardinality > 10))
-      ) {
-        category = "identifier";
+        if (
+          !isLikelyUUID &&
+          (idPatterns.some((p) => p.test(colName)) ||
+            camelCaseId ||
+            (uniqueness > 0.95 && cardinality > 10))
+        ) {
+          category = "identifier";
+        }
       }
-    }
 
-    // 3. Heuristics if not explicitly categorized
-    if (category === "unknown") {
-      if (nonNullValues.length === 0) {
-        category = "unknown";
-      } else {
-        const firstValue = nonNullValues[0];
-        const type = typeof firstValue;
+      // 3. Type-based heuristics using DuckDB data type
+      if (category === "unknown") {
+        const duckDBType = dataType.toLowerCase();
 
-        if (type === "boolean") {
+        if (duckDBType === "boolean" || duckDBType === "bool") {
           category = "boolean";
-        } else if (type === "number") {
-          // Check if this numeric column looks like an ID based on name
+        } else if (
+          duckDBType.includes("int") ||
+          duckDBType.includes("float") ||
+          duckDBType.includes("double") ||
+          duckDBType.includes("decimal") ||
+          duckDBType.includes("numeric") ||
+          duckDBType.includes("bigint")
+        ) {
+          // Check if numeric column looks like an ID
           const colName = columnName.toLowerCase();
           const numericIdPatterns = [
-            /id$/, // Ends with "id" (acctid, userid, orderid)
-            /_id$/, // Ends with _id
-            /^id$/, // Exactly "id"
-            /^id_/, // Starts with id_
-            /key$/, // Ends with "key"
-            /no$/, // Ends with "no" (orderno)
-            /num$/, // Ends with "num"
-            /index$/, // Ends with "index"
-            /seq$/, // Ends with "seq"
+            /id$/,
+            /_id$/,
+            /^id$/,
+            /^id_/,
+            /key$/,
+            /no$/,
+            /num$/,
+            /index$/,
+            /seq$/,
           ];
-          const notIdPatterns = [
-            /zipcode$/, // Zip codes
-            /postcode$/, // Post codes
-            /areacode$/, // Area codes
-          ];
+          const notIdPatterns = [/zipcode$/, /postcode$/, /areacode$/];
+
           if (
-            numericIdPatterns.some((pattern) => pattern.test(colName)) &&
-            !notIdPatterns.some((pattern) => pattern.test(colName))
+            numericIdPatterns.some((p) => p.test(colName)) &&
+            !notIdPatterns.some((p) => p.test(colName))
           ) {
             category = "identifier";
           } else {
             category = "numerical";
           }
         } else if (
-          firstValue instanceof Date ||
-          (!isNaN(Date.parse(String(firstValue))) && isNaN(Number(firstValue)))
+          duckDBType.includes("date") ||
+          duckDBType.includes("time") ||
+          duckDBType.includes("timestamp")
         ) {
-          // Simple date check - can be improved
           category = "temporal";
-        } else {
-          // String analysis with pattern detection
-          const stringValues = nonNullValues
+        } else if (
+          duckDBType.includes("varchar") ||
+          duckDBType.includes("string") ||
+          duckDBType.includes("text")
+        ) {
+          const stringValues = sampleValues
             .map((v) => String(v))
             .filter((v) => v.length > 0);
 
           if (stringValues.length > 0) {
-            // Check if most values match a pattern
             const emailCount = stringValues.filter(isEmail).length;
             const urlCount = stringValues.filter(isURL).length;
             const uuidCount = stringValues.filter(isUUID).length;
-
-            const threshold = stringValues.length * 0.8; // 80% match threshold
+            const threshold = stringValues.length * 0.8;
 
             if (emailCount >= threshold) {
               category = "email";
@@ -173,11 +223,9 @@ export function analyzeDataFrame(
               category = "url";
             } else if (uuidCount >= threshold) {
               category = "uuid";
-            } else if (uniqueness === 1 && rowCount > 1) {
-              // High likelihood of being an identifier if unique
+            } else if (uniqueness === 1 && totalRows > 1) {
               category = "identifier";
-            } else if (cardinality < rowCount * 0.2 || cardinality < 50) {
-              // Low cardinality relative to row count -> categorical
+            } else if (cardinality < totalRows * 0.2 || cardinality < 50) {
               category = "categorical";
             } else {
               category = "text";
@@ -185,20 +233,39 @@ export function analyzeDataFrame(
           }
         }
       }
-    }
 
-    return {
-      columnName,
-      category,
-      cardinality,
-      uniqueness,
-      nullCount,
-      sampleValues: nonNullValues.slice(0, 5),
-      ...(category === "email" || category === "url" || category === "uuid"
-        ? { pattern: category }
-        : {}),
-    };
+      return {
+        columnName,
+        category,
+        cardinality,
+        uniqueness,
+        nullCount,
+        sampleValues: sampleValues.slice(0, 5),
+        ...(category === "email" || category === "url" || category === "uuid"
+          ? { pattern: category }
+          : {}),
+        min,
+        max,
+        stdDev,
+        zeroCount,
+      };
+    } catch (error) {
+      console.warn(
+        `[analyzeDataFrame] Error analyzing column ${columnName}:`,
+        error,
+      );
+      return {
+        columnName,
+        category: "unknown" as ColumnCategory,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
+    }
   });
+
+  return Promise.all(analysisPromises);
 }
 
 // ============================================================================

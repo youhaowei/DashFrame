@@ -90,3 +90,15 @@ export type {
   UseDashboards,
   UseDashboardMutations,
 } from "./repositories";
+
+// ============================================================================
+// Chart Renderer Types
+// ============================================================================
+
+export type {
+  ChartTheme,
+  ChartConfig,
+  ChartCleanup,
+  ChartRenderer,
+  ChartRendererRegistry,
+} from "./chart-renderers";

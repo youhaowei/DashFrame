@@ -430,7 +430,6 @@ export default function JoinConfigurePage({ params }: PageProps) {
     joinTable,
     baseFields,
     joinFields,
-    getDataFrame,
   ]);
 
   // Compute join preview using DuckDB (handles full dataset efficiently)
@@ -590,7 +589,6 @@ export default function JoinConfigurePage({ params }: PageProps) {
     joinTable,
     baseFields,
     joinFields,
-    getDataFrame,
   ]);
 
   // Track total join count for display

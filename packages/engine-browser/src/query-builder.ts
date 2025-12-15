@@ -23,12 +23,27 @@ const tableLoadingMutex = new Map<string, Promise<string>>();
  */
 const loadedTables = new Set<string>();
 
+const makeTableName = (dataFrameId: string): string =>
+  `df_${dataFrameId.replace(/-/g, "_")}`;
+
+const quoteIdent = (identifier: string): string =>
+  `"${identifier.replace(/"/g, '""')}"`;
+
+const formatValue = (value: unknown): string => {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number" || typeof value === "bigint")
+    return String(value);
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  if (value instanceof Date) return `'${value.toISOString()}'`;
+  return `'${String(value).replace(/'/g, "''")}'`;
+};
+
 /**
  * Invalidate the loaded table cache for a specific DataFrame.
  * Call when underlying IndexedDB data has been updated.
  */
 export function invalidateTableCache(dataFrameId: string): void {
-  const tableName = `df_${dataFrameId.replace(/-/g, "_")}`;
+  const tableName = makeTableName(dataFrameId);
   loadedTables.delete(tableName);
 }
 
@@ -76,6 +91,178 @@ type Operation =
   | { type: "offset"; count: number }
   | { type: "select"; columns: string[] };
 
+type JoinOperation = Extract<Operation, { type: "join" }>;
+
+type QueryPlan = {
+  filters: FilterPredicateLocal[];
+  sorts: SortOrderLocal[];
+  joins: JoinOperation[];
+  groupColumns?: string[];
+  aggregations?: AggregationLocal[];
+  selectColumns?: string[];
+  limit?: number;
+  offset?: number;
+};
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+const formatPredicate = (pred: FilterPredicateLocal): string => {
+  const column = quoteIdent(pred.columnName);
+  const operator = pred.operator.toUpperCase();
+
+  if (operator === "IS NULL" || operator === "IS NOT NULL") {
+    return `${column} ${operator}`;
+  }
+
+  if (operator === "IN" || operator === "NOT IN") {
+    const list = (pred.values ?? []).map(formatValue).join(", ");
+    return `${column} ${operator} (${list})`;
+  }
+
+  return `${column} ${operator} ${formatValue(pred.value)}`;
+};
+
+const buildPlan = (operations: Operation[]): QueryPlan => {
+  const plan: QueryPlan = {
+    filters: [],
+    sorts: [],
+    joins: [],
+  };
+
+  for (const op of operations) {
+    switch (op.type) {
+      case "filter":
+        plan.filters.push(...op.predicates);
+        break;
+      case "sort":
+        plan.sorts = op.orders;
+        break;
+      case "group":
+        plan.groupColumns = op.columns;
+        plan.aggregations = op.aggregations;
+        break;
+      case "join":
+        plan.joins.push(op);
+        break;
+      case "limit":
+        plan.limit = op.count;
+        break;
+      case "offset":
+        plan.offset = op.count;
+        break;
+      case "select":
+        plan.selectColumns = op.columns;
+        break;
+    }
+  }
+
+  return plan;
+};
+
+const buildSelectClause = (plan: QueryPlan): string => {
+  if (plan.groupColumns?.length) {
+    if (plan.selectColumns?.length) {
+      return plan.selectColumns.map(quoteIdent).join(", ");
+    }
+
+    const groupCols = plan.groupColumns.map(quoteIdent);
+    const aggregations =
+      plan.aggregations?.map((agg) => {
+        const func = agg.function.toUpperCase();
+        const alias = agg.alias ? ` AS ${quoteIdent(agg.alias)}` : "";
+        return `${func}(${quoteIdent(agg.columnName)})${alias}`;
+      }) ?? [];
+
+    return [...aggregations, ...groupCols].join(", ");
+  }
+
+  if (plan.selectColumns?.length) {
+    return plan.selectColumns.map(quoteIdent).join(", ");
+  }
+
+  return "*";
+};
+
+const buildOrderClause = (sorts: SortOrderLocal[]): string | undefined => {
+  if (!sorts.length) return undefined;
+  return sorts
+    .map(
+      (order) =>
+        `${quoteIdent(order.columnName)} ${order.direction.toUpperCase()}`,
+    )
+    .join(", ");
+};
+
+// ============================================================================
+// Table Loading
+// ============================================================================
+
+async function ensureTableLoaded(
+  dataFrame: DataFrame,
+  conn: AsyncDuckDBConnection,
+): Promise<string> {
+  const tableName = makeTableName(dataFrame.id);
+
+  if (loadedTables.has(tableName)) {
+    return tableName;
+  }
+
+  const existingLoad = tableLoadingMutex.get(tableName);
+  if (existingLoad) {
+    return existingLoad;
+  }
+
+  let resolveLoad!: (name: string) => void;
+  let rejectLoad!: (err: Error) => void;
+  const loadPromise = new Promise<string>((resolve, reject) => {
+    resolveLoad = resolve;
+    rejectLoad = reject;
+  });
+  tableLoadingMutex.set(tableName, loadPromise);
+
+  try {
+    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
+
+    switch (dataFrame.storage.type) {
+      case "indexeddb": {
+        const buffer = await loadArrowData(dataFrame.storage.key);
+        if (!buffer) {
+          throw new Error(
+            `Data not found in IndexedDB: ${dataFrame.storage.key}`,
+          );
+        }
+
+        await conn.insertArrowFromIPCStream(buffer, {
+          name: tableName,
+          create: true,
+        });
+        break;
+      }
+      case "s3":
+        throw new Error("S3 storage not yet implemented");
+      case "r2":
+        throw new Error("R2 storage not yet implemented");
+      default: {
+        const _exhaustive: never = dataFrame.storage;
+        throw new Error(
+          `Unsupported storage type: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
+
+    loadedTables.add(tableName);
+    resolveLoad(tableName);
+    return tableName;
+  } catch (err) {
+    rejectLoad(err instanceof Error ? err : new Error(String(err)));
+    throw err;
+  } finally {
+    tableLoadingMutex.delete(tableName);
+  }
+}
+
 // ============================================================================
 // QueryBuilder Class
 // ============================================================================
@@ -83,18 +270,34 @@ type Operation =
 /**
  * QueryBuilder - Handles data loading from storage and SQL execution.
  *
- * Implements deferred execution pattern: operations are accumulated but not
- * executed until .run() is called.
+ * Implements deferred execution pattern with immutable chaining: operations are
+ * accumulated but not executed until .run()/.rows()/.preview() are called.
  */
 export class QueryBuilder {
-  private dataFrame: DataFrame;
-  private conn: AsyncDuckDBConnection;
+  private readonly dataFrame: DataFrame;
+  private readonly conn: AsyncDuckDBConnection;
+  private readonly operations: Operation[];
   private tableName?: string;
-  private operations: Operation[] = [];
 
-  constructor(dataFrame: DataFrame, conn: AsyncDuckDBConnection) {
+  constructor(
+    dataFrame: DataFrame,
+    conn: AsyncDuckDBConnection,
+    operations: Operation[] = [],
+    tableName?: string,
+  ) {
     this.dataFrame = dataFrame;
     this.conn = conn;
+    this.operations = operations;
+    this.tableName = tableName;
+  }
+
+  private cloneWith(operation: Operation): QueryBuilder {
+    return new QueryBuilder(
+      this.dataFrame,
+      this.conn,
+      [...this.operations, operation],
+      this.tableName,
+    );
   }
 
   /**
@@ -102,76 +305,56 @@ export class QueryBuilder {
    * Uses global mutex to prevent race conditions.
    */
   private async ensureLoaded(): Promise<string> {
-    if (this.tableName) {
+    if (this.tableName && loadedTables.has(this.tableName)) {
       return this.tableName;
     }
 
-    const tableName = `df_${this.dataFrame.id.replace(/-/g, "_")}`;
+    const tableName = await ensureTableLoaded(this.dataFrame, this.conn);
+    this.tableName = tableName;
+    return tableName;
+  }
 
-    // Fast path: table already loaded this session
-    if (loadedTables.has(tableName)) {
-      this.tableName = tableName;
-      return tableName;
+  private async buildFromClause(
+    baseTableName: string,
+    joins: JoinOperation[],
+  ): Promise<string> {
+    let clause = quoteIdent(baseTableName);
+
+    for (const join of joins) {
+      const rightTable = await ensureTableLoaded(
+        join.rightDataFrame,
+        this.conn,
+      );
+      const joinType = (join.options.type ?? "inner").toUpperCase();
+      clause = `${clause} ${joinType} JOIN ${quoteIdent(rightTable)} ON ${quoteIdent(baseTableName)}.${quoteIdent(join.options.leftColumn)} = ${quoteIdent(rightTable)}.${quoteIdent(join.options.rightColumn)}`;
     }
 
-    // Check if another instance is already loading
-    const existingLoad = tableLoadingMutex.get(tableName);
-    if (existingLoad) {
-      await existingLoad;
-      this.tableName = tableName;
-      return tableName;
-    }
+    return clause;
+  }
 
-    // Create mutex promise
-    let resolveLoad: (name: string) => void;
-    let rejectLoad: (err: Error) => void;
-    const loadPromise = new Promise<string>((resolve, reject) => {
-      resolveLoad = resolve;
-      rejectLoad = reject;
-    });
-    tableLoadingMutex.set(tableName, loadPromise);
+  private async buildSQL(operations: Operation[]): Promise<string> {
+    const baseTableName = await this.ensureLoaded();
+    const plan = buildPlan(operations);
 
-    try {
-      // Drop existing table
-      await this.conn.query(`DROP TABLE IF EXISTS ${tableName}`);
+    const selectClause = buildSelectClause(plan);
+    const fromClause = await this.buildFromClause(baseTableName, plan.joins);
+    const whereClause =
+      plan.filters.length > 0
+        ? plan.filters.map(formatPredicate).join(" AND ")
+        : "";
+    const groupClause = plan.groupColumns?.length
+      ? plan.groupColumns.map(quoteIdent).join(", ")
+      : "";
+    const orderClause = buildOrderClause(plan.sorts);
 
-      switch (this.dataFrame.storage.type) {
-        case "indexeddb": {
-          const buffer = await loadArrowData(this.dataFrame.storage.key);
-          if (!buffer) {
-            throw new Error(
-              `Data not found in IndexedDB: ${this.dataFrame.storage.key}`,
-            );
-          }
+    let query = `SELECT ${selectClause} FROM ${fromClause}`;
+    if (whereClause) query += ` WHERE ${whereClause}`;
+    if (groupClause) query += ` GROUP BY ${groupClause}`;
+    if (orderClause) query += ` ORDER BY ${orderClause}`;
+    if (plan.limit !== undefined) query += ` LIMIT ${plan.limit}`;
+    if (plan.offset !== undefined) query += ` OFFSET ${plan.offset}`;
 
-          await this.conn.insertArrowFromIPCStream(buffer, {
-            name: tableName,
-            create: true,
-          });
-          break;
-        }
-        case "s3":
-          throw new Error("S3 storage not yet implemented");
-        case "r2":
-          throw new Error("R2 storage not yet implemented");
-        default: {
-          const _exhaustive: never = this.dataFrame.storage;
-          throw new Error(
-            `Unsupported storage type: ${JSON.stringify(_exhaustive)}`,
-          );
-        }
-      }
-
-      loadedTables.add(tableName);
-      this.tableName = tableName;
-      resolveLoad!(tableName);
-      return tableName;
-    } catch (err) {
-      rejectLoad!(err instanceof Error ? err : new Error(String(err)));
-      throw err;
-    } finally {
-      tableLoadingMutex.delete(tableName);
-    }
+    return query;
   }
 
   // ============================================================================
@@ -179,38 +362,40 @@ export class QueryBuilder {
   // ============================================================================
 
   filter(predicates: FilterPredicateLocal[]): QueryBuilder {
-    this.operations.push({ type: "filter", predicates });
-    return this;
+    return this.cloneWith({ type: "filter", predicates });
   }
 
   sort(orders: SortOrderLocal[]): QueryBuilder {
-    this.operations.push({ type: "sort", orders });
-    return this;
+    return this.cloneWith({ type: "sort", orders });
+  }
+
+  orderBy(orders: SortOrderLocal[]): QueryBuilder {
+    return this.sort(orders);
   }
 
   groupBy(columns: string[], aggregations?: AggregationLocal[]): QueryBuilder {
-    this.operations.push({ type: "group", columns, aggregations });
-    return this;
+    return this.cloneWith({ type: "group", columns, aggregations });
   }
 
   join(other: DataFrame, options: JoinOptionsLocal): QueryBuilder {
-    this.operations.push({ type: "join", rightDataFrame: other, options });
-    return this;
+    const joinType = options.type ?? "inner";
+    return this.cloneWith({
+      type: "join",
+      rightDataFrame: other,
+      options: { ...options, type: joinType },
+    });
   }
 
   limit(count: number): QueryBuilder {
-    this.operations.push({ type: "limit", count });
-    return this;
+    return this.cloneWith({ type: "limit", count });
   }
 
   offset(count: number): QueryBuilder {
-    this.operations.push({ type: "offset", count });
-    return this;
+    return this.cloneWith({ type: "offset", count });
   }
 
   select(columns: string[]): QueryBuilder {
-    this.operations.push({ type: "select", columns });
-    return this;
+    return this.cloneWith({ type: "select", columns });
   }
 
   // ============================================================================
@@ -218,109 +403,16 @@ export class QueryBuilder {
   // ============================================================================
 
   async sql(): Promise<string> {
-    const baseTableName = await this.ensureLoaded();
-    let query = `SELECT * FROM ${baseTableName}`;
-    let hasGroupBy = false;
+    return this.buildSQL(this.operations);
+  }
 
-    for (const operation of this.operations) {
-      switch (operation.type) {
-        case "filter": {
-          const whereClause = operation.predicates
-            .map((pred) => {
-              const { columnName, operator, value, values } = pred;
+  async toSQL(): Promise<string> {
+    return this.sql();
+  }
 
-              if (operator === "IS NULL" || operator === "IS NOT NULL") {
-                return `${columnName} ${operator}`;
-              }
-
-              if (operator === "IN" || operator === "NOT IN") {
-                const list =
-                  values
-                    ?.map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
-                    .join(", ") || "";
-                return `${columnName} ${operator} (${list})`;
-              }
-
-              const formattedValue =
-                typeof value === "string"
-                  ? `'${value}'`
-                  : String(value ?? "NULL");
-              return `${columnName} ${operator} ${formattedValue}`;
-            })
-            .join(" AND ");
-
-          query += ` WHERE ${whereClause}`;
-          break;
-        }
-
-        case "sort": {
-          const orderByClause = operation.orders
-            .map(
-              (order) => `${order.columnName} ${order.direction.toUpperCase()}`,
-            )
-            .join(", ");
-          query += hasGroupBy ? ` ORDER BY ${orderByClause}` : "";
-          break;
-        }
-
-        case "group": {
-          hasGroupBy = true;
-          const groupByClause = operation.columns.join(", ");
-          const selectClause =
-            operation.aggregations
-              ?.map((agg) => {
-                const aggFunction = agg.function.toUpperCase();
-                const column = agg.columnName;
-                const alias = agg.alias ? ` AS ${agg.alias}` : "";
-                return `${aggFunction}(${column})${alias}`;
-              })
-              .join(", ") || operation.columns;
-
-          query = `SELECT ${selectClause}, ${groupByClause} FROM ${baseTableName} GROUP BY ${groupByClause}`;
-          break;
-        }
-
-        case "join": {
-          const rightTable = `df_${operation.rightDataFrame.id.replace(/-/g, "_")}`;
-          const rightQueryBuilder = new QueryBuilder(
-            operation.rightDataFrame,
-            this.conn,
-          );
-          await rightQueryBuilder.ensureLoaded();
-
-          const joinType = operation.options.type.toUpperCase();
-          query = `SELECT * FROM ${query} ${joinType} JOIN ${rightTable} ON ${baseTableName}.${operation.options.leftColumn} = ${rightTable}.${operation.options.rightColumn}`;
-          break;
-        }
-
-        case "limit":
-          query += ` LIMIT ${operation.count}`;
-          break;
-
-        case "offset":
-          query += ` OFFSET ${operation.count}`;
-          break;
-
-        case "select": {
-          const selectList = operation.columns.join(", ");
-          query = query.replace("SELECT *", `SELECT ${selectList}`);
-          break;
-        }
-      }
-    }
-
-    // Add ORDER BY for sort operations if not already added
-    const sortOperation = this.operations.find((op) => op.type === "sort");
-    if (sortOperation && !hasGroupBy) {
-      const orderByClause = sortOperation.orders
-        .map((order) => `${order.columnName} ${order.direction.toUpperCase()}`)
-        .join(", ");
-      if (orderByClause && !query.includes("ORDER BY")) {
-        query += ` ORDER BY ${orderByClause}`;
-      }
-    }
-
-    return query;
+  async rows(): Promise<Record<string, unknown>[]> {
+    const result = await this.conn.query(await this.sql());
+    return result.toArray();
   }
 
   /**
@@ -341,49 +433,27 @@ export class QueryBuilder {
   /**
    * Get preview of results (first 10 rows).
    */
-  async preview(): Promise<Record<string, unknown>[]> {
-    const tempLimit = this.limit(10);
-    const sql = await tempLimit.sql();
-    const result = await this.conn.query(sql);
-    return result.toArray();
+  async preview(limit = 10): Promise<Record<string, unknown>[]> {
+    return this.limit(limit).rows();
   }
 
   /**
    * Get count of matching rows.
    */
   async count(): Promise<number> {
-    const baseTableName = await this.ensureLoaded();
-    let query = `SELECT COUNT(*) as count FROM ${baseTableName}`;
+    const operationsForCount = this.operations.filter(
+      (op) =>
+        op.type !== "limit" &&
+        op.type !== "offset" &&
+        op.type !== "sort" &&
+        op.type !== "select",
+    );
 
-    const filterOperation = this.operations.find((op) => op.type === "filter");
-    if (filterOperation) {
-      const whereClause = filterOperation.predicates
-        .map((pred) => {
-          const { columnName, operator, value, values } = pred;
-
-          if (operator === "IS NULL" || operator === "IS NOT NULL") {
-            return `${columnName} ${operator}`;
-          }
-
-          if (operator === "IN" || operator === "NOT IN") {
-            const list =
-              values
-                ?.map((v) => (typeof v === "string" ? `'${v}'` : String(v)))
-                .join(", ") || "";
-            return `${columnName} ${operator} (${list})`;
-          }
-
-          const formattedValue =
-            typeof value === "string" ? `'${value}'` : String(value ?? "NULL");
-          return `${columnName} ${operator} ${formattedValue}`;
-        })
-        .join(" AND ");
-
-      query += ` WHERE ${whereClause}`;
-    }
-
-    const result = await this.conn.query(query);
-    return result.toArray()[0].count as number;
+    const sql = await this.buildSQL(operationsForCount);
+    const result = await this.conn.query(
+      `SELECT COUNT(*) as count FROM (${sql})`,
+    );
+    return Number(result.toArray()[0]?.count ?? 0);
   }
 }
 

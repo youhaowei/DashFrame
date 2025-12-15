@@ -2,8 +2,7 @@
 
 import { Button, Card } from "@dashframe/ui";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import dynamic from "next/dynamic";
-import type { TopLevelSpec } from "vega-lite";
+import { Chart, useVisualization } from "@dashframe/visualization";
 
 // Simple Sparkles icon
 const Sparkles = ({ className }: { className?: string }) => (
@@ -27,31 +26,29 @@ const Sparkles = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// Dynamically import VegaChart to avoid SSR issues
-const VegaChart = dynamic<{ spec: TopLevelSpec; className?: string }>(
-  () =>
-    import("@/components/visualizations/VegaChart").then(
-      (mod) => mod.VegaChart,
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="bg-muted h-[120px] w-full animate-pulse rounded" />
-    ),
-  },
-);
-
 interface SuggestedInsightsProps {
+  /** DuckDB table name to render charts from */
+  tableName: string;
   suggestions: ChartSuggestion[];
   onCreateChart: (suggestion: ChartSuggestion) => void;
   onRegenerate?: () => void;
 }
 
+/**
+ * Displays chart suggestions as preview cards.
+ * Uses Chart to render previews directly from DuckDB tables.
+ *
+ * Note: Suggestions are temporary insight configurations (encoding + chartType),
+ * not full visualization specs. The actual rendering queries DuckDB directly.
+ */
 export function SuggestedInsights({
+  tableName,
   suggestions,
   onCreateChart,
   onRegenerate,
 }: SuggestedInsightsProps) {
+  const { isReady: isVizReady } = useVisualization();
+
   if (suggestions.length === 0) {
     return (
       <div className="bg-card rounded-lg border p-4">
@@ -92,7 +89,30 @@ export function SuggestedInsights({
           >
             {/* Chart Preview */}
             <div className="mb-3 h-[120px] w-full overflow-hidden rounded-lg bg-transparent">
-              <VegaChart spec={suggestion.spec} className="h-[120px] w-full" />
+              {isVizReady ? (
+                <Chart
+                  tableName={tableName}
+                  visualizationType={suggestion.chartType}
+                  encoding={suggestion.encoding}
+                  width={300}
+                  height={120}
+                  preview
+                  className="h-[120px] w-full"
+                  fallback={
+                    <div className="bg-muted flex h-full w-full items-center justify-center rounded-lg">
+                      <span className="text-muted-foreground text-xs">
+                        Loading chart...
+                      </span>
+                    </div>
+                  }
+                />
+              ) : (
+                <div className="bg-muted flex h-full w-full items-center justify-center rounded-lg">
+                  <span className="text-muted-foreground text-xs">
+                    Initializing...
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Chart Info */}

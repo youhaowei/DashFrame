@@ -1,12 +1,8 @@
 /* eslint-disable sonarjs/cognitive-complexity */
-import type { TopLevelSpec } from "vega-lite";
 import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";
-import type { DataFrameData, Field } from "@dashframe/core";
-import {
-  analyzeDataFrame,
-  type ColumnAnalysis,
-} from "@dashframe/engine-browser";
+import type { Field } from "@dashframe/core";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
 
 /**
  * Patterns that indicate a column is a meaningful metric for Y-axis.
@@ -78,52 +74,16 @@ function getMetricScore(columnName: string): number {
   return 1;
 }
 
-// Helper to get CSS variable color value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-  return value || "#000000";
-}
-
-// Get theme-aware Vega-Lite config for mini charts
-function getVegaThemeConfig() {
-  return {
-    background: "transparent",
-    view: {
-      stroke: "transparent",
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-      domain: false,
-      ticks: false,
-      grid: false,
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-  };
-}
-
 /**
- * Chart suggestion with visualization spec and metadata
+ * Chart suggestion with encoding configuration.
+ * Note: No spec included - suggestions are temporary insight configurations,
+ * not full visualization specs. Chart renders directly from encoding.
  */
 export interface ChartSuggestion {
   id: string;
   title: string; // e.g., "Revenue by Region"
   chartType: VisualizationType;
   encoding: VisualizationEncoding;
-  spec: TopLevelSpec; // Mini spec for preview
   rationale?: string; // Why this chart was suggested
 }
 
@@ -157,7 +117,8 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
  * Uses heuristics to match chart types to field categories.
  *
  * @param insight - The insight to generate suggestions for
- * @param preview - Preview DataFrame with sample data
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
  * @param fields - Field definitions for analysis
  * @param limit - Maximum number of suggestions (default: 3)
  * @param columnTableMap - Optional mapping of columns to tables
@@ -166,7 +127,8 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
  */
 export function suggestCharts(
   insight: Insight,
-  preview: DataFrameData,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
   fields: Record<string, Field>,
   limit = 3,
   columnTableMap?: Record<string, string[]>,
@@ -174,8 +136,6 @@ export function suggestCharts(
 ): ChartSuggestion[] {
   // Create seeded random for reproducible variety
   const random = createSeededRandom(seed);
-  // Analyze columns to categorize them
-  const analysis = analyzeDataFrame(preview.rows, preview.columns, fields);
 
   // Categories to avoid for chart encodings (identifiers/references should not be axes)
   const blockedAxisCategories = new Set([
@@ -185,9 +145,6 @@ export function suggestCharts(
     "url",
     "uuid",
   ]);
-
-  // Calculate total row count for null rate calculation
-  const rowCount = preview.rows.length;
 
   // Helper to check if a column should be blocked from axis usage
   const isBlocked = (col: ColumnAnalysis): boolean => {
@@ -242,34 +199,20 @@ export function suggestCharts(
   // Helper to check if a numerical column has meaningful variance
   // Skip columns that are mostly zeros or have the same value
   const hasNumericalVariance = (col: ColumnAnalysis): boolean => {
-    // Get actual values from preview data for this column
-    const values = preview.rows
-      .map((row) => row[col.columnName])
-      .filter((v) => v !== null && v !== undefined) as number[];
+    // If we have extended stats (min/max), use them
+    if (col.min !== undefined && col.max !== undefined) {
+      // Check for variance
+      if (col.min === col.max) return false;
 
-    if (values.length === 0) return false;
-
-    // Check if most values are zeros (>80% zeros is bad)
-    const zeroCount = values.filter((v) => v === 0).length;
-    if (zeroCount / values.length > 0.8) {
-      return false;
+      // Check for zero ratio if available
+      if (col.zeroCount !== undefined && rowCount > 0) {
+        if (col.zeroCount / rowCount > 0.8) return false;
+      }
+      return true;
     }
 
-    // Check if there's actual variance (not all same value)
-    const uniqueValues = new Set(values);
-    if (uniqueValues.size <= 1) {
-      return false;
-    }
-
-    // Check if there's meaningful range (not all clustered)
-    // Use reduce instead of spread to avoid stack overflow on large arrays
-    let min = Infinity;
-    let max = -Infinity;
-    for (const v of values) {
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (min === max) {
+    // Fallback if extended stats missing (rely on cardinality)
+    if (col.cardinality <= 1) {
       return false;
     }
 
@@ -317,6 +260,23 @@ export function suggestCharts(
     random,
   );
 
+  // Debug logging to understand filtering
+  console.debug("[suggestCharts] Column filtering results", {
+    totalColumns: analysis.length,
+    numerical: numerical.length,
+    temporal: temporal.length,
+    categorical: categorical.length,
+    colorSuitable: colorSuitable.length,
+    numericalColumns: numerical.map((c) => c.columnName),
+    temporalColumns: temporal.map((c) => c.columnName),
+    categoricalColumns: categorical.map((c) => c.columnName),
+    allCategories: analysis.map((a) => ({
+      name: a.columnName,
+      category: a.category,
+      blocked: isBlocked(a),
+    })),
+  });
+
   const suggestions: ChartSuggestion[] = [];
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
@@ -339,19 +299,12 @@ export function suggestCharts(
         xType: xAxisType,
         yType: "quantitative",
       },
-      spec: createMiniSpec(
-        "bar",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        xAxisType,
-      ),
       rationale: "Categorical dimension with numeric measure",
     });
   }
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
+  // Use dateMonth() binning to aggregate dates by month for readable time series
   if (temporal.length > 0 && numerical.length > 0) {
     const pair = pickBestPair(temporal, numerical, columnTableMap, {
       preferMetricY: true,
@@ -362,23 +315,15 @@ export function suggestCharts(
 
     suggestions.push({
       id: `line-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} over time`,
+      title: `${yCol.columnName} by month`,
       chartType: "line",
       encoding: {
-        x: xCol.columnName,
+        x: `dateMonth(${xCol.columnName})`, // Bin dates by month for aggregation
         y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: "temporal",
         yType: "quantitative",
       },
-      spec: createMiniSpec(
-        "line",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        "temporal",
-      ),
-      rationale: "Time series data",
+      rationale: "Time series data aggregated by month",
     });
   }
 
@@ -402,17 +347,12 @@ export function suggestCharts(
         xType: "quantitative",
         yType: "quantitative",
       },
-      spec: createMiniSpec(
-        "scatter",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-      ),
       rationale: "Two numeric dimensions for correlation",
     });
   }
 
   // Heuristic 4: Area Chart (alternative to line for temporal data)
+  // Use dateMonth() binning to aggregate dates by month
   if (
     temporal.length > 0 &&
     numerical.length > 0 &&
@@ -430,20 +370,12 @@ export function suggestCharts(
       title: `${yCol.columnName} trend`,
       chartType: "area",
       encoding: {
-        x: xCol.columnName,
+        x: `dateMonth(${xCol.columnName})`, // Bin dates by month for aggregation
         y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
         xType: "temporal",
         yType: "quantitative",
       },
-      spec: createMiniSpec(
-        "area",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        "temporal",
-      ),
-      rationale: "Cumulative trend visualization",
+      rationale: "Cumulative trend visualization by month",
     });
   }
 
@@ -477,14 +409,6 @@ export function suggestCharts(
         yType: "quantitative",
         color: colorCol.columnName,
       },
-      spec: createMiniSpec(
-        "bar",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        colorCol.columnName,
-        xAxisType,
-      ),
       rationale: "Multi-dimensional categorical comparison",
     });
   }
@@ -498,7 +422,7 @@ export function suggestCharts(
 }
 
 /**
- * Converts column analysis category to Vega-Lite axis type
+ * Converts column analysis category to encoding axis type
  */
 function getAxisType(
   column: ColumnAnalysis,
@@ -511,75 +435,6 @@ function getAxisType(
     default:
       return "nominal";
   }
-}
-
-/**
- * Creates a mini Vega-Lite spec for chart preview (200x150px).
- * This is a simplified spec optimized for small preview cards.
- * Includes automatic aggregation for bar/line/area charts.
- */
-function createMiniSpec(
-  type: VisualizationType,
-  xField: string,
-  yField: string,
-  data: Array<Record<string, unknown>>,
-  colorField?: string,
-  xType: "nominal" | "temporal" | "quantitative" = "nominal",
-): TopLevelSpec {
-  // Map chart type to Vega-Lite mark type
-  const getMarkType = (
-    chartType: VisualizationType,
-  ): "bar" | "line" | "area" | "point" => {
-    switch (chartType) {
-      case "bar":
-        return "bar";
-      case "line":
-        return "line";
-      case "area":
-        return "area";
-      default:
-        return "point";
-    }
-  };
-  const mark = getMarkType(type);
-
-  // For bar/line/area charts, we want to aggregate the Y values by X groups
-  const shouldAggregate = type === "bar" || type === "line" || type === "area";
-
-  // Using a record type here as Vega-Lite encoding types are complex generics
-  const encoding: Record<string, unknown> = {
-    x: {
-      field: xField,
-      type: xType,
-      axis: {
-        title: null,
-        labels: false,
-        format: xType === "temporal" ? "%b %Y" : undefined, // Format dates as "Jan 2024"
-      },
-      sort: type === "line" || type === "area" ? null : "-y", // Sort bars by value, keep order for time series
-    },
-    y: {
-      field: yField,
-      type: "quantitative",
-      aggregate: shouldAggregate ? "sum" : undefined, // Aggregate for bar/line/area
-      axis: { title: null, grid: false, labels: false },
-    },
-  };
-
-  if (colorField) {
-    encoding.color = { field: colorField, type: "nominal", legend: null };
-  }
-
-  return {
-    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-    width: "container",
-    height: 120,
-    autosize: { type: "fit", contains: "padding" },
-    data: { values: data },
-    mark: { type: mark, tooltip: false },
-    encoding,
-    config: getVegaThemeConfig(),
-  };
 }
 
 function normalizeColumnReference(value?: string): string | null {

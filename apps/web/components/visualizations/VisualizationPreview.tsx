@@ -1,11 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import dynamic from "next/dynamic";
-import type { TopLevelSpec } from "vega-lite";
-import type { DataFrameData, Visualization } from "@dashframe/core";
+import type { Visualization } from "@dashframe/core";
 import { useInsights, useDataTables } from "@dashframe/core-dexie";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { Chart } from "@dashframe/visualization";
 
 function PreviewLoading() {
   return (
@@ -13,63 +12,6 @@ function PreviewLoading() {
       <div className="bg-muted-foreground/20 h-3/4 w-3/4 animate-pulse rounded-lg" />
     </div>
   );
-}
-
-// Dynamically import VegaChart to avoid SSR issues with Vega-Lite's Set objects
-const VegaChart = dynamic(
-  () => import("./VegaChart").then((mod) => ({ default: mod.VegaChart })),
-  {
-    ssr: false,
-    loading: () => <PreviewLoading />,
-  },
-);
-
-/**
- * Build a preview-optimized Vega-Lite spec by using the visualization's
- * existing spec and modifying it for preview display.
- */
-function buildPreviewSpec(
-  viz: Visualization,
-  data: DataFrameData,
-  height: number,
-): TopLevelSpec {
-  // Use the visualization's existing spec as the base
-  const baseSpec = viz.spec as unknown as TopLevelSpec;
-
-  // Preview-optimized config: minimal chrome, transparent background
-  const previewConfig = {
-    background: "transparent",
-    view: { stroke: "transparent" },
-    axis: {
-      domain: false,
-      grid: false,
-      ticks: false,
-      labels: false,
-      titleFontSize: 0,
-    },
-    legend: { disable: true },
-    title: { fontSize: 0 },
-  };
-
-  // Merge with any existing config from the spec
-  const existingConfig = (baseSpec as unknown as { config?: object }).config;
-  const mergedConfig = {
-    ...(existingConfig || {}),
-    ...previewConfig,
-  };
-
-  // Return the spec with inline data and preview adjustments
-  return {
-    ...baseSpec,
-    data: { values: data.rows },
-    width: "container",
-    height: height - 16,
-    autosize: { type: "fit", contains: "padding" },
-    config: mergedConfig,
-    padding: { left: 4, right: 4, top: 8, bottom: 8 },
-    // Remove title for cleaner preview
-    title: undefined,
-  } as TopLevelSpec;
 }
 
 interface VisualizationPreviewProps {
@@ -84,9 +26,11 @@ interface VisualizationPreviewProps {
 /**
  * Renders a small preview of a visualization for use in cards and lists.
  *
- * Loads the FULL dataset to ensure accurate chart rendering (aggregations,
- * distributions, trends). For very large datasets, consider using vgplot
- * which pushes aggregation to DuckDB.
+ * Uses Chart with preview mode enabled for minimal chrome
+ * (no axes, legends, or padding).
+ *
+ * Data is loaded via useDataFrameData which registers the table in DuckDB.
+ * vgplot then queries directly from DuckDB - no inline data needed.
  */
 export function VisualizationPreview({
   visualization,
@@ -105,23 +49,23 @@ export function VisualizationPreview({
     return dataTable?.dataFrameId;
   }, [insights, dataTables, visualization.insightId]);
 
-  // Load full data for accurate preview (no limit)
+  // Compute DuckDB table name from dataFrameId
+  const tableName = useMemo(() => {
+    if (!dataFrameId) return null;
+    return `df_${dataFrameId.replace(/-/g, "_")}`;
+  }, [dataFrameId]);
+
+  // Load data to ensure table is registered in DuckDB
+  // We don't need the data itself since vgplot queries DuckDB directly
   const { data, isLoading, error } = useDataFrameData(dataFrameId);
 
-  // Build preview spec with inline data
-  const previewSpec = useMemo<TopLevelSpec | null>(() => {
-    if (!data || data.rows.length === 0) return null;
-    if (visualization.visualizationType === "table") return null;
-    return buildPreviewSpec(visualization, data, height);
-  }, [data, visualization, height]);
-
   // Loading state
-  if (isLoading || !dataFrameId) {
+  if (isLoading || !dataFrameId || !tableName) {
     return <PreviewLoading />;
   }
 
   // Error, no data, or table type - show fallback
-  if (error || !previewSpec) {
+  if (error || !data || visualization.visualizationType === "table") {
     return (
       <div className="bg-muted flex h-full w-full items-center justify-center">
         {fallback}
@@ -130,8 +74,15 @@ export function VisualizationPreview({
   }
 
   return (
-    <div className="h-full w-full overflow-hidden">
-      <VegaChart spec={previewSpec} className="h-full w-full" />
+    <div className="h-full w-full overflow-hidden" style={{ height }}>
+      <Chart
+        tableName={tableName}
+        visualizationType={visualization.visualizationType}
+        encoding={visualization.encoding ?? {}}
+        height={height}
+        preview
+        className="h-full w-full"
+      />
     </div>
   );
 }

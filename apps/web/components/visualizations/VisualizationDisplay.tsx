@@ -10,8 +10,7 @@ import {
 import type { Visualization } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
-import { VegaChart } from "./VegaChart";
-import { buildVegaSpec } from "@/lib/visualizations/spec-builder";
+import { Chart } from "@dashframe/visualization";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
@@ -115,17 +114,12 @@ export function VisualizationDisplay({
     return { viz: activeViz, dataFrame: dataFrameData, entry: dataFrameEntry };
   }, [activeViz, dataFrameData, dataFrameEntry]);
 
-  // Build Vega spec with theme awareness (must be called before any conditional returns)
-  const vegaSpec = useMemo(() => {
-    if (!activeResolved) return null;
-    const { viz, dataFrame } = activeResolved;
-    if (viz.visualizationType === "table") return null;
-    if (!dataFrame.columns) return null;
-    return buildVegaSpec(viz, {
-      rows: dataFrame.rows,
-      columns: dataFrame.columns,
-    });
-  }, [activeResolved]);
+  // Compute DuckDB table name from dataFrameId
+  // Table naming convention: df_${dataFrameId.replace(/-/g, "_")}
+  const tableName = useMemo(() => {
+    if (!dataFrameId) return null;
+    return `df_${dataFrameId.replace(/-/g, "_")}`;
+  }, [dataFrameId]);
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
@@ -284,9 +278,14 @@ export function VisualizationDisplay({
         </div>
       </div>
 
-      {activeTab === "chart" && (
+      {activeTab === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
-          <VegaChart spec={vegaSpec!} className="h-full w-full" />
+          <Chart
+            tableName={tableName}
+            visualizationType={viz.visualizationType}
+            encoding={viz.encoding ?? {}}
+            className="h-full w-full"
+          />
         </div>
       )}
 
@@ -306,11 +305,16 @@ export function VisualizationDisplay({
         </div>
       )}
 
-      {activeTab === "both" && (
+      {activeTab === "both" && tableName && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
-            <VegaChart spec={vegaSpec!} className="h-full w-full" />
+            <Chart
+              tableName={tableName}
+              visualizationType={viz.visualizationType}
+              encoding={viz.encoding ?? {}}
+              className="h-full w-full"
+            />
           </div>
           {/* Table capped at 40% of space */}
           <div className="flex h-[40%] max-h-[40%] min-h-0 flex-col overflow-hidden px-4">

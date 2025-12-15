@@ -4,7 +4,7 @@ import type {
   Insight,
 } from "../stores/types";
 import type { DataFrameData, Field } from "@dashframe/core";
-import { analyzeDataFrame } from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
 
 /**
  * Auto-selects axes based on chart type and column analysis.
@@ -19,8 +19,41 @@ export function autoSelectEncoding(
   currentEncoding: VisualizationEncoding = {},
   insight?: Insight,
 ): VisualizationEncoding {
-  // Analyze the dataframe to categorize columns
-  const analysis = analyzeDataFrame(dataFrame.rows, dataFrame.columns, fields);
+  // Simple analysis based on column types
+  const analysis: ColumnAnalysis[] = (dataFrame.columns || []).map((col) => {
+    let category: ColumnAnalysis["category"] = "unknown";
+    const typeStr = String(col.type).toLowerCase();
+
+    if (
+      typeStr === "number" ||
+      typeStr === "integer" ||
+      typeStr === "float" ||
+      typeStr === "decimal" ||
+      typeStr === "double"
+    ) {
+      category = "numerical";
+    } else if (
+      typeStr === "date" ||
+      typeStr === "datetime" ||
+      typeStr === "timestamp" ||
+      typeStr === "time"
+    ) {
+      category = "temporal";
+    } else if (typeStr === "boolean") {
+      category = "boolean";
+    } else {
+      category = "categorical";
+    }
+
+    return {
+      columnName: col.name,
+      category,
+      cardinality: 0,
+      uniqueness: 0,
+      nullCount: 0,
+      sampleValues: [],
+    };
+  });
 
   // Get metric names if insight is provided
   const metricNames = new Set(insight?.metrics?.map((m) => m.name) || []);

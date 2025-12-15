@@ -2,7 +2,6 @@
 
 import { use, useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import type { TopLevelSpec } from "vega-lite";
 import {
   Button,
   Input,
@@ -23,22 +22,16 @@ import {
   useVisualizations,
   useVisualizationMutations,
   useInsights,
-  useDataSources,
   useDataTables,
-  useDataFrames,
   getDataFrame as getDexieDataFrame,
 } from "@dashframe/core-dexie";
-import { VegaChart } from "@/components/visualizations/VegaChart";
+import { Chart } from "@dashframe/visualization";
 import { VirtualTable } from "@dashframe/ui";
-import {
-  analyzeDataFrame,
-  type ColumnAnalysis,
-} from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   UUID,
   DataFrameColumn,
   DataFrameRow,
-  Visualization,
   VisualizationType,
   VisualizationEncoding,
 } from "@dashframe/core";
@@ -50,165 +43,12 @@ import {
 } from "@/lib/insights/compute-preview";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
-// StandardType is not exported from vega-lite's main module
-type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
-
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
 }
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
-
-// Helper to get CSS variable color value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-  return value || "#000000";
-}
-
-// Get theme-aware Vega-Lite config
-function getVegaThemeConfig() {
-  return {
-    background: getCSSColor("--color-card"),
-    view: {
-      stroke: getCSSColor("--color-border"),
-      strokeWidth: 1,
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    title: {
-      color: getCSSColor("--color-foreground"),
-      font: "inherit",
-    },
-  };
-}
-
-// Build Vega-Lite spec from visualization and dataframe
-function buildVegaSpec(
-  viz: Visualization,
-  data: { rows: DataFrameRow[]; columns: DataFrameColumn[] },
-): TopLevelSpec {
-  const { visualizationType, encoding } = viz;
-
-  // Common spec properties
-  const commonSpec = {
-    $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: data.rows },
-    width: "container" as const,
-    height: 400,
-    config: getVegaThemeConfig(),
-  };
-
-  // Get field names from encoding or fall back to dataframe columns
-  const x = encoding?.x || data.columns?.[0]?.name || "x";
-  const y =
-    encoding?.y ||
-    data.columns?.find((col: DataFrameColumn) => col.type === "number")?.name ||
-    data.columns?.[1]?.name ||
-    "y";
-
-  switch (visualizationType) {
-    case "bar":
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "line":
-      return {
-        ...commonSpec,
-        mark: "line" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "scatter":
-      return {
-        ...commonSpec,
-        mark: "point" as const,
-        encoding: {
-          x: {
-            field: x,
-            type: (encoding?.xType || "quantitative") as StandardType,
-          },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-          ...(encoding?.size && {
-            size: { field: encoding.size, type: "quantitative" as const },
-          }),
-        },
-      };
-
-    case "area":
-      return {
-        ...commonSpec,
-        mark: "area" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    default:
-      // Fallback to bar chart
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-        },
-      };
-  }
-}
 
 // Get icon for visualization type
 function getVizIcon(type: string) {
@@ -244,8 +84,6 @@ export default function VisualizationPage({ params }: PageProps) {
     useVisualizations();
   const { data: insights = [] } = useInsights();
   const { data: dataTables = [] } = useDataTables();
-  const { data: dataSources = [] } = useDataSources();
-  const { data: dataFrameEntries = [] } = useDataFrames();
   const {
     update: updateVisualization,
     updateEncoding,
@@ -278,6 +116,12 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Get the dataFrameId from the dataTable
   const dataFrameId = dataTable?.dataFrameId;
+
+  // Compute DuckDB table name for chart rendering
+  const tableName = useMemo(() => {
+    if (!dataFrameId) return null;
+    return `df_${dataFrameId.replace(/-/g, "_")}`;
+  }, [dataFrameId]);
 
   // Load source DataFrame data async
   const {
@@ -487,20 +331,45 @@ export default function VisualizationPage({ params }: PageProps) {
     return () => observer.disconnect();
   }, [visualization?.id]);
 
-  // Build Vega spec
-  const vegaSpec = useMemo(() => {
-    if (!visualization || !dataFrame || !dataFrame.columns) return null;
-    if (visualization.visualizationType === "table") return null;
-    return buildVegaSpec(visualization, {
-      rows: dataFrame.rows,
-      columns: dataFrame.columns,
-    });
-  }, [visualization, dataFrame]);
-
   // Analyze columns for encoding suggestions
+  // Simplified to use column types directly instead of full analysis
   const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
     if (!dataFrame || !dataFrame.columns) return [];
-    return analyzeDataFrame(dataFrame.rows, dataFrame.columns);
+
+    return dataFrame.columns.map((col: DataFrameColumn) => {
+      let category: ColumnAnalysis["category"] = "unknown";
+      const type = String(col.type).toLowerCase();
+
+      if (
+        type === "number" ||
+        type === "integer" ||
+        type === "float" ||
+        type === "decimal" ||
+        type === "double"
+      ) {
+        category = "numerical";
+      } else if (
+        type === "date" ||
+        type === "datetime" ||
+        type === "timestamp" ||
+        type === "time"
+      ) {
+        category = "temporal";
+      } else if (type === "boolean") {
+        category = "boolean";
+      } else {
+        category = "categorical";
+      }
+
+      return {
+        columnName: col.name,
+        category,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
+    });
   }, [dataFrame]);
 
   // Get column options for selects
@@ -856,9 +725,15 @@ export default function VisualizationPage({ params }: PageProps) {
 
         {/* Chart visualization - chart tab */}
         {visualization.visualizationType !== "table" &&
-          activeTab === "chart" && (
+          activeTab === "chart" &&
+          tableName && (
             <div className="h-full p-6">
-              <VegaChart spec={vegaSpec!} />
+              <Chart
+                tableName={tableName}
+                visualizationType={visualization.visualizationType}
+                encoding={visualization.encoding ?? {}}
+                className="h-full w-full"
+              />
             </div>
           )}
 
@@ -882,15 +757,21 @@ export default function VisualizationPage({ params }: PageProps) {
 
         {/* Chart visualization - both view */}
         {visualization.visualizationType !== "table" &&
-          activeTab === "both" && (
+          activeTab === "both" &&
+          tableName && (
             <div className="flex h-full flex-col">
-              <div className="shrink-0">
-                <VegaChart spec={vegaSpec!} />
+              <div className="h-[60%] min-h-[200px] shrink-0 p-6">
+                <Chart
+                  tableName={tableName}
+                  visualizationType={visualization.visualizationType}
+                  encoding={visualization.encoding ?? {}}
+                  className="h-full w-full"
+                />
               </div>
-              <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1 flex-col px-6 pb-6">
                 <Surface
                   elevation="inset"
-                  className="flex min-h-0 flex-1 flex-col"
+                  className="flex min-h-0 flex-1 flex-col p-4"
                 >
                   <VirtualTable
                     rows={dataFrame.rows}

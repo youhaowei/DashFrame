@@ -1,5 +1,4 @@
 import type { UUID, Field, Metric, SourceSchema } from "@dashframe/core";
-import type { TopLevelSpec } from "vega-lite";
 
 // ============================================================================
 // DataTables (raw table data from sources)
@@ -176,11 +175,19 @@ export interface VisualizationSource {
   insightId?: UUID; // The Insight that produced it (for refresh/provenance tracking)
 }
 
+/**
+ * Simplified chart spec - actual rendering is now encoding-driven via Chart.
+ * This type replaces the previous Vega-Lite TopLevelSpec.
+ * @deprecated Rendering uses encoding directly, spec is kept for backwards compatibility
+ */
+export type ChartSpec = Record<string, unknown>;
+
 export interface Visualization {
   id: UUID;
   name: string;
   source: VisualizationSource;
-  spec: Omit<TopLevelSpec, "data">; // Vega-Lite spec (data comes from DataFrame)
+  /** @deprecated Rendering now uses encoding directly via Chart */
+  spec: ChartSpec;
   visualizationType: VisualizationType; // Display type (table/chart)
   encoding?: VisualizationEncoding; // Column mappings for chart types
   createdAt: number;

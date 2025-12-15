@@ -51,7 +51,6 @@ export default function DashboardDetailPage({
   );
 
   // Local state
-  const [hasChecked, setHasChecked] = useState(false);
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -59,16 +58,10 @@ export default function DashboardDetailPage({
 
   // Redirect if not found after loading completes
   useEffect(() => {
-    if (!isLoading) {
-      setHasChecked(true);
-    }
-  }, [isLoading]);
-
-  useEffect(() => {
-    if (hasChecked && !dashboard) {
+    if (!isLoading && !dashboard) {
       router.push("/dashboards");
     }
-  }, [hasChecked, dashboard, router]);
+  }, [isLoading, dashboard, router]);
 
   // Show loading state until we have the dashboard
   if (isLoading || !dashboard) {
