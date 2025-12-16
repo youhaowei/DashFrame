@@ -73,15 +73,6 @@ import {
   type ColumnAnalysis,
 } from "@dashframe/engine-browser";
 
-/** Column-like structure used in preview tables */
-type PreviewColumn = {
-  id: string;
-  name: string;
-  columnName?: string;
-  type: string;
-  _isJoined?: boolean;
-};
-
 // Utility to format dates consistently
 function formatDate(value: unknown): string | null {
   if (value instanceof Date && !isNaN(value.getTime())) {
@@ -181,7 +172,6 @@ export function InsightConfigureTab({
 
   // Column analysis state (DuckDB computed)
   const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Data sources (for join metadata)
   const { data: dataSources = [] } = useDataSources();
@@ -973,7 +963,7 @@ export function InsightConfigureTab({
     }
 
     return map;
-  }, [previewFields, joinedPreviewData, insight.joins?.length]);
+  }, [previewFields, joinedPreviewData, insight.joins?.length, dataTable.id]);
 
   // Effect to run deep analysis using DuckDB when data changes
   useEffect(() => {
@@ -984,7 +974,6 @@ export function InsightConfigureTab({
     if (!insight.joins?.length && !isPreviewReady) return;
 
     const runAnalysis = async () => {
-      setIsAnalyzing(true);
       let tempViewName: string | null = null;
 
       try {
@@ -1007,17 +996,6 @@ export function InsightConfigureTab({
           hasJoins: !!insight.joins?.length,
           previewFieldsCount: previewFields.length,
           joinPreviewColumnsCount: joinPreviewColumns.length,
-        });
-
-        // Build fields record for type hints
-        const analysisFields: Record<string, LocalField> = {};
-        Object.values(fieldMap).forEach((f) => {
-          // We need to look up the full field definition from 'fields' or 'joinTableDetails'
-          // to get isIdentifier/isReference flags.
-          // For now, we can try to find it in allTableFields or assume defaults.
-          // fieldMap values are simplified.
-          // Let's rely on analyzeDataFrame's heuristics if we can't easily map back.
-          // But suggestCharts uses 'fields' for isBlocked.
         });
 
         // Prepare columns list
@@ -1095,7 +1073,6 @@ export function InsightConfigureTab({
         if (colsToAnalyze.length === 0) {
           console.warn("[Analysis] No columns to analyze, skipping");
           setColumnAnalysis([]);
-          setIsAnalyzing(false);
           return;
         }
 
@@ -1121,15 +1098,15 @@ export function InsightConfigureTab({
             await duckDBConnection.query(
               `DROP VIEW IF EXISTS "${tempViewName}"`,
             );
-          } catch (e) {
+          } catch {
             /* ignore */
           }
         }
-        setIsAnalyzing(false);
       }
     };
 
     runAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally using subsets (sql, length) instead of full objects to avoid re-runs on irrelevant changes
   }, [
     duckDBConnection,
     isDuckDBReady,

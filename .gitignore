@@ -22,6 +22,7 @@ out
 corepack-home/
 .corepack/
 .pnpm-store/
+.pnpm-home/
 
 # Build artifacts
 dist

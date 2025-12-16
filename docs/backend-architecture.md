@@ -1,13 +1,13 @@
 # Backend Architecture
 
-DashFrame uses a **plugin-based backend architecture** that allows switching data persistence layers via environment variables. This enables multiple deployment scenarios (OSS, cloud, self-hosted) from a single codebase.
+DashFrame uses a **plugin-based backend architecture** that allows switching data persistence layers via environment variables. This enables flexible deployment options from a single codebase.
 
 ## Overview
 
 ```
 @dashframe/types         → Type contracts (interfaces)
-@dashframe/core-dexie    → Dexie/IndexedDB implementation (OSS)
-@dashframe/core-convex   → Convex implementation (future cloud)
+@dashframe/core-dexie    → Dexie/IndexedDB implementation (default)
+@dashframe/core-store    → Stub package (re-exports default backend)
 @dashframe/core          → Thin selector (picks backend via env)
 ```
 
@@ -37,9 +37,7 @@ export type UseDataSources = () => UseQueryResult<DataSource[]>;
 export type UseDataSourceMutations = () => DataSourceMutations;
 ```
 
-**Published**: Public (open source)
-
-### @dashframe/core-dexie (OSS Backend)
+### @dashframe/core-dexie (Default Backend)
 
 Implements types using Dexie (IndexedDB) for client-side persistence.
 
@@ -55,47 +53,44 @@ export function useDataSources(): UseQueryResult<DataSource[]> {
 
 **Dependencies**: `@dashframe/types`, `dexie`, `dexie-react-hooks`
 
-**Published**: Public (open source)
+### @dashframe/core-store (Stub Package)
 
-### @dashframe/core-convex (Future Cloud Backend)
-
-Implements types using Convex for real-time cloud sync.
+A stub package that re-exports from the default backend (`@dashframe/core-dexie`). This provides TypeScript type resolution while webpack aliases it to the selected backend at build time.
 
 ```typescript
-// packages/core-convex/src/index.ts
-import type { UseDataSources } from "@dashframe/types";
-import { useQuery } from "convex/react";
-
-export function useDataSources(): UseQueryResult<DataSource[]> {
-  const data = useQuery(api.dataSources.list);
-  return { data, isLoading: data === undefined };
-}
+// packages/core-store/src/index.ts
+// Re-export all types and implementations from the default storage backend
+// Webpack will replace this entire module at build time
+export * from "@dashframe/core-dexie";
 ```
 
-**Dependencies**: `@dashframe/types`, `convex`
-
-**Published**: Private (proprietary)
+**Dependencies**: `@dashframe/types`, `@dashframe/core-dexie`
 
 ### @dashframe/core (Backend Selector)
 
-Thin wrapper that selects backend implementation based on environment variable.
+Uses build-time webpack aliases to select backend implementation. Exports from the stub package `@dashframe/core-store` which is aliased to the chosen backend package.
 
 ```typescript
-// packages/core/src/index.ts
-export * from "@dashframe/types";
-
-const BACKEND = process.env.NEXT_PUBLIC_DATA_BACKEND || "dexie";
-
-if (BACKEND === "convex") {
-  export * from "@dashframe/core-convex";
-} else {
-  export * from "@dashframe/core-dexie";
-}
+// packages/core/src/backend.ts
+// Stub package aliased at build time to the chosen storage implementation
+export * from "@dashframe/core-store";
 ```
 
-**Dependencies**: `@dashframe/types`, `@dashframe/core-dexie`, `@dashframe/core-convex` (optional)
+**Build-time alias configuration** (in `apps/web/next.config.mjs`):
 
-**Published**: Public (coordinates backends)
+```javascript
+const backend = process.env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
+const backendPackage = `@dashframe/core-${backend}`;
+
+config.resolve.alias = {
+  ...config.resolve.alias,
+  "@dashframe/core-store": backendPackage,
+};
+```
+
+**Result**: Only the selected backend is bundled; unused backends are tree-shaken away. TypeScript resolves `@dashframe/core-store` as a normal workspace package (no path aliases needed).
+
+**Dependencies**: `@dashframe/types` (no backend dependencies bundled)
 
 ## Usage
 
@@ -104,11 +99,11 @@ if (BACKEND === "convex") {
 Set the backend via environment variable:
 
 ```bash
-# .env.local (OSS deployment)
-NEXT_PUBLIC_DATA_BACKEND=dexie
+# .env.local (default)
+NEXT_PUBLIC_STORAGE_IMPL=dexie
 
-# .env.production (Cloud deployment)
-NEXT_PUBLIC_DATA_BACKEND=convex
+# .env.production (custom backend)
+NEXT_PUBLIC_STORAGE_IMPL=custom
 ```
 
 ### Application Code
@@ -129,12 +124,16 @@ export function DataSourcesList() {
 
 ## Switching Backends
 
-To switch from Dexie to Convex:
+The backend is selected at build time via webpack alias resolution. To switch:
 
-1. Update environment variable:
+1. Set the environment variable to match your backend package name:
 
    ```bash
-   NEXT_PUBLIC_DATA_BACKEND=convex
+   # For @dashframe/core-dexie (default)
+   NEXT_PUBLIC_STORAGE_IMPL=dexie
+
+   # For @dashframe/core-mybackend
+   NEXT_PUBLIC_STORAGE_IMPL=mybackend
    ```
 
 2. Rebuild the application:
@@ -142,7 +141,14 @@ To switch from Dexie to Convex:
    pnpm build
    ```
 
-That's it! No code changes required.
+**How it works**:
+
+- Webpack reads `NEXT_PUBLIC_STORAGE_IMPL` env var
+- Aliases `@dashframe/core-store` → `@dashframe/core-${backend}`
+- Only the selected backend package is bundled
+- Unused backends are completely tree-shaken away
+
+No code changes required - just env var + rebuild!
 
 ## Creating a Custom Backend
 
@@ -189,24 +195,24 @@ export function useDataSourceMutations(): DataSourceMutations {
 // Implement all other hooks...
 ```
 
-### Step 3: Add to Core Selector
+### Step 3: Use It
 
-```typescript
-// packages/core/src/index.ts
-if (BACKEND === "mybackend") {
-  export * from "@dashframe/core-mybackend";
-} else if (BACKEND === "convex") {
-  export * from "@dashframe/core-convex";
-} else {
-  export * from "@dashframe/core-dexie";
-}
-```
-
-### Step 4: Use It
+No code changes needed in `@dashframe/core` - the build-time alias automatically resolves to your package!
 
 ```bash
-NEXT_PUBLIC_DATA_BACKEND=mybackend pnpm dev
+# Development
+NEXT_PUBLIC_STORAGE_IMPL=mybackend pnpm dev
+
+# Production build
+NEXT_PUBLIC_STORAGE_IMPL=mybackend pnpm build
 ```
+
+**How it works**:
+
+1. Your package name must follow the pattern: `@dashframe/core-{name}`
+2. Set `NEXT_PUBLIC_STORAGE_IMPL={name}` in environment
+3. Webpack alias resolves `@dashframe/core-store` → `@dashframe/core-{name}`
+4. Only your backend is bundled; core packages remain unchanged
 
 ## Backend Requirements
 
@@ -273,7 +279,7 @@ All backend implementations MUST:
 
 ```bash
 # .env.production
-NEXT_PUBLIC_DATA_BACKEND=dexie
+NEXT_PUBLIC_STORAGE_IMPL=dexie
 ```
 
 - Data stored in browser IndexedDB
@@ -285,7 +291,7 @@ NEXT_PUBLIC_DATA_BACKEND=dexie
 
 ```bash
 # .env.production
-NEXT_PUBLIC_DATA_BACKEND=convex
+NEXT_PUBLIC_STORAGE_IMPL=convex
 NEXT_PUBLIC_CONVEX_URL=https://your-app.convex.cloud
 ```
 
@@ -298,7 +304,7 @@ NEXT_PUBLIC_CONVEX_URL=https://your-app.convex.cloud
 
 ```bash
 # .env.production
-NEXT_PUBLIC_DATA_BACKEND=postgres
+NEXT_PUBLIC_STORAGE_IMPL=postgres
 DATABASE_URL=postgresql://localhost:5432/dashframe
 ```
 
@@ -328,7 +334,7 @@ export function useDataSources(): UseQueryResult<DataSource[]> {
 ```
 
 ```bash
-NEXT_PUBLIC_DATA_BACKEND=mock pnpm test
+NEXT_PUBLIC_STORAGE_IMPL=mock pnpm test
 ```
 
 ## Migration Path
@@ -351,13 +357,6 @@ Not currently. The env var selects one backend per deployment. Future enhancemen
 **Q: What if a backend doesn't support a feature?**
 
 Backends can throw `NotImplementedError` for unsupported operations. The app should handle these gracefully.
-
-**Q: How do I debug which backend is active?**
-
-```typescript
-import { getBackendInfo } from "@dashframe/core";
-console.log(getBackendInfo()); // { backend: "dexie", version: "1.0.0" }
-```
 
 **Q: Can third-party packages extend DashFrame with new backends?**
 

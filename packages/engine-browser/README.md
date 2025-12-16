@@ -118,7 +118,7 @@ class BrowserDataFrame implements DataFrame {
 
 - **Persistence**: Save data across browser sessions (Arrow IPC in IndexedDB)
 - **Sharing**: Reference data by ID across components
-- **Cloud storage**: Future S3/R2 integration
+- **Remote storage**: Extensible to support S3/R2 backends
 
 **When DataFrame is NOT Needed:**
 

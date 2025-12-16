@@ -337,9 +337,9 @@ export default function VisualizationPage({ params }: PageProps) {
     if (!dataFrame || !dataFrame.columns) return [];
 
     return dataFrame.columns.map((col: DataFrameColumn) => {
-      let category: ColumnAnalysis["category"] = "unknown";
       const type = String(col.type).toLowerCase();
 
+      let category: ColumnAnalysis["category"];
       if (
         type === "number" ||
         type === "integer" ||

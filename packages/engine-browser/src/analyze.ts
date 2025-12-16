@@ -49,7 +49,6 @@ export type ColumnAnalysis = {
  * @param fields - Optional field metadata for explicit categorization
  * @returns Array of column analysis results
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
 export async function analyzeDataFrame(
   conn: AsyncDuckDBConnection,
   tableName: string,
@@ -66,6 +65,7 @@ export async function analyzeDataFrame(
   const totalRows = Number((countResult.toArray()[0] as { cnt: bigint }).cnt);
 
   // Analyze each column using SQL
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
   const analysisPromises = columnNames.map(async (columnName) => {
     const quotedColumn = `"${columnName}"`;
 

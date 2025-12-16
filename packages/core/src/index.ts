@@ -6,18 +6,18 @@
  * This package selects the backend implementation based on the
  * NEXT_PUBLIC_DATA_BACKEND environment variable:
  * - "dexie" (default) → @dashframe/core-dexie (IndexedDB)
- * - "convex" → @dashframe/core-convex (Cloud sync)
+ * - Custom backends can be added by implementing the repository interfaces
  *
  * Components import from @dashframe/core and remain backend-agnostic.
  * To switch backends, just change the environment variable and rebuild.
  *
  * @example
  * ```bash
- * # Use Dexie backend (OSS)
+ * # Use Dexie backend (default)
  * NEXT_PUBLIC_DATA_BACKEND=dexie pnpm dev
  *
- * # Use Convex backend (Cloud) - Future
- * NEXT_PUBLIC_DATA_BACKEND=convex pnpm dev
+ * # Use custom backend
+ * NEXT_PUBLIC_DATA_BACKEND=custom pnpm dev
  * ```
  */
 
@@ -41,20 +41,3 @@ export type {
   ChartRenderer,
   ChartRendererRegistry,
 } from "./chart-renderers";
-
-// ============================================================================
-// Backend Info (Debug Helper)
-// ============================================================================
-
-/**
- * Get information about the currently active backend.
- * Useful for debugging and feature detection.
- */
-export function getBackendInfo() {
-  const backend = process.env.NEXT_PUBLIC_DATA_BACKEND || "dexie";
-  return {
-    backend,
-    isCloud: backend === "convex",
-    isLocal: backend === "dexie",
-  };
-}

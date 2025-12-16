@@ -244,7 +244,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
 
         // Monitor for NaN errors in SVG attributes (common when data query fails)
         // Use MutationObserver to catch SVG attribute errors
-        const observer = new MutationObserver((mutations) => {
+        const observer = new MutationObserver((_mutations) => {
           const svg = container.querySelector("svg");
           if (svg) {
             const width = svg.getAttribute("width");

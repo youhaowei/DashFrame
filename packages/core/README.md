@@ -116,8 +116,7 @@ Notion `relation` fields enable automatic join detection:
 
 Repository interfaces define contracts for persistence. Implementations:
 
-- `@dashframe/core-dexie` - Browser persistence with Dexie/IndexedDB
-- `@dashframe/core-convex` - Cloud persistence with Convex (future)
+- `@dashframe/core-dexie` - Browser persistence with Dexie/IndexedDB (default)
 
 ### Pattern
 

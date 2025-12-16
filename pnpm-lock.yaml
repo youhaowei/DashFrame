@@ -352,9 +352,9 @@ importers:
 
   packages/core:
     dependencies:
-      '@dashframe/core-dexie':
+      '@dashframe/core-store':
         specifier: workspace:*
-        version: link:../core-dexie
+        version: link:../core-store
       '@dashframe/types':
         specifier: workspace:*
         version: link:../types
@@ -393,6 +393,15 @@ importers:
       typescript:
         specifier: ^5.6.0
         version: 5.7.2
+
+  packages/core-store:
+    dependencies:
+      '@dashframe/core-dexie':
+        specifier: workspace:*
+        version: link:../core-dexie
+      '@dashframe/types':
+        specifier: workspace:*
+        version: link:../types
 
   packages/engine:
     dependencies:

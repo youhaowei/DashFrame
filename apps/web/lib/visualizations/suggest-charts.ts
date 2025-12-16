@@ -212,11 +212,7 @@ export function suggestCharts(
     }
 
     // Fallback if extended stats missing (rely on cardinality)
-    if (col.cardinality <= 1) {
-      return false;
-    }
-
-    return true;
+    return col.cardinality > 1;
   };
 
   // Find columns by category, excluding blocked ones

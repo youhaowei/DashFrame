@@ -21,9 +21,9 @@ export function autoSelectEncoding(
 ): VisualizationEncoding {
   // Simple analysis based on column types
   const analysis: ColumnAnalysis[] = (dataFrame.columns || []).map((col) => {
-    let category: ColumnAnalysis["category"] = "unknown";
     const typeStr = String(col.type).toLowerCase();
 
+    let category: ColumnAnalysis["category"];
     if (
       typeStr === "number" ||
       typeStr === "integer" ||

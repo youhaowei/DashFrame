@@ -1,19 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": "./",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@dashframe/core": ["../../packages/core/src"],
-      "@dashframe/core-dexie": ["../../packages/core-dexie/src"],
-      "@dashframe/engine": ["../../packages/engine/src"],
-      "@dashframe/engine-browser": ["../../packages/engine-browser/src"],
-      "@dashframe/connector-csv": ["../../packages/connector-csv/src"],
-      "@dashframe/connector-notion": ["../../packages/connector-notion/src"],
-      "@dashframe/ui/icons": ["../../packages/ui/src/lib/icons"],
-      "@dashframe/ui": ["../../packages/ui/src"],
-      "@dashframe/convex": ["../../convex/_generated/api"],
-      "@dashframe/convex/*": ["../../convex/_generated/*"]
+      "@/*": ["./*"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,

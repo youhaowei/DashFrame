@@ -48,28 +48,31 @@ pnpm --filter @dashframe/web check
 
 ### Backend Plugin System
 
-DashFrame uses **environment-based backend selection** to support multiple deployment scenarios:
+DashFrame uses **build-time alias resolution** for backend selection:
 
 ```bash
-# IndexDB backend with Dexie
-NEXT_PUBLIC_DATA_BACKEND=dexie
+# IndexDB backend with Dexie (default)
+NEXT_PUBLIC_STORAGE_IMPL=dexie
 
-# Convex backend - future
-NEXT_PUBLIC_DATA_BACKEND=convex
+# Custom backend implementations
+NEXT_PUBLIC_STORAGE_IMPL=custom
 ```
+
+**How it works**:
+
+1. `@dashframe/core/backend.ts` exports from stub package `@dashframe/core-store`
+2. Webpack aliases `@dashframe/core-store` → `@dashframe/core-${NEXT_PUBLIC_STORAGE_IMPL}`
+3. TypeScript resolves `@dashframe/core-store` as a normal workspace package (no path aliases needed)
+4. Only the selected backend is bundled; unused backends are tree-shaken away
 
 **Package structure**:
 
 - `@dashframe/types` - Pure type contracts (repository interfaces)
-- `@dashframe/core-dexie` - Dexie/IndexedDB implementation
-- `@dashframe/core-convex` - Convex implementation (future cloud)
-- `@dashframe/core` - Env-based backend selector
+- `@dashframe/core-dexie` - Dexie/IndexedDB implementation (default)
+- `@dashframe/core-store` - Stub package (re-exports default backend for type resolution)
+- `@dashframe/core` - Re-exports from aliased backend (no direct dependencies)
 
-**Components import from `@dashframe/core` and remain backend-agnostic**. The env var switches implementations at build time. This enables:
-
-- Local-first version with Dexie backend
-- Cloud version with real-time Convex backend
-- Custom backends via community plugins
+**Components import from `@dashframe/core` and remain backend-agnostic**. Switching backends requires only env var + rebuild.
 
 See `docs/backend-architecture.md` for full details on creating custom backends.
 
@@ -97,7 +100,7 @@ apps/web/                  # Next.js 16 (App Router)
 packages/
   types/                   # Pure type contracts (zero deps)
   core/                    # Backend selector (env-based)
-  core-dexie/              # Dexie/IndexedDB backend (local-first)
+  core-dexie/              # Dexie/IndexedDB backend
   engine/                  # Abstract engine interfaces
   engine-browser/          # DuckDB-WASM + IndexedDB
   connector-csv/           # CSV file connector

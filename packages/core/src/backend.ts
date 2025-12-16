@@ -1,21 +1,20 @@
 /**
- * Backend selector module.
+ * Storage selector module.
  *
- * This module selects the backend implementation based on the
- * NEXT_PUBLIC_DATA_BACKEND environment variable at build time.
+ * This module re-exports from "@dashframe/core-store" which is a stub package
+ * that gets aliased at build time to the chosen storage implementation.
  *
- * TypeScript sees all possible exports during development.
- * Next.js build replaces the env var with its actual value and
- * tree-shakes unused backend code.
+ * The alias is configured in:
+ * - apps/web/next.config.mjs (webpack alias)
+ *
+ * Storage selection is controlled by NEXT_PUBLIC_DATA_BACKEND env var:
+ * - "dexie" (default) → @dashframe/core-dexie
+ * - "custom" → @dashframe/core-custom
+ *
+ * TypeScript sees hook declarations from @dashframe/core-dexie (via types.d.ts).
+ * Webpack replaces the runtime implementation based on the env var.
+ * Only the selected storage implementation is bundled; others are tree-shaken away.
  */
 
-// Re-export from selected backend
-// Currently only Dexie is available. When Convex is added:
-//
-// if (process.env.NEXT_PUBLIC_DATA_BACKEND === "convex") {
-//   export * from "@dashframe/core-convex";
-// } else {
-//   export * from "@dashframe/core-dexie";
-// }
-
-export * from "@dashframe/core-dexie";
+// Stub package aliased at build time to the chosen storage implementation
+export * from "@dashframe/core-store";
