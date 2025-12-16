@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { LayoutGrid, List } from "../lib/icons";
 import type { LucideIcon } from "../lib/icons";
-import { ActionGroup, type ItemAction } from "./ActionGroup";
+import { ButtonGroup, type ItemAction } from "./ButtonGroup";
 import { Toggle } from "./Toggle";
 import { cn } from "../lib/utils";
 
-export type { ItemAction } from "./ActionButton";
+export type { ItemAction } from "./button";
 
 export interface SelectableItem {
   id: string;
@@ -107,7 +107,7 @@ export function ItemSelector({
             )}
           </div>
           {actions.length > 0 && (
-            <ActionGroup
+            <ButtonGroup
               actions={actions}
               className="w-full justify-end sm:w-auto"
             />

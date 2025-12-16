@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { ActionGroup, type ItemAction } from "../components/ActionGroup";
+import { ButtonGroup, type ItemAction } from "../components/ButtonGroup";
 
 export type { ItemAction };
 
@@ -192,7 +192,7 @@ export function ItemCard({
           className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
-          <ActionGroup actions={actions} compact />
+          <ButtonGroup actions={actions} iconOnly />
         </div>
       )}
     </div>

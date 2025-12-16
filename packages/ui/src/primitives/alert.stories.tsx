@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Alert, AlertDescription, AlertTitle } from "./alert";
 import { Terminal, AlertCircle, Info, CheckCircle } from "../lib/icons";
 

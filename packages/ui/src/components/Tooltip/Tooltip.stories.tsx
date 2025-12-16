@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SharedTooltip } from "./Tooltip";
 import { Button } from "../../primitives/button";
 import { Database, Plus, Trash2, RefreshCw, BarChart3 } from "../../lib/icons";

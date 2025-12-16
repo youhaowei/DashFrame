@@ -8,7 +8,9 @@ export type { LucideIcon } from "./lib/icons";
 // UI Primitives (shadcn/ui components)
 export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
-export { Button, buttonVariants } from "./primitives/button";
+// Export Button component (primary button API)
+export { Button, type ButtonProps } from "./components/button";
+// Note: Primitive button is internal - use Button component instead
 export {
   Card,
   CardHeader,
@@ -59,15 +61,6 @@ export {
   DropdownMenuRadioGroup,
 } from "./primitives/dropdown-menu";
 export {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-  BreadcrumbEllipsis,
-} from "./primitives/breadcrumb";
-export {
   Field,
   FieldLabel,
   FieldDescription,
@@ -101,6 +94,7 @@ export {
   SelectScrollDownButton,
 } from "./primitives/select";
 export { Separator } from "./primitives/separator";
+export { Skeleton } from "./primitives/skeleton";
 export { Surface } from "./primitives/surface";
 export { Switch } from "./primitives/switch";
 export {
@@ -122,14 +116,24 @@ export {
 } from "./primitives/tooltip";
 
 // Shared Components (custom reusable components)
+export { type ItemAction } from "./components/button";
+export { ButtonGroup, type ButtonGroupProps } from "./components/ButtonGroup";
+/**
+ * @deprecated Use ButtonGroup instead. ActionGroup will be removed in a future version.
+ */
+export { ButtonGroup as ActionGroup } from "./components/ButtonGroup";
+/**
+ * @deprecated Use ButtonGroupProps instead. ActionGroupProps will be removed in a future version.
+ */
+export type { ButtonGroupProps as ActionGroupProps } from "./components/ButtonGroup";
 export {
-  ActionButton,
-  type ActionButtonProps,
-  type ItemAction,
-} from "./components/ActionButton";
-export { ActionGroup, type ActionGroupProps } from "./components/ActionGroup";
+  Breadcrumb,
+  type BreadcrumbItem,
+  type BreadcrumbProps,
+} from "./components/Breadcrumb";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";
+export { Section, type SectionProps } from "./components/Section";
 export { Container } from "./components/Container";
 export { EmptyState } from "./components/EmptyState";
 export {

@@ -1,4 +1,4 @@
-import type { Preview } from "@storybook/react";
+import type { Preview } from "@storybook/nextjs-vite";
 import { createElement } from "react";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { TooltipProvider } from "../src/primitives/tooltip";

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SectionList } from "./SectionList";
 import { ItemCard } from "../primitives/item-card";
 import { LuDatabase, LuFileText, LuTable } from "react-icons/lu";

@@ -1,19 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { ActionGroup } from "./ActionGroup";
+import { ButtonGroup } from "./ButtonGroup";
 import { Plus, Trash2, Refresh, Database, Edit3, X } from "../lib/icons";
 
 const meta = {
-  title: "Components/Actions/ActionGroup",
-  component: ActionGroup,
+  title: "Components/Actions/ButtonGroup",
+  component: ButtonGroup,
   parameters: { layout: "centered" },
   tags: ["autodocs"],
   argTypes: {
-    compact: {
+    iconOnly: {
       control: "boolean",
       description: "Compact mode shows only icons without labels",
     },
   },
-} satisfies Meta<typeof ActionGroup>;
+} satisfies Meta<typeof ButtonGroup>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -39,7 +39,7 @@ export const Default: Story = {
  */
 export const Compact: Story = {
   args: {
-    compact: true,
+    iconOnly: true,
     actions: [
       {
         label: "Create",
@@ -113,7 +113,7 @@ export const SaveCancel: Story = {
  */
 export const RefreshSettings: Story = {
   args: {
-    compact: true,
+    iconOnly: true,
     actions: [
       {
         label: "Refresh",
@@ -156,7 +156,7 @@ export const MixedVariants: Story = {
  */
 export const CompactWithTooltips: Story = {
   args: {
-    compact: true,
+    iconOnly: true,
     actions: [
       {
         label: "Add Data Source",
@@ -230,7 +230,7 @@ export const EmptyActions: Story = {
  */
 export const CompactMixedIcons: Story = {
   args: {
-    compact: true,
+    iconOnly: true,
     actions: [
       {
         label: "With Icon",

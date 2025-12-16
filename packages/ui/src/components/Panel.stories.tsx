@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Panel, PanelSection } from "./Panel";
 import { Button } from "../primitives/button";
 import { Database, Plus, Refresh, Trash2 } from "../lib/icons";

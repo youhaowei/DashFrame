@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 import { Panel } from "./Panel";
