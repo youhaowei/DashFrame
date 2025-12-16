@@ -1,7 +1,7 @@
 "use client";
 
 import { use } from "react";
-import { useInsightPageData } from "./_hooks/useInsightPageData";
+import { useInsight } from "@dashframe/core";
 import { InsightView, LoadingView, NotFoundView } from "./_components";
 
 interface PageProps {
@@ -11,51 +11,20 @@ interface PageProps {
 /**
  * Insight Page
  *
- * Adaptive page that shows different views based on state:
- * - Loading: Shows loading spinner during data hydration
- * - Not found: Shows error when insight or data table is missing
- * - Configured: Shows insight editor with configure and preview tabs
+ * Minimal page component that only handles routing.
+ * Data fetching is handled by InsightView itself.
  */
 export default function InsightPage({ params }: PageProps) {
   const { insightId } = use(params);
+  const { data: insight, isLoading } = useInsight(insightId);
 
-  const {
-    isLoading,
-    insight,
-    dataTableInfo,
-    visualizations,
-    isConfigured,
-    selectedFields,
-    aggregatedPreview,
-    updateInsight,
-  } = useInsightPageData(insightId);
-
-  // Loading state during hydration
   if (isLoading) {
     return <LoadingView />;
   }
 
-  // Insight not found
   if (!insight) {
     return <NotFoundView type="insight" />;
   }
 
-  // Data table not found
-  if (!dataTableInfo) {
-    return <NotFoundView type="dataTable" />;
-  }
-
-  // Main view
-  return (
-    <InsightView
-      insightId={insightId}
-      insight={insight}
-      dataTableInfo={dataTableInfo}
-      visualizations={visualizations ?? []}
-      isConfigured={isConfigured}
-      selectedFields={selectedFields}
-      aggregatedPreview={aggregatedPreview}
-      onNameChange={(name) => updateInsight(insightId, { name })}
-    />
-  );
+  return <InsightView insight={insight} />;
 }

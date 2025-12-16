@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Button, cn } from "@dashframe/ui";
+import { cn } from "@dashframe/ui";
+import { Button } from "@dashframe/ui/primitives/button";
 import { Check, X } from "@dashframe/ui/icons";
 
 interface MarkdownWidgetProps {

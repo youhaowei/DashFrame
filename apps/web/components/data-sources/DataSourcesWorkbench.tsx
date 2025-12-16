@@ -8,7 +8,7 @@ import {
   useDataFrames,
 } from "@dashframe/core";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { AppLayout } from "@/components/layouts/AppLayout";
 import { DataSourceSelector } from "./DataSourceSelector";
 import { DataSourceTree } from "./DataSourceTree";
 import { TableDetailPanel } from "./TableDetailPanel";
@@ -276,8 +276,8 @@ export function DataSourcesWorkbench() {
 
   return (
     <>
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="p-4">
             <DataSourceSelector
               selectedId={selectedDataSourceId}
@@ -312,7 +312,7 @@ export function DataSourcesWorkbench() {
             }
           />
         </div>
-      </WorkbenchLayout>
+      </AppLayout>
 
       {/* New Data Source Dialog */}
       <Dialog

@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
-import { cn } from "@dashframe/ui";
+import Link from "next/link";
+import { cn, Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
 
-export interface WorkbenchLayoutProps {
-  /** Sticky header section */
-  header: ReactNode;
+export interface AppLayoutProps {
+  /** Breadcrumb navigation items */
+  breadcrumbs?: BreadcrumbItem[];
+  /** Optional header content (shown after breadcrumbs) */
+  headerContent?: ReactNode;
   /** Left sidebar panel (e.g., controls, configuration) */
   leftPanel?: ReactNode;
   /** Optional right sidebar panel */
@@ -19,33 +22,38 @@ export interface WorkbenchLayoutProps {
 }
 
 /**
- * WorkbenchLayout - Reusable layout for workbench-style pages
+ * AppLayout - Reusable layout for application pages
  *
  * Provides a consistent structure with:
- * - Sticky top header
+ * - Sticky top header with breadcrumb navigation
+ * - Optional additional header content
  * - Left/Right attached sidebars
  * - Main content area with scrolling
  * - Optional footer
  *
  * @example
  * ```tsx
- * <WorkbenchLayout
- *   header={<MyHeader />}
+ * <AppLayout
+ *   breadcrumbs={[
+ *     { label: "Insights", href: "/insights" },
+ *     { label: "My Insight" },
+ *   ]}
  *   leftPanel={<Controls />}
  * >
  *   <Content />
- * </WorkbenchLayout>
+ * </AppLayout>
  * ```
  */
-export function WorkbenchLayout({
-  header,
+export function AppLayout({
+  breadcrumbs,
+  headerContent,
   leftPanel,
   rightPanel,
   footer,
   children,
   className,
   childrenClassName,
-}: WorkbenchLayoutProps) {
+}: AppLayoutProps) {
   return (
     <div
       className={cn(
@@ -55,7 +63,17 @@ export function WorkbenchLayout({
     >
       {/* Sticky Header */}
       <header className="bg-card/90 sticky top-0 z-10 shrink-0 border-b backdrop-blur-sm">
-        {header}
+        <div className="container mx-auto px-8 py-4">
+          <div className="flex items-center justify-between gap-6">
+            {/* Breadcrumb navigation */}
+            {breadcrumbs && breadcrumbs.length > 0 && (
+              <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
+            )}
+
+            {/* Additional header content */}
+            {headerContent && <div className="flex-1">{headerContent}</div>}
+          </div>
+        </div>
       </header>
 
       {/* Main Layout Body */}
@@ -90,4 +108,20 @@ export function WorkbenchLayout({
       )}
     </div>
   );
+}
+
+/**
+ * @deprecated Use AppLayout instead. This is a backward-compatible alias.
+ */
+export interface WorkbenchLayoutProps
+  extends Omit<AppLayoutProps, "breadcrumbs" | "headerContent"> {
+  /** @deprecated Use breadcrumbs instead */
+  header?: ReactNode;
+}
+
+/**
+ * @deprecated Use AppLayout instead. WorkbenchLayout is kept for backward compatibility.
+ */
+export function WorkbenchLayout({ header, ...props }: WorkbenchLayoutProps) {
+  return <AppLayout headerContent={header} {...props} />;
 }

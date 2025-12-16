@@ -36,7 +36,7 @@ import type {
   VisualizationEncoding,
 } from "@dashframe/types";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { AppLayout } from "@/components/layouts/AppLayout";
 import {
   computeInsightPreview,
   type PreviewResult,
@@ -487,8 +487,8 @@ export default function VisualizationPage({ params }: PageProps) {
   // No DataFrame state
   if (!dataFrame) {
     return (
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
               <Button variant="ghost" size="sm" onClick={() => router.back()}>
@@ -523,7 +523,7 @@ export default function VisualizationPage({ params }: PageProps) {
             </CardContent>
           </Card>
         </div>
-      </WorkbenchLayout>
+      </AppLayout>
     );
   }
 
@@ -542,8 +542,8 @@ export default function VisualizationPage({ params }: PageProps) {
     : [{ label: "Table", value: "table" }];
 
   return (
-    <WorkbenchLayout
-      header={
+    <AppLayout
+      headerContent={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
             <Button variant="ghost" size="sm" onClick={() => router.back()}>
@@ -784,6 +784,6 @@ export default function VisualizationPage({ params }: PageProps) {
             </div>
           )}
       </div>
-    </WorkbenchLayout>
+    </AppLayout>
   );
 }

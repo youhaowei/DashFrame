@@ -16,7 +16,7 @@ import {
   EmptyState,
   VirtualTable,
   Trash2,
-  ActionGroup,
+  ButtonGroup,
 } from "@dashframe/ui";
 
 interface TableDetailPanelProps {
@@ -121,7 +121,7 @@ export function TableDetailPanel({
                   : "No data available"}
               </p>
             </div>
-            <ActionGroup
+            <ButtonGroup
               actions={[
                 {
                   label: "Delete Table",

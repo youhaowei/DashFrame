@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { useDataSources, useDataTables, useDataFrames } from "@dashframe/core";
-import { File, Trash2, Button, Panel, EmptyState, cn } from "@dashframe/ui";
+import { File, Trash2, Panel, EmptyState, cn } from "@dashframe/ui";
+import { Button } from "@dashframe/ui/primitives/button";
 
 interface DataSourceTreeProps {
   dataSourceId: string;

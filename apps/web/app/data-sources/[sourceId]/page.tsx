@@ -46,7 +46,7 @@ import {
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
 import type { UUID } from "@dashframe/types";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { AppLayout } from "@/components/layouts/AppLayout";
 
 interface PageProps {
   params: Promise<{ sourceId: string }>;
@@ -198,8 +198,8 @@ export default function DataSourcePage({ params }: PageProps) {
 
   return (
     <>
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="container mx-auto px-6 py-4">
             <Breadcrumb className="mb-4">
               <BreadcrumbList>
@@ -428,7 +428,7 @@ export default function DataSourcePage({ params }: PageProps) {
             </div>
           </div>
         )}
-      </WorkbenchLayout>
+      </AppLayout>
 
       {/* Delete Confirmation Dialog */}
       <Dialog

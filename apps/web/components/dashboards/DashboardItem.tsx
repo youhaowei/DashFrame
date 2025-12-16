@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { cn, Surface, Button } from "@dashframe/ui";
+import { cn, Surface } from "@dashframe/ui";
+import { Button } from "@dashframe/ui/primitives/button";
 import { Edit3, GripHorizontal, Trash2 } from "@dashframe/ui/icons";
 import type { DashboardItem as DashboardItemType } from "@dashframe/types";
 import { useDashboardMutations } from "@dashframe/core";

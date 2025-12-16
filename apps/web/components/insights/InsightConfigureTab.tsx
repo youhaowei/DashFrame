@@ -2,7 +2,7 @@
 /* eslint-disable sonarjs/cognitive-complexity, sonarjs/no-nested-conditional */
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, memo } from "react";
 import { useRouter } from "next/navigation";
 import type { DataFrameColumn, DataFrameRow } from "@dashframe/types";
 import {
@@ -333,13 +333,13 @@ export function InsightConfigureTab({
           if (!joinDetail?.joinTable?.dataFrameId) continue;
 
           // Load join table into DuckDB
-          const joinDataFrame = getDataFrame(joinDetail.joinTable.dataFrameId);
+          const joinDataFrame = await getDataFrame(
+            joinDetail.joinTable.dataFrameId,
+          );
           if (!joinDataFrame) continue;
 
           // Load and trigger ensureLoaded() by calling sql() on the QueryBuilder
-          const joinQueryBuilder = await (joinDataFrame as any).load(
-            duckDBConnection,
-          );
+          const joinQueryBuilder = await joinDataFrame.load(duckDBConnection);
           await joinQueryBuilder.sql(); // This triggers the actual table creation in DuckDB
           const joinTableName = `df_${joinDetail.joinTable.dataFrameId.replace(/-/g, "_")}`;
 

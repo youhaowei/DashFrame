@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Button, SectionList, ArrowLeft } from "@dashframe/ui";
+import { SectionList, ArrowLeft } from "@dashframe/ui";
+import { Button } from "@dashframe/ui/primitives/button";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
