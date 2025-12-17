@@ -1,6 +1,13 @@
 // Utilities
 export { cn } from "./lib/utils";
 
+// Hooks
+export {
+  useContainerDimensions,
+  type ContainerDimensions,
+  type UseContainerDimensionsOptions,
+} from "./hooks/useContainerDimensions";
+
 // Fonts
 export { GeistSans, GeistMono } from "./lib/fonts";
 

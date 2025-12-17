@@ -50,7 +50,7 @@ export const ConfigurationPanel = memo(function ConfigurationPanel({
   return (
     <div className="space-y-6">
       {/* Fields (Dimensions) */}
-      <Section title="Fields (Dimensions)" description="Columns to group by">
+      <Section title="Fields" description="Dimensions, columns to group by">
         {selectedFields.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {selectedFields.map((field) => {

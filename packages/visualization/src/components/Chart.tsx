@@ -6,7 +6,8 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import { getRenderer, hasRenderer } from "../registry";
+import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
+import { useContainerDimensions } from "@dashframe/ui";
 
 // ============================================================================
 // Theme Detection
@@ -192,12 +193,50 @@ export function Chart({
   // Track chart colors to detect theme changes
   const chartColors = useChartColors();
 
+  // Track registry version to detect renderer updates (for hot reload)
+  const registryVersion = useRegistryVersion();
+
+  // Determine if we need container dimensions
+  const needsContainerDimensions =
+    width === "container" || height === "container";
+
+  // Track container dimensions when needed
+  const {
+    ref: dimensionRef,
+    width: containerWidth,
+    height: containerHeight,
+    isReady: areDimensionsReady,
+  } = useContainerDimensions({
+    minSize: 10, // Require at least 10x10px
+  });
+
+  // Merge refs if we need dimension tracking
+  useEffect(() => {
+    if (needsContainerDimensions && containerRef.current) {
+      // Assign containerRef element to dimensionRef for measurement
+      (dimensionRef as React.MutableRefObject<HTMLDivElement | null>).current =
+        containerRef.current;
+    }
+  }, [needsContainerDimensions, dimensionRef]);
+
+  // Resolve final dimensions
+  const resolvedWidth = width === "container" ? containerWidth : width;
+  const resolvedHeight = height === "container" ? containerHeight : height;
+
+  // Only render when dimensions are ready (if using container sizing)
+  const canRender = !needsContainerDimensions || areDimensionsReady;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     // Handle table type separately
     if (visualizationType === "table") {
+      return;
+    }
+
+    // Wait for dimensions if using container sizing
+    if (!canRender) {
       return;
     }
 
@@ -210,12 +249,12 @@ export function Chart({
       return;
     }
 
-    // Build config
+    // Build config with resolved dimensions
     const config: ChartConfig = {
       tableName,
       encoding,
-      width,
-      height,
+      width: resolvedWidth,
+      height: resolvedHeight,
       preview,
       theme,
     };
@@ -248,11 +287,13 @@ export function Chart({
     tableName,
     visualizationType,
     encoding,
-    width,
-    height,
+    resolvedWidth,
+    resolvedHeight,
     preview,
     theme,
     chartColors, // Re-render when theme changes
+    canRender,
+    registryVersion, // Re-render when renderer is updated (hot reload)
   ]);
 
   // Handle table type
@@ -277,6 +318,29 @@ export function Chart({
           </p>
         </div>
       )
+    );
+  }
+
+  // Show loading placeholder while waiting for dimensions
+  if (!canRender) {
+    return (
+      <div
+        ref={containerRef}
+        className={className}
+        style={{
+          width: width === "container" ? "100%" : width,
+          height: height === "container" ? "100%" : height,
+          minHeight: 0,
+          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div style={{ fontSize: "0.75rem", opacity: 0.5 }}>
+          Loading chart...
+        </div>
+      </div>
     );
   }
 

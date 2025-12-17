@@ -88,6 +88,7 @@ export {
   getRegisteredTypes,
   clearRegistry,
   chartRendererRegistry,
+  useRegistryVersion,
 } from "./registry";
 
 // ============================================================================

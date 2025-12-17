@@ -16,6 +16,9 @@ import { useDuckDB } from "./DuckDBProvider";
 /**
  * Registers chart renderers when the visualization system is ready.
  * This component runs once on mount and sets up the vgplot renderer.
+ *
+ * NOTE: Including createVgplotRenderer in deps ensures hot reload works
+ * when making changes to the renderer implementation.
  */
 function RendererRegistration() {
   const { api, isReady } = useVisualization();
@@ -26,7 +29,8 @@ function RendererRegistration() {
       registerRenderer(createVgplotRenderer(api));
       console.log("[VisualizationSetup] Registered vgplot renderer");
     }
-  }, [api, isReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, isReady, createVgplotRenderer]);
 
   return null;
 }

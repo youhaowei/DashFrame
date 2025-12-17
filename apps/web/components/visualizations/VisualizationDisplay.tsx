@@ -7,6 +7,10 @@ import type { Visualization } from "@dashframe/types";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { VirtualTable } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import {
+  computeInsightPreview,
+  type PreviewResult,
+} from "@/lib/insights/compute-preview";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
@@ -56,6 +60,46 @@ export function VisualizationDisplay({
     entry: dataFrameEntry,
   } = useDataFrameData(dataFrameId);
 
+  // Get insight and dataTable for aggregation
+  const insight = useMemo(() => {
+    if (!activeViz) return undefined;
+    return insights.find((i) => i.id === activeViz.insightId);
+  }, [activeViz, insights]);
+
+  const dataTable = useMemo(() => {
+    if (!insight) return undefined;
+    return dataTables.find((t) => t.id === insight.baseTableId);
+  }, [insight, dataTables]);
+
+  // Compute aggregated data if insight has metrics/dimensions
+  const aggregatedPreview = useMemo<PreviewResult | null>(() => {
+    if (!dataFrameData || !insight || !dataTable) return null;
+
+    const selectedFields = insight.selectedFields ?? [];
+    const metrics = insight.metrics ?? [];
+
+    // If no aggregation config, return null (use raw data)
+    if (selectedFields.length === 0 && metrics.length === 0) return null;
+
+    return computeInsightPreview(
+      insight,
+      dataTable,
+      dataFrameData,
+      1000, // Allow more rows for visualization
+    );
+  }, [dataFrameData, insight, dataTable]);
+
+  // Use aggregated data if available, otherwise raw data
+  const displayData = useMemo(() => {
+    if (aggregatedPreview) {
+      return {
+        rows: aggregatedPreview.dataFrame.rows,
+        columns: aggregatedPreview.dataFrame.columns ?? [],
+      };
+    }
+    return dataFrameData;
+  }, [aggregatedPreview, dataFrameData]);
+
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
     if (!containerRef.current || !headerRef.current) return null;
@@ -79,7 +123,7 @@ export function VisualizationDisplay({
   };
 
   // Watch container size changes to detect available space for "Show Both" mode
-  const isDataReady = !!activeViz && !!dataFrameData;
+  const isDataReady = !!activeViz && !!displayData;
 
   // Immediate measurement on layout (before paint) to set correct initial tab
   useLayoutEffect(() => {
@@ -106,9 +150,9 @@ export function VisualizationDisplay({
   }, [isDataReady]);
 
   const activeResolved = useMemo(() => {
-    if (!activeViz || !dataFrameData) return null;
-    return { viz: activeViz, dataFrame: dataFrameData, entry: dataFrameEntry };
-  }, [activeViz, dataFrameData, dataFrameEntry]);
+    if (!activeViz || !displayData) return null;
+    return { viz: activeViz, dataFrame: displayData, entry: dataFrameEntry };
+  }, [activeViz, displayData, dataFrameEntry]);
 
   // Compute DuckDB table name from dataFrameId
   // Table naming convention: df_${dataFrameId.replace(/-/g, "_")}

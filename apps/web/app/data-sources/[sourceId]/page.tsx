@@ -2,6 +2,7 @@
 
 import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Input,
@@ -29,11 +30,6 @@ import {
   Cloud as LuCloud,
   MoreHorizontal as LuMoreHorizontal,
   Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
   ItemCard,
 } from "@dashframe/ui";
 import {
@@ -201,31 +197,24 @@ export default function DataSourcePage({ params }: PageProps) {
       <AppLayout
         headerContent={
           <div className="container mx-auto px-6 py-4">
-            <Breadcrumb className="mb-4">
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink
-                    onClick={() => router.push("/data-sources")}
-                    className="hover:text-foreground flex cursor-pointer items-center gap-1"
-                  >
-                    <LuArrowLeft className="h-4 w-4" />
-                    Back
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/data-sources">
-                    Data Sources
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>
-                    {sourceName || "Untitled Source"}
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+            <div className="mb-4">
+              <Breadcrumb
+                LinkComponent={Link}
+                items={[
+                  {
+                    label: (
+                      <span className="flex items-center gap-1">
+                        <LuArrowLeft className="h-4 w-4" />
+                        Back
+                      </span>
+                    ),
+                    href: "/data-sources",
+                  },
+                  { label: "Data Sources", href: "/data-sources" },
+                  { label: sourceName || "Untitled Source" },
+                ]}
+              />
+            </div>
           </div>
         }
         leftPanel={

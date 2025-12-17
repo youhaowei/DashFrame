@@ -199,21 +199,19 @@ const buildOrderClause = (sorts: SortOrderLocal[]): string | undefined => {
 // Table Loading
 // ============================================================================
 
-async function ensureTableLoaded(
+export async function ensureTableLoaded(
   dataFrame: DataFrame,
   conn: AsyncDuckDBConnection,
 ): Promise<string> {
   const tableName = makeTableName(dataFrame.id);
 
-  if (loadedTables.has(tableName)) {
-    return tableName;
-  }
-
+  // Check if there's an ongoing load for this table (mutex prevents concurrent loads)
   const existingLoad = tableLoadingMutex.get(tableName);
   if (existingLoad) {
     return existingLoad;
   }
 
+  // Create mutex promise for this load
   let resolveLoad!: (name: string) => void;
   let rejectLoad!: (err: Error) => void;
   const loadPromise = new Promise<string>((resolve, reject) => {
@@ -223,6 +221,41 @@ async function ensureTableLoaded(
   tableLoadingMutex.set(tableName, loadPromise);
 
   try {
+    // Always check if table exists in DuckDB (even if cache says it's loaded)
+    // This handles cases where DuckDB was reset or table was dropped externally
+    let tableExists = false;
+    try {
+      const checkResult = await conn.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_name = '${tableName}' LIMIT 1`,
+      );
+      tableExists = checkResult.toArray().length > 0;
+      console.log(
+        `[ensureTableLoaded] Table ${tableName} exists check:`,
+        tableExists,
+      );
+    } catch (err) {
+      // If check fails, assume table doesn't exist
+      console.warn(
+        `[ensureTableLoaded] Failed to check table existence for ${tableName}:`,
+        err,
+      );
+      tableExists = false;
+    }
+
+    if (tableExists) {
+      // Table already exists in DuckDB - mark as loaded and return
+      console.log(
+        `[ensureTableLoaded] Skipping load for existing table ${tableName}`,
+      );
+      loadedTables.add(tableName);
+      resolveLoad(tableName);
+      return tableName;
+    }
+
+    // Table doesn't exist - create it
+    console.log(
+      `[ensureTableLoaded] Creating table ${tableName} (dropping first if exists)`,
+    );
     await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
 
     switch (dataFrame.storage.type) {
@@ -303,9 +336,10 @@ export class QueryBuilder {
   /**
    * Load data from storage into DuckDB.
    * Uses global mutex to prevent race conditions.
+   * Public method to allow explicit table loading before queries.
    */
-  private async ensureLoaded(): Promise<string> {
-    if (this.tableName && loadedTables.has(this.tableName)) {
+  async ensureLoaded(): Promise<string> {
+    if (this.tableName) {
       return this.tableName;
     }
 

@@ -8,12 +8,10 @@ import {
   Badge,
   Card,
   CardContent,
-  Toggle,
   Surface,
   BarChart3,
   LineChart,
   TableIcon,
-  Layers,
   Trash2,
   SelectField,
 } from "@dashframe/ui";
@@ -25,8 +23,8 @@ import {
   useDataTables,
   getDataFrame as getDexieDataFrame,
 } from "@dashframe/core";
-import { Chart } from "@dashframe/visualization";
 import { VirtualTable } from "@dashframe/ui";
+import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   UUID,
@@ -46,9 +44,6 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
 }
-
-// Minimum visible rows needed to enable "Show Both" mode
-const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
 // Get icon for visualization type
 function getVizIcon(type: string) {
@@ -116,12 +111,6 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Get the dataFrameId from the dataTable
   const dataFrameId = dataTable?.dataFrameId;
-
-  // Compute DuckDB table name for chart rendering
-  const tableName = useMemo(() => {
-    if (!dataFrameId) return null;
-    return `df_${dataFrameId.replace(/-/g, "_")}`;
-  }, [dataFrameId]);
 
   // Load source DataFrame data async
   const {
@@ -296,11 +285,6 @@ export default function VisualizationPage({ params }: PageProps) {
 
   // Local state
   const [vizName, setVizName] = useState("");
-  const [activeTab, setActiveTab] = useState<string>("both");
-  const [visibleRows, setVisibleRows] = useState<number>(10);
-
-  // Refs for layout calculation
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync visualization name when data loads
   useEffect(() => {
@@ -308,28 +292,6 @@ export default function VisualizationPage({ params }: PageProps) {
       setVizName(visualization.name);
     }
   }, [visualization?.name]);
-
-  // Watch container size for "Show Both" mode availability
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const containerHeight = entry.contentRect.height;
-        const chartHeight = 400;
-        const spacing = 60;
-
-        const availableForTable = containerHeight - chartHeight - spacing;
-        const rowHeight = 30;
-        const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
-
-        setVisibleRows(calculatedVisibleRows);
-      }
-    });
-
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [visualization?.id]);
 
   // Analyze columns for encoding suggestions
   // Simplified to use column types directly instead of full analysis
@@ -372,33 +334,42 @@ export default function VisualizationPage({ params }: PageProps) {
     });
   }, [dataFrame]);
 
-  // Get column options for selects
+  // Get column options for selects - use aggregated columns only
   const columnOptions = useMemo(() => {
+    if (!insight || !dataTable) return [];
+
+    // If insight has aggregation, only show selected fields and metrics
+    const selectedFieldIds = insight.selectedFields ?? [];
+    const metrics = insight.metrics ?? [];
+
+    if (selectedFieldIds.length > 0 || metrics.length > 0) {
+      const options: Array<{ label: string; value: string }> = [];
+
+      // Add selected fields (dimensions) - need to look up field names from dataTable
+      selectedFieldIds.forEach((fieldId) => {
+        const field = dataTable.fields?.find((f) => f.id === fieldId);
+        if (field) {
+          options.push({ label: field.name, value: field.name });
+        }
+      });
+
+      // Add metrics with their aggregation functions
+      // Keep the function format (e.g., "sum(roomattend)") to match encoding values
+      metrics.forEach((metric) => {
+        const value = `${metric.aggregation}(${metric.columnName})`;
+        options.push({ label: value, value });
+      });
+
+      return options;
+    }
+
+    // No aggregation - use all columns from dataFrame
     if (!dataFrame) return [];
     return (dataFrame.columns || []).map((col: DataFrameColumn) => ({
       label: col.name,
       value: col.name,
     }));
-  }, [dataFrame]);
-
-  // Check if enough space for "Both" view
-  const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
-
-  // Auto-switch tabs based on space availability
-  const previousStateRef = useRef({ canShowBoth, activeTab });
-  useEffect(() => {
-    const prev = previousStateRef.current;
-    const canShowBothChanged = prev.canShowBoth !== canShowBoth;
-
-    if (canShowBothChanged) {
-      if (canShowBoth && activeTab !== "both") {
-        setActiveTab("both");
-      } else if (!canShowBoth && activeTab === "both") {
-        setActiveTab("chart");
-      }
-    }
-    previousStateRef.current = { canShowBoth, activeTab };
-  }, [canShowBoth, activeTab]);
+  }, [insight, dataTable, dataFrame]);
 
   // Handle name change
   const handleNameChange = async (newName: string) => {
@@ -527,19 +498,18 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // Visualization type options
+  // Visualization type options (exclude table - use insights for table view)
   const hasNumericColumns = dataFrame?.columns?.some(
     (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-        { label: "Table", value: "table" },
         { label: "Bar Chart", value: "bar" },
         { label: "Line Chart", value: "line" },
         { label: "Scatter Plot", value: "scatter" },
         { label: "Area Chart", value: "area" },
       ]
-    : [{ label: "Table", value: "table" }];
+    : [];
 
   return (
     <AppLayout
@@ -582,36 +552,9 @@ export default function VisualizationPage({ params }: PageProps) {
             )}
           </div>
 
-          {/* View toggle (only for chart types) */}
+          {/* Delete button (only for chart types) */}
           {visualization.visualizationType !== "table" && (
-            <div className="mt-3 flex items-center justify-between">
-              <Toggle
-                variant="default"
-                value={activeTab}
-                onValueChange={setActiveTab}
-                options={[
-                  {
-                    value: "chart",
-                    icon: <BarChart3 className="h-4 w-4" />,
-                    label: "Chart",
-                  },
-                  {
-                    value: "table",
-                    icon: <TableIcon className="h-4 w-4" />,
-                    label: "Data",
-                  },
-                  {
-                    value: "both",
-                    icon: <Layers className="h-4 w-4" />,
-                    label: "Both",
-                    disabled: !canShowBoth,
-                    tooltip: canShowBoth
-                      ? "Show chart and table"
-                      : "Not enough space",
-                  },
-                ]}
-              />
-
+            <div className="mt-3 flex items-center justify-end">
               <Button
                 variant="ghost"
                 size="sm"
@@ -705,14 +648,11 @@ export default function VisualizationPage({ params }: PageProps) {
         ) : undefined
       }
     >
-      <div ref={containerRef} className="h-full overflow-hidden">
+      <div className="h-full overflow-hidden">
         {/* Table-only visualization */}
         {visualization.visualizationType === "table" && (
-          <div className="flex h-full flex-col p-6">
-            <Surface
-              elevation="inset"
-              className="flex min-h-0 flex-1 flex-col p-4"
-            >
+          <div className="flex h-full flex-col">
+            <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col">
               <VirtualTable
                 rows={dataFrame.rows}
                 columns={dataFrame.columns}
@@ -723,66 +663,10 @@ export default function VisualizationPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Chart visualization - chart tab */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "chart" &&
-          tableName && (
-            <div className="h-full p-6">
-              <Chart
-                tableName={tableName}
-                visualizationType={visualization.visualizationType}
-                encoding={visualization.encoding ?? {}}
-                className="h-full w-full"
-              />
-            </div>
-          )}
-
-        {/* Chart visualization - table tab */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "table" && (
-            <div className="flex h-full flex-col p-6">
-              <Surface
-                elevation="inset"
-                className="flex min-h-0 flex-1 flex-col p-4"
-              >
-                <VirtualTable
-                  rows={dataFrame.rows}
-                  columns={dataFrame.columns}
-                  height="100%"
-                  className="flex-1"
-                />
-              </Surface>
-            </div>
-          )}
-
-        {/* Chart visualization - both view */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "both" &&
-          tableName && (
-            <div className="flex h-full flex-col">
-              <div className="h-[60%] min-h-[200px] shrink-0 p-6">
-                <Chart
-                  tableName={tableName}
-                  visualizationType={visualization.visualizationType}
-                  encoding={visualization.encoding ?? {}}
-                  className="h-full w-full"
-                />
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col px-6 pb-6">
-                <Surface
-                  elevation="inset"
-                  className="flex min-h-0 flex-1 flex-col p-4"
-                >
-                  <VirtualTable
-                    rows={dataFrame.rows}
-                    columns={dataFrame.columns}
-                    height="100%"
-                    className="flex-1"
-                  />
-                </Surface>
-              </div>
-            </div>
-          )}
+        {/* Chart visualization with integrated toggle */}
+        {visualization.visualizationType !== "table" && (
+          <VisualizationDisplay visualizationId={visualizationId} />
+        )}
       </div>
     </AppLayout>
   );

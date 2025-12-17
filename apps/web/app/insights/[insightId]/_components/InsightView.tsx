@@ -19,8 +19,7 @@ import type {
   VegaLiteSpec,
 } from "@dashframe/types";
 import { NotFoundView } from "./NotFoundView";
-import { DataSourcesSection } from "./sections/DataSourcesSection";
-import { DataPreviewSection } from "./sections/DataPreviewSection";
+import { DataModelSection } from "./sections/DataModelSection";
 import { ConfigurationPanel } from "./sections/ConfigurationPanel";
 import { SuggestedChartsSection } from "./sections/SuggestedChartsSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
@@ -28,7 +27,7 @@ import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { computeInsightDataFrame } from "@/lib/insights/compute-preview";
+import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import {
   analyzeDataFrame,
   type ColumnAnalysis,
@@ -132,8 +131,17 @@ export function InsightView({ insight }: InsightViewProps) {
   );
 
   const rowCount = baseDataFrameEntry?.rowCount ?? 0;
-  const fieldCount =
-    dataTable?.fields?.filter((f) => !f.name.startsWith("_")).length ?? 0;
+
+  // Compute combined field count (base + joins)
+  const combinedFieldCount = useMemo(() => {
+    if (!dataTable) return 0;
+    const { count } = computeCombinedFields(
+      dataTable,
+      insight.joins,
+      allDataTables,
+    );
+    return count;
+  }, [dataTable, insight.joins, allDataTables]);
 
   // Get visualizations for this insight
   const insightVisualizations = useMemo(
@@ -429,19 +437,12 @@ export function InsightView({ insight }: InsightViewProps) {
     >
       {/* Main content - unified view */}
       <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
-        {/* Data Sources */}
-        <DataSourcesSection
+        {/* Data Model - combines data sources + preview */}
+        <DataModelSection
           insight={insight}
           dataTable={dataTable}
           allDataTables={allDataTables}
-          allTableFields={dataTable?.fields ?? []}
-        />
-
-        {/* Data Preview */}
-        <DataPreviewSection
-          dataTable={dataTable}
-          rowCount={rowCount}
-          fieldCount={fieldCount}
+          combinedFieldCount={combinedFieldCount}
         />
 
         {/* Configuration Panel - Only show if configured */}

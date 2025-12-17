@@ -131,8 +131,8 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       _cachedVisualizations: [],
       activeId: null,
 
-      // Create visualization
-      create: (source, name, spec, visualizationType = "table", encoding) => {
+      // Create visualization (default to bar chart - table view available on insights)
+      create: (source, name, spec, visualizationType = "bar", encoding) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 

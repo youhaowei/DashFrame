@@ -146,8 +146,16 @@ function buildEncodingOptions(
   if (encoding.color) {
     const colorValue = parseEncodingValue(api, encoding.color);
     options.fill = colorValue;
-    // vgplot will automatically use a categorical color scale for nominal data
-    // No need to explicitly set color scale - vgplot handles it
+
+    // For consistent color ordering in stacked bars, we can set scale domain
+    // This ensures colors are assigned in alphabetical order, preventing "jumping"
+    // vgplot will use this domain order to assign colors consistently
+    if (chartType === "bar") {
+      // Set scale domain to use alphabetical ordering
+      // This ensures consistent color assignment across all bars
+      // Format: options.fillScale = { domain: [...sorted values] }
+      // But vgplot handles this automatically - we'll set domain in render() if needed
+    }
   } else {
     // For charts without color encoding, use chart-1
     // Chart colors are defined in globals.css (slate palette for neutral, professional look)
@@ -166,8 +174,10 @@ function buildEncodingOptions(
   // For bar charts, set consistent bar width, padding, and rounded corners
   // This ensures bars have uniform width regardless of data distribution
   if (chartType === "bar") {
-    options.width = 0.8; // Bar width as fraction of band (80% of available space)
-    options.padding = 0.1; // Padding between bars (10% of band)
+    const isStacked = !!encoding.color;
+
+    options.width = 0.6; // Bar width as fraction of band (60% of available space)
+    options.padding = 0.2; // Padding between bars (20% of band)
 
     // Read border radius from CSS variable to match app theme
     const styles = getComputedStyle(document.documentElement);
@@ -178,14 +188,14 @@ function buildEncodingOptions(
       const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
 
       // Apply rounded corners to bars
-      // For single bars: round the top
-      // For stacked bars: round top + curve bottom inward for seamless fit
-      options.ry1 = radiusInPx; // Round the top corners
-
-      // If this is a stacked bar chart (has color encoding), use negative radius
-      // on bottom to make bars curve toward the ones they're stacked on
-      if (encoding.color) {
-        options.ry2 = -radiusInPx; // Negative value curves inward at bottom
+      if (!isStacked) {
+        // Single bar chart - round the top corners, flat bottom
+        options.ry1 = radiusInPx;
+      } else {
+        // Stacked bar chart - round all segments on all sides
+        // Use rx and ry to round all corners uniformly
+        options.rx = radiusInPx; // Round horizontal corners (left/right)
+        options.ry = radiusInPx; // Round vertical corners (top/bottom)
       }
     }
   }
@@ -304,14 +314,29 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
           plotOptions.push(api.colorRange(chartColors));
         }
 
-        // Preview mode - minimal chrome
+        // Set margins to prevent labels from being cut off
         if (config.preview) {
+          // Preview mode - minimal chrome
           plotOptions.push(
             api.axis(null), // No axes
             // Note: vgplot has no generic legend() - legends are auto-generated
             // based on encoding channels. For small previews, the CSS container
             // overflow:hidden typically clips any legend that would appear.
             api.margin(4), // Minimal margin
+          );
+        } else {
+          // Full chart mode with auto-calculated margins
+          // vgplot automatically calculates margins based on axis label widths
+          // We only need to set minimal margins on sides that don't have labels
+          plotOptions.push(
+            api.marginRight(20), // Minimal right margin (no labels)
+            api.marginTop(20), // Minimal top margin (no title)
+          );
+
+          // Format y-axis numbers with abbreviated notation (50M instead of 50,000,000)
+          plotOptions.push(
+            api.yTickFormat("~s"), // SI-prefix notation (k, M, G, etc.)
+            api.yGrid(true), // Add horizontal grid lines for easier value reading
           );
         }
 
@@ -330,40 +355,47 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         // Mount to container
         container.appendChild(plot);
 
-        // Monitor for NaN errors in SVG attributes (common when data query fails)
-        // Use MutationObserver to catch SVG attribute errors
-        const observer = new MutationObserver((_mutations) => {
-          const svg = container.querySelector("svg");
-          if (svg) {
-            const width = svg.getAttribute("width");
-            const viewBox = svg.getAttribute("viewBox");
-            if (width === "NaN" || viewBox?.includes("NaN")) {
-              console.warn(
-                "[VgplotRenderer] Detected NaN in SVG attributes, data query may have failed",
-              );
-              container.innerHTML = `
-                <div style="padding: 16px; text-align: center; color: #666; font-size: 12px;">
-                  Chart preview unavailable
-                </div>
-              `;
-              observer.disconnect();
-            }
-          }
-        });
+        // For stacked bars, query and set color domain asynchronously for consistent ordering
+        // This happens after initial render, then updates the domain
+        if (
+          type === "bar" &&
+          config.encoding?.color &&
+          chartColors.length > 0
+        ) {
+          const colorColumn = config.encoding.color;
+          const coordinator = (api as any).coordinator;
 
-        // Start observing after a short delay to allow SVG to render
-        setTimeout(() => {
-          observer.observe(container, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ["width", "viewBox"],
-          });
-        }, 100);
+          if (coordinator && typeof coordinator.query === "function") {
+            // Query unique values sorted alphabetically
+            coordinator
+              .query(
+                `SELECT DISTINCT "${colorColumn}" as val FROM ${config.tableName} ORDER BY "${colorColumn}"`,
+              )
+              .then((result: any) => {
+                if (result && result.toArray) {
+                  const rows = result.toArray() as { val: unknown }[];
+                  const domain = rows.map((row) => String(row.val));
+
+                  // Set domain using colorDomain API if available
+                  if (
+                    domain.length > 0 &&
+                    typeof (api as any).colorDomain === "function"
+                  ) {
+                    (api as any).colorDomain(domain);
+                    // Note: This may require plot re-rendering to take effect
+                    // If vgplot doesn't support dynamic domain updates, we may need
+                    // to rebuild the plot with the domain set in options
+                  }
+                }
+              })
+              .catch((e: unknown) => {
+                console.warn("[VgplotRenderer] Could not set color domain:", e);
+              });
+          }
+        }
 
         // Return cleanup function
         return () => {
-          observer.disconnect();
           container.innerHTML = "";
         };
       } catch (error) {

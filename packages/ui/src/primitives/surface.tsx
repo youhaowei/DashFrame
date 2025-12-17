@@ -76,8 +76,7 @@ function Surface({
           "border-border/60 bg-card/70 supports-backdrop-filter:bg-card/60 shadow-lg backdrop-blur":
             elevation === "floating",
           // Inset: Sunken surface with inset shadow
-          "border-border/70 bg-background/40 shadow-inner shadow-black/5":
-            elevation === "inset",
+          "border-border bg-muted/30 shadow-inner": elevation === "inset",
         },
         // Interactive states
         interactive && "hover:border-border hover:bg-accent/50 cursor-pointer",

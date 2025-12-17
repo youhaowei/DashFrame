@@ -49,6 +49,7 @@ export {
   QueryBuilder,
   invalidateTableCache,
   clearAllTableCaches,
+  ensureTableLoaded,
 } from "./query-builder";
 
 // ============================================================================
@@ -70,4 +71,10 @@ export type {
 // Analysis Utilities
 // ============================================================================
 
-export * from "./analyze";
+export {
+  analyzeDataFrame,
+  suggestJoinColumns,
+  type ColumnCategory,
+  type ColumnAnalysis,
+  type JoinSuggestion,
+} from "./analyze";

@@ -156,6 +156,8 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
       // Cleanup on unmount using refs to get live values
       connectionRef.current?.close();
       dbRef.current?.terminate();
+      // Clear table caches since DuckDB instance is being destroyed
+      clearAllTableCaches();
     };
   }, []);
 

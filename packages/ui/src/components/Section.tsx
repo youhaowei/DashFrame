@@ -2,6 +2,7 @@ import * as React from "react";
 import { cn } from "../lib/utils";
 import { Surface, type SurfaceProps } from "../primitives/surface";
 import { ButtonGroup, type ItemAction } from "./ButtonGroup";
+import { Skeleton } from "../primitives/skeleton";
 
 export interface SectionProps extends Omit<SurfaceProps, "children"> {
   /** Section title */
@@ -12,6 +13,10 @@ export interface SectionProps extends Omit<SurfaceProps, "children"> {
   actions?: ItemAction[];
   /** Section content */
   children: React.ReactNode;
+  /** Show loading skeleton instead of content */
+  isLoading?: boolean;
+  /** Height of loading skeleton (default: 200px) */
+  loadingHeight?: number;
 }
 
 /**
@@ -43,6 +48,8 @@ export function Section({
   children,
   className,
   elevation = "raised",
+  isLoading = false,
+  loadingHeight = 200,
   ...surfaceProps
 }: SectionProps) {
   return (
@@ -62,8 +69,15 @@ export function Section({
         {actions && actions.length > 0 && <ButtonGroup actions={actions} />}
       </div>
 
-      {/* Content */}
-      {children}
+      {/* Content or Loading Skeleton */}
+      {isLoading ? (
+        <Skeleton
+          className="w-full rounded-xl"
+          style={{ height: loadingHeight }}
+        />
+      ) : (
+        children
+      )}
     </Surface>
   );
 }

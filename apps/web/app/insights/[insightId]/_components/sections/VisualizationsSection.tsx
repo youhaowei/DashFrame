@@ -2,7 +2,7 @@
 
 import { memo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Section, Card, CardContent, Badge, Button } from "@dashframe/ui";
+import { Section, Card, CardContent, Badge } from "@dashframe/ui";
 import {
   BarChart3,
   CircleDot,
@@ -127,12 +127,14 @@ export const VisualizationsSection = memo(function VisualizationsSection({
     <Section
       title="Visualizations"
       description={getVisualizationCountText(visualizations.length)}
-      action={
-        <Button variant="outline" onClick={handleCreateVisualization}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create visualization
-        </Button>
-      }
+      actions={[
+        {
+          label: "Create visualization",
+          icon: Plus,
+          variant: "outline",
+          onClick: handleCreateVisualization,
+        },
+      ]}
     >
       {visualizations.length === 0 ? (
         <Card className="bg-muted/30 border-dashed">

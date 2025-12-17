@@ -20,6 +20,7 @@
  * ```
  */
 
+import { useSyncExternalStore } from "react";
 import type { ChartRenderer, ChartRendererRegistry } from "@dashframe/core";
 import type { VisualizationType } from "@dashframe/types";
 
@@ -32,6 +33,56 @@ import type { VisualizationType } from "@dashframe/types";
  * Maps visualization types to their renderers.
  */
 const rendererMap = new Map<VisualizationType, ChartRenderer>();
+
+/**
+ * Registry version counter.
+ * Increments each time a renderer is registered to trigger re-renders.
+ */
+let registryVersion = 0;
+
+/**
+ * Listeners for registry changes.
+ * Called when a renderer is registered.
+ */
+const listeners = new Set<() => void>();
+
+/**
+ * Subscribe to registry changes.
+ * Returns an unsubscribe function.
+ */
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/**
+ * Notify all listeners that the registry has changed.
+ */
+function notifyListeners(): void {
+  listeners.forEach((listener) => listener());
+}
+
+/**
+ * Get the current registry version.
+ * Used by components to detect when renderers are updated.
+ */
+export function getRegistryVersion(): number {
+  return registryVersion;
+}
+
+/**
+ * React hook to subscribe to registry changes.
+ * Returns the current registry version, triggering re-renders when it changes.
+ *
+ * Use this in Chart components to ensure they re-render when renderers are updated.
+ */
+export function useRegistryVersion(): number {
+  return useSyncExternalStore(
+    subscribe,
+    getRegistryVersion,
+    getRegistryVersion, // Server-side snapshot (same as client)
+  );
+}
 
 /**
  * Register a chart renderer for its supported types.
@@ -58,6 +109,9 @@ export function registerRenderer(renderer: ChartRenderer): void {
   for (const type of renderer.supportedTypes) {
     rendererMap.set(type, renderer);
   }
+  // Increment version and notify listeners to trigger re-renders in Chart components
+  registryVersion++;
+  notifyListeners();
 }
 
 /**
