@@ -1,12 +1,72 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
 import { getRenderer, hasRenderer } from "../registry";
+
+// ============================================================================
+// Theme Detection
+// ============================================================================
+
+/**
+ * Subscribe to CSS variable changes by watching for class changes on documentElement.
+ * This detects when the theme changes (e.g., light/dark mode toggle).
+ */
+function subscribeToThemeChanges(callback: () => void) {
+  const observer = new MutationObserver((mutations) => {
+    // Check if class attribute changed (theme providers typically toggle classes)
+    const hasClassChange = mutations.some(
+      (mutation) =>
+        mutation.type === "attributes" && mutation.attributeName === "class",
+    );
+    if (hasClassChange) {
+      callback();
+    }
+  });
+
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+
+  return () => observer.disconnect();
+}
+
+/**
+ * Read chart color CSS variables to detect theme changes.
+ * Returns a hash of the current chart colors.
+ */
+function getChartColorsSnapshot(): string {
+  if (typeof window === "undefined") return "";
+
+  const styles = getComputedStyle(document.documentElement);
+  const colors = [
+    styles.getPropertyValue("--chart-1").trim(),
+    styles.getPropertyValue("--chart-2").trim(),
+    styles.getPropertyValue("--chart-3").trim(),
+    styles.getPropertyValue("--chart-4").trim(),
+    styles.getPropertyValue("--chart-5").trim(),
+  ];
+
+  // Simple hash: join colors into a string
+  return colors.join("|");
+}
+
+/**
+ * Hook to track chart color changes.
+ * Returns a stable string that changes when theme colors change.
+ */
+function useChartColors(): string {
+  return useSyncExternalStore(
+    subscribeToThemeChanges,
+    getChartColorsSnapshot,
+    () => "", // Server-side snapshot
+  );
+}
 
 // ============================================================================
 // Component Props
@@ -129,6 +189,9 @@ export function Chart({
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  // Track chart colors to detect theme changes
+  const chartColors = useChartColors();
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -181,7 +244,16 @@ export function Chart({
         cleanupRef.current = null;
       }
     };
-  }, [tableName, visualizationType, encoding, width, height, preview, theme]);
+  }, [
+    tableName,
+    visualizationType,
+    encoding,
+    width,
+    height,
+    preview,
+    theme,
+    chartColors, // Re-render when theme changes
+  ]);
 
   // Handle table type
   if (visualizationType === "table") {

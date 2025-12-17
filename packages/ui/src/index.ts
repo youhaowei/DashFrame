@@ -1,6 +1,9 @@
 // Utilities
 export { cn } from "./lib/utils";
 
+// Fonts
+export { GeistSans, GeistMono } from "./lib/fonts";
+
 // Icons
 export * from "./lib/icons";
 export type { LucideIcon } from "./lib/icons";

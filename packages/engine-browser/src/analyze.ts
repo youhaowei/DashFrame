@@ -43,10 +43,13 @@ export type ColumnAnalysis = {
  * Analyze a DuckDB table using SQL queries for accurate full-dataset statistics.
  * Uses SQL aggregations for cardinality, null counts, and type detection.
  *
+ * Performance: Uses batched queries to reduce round-trips from 2N+1 to 2 queries.
+ *
  * @param conn - DuckDB connection
  * @param tableName - Name of the table to analyze (already loaded in DuckDB)
  * @param columns - Column definitions (for column names)
  * @param fields - Optional field metadata for explicit categorization
+ * @param totalRows - Optional total row count to skip COUNT(*) query
  * @returns Array of column analysis results
  */
 export async function analyzeDataFrame(
@@ -54,28 +57,29 @@ export async function analyzeDataFrame(
   tableName: string,
   columns: DataFrameColumn[],
   fields?: Record<string, Field>,
+  totalRows?: number,
 ): Promise<ColumnAnalysis[]> {
   const columnNames = columns.map((col) => col.name);
   const quotedTable = `"${tableName}"`;
 
-  // Get total row count once
-  const countResult = await conn.query(
-    `SELECT COUNT(*) as cnt FROM ${quotedTable}`,
-  );
-  const totalRows = Number((countResult.toArray()[0] as { cnt: bigint }).cnt);
+  // Get total row count (skip if provided)
+  let rowCount: number;
+  if (totalRows !== undefined) {
+    rowCount = totalRows;
+  } else {
+    const countResult = await conn.query(
+      `SELECT COUNT(*) as cnt FROM ${quotedTable}`,
+    );
+    rowCount = Number((countResult.toArray()[0] as { cnt: bigint }).cnt);
+  }
 
-  // Analyze each column using SQL
-  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
-  const analysisPromises = columnNames.map(async (columnName) => {
-    const quotedColumn = `"${columnName}"`;
-
-    try {
-      // Get column statistics in one query
-      // We use TRY_CAST to safely calculate numeric stats for all columns
-      // If conversion fails, these will be NULL which is fine
-      // Use ANY_VALUE for typeof() since DuckDB requires aggregate functions when not in GROUP BY
-      const statsQuery = `
+  // Build batched stats query for all columns (UNION ALL)
+  const statsQuery = columnNames
+    .map((columnName) => {
+      const quotedColumn = `"${columnName}"`;
+      return `
         SELECT
+          '${columnName.replace(/'/g, "''")}' as column_name,
           COUNT(DISTINCT ${quotedColumn}) as cardinality,
           COUNT(*) - COUNT(${quotedColumn}) as null_count,
           ANY_VALUE(typeof(${quotedColumn})) as data_type,
@@ -85,39 +89,68 @@ export async function analyzeDataFrame(
           COUNT(CASE WHEN TRY_CAST(${quotedColumn} AS DOUBLE) = 0 THEN 1 END) as zero_count
         FROM ${quotedTable}
       `;
-      const statsResult = await conn.query(statsQuery);
-      const stats = statsResult.toArray()[0] as {
-        cardinality: bigint;
-        null_count: bigint;
-        data_type: string;
-        min_val: number | null;
-        max_val: number | null;
-        std_dev: number | null;
-        zero_count: bigint;
-      };
+    })
+    .join(" UNION ALL ");
 
+  // Build batched samples query for all columns (UNION ALL)
+  const samplesQuery = columnNames
+    .map((columnName) => {
+      const quotedColumn = `"${columnName}"`;
+      return `
+        SELECT '${columnName.replace(/'/g, "''")}' as col, ${quotedColumn}::VARCHAR as value
+        FROM (SELECT DISTINCT ${quotedColumn} FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL LIMIT 10)
+      `;
+    })
+    .join(" UNION ALL ");
+
+  // Execute both queries in parallel (2 queries total instead of 2N)
+  const [statsResult, samplesResult] = await Promise.all([
+    conn.query(statsQuery),
+    conn.query(samplesQuery),
+  ]);
+
+  // Parse stats results
+  const statsRows = statsResult.toArray() as {
+    column_name: string;
+    cardinality: bigint;
+    null_count: bigint;
+    data_type: string;
+    min_val: number | null;
+    max_val: number | null;
+    std_dev: number | null;
+    zero_count: bigint;
+  }[];
+
+  // Parse samples results and group by column
+  const samplesRows = samplesResult.toArray() as {
+    col: string;
+    value: unknown;
+  }[];
+  const samplesByColumn = new Map<string, unknown[]>();
+  for (const row of samplesRows) {
+    if (!samplesByColumn.has(row.col)) {
+      samplesByColumn.set(row.col, []);
+    }
+    samplesByColumn.get(row.col)!.push(row.value);
+  }
+
+  // Process each column's analysis
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
+  const analyses: ColumnAnalysis[] = statsRows.map((stats) => {
+    const columnName = stats.column_name;
+    const sampleValues = samplesByColumn.get(columnName) ?? [];
+
+    try {
       const cardinality = Number(stats.cardinality);
       const nullCount = Number(stats.null_count);
       const dataType = stats.data_type || "unknown";
-      const nonNullCount = totalRows - nullCount;
+      const nonNullCount = rowCount - nullCount;
       const uniqueness = nonNullCount > 0 ? cardinality / nonNullCount : 0;
 
       const min = stats.min_val ?? undefined;
       const max = stats.max_val ?? undefined;
       const stdDev = stats.std_dev ?? undefined;
       const zeroCount = Number(stats.zero_count);
-
-      // Get sample values for pattern detection
-      const sampleQuery = `
-        SELECT DISTINCT ${quotedColumn} as value
-        FROM ${quotedTable}
-        WHERE ${quotedColumn} IS NOT NULL
-        LIMIT 10
-      `;
-      const sampleResult = await conn.query(sampleQuery);
-      const sampleValues = sampleResult
-        .toArray()
-        .map((row) => (row as { value: unknown }).value);
 
       // Determine category
       let category: ColumnCategory = "unknown";
@@ -223,9 +256,9 @@ export async function analyzeDataFrame(
               category = "url";
             } else if (uuidCount >= threshold) {
               category = "uuid";
-            } else if (uniqueness === 1 && totalRows > 1) {
+            } else if (uniqueness === 1 && rowCount > 1) {
               category = "identifier";
-            } else if (cardinality < totalRows * 0.2 || cardinality < 50) {
+            } else if (cardinality < rowCount * 0.2 || cardinality < 50) {
               category = "categorical";
             } else {
               category = "text";
@@ -265,7 +298,7 @@ export async function analyzeDataFrame(
     }
   });
 
-  return Promise.all(analysisPromises);
+  return analyses;
 }
 
 // ============================================================================

@@ -39,6 +39,44 @@ import type {
 type VgplotAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 
 // ============================================================================
+// Color Conversion Utilities
+// ============================================================================
+
+/**
+ * Convert any CSS color to hex format using Canvas API.
+ * This works for lab, oklch, rgb, hsl, named colors, etc.
+ *
+ * @param color - CSS color string (e.g., "lab(57 64 89)", "oklch(0.6 0.2 41)", "steelblue")
+ * @returns Hex color string (e.g., "#e97838") or fallback color
+ */
+function colorToHex(color: string): string {
+  // Create a canvas to use browser's color parsing
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) return "#6b7280"; // Fallback to gray-500
+
+  // Set the color and draw a pixel
+  ctx.fillStyle = color;
+
+  // Check if color was successfully set (invalid colors result in black or unchanged)
+  const appliedColor = ctx.fillStyle;
+  if (appliedColor === "#000000" || appliedColor === "#000") {
+    console.warn(`[colorToHex] Color conversion failed for: "${color}"`);
+    return "#64748b"; // Fallback to slate-500
+  }
+
+  ctx.fillRect(0, 0, 1, 1);
+
+  // Get the pixel data (RGBA)
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+
+  // Convert to hex
+  return `#${[r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// ============================================================================
 // Aggregation Expression Parsing
 // ============================================================================
 
@@ -110,15 +148,46 @@ function buildEncodingOptions(
     options.fill = colorValue;
     // vgplot will automatically use a categorical color scale for nominal data
     // No need to explicitly set color scale - vgplot handles it
+  } else {
+    // For charts without color encoding, use chart-1
+    // Chart colors are defined in globals.css (slate palette for neutral, professional look)
+    const styles = getComputedStyle(document.documentElement);
+    const chart1Color = styles.getPropertyValue("--chart-1").trim();
+
+    if (chart1Color) {
+      // Convert oklch color to hex that vgplot recognizes as a constant color
+      const hexColor = colorToHex(chart1Color);
+      options.fill = hexColor;
+    }
   }
 
   if (encoding.size) options.r = parseEncodingValue(api, encoding.size);
 
-  // For bar charts, set consistent bar width and padding
+  // For bar charts, set consistent bar width, padding, and rounded corners
   // This ensures bars have uniform width regardless of data distribution
   if (chartType === "bar") {
     options.width = 0.8; // Bar width as fraction of band (80% of available space)
     options.padding = 0.1; // Padding between bars (10% of band)
+
+    // Read border radius from CSS variable to match app theme
+    const styles = getComputedStyle(document.documentElement);
+    const radiusValue = styles.getPropertyValue("--radius").trim();
+    if (radiusValue) {
+      // Parse rem value (e.g., "0.625rem" → 10px at 16px base)
+      // Scale down for charts (about 60% of full radius looks good)
+      const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
+
+      // Apply rounded corners to bars
+      // For single bars: round the top
+      // For stacked bars: round top + curve bottom inward for seamless fit
+      options.ry1 = radiusInPx; // Round the top corners
+
+      // If this is a stacked bar chart (has color encoding), use negative radius
+      // on bottom to make bars curve toward the ones they're stacked on
+      if (encoding.color) {
+        options.ry2 = -radiusInPx; // Negative value curves inward at bottom
+      }
+    }
   }
 
   return options;
@@ -188,15 +257,6 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       config: ChartConfig,
     ): ChartCleanup {
       try {
-        // Debug logging for encoding (can be removed in production)
-        if (config.preview) {
-          console.debug("[VgplotRenderer] Rendering chart", {
-            type,
-            tableName: config.tableName,
-            encoding: config.encoding,
-          });
-        }
-
         // Build the mark
         const mark = buildMark(api, type, config.tableName, config.encoding);
 
@@ -214,6 +274,34 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
           plotOptions.push(api.height("container"));
         } else if (typeof config.height === "number") {
           plotOptions.push(api.height(config.height));
+        }
+
+        // Apply shadcn chart colors from CSS variables
+        // Use computed styles to get CSS variable values
+        const styles = getComputedStyle(document.documentElement);
+
+        // Read chart colors from --chart-1 through --chart-5
+        // Note: Tailwind v4's @theme inline creates --color-chart-* for Tailwind utilities,
+        // but only --chart-* are available at runtime via getComputedStyle
+        const rawColors = [
+          styles.getPropertyValue("--chart-1").trim(),
+          styles.getPropertyValue("--chart-2").trim(),
+          styles.getPropertyValue("--chart-3").trim(),
+          styles.getPropertyValue("--chart-4").trim(),
+          styles.getPropertyValue("--chart-5").trim(),
+        ].filter(Boolean);
+
+        // Convert colors to hex format using Canvas API
+        // This ensures vgplot recognizes them as constant colors, not column names
+        // CSS variables contain oklch() color strings, so pass them directly
+        const chartColors = rawColors.map((color) => {
+          const hex = colorToHex(color);
+          return hex;
+        });
+
+        // Apply color scheme to plot
+        if (chartColors.length > 0) {
+          plotOptions.push(api.colorRange(chartColors));
         }
 
         // Preview mode - minimal chrome

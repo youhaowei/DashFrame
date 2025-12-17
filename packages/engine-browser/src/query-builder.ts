@@ -455,6 +455,56 @@ export class QueryBuilder {
     );
     return Number(result.toArray()[0]?.count ?? 0);
   }
+
+  /**
+   * Execute multiple SQL queries in a single database call using UNION ALL.
+   * Each query result is tagged with an index for separation.
+   *
+   * This helper allows batching multiple independent queries to reduce round-trips.
+   * Example use case: analyzing all columns in a table with one query instead of N queries.
+   *
+   * @param conn - DuckDB connection
+   * @param queries - Array of SQL SELECT statements to execute
+   * @returns Array of result arrays, one per input query in the same order
+   *
+   * @example
+   * ```typescript
+   * const [statsResults, samplesResults] = await QueryBuilder.batchQuery(conn, [
+   *   `SELECT COUNT(*) as count FROM table1`,
+   *   `SELECT DISTINCT col FROM table2 LIMIT 10`
+   * ]);
+   * ```
+   */
+  static async batchQuery<T extends Record<string, unknown>>(
+    conn: AsyncDuckDBConnection,
+    queries: string[],
+  ): Promise<T[][]> {
+    if (queries.length === 0) return [];
+    if (queries.length === 1) {
+      const result = await conn.query(queries[0]);
+      return [result.toArray() as T[]];
+    }
+
+    // Wrap each query with a _batch_idx identifier
+    const wrappedQueries = queries.map(
+      (q, i) => `SELECT ${i} as _batch_idx, * FROM (${q})`,
+    );
+    const combinedSQL = wrappedQueries.join(" UNION ALL ");
+
+    const result = await conn.query(combinedSQL);
+    const rows = result.toArray() as (T & { _batch_idx: number })[];
+
+    // Partition results by _batch_idx
+    const partitioned: T[][] = queries.map(() => []);
+    for (const row of rows) {
+      const idx = row._batch_idx;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _batch_idx, ...rest } = row;
+      partitioned[idx].push(rest as unknown as T);
+    }
+
+    return partitioned;
+  }
 }
 
 // Re-export types for convenience
