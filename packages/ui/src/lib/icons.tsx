@@ -25,6 +25,7 @@ import {
   LuExternalLink,
   LuEye,
   LuGripHorizontal,
+  LuGripVertical,
   LuInfo,
   LuLightbulb,
   LuMerge,
@@ -38,7 +39,9 @@ import {
   LuLoader,
   LuMenu,
   LuMoon,
+  LuSearch,
   LuSettings,
+  LuSettings2,
   LuShield,
   LuEllipsisVertical,
   LuPlus,
@@ -161,3 +164,6 @@ export { LuCalculator as Calculator };
 export { LuExternalLink as ExternalLink };
 export { LuEye as Eye };
 export { LuGripHorizontal as GripHorizontal };
+export { LuGripVertical as GripVertical };
+export { LuSearch as Search };
+export { LuSettings2 as Settings2 };

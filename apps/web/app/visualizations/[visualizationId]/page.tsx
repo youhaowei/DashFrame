@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState, useEffect, useMemo, useRef } from "react";
+import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Button,
+  PrimitiveButton,
   Input,
   Badge,
   Card,
@@ -447,9 +447,12 @@ export default function VisualizationPage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
-          <Button onClick={() => router.push("/insights")} className="mt-4">
+          <PrimitiveButton
+            onClick={() => router.push("/insights")}
+            className="mt-4"
+          >
             Go to Insights
-          </Button>
+          </PrimitiveButton>
         </div>
       </div>
     );
@@ -462,10 +465,14 @@ export default function VisualizationPage({ params }: PageProps) {
         headerContent={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" onClick={() => router.back()}>
+              <PrimitiveButton
+                variant="ghost"
+                size="sm"
+                onClick={() => router.back()}
+              >
                 <LuArrowLeft className="mr-2 h-4 w-4" />
                 Back
-              </Button>
+              </PrimitiveButton>
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
             </div>
           </div>
@@ -483,13 +490,13 @@ export default function VisualizationPage({ params }: PageProps) {
                 from the source insight.
               </p>
               {visualization.insightId && (
-                <Button
+                <PrimitiveButton
                   onClick={() =>
                     router.push(`/insights/${visualization.insightId}`)
                   }
                 >
                   Go to Source Insight
-                </Button>
+                </PrimitiveButton>
               )}
             </CardContent>
           </Card>
@@ -516,10 +523,14 @@ export default function VisualizationPage({ params }: PageProps) {
       headerContent={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <PrimitiveButton
+              variant="ghost"
+              size="sm"
+              onClick={() => router.back()}
+            >
               <LuArrowLeft className="mr-2 h-4 w-4" />
               Back
-            </Button>
+            </PrimitiveButton>
             <div className="min-w-[220px] flex-1">
               <Input
                 value={vizName}
@@ -555,7 +566,7 @@ export default function VisualizationPage({ params }: PageProps) {
           {/* Delete button (only for chart types) */}
           {visualization.visualizationType !== "table" && (
             <div className="mt-3 flex items-center justify-end">
-              <Button
+              <PrimitiveButton
                 variant="ghost"
                 size="sm"
                 className="text-destructive hover:text-destructive"
@@ -563,7 +574,7 @@ export default function VisualizationPage({ params }: PageProps) {
               >
                 <Trash2 className="mr-1 h-4 w-4" />
                 Delete
-              </Button>
+              </PrimitiveButton>
             </div>
           )}
         </div>

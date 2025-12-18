@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Loader2,
   ChevronDown,
-  Button,
+  PrimitiveButton,
   Surface,
   Collapsible,
   CollapsibleContent,
@@ -219,10 +219,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const actionsFooter = (
     <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
       <div className="space-y-2">
-        <Button variant="destructive" className="w-full" onClick={handleDelete}>
+        <PrimitiveButton
+          variant="destructive"
+          className="w-full"
+          onClick={handleDelete}
+        >
           <Trash2 className="mr-2 h-4 w-4" />
           Delete Data Source
-        </Button>
+        </PrimitiveButton>
       </div>
     </CollapsibleSection>
   );
@@ -420,14 +424,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                                   {db.title}
                                 </p>
                               </div>
-                              <Button
+                              <PrimitiveButton
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleAddDatabase(db)}
                                 className="h-6 px-2"
                               >
                                 <Plus className="h-3 w-3" />
-                              </Button>
+                              </PrimitiveButton>
                             </div>
                           ))}
                         </div>

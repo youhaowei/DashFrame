@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
   Surface,
-  Button,
+  PrimitiveButton,
   ChevronDown,
   ChevronUp,
   Database,
@@ -114,9 +114,9 @@ function PreviewContent({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <p className="text-muted-foreground text-sm">Preview collapsed</p>
-        <Button variant="outline" size="sm" onClick={onExpandPreview}>
+        <PrimitiveButton variant="outline" size="sm" onClick={onExpandPreview}>
           Expand preview
-        </Button>
+        </PrimitiveButton>
       </div>
     );
   }
@@ -556,7 +556,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                     </div>
                   )}
                   {/* Sync Button */}
-                  <Button
+                  <PrimitiveButton
                     onClick={handleSyncData}
                     disabled={
                       isRefreshing ||
@@ -572,7 +572,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                       )}
                     />
                     {isRefreshing ? "Syncing..." : "Sync Data"}
-                  </Button>
+                  </PrimitiveButton>
                 </div>
               </div>
             </CardHeader>
@@ -654,7 +654,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {selectedDataTable &&
                   notionPreviewData &&
                   dataSource.type === "notion" && (
-                    <Button
+                    <PrimitiveButton
                       variant="ghost"
                       size="sm"
                       onClick={handleRefreshDataTable}
@@ -668,7 +668,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                         )}
                       />
                       {isRefreshing ? "Refreshing..." : "Refresh"}
-                    </Button>
+                    </PrimitiveButton>
                   )}
               </div>
               <CardDescription>
@@ -680,7 +680,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               </CardDescription>
             </div>
             {selectedDataTable && notionPreviewData && (
-              <Button
+              <PrimitiveButton
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
@@ -694,7 +694,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 ) : (
                   <ChevronUp className="h-4 w-4" />
                 )}
-              </Button>
+              </PrimitiveButton>
             )}
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">

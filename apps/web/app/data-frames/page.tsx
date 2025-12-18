@@ -9,7 +9,7 @@ import {
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Button,
+  PrimitiveButton,
   ArrowUpDown,
   Input,
   Dialog,
@@ -35,7 +35,7 @@ export default function DataFramesPage() {
         accessorKey: "name",
         header: ({ column }) => {
           return (
-            <Button
+            <PrimitiveButton
               variant="ghost"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
@@ -43,7 +43,7 @@ export default function DataFramesPage() {
             >
               Name
               <ArrowUpDown className="ml-2 h-4 w-4" />
-            </Button>
+            </PrimitiveButton>
           );
         },
         cell: ({ row }) => (
@@ -91,7 +91,7 @@ export default function DataFramesPage() {
         accessorKey: "createdAt",
         header: ({ column }) => {
           return (
-            <Button
+            <PrimitiveButton
               variant="ghost"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
@@ -99,7 +99,7 @@ export default function DataFramesPage() {
             >
               Created
               <ArrowUpDown className="ml-2 h-4 w-4" />
-            </Button>
+            </PrimitiveButton>
           );
         },
         cell: ({ row }) => (
@@ -180,10 +180,15 @@ export default function DataFramesPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingFrame(null)}>
+            <PrimitiveButton
+              variant="outline"
+              onClick={() => setEditingFrame(null)}
+            >
               Cancel
-            </Button>
-            <Button onClick={handleSaveEdit}>Save changes</Button>
+            </PrimitiveButton>
+            <PrimitiveButton onClick={handleSaveEdit}>
+              Save changes
+            </PrimitiveButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

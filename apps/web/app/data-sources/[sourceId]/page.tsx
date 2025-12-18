@@ -4,7 +4,7 @@ import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Button,
+  PrimitiveButton,
   Input,
   Badge,
   Card,
@@ -184,9 +184,12 @@ export default function DataSourcePage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The data source you&apos;re looking for doesn&apos;t exist.
           </p>
-          <Button onClick={() => router.push("/data-sources")} className="mt-4">
+          <PrimitiveButton
+            onClick={() => router.push("/data-sources")}
+            className="mt-4"
+          >
             Go to Data Sources
-          </Button>
+          </PrimitiveButton>
         </div>
       </div>
     );
@@ -274,15 +277,17 @@ export default function DataSourcePage({ params }: PageProps) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Button onClick={() => handleCreateInsight(selectedTableId)}>
+                <PrimitiveButton
+                  onClick={() => handleCreateInsight(selectedTableId)}
+                >
                   <Plus className="mr-2 h-4 w-4" />
                   Create Insight
-                </Button>
+                </PrimitiveButton>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
+                    <PrimitiveButton variant="ghost" size="icon">
                       <LuMoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    </PrimitiveButton>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
@@ -441,7 +446,7 @@ export default function DataSourcePage({ params }: PageProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <PrimitiveButton
               variant="outline"
               onClick={() =>
                 setDeleteConfirmState({
@@ -452,10 +457,13 @@ export default function DataSourcePage({ params }: PageProps) {
               }
             >
               Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleConfirmDelete}>
+            </PrimitiveButton>
+            <PrimitiveButton
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
               Delete Table
-            </Button>
+            </PrimitiveButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

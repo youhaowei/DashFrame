@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import {
-  Button,
+  PrimitiveButton,
   ItemList,
   type ListItem,
   type LucideIcon,
@@ -52,14 +52,14 @@ export function DashboardSection({
           {Icon && <Icon className="h-5 w-5" />}
           {title}
         </h2>
-        <Button
+        <PrimitiveButton
           variant="ghost"
           size="sm"
           onClick={() => router.push(viewAllHref)}
         >
           View all
           <LuArrowRight className="ml-2 h-4 w-4" />
-        </Button>
+        </PrimitiveButton>
       </div>
       <ItemList
         items={items}

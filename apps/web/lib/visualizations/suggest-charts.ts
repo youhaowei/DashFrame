@@ -85,6 +85,10 @@ export interface ChartSuggestion {
   chartType: VisualizationType;
   encoding: VisualizationEncoding;
   rationale?: string; // Why this chart was suggested
+  /** Fields that would be newly added (not currently in insight) */
+  newFields?: string[];
+  /** Whether this suggestion uses only existing fields (no new additions) */
+  usesExistingFieldsOnly?: boolean;
 }
 
 /**
@@ -113,6 +117,24 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
 }
 
 /**
+ * Options for chart suggestion generation
+ */
+export interface SuggestChartsOptions {
+  /** Maximum number of suggestions (default: 3) */
+  limit?: number;
+  /** Optional mapping of columns to tables */
+  columnTableMap?: Record<string, string[]>;
+  /** Optional seed for randomness (default: 0 for deterministic behavior) */
+  seed?: number;
+  /** Chart types to exclude (e.g., types already created as visualizations) */
+  excludeChartTypes?: VisualizationType[];
+  /** Field names currently selected in the insight (for highlighting new fields) */
+  existingFields?: string[];
+  /** Encoding signatures to exclude (e.g., "x|y|color" strings from existing visualizations) */
+  excludeEncodings?: Set<string>;
+}
+
+/**
  * Suggests up to 3 chart visualizations based on the insight's data structure.
  * Uses heuristics to match chart types to field categories.
  *
@@ -120,9 +142,7 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
  * @param analysis - Column analysis results from DuckDB
  * @param rowCount - Total number of rows in the dataset
  * @param fields - Field definitions for analysis
- * @param limit - Maximum number of suggestions (default: 3)
- * @param columnTableMap - Optional mapping of columns to tables
- * @param seed - Optional seed for randomness (default: 0 for deterministic behavior)
+ * @param options - Configuration options for suggestion generation
  * @returns Array of chart suggestions
  */
 export function suggestCharts(
@@ -130,10 +150,65 @@ export function suggestCharts(
   analysis: ColumnAnalysis[],
   rowCount: number,
   fields: Record<string, Field>,
-  limit = 3,
-  columnTableMap?: Record<string, string[]>,
-  seed = 0,
+  options: SuggestChartsOptions = {},
 ): ChartSuggestion[] {
+  const {
+    limit = 3,
+    columnTableMap,
+    seed = 0,
+    excludeChartTypes = [],
+    existingFields = [],
+    excludeEncodings,
+  } = options;
+
+  // Convert existing fields to a Set for O(1) lookup
+  const existingFieldSet = new Set(existingFields);
+
+  // Convert excluded chart types to a Set for O(1) lookup
+  const excludedChartTypeSet = new Set(excludeChartTypes);
+
+  // Helper to create encoding signature for deduplication
+  const getEncodingSignature = (encoding: VisualizationEncoding): string => {
+    return [encoding.x ?? "", encoding.y ?? "", encoding.color ?? ""].join("|");
+  };
+
+  // Helper to check if a suggestion should be excluded (matches existing visualization)
+  const isExcludedEncoding = (encoding: VisualizationEncoding): boolean => {
+    if (!excludeEncodings || excludeEncodings.size === 0) return false;
+    return excludeEncodings.has(getEncodingSignature(encoding));
+  };
+
+  // Helper to extract raw field names from encoding (strips aggregation wrappers)
+  const extractFieldsFromEncoding = (
+    encoding: VisualizationEncoding,
+  ): string[] => {
+    const fields: string[] = [];
+    const extractField = (value?: string) => {
+      if (!value) return;
+      // Strip aggregation wrapper: sum(field) -> field, dateMonth(field) -> field
+      const match = value.match(
+        /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+      );
+      fields.push(match ? match[1] : value);
+    };
+    extractField(encoding.x);
+    extractField(encoding.y);
+    extractField(encoding.color);
+    extractField(encoding.size);
+    return fields;
+  };
+
+  // Helper to annotate a suggestion with new field info
+  const annotateSuggestion = (suggestion: ChartSuggestion): ChartSuggestion => {
+    const usedFields = extractFieldsFromEncoding(suggestion.encoding);
+    const newFields = usedFields.filter((f) => !existingFieldSet.has(f));
+    return {
+      ...suggestion,
+      newFields: newFields.length > 0 ? newFields : undefined,
+      usesExistingFieldsOnly: newFields.length === 0,
+    };
+  };
+
   // Create seeded random for reproducible variety
   const random = createSeededRandom(seed);
 
@@ -274,77 +349,97 @@ export function suggestCharts(
   });
 
   const suggestions: ChartSuggestion[] = [];
+  const usedSignatures = new Set<string>(); // Track signatures we've already added
+
+  // Helper to add suggestion if not excluded and not duplicate
+  const addSuggestion = (suggestion: ChartSuggestion): boolean => {
+    const sig = getEncodingSignature(suggestion.encoding);
+    if (isExcludedEncoding(suggestion.encoding)) return false;
+    if (usedSignatures.has(sig)) return false;
+    usedSignatures.add(sig);
+    suggestions.push(suggestion);
+    return true;
+  };
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
+  // Try multiple combinations if first choice is excluded
   if (categorical.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(categorical, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? categorical[0];
-    const yCol = pair?.[1] ?? numerical[0];
-    const xAxisType = getAxisType(xCol);
-
-    suggestions.push({
-      id: `bar-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} by ${xCol.columnName}`,
-      chartType: "bar",
-      encoding: {
-        x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: xAxisType,
-        yType: "quantitative",
-      },
-      rationale: "Categorical dimension with numeric measure",
-    });
+    for (const xCol of categorical) {
+      for (const yCol of numerical) {
+        const xAxisType = getAxisType(xCol);
+        const encoding: VisualizationEncoding = {
+          x: xCol.columnName,
+          y: `sum(${yCol.columnName})`,
+          xType: xAxisType,
+          yType: "quantitative",
+        };
+        if (
+          addSuggestion({
+            id: `bar-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} by ${xCol.columnName}`,
+            chartType: "bar",
+            encoding,
+            rationale: "Categorical dimension with numeric measure",
+          })
+        )
+          break; // Found a valid one, stop trying
+      }
+      if (suggestions.some((s) => s.chartType === "bar" && !s.encoding.color))
+        break;
+    }
   }
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
   // Use dateMonth() binning to aggregate dates by month for readable time series
   if (temporal.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? temporal[0];
-    const yCol = pair?.[1] ?? numerical[numerical.length > 1 ? 1 : 0];
-
-    suggestions.push({
-      id: `line-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} by month`,
-      chartType: "line",
-      encoding: {
-        x: `dateMonth(${xCol.columnName})`, // Bin dates by month for aggregation
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: "temporal",
-        yType: "quantitative",
-      },
-      rationale: "Time series data aggregated by month",
-    });
+    for (const xCol of temporal) {
+      for (const yCol of numerical) {
+        const encoding: VisualizationEncoding = {
+          x: `dateMonth(${xCol.columnName})`,
+          y: `sum(${yCol.columnName})`,
+          xType: "temporal",
+          yType: "quantitative",
+        };
+        if (
+          addSuggestion({
+            id: `line-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} by month`,
+            chartType: "line",
+            encoding,
+            rationale: "Time series data aggregated by month",
+          })
+        )
+          break;
+      }
+      if (suggestions.some((s) => s.chartType === "line")) break;
+    }
   }
 
   // Heuristic 3: Scatter Plot (2 numerical columns)
   if (numerical.length >= 2) {
-    const pair = pickBestPair(numerical, numerical, columnTableMap, {
-      disallowSame: true,
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? numerical[0];
-    const yCol = pair?.[1] ?? numerical[1];
-
-    suggestions.push({
-      id: `scatter-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} vs ${xCol.columnName}`,
-      chartType: "scatter",
-      encoding: {
-        x: xCol.columnName,
-        y: yCol.columnName,
-        xType: "quantitative",
-        yType: "quantitative",
-      },
-      rationale: "Two numeric dimensions for correlation",
-    });
+    outer: for (let i = 0; i < numerical.length; i++) {
+      for (let j = 0; j < numerical.length; j++) {
+        if (i === j) continue;
+        const xCol = numerical[i];
+        const yCol = numerical[j];
+        const encoding: VisualizationEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+        };
+        if (
+          addSuggestion({
+            id: `scatter-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} vs ${xCol.columnName}`,
+            chartType: "scatter",
+            encoding,
+            rationale: "Two numeric dimensions for correlation",
+          })
+        )
+          break outer;
+      }
+    }
   }
 
   // Heuristic 4: Area Chart (alternative to line for temporal data)
@@ -354,67 +449,100 @@ export function suggestCharts(
     numerical.length > 0 &&
     !suggestions.some((s) => s.chartType === "line")
   ) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? temporal[0];
-    const yCol = pair?.[1] ?? numerical[0];
-
-    suggestions.push({
-      id: `area-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} trend`,
-      chartType: "area",
-      encoding: {
-        x: `dateMonth(${xCol.columnName})`, // Bin dates by month for aggregation
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: "temporal",
-        yType: "quantitative",
-      },
-      rationale: "Cumulative trend visualization by month",
-    });
+    for (const xCol of temporal) {
+      for (const yCol of numerical) {
+        const encoding: VisualizationEncoding = {
+          x: `dateMonth(${xCol.columnName})`,
+          y: `sum(${yCol.columnName})`,
+          xType: "temporal",
+          yType: "quantitative",
+        };
+        if (
+          addSuggestion({
+            id: `area-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} trend`,
+            chartType: "area",
+            encoding,
+            rationale: "Cumulative trend visualization by month",
+          })
+        )
+          break;
+      }
+      if (suggestions.some((s) => s.chartType === "area")) break;
+    }
   }
 
   // Heuristic 5: Grouped Bar (categorical X + color + numerical Y)
-  // Use colorSuitable for color encoding (lower cardinality for readable legends)
+  // Only suggest when color adds meaningful segmentation without creating unreadable thin bars
+  // Skip entirely if conditions aren't ideal - the basic bar chart already covers this case
+  //
+  // Key insight: Color is only useful if it creates visible variation in the chart.
+  // Use maxFrequencyRatio to detect dominated distributions (e.g., 95% "Yes" / 5% "No")
   if (
     categorical.length >= 1 &&
     colorSuitable.length >= 1 &&
     numerical.length > 0
   ) {
-    const triple = pickBestTriple(
-      categorical,
-      colorSuitable,
-      numerical,
-      columnTableMap,
-      random,
-    ) ?? [categorical[0], colorSuitable[0], numerical[0]];
-    const xCol = triple[0];
-    const colorCol = triple[1];
-    const yCol = triple[2];
-    const xAxisType = getAxisType(xCol);
+    // Find the best X column (lowest cardinality for readable bars)
+    const xCol = categorical.reduce((best, col) =>
+      col.cardinality < best.cardinality ? col : best,
+    );
 
-    suggestions.push({
-      id: `bar-grouped-${xCol.columnName}-${colorCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} by ${xCol.columnName} and ${colorCol.columnName}`,
-      chartType: "bar",
-      encoding: {
+    // Find a suitable color column with requirements:
+    // - Different from X axis
+    // - 2-6 categories (need at least 2 for color to make sense)
+    // - Distribution not dominated by one value (maxFrequencyRatio < 0.8)
+    // - Combined cardinality reasonable for readability
+    const colorCol = colorSuitable.find((col) => {
+      if (col.columnName === xCol.columnName) return false;
+      if (col.cardinality < 2 || col.cardinality > 6) return false;
+      if (xCol.cardinality * col.cardinality > 18) return false;
+
+      // Check distribution uniformity - reject if one category dominates
+      // maxFrequencyRatio of 0.8 means 80%+ of rows have the same value
+      const maxFreqRatio = col.maxFrequencyRatio ?? 1;
+      if (maxFreqRatio > 0.7) return false; // Dominated distribution, not useful
+
+      return true;
+    });
+
+    // Only add grouped bar if we found a genuinely useful color dimension
+    if (colorCol && numerical.length > 0) {
+      const yCol = numerical[0];
+      const xAxisType = getAxisType(xCol);
+      const encoding: VisualizationEncoding = {
         x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
+        y: `sum(${yCol.columnName})`,
         xType: xAxisType,
         yType: "quantitative",
         color: colorCol.columnName,
-      },
-      rationale: "Multi-dimensional categorical comparison",
-    });
+      };
+      addSuggestion({
+        id: `bar-grouped-${xCol.columnName}-${colorCol.columnName}-${yCol.columnName}`,
+        title: `${yCol.columnName} by ${xCol.columnName} and ${colorCol.columnName}`,
+        chartType: "bar",
+        encoding,
+        rationale: "Multi-dimensional categorical comparison",
+      });
+    }
   }
 
-  // Rank by preference and return top N
-  return rankSuggestions(
-    suggestions,
+  // Filter out excluded chart types and encodings that match existing visualizations
+  const filteredSuggestions = suggestions.filter(
+    (s) =>
+      !excludedChartTypeSet.has(s.chartType) && !isExcludedEncoding(s.encoding),
+  );
+
+  // Rank by preference
+  const rankedSuggestions = rankSuggestions(
+    filteredSuggestions,
     columnTableMap,
     1 + (insight.joins?.length ?? 0),
-  ).slice(0, limit);
+    existingFieldSet,
+  );
+
+  // Annotate with new field info and return top N
+  return rankedSuggestions.slice(0, limit).map(annotateSuggestion);
 }
 
 /**
@@ -633,17 +761,38 @@ function tablesUsedBySuggestion(
 }
 
 /**
+ * Extract field names from a suggestion's encoding
+ */
+function getFieldsFromSuggestion(suggestion: ChartSuggestion): string[] {
+  const fields: string[] = [];
+  const extractField = (value?: string) => {
+    if (!value) return;
+    // Strip aggregation wrapper: sum(field) -> field, dateMonth(field) -> field
+    const match = value.match(
+      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+    );
+    fields.push(match ? match[1] : value);
+  };
+  extractField(suggestion.encoding.x);
+  extractField(suggestion.encoding.y);
+  extractField(suggestion.encoding.color);
+  extractField(suggestion.encoding.size);
+  return fields;
+}
+
+/**
  * Ranks suggestions by preference.
- * Priority:
- * 1. Line/Area (temporal data is highly valuable)
- * 2. Bar (most common/understandable)
- * 3. Scatter (more specialized)
- * 4. Grouped charts (more complex)
+ * Priority (highest to lowest):
+ * 1. Uses only existing fields (no new additions needed)
+ * 2. Uses more tables (for multi-table insights)
+ * 3. Chart type priority: Line/Area > Bar > Scatter > Table
+ * 4. Simpler encodings (no color) over complex ones
  */
 function rankSuggestions(
   suggestions: ChartSuggestion[],
   columnTableMap?: Record<string, string[]>,
   totalTables = 1,
+  existingFieldSet?: Set<string>,
 ): ChartSuggestion[] {
   const priority: Record<VisualizationType, number> = {
     line: 1,
@@ -653,7 +802,21 @@ function rankSuggestions(
     table: 4,
   };
 
+  // Helper to count new fields (fields not in existingFieldSet)
+  const countNewFields = (suggestion: ChartSuggestion): number => {
+    if (!existingFieldSet || existingFieldSet.size === 0) return 0;
+    const fields = getFieldsFromSuggestion(suggestion);
+    return fields.filter((f) => !existingFieldSet.has(f)).length;
+  };
+
   return suggestions.sort((a, b) => {
+    // HIGHEST PRIORITY: Prefer suggestions that use existing fields only
+    const aNewFields = countNewFields(a);
+    const bNewFields = countNewFields(b);
+    if (aNewFields !== bNewFields) {
+      return aNewFields - bNewFields; // Fewer new fields = higher rank
+    }
+
     const aTables = tablesUsedBySuggestion(a, columnTableMap);
     const bTables = tablesUsedBySuggestion(b, columnTableMap);
     const aTableCount = aTables.size;

@@ -7,7 +7,7 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  Button,
+  PrimitiveButton,
   FieldError,
 } from "@dashframe/ui";
 import dynamic from "next/dynamic";
@@ -99,9 +99,13 @@ export function ConnectorCard({
 
         {/* Connect button for remote-api connectors */}
         {connector.sourceType === "remote-api" && (
-          <Button onClick={onConnect} disabled={isLoading} className="w-full">
+          <PrimitiveButton
+            onClick={onConnect}
+            disabled={isLoading}
+            className="w-full"
+          >
             {isLoading ? "Connecting..." : "Connect"}
-          </Button>
+          </PrimitiveButton>
         )}
 
         {/* Submit-level error */}

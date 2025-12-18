@@ -37,6 +37,8 @@ export type ColumnAnalysis = {
   max?: number;
   stdDev?: number;
   zeroCount?: number;
+  /** Ratio of the most frequent value (0-1). High value = dominated by one category */
+  maxFrequencyRatio?: number;
 };
 
 /**
@@ -103,10 +105,23 @@ export async function analyzeDataFrame(
     })
     .join(" UNION ALL ");
 
-  // Execute both queries in parallel (2 queries total instead of 2N)
-  const [statsResult, samplesResult] = await Promise.all([
+  // Build batched max frequency query for categorical columns
+  // This finds the count of the most common value for each column
+  const maxFreqQuery = columnNames
+    .map((columnName) => {
+      const quotedColumn = `"${columnName}"`;
+      return `
+        SELECT '${columnName.replace(/'/g, "''")}' as column_name, MAX(cnt) as max_freq
+        FROM (SELECT COUNT(*) as cnt FROM ${quotedTable} GROUP BY ${quotedColumn})
+      `;
+    })
+    .join(" UNION ALL ");
+
+  // Execute all queries in parallel (3 queries total instead of 3N)
+  const [statsResult, samplesResult, maxFreqResult] = await Promise.all([
     conn.query(statsQuery),
     conn.query(samplesQuery),
+    conn.query(maxFreqQuery),
   ]);
 
   // Parse stats results
@@ -132,6 +147,16 @@ export async function analyzeDataFrame(
       samplesByColumn.set(row.col, []);
     }
     samplesByColumn.get(row.col)!.push(row.value);
+  }
+
+  // Parse max frequency results
+  const maxFreqRows = maxFreqResult.toArray() as {
+    column_name: string;
+    max_freq: bigint;
+  }[];
+  const maxFreqByColumn = new Map<string, number>();
+  for (const row of maxFreqRows) {
+    maxFreqByColumn.set(row.column_name, Number(row.max_freq));
   }
 
   // Process each column's analysis
@@ -267,6 +292,10 @@ export async function analyzeDataFrame(
         }
       }
 
+      // Compute max frequency ratio (what % of rows have the most common value)
+      const maxFreq = maxFreqByColumn.get(columnName) ?? 0;
+      const maxFrequencyRatio = rowCount > 0 ? maxFreq / rowCount : undefined;
+
       return {
         columnName,
         category,
@@ -281,6 +310,7 @@ export async function analyzeDataFrame(
         max,
         stdDev,
         zeroCount,
+        maxFrequencyRatio,
       };
     } catch (error) {
       console.warn(

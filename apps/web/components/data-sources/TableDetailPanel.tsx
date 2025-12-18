@@ -5,7 +5,7 @@ import type { DataTable } from "@dashframe/types";
 import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  Button,
+  PrimitiveButton,
   Plus,
   Edit3,
   X,
@@ -172,10 +172,10 @@ export function TableDetailPanel({
               {dataTable.fields.length} field
               {dataTable.fields.length !== 1 ? "s" : ""}
             </p>
-            <Button variant="outline" size="sm" onClick={onAddField}>
+            <PrimitiveButton variant="outline" size="sm" onClick={onAddField}>
               <Plus className="mr-2 h-4 w-4" />
               Add Field
-            </Button>
+            </PrimitiveButton>
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -200,22 +200,22 @@ export function TableDetailPanel({
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <Button
+                    <PrimitiveButton
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => onEditField(field.id)}
                       className="h-8 w-8"
                     >
                       <Edit3 className="h-4 w-4" />
-                    </Button>
-                    <Button
+                    </PrimitiveButton>
+                    <PrimitiveButton
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => onDeleteField(field.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8"
                     >
                       <X className="h-4 w-4" />
-                    </Button>
+                    </PrimitiveButton>
                   </div>
                 </div>
               ))
@@ -232,10 +232,10 @@ export function TableDetailPanel({
               {dataTable.metrics.length} metric
               {dataTable.metrics.length !== 1 ? "s" : ""}
             </p>
-            <Button variant="outline" size="sm" onClick={onAddMetric}>
+            <PrimitiveButton variant="outline" size="sm" onClick={onAddMetric}>
               <Plus className="mr-2 h-4 w-4" />
               Add Metric
-            </Button>
+            </PrimitiveButton>
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -264,14 +264,14 @@ export function TableDetailPanel({
                         {formula}
                       </span>
                     </div>
-                    <Button
+                    <PrimitiveButton
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => onDeleteMetric(metric.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8 shrink-0"
                     >
                       <X className="h-4 w-4" />
-                    </Button>
+                    </PrimitiveButton>
                   </div>
                 );
               })

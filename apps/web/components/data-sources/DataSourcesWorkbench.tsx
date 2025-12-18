@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  Button,
+  PrimitiveButton,
 } from "@dashframe/ui";
 import { toast } from "sonner";
 import type { Field, Metric } from "@dashframe/types";
@@ -373,7 +373,7 @@ export function DataSourcesWorkbench() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <PrimitiveButton
               variant="outline"
               onClick={() =>
                 setDeleteConfirmState({
@@ -384,10 +384,13 @@ export function DataSourcesWorkbench() {
               }
             >
               Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleConfirmDelete}>
+            </PrimitiveButton>
+            <PrimitiveButton
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
               Delete Table
-            </Button>
+            </PrimitiveButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

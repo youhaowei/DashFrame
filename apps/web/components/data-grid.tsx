@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import {
   MoreHorizontal,
-  Button,
+  PrimitiveButton,
   Surface,
   DropdownMenu,
   DropdownMenuContent,
@@ -60,10 +60,10 @@ export function DataGrid<TData>({
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
+                      <PrimitiveButton variant="ghost" className="h-8 w-8 p-0">
                         <span className="sr-only">Open menu</span>
                         <MoreHorizontal className="h-4 w-4" />
-                      </Button>
+                      </PrimitiveButton>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
@@ -118,9 +118,9 @@ export function DataGrid<TData>({
         <p className="text-foreground text-base font-medium">{emptyMessage}</p>
         <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (
-          <Button onClick={onCreate} className="mt-4">
+          <PrimitiveButton onClick={onCreate} className="mt-4">
             Create New
-          </Button>
+          </PrimitiveButton>
         )}
       </Surface>
     );

@@ -11,9 +11,9 @@ export interface ItemCardProps {
    */
   icon?: React.ReactNode;
   /**
-   * Primary title text
+   * Primary title text. Optional when using card for non-text content.
    */
-  title: string;
+  title?: string;
   /**
    * Optional subtitle or metadata text
    */
@@ -146,8 +146,11 @@ export function ItemCard({
   const wrapperProps = getWrapperProps();
 
   // Content section (icon + title + subtitle + badge + actions)
+  // Compact mode uses p-3.5 for better visual separation from Input fields
   const contentSection = (
-    <div className={cn("flex items-start gap-3", preview ? "p-4" : "p-3")}>
+    <div
+      className={cn("flex items-start gap-3", preview ? "p-4" : "px-3.5 py-3")}
+    >
       {/* Icon with background (optional) */}
       {icon && (
         <div
@@ -164,21 +167,25 @@ export function ItemCard({
 
       {/* Content */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p
-            className={cn(
-              "truncate text-sm font-medium transition-all",
-              active ? "text-primary" : "text-foreground",
+        {(title || badge) && (
+          <div className="flex items-center gap-2">
+            {title && (
+              <p
+                className={cn(
+                  "truncate text-sm font-medium transition-all",
+                  active ? "text-primary" : "text-foreground",
+                )}
+              >
+                {title}
+              </p>
             )}
-          >
-            {title}
-          </p>
-          {badge && (
-            <span className="text-muted-foreground shrink-0 text-xs">
-              {badge}
-            </span>
-          )}
-        </div>
+            {badge && (
+              <span className="text-muted-foreground shrink-0 text-xs">
+                {badge}
+              </span>
+            )}
+          </div>
+        )}
         {subtitle && (
           <p className="text-muted-foreground mt-1 truncate text-xs">
             {subtitle}
@@ -204,8 +211,8 @@ export function ItemCard({
       <Wrapper
         {...wrapperProps}
         className={cn(
-          "group w-full overflow-hidden rounded-xl border text-left transition-all",
-          onClick && "cursor-pointer hover:shadow-md",
+          "group w-full overflow-hidden rounded-lg border text-left transition-all",
+          onClick && "hover:bg-accent/50 cursor-pointer",
           active
             ? "border-primary ring-primary ring-2"
             : "border-border/60 hover:border-border",
@@ -227,15 +234,16 @@ export function ItemCard({
   }
 
   // Compact mode: horizontal layout (original behavior)
+  // Uses subtle bg-card/50 to visually distinguish from Input fields
   return (
     <Wrapper
       {...wrapperProps}
       className={cn(
-        "group w-full rounded-xl border text-left transition-all",
-        onClick && "cursor-pointer hover:shadow-md",
+        "group w-full rounded-lg border text-left transition-all",
+        onClick && "hover:bg-accent/50 cursor-pointer",
         active
           ? "border-primary bg-primary/5"
-          : "border-border/60 hover:border-border",
+          : "border-border/60 bg-card/50 hover:border-border hover:bg-accent/30",
         className,
       )}
     >

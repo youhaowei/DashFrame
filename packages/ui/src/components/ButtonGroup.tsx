@@ -20,6 +20,71 @@ export interface ButtonGroupProps {
 }
 
 /**
+ * Group consecutive actions with the same group identifier.
+ * Single actions are returned as-is, while grouped actions are returned as arrays.
+ */
+function groupActions(actions: ItemAction[]): (ItemAction | ItemAction[])[] {
+  const result: (ItemAction | ItemAction[])[] = [];
+  let currentGroup: ItemAction[] = [];
+  let currentGroupId: string | undefined;
+
+  for (const action of actions) {
+    if (action.group && action.group === currentGroupId) {
+      currentGroup.push(action);
+    } else {
+      if (currentGroup.length > 0) {
+        result.push(
+          currentGroup.length === 1 ? currentGroup[0]! : currentGroup,
+        );
+      }
+      currentGroup = [action];
+      currentGroupId = action.group;
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    result.push(currentGroup.length === 1 ? currentGroup[0]! : currentGroup);
+  }
+
+  return result;
+}
+
+/**
+ * Render a dropdown menu action with nested items.
+ */
+function DropdownAction({
+  action,
+  iconOnly,
+}: {
+  action: ItemAction;
+  iconOnly: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          label={action.label}
+          icon={action.icon}
+          variant={action.variant}
+          size={action.size}
+          iconOnly={action.iconOnly ?? iconOnly}
+          className={action.className}
+          tooltip={action.tooltip}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {action.actions?.map((nestedAction, nestedIndex) => (
+          <DropdownMenuItem key={nestedIndex} onClick={nestedAction.onClick}>
+            {nestedAction.icon && <nestedAction.icon aria-hidden />}
+            {nestedAction.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
  * ButtonGroup - Renders a group of action buttons with grouping and dropdown support
  *
  * Standard component for rendering groups of action buttons in DashFrame.
@@ -57,34 +122,7 @@ export function ButtonGroup({
 }: ButtonGroupProps) {
   if (actions.length === 0) return null;
 
-  // Group consecutive actions with the same group identifier
-  const groupedActions: (ItemAction | ItemAction[])[] = [];
-  let currentGroup: ItemAction[] = [];
-  let currentGroupId: string | undefined;
-
-  for (const action of actions) {
-    if (action.group && action.group === currentGroupId) {
-      // Same group - add to current group
-      currentGroup.push(action);
-    } else {
-      // Different group or no group
-      if (currentGroup.length > 0) {
-        // Push previous group
-        groupedActions.push(
-          currentGroup.length === 1 ? currentGroup[0]! : currentGroup,
-        );
-      }
-      // Start new group
-      currentGroup = [action];
-      currentGroupId = action.group;
-    }
-  }
-  // Push final group
-  if (currentGroup.length > 0) {
-    groupedActions.push(
-      currentGroup.length === 1 ? currentGroup[0]! : currentGroup,
-    );
-  }
+  const groupedActions = groupActions(actions);
 
   return (
     <div
@@ -96,30 +134,7 @@ export function ButtonGroup({
           // Dropdown action (has nested actions)
           if (item.actions && item.actions.length > 0) {
             return (
-              <DropdownMenu key={index}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    label={item.label}
-                    icon={item.icon}
-                    variant={item.variant}
-                    size={item.size}
-                    iconOnly={item.iconOnly ?? iconOnly}
-                    className={item.className}
-                    tooltip={item.tooltip}
-                  />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {item.actions.map((nestedAction, nestedIndex) => (
-                    <DropdownMenuItem
-                      key={nestedIndex}
-                      onClick={nestedAction.onClick}
-                    >
-                      {nestedAction.icon && <nestedAction.icon aria-hidden />}
-                      {nestedAction.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <DropdownAction key={index} action={item} iconOnly={iconOnly} />
             );
           }
 

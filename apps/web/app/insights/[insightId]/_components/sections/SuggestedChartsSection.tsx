@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Section } from "@dashframe/ui";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
@@ -11,6 +11,8 @@ interface SuggestedChartsSectionProps {
   isLoading?: boolean;
   onCreateChart: (suggestion: ChartSuggestion) => void;
   onRegenerate: () => void;
+  /** Whether the insight already has visualizations (uses muted buttons) */
+  hasExistingVisualizations?: boolean;
 }
 
 /**
@@ -27,19 +29,28 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
   isLoading = false,
   onCreateChart,
   onRegenerate,
+  hasExistingVisualizations = false,
 }: SuggestedChartsSectionProps) {
+  // Check if any suggestions would add new fields
+  const hasNewFields = useMemo(
+    () => suggestions.some((s) => s.newFields && s.newFields.length > 0),
+    [suggestions],
+  );
+
+  // Build contextual description
+  const description = useMemo(() => {
+    if (isLoading) return "Analyzing data...";
+    if (hasNewFields) {
+      return 'Fields marked with "+ new" will be added to your insight configuration';
+    }
+    return "Click a suggestion to create a visualization";
+  }, [isLoading, hasNewFields]);
+
   return (
-    <Section
-      title="Suggested charts"
-      description={
-        isLoading
-          ? "Analyzing data..."
-          : "Click a suggestion to create a visualization"
-      }
-    >
+    <Section title="Suggested charts" description={description}>
       {isLoading ? (
         // Loading skeleton
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4">
           {[1, 2, 3].map((i) => (
             <div
               key={i}
@@ -57,6 +68,7 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
           suggestions={suggestions}
           onCreateChart={onCreateChart}
           onRegenerate={onRegenerate}
+          secondaryActions={hasExistingVisualizations}
         />
       )}
     </Section>

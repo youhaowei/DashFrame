@@ -2,7 +2,7 @@
 /* eslint-disable sonarjs/cognitive-complexity, sonarjs/no-nested-conditional */
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, memo } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { DataFrameColumn, DataFrameRow } from "@dashframe/types";
 import {
@@ -16,7 +16,7 @@ import {
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import {
-  Button,
+  PrimitiveButton,
   Card,
   CardContent,
   CardHeader,
@@ -1187,9 +1187,11 @@ export function InsightConfigureTab({
         columnAnalysis,
         rowCount,
         fieldMap as any,
-        3,
-        columnTableMap,
-        suggestionSeed,
+        {
+          limit: 3,
+          columnTableMap,
+          seed: suggestionSeed,
+        },
       );
 
       console.debug("[Suggestions] Generated suggestions", {
@@ -1543,14 +1545,14 @@ export function InsightConfigureTab({
                   Tables used in this insight
                 </p>
               </div>
-              <Button
+              <PrimitiveButton
                 variant="outline"
                 size="sm"
                 onClick={() => setIsJoinFlowOpen(true)}
               >
                 <Plus className="mr-1 h-4 w-4" />
                 Add join
-              </Button>
+              </PrimitiveButton>
             </div>
             <ItemList
               items={dataSourceItems}
@@ -1713,12 +1715,15 @@ export function InsightConfigureTab({
                 dataset.
               </p>
               <div className="flex gap-3">
-                <Button variant="outline" size="sm">
+                <PrimitiveButton variant="outline" size="sm">
                   Create custom visualization
-                </Button>
-                <Button size="sm" onClick={() => setIsJoinFlowOpen(true)}>
+                </PrimitiveButton>
+                <PrimitiveButton
+                  size="sm"
+                  onClick={() => setIsJoinFlowOpen(true)}
+                >
                   Join with another dataset
-                </Button>
+                </PrimitiveButton>
               </div>
             </div>
           </div>
@@ -1810,14 +1815,14 @@ export function InsightConfigureTab({
                 Tables used in this insight
               </p>
             </div>
-            <Button
+            <PrimitiveButton
               variant="outline"
               size="sm"
               onClick={() => setIsJoinFlowOpen(true)}
             >
               <Plus className="mr-1 h-4 w-4" />
               Add join
-            </Button>
+            </PrimitiveButton>
           </div>
           <ItemList
             items={dataSourceItems}
@@ -2089,9 +2094,9 @@ export function InsightConfigureTab({
       <div className="bg-card/90 sticky bottom-0 border-t px-6 py-4 backdrop-blur-sm">
         <div className="container mx-auto max-w-6xl">
           <div className="flex justify-end">
-            <Button disabled={selectedFields.length === 0}>
+            <PrimitiveButton disabled={selectedFields.length === 0}>
               Create Visualization
-            </Button>
+            </PrimitiveButton>
           </div>
         </div>
       </div>

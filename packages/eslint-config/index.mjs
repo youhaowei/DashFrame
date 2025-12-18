@@ -15,6 +15,9 @@ const noUnusedVarsRule = [
 
 export const sharedRules = {
   "@typescript-eslint/no-unused-vars": noUnusedVarsRule,
+  // Allow TODO/FIXME comments - these track legitimate future work
+  "sonarjs/todo-tag": "off",
+  "sonarjs/fixme-tag": "off",
 };
 
 const sharedConfig = defineConfig([

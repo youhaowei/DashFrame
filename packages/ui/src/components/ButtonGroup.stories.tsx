@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ButtonGroup } from "./ButtonGroup";
 import { Plus, Trash2, Refresh, Database, Edit3, X } from "../lib/icons";
 

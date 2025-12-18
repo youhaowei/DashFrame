@@ -12,7 +12,10 @@ const preview: Preview = {
         date: /Date$/i,
       },
     },
+    // Disable Chromatic snapshots by default - enable per-story with chromatic: { disableSnapshot: false }
+    chromatic: { disableSnapshot: true },
   },
+  tags: ["autodocs"],
   globalTypes: {
     theme: {
       description: "Global theme for components",

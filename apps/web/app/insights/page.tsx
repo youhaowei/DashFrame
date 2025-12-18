@@ -39,7 +39,7 @@ function getInsightState(
   return "draft";
 }
 import {
-  Button,
+  PrimitiveButton,
   Card,
   CardContent,
   Input,
@@ -245,14 +245,14 @@ export default function InsightsPage() {
           {/* Actions */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
+              <PrimitiveButton
                 variant="ghost"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
-              </Button>
+              </PrimitiveButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -296,10 +296,10 @@ export default function InsightsPage() {
                 total
               </p>
             </div>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
+            <PrimitiveButton onClick={() => setIsCreateModalOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New Insight
-            </Button>
+            </PrimitiveButton>
           </div>
           <div className="relative">
             <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
@@ -351,7 +351,7 @@ export default function InsightsPage() {
                 <h2 className="text-muted-foreground text-sm font-semibold">
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
-                <Button
+                <PrimitiveButton
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:text-destructive"
@@ -359,7 +359,7 @@ export default function InsightsPage() {
                 >
                   <Trash2 className="mr-1 h-4 w-4" />
                   Delete all
-                </Button>
+                </PrimitiveButton>
               </div>
               <div className="grid gap-3">
                 {groupedInsights.drafts.map(renderInsightCard)}
@@ -381,9 +381,12 @@ export default function InsightsPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     No insights match &quot;{searchQuery}&quot;
                   </p>
-                  <Button variant="outline" onClick={() => setSearchQuery("")}>
+                  <PrimitiveButton
+                    variant="outline"
+                    onClick={() => setSearchQuery("")}
+                  >
                     Clear search
-                  </Button>
+                  </PrimitiveButton>
                 </>
               ) : (
                 <>
@@ -393,10 +396,10 @@ export default function InsightsPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     Create your first insight to start analyzing data
                   </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>
+                  <PrimitiveButton onClick={() => setIsCreateModalOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
                     New Insight
-                  </Button>
+                  </PrimitiveButton>
                 </>
               )}
             </div>

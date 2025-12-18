@@ -1,0 +1,117 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Design System/Overview" />
+
+# DashFrame Design System
+
+This document outlines the core design tokens and patterns used throughout DashFrame.
+
+## Border Radius
+
+Border radius uses CSS variables defined in `globals.css`. Changing `--radius` scales all components proportionally.
+
+```css
+--radius: 0.625rem;                      /* 10px - base */
+--radius-sm: calc(var(--radius) - 4px);  /* 6px */
+--radius-md: calc(var(--radius) - 2px);  /* 8px */
+--radius-lg: var(--radius);              /* 10px */
+--radius-xl: calc(var(--radius) + 4px);  /* 14px */
+```
+
+### Component Mapping
+
+| Tailwind Class | Size | Usage |
+| -------------- | ---- | ----- |
+| `rounded-sm` | 6px | Form inputs (Input, Select trigger, Checkbox), menu items |
+| `rounded-md` | 8px | Buttons, popovers, dropdowns, tooltips, navigation triggers |
+| `rounded-lg` | 10px | Cards (ItemCard), dialogs, alerts, containers |
+| `rounded-xl` | 14px | Surface, large panels, badges |
+| `rounded-full` | 50% | Switches, avatars, pills, circular icons |
+
+### Visual Hierarchy
+
+```
+rounded-sm (6px)  →  Form elements (sharp, action-oriented)
+rounded-md (8px)  →  Interactive overlays (buttons, menus)
+rounded-lg (10px) →  Content containers (cards, dialogs)
+rounded-xl (14px) →  Surface containers (panels, badges)
+rounded-full      →  Circular elements (toggles, avatars)
+```
+
+---
+
+## Spacing
+
+Consistent padding and margin values:
+
+| Token | Value | Usage |
+| ----- | ----- | ----- |
+| `p-3` | 12px | Compact items (ItemCard compact) |
+| `p-4` | 16px | Compact containers |
+| `p-6` | 24px | Standard containers |
+| `p-8` | 32px | Spacious containers |
+
+---
+
+## Colors
+
+DashFrame uses semantic color tokens that adapt to light/dark themes.
+
+### Background & Foreground
+
+| Token | Light | Dark | Usage |
+| ----- | ----- | ---- | ----- |
+| `bg-background` | White | Near black | Page background |
+| `bg-card` | White | Near black | Card surfaces |
+| `bg-muted` | Light gray | Dark gray | Subtle backgrounds |
+| `bg-accent` | Light gray | Dark gray | Hover states |
+
+### Border Colors
+
+| Token | Usage |
+| ----- | ----- |
+| `border-border` | Default borders (darker, for inputs) |
+| `border-border/60` | Subtle borders (lighter, for cards) |
+
+### Text Colors
+
+| Token | Usage |
+| ----- | ----- |
+| `text-foreground` | Primary text |
+| `text-muted-foreground` | Secondary/helper text |
+| `text-primary` | Accent/active text |
+
+---
+
+## Icon Sizing
+
+| Size | Class | Usage |
+| ---- | ----- | ----- |
+| 16px | `h-4 w-4` | Inline with text, buttons |
+| 20px | `h-5 w-5` | Standalone icons |
+| 24px | `h-6 w-6` | Featured/hero icons |
+
+---
+
+## Typography
+
+- **No UPPERCASE text** (except acronyms: CSV, API)
+- Use **sentence case** everywhere
+- Font sizes follow Tailwind defaults (`text-xs`, `text-sm`, `text-base`, etc.)
+
+---
+
+## Component Differentiation
+
+### Input vs ItemCard
+
+These components have similar dimensions but should be visually distinct:
+
+| Property | Input | ItemCard |
+| -------- | ----- | -------- |
+| Border radius | `rounded-sm` (6px) | `rounded-lg` (10px) |
+| Border color | `border-border` (darker) | `border-border/60` (lighter) |
+| Background | Transparent | `bg-card/50` (subtle fill) |
+| Purpose | Editable field | Content container |
+
+**Key insight:** Inputs are sharp and outlined (action-oriented), cards are soft and filled (content containers).

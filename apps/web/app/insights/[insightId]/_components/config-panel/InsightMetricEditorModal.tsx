@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import type { Field, Metric } from "@dashframe/types";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  PrimitiveButton,
+  Button,
   Input,
   Label,
   Select,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@dashframe/ui";
+import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
 
 type AggregationType =
   | "sum"
@@ -27,39 +27,67 @@ type AggregationType =
   | "max"
   | "count_distinct";
 
-interface MetricEditorModalProps {
+interface InsightMetricEditorModalProps {
   isOpen: boolean;
-  tableId: string;
-  availableFields: Field[];
-  onSave: (metric: Omit<Metric, "id">) => void;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
+  dataTable: DataTable;
+  insightId: UUID;
+  onSave: (metric: InsightMetric) => void;
 }
 
-export function MetricEditorModal({
+/**
+ * InsightMetricEditorModal - Dialog for creating insight metrics
+ *
+ * Allows user to:
+ * - Select an aggregation type (sum, avg, count, etc.)
+ * - Select a column to aggregate (except for count)
+ * - Customize the metric name
+ */
+export function InsightMetricEditorModal({
   isOpen,
-  tableId,
-  availableFields,
+  onOpenChange,
+  dataTable,
+  insightId,
   onSave,
-  onClose,
-}: MetricEditorModalProps) {
+}: InsightMetricEditorModalProps) {
   const [name, setName] = useState("");
   const [aggregation, setAggregation] = useState<AggregationType>("count");
-  const [fieldColumnName, setFieldColumnName] = useState<string>("");
+  const [columnName, setColumnName] = useState<string>("");
+
+  // Get available fields (exclude internal _ prefixed)
+  const availableFields = useMemo(
+    () =>
+      (dataTable.fields ?? []).filter(
+        (f) => !f.name.startsWith("_") && f.columnName,
+      ),
+    [dataTable.fields],
+  );
+
+  // Get numeric fields for sum/avg
+  const numericFields = useMemo(
+    () =>
+      availableFields.filter((f) =>
+        ["number", "integer", "float", "decimal"].includes(
+          f.type.toLowerCase(),
+        ),
+      ),
+    [availableFields],
+  );
 
   // Auto-generate name based on aggregation and field
   const autoGenerateName = () => {
-    if (aggregation === "count" && !fieldColumnName) {
+    if (aggregation === "count" && !columnName) {
       return "Count";
     }
 
-    if (!fieldColumnName) {
+    if (!columnName) {
       return "";
     }
 
-    const field = availableFields.find((f) => f.columnName === fieldColumnName);
+    const field = availableFields.find((f) => f.columnName === columnName);
     if (!field) return "";
 
-    const aggregationNames = {
+    const aggregationNames: Record<AggregationType, string> = {
       sum: "Total",
       avg: "Average",
       count: "Count",
@@ -71,76 +99,82 @@ export function MetricEditorModal({
     return `${aggregationNames[aggregation]} ${field.name}`;
   };
 
-  // Update name when aggregation or field changes (if name is empty or auto-generated)
+  // Update name when aggregation or field changes
   useEffect(() => {
     const suggestedName = autoGenerateName();
     if (suggestedName && (!name || name === autoGenerateName())) {
       setName(suggestedName);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregation, fieldColumnName]);
+  }, [aggregation, columnName]);
 
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
       setName("");
       setAggregation("count");
-      setFieldColumnName("");
+      setColumnName("");
     }
   }, [isOpen]);
 
   const handleSave = () => {
     if (!name.trim()) return;
 
-    // Count aggregation doesn't need a field
-    const columnName =
-      aggregation === "count" ? undefined : fieldColumnName || undefined;
+    // Generate unique ID
+    const id = crypto.randomUUID() as UUID;
 
-    onSave({
+    const metric: InsightMetric = {
+      id,
       name: name.trim(),
-      tableId,
-      columnName,
+      sourceTable: dataTable.id,
+      columnName: aggregation === "count" ? undefined : columnName || undefined,
       aggregation,
-    });
+    };
 
-    onClose();
+    onSave(metric);
+    onOpenChange(false);
   };
 
-  const handleCancel = () => {
-    onClose();
+  const handleClose = () => {
+    onOpenChange(false);
   };
 
   // Generate formula preview
   const getFormulaPreview = () => {
-    if (aggregation === "count" && !fieldColumnName) {
-      return "count()";
+    if (aggregation === "count" && !columnName) {
+      return "count(*)";
     }
 
-    if (!fieldColumnName) {
+    if (!columnName) {
       return `${aggregation}(?)`;
     }
 
-    return `${aggregation}(${fieldColumnName})`;
+    return `${aggregation}(${columnName})`;
   };
 
   // Check if field selection is required
   const needsField = aggregation !== "count";
 
+  // Determine which fields to show based on aggregation
+  const fieldsForSelect =
+    aggregation === "sum" || aggregation === "avg"
+      ? numericFields
+      : availableFields;
+
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Metric</DialogTitle>
+          <DialogTitle>Add metric</DialogTitle>
           <DialogDescription>
-            Create a new aggregation metric to calculate values across your
-            data.
+            Create an aggregation metric to calculate values across your data.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           {/* Aggregation Type */}
           <div className="space-y-2">
-            <Label htmlFor="aggregation">Aggregation Type</Label>
+            <Label htmlFor="aggregation">Aggregation type</Label>
             <Select
               value={aggregation}
               onValueChange={(v) => setAggregation(v as AggregationType)}
@@ -154,7 +188,7 @@ export function MetricEditorModal({
                 <SelectItem value="avg">Average</SelectItem>
                 <SelectItem value="min">Minimum</SelectItem>
                 <SelectItem value="max">Maximum</SelectItem>
-                <SelectItem value="count_distinct">Count Distinct</SelectItem>
+                <SelectItem value="count_distinct">Count distinct</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -163,21 +197,24 @@ export function MetricEditorModal({
           {needsField && (
             <div className="space-y-2">
               <Label htmlFor="field">Field</Label>
-              <Select
-                value={fieldColumnName}
-                onValueChange={setFieldColumnName}
-              >
+              <Select value={columnName} onValueChange={setColumnName}>
                 <SelectTrigger id="field">
                   <SelectValue placeholder="Select a field" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableFields
-                    .filter((f) => f.columnName) // Only show fields with columnName
-                    .map((field) => (
+                  {fieldsForSelect.length === 0 ? (
+                    <div className="text-muted-foreground p-2 text-center text-sm">
+                      {aggregation === "sum" || aggregation === "avg"
+                        ? "No numeric fields available"
+                        : "No fields available"}
+                    </div>
+                  ) : (
+                    fieldsForSelect.map((field) => (
                       <SelectItem key={field.id} value={field.columnName!}>
                         {field.name} ({field.type})
                       </SelectItem>
-                    ))}
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -185,20 +222,19 @@ export function MetricEditorModal({
 
           {/* Metric Name */}
           <div className="space-y-2">
-            <Label htmlFor="metric-name">Metric Name</Label>
+            <Label htmlFor="metric-name">Metric name</Label>
             <Input
               id="metric-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter metric name"
-              autoFocus
             />
           </div>
 
           {/* Formula Preview */}
           <div className="bg-muted rounded-lg p-3">
             <p className="text-muted-foreground mb-1 text-xs font-medium">
-              Formula Preview
+              Formula preview
             </p>
             <code className="text-foreground font-mono text-sm">
               {getFormulaPreview()}
@@ -207,15 +243,12 @@ export function MetricEditorModal({
         </div>
 
         <DialogFooter>
-          <PrimitiveButton variant="outline" onClick={handleCancel}>
-            Cancel
-          </PrimitiveButton>
-          <PrimitiveButton
+          <Button label="Cancel" variant="outline" onClick={handleClose} />
+          <Button
+            label="Add metric"
             onClick={handleSave}
-            disabled={!name.trim() || (needsField && !fieldColumnName)}
-          >
-            Add Metric
-          </PrimitiveButton>
+            disabled={!name.trim() || (needsField && !columnName)}
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

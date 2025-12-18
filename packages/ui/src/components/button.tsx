@@ -24,6 +24,10 @@ export interface ButtonProps {
    * Automatically uses icon size variants (icon, icon-sm, icon-lg) based on size prop
    */
   iconOnly?: boolean;
+  /**
+   * Whether the button is disabled
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -120,6 +124,7 @@ export function Button({
   className,
   tooltip,
   iconOnly = false,
+  disabled,
 }: ButtonProps) {
   const shouldShowLabel = !iconOnly || !Icon;
   const buttonContent = children || (
@@ -151,6 +156,7 @@ export function Button({
       aria-label={iconOnly ? label : undefined}
       onClick={onClick}
       asChild={asChild}
+      disabled={disabled}
     >
       {buttonContent}
     </PrimitiveButton>

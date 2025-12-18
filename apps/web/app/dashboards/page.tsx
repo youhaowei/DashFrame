@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Button,
+  PrimitiveButton,
   Input,
   Surface,
   Dialog,
@@ -62,10 +62,10 @@ export default function DashboardsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
+        <PrimitiveButton onClick={() => setIsCreateOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New Dashboard
-        </Button>
+        </PrimitiveButton>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -81,10 +81,13 @@ export default function DashboardsPage() {
               Create your first dashboard to start organizing your
               visualizations.
             </p>
-            <Button className="mt-6" onClick={() => setIsCreateOpen(true)}>
+            <PrimitiveButton
+              className="mt-6"
+              onClick={() => setIsCreateOpen(true)}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Create Dashboard
-            </Button>
+            </PrimitiveButton>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -102,7 +105,7 @@ export default function DashboardsPage() {
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
                       <LayoutDashboard className="h-5 w-5" />
                     </div>
-                    <Button
+                    <PrimitiveButton
                       variant="ghost"
                       size="icon"
                       className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
@@ -113,7 +116,7 @@ export default function DashboardsPage() {
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </PrimitiveButton>
                   </div>
                   <h3 className="text-foreground mb-1 font-semibold">
                     {dashboard.name}
@@ -152,12 +155,18 @@ export default function DashboardsPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+            <PrimitiveButton
+              variant="outline"
+              onClick={() => setIsCreateOpen(false)}
+            >
               Cancel
-            </Button>
-            <Button onClick={handleCreate} disabled={!newDashboardName.trim()}>
+            </PrimitiveButton>
+            <PrimitiveButton
+              onClick={handleCreate}
+              disabled={!newDashboardName.trim()}
+            >
               Create
-            </Button>
+            </PrimitiveButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

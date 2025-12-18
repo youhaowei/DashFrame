@@ -7,7 +7,7 @@ import {
   BarChart3,
   Notion,
   File,
-  Button,
+  PrimitiveButton,
   Surface,
   ItemSelector,
   type SelectableItem,
@@ -110,13 +110,13 @@ export function DataSourceSelector({
           Upload CSV files or connect to Notion to start analyzing your data.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <Button variant="outline" asChild size="sm">
+          <PrimitiveButton variant="outline" asChild size="sm">
             <Link href="/">View Visualizations</Link>
-          </Button>
-          <Button onClick={onCreateClick} size="sm">
+          </PrimitiveButton>
+          <PrimitiveButton onClick={onCreateClick} size="sm">
             <Plus className="mr-2 h-4 w-4" />
             Add Data Source
-          </Button>
+          </PrimitiveButton>
         </div>
       </Surface>
     );

@@ -19,7 +19,7 @@ import {
   X,
   Settings,
   Trash2,
-  Button,
+  PrimitiveButton,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -126,7 +126,7 @@ function SidebarContent({
             >
               {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
-                <Button
+                <PrimitiveButton
                   variant="ghost"
                   size="icon"
                   onClick={onToggleCollapse}
@@ -141,7 +141,7 @@ function SidebarContent({
                   ) : (
                     <ChevronLeft className="h-3.5 w-3.5" />
                   )}
-                </Button>
+                </PrimitiveButton>
               )}
             </div>
           )}
@@ -339,14 +339,14 @@ export function Navigation() {
       </button>
 
       {/* Mobile Toggle Button */}
-      <Button
+      <PrimitiveButton
         variant="ghost"
         size="icon"
         onClick={() => setIsOpen(true)}
         className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
       >
         <Menu className="h-5 w-5" />
-      </Button>
+      </PrimitiveButton>
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -354,13 +354,13 @@ export function Navigation() {
           <div className="flex h-screen flex-col">
             <div className="border-border/60 flex items-center justify-between border-b p-4">
               <span className="text-sm font-semibold">Menu</span>
-              <Button
+              <PrimitiveButton
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsOpen(false)}
               >
                 <X className="h-4 w-4" />
-              </Button>
+              </PrimitiveButton>
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent onClearData={() => setShowClearConfirm(true)} />
@@ -380,15 +380,15 @@ export function Navigation() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <PrimitiveButton
               variant="outline"
               onClick={() => setShowClearConfirm(false)}
             >
               Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleClearAllData}>
+            </PrimitiveButton>
+            <PrimitiveButton variant="destructive" onClick={handleClearAllData}>
               Clear all data
-            </Button>
+            </PrimitiveButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

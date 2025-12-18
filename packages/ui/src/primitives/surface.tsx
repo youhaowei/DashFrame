@@ -65,7 +65,7 @@ function Surface({
       data-slot="surface"
       className={cn(
         // Base styles
-        "rounded-2xl border transition-colors",
+        "rounded-xl border transition-colors",
         // Elevation variants
         {
           // Plain: Minimal flat surface, border only

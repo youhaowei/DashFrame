@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*"],
+  "include": ["src/**/*", ".storybook/**/*"],
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
@@ -9,6 +9,7 @@
     },
     "declaration": true,
     "declarationMap": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "types": ["node"]
   }
 }

@@ -20,7 +20,9 @@ export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
 // Export Button component (primary button API)
 export { Button, type ButtonProps } from "./components/button";
-// Note: Primitive button is internal - use Button component instead
+// Export primitive button for backwards compatibility and low-level use cases
+export { Button as PrimitiveButton } from "./primitives/button";
+export { buttonVariants } from "./primitives/button";
 export {
   Card,
   CardHeader,
@@ -169,6 +171,11 @@ export {
   type ItemListProps,
   type ListItem,
 } from "./components/ItemList";
+export {
+  SortableList,
+  type SortableListProps,
+  type SortableListItem,
+} from "./components/SortableList";
 export {
   JoinTypeIcon,
   getJoinTypeLabel,

@@ -17,12 +17,14 @@ import type {
   Field,
   InsightMetric,
   VegaLiteSpec,
+  ColumnType,
 } from "@dashframe/types";
+import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { NotFoundView } from "./NotFoundView";
 import { DataModelSection } from "./sections/DataModelSection";
-import { ConfigurationPanel } from "./sections/ConfigurationPanel";
 import { SuggestedChartsSection } from "./sections/SuggestedChartsSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
+import { InsightConfigPanel } from "./config-panel";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { suggestCharts } from "@/lib/visualizations/suggest-charts";
@@ -65,6 +67,7 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Sync local name when insight prop changes from external source
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: syncing local state from prop changes
     setLocalName(insight.name);
   }, [insight.name]);
 
@@ -149,20 +152,6 @@ export function InsightView({ insight }: InsightViewProps) {
     [allVisualizations, insightId],
   );
 
-  // Get selected fields
-  const selectedFields = useMemo(() => {
-    if (!dataTable) return [];
-    return (dataTable.fields ?? []).filter(
-      (f) => insight.selectedFields?.includes(f.id) && !f.name.startsWith("_"),
-    );
-  }, [dataTable, insight.selectedFields]);
-
-  // Get visible metrics
-  const visibleMetrics = useMemo(
-    () => (insight.metrics ?? []).filter((m) => !m.name.startsWith("_")),
-    [insight.metrics],
-  );
-
   // Determine if insight is configured (has fields or metrics)
   const isConfigured =
     (insight.selectedFields?.length ?? 0) > 0 ||
@@ -181,11 +170,11 @@ export function InsightView({ insight }: InsightViewProps) {
   }, [dataTable]);
 
   // Column analysis effect - runs DuckDB analysis on the source table
+  // Now runs for ALL insights (not just unconfigured) to support suggestions
   useEffect(() => {
     if (!duckDBConnection || !isDuckDBReady) return;
     if (!dataTable?.dataFrameId) return;
     if (!isPreviewReady) return;
-    if (isConfigured) return; // Only run for unconfigured insights
 
     const runAnalysis = async () => {
       try {
@@ -196,7 +185,7 @@ export function InsightView({ insight }: InsightViewProps) {
           .filter((f) => !f.name.startsWith("_"))
           .map((f) => ({
             name: f.columnName ?? f.name,
-            type: f.type as any,
+            type: f.type as ColumnType,
           }));
 
         if (colsToAnalyze.length === 0) {
@@ -225,14 +214,54 @@ export function InsightView({ insight }: InsightViewProps) {
     dataTable?.dataFrameId,
     dataTable?.fields,
     isPreviewReady,
-    isConfigured,
   ]);
 
-  // Generate chart suggestions (only for unconfigured insights)
-  const suggestions = useMemo<ChartSuggestion[]>(() => {
-    // Skip if already configured
-    if (isConfigured) return [];
+  // Get existing field and metric column names from insight configuration
+  const existingFieldNames = useMemo(() => {
+    if (!dataTable) return [];
 
+    const names: string[] = [];
+
+    // Map selected field IDs to column names
+    const fieldIdToName = new Map<string, string>();
+    (dataTable.fields ?? []).forEach((f) => {
+      fieldIdToName.set(f.id, f.columnName ?? f.name);
+    });
+    (insight.selectedFields ?? []).forEach((id) => {
+      const name = fieldIdToName.get(id);
+      if (name) names.push(name);
+    });
+
+    // Also include metric column names (the underlying column, not the aggregation)
+    (insight.metrics ?? []).forEach((metric) => {
+      if (metric.columnName) {
+        names.push(metric.columnName);
+      }
+    });
+
+    return names;
+  }, [dataTable, insight.selectedFields, insight.metrics]);
+
+  // Build set of existing visualization encoding signatures for deduplication
+  const existingVizSignatures = useMemo(() => {
+    const signatures = new Set<string>();
+    insightVisualizations.forEach((viz) => {
+      if (viz.encoding) {
+        // Create a normalized signature from encoding (x, y, color)
+        const sig = [
+          viz.encoding.x ?? "",
+          viz.encoding.y ?? "",
+          viz.encoding.color ?? "",
+        ].join("|");
+        signatures.add(sig);
+      }
+    });
+    return signatures;
+  }, [insightVisualizations]);
+
+  // Generate chart suggestions for all insights
+  // Filters out suggestions that match existing visualizations
+  const suggestions = useMemo<ChartSuggestion[]>(() => {
     // Wait for prerequisites
     if (!isPreviewReady) return [];
     if (columnAnalysis.length === 0) return [];
@@ -240,16 +269,17 @@ export function InsightView({ insight }: InsightViewProps) {
 
     try {
       // Create minimal insight object for suggestions
-      const insightForSuggestions = {
+      // Uses LocalInsight type from stores which is expected by suggestCharts
+      const insightForSuggestions: LocalInsight = {
         id: insightId,
         name: insight.name,
         baseTable: {
           tableId: dataTable!.id,
-          selectedFields: [] as string[],
+          selectedFields: [],
         },
-        metrics: [] as any[],
+        metrics: [],
         createdAt: insight.createdAt,
-        updatedAt: insight.updatedAt,
+        updatedAt: insight.updatedAt ?? insight.createdAt,
       };
 
       // Column table map for ranking multi-table charts
@@ -261,24 +291,26 @@ export function InsightView({ insight }: InsightViewProps) {
           columnTableMap[name] = [dataTable!.id];
         });
 
-      // Generate suggestions
-      const result = suggestCharts(
-        insightForSuggestions as any,
+      // Generate suggestions with options
+      // Pass excludeEncodings so suggestCharts filters during generation
+      return suggestCharts(
+        insightForSuggestions,
         columnAnalysis,
         rowCount,
-        fieldMap as any,
-        3, // Limit to 3 suggestions
-        columnTableMap,
-        suggestionSeed,
+        fieldMap,
+        {
+          limit: 3,
+          columnTableMap,
+          seed: suggestionSeed,
+          existingFields: existingFieldNames,
+          excludeEncodings: existingVizSignatures,
+        },
       );
-
-      return result;
     } catch (error) {
       console.error("Failed to generate suggestions:", error);
       return [];
     }
   }, [
-    isConfigured,
     isPreviewReady,
     columnAnalysis,
     rowCount,
@@ -287,6 +319,8 @@ export function InsightView({ insight }: InsightViewProps) {
     dataTable,
     fieldMap,
     suggestionSeed,
+    existingFieldNames,
+    existingVizSignatures,
   ]);
 
   // Parse aggregate expression like "sum(amount)" → { aggregation: "sum", columnName: "amount" }
@@ -424,15 +458,14 @@ export function InsightView({ insight }: InsightViewProps) {
         { label: "Insights", href: "/insights" },
         { label: localName || "Untitled" },
       ]}
-      headerContent={
-        <div className="flex-1">
-          <Input
-            value={localName}
-            onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="Insight name"
-            className="text-2xl font-semibold"
-          />
-        </div>
+      leftPanel={
+        <InsightConfigPanel
+          insight={insight}
+          dataTable={dataTable}
+          allDataTables={allDataTables}
+          name={localName}
+          onNameChange={handleNameChange}
+        />
       }
     >
       {/* Main content - unified view */}
@@ -445,17 +478,16 @@ export function InsightView({ insight }: InsightViewProps) {
           combinedFieldCount={combinedFieldCount}
         />
 
-        {/* Configuration Panel - Only show if configured */}
-        {isConfigured && (
-          <ConfigurationPanel
-            insight={insight}
-            selectedFields={selectedFields}
-            visibleMetrics={visibleMetrics}
+        {/* Visualizations - Only show if there are visualizations */}
+        {insightVisualizations.length > 0 && (
+          <VisualizationsSection
+            visualizations={insightVisualizations}
+            insightId={insightId}
           />
         )}
 
-        {/* Suggested Charts - Only show if not configured */}
-        {!isConfigured && dataTable.dataFrameId && (
+        {/* Suggested Charts - Shows below visualizations, filters out existing chart types */}
+        {dataTable.dataFrameId && suggestions.length > 0 && (
           <SuggestedChartsSection
             tableName={`df_${dataTable.dataFrameId.replace(/-/g, "_")}`}
             suggestions={suggestions}
@@ -465,14 +497,7 @@ export function InsightView({ insight }: InsightViewProps) {
             }
             onCreateChart={handleCreateChart}
             onRegenerate={handleRegenerate}
-          />
-        )}
-
-        {/* Visualizations - Only show if there are visualizations */}
-        {insightVisualizations.length > 0 && (
-          <VisualizationsSection
-            visualizations={insightVisualizations}
-            insightId={insightId}
+            hasExistingVisualizations={insightVisualizations.length > 0}
           />
         )}
       </div>

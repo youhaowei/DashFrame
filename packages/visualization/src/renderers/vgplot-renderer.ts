@@ -38,6 +38,17 @@ import type {
  */
 type VgplotAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 
+/**
+ * Extended vgplot API with coordinator access (not in public types).
+ * The coordinator provides direct DuckDB query access for data inspection.
+ */
+interface VgplotAPIExtended extends VgplotAPI {
+  coordinator?: {
+    query: (sql: string) => Promise<{ toArray: () => { val: unknown }[] }>;
+  };
+  colorDomain?: (domain: string[]) => void;
+}
+
 // ============================================================================
 // Color Conversion Utilities
 // ============================================================================
@@ -125,11 +136,44 @@ function parseEncodingValue(
 // ============================================================================
 
 /**
+ * Get the default fill color from CSS variables.
+ */
+function getDefaultFillColor(): string | undefined {
+  const styles = getComputedStyle(document.documentElement);
+  const chart1Color = styles.getPropertyValue("--chart-1").trim();
+  return chart1Color ? colorToHex(chart1Color) : undefined;
+}
+
+/**
+ * Get bar chart styling options (width, padding, rounded corners).
+ */
+function getBarChartOptions(isStacked: boolean): Record<string, unknown> {
+  const options: Record<string, unknown> = {
+    width: 0.6, // Bar width as fraction of band (60% of available space)
+    padding: 0.2, // Padding between bars (20% of band)
+  };
+
+  // Read border radius from CSS variable to match app theme
+  const styles = getComputedStyle(document.documentElement);
+  const radiusValue = styles.getPropertyValue("--radius").trim();
+  if (radiusValue) {
+    // Parse rem value (e.g., "0.625rem" → 10px at 16px base)
+    const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
+
+    if (!isStacked) {
+      options.ry1 = radiusInPx; // Round top corners only
+    } else {
+      options.rx = radiusInPx; // Round all corners
+      options.ry = radiusInPx;
+    }
+  }
+
+  return options;
+}
+
+/**
  * Build encoding options for vgplot marks.
  * Parses aggregation expressions and converts them to vgplot API calls.
- *
- * @param api - vgplot API instance for creating aggregate expressions
- * @param encoding - Visualization encoding configuration
  */
 function buildEncodingOptions(
   api: VgplotAPI,
@@ -141,66 +185,106 @@ function buildEncodingOptions(
   if (encoding.x) options.x = parseEncodingValue(api, encoding.x);
   if (encoding.y) options.y = parseEncodingValue(api, encoding.y);
 
-  // Color encoding: vgplot automatically applies categorical color scale when fill is set
-  // Ensure column name is passed correctly (not aggregated function)
+  // Color encoding
   if (encoding.color) {
-    const colorValue = parseEncodingValue(api, encoding.color);
-    options.fill = colorValue;
-
-    // For consistent color ordering in stacked bars, we can set scale domain
-    // This ensures colors are assigned in alphabetical order, preventing "jumping"
-    // vgplot will use this domain order to assign colors consistently
-    if (chartType === "bar") {
-      // Set scale domain to use alphabetical ordering
-      // This ensures consistent color assignment across all bars
-      // Format: options.fillScale = { domain: [...sorted values] }
-      // But vgplot handles this automatically - we'll set domain in render() if needed
-    }
+    options.fill = parseEncodingValue(api, encoding.color);
   } else {
-    // For charts without color encoding, use chart-1
-    // Chart colors are defined in globals.css (slate palette for neutral, professional look)
-    const styles = getComputedStyle(document.documentElement);
-    const chart1Color = styles.getPropertyValue("--chart-1").trim();
-
-    if (chart1Color) {
-      // Convert oklch color to hex that vgplot recognizes as a constant color
-      const hexColor = colorToHex(chart1Color);
-      options.fill = hexColor;
-    }
+    const defaultFill = getDefaultFillColor();
+    if (defaultFill) options.fill = defaultFill;
   }
 
   if (encoding.size) options.r = parseEncodingValue(api, encoding.size);
 
-  // For bar charts, set consistent bar width, padding, and rounded corners
-  // This ensures bars have uniform width regardless of data distribution
+  // Bar chart styling
   if (chartType === "bar") {
-    const isStacked = !!encoding.color;
-
-    options.width = 0.6; // Bar width as fraction of band (60% of available space)
-    options.padding = 0.2; // Padding between bars (20% of band)
-
-    // Read border radius from CSS variable to match app theme
-    const styles = getComputedStyle(document.documentElement);
-    const radiusValue = styles.getPropertyValue("--radius").trim();
-    if (radiusValue) {
-      // Parse rem value (e.g., "0.625rem" → 10px at 16px base)
-      // Scale down for charts (about 60% of full radius looks good)
-      const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
-
-      // Apply rounded corners to bars
-      if (!isStacked) {
-        // Single bar chart - round the top corners, flat bottom
-        options.ry1 = radiusInPx;
-      } else {
-        // Stacked bar chart - round all segments on all sides
-        // Use rx and ry to round all corners uniformly
-        options.rx = radiusInPx; // Round horizontal corners (left/right)
-        options.ry = radiusInPx; // Round vertical corners (top/bottom)
-      }
-    }
+    Object.assign(options, getBarChartOptions(!!encoding.color));
   }
 
   return options;
+}
+
+/**
+ * Get chart colors from CSS variables and convert to hex.
+ */
+function getChartColors(): string[] {
+  const styles = getComputedStyle(document.documentElement);
+  const rawColors = [
+    styles.getPropertyValue("--chart-1").trim(),
+    styles.getPropertyValue("--chart-2").trim(),
+    styles.getPropertyValue("--chart-3").trim(),
+    styles.getPropertyValue("--chart-4").trim(),
+    styles.getPropertyValue("--chart-5").trim(),
+  ].filter(Boolean);
+
+  return rawColors.map((color) => colorToHex(color));
+}
+
+/**
+ * Build sizing options for the plot.
+ */
+function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
+  const options: unknown[] = [];
+
+  if (config.width === "container") {
+    options.push(api.width("container"));
+  } else if (typeof config.width === "number") {
+    options.push(api.width(config.width));
+  }
+
+  if (config.height === "container") {
+    options.push(api.height("container"));
+  } else if (typeof config.height === "number") {
+    options.push(api.height(config.height));
+  }
+
+  return options;
+}
+
+/**
+ * Build margin and axis options for the plot.
+ */
+function buildAxisOptions(api: VgplotAPI, isPreview: boolean): unknown[] {
+  if (isPreview) {
+    return [api.axis(null), api.margin(4)];
+  }
+
+  return [
+    api.marginRight(20),
+    api.marginTop(20),
+    api.yTickFormat("~s"),
+    api.yGrid(true),
+  ];
+}
+
+/**
+ * Set up color domain for stacked bar charts (async).
+ * Queries distinct values and sets them in alphabetical order for consistent colors.
+ */
+function setupColorDomain(
+  api: VgplotAPIExtended,
+  colorColumn: string,
+  tableName: string,
+): void {
+  const { coordinator } = api;
+  if (!coordinator?.query) return;
+
+  coordinator
+    .query(
+      `SELECT DISTINCT "${colorColumn}" as val FROM ${tableName} ORDER BY "${colorColumn}"`,
+    )
+    .then((result) => {
+      if (!result?.toArray) return;
+
+      const rows = result.toArray();
+      const domain = rows.map((row) => String(row.val));
+
+      if (domain.length > 0 && api.colorDomain) {
+        api.colorDomain(domain);
+      }
+    })
+    .catch((e: unknown) => {
+      console.warn("[VgplotRenderer] Could not set color domain:", e);
+    });
 }
 
 /**
@@ -258,6 +342,8 @@ function buildMark(
  * ```
  */
 export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
+  const extendedApi = api as VgplotAPIExtended;
+
   return {
     supportedTypes: ["bar", "line", "area", "scatter"] as const,
 
@@ -267,141 +353,49 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       config: ChartConfig,
     ): ChartCleanup {
       try {
-        // Build the mark
-        const mark = buildMark(api, type, config.tableName, config.encoding);
-
         // Build plot options
-        const plotOptions: unknown[] = [mark];
+        const mark = buildMark(api, type, config.tableName, config.encoding);
+        const chartColors = getChartColors();
 
-        // Responsive sizing
-        if (config.width === "container") {
-          plotOptions.push(api.width("container"));
-        } else if (typeof config.width === "number") {
-          plotOptions.push(api.width(config.width));
-        }
+        const plotOptions: unknown[] = [
+          mark,
+          ...buildSizingOptions(api, config),
+          ...buildAxisOptions(api, !!config.preview),
+        ];
 
-        if (config.height === "container") {
-          plotOptions.push(api.height("container"));
-        } else if (typeof config.height === "number") {
-          plotOptions.push(api.height(config.height));
-        }
-
-        // Apply shadcn chart colors from CSS variables
-        // Use computed styles to get CSS variable values
-        const styles = getComputedStyle(document.documentElement);
-
-        // Read chart colors from --chart-1 through --chart-5
-        // Note: Tailwind v4's @theme inline creates --color-chart-* for Tailwind utilities,
-        // but only --chart-* are available at runtime via getComputedStyle
-        const rawColors = [
-          styles.getPropertyValue("--chart-1").trim(),
-          styles.getPropertyValue("--chart-2").trim(),
-          styles.getPropertyValue("--chart-3").trim(),
-          styles.getPropertyValue("--chart-4").trim(),
-          styles.getPropertyValue("--chart-5").trim(),
-        ].filter(Boolean);
-
-        // Convert colors to hex format using Canvas API
-        // This ensures vgplot recognizes them as constant colors, not column names
-        // CSS variables contain oklch() color strings, so pass them directly
-        const chartColors = rawColors.map((color) => {
-          const hex = colorToHex(color);
-          return hex;
-        });
-
-        // Apply color scheme to plot
+        // Apply color scheme
         if (chartColors.length > 0) {
           plotOptions.push(api.colorRange(chartColors));
         }
 
-        // Set margins to prevent labels from being cut off
-        if (config.preview) {
-          // Preview mode - minimal chrome
-          plotOptions.push(
-            api.axis(null), // No axes
-            // Note: vgplot has no generic legend() - legends are auto-generated
-            // based on encoding channels. For small previews, the CSS container
-            // overflow:hidden typically clips any legend that would appear.
-            api.margin(4), // Minimal margin
-          );
-        } else {
-          // Full chart mode with auto-calculated margins
-          // vgplot automatically calculates margins based on axis label widths
-          // We only need to set minimal margins on sides that don't have labels
-          plotOptions.push(
-            api.marginRight(20), // Minimal right margin (no labels)
-            api.marginTop(20), // Minimal top margin (no title)
-          );
-
-          // Format y-axis numbers with abbreviated notation (50M instead of 50,000,000)
-          plotOptions.push(
-            api.yTickFormat("~s"), // SI-prefix notation (k, M, G, etc.)
-            api.yGrid(true), // Add horizontal grid lines for easier value reading
-          );
+        // Theme background
+        if (config.theme?.backgroundColor) {
+          container.style.backgroundColor = config.theme.backgroundColor;
         }
 
-        // Theme colors (if provided)
-        if (config.theme) {
-          // Note: vgplot theming is done via CSS variables
-          // We can set styles on the container
-          if (config.theme.backgroundColor) {
-            container.style.backgroundColor = config.theme.backgroundColor;
-          }
-        }
-
-        // Create the plot
+        // Create and mount the plot
         const plot = api.plot(...plotOptions);
-
-        // Mount to container
         container.appendChild(plot);
 
-        // For stacked bars, query and set color domain asynchronously for consistent ordering
-        // This happens after initial render, then updates the domain
+        // Set up color domain for stacked bar charts
         if (
           type === "bar" &&
           config.encoding?.color &&
           chartColors.length > 0
         ) {
-          const colorColumn = config.encoding.color;
-          const coordinator = (api as any).coordinator;
-
-          if (coordinator && typeof coordinator.query === "function") {
-            // Query unique values sorted alphabetically
-            coordinator
-              .query(
-                `SELECT DISTINCT "${colorColumn}" as val FROM ${config.tableName} ORDER BY "${colorColumn}"`,
-              )
-              .then((result: any) => {
-                if (result && result.toArray) {
-                  const rows = result.toArray() as { val: unknown }[];
-                  const domain = rows.map((row) => String(row.val));
-
-                  // Set domain using colorDomain API if available
-                  if (
-                    domain.length > 0 &&
-                    typeof (api as any).colorDomain === "function"
-                  ) {
-                    (api as any).colorDomain(domain);
-                    // Note: This may require plot re-rendering to take effect
-                    // If vgplot doesn't support dynamic domain updates, we may need
-                    // to rebuild the plot with the domain set in options
-                  }
-                }
-              })
-              .catch((e: unknown) => {
-                console.warn("[VgplotRenderer] Could not set color domain:", e);
-              });
-          }
+          setupColorDomain(
+            extendedApi,
+            config.encoding.color,
+            config.tableName,
+          );
         }
 
-        // Return cleanup function
         return () => {
           container.innerHTML = "";
         };
       } catch (error) {
         console.error("[VgplotRenderer] Error rendering chart:", error);
 
-        // Show error message in container
         container.innerHTML = `
           <div style="color: red; padding: 16px; text-align: center; font-size: 12px;">
             Failed to render chart: ${error instanceof Error ? error.message : "Unknown error"}

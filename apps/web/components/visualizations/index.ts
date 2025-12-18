@@ -2,6 +2,7 @@
 export { CreateVisualizationModal } from "./CreateVisualizationModal";
 export { EmptyState } from "./EmptyState";
 export { VisualizationDisplay } from "./VisualizationDisplay";
+export { VisualizationItemCard } from "./VisualizationItemCard";
 export { VisualizationPreview } from "./VisualizationPreview";
 export { JoinFlowModal } from "./JoinFlowModal";
 

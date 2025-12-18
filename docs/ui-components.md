@@ -179,9 +179,37 @@ import { Button, Card, Input, ... } from "@dashframe/ui";
 
 ### Border Radius
 
-- `rounded-2xl` - Main cards
-- `rounded-xl` - Nested elements
-- `rounded-full` - Badges, avatars
+Border radius uses CSS variables defined in `globals.css`:
+
+```css
+--radius: 0.625rem; /* 10px - base */
+--radius-sm: calc(var(--radius) - 4px); /* 6px */
+--radius-md: calc(var(--radius) - 2px); /* 8px */
+--radius-lg: var(--radius); /* 10px */
+--radius-xl: calc(var(--radius) + 4px); /* 14px */
+```
+
+**Component mapping:**
+
+| Tailwind Class | CSS Variable  | Size | Usage                                                       |
+| -------------- | ------------- | ---- | ----------------------------------------------------------- |
+| `rounded-sm`   | `--radius-sm` | 6px  | Form inputs (Input, Select trigger, Checkbox), menu items   |
+| `rounded-md`   | `--radius-md` | 8px  | Buttons, popovers, dropdowns, tooltips, navigation triggers |
+| `rounded-lg`   | `--radius-lg` | 10px | Cards (ItemCard), dialogs, alerts, containers               |
+| `rounded-xl`   | `--radius-xl` | 14px | Surface, large panels, badges                               |
+| `rounded-full` | -             | 50%  | Switches, avatars, pills, circular icons                    |
+
+**Visual hierarchy:**
+
+```
+rounded-sm (6px)  →  Form elements (sharp, action-oriented)
+rounded-md (8px)  →  Interactive overlays (buttons, menus)
+rounded-lg (10px) →  Content containers (cards, dialogs)
+rounded-xl (14px) →  Surface containers (panels, badges)
+rounded-full      →  Circular elements (toggles, avatars)
+```
+
+**Key principle:** Changing `--radius` in `globals.css` scales all components proportionally.
 
 ### Icon Sizing
 
@@ -193,6 +221,66 @@ import { Button, Card, Input, ... } from "@dashframe/ui";
 
 - No UPPERCASE text (except acronyms: CSV, API)
 - Use sentence case everywhere
+
+---
+
+## Responsive Layout Patterns
+
+### Prefer Intrinsic Sizing Over Media Queries
+
+When building responsive layouts, **prefer CSS intrinsic sizing functions (`clamp()`, `min()`, `max()`, `minmax()`) over media query breakpoints**.
+
+**Why:**
+
+- Media queries respond to **viewport width**, but components often live inside panels, sidebars, or nested containers with unknown constraints
+- Intrinsic sizing responds to **available container space**, making components resilient to any layout context
+- Reduces CSS complexity - one rule handles all screen sizes
+
+### Responsive Grid Pattern
+
+For card grids that need to reflow based on available space:
+
+```tsx
+// ✅ Preferred: Intrinsic sizing with auto-fill
+<div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4">
+  {items.map(item => <Card key={item.id} />)}
+</div>
+
+// ❌ Avoid: Breakpoint-based (doesn't account for container constraints)
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {items.map(item => <Card key={item.id} />)}
+</div>
+```
+
+**How it works:**
+
+- `auto-fill` - creates as many columns as fit
+- `minmax(min(100%, 280px), 1fr)` - each column is at least 280px (or 100% on narrow containers), at most `1fr`
+- The nested `min(100%, 280px)` prevents overflow when container is narrower than 280px
+
+### Responsive Width with clamp()
+
+For elements that need fluid width within bounds:
+
+```tsx
+// Width scales between 200px and 400px based on container
+<div className="w-[clamp(200px,50%,400px)]">...</div>
+
+// Font size scales between 14px and 18px
+<p className="text-[clamp(0.875rem,2vw,1.125rem)]">...</p>
+```
+
+### When to Use Each Approach
+
+| Scenario                                | Approach                            |
+| --------------------------------------- | ----------------------------------- |
+| Card grids, image galleries             | `auto-fill` + `minmax()`            |
+| Fluid typography                        | `clamp()` with viewport units       |
+| Element width bounds                    | `clamp(min, preferred, max)`        |
+| Layout-level changes (sidebar collapse) | Media queries (`sm:`, `md:`, `lg:`) |
+| Component visibility toggle             | Media queries                       |
+
+**Rule of thumb:** Use intrinsic sizing for **sizing and spacing**, media queries for **layout structure changes**.
 
 ---
 

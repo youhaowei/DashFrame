@@ -5,7 +5,7 @@ import type {
 import {
   Card,
   CardContent,
-  Button,
+  PrimitiveButton,
   Label,
   Checkbox,
   Select,
@@ -110,9 +110,9 @@ export function NotionConfigPanel({
             Choose database and properties
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose}>
+        <PrimitiveButton variant="ghost" size="sm" onClick={onClose}>
           Close
-        </Button>
+        </PrimitiveButton>
       </div>
       <CardContent className="space-y-4">
         <div className="space-y-3">
@@ -164,13 +164,13 @@ export function NotionConfigPanel({
                   </label>
                 ))}
               </div>
-              <Button
+              <PrimitiveButton
                 onClick={onSubmit}
                 disabled={submitDisabled || selectedPropertyIds.length === 0}
                 className="w-full"
               >
                 {submitLabel}
-              </Button>
+              </PrimitiveButton>
             </div>
           )}
         </div>

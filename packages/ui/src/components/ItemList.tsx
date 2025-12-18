@@ -45,11 +45,11 @@ export interface ListItem {
   previewHeight?: number;
 }
 
-export interface ItemListProps {
+export interface ItemListProps<T extends ListItem = ListItem> {
   /**
    * Array of items to display
    */
-  items: ListItem[];
+  items: T[];
   /**
    * Callback when an item is selected
    */
@@ -86,6 +86,12 @@ export interface ItemListProps {
    * Icon to display in empty state
    */
   emptyIcon?: React.ReactNode;
+  /**
+   * Custom render function for items.
+   * When provided, replaces the default ItemCard rendering.
+   * Receives the item and a click handler.
+   */
+  renderItem?: (item: T, onClick: () => void) => React.ReactNode;
 }
 
 /**
@@ -126,8 +132,20 @@ export interface ItemListProps {
  *   emptyIcon={<Database className="h-8 w-8" />}
  * />
  * ```
+ *
+ * @example With custom render function
+ * ```tsx
+ * <ItemList
+ *   items={visualizations}
+ *   onSelect={handleSelect}
+ *   orientation="grid"
+ *   renderItem={(item, onClick) => (
+ *     <CustomCard key={item.id} data={item} onClick={onClick} />
+ *   )}
+ * />
+ * ```
  */
-export function ItemList({
+export function ItemList<T extends ListItem>({
   items,
   onSelect,
   orientation = "vertical",
@@ -137,7 +155,8 @@ export function ItemList({
   className,
   emptyMessage = "No items",
   emptyIcon,
-}: ItemListProps) {
+  renderItem,
+}: ItemListProps<T>) {
   // Show empty state when no items
   if (items.length === 0) {
     return (
@@ -172,14 +191,15 @@ export function ItemList({
     return icon;
   };
 
-  const itemElements = items.map((item) => (
-    <div
-      key={item.id}
-      className={cn(orientation === "horizontal" && "shrink-0")}
-      style={
-        orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined
-      }
-    >
+  // Render a single item - uses custom renderItem if provided, otherwise default ItemCard
+  const renderListItem = (item: T) => {
+    const onClick = () => onSelect(item.id);
+
+    if (renderItem) {
+      return renderItem(item, onClick);
+    }
+
+    return (
       <ItemCard
         icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
         title={item.title}
@@ -189,8 +209,20 @@ export function ItemList({
         actions={item.actions}
         preview={item.preview}
         previewHeight={item.previewHeight}
-        onClick={() => onSelect(item.id)}
+        onClick={onClick}
       />
+    );
+  };
+
+  const itemElements = items.map((item) => (
+    <div
+      key={item.id}
+      className={cn(orientation === "horizontal" && "shrink-0")}
+      style={
+        orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined
+      }
+    >
+      {renderListItem(item)}
     </div>
   ));
 
@@ -219,18 +251,7 @@ export function ItemList({
         style={{ gap: `${gap}px` }}
       >
         {items.map((item) => (
-          <ItemCard
-            key={item.id}
-            icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
-            title={item.title}
-            subtitle={item.subtitle}
-            badge={item.badge}
-            active={item.active}
-            actions={item.actions}
-            preview={item.preview}
-            previewHeight={item.previewHeight}
-            onClick={() => onSelect(item.id)}
-          />
+          <div key={item.id}>{renderListItem(item)}</div>
         ))}
       </div>
     );

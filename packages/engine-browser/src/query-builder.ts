@@ -18,11 +18,6 @@ import { BrowserDataFrame } from "./dataframe";
  */
 const tableLoadingMutex = new Map<string, Promise<string>>();
 
-/**
- * Set of tables successfully loaded into DuckDB in this session.
- */
-const loadedTables = new Set<string>();
-
 const makeTableName = (dataFrameId: string): string =>
   `df_${dataFrameId.replace(/-/g, "_")}`;
 
@@ -40,18 +35,22 @@ const formatValue = (value: unknown): string => {
 
 /**
  * Invalidate the loaded table cache for a specific DataFrame.
- * Call when underlying IndexedDB data has been updated.
+ *
+ * @deprecated No-op. Table existence is now checked directly via SQL.
+ * The mutex pattern handles concurrent loads without needing a separate cache.
  */
-export function invalidateTableCache(dataFrameId: string): void {
-  const tableName = makeTableName(dataFrameId);
-  loadedTables.delete(tableName);
+export function invalidateTableCache(_dataFrameId: string): void {
+  // No-op: table existence is verified via information_schema query
 }
 
 /**
  * Clear all loaded table caches.
+ *
+ * @deprecated No-op. Table existence is now checked directly via SQL.
+ * The mutex pattern handles concurrent loads without needing a separate cache.
  */
 export function clearAllTableCaches(): void {
-  loadedTables.clear();
+  // No-op: table existence is verified via information_schema query
 }
 
 // ============================================================================
@@ -243,11 +242,10 @@ export async function ensureTableLoaded(
     }
 
     if (tableExists) {
-      // Table already exists in DuckDB - mark as loaded and return
+      // Table already exists in DuckDB - return immediately
       console.log(
         `[ensureTableLoaded] Skipping load for existing table ${tableName}`,
       );
-      loadedTables.add(tableName);
       resolveLoad(tableName);
       return tableName;
     }
@@ -285,7 +283,6 @@ export async function ensureTableLoaded(
       }
     }
 
-    loadedTables.add(tableName);
     resolveLoad(tableName);
     return tableName;
   } catch (err) {
@@ -531,10 +528,8 @@ export class QueryBuilder {
     // Partition results by _batch_idx
     const partitioned: T[][] = queries.map(() => []);
     for (const row of rows) {
-      const idx = row._batch_idx;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _batch_idx, ...rest } = row;
-      partitioned[idx].push(rest as unknown as T);
+      partitioned[_batch_idx].push(rest as unknown as T);
     }
 
     return partitioned;
