@@ -409,14 +409,36 @@ export function InsightView({ insight }: InsightViewProps) {
       });
 
       // Convert dimension column names to field IDs
-      const selectedFieldIds = dimensionFields
+      const newSelectedFieldIds = dimensionFields
         .map((colName) => fieldIdMap.get(colName))
         .filter((id): id is UUID => id !== undefined);
 
-      // Update insight with extracted fields and metrics
+      // Merge with existing insight fields/metrics (don't overwrite if already present)
+      // This preserves fields/metrics used by other visualizations
+      const existingFieldIds = insight.selectedFields ?? [];
+      const mergedFieldIds = [
+        ...existingFieldIds,
+        ...newSelectedFieldIds.filter((id) => !existingFieldIds.includes(id)),
+      ];
+
+      // Merge metrics - check by columnName + aggregation combo to avoid duplicates
+      const existingMetrics = insight.metrics ?? [];
+      const mergedMetrics = [...existingMetrics];
+      for (const newMetric of metrics) {
+        const isDuplicate = existingMetrics.some(
+          (m) =>
+            m.columnName === newMetric.columnName &&
+            m.aggregation === newMetric.aggregation,
+        );
+        if (!isDuplicate) {
+          mergedMetrics.push(newMetric);
+        }
+      }
+
+      // Update insight with merged fields and metrics
       updateInsight(insightId, {
-        selectedFields: selectedFieldIds,
-        metrics: metrics,
+        selectedFields: mergedFieldIds,
+        metrics: mergedMetrics,
       });
 
       // Create visualization using encoding-driven rendering
