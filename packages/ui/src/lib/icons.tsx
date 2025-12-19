@@ -24,6 +24,7 @@ import {
   LuDot,
   LuExternalLink,
   LuEye,
+  LuGitMerge,
   LuGripHorizontal,
   LuGripVertical,
   LuInfo,
@@ -50,6 +51,7 @@ import {
   LuSquareCheck,
   LuSun,
   LuTable,
+  LuTable2,
   LuTerminal,
   LuToggleLeft,
   LuTrash2,
@@ -101,10 +103,12 @@ export { LuTrendingUp as Chart };
 export { LuTrendingUp as LineChart };
 export { LuTrendingUp as BarChart3 };
 export { LuTable as TableIcon };
+export { LuTable2 as Table2 };
 export { LuLayoutGrid as Grid };
 export { LuLayoutGrid as LayoutGrid };
 export { LuList as List };
 export { LuLayers as Layers };
+export { LuGitMerge as GitMerge };
 
 // Data Sources & Files
 export { LuDatabase as Database };

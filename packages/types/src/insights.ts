@@ -1,6 +1,7 @@
 import type { UUID } from "./uuid";
 import type { InsightMetric } from "./metric";
 import type { UseQueryResult } from "./repository-base";
+import type { Field } from "./field";
 
 // ============================================================================
 // Insight Types
@@ -62,6 +63,28 @@ export interface Insight {
   joins?: InsightJoinConfig[];
   createdAt: number;
   updatedAt?: number;
+}
+
+/**
+ * CompiledInsight - An Insight with all IDs resolved to actual entities.
+ *
+ * This is a "denormalized" view of an Insight where:
+ * - selectedFields (UUIDs) → dimensions (resolved Field objects)
+ * - metrics remain as InsightMetric (already self-contained with name)
+ *
+ * Use this when you need the actual field data without additional lookups.
+ */
+export interface CompiledInsight {
+  id: UUID;
+  name: string;
+  /** Resolved dimension fields (from selectedFields) */
+  dimensions: Field[];
+  /** Metrics to compute (already contains name for display) */
+  metrics: InsightMetric[];
+  /** Optional filters */
+  filters?: InsightFilter[];
+  /** Optional sorts */
+  sorts?: InsightSort[];
 }
 
 // ============================================================================

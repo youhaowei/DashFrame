@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Input } from "@dashframe/ui";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import {
   useInsightMutations,
@@ -17,11 +16,11 @@ import type {
   Field,
   InsightMetric,
   VegaLiteSpec,
-  ColumnType,
 } from "@dashframe/types";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { NotFoundView } from "./NotFoundView";
 import { DataModelSection } from "./sections/DataModelSection";
+import { DataPreviewSection } from "./sections/DataPreviewSection";
 import { SuggestedChartsSection } from "./sections/SuggestedChartsSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
 import { InsightConfigPanel } from "./config-panel";
@@ -31,7 +30,8 @@ import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import {
-  analyzeDataFrame,
+  Insight as InsightClass,
+  analyzeInsight,
   type ColumnAnalysis,
 } from "@dashframe/engine-browser";
 
@@ -152,11 +152,6 @@ export function InsightView({ insight }: InsightViewProps) {
     [allVisualizations, insightId],
   );
 
-  // Determine if insight is configured (has fields or metrics)
-  const isConfigured =
-    (insight.selectedFields?.length ?? 0) > 0 ||
-    (insight.metrics?.length ?? 0) > 0;
-
   // Build field map for suggestions
   const fieldMap = useMemo<Record<string, Field>>(() => {
     if (!dataTable) return {};
@@ -169,37 +164,93 @@ export function InsightView({ insight }: InsightViewProps) {
     return map;
   }, [dataTable]);
 
-  // Column analysis effect - runs DuckDB analysis on the source table
-  // Now runs for ALL insights (not just unconfigured) to support suggestions
+  // Build Insight object for analysis (matches VisualizationPage pattern)
+  const insightObj = useMemo(() => {
+    if (!insight || !dataTable) return null;
+
+    // Build DataTableInfo for base table
+    const baseTableInfo = {
+      id: dataTable.id,
+      name: dataTable.name,
+      dataFrameId: dataTable.dataFrameId,
+      fields: dataTable.fields ?? [],
+    };
+
+    // Build joins with full table info (mapping store types → engine types)
+    const resolvedJoins = insight.joins
+      ?.map((join) => {
+        const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+        if (!joinTable) return null;
+
+        const baseField = dataTable.fields?.find(
+          (f) => f.columnName === join.leftKey || f.name === join.leftKey,
+        )?.id;
+        const joinedField = joinTable.fields?.find(
+          (f) => f.columnName === join.rightKey || f.name === join.rightKey,
+        )?.id;
+
+        if (!baseField || !joinedField) return null;
+
+        const joinType =
+          join.type === "full"
+            ? "outer"
+            : (join.type as "inner" | "left" | "right" | "outer");
+
+        return {
+          table: {
+            id: joinTable.id,
+            name: joinTable.name,
+            dataFrameId: joinTable.dataFrameId,
+            fields: joinTable.fields ?? [],
+          },
+          selectedFields: [] as string[],
+          joinOn: { baseField, joinedField },
+          joinType,
+        };
+      })
+      .filter(Boolean) as
+      | Array<{
+          table: {
+            id: string;
+            name: string;
+            dataFrameId?: string;
+            fields: Array<{
+              id: string;
+              name: string;
+              columnName?: string;
+              type?: string;
+            }>;
+          };
+          selectedFields: string[];
+          joinOn: { baseField: string; joinedField: string };
+          joinType: "inner" | "left" | "right" | "outer";
+        }>
+      | undefined;
+
+    return new InsightClass({
+      id: insight.id,
+      name: insight.name ?? "Untitled",
+      baseTable: baseTableInfo,
+      selectedFields: insight.selectedFields,
+      metrics: insight.metrics,
+      joins: resolvedJoins,
+    });
+  }, [insight, dataTable, allDataTables]);
+
+  // Column analysis effect - runs DuckDB analysis on the Insight result
+  // Uses analyzeInsight() for accurate cardinality including joined columns
   useEffect(() => {
     if (!duckDBConnection || !isDuckDBReady) return;
-    if (!dataTable?.dataFrameId) return;
+    if (!insightObj) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: clearing state when insight is unavailable
+      setColumnAnalysis([]);
+      return;
+    }
     if (!isPreviewReady) return;
 
     const runAnalysis = async () => {
       try {
-        const targetTable = `df_${dataTable.dataFrameId!.replace(/-/g, "_")}`;
-
-        // Prepare columns list from fields
-        const colsToAnalyze = (dataTable.fields ?? [])
-          .filter((f) => !f.name.startsWith("_"))
-          .map((f) => ({
-            name: f.columnName ?? f.name,
-            type: f.type as ColumnType,
-          }));
-
-        if (colsToAnalyze.length === 0) {
-          setColumnAnalysis([]);
-          return;
-        }
-
-        // Run DuckDB analysis
-        const results = await analyzeDataFrame(
-          duckDBConnection,
-          targetTable,
-          colsToAnalyze,
-        );
-
+        const results = await analyzeInsight(duckDBConnection, insightObj);
         setColumnAnalysis(results);
       } catch (e) {
         console.error("[InsightView] Analysis failed:", e);
@@ -208,13 +259,7 @@ export function InsightView({ insight }: InsightViewProps) {
     };
 
     runAnalysis();
-  }, [
-    duckDBConnection,
-    isDuckDBReady,
-    dataTable?.dataFrameId,
-    dataTable?.fields,
-    isPreviewReady,
-  ]);
+  }, [duckDBConnection, isDuckDBReady, insightObj, isPreviewReady]);
 
   // Get existing field and metric column names from insight configuration
   const existingFieldNames = useMemo(() => {
@@ -492,11 +537,17 @@ export function InsightView({ insight }: InsightViewProps) {
     >
       {/* Main content - unified view */}
       <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
-        {/* Data Model - combines data sources + preview */}
+        {/* Data Model - shows data sources (tables and joins) */}
         <DataModelSection
           insight={insight}
           dataTable={dataTable}
           allDataTables={allDataTables}
+          combinedFieldCount={combinedFieldCount}
+        />
+
+        {/* Data Preview - shows table with toggle for Join Preview vs Insight Result */}
+        <DataPreviewSection
+          insight={insight}
           combinedFieldCount={combinedFieldCount}
         />
 

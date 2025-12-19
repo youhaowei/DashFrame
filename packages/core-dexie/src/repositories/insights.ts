@@ -4,6 +4,7 @@ import type {
   UUID,
   InsightMetric,
   Insight,
+  CompiledInsight,
   InsightFilter,
   UseQueryResult,
   InsightMutations,
@@ -185,6 +186,69 @@ export function useInsight(id: UUID): UseQueryResult<Insight | null> {
   return {
     data: insight,
     isLoading: insight === undefined,
+  };
+}
+
+/**
+ * Hook to get a compiled insight with all field IDs resolved to actual Field objects.
+ *
+ * This joins the insight with its base dataTable AND any joined tables to resolve:
+ * - selectedFields (UUIDs) → dimensions (Field objects from base or joined tables)
+ * - metrics remain as InsightMetric (already self-contained)
+ *
+ * Returns null if id is undefined, insight not found, or base dataTable not found.
+ */
+export function useCompiledInsight(
+  id: UUID | undefined,
+): UseQueryResult<CompiledInsight | null> {
+  const compiled = useLiveQuery(async () => {
+    if (!id) return null;
+    const entity = await db.insights.get(id);
+    if (!entity) return null;
+
+    // Fetch the base dataTable
+    const baseTable = await db.dataTables.get(entity.baseTableId);
+    if (!baseTable) return null;
+
+    // Collect all fields from base table and joined tables
+    const allFields = [...(baseTable.fields ?? [])];
+
+    // Fetch joined tables and collect their fields
+    if (entity.joins?.length) {
+      const joinedTableIds = entity.joins.map((j) => j.rightTableId);
+      const joinedTables = await db.dataTables.bulkGet(joinedTableIds);
+      for (const table of joinedTables) {
+        if (table?.fields) {
+          allFields.push(...table.fields);
+        }
+      }
+    }
+
+    // Resolve selectedFields to actual Field objects (from any table)
+    const dimensions = (entity.selectedFields ?? [])
+      .map((fieldId) => allFields.find((f) => f.id === fieldId))
+      .filter((f): f is NonNullable<typeof f> => f !== undefined);
+
+    return {
+      id: entity.id,
+      name: entity.name,
+      dimensions,
+      metrics: entity.metrics ?? [],
+      filters: entity.filters?.map((f) => ({
+        field: f.field,
+        operator: f.operator as InsightFilter["operator"],
+        value: f.value,
+      })),
+      sorts: entity.sorts?.map((s) => ({
+        field: s.field,
+        direction: s.direction,
+      })),
+    } satisfies CompiledInsight;
+  }, [id]);
+
+  return {
+    data: compiled,
+    isLoading: compiled === undefined,
   };
 }
 

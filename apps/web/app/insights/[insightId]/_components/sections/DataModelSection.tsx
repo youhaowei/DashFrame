@@ -4,7 +4,6 @@ import { memo, useState, useMemo, useCallback } from "react";
 import {
   Section,
   ItemList,
-  VirtualTable,
   JoinTypeIcon,
   type ListItem,
   type ItemAction,
@@ -12,7 +11,6 @@ import {
 import { Plus, Database, X } from "@dashframe/ui/icons";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
 import type { DataTable, Insight } from "@dashframe/types";
 
 interface DataModelSectionProps {
@@ -23,15 +21,14 @@ interface DataModelSectionProps {
 }
 
 /**
- * DataModelSection - Unified section showing data sources + preview
+ * DataModelSection - Section showing data sources (base table + joins)
  *
- * Combines the functionality of DataSourcesSection and DataPreviewSection:
- * - Shows base table + joined tables with "Add join" action
- * - Shows preview table with combined/joined data
- * - Displays combined row count and field count
+ * Displays:
+ * - Base table with row/field count
+ * - Joined tables with join type and row count
+ * - "Add join" action button
  *
- * Uses useInsightPagination with showModelPreview=true to display
- * full joined data without aggregations/filters.
+ * Data preview is now handled by the separate DataPreviewSection component.
  *
  * Memoized to prevent re-renders when unrelated data changes.
  */
@@ -44,13 +41,6 @@ export const DataModelSection = memo(function DataModelSection({
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { update: updateInsight } = useInsightMutations();
-
-  // Use insight pagination for joined data preview
-  const { fetchData, totalCount, isReady } = useInsightPagination({
-    insight,
-    allDataTables,
-    showModelPreview: true,
-  });
 
   // Remove join handler
   const handleRemoveJoin = useCallback(
@@ -117,13 +107,11 @@ export const DataModelSection = memo(function DataModelSection({
     handleRemoveJoin,
   ]);
 
-  const displayRowCount = totalCount || 0;
-
   return (
     <>
       <Section
         title="Data model"
-        description={`${displayRowCount.toLocaleString()} rows • ${combinedFieldCount} fields`}
+        description={`${combinedFieldCount} fields • ${tableItems.length} table${tableItems.length !== 1 ? "s" : ""}`}
         actions={[
           {
             label: "Add join",
@@ -132,10 +120,7 @@ export const DataModelSection = memo(function DataModelSection({
             variant: "outline",
           },
         ]}
-        isLoading={!isReady}
-        loadingHeight={360}
       >
-        {/* Table list */}
         <ItemList
           items={tableItems}
           onSelect={() => {}}
@@ -145,11 +130,6 @@ export const DataModelSection = memo(function DataModelSection({
           emptyMessage="No data sources"
           emptyIcon={<Database className="h-8 w-8" />}
         />
-
-        {/* Preview table */}
-        <div className="mt-4">
-          <VirtualTable onFetchData={fetchData} height={260} compact />
-        </div>
       </Section>
 
       <JoinFlowModal

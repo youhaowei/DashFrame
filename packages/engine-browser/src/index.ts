@@ -73,7 +73,10 @@ export type {
 
 export {
   analyzeDataFrame,
+  analyzeInsight,
   suggestJoinColumns,
+  looksLikeIdentifier,
+  CARDINALITY_THRESHOLDS,
   type ColumnCategory,
   type ColumnAnalysis,
   type JoinSuggestion,

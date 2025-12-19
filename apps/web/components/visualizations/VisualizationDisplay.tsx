@@ -232,41 +232,6 @@ export function VisualizationDisplay({
 
   const { viz, dataFrame, entry } = activeResolved;
 
-  if (viz.visualizationType === "table") {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="border-border/60 bg-background/60 border-b px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/10 text-primary rounded-full p-2">
-              <TableIcon className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs tracking-wide">
-                Data preview
-              </p>
-              <p className="text-foreground text-lg font-semibold">
-                {viz.name}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col px-6 py-6">
-          <Surface
-            elevation="inset"
-            className="flex min-h-0 flex-1 flex-col p-4"
-          >
-            <VirtualTable
-              rows={dataFrame.rows}
-              columns={dataFrame.columns}
-              height="100%"
-              className="flex-1"
-            />
-          </Surface>
-        </div>
-      </div>
-    );
-  }
-
   // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">

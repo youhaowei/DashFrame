@@ -230,11 +230,6 @@ export function Chart({
     const container = containerRef.current;
     if (!container) return;
 
-    // Handle table type separately
-    if (visualizationType === "table") {
-      return;
-    }
-
     // Wait for dimensions if using container sizing
     if (!canRender) {
       return;
@@ -295,17 +290,6 @@ export function Chart({
     canRender,
     registryVersion, // Re-render when renderer is updated (hot reload)
   ]);
-
-  // Handle table type
-  if (visualizationType === "table") {
-    return (
-      fallback ?? (
-        <div className={className} style={{ padding: 16, textAlign: "center" }}>
-          <p>Table visualization - use VirtualTable component</p>
-        </div>
-      )
-    );
-  }
 
   // Handle unregistered type
   if (!hasRenderer(visualizationType)) {

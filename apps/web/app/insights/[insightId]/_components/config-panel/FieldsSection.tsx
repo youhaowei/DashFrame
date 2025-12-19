@@ -11,17 +11,9 @@ import {
   CollapsibleTrigger,
   cn,
 } from "@dashframe/ui";
-import {
-  Hash,
-  Type,
-  Calendar,
-  Toggle,
-  ChevronRight,
-  X,
-  Plus,
-} from "@dashframe/ui/icons";
-import type { IconType } from "react-icons";
+import { ChevronRight, X, Plus, Hash } from "@dashframe/ui/icons";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { getFieldTypeIcon } from "@/lib/utils/field-icons";
 
 /** Extended sortable item with field data */
 interface FieldSortableItem extends SortableListItem {
@@ -131,36 +123,6 @@ interface FieldItemContentProps {
   field: CombinedField;
   isJoined: boolean;
   onRemove: () => void;
-}
-
-/** Get icon for field type */
-function getFieldTypeIcon(type: string): IconType {
-  const normalizedType = type.toLowerCase();
-
-  // Numeric types
-  if (
-    ["number", "integer", "float", "decimal", "int", "bigint"].includes(
-      normalizedType,
-    )
-  ) {
-    return Hash;
-  }
-
-  // Date/time types
-  if (
-    ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
-    normalizedType.includes("date")
-  ) {
-    return Calendar;
-  }
-
-  // Boolean types
-  if (["boolean", "bool"].includes(normalizedType)) {
-    return Toggle;
-  }
-
-  // Default to text/string
-  return Type;
 }
 
 function FieldItemContent({

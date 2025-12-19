@@ -13,8 +13,15 @@ export type VegaLiteSpec = Record<string, unknown>;
 
 /**
  * Visualization chart types.
+ *
+ * Note: "table" is not included - tables are displayed in insights, not visualizations.
  */
-export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
+export type VisualizationType =
+  | "bar"
+  | "barHorizontal"
+  | "line"
+  | "scatter"
+  | "area";
 
 /**
  * Axis type for chart encoding.

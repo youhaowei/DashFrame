@@ -8,24 +8,39 @@ import {
   Badge,
   Card,
   CardContent,
-  Surface,
   BarChart3,
   LineChart,
-  TableIcon,
   Trash2,
   SelectField,
 } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
+import {
+  LuArrowLeft,
+  LuLoader,
+  LuCircleDot,
+  LuArrowLeftRight,
+  LuTriangleAlert,
+} from "react-icons/lu";
+import {
+  isSwapAllowed,
+  getSwappedChartType,
+  validateEncoding,
+} from "@/lib/visualizations/encoding-enforcer";
 import {
   useVisualizations,
   useVisualizationMutations,
   useInsights,
+  useCompiledInsight,
   useDataTables,
   getDataFrame as getDexieDataFrame,
 } from "@dashframe/core";
-import { VirtualTable } from "@dashframe/ui";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { getColumnIcon } from "@/lib/utils/field-icons";
+import {
+  Insight,
+  analyzeInsight,
+  type ColumnAnalysis,
+} from "@dashframe/engine-browser";
 import type {
   UUID,
   DataFrameColumn,
@@ -49,15 +64,15 @@ interface PageProps {
 function getVizIcon(type: string) {
   switch (type) {
     case "bar":
+    case "barHorizontal":
       return <BarChart3 className="h-5 w-5" />;
     case "line":
     case "area":
       return <LineChart className="h-5 w-5" />;
     case "scatter":
       return <LuCircleDot className="h-5 w-5" />;
-    case "table":
     default:
-      return <TableIcon className="h-5 w-5" />;
+      return <BarChart3 className="h-5 w-5" />;
   }
 }
 
@@ -91,13 +106,18 @@ export default function VisualizationPage({ params }: PageProps) {
     [visualizations, visualizationId],
   );
 
-  // Find the insight
+  // Find the insight (raw - for building insightObj for DuckDB)
   const insight = useMemo(
     () =>
       visualization?.insightId
         ? insights.find((i) => i.id === visualization.insightId)
         : undefined,
     [insights, visualization?.insightId],
+  );
+
+  // Get compiled insight with resolved dimensions (for AxisSelectField)
+  const { data: compiledInsight } = useCompiledInsight(
+    visualization?.insightId,
   );
 
   // Find the data table
@@ -293,83 +313,153 @@ export default function VisualizationPage({ params }: PageProps) {
     }
   }, [visualization?.name]);
 
-  // Analyze columns for encoding suggestions
-  // Simplified to use column types directly instead of full analysis
-  const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
-    if (!dataFrame || !dataFrame.columns) return [];
+  // State for DuckDB-computed column analysis
+  const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
 
-    return dataFrame.columns.map((col: DataFrameColumn) => {
-      const type = String(col.type).toLowerCase();
+  // Build Insight object from store data for analysis
+  const insightObj = useMemo(() => {
+    if (!insight || !dataTable) return null;
 
-      let category: ColumnAnalysis["category"];
-      if (
-        type === "number" ||
-        type === "integer" ||
-        type === "float" ||
-        type === "decimal" ||
-        type === "double"
-      ) {
-        category = "numerical";
-      } else if (
-        type === "date" ||
-        type === "datetime" ||
-        type === "timestamp" ||
-        type === "time"
-      ) {
-        category = "temporal";
-      } else if (type === "boolean") {
-        category = "boolean";
-      } else {
-        category = "categorical";
-      }
+    // Build DataTableInfo for base table
+    const baseTableInfo = {
+      id: dataTable.id,
+      name: dataTable.name,
+      dataFrameId: dataTable.dataFrameId,
+      fields: dataTable.fields ?? [],
+    };
 
-      return {
-        columnName: col.name,
-        category,
-        cardinality: 0,
-        uniqueness: 0,
-        nullCount: 0,
-        sampleValues: [],
-      };
+    // Build joins with full table info (mapping store types → engine types)
+    // Store: { rightTableId, leftKey, rightKey, type }
+    // Engine: { table, selectedFields, joinOn: {baseField, joinedField}, joinType }
+    const resolvedJoins = insight.joins
+      ?.map((join) => {
+        const joinTable = dataTables.find((t) => t.id === join.rightTableId);
+        if (!joinTable) return null;
+
+        // Find field IDs by column name
+        const baseField = dataTable.fields?.find(
+          (f) => f.columnName === join.leftKey || f.name === join.leftKey,
+        )?.id;
+        const joinedField = joinTable.fields?.find(
+          (f) => f.columnName === join.rightKey || f.name === join.rightKey,
+        )?.id;
+
+        if (!baseField || !joinedField) return null;
+
+        // Map join type: store uses "full", engine uses "outer"
+        const joinType =
+          join.type === "full"
+            ? "outer"
+            : (join.type as "inner" | "left" | "right" | "outer");
+
+        return {
+          table: {
+            id: joinTable.id,
+            name: joinTable.name,
+            dataFrameId: joinTable.dataFrameId,
+            fields: joinTable.fields ?? [],
+          },
+          selectedFields: [] as string[], // No field selection in store join config
+          joinOn: { baseField, joinedField },
+          joinType,
+        };
+      })
+      .filter(Boolean) as
+      | Array<{
+          table: {
+            id: string;
+            name: string;
+            dataFrameId?: string;
+            fields: Array<{
+              id: string;
+              name: string;
+              columnName?: string;
+              type?: string;
+            }>;
+          };
+          selectedFields: string[];
+          joinOn: { baseField: string; joinedField: string };
+          joinType: "inner" | "left" | "right" | "outer";
+        }>
+      | undefined;
+
+    return new Insight({
+      id: insight.id,
+      name: insight.name ?? "Untitled",
+      baseTable: baseTableInfo,
+      selectedFields: insight.selectedFields,
+      metrics: insight.metrics,
+      joins: resolvedJoins,
+      // Note: filters omitted - store format doesn't match FilterPredicate
     });
-  }, [dataFrame]);
+  }, [insight, dataTable, dataTables]);
 
-  // Get column options for selects - use aggregated columns only
-  const columnOptions = useMemo(() => {
-    if (!insight || !dataTable) return [];
-
-    // If insight has aggregation, only show selected fields and metrics
-    const selectedFieldIds = insight.selectedFields ?? [];
-    const metrics = insight.metrics ?? [];
-
-    if (selectedFieldIds.length > 0 || metrics.length > 0) {
-      const options: Array<{ label: string; value: string }> = [];
-
-      // Add selected fields (dimensions) - need to look up field names from dataTable
-      selectedFieldIds.forEach((fieldId) => {
-        const field = dataTable.fields?.find((f) => f.id === fieldId);
-        if (field) {
-          options.push({ label: field.name, value: field.name });
-        }
-      });
-
-      // Add metrics with their aggregation functions
-      // Keep the function format (e.g., "sum(roomattend)") to match encoding values
-      metrics.forEach((metric) => {
-        const value = `${metric.aggregation}(${metric.columnName})`;
-        options.push({ label: value, value });
-      });
-
-      return options;
+  // Run DuckDB analysis on Insight result (handles joins/aggregation)
+  useEffect(() => {
+    if (!duckDBConnection || !isDuckDBReady) return;
+    if (!insightObj) {
+      setColumnAnalysis([]);
+      return;
     }
 
-    // No aggregation - use all columns from dataFrame
-    if (!dataFrame) return [];
-    return (dataFrame.columns || []).map((col: DataFrameColumn) => ({
-      label: col.name,
-      value: col.name,
-    }));
-  }, [insight, dataTable, dataFrame]);
+    const runAnalysis = async () => {
+      try {
+        const results = await analyzeInsight(duckDBConnection, insightObj);
+        setColumnAnalysis(results);
+      } catch (e) {
+        console.error("[VisualizationPage] Analysis failed:", e);
+        setColumnAnalysis([]);
+      }
+    };
+    runAnalysis();
+  }, [duckDBConnection, isDuckDBReady, insightObj]);
+
+  // Get column options for Color/Size selects (derived from compiledInsight)
+  // Includes icons to show column types
+  const columnOptions = useMemo(() => {
+    if (!compiledInsight) return [];
+
+    const metricNames = new Set(compiledInsight.metrics.map((m) => m.name));
+    const options: Array<{
+      label: string;
+      value: string;
+      icon: React.ComponentType<{ className?: string }>;
+    }> = [];
+
+    // Add dimensions (resolved Field objects from compiledInsight)
+    compiledInsight.dimensions.forEach((field) => {
+      options.push({
+        label: field.name,
+        value: field.name,
+        icon: getColumnIcon(field.name, columnAnalysis, metricNames),
+      });
+    });
+
+    // Add metrics using their display names
+    compiledInsight.metrics.forEach((metric) => {
+      options.push({
+        label: metric.name,
+        value: metric.name,
+        icon: getColumnIcon(metric.name, columnAnalysis, metricNames),
+      });
+    });
+
+    return options;
+  }, [compiledInsight, columnAnalysis]);
+
+  // Validate encoding configuration - returns errors for X/Y if invalid
+  const encodingErrors = useMemo(() => {
+    if (!visualization || columnAnalysis.length === 0) return {};
+    return validateEncoding(
+      visualization.encoding ?? {},
+      visualization.visualizationType,
+      columnAnalysis,
+      compiledInsight ?? undefined,
+    );
+  }, [visualization, columnAnalysis, compiledInsight]);
+
+  // Check if there are any encoding errors
+  const hasEncodingErrors = !!(encodingErrors.x || encodingErrors.y);
 
   // Handle name change
   const handleNameChange = async (newName: string) => {
@@ -410,10 +500,38 @@ export default function VisualizationPage({ params }: PageProps) {
   };
 
   // Handle visualization type change
+  // Auto-swaps axes when switching between bar and barHorizontal
   const handleTypeChange = async (type: string) => {
-    await updateVisualization(visualizationId as UUID, {
-      visualizationType: type as VisualizationType,
-    });
+    const newType = type as VisualizationType;
+    const currentType = visualization?.visualizationType;
+
+    // Check if switching between bar orientations - auto-swap axes
+    const isBarSwitch =
+      (currentType === "bar" && newType === "barHorizontal") ||
+      (currentType === "barHorizontal" && newType === "bar");
+
+    if (isBarSwitch && visualization?.encoding) {
+      // Swap X and Y when changing bar orientation
+      const currentEncoding = visualization.encoding;
+      const newEncoding = {
+        ...currentEncoding,
+        x: currentEncoding.y,
+        y: currentEncoding.x,
+        xType: currentEncoding.yType,
+        yType: currentEncoding.xType,
+      };
+
+      // Update both type and encoding together
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newType,
+      });
+      await updateEncoding(visualizationId as UUID, newEncoding);
+    } else {
+      // Just update the type
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newType,
+      });
+    }
   };
 
   // Handle delete
@@ -505,18 +623,50 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // Visualization type options (exclude table - use insights for table view)
+  // Visualization type options
   const hasNumericColumns = dataFrame?.columns?.some(
     (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-        { label: "Bar Chart", value: "bar" },
+        { label: "Vertical Bar", value: "bar" },
+        { label: "Horizontal Bar", value: "barHorizontal" },
         { label: "Line Chart", value: "line" },
         { label: "Scatter Plot", value: "scatter" },
         { label: "Area Chart", value: "area" },
       ]
     : [];
+
+  // Handle swap button click - swaps X/Y axes and toggles bar orientation
+  const handleSwapAxes = async () => {
+    if (!visualization) return;
+
+    const currentEncoding = visualization.encoding || {};
+    const newEncoding = {
+      ...currentEncoding,
+      x: currentEncoding.y,
+      y: currentEncoding.x,
+      xType: currentEncoding.yType,
+      yType: currentEncoding.xType,
+    };
+
+    // For bar charts, also toggle the chart type
+    const newChartType = getSwappedChartType(visualization.visualizationType);
+
+    if (newChartType !== visualization.visualizationType) {
+      // Update both encoding and chart type
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newChartType,
+        encoding: newEncoding,
+      });
+    } else {
+      // Just update encoding
+      await updateEncoding(visualizationId as UUID, newEncoding);
+    }
+  };
+
+  // Check if swap is allowed for current chart type
+  const canSwap = isSwapAllowed(visualization.visualizationType);
 
   return (
     <AppLayout
@@ -563,119 +713,154 @@ export default function VisualizationPage({ params }: PageProps) {
             )}
           </div>
 
-          {/* Delete button (only for chart types) */}
-          {visualization.visualizationType !== "table" && (
-            <div className="mt-3 flex items-center justify-end">
-              <PrimitiveButton
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={handleDelete}
+          {/* Delete button */}
+          <div className="mt-3 flex items-center justify-end">
+            <PrimitiveButton
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={handleDelete}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete
+            </PrimitiveButton>
+          </div>
+        </div>
+      }
+      rightPanel={
+        <div className="space-y-4 p-4">
+          <div>
+            <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
+
+            <div className="space-y-3">
+              {compiledInsight && (
+                <AxisSelectField
+                  label="X Axis"
+                  value={visualization.encoding?.x || ""}
+                  onChange={(value) => handleEncodingChange("x", value)}
+                  placeholder="Select column..."
+                  axis="x"
+                  chartType={visualization.visualizationType}
+                  columnAnalysis={columnAnalysis}
+                  compiledInsight={compiledInsight}
+                  otherAxisColumn={visualization.encoding?.y}
+                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
+                />
+              )}
+
+              {/* Swap button - swaps axes and toggles bar orientation */}
+              {canSwap && (
+                <div className="flex justify-center">
+                  <PrimitiveButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSwapAxes}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Swap X and Y axes"
+                  >
+                    <LuArrowLeftRight className="mr-1.5 h-4 w-4" />
+                    Swap
+                  </PrimitiveButton>
+                </div>
+              )}
+
+              {compiledInsight && (
+                <AxisSelectField
+                  label="Y Axis"
+                  value={visualization.encoding?.y || ""}
+                  onChange={(value) => handleEncodingChange("y", value)}
+                  placeholder="Select column..."
+                  axis="y"
+                  chartType={visualization.visualizationType}
+                  columnAnalysis={columnAnalysis}
+                  compiledInsight={compiledInsight}
+                  otherAxisColumn={visualization.encoding?.x}
+                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
+                />
+              )}
+
+              <SelectField
+                label="Color (optional)"
+                value={visualization.encoding?.color || ""}
+                onChange={(value) => handleEncodingChange("color", value)}
+                onClear={() => handleEncodingChange("color", "")}
+                options={columnOptions}
+                placeholder="None"
+              />
+
+              {visualization.visualizationType === "scatter" && (
+                <SelectField
+                  label="Size (optional)"
+                  value={visualization.encoding?.size || ""}
+                  onChange={(value) => handleEncodingChange("size", value)}
+                  onClear={() => handleEncodingChange("size", "")}
+                  options={columnOptions}
+                  placeholder="None"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
+            <SelectField
+              label=""
+              value={visualization.visualizationType}
+              onChange={handleTypeChange}
+              options={vizTypeOptions}
+            />
+          </div>
+
+          {/* Source insight link */}
+          {visualization.insightId && (
+            <div className="border-t pt-4">
+              <h3 className="mb-2 text-sm font-semibold">Source</h3>
+              <Card
+                className="hover:bg-muted/50 cursor-pointer transition-colors"
+                onClick={() =>
+                  router.push(`/insights/${visualization.insightId}`)
+                }
               >
-                <Trash2 className="mr-1 h-4 w-4" />
-                Delete
-              </PrimitiveButton>
+                <CardContent className="p-3">
+                  <p className="truncate text-sm font-medium">Source Insight</p>
+                  <p className="text-muted-foreground text-xs">
+                    Click to view insight details
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>
       }
-      rightPanel={
-        visualization.visualizationType !== "table" ? (
-          <div className="space-y-4 p-4">
-            <div>
-              <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
-
-              <div className="space-y-3">
-                <SelectField
-                  label="X Axis"
-                  value={visualization.encoding?.x || ""}
-                  onChange={(value) => handleEncodingChange("x", value)}
-                  options={columnOptions}
-                  placeholder="Select column..."
-                />
-
-                <SelectField
-                  label="Y Axis"
-                  value={visualization.encoding?.y || ""}
-                  onChange={(value) => handleEncodingChange("y", value)}
-                  options={columnOptions}
-                  placeholder="Select column..."
-                />
-
-                <SelectField
-                  label="Color (optional)"
-                  value={visualization.encoding?.color || ""}
-                  onChange={(value) => handleEncodingChange("color", value)}
-                  onClear={() => handleEncodingChange("color", "")}
-                  options={columnOptions}
-                  placeholder="None"
-                />
-
-                {visualization.visualizationType === "scatter" && (
-                  <SelectField
-                    label="Size (optional)"
-                    value={visualization.encoding?.size || ""}
-                    onChange={(value) => handleEncodingChange("size", value)}
-                    onClear={() => handleEncodingChange("size", "")}
-                    options={columnOptions}
-                    placeholder="None"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
-              <SelectField
-                label=""
-                value={visualization.visualizationType}
-                onChange={handleTypeChange}
-                options={vizTypeOptions}
-              />
-            </div>
-
-            {/* Source insight link */}
-            {visualization.insightId && (
-              <div className="border-t pt-4">
-                <h3 className="mb-2 text-sm font-semibold">Source</h3>
-                <Card
-                  className="hover:bg-muted/50 cursor-pointer transition-colors"
-                  onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
-                  }
-                >
-                  <CardContent className="p-3">
-                    <p className="truncate text-sm font-medium">
-                      Source Insight
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      Click to view insight details
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </div>
-        ) : undefined
-      }
     >
       <div className="h-full overflow-hidden">
-        {/* Table-only visualization */}
-        {visualization.visualizationType === "table" && (
-          <div className="flex h-full flex-col">
-            <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col">
-              <VirtualTable
-                rows={dataFrame.rows}
-                columns={dataFrame.columns}
-                height="100%"
-                className="flex-1"
-              />
-            </Surface>
+        {hasEncodingErrors ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="max-w-md rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900">
+                <LuTriangleAlert className="h-6 w-6 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="mb-2 text-lg font-semibold text-red-800 dark:text-red-200">
+                Invalid encoding configuration
+              </h3>
+              <div className="space-y-2 text-sm text-red-700 dark:text-red-300">
+                {encodingErrors.x && (
+                  <p>
+                    <strong>X Axis:</strong> {encodingErrors.x}
+                  </p>
+                )}
+                {encodingErrors.y && (
+                  <p>
+                    <strong>Y Axis:</strong> {encodingErrors.y}
+                  </p>
+                )}
+              </div>
+              <p className="mt-4 text-xs text-red-600 dark:text-red-400">
+                Please update the axis configuration in the panel on the right.
+              </p>
+            </div>
           </div>
-        )}
-
-        {/* Chart visualization with integrated toggle */}
-        {visualization.visualizationType !== "table" && (
+        ) : (
           <VisualizationDisplay visualizationId={visualizationId} />
         )}
       </div>

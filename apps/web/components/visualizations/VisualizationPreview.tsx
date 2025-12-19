@@ -64,8 +64,8 @@ export function VisualizationPreview({
     return <PreviewLoading />;
   }
 
-  // Error, no data, or table type - show fallback
-  if (error || !data || visualization.visualizationType === "table") {
+  // Error or no data - show fallback
+  if (error || !data) {
     return (
       <div className="bg-muted flex h-full w-full items-center justify-center">
         {fallback}

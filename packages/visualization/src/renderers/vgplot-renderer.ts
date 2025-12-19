@@ -146,8 +146,14 @@ function getDefaultFillColor(): string | undefined {
 
 /**
  * Get bar chart styling options (width, padding, rounded corners).
+ *
+ * @param isStacked - Whether the chart has color encoding (stacked bars)
+ * @param isHorizontal - Whether this is a horizontal bar chart
  */
-function getBarChartOptions(isStacked: boolean): Record<string, unknown> {
+function getBarChartOptions(
+  isStacked: boolean,
+  isHorizontal: boolean,
+): Record<string, unknown> {
   const options: Record<string, unknown> = {
     width: 0.6, // Bar width as fraction of band (60% of available space)
     padding: 0.2, // Padding between bars (20% of band)
@@ -161,7 +167,14 @@ function getBarChartOptions(isStacked: boolean): Record<string, unknown> {
     const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
 
     if (!isStacked) {
-      options.ry1 = radiusInPx; // Round top corners only
+      // Round only the outer end of the bar (where the value terminates)
+      // - Vertical bars (barY): round top corners (ry1)
+      // - Horizontal bars (barX): round right corners (rx2)
+      if (isHorizontal) {
+        options.rx2 = radiusInPx;
+      } else {
+        options.ry1 = radiusInPx;
+      }
     } else {
       options.rx = radiusInPx; // Round all corners
       options.ry = radiusInPx;
@@ -195,9 +208,10 @@ function buildEncodingOptions(
 
   if (encoding.size) options.r = parseEncodingValue(api, encoding.size);
 
-  // Bar chart styling
-  if (chartType === "bar") {
-    Object.assign(options, getBarChartOptions(!!encoding.color));
+  // Bar chart styling (both vertical and horizontal)
+  if (chartType === "bar" || chartType === "barHorizontal") {
+    const isHorizontal = chartType === "barHorizontal";
+    Object.assign(options, getBarChartOptions(!!encoding.color, isHorizontal));
   }
 
   return options;
@@ -242,18 +256,31 @@ function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
 
 /**
  * Build margin and axis options for the plot.
+ * Applies SI notation formatting to the metric axis (Y for vertical, X for horizontal).
  */
-function buildAxisOptions(api: VgplotAPI, isPreview: boolean): unknown[] {
+function buildAxisOptions(
+  api: VgplotAPI,
+  isPreview: boolean,
+  chartType: VisualizationType,
+): unknown[] {
   if (isPreview) {
     return [api.axis(null), api.margin(4)];
   }
 
-  return [
-    api.marginRight(20),
-    api.marginTop(20),
-    api.yTickFormat("~s"),
-    api.yGrid(true),
-  ];
+  const options: unknown[] = [api.marginRight(20), api.marginTop(20)];
+
+  // Apply SI notation formatting to the metric axis
+  // For horizontal bar charts, the metric (value) is on the X-axis
+  // For vertical bar/line/area charts, the metric is on the Y-axis
+  if (chartType === "barHorizontal") {
+    options.push(api.xTickFormat("~s"));
+    options.push(api.xGrid(true));
+  } else {
+    options.push(api.yTickFormat("~s"));
+    options.push(api.yGrid(true));
+  }
+
+  return options;
 }
 
 /**
@@ -302,6 +329,8 @@ function buildMark(
   switch (type) {
     case "bar":
       return api.barY(source, options);
+    case "barHorizontal":
+      return api.barX(source, options);
     case "line":
       return api.lineY(source, options);
     case "area":
@@ -345,7 +374,13 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
   const extendedApi = api as VgplotAPIExtended;
 
   return {
-    supportedTypes: ["bar", "line", "area", "scatter"] as const,
+    supportedTypes: [
+      "bar",
+      "barHorizontal",
+      "line",
+      "area",
+      "scatter",
+    ] as const,
 
     render(
       container: HTMLElement,
@@ -360,7 +395,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         const plotOptions: unknown[] = [
           mark,
           ...buildSizingOptions(api, config),
-          ...buildAxisOptions(api, !!config.preview),
+          ...buildAxisOptions(api, !!config.preview, type),
         ];
 
         // Apply color scheme
@@ -419,6 +454,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
  */
 export const VGPLOT_SUPPORTED_TYPES: readonly VisualizationType[] = [
   "bar",
+  "barHorizontal",
   "line",
   "area",
   "scatter",

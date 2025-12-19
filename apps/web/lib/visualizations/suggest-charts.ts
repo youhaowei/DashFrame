@@ -3,6 +3,12 @@ import type { VisualizationType, VisualizationEncoding } from "../stores/types";
 import type { Insight } from "../stores/types";
 import type { Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import {
+  isBlockedColumn,
+  hasNumericalVariance,
+  isSuitableCategoricalXAxis,
+  isSuitableColorColumn,
+} from "./encoding-criteria";
 
 /**
  * Patterns that indicate a column is a meaningful metric for Y-axis.
@@ -212,82 +218,13 @@ export function suggestCharts(
   // Create seeded random for reproducible variety
   const random = createSeededRandom(seed);
 
-  // Categories to avoid for chart encodings (identifiers/references should not be axes)
-  const blockedAxisCategories = new Set([
-    "identifier",
-    "reference",
-    "email",
-    "url",
-    "uuid",
-  ]);
-
-  // Helper to check if a column should be blocked from axis usage
+  // Helper wrappers that use unified encoding criteria
   const isBlocked = (col: ColumnAnalysis): boolean => {
-    // Check category (analyzeDataFrame handles ID detection via patterns and uniqueness)
-    if (blockedAxisCategories.has(col.category)) {
-      return true;
-    }
-    // Also check field metadata for identifier/reference flags (as a fallback)
-    const field = fields[col.columnName];
-    if (field && (field.isIdentifier || field.isReference)) {
-      return true;
-    }
-    // Skip columns with high null rate (>50% missing data)
-    // These are not useful for chart axes
-    if (rowCount > 0 && col.nullCount / rowCount > 0.5) {
-      return true;
-    }
-    return false;
+    return !isBlockedColumn(col, fields[col.columnName], rowCount).good;
   };
 
-  // Helper to check if a categorical column is good for X-axis
-  // Good categorical X-axis columns should have:
-  // - More than 1 unique value (has variance)
-  // - Not too many unique values (readable chart, typically < 50)
-  const isGoodCategoricalXAxis = (col: ColumnAnalysis): boolean => {
-    // Must have variance (more than 1 unique value)
-    if (col.cardinality <= 1) {
-      return false;
-    }
-    // Should not have too many unique values for a readable chart
-    // A bar chart with 100+ categories is usually not useful
-    if (col.cardinality > 50) {
-      return false;
-    }
-    return true;
-  };
-
-  // Helper to check if a categorical column is good for color encoding
-  // Color legends should have few unique values (2-15 is ideal)
-  const isGoodColorColumn = (col: ColumnAnalysis): boolean => {
-    // Need at least 2 values to show color differentiation
-    if (col.cardinality < 2) {
-      return false;
-    }
-    // Too many colors makes the legend unreadable
-    if (col.cardinality > 15) {
-      return false;
-    }
-    return true;
-  };
-
-  // Helper to check if a numerical column has meaningful variance
-  // Skip columns that are mostly zeros or have the same value
-  const hasNumericalVariance = (col: ColumnAnalysis): boolean => {
-    // If we have extended stats (min/max), use them
-    if (col.min !== undefined && col.max !== undefined) {
-      // Check for variance
-      if (col.min === col.max) return false;
-
-      // Check for zero ratio if available
-      if (col.zeroCount !== undefined && rowCount > 0) {
-        if (col.zeroCount / rowCount > 0.8) return false;
-      }
-      return true;
-    }
-
-    // Fallback if extended stats missing (rely on cardinality)
-    return col.cardinality > 1;
+  const hasVariance = (col: ColumnAnalysis): boolean => {
+    return hasNumericalVariance(col, rowCount).good;
   };
 
   // Find columns by category, excluding blocked ones
@@ -295,8 +232,7 @@ export function suggestCharts(
   // For numerical columns, also check for meaningful variance (not all zeros)
   const numerical = shuffleWithSeed(
     analysis.filter(
-      (a) =>
-        a.category === "numerical" && !isBlocked(a) && hasNumericalVariance(a),
+      (a) => a.category === "numerical" && !isBlocked(a) && hasVariance(a),
     ),
     random,
   );
@@ -313,7 +249,7 @@ export function suggestCharts(
           a.category === "text" ||
           a.category === "boolean") &&
         !isBlocked(a) &&
-        isGoodCategoricalXAxis(a),
+        isSuitableCategoricalXAxis(a),
     ),
     random,
   );
@@ -326,7 +262,7 @@ export function suggestCharts(
           a.category === "text" ||
           a.category === "boolean") &&
         !isBlocked(a) &&
-        isGoodColorColumn(a),
+        isSuitableColorColumn(a),
     ),
     random,
   );
@@ -798,8 +734,8 @@ function rankSuggestions(
     line: 1,
     area: 1,
     bar: 2,
+    barHorizontal: 2,
     scatter: 3,
-    table: 4,
   };
 
   // Helper to count new fields (fields not in existingFieldSet)

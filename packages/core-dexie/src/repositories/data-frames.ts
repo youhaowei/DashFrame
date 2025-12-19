@@ -1,8 +1,10 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import type { UUID } from "@dashframe/types";
+import type { UUID, DataFrame } from "@dashframe/types";
 import {
-  DataFrame as DataFrameClass,
+  // Import the class for fromJSON() factory method
+  // The class implements the DataFrame interface
+  DataFrame as BrowserDataFrame,
   deleteArrowData,
 } from "@dashframe/engine-browser";
 import { db, type DataFrameEntity } from "../db";
@@ -35,7 +37,7 @@ export interface DataFrameMutations {
    * This only stores the serialization reference in Dexie.
    */
   addDataFrame: (
-    dataFrame: DataFrameClass,
+    dataFrame: DataFrame,
     metadata: {
       name: string;
       insightId?: UUID;
@@ -70,7 +72,7 @@ export interface DataFrameMutations {
    */
   replaceDataFrame: (
     id: UUID,
-    newDataFrame: DataFrameClass,
+    newDataFrame: DataFrame,
     metadata?: { rowCount?: number; columnCount?: number },
   ) => Promise<void>;
 
@@ -110,7 +112,7 @@ export function useDataFrameMutations(): DataFrameMutations {
   return useMemo(
     () => ({
       addDataFrame: async (
-        dataFrame: DataFrameClass,
+        dataFrame: DataFrame,
         metadata: {
           name: string;
           insightId?: UUID;
@@ -162,7 +164,7 @@ export function useDataFrameMutations(): DataFrameMutations {
 
       replaceDataFrame: async (
         id: UUID,
-        newDataFrame: DataFrameClass,
+        newDataFrame: DataFrame,
         metadata?: { rowCount?: number; columnCount?: number },
       ): Promise<void> => {
         const oldEntity = await db.dataFrames.get(id);
@@ -219,13 +221,16 @@ export function useDataFrameMutations(): DataFrameMutations {
 
 /**
  * Get a DataFrame instance by ID.
- * Returns the class instance that can load data from IndexedDB.
+ * Returns the class instance that can load data into DuckDB.
+ *
+ * Note: Returns the browser-specific BrowserDataFrame implementation
+ * which has additional methods like load() for DuckDB integration.
  */
 export async function getDataFrame(
   id: UUID,
-): Promise<DataFrameClass | undefined> {
+): Promise<InstanceType<typeof BrowserDataFrame> | undefined> {
   const entity = await db.dataFrames.get(id);
-  return entity ? DataFrameClass.fromJSON(entity) : undefined;
+  return entity ? BrowserDataFrame.fromJSON(entity) : undefined;
 }
 
 /**

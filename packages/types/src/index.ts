@@ -54,6 +54,7 @@ export type {
   InsightSort,
   InsightJoinConfig,
   Insight,
+  CompiledInsight,
   InsightMutations,
   UseInsights,
   UseInsightMutations,

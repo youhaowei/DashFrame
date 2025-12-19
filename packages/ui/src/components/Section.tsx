@@ -11,6 +11,8 @@ export interface SectionProps extends Omit<SurfaceProps, "children"> {
   description?: string;
   /** Optional actions shown on the right of header */
   actions?: ItemAction[];
+  /** Optional custom element on right side of header (alternative to actions) */
+  headerRight?: React.ReactNode;
   /** Section content */
   children: React.ReactNode;
   /** Show loading skeleton instead of content */
@@ -45,6 +47,7 @@ export function Section({
   title,
   description,
   actions,
+  headerRight,
   children,
   className,
   elevation = "raised",
@@ -66,7 +69,9 @@ export function Section({
             <p className="text-muted-foreground text-xs">{description}</p>
           )}
         </div>
-        {actions && actions.length > 0 && <ButtonGroup actions={actions} />}
+        {/* Right side: headerRight takes precedence, falls back to actions */}
+        {headerRight ??
+          (actions && actions.length > 0 && <ButtonGroup actions={actions} />)}
       </div>
 
       {/* Content or Loading Skeleton */}

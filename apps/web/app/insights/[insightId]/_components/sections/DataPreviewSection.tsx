@@ -1,41 +1,105 @@
 "use client";
 
-import { memo } from "react";
-import { Section, VirtualTable } from "@dashframe/ui";
-import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import type { DataTable } from "@dashframe/types";
+import { memo, useState, useMemo } from "react";
+import { Section, Toggle, VirtualTable } from "@dashframe/ui";
+import { GitMerge, Table2 } from "@dashframe/ui/icons";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
+import type { Insight } from "@dashframe/types";
+
+type PreviewMode = "join" | "result";
 
 interface DataPreviewSectionProps {
-  dataTable: DataTable;
-  rowCount?: number;
-  fieldCount?: number;
+  insight: Insight;
+  combinedFieldCount: number;
 }
 
 /**
- * DataPreviewSection - Shows VirtualTable with raw data preview
+ * DataPreviewSection - Data preview with toggle between Join Preview and Insight Result
  *
- * Uses useDataFramePagination for efficient browsing of large datasets.
- * The insight engine handles the decision between base and joined data.
+ * Two preview modes:
+ * - Join Preview: Shows raw joined data without aggregations/filters (showModelPreview=true)
+ * - Insight Result: Shows aggregated/filtered data based on insight configuration (showModelPreview=false)
+ *
+ * The toggle is only shown when the insight has configuration (fields or metrics selected).
+ * When unconfigured, defaults to Join Preview mode.
  *
  * Memoized to prevent re-renders when unrelated data changes.
  */
 export const DataPreviewSection = memo(function DataPreviewSection({
-  dataTable,
-  rowCount = 0,
-  fieldCount = 0,
+  insight,
+  combinedFieldCount,
 }: DataPreviewSectionProps) {
-  // Pagination hook for VirtualTable
-  const { fetchData: fetchPreviewData, totalCount: previewTotalCount } =
-    useDataFramePagination(dataTable?.dataFrameId);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("join");
 
-  const displayRowCount = previewTotalCount || rowCount;
+  // Determine if insight has configuration (fields or metrics)
+  const hasConfiguration =
+    (insight.selectedFields?.length ?? 0) > 0 ||
+    (insight.metrics?.length ?? 0) > 0;
+
+  // Use insight pagination for join preview (raw data)
+  const joinPagination = useInsightPagination({
+    insight,
+    showModelPreview: true,
+  });
+
+  // Use insight pagination for insight result (aggregated data)
+  const resultPagination = useInsightPagination({
+    insight,
+    showModelPreview: false,
+  });
+
+  // Select the active pagination based on mode
+  const activePagination =
+    previewMode === "join" ? joinPagination : resultPagination;
+  const { fetchData, totalCount, fieldCount, isReady } = activePagination;
+
+  // Compute display counts
+  const displayRowCount = totalCount || 0;
+  const displayFieldCount =
+    previewMode === "join" ? combinedFieldCount : fieldCount || 0;
+
+  // Toggle options - icons sized by Toggle component based on size prop
+  const toggleOptions = useMemo(
+    () => [
+      {
+        value: "join" as const,
+        icon: <GitMerge />,
+        label: "Join preview",
+        tooltip: "Raw data from joined tables",
+      },
+      {
+        value: "result" as const,
+        icon: <Table2 />,
+        label: "Insight result",
+        tooltip: "Aggregated data based on insight configuration",
+        disabled: !hasConfiguration,
+      },
+    ],
+    [hasConfiguration],
+  );
+
+  // Build description with row and field counts
+  const description = `${displayRowCount.toLocaleString()} rows • ${displayFieldCount} fields`;
 
   return (
     <Section
       title="Data preview"
-      description={`${displayRowCount.toLocaleString()} rows • ${fieldCount} fields`}
+      description={description}
+      isLoading={!isReady}
+      loadingHeight={300}
+      headerRight={
+        hasConfiguration ? (
+          <Toggle
+            variant="outline"
+            size="sm"
+            value={previewMode}
+            options={toggleOptions}
+            onValueChange={setPreviewMode}
+          />
+        ) : undefined
+      }
     >
-      <VirtualTable onFetchData={fetchPreviewData} height={260} compact />
+      <VirtualTable onFetchData={fetchData} height={260} compact />
     </Section>
   );
 });

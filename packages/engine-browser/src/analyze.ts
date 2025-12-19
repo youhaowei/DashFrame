@@ -1,5 +1,6 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrameColumn, Field } from "@dashframe/engine";
+import { Insight } from "./insight";
 
 // Pattern detection helpers
 // eslint-disable-next-line sonarjs/slow-regex -- Email validation pattern, input is bounded
@@ -40,6 +41,58 @@ export type ColumnAnalysis = {
   /** Ratio of the most frequent value (0-1). High value = dominated by one category */
   maxFrequencyRatio?: number;
 };
+
+// ============================================================================
+// Cardinality Thresholds - Single source of truth for all consumers
+// ============================================================================
+
+/**
+ * Cardinality thresholds for column categorization and validation.
+ * Used by suggest-charts, axis-warnings, and encoding-criteria.
+ */
+export const CARDINALITY_THRESHOLDS = {
+  /** Max categories for readable color legend */
+  COLOR_MAX: 12,
+  /** Min categories for color to be useful */
+  COLOR_MIN: 2,
+  /** Max categories for X-axis readability */
+  CATEGORICAL_X_MAX: 50,
+  /** Cardinality ratio threshold for categorical detection (relative to row count) */
+  CATEGORICAL_RATIO: 0.2,
+} as const;
+
+// ============================================================================
+// Identifier Detection - Consolidated from axis-warnings.ts
+// ============================================================================
+
+/** Patterns that indicate a column is an identifier */
+const ID_NAME_PATTERNS = [
+  /^id$/i,
+  /_id$/i,
+  /^id_/i,
+  /Id$/, // camelCase: userId
+  /^uuid$/i,
+  /^guid$/i,
+  /^_rowindex$/i,
+  /^rowindex$/i,
+  /key$/i,
+  /^pk$/i,
+];
+
+/** Patterns that look like IDs but aren't (false positives) */
+const NOT_ID_PATTERNS = [/zipcode$/i, /postcode$/i, /areacode$/i];
+
+/**
+ * Check if a column name looks like an identifier.
+ * Consolidated from axis-warnings.ts for single source of truth.
+ *
+ * @param name - Column name to check
+ * @returns true if the column name matches identifier patterns
+ */
+export function looksLikeIdentifier(name: string): boolean {
+  if (NOT_ID_PATTERNS.some((p) => p.test(name))) return false;
+  return ID_NAME_PATTERNS.some((p) => p.test(name));
+}
 
 /**
  * Analyze a DuckDB table using SQL queries for accurate full-dataset statistics.
@@ -575,4 +628,133 @@ export function suggestJoinColumns(
   );
 
   return suggestions;
+}
+
+// ============================================================================
+// Insight Analysis - Run DuckDB analysis on Insight result
+// ============================================================================
+
+/**
+ * Analyze an Insight's result using DuckDB.
+ *
+ * Uses `insight.toSQL()` to get the query (handles joins, aggregation, filters),
+ * then runs full statistical analysis on the result columns.
+ *
+ * This ensures:
+ * - Analysis matches what the visualization actually shows
+ * - Joined columns are included in analysis
+ * - Metrics (aggregations) are analyzed with real cardinality
+ * - Consistent SQL generation via Insight class
+ *
+ * @param conn - DuckDB connection
+ * @param insight - Insight instance with toSQL() method
+ * @returns Column analysis for all columns in the Insight result
+ */
+export async function analyzeInsight(
+  conn: AsyncDuckDBConnection,
+  insight: Insight,
+): Promise<ColumnAnalysis[]> {
+  const viewName = `__insight_analysis_${Date.now()}`;
+
+  try {
+    // 1. Get SQL from Insight (handles joins, aggregation, GROUP BY)
+    const insightSQL = insight.toSQL();
+
+    // 2. Create temporary view from Insight SQL
+    // This may fail if tables haven't been loaded into DuckDB yet
+    try {
+      await conn.query(
+        `CREATE OR REPLACE TEMP VIEW "${viewName}" AS ${insightSQL}`,
+      );
+    } catch (e) {
+      // If table doesn't exist, return empty analysis
+      // The caller's effect will re-run when tables are loaded
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      if (errorMessage.includes("does not exist")) {
+        console.debug(
+          "[analyzeInsight] Tables not yet loaded, skipping analysis",
+        );
+        return [];
+      }
+      throw e; // Re-throw other errors
+    }
+
+    // 3. Get column info from the view
+    const columnsResult = await conn.query(`DESCRIBE "${viewName}"`);
+    const columnsArray = columnsResult.toArray();
+
+    // Build columns array with type info
+    const columns: DataFrameColumn[] = columnsArray.map((row) => ({
+      name: String(row.column_name),
+      type: mapDuckDBTypeToDataFrameType(String(row.column_type)),
+    }));
+
+    // 4. Get row count for analysis
+    const countResult = await conn.query(
+      `SELECT COUNT(*) as cnt FROM "${viewName}"`,
+    );
+    const totalRows = Number(countResult.toArray()[0]?.cnt ?? 0);
+
+    // 5. Run full analysis on the view
+    const analysis = await analyzeDataFrame(
+      conn,
+      viewName,
+      columns,
+      undefined, // fields - not needed, analysis infers from data
+      totalRows,
+    );
+
+    return analysis;
+  } finally {
+    // Clean up temporary view
+    try {
+      await conn.query(`DROP VIEW IF EXISTS "${viewName}"`);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Map DuckDB type string to DataFrameColumn type.
+ * Used when creating column metadata from DESCRIBE query.
+ */
+function mapDuckDBTypeToDataFrameType(
+  duckDBType: string,
+): DataFrameColumn["type"] {
+  const upper = duckDBType.toUpperCase();
+
+  // Numeric types
+  if (
+    upper.includes("INT") ||
+    upper.includes("DECIMAL") ||
+    upper.includes("NUMERIC") ||
+    upper.includes("FLOAT") ||
+    upper.includes("DOUBLE") ||
+    upper.includes("REAL") ||
+    upper === "BIGINT" ||
+    upper === "HUGEINT" ||
+    upper === "SMALLINT" ||
+    upper === "TINYINT"
+  ) {
+    return "number";
+  }
+
+  // Date/time types
+  if (
+    upper.includes("DATE") ||
+    upper.includes("TIME") ||
+    upper.includes("TIMESTAMP") ||
+    upper.includes("INTERVAL")
+  ) {
+    return "date";
+  }
+
+  // Boolean
+  if (upper === "BOOLEAN" || upper === "BOOL") {
+    return "boolean";
+  }
+
+  // Default to string
+  return "string";
 }

@@ -77,6 +77,7 @@ export {
 export {
   useInsights,
   useInsight,
+  useCompiledInsight,
   useInsightMutations,
   getInsight,
   getAllInsights,

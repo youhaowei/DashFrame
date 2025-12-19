@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Panel, Input, InputField } from "@dashframe/ui";
-import { useInsightMutations } from "@dashframe/core";
-import type { Insight, DataTable, InsightMetric } from "@dashframe/types";
+import { Panel, InputField } from "@dashframe/ui";
+import { useInsightMutations, useVisualizations } from "@dashframe/core";
+import type {
+  Insight,
+  DataTable,
+  InsightMetric,
+  Visualization,
+} from "@dashframe/types";
 import {
   computeCombinedFields,
   type CombinedField,
@@ -12,6 +17,46 @@ import { FieldsSection } from "./FieldsSection";
 import { MetricsSection } from "./MetricsSection";
 import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
+
+/**
+ * Check if a field (by column name) is used by any visualization's encoding
+ */
+function isFieldUsedByVisualization(
+  columnName: string,
+  visualizations: Visualization[],
+): Visualization | undefined {
+  return visualizations.find((viz) => {
+    const enc = viz.encoding;
+    if (!enc) return false;
+    // Check if encoding x/y/color/size references this column (as dimension)
+    return (
+      enc.x === columnName ||
+      enc.y === columnName ||
+      enc.color === columnName ||
+      enc.size === columnName
+    );
+  });
+}
+
+/**
+ * Check if a metric (by name like "sum(amount)") is used by any visualization's encoding
+ */
+function isMetricUsedByVisualization(
+  metricName: string,
+  visualizations: Visualization[],
+): Visualization | undefined {
+  return visualizations.find((viz) => {
+    const enc = viz.encoding;
+    if (!enc) return false;
+    // Metrics appear in encoding as aggregate expressions like "sum(amount)"
+    return (
+      enc.x === metricName ||
+      enc.y === metricName ||
+      enc.color === metricName ||
+      enc.size === metricName
+    );
+  });
+}
 
 interface InsightConfigPanelProps {
   insight: Insight;
@@ -43,6 +88,9 @@ export function InsightConfigPanel({
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
+
+  // Get visualizations for this insight to check dependencies
+  const { data: insightVisualizations = [] } = useVisualizations(insight.id);
 
   // Compute combined fields from base + joined tables
   const { fields: combinedFields } = useMemo(
@@ -80,12 +128,36 @@ export function InsightConfigPanel({
 
   const handleRemoveField = useCallback(
     (fieldId: string) => {
+      // Find the field to get its column name
+      const field = combinedFields.find((f) => f.id === fieldId);
+      if (!field) return;
+
+      const columnName = field.columnName ?? field.name;
+
+      // Check if any visualization uses this field
+      const usingViz = isFieldUsedByVisualization(
+        columnName,
+        insightVisualizations,
+      );
+      if (usingViz) {
+        alert(
+          `Cannot remove field "${field.name}" because it is used by visualization "${usingViz.name}". Delete the visualization first.`,
+        );
+        return;
+      }
+
       const updated = (insight.selectedFields ?? []).filter(
         (id) => id !== fieldId,
       );
       updateInsight(insight.id, { selectedFields: updated });
     },
-    [insight.id, insight.selectedFields, updateInsight],
+    [
+      insight.id,
+      insight.selectedFields,
+      updateInsight,
+      combinedFields,
+      insightVisualizations,
+    ],
   );
 
   const handleAddField = useCallback(
@@ -106,10 +178,26 @@ export function InsightConfigPanel({
 
   const handleRemoveMetric = useCallback(
     (metricId: string) => {
+      // Find the metric to get its name
+      const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
+      if (!metric) return;
+
+      // Check if any visualization uses this metric
+      const usingViz = isMetricUsedByVisualization(
+        metric.name,
+        insightVisualizations,
+      );
+      if (usingViz) {
+        alert(
+          `Cannot remove metric "${metric.name}" because it is used by visualization "${usingViz.name}". Delete the visualization first.`,
+        );
+        return;
+      }
+
       const updated = (insight.metrics ?? []).filter((m) => m.id !== metricId);
       updateInsight(insight.id, { metrics: updated });
     },
-    [insight.id, insight.metrics, updateInsight],
+    [insight.id, insight.metrics, updateInsight, insightVisualizations],
   );
 
   const handleAddMetric = useCallback(

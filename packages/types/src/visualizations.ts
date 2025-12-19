@@ -13,8 +13,20 @@ export type VegaLiteSpec = Record<string, unknown>;
 
 /**
  * Visualization chart types.
+ *
+ * Note: "table" is not included - tables are displayed in insights, not visualizations.
+ * - bar: Vertical bar chart (categorical X, numerical Y)
+ * - barHorizontal: Horizontal bar chart (numerical X, categorical Y)
+ * - line: Line chart (continuous X, numerical Y)
+ * - area: Area chart (continuous X, numerical Y)
+ * - scatter: Scatter plot (continuous X, continuous Y)
  */
-export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
+export type VisualizationType =
+  | "bar"
+  | "barHorizontal"
+  | "line"
+  | "scatter"
+  | "area";
 
 /**
  * Axis type for chart encoding.

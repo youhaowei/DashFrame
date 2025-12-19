@@ -157,7 +157,12 @@ export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
 // Visualizations
 // ============================================================================
 
-export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
+export type VisualizationType =
+  | "bar"
+  | "barHorizontal"
+  | "line"
+  | "scatter"
+  | "area";
 
 export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
 
