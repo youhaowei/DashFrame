@@ -151,6 +151,7 @@ export function ButtonGroup({
               className={item.className}
               tooltip={item.tooltip}
               asChild={item.asChild}
+              disabled={item.disabled}
             >
               {item.children}
             </Button>
@@ -172,6 +173,7 @@ export function ButtonGroup({
                 className={groupedAction.className}
                 tooltip={groupedAction.tooltip}
                 asChild={groupedAction.asChild}
+                disabled={groupedAction.disabled}
               >
                 {groupedAction.children}
               </Button>

@@ -1,10 +1,7 @@
-import type {
-  VisualizationType,
-  VisualizationEncoding,
-  Insight,
-} from "../stores/types";
+import type { VisualizationType, Insight } from "../stores/types";
 import type { DataFrameData, Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type { SuggestionEncoding } from "./suggest-charts";
 
 /**
  * Auto-selects axes based on chart type and column analysis.
@@ -16,9 +13,9 @@ export function autoSelectEncoding(
   type: VisualizationType,
   dataFrame: DataFrameData,
   fields?: Record<string, Field>,
-  currentEncoding: VisualizationEncoding = {},
+  currentEncoding: SuggestionEncoding = {},
   insight?: Insight,
-): VisualizationEncoding {
+): SuggestionEncoding {
   // Simple analysis based on column types
   const analysis: ColumnAnalysis[] = (dataFrame.columns || []).map((col) => {
     const typeStr = String(col.type).toLowerCase();

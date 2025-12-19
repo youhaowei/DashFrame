@@ -3,9 +3,10 @@
 import { useMemo } from "react";
 import { useVisualizations, useInsights, useDataTables } from "@dashframe/core";
 import { Chart } from "@dashframe/visualization";
+import { resolveEncodingToSql } from "@dashframe/engine";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { LuLoader } from "react-icons/lu";
-import type { UUID } from "@dashframe/types";
+import type { UUID, ChartEncoding } from "@dashframe/types";
 
 interface VisualizationRendererProps {
   /** The visualization ID to render */
@@ -88,6 +89,31 @@ export function VisualizationRenderer({
     return `df_${dataFrameId.replace(/-/g, "_")}`;
   }, [dataFrameId]);
 
+  // Resolve encoding from EncodingValue (field:uuid/metric:uuid) to SQL expressions
+  // This is needed because persisted visualizations store prefixed IDs, but
+  // the Chart component expects SQL expressions like "category" or "sum(revenue)"
+  const resolvedEncoding = useMemo((): ChartEncoding => {
+    if (!visualization?.encoding || !dataTable || !insight) {
+      return {};
+    }
+
+    // Build resolution context with fields and metrics
+    const context = {
+      fields: dataTable.fields ?? [],
+      metrics: insight.metrics ?? [],
+    };
+
+    // Resolve prefixed IDs to SQL expressions
+    const resolved = resolveEncodingToSql(visualization.encoding, context);
+
+    // Merge with axis types (xType, yType are not resolved, just passed through)
+    return {
+      ...resolved,
+      xType: visualization.encoding.xType,
+      yType: visualization.encoding.yType,
+    };
+  }, [visualization, dataTable, insight]);
+
   // Use pagination hook to ensure table is loaded in DuckDB
   const { isReady: isTableReady } = useDataFramePagination(dataFrameId);
 
@@ -112,7 +138,7 @@ export function VisualizationRenderer({
       key={visualizationId}
       tableName={tableName}
       visualizationType={visualization.visualizationType}
-      encoding={visualization.encoding ?? {}}
+      encoding={resolvedEncoding}
       className={className}
       width={width}
       height={height}

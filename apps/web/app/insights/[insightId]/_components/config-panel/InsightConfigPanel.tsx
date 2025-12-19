@@ -2,7 +2,11 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { Panel, InputField } from "@dashframe/ui";
-import { useInsightMutations, useVisualizations } from "@dashframe/core";
+import {
+  useInsightMutations,
+  useVisualizations,
+  useDataTableMutations,
+} from "@dashframe/core";
 import type {
   Insight,
   DataTable,
@@ -17,6 +21,8 @@ import { FieldsSection } from "./FieldsSection";
 import { MetricsSection } from "./MetricsSection";
 import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
+import { FieldRenameDialog } from "./FieldRenameDialog";
+import { MetricEditDialog } from "./MetricEditDialog";
 
 /**
  * Check if a field (by column name) is used by any visualization's encoding
@@ -85,9 +91,14 @@ export function InsightConfigPanel({
   // Modal states
   const [isFieldEditorOpen, setIsFieldEditorOpen] = useState(false);
   const [isMetricEditorOpen, setIsMetricEditorOpen] = useState(false);
+  const [fieldToRename, setFieldToRename] = useState<CombinedField | null>(
+    null,
+  );
+  const [metricToEdit, setMetricToEdit] = useState<InsightMetric | null>(null);
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
+  const { updateField } = useDataTableMutations();
 
   // Get visualizations for this insight to check dependencies
   const { data: insightVisualizations = [] } = useVisualizations(insight.id);
@@ -168,6 +179,20 @@ export function InsightConfigPanel({
     [insight.id, insight.selectedFields, updateInsight],
   );
 
+  const handleRenameField = useCallback(
+    async (field: CombinedField, newName: string) => {
+      // Update the display name in the source DataTable
+      // This only changes the user-facing name, not the underlying columnName
+      try {
+        await updateField(field.sourceTableId, field.id, { name: newName });
+      } catch (error) {
+        console.error("Failed to rename field:", error);
+        alert("Failed to rename field. Please try again.");
+      }
+    },
+    [updateField],
+  );
+
   // --- Metric handlers ---
   const handleMetricsReorder = useCallback(
     (newOrder: InsightMetric[]) => {
@@ -208,6 +233,16 @@ export function InsightConfigPanel({
     [insight.id, insight.metrics, updateInsight],
   );
 
+  const handleEditMetric = useCallback(
+    (updatedMetric: InsightMetric) => {
+      const updated = (insight.metrics ?? []).map((m) =>
+        m.id === updatedMetric.id ? updatedMetric : m,
+      );
+      updateInsight(insight.id, { metrics: updated });
+    },
+    [insight.id, insight.metrics, updateInsight],
+  );
+
   return (
     <Panel
       header={
@@ -230,6 +265,7 @@ export function InsightConfigPanel({
           baseTableId={dataTable.id}
           onReorder={handleFieldsReorder}
           onRemove={handleRemoveField}
+          onRenameClick={setFieldToRename}
           onAddClick={() => setIsFieldEditorOpen(true)}
         />
 
@@ -238,6 +274,7 @@ export function InsightConfigPanel({
           metrics={visibleMetrics}
           onReorder={handleMetricsReorder}
           onRemove={handleRemoveMetric}
+          onEditClick={setMetricToEdit}
           onAddClick={() => setIsMetricEditorOpen(true)}
         />
       </div>
@@ -253,8 +290,24 @@ export function InsightConfigPanel({
         isOpen={isMetricEditorOpen}
         onOpenChange={setIsMetricEditorOpen}
         dataTable={dataTable}
-        insightId={insight.id}
         onSave={handleAddMetric}
+      />
+      <FieldRenameDialog
+        field={fieldToRename}
+        tableName={
+          fieldToRename
+            ? allDataTables.find((t) => t.id === fieldToRename.sourceTableId)
+                ?.name
+            : undefined
+        }
+        onOpenChange={(open) => !open && setFieldToRename(null)}
+        onSave={handleRenameField}
+      />
+      <MetricEditDialog
+        metric={metricToEdit}
+        dataTable={dataTable}
+        onOpenChange={(open) => !open && setMetricToEdit(null)}
+        onSave={handleEditMetric}
       />
     </Panel>
   );

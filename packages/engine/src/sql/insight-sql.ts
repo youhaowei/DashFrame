@@ -5,7 +5,55 @@
  * No async operations, no data fetching - just pure SQL string generation.
  */
 
-import type { UUID, DataTable, Insight, Field } from "@dashframe/types";
+import type {
+  UUID,
+  DataTable,
+  Insight,
+  Field,
+  InsightMetric,
+} from "@dashframe/types";
+
+// ============================================================================
+// Metric SQL Expression
+// ============================================================================
+
+/**
+ * Convert an InsightMetric to its SQL aggregation expression.
+ *
+ * This is the canonical format expected by vgplot/Mosaic for encoding values.
+ * The expression matches the SQL aggregation syntax used in GROUP BY queries.
+ *
+ * @example
+ * ```typescript
+ * // Count all rows
+ * metricToSqlExpression({ name: "Count", aggregation: "count" })
+ * // Returns: "count(*)"
+ *
+ * // Count distinct values
+ * metricToSqlExpression({ name: "Unique Users", aggregation: "count_distinct", columnName: "user_id" })
+ * // Returns: "count_distinct(user_id)"
+ *
+ * // Standard aggregation
+ * metricToSqlExpression({ name: "Total Sales", aggregation: "sum", columnName: "amount" })
+ * // Returns: "sum(amount)"
+ * ```
+ */
+export function metricToSqlExpression(metric: InsightMetric): string {
+  const agg = metric.aggregation;
+
+  // COUNT(*) - no column needed
+  if (agg === "count" && !metric.columnName) {
+    return "count(*)";
+  }
+
+  // COUNT(DISTINCT column)
+  if (agg === "count_distinct" && metric.columnName) {
+    return `count_distinct(${metric.columnName})`;
+  }
+
+  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
+  return `${agg}(${metric.columnName ?? "*"})`;
+}
 
 /**
  * Options for building insight SQL.
@@ -115,13 +163,28 @@ export function buildInsightSQL(
 
   if (!joinedSQL) return null;
 
-  // Model mode: raw data without transformations
-  if (mode === "model") {
-    return appendPagination(`SELECT * FROM ${joinedSQL}`, options);
+  // Query mode: collect all fields from base + joined tables for field ID resolution
+  const allFields = [...baseFields];
+  for (const [, joinTable] of joinedTables) {
+    const joinFields = (joinTable.fields ?? []).filter(
+      (f) => !f.name.startsWith("_"),
+    );
+    allFields.push(...joinFields);
   }
 
-  // Query mode: apply aggregations
-  return buildAggregatedSQL(joinedSQL, baseFields, insight, options);
+  // Model mode: raw data without transformations
+  if (mode === "model") {
+    // Build set of valid column names from all fields (no metrics in model mode)
+    const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
+    return appendPagination(
+      `SELECT * FROM ${joinedSQL}`,
+      options,
+      validColumns,
+    );
+  }
+
+  // Apply aggregations with all available fields
+  return buildAggregatedSQL(joinedSQL, allFields, insight, options);
 }
 
 /**
@@ -141,9 +204,12 @@ function buildSimpleSQL(
     mode === "model" ||
     (!insight.selectedFields?.length && !insight.metrics?.length)
   ) {
+    // Build set of valid column names (only base table columns exist in model mode)
+    const validColumns = new Set(baseFields.map((f) => f.columnName ?? f.name));
     return appendPagination(
       `SELECT * FROM ${tableName} AS "${displayName}"`,
       options,
+      validColumns,
     );
   }
 
@@ -336,19 +402,21 @@ function buildFieldIdToColumnMap(fields: Field[]): Map<string, string> {
 function buildDimensionColumns(
   selectedFieldIds: string[],
   fieldIdToColumn: Map<string, string>,
-): { selectParts: string[]; groupByParts: string[] } {
+): { selectParts: string[]; groupByParts: string[]; columnNames: string[] } {
   const selectParts: string[] = [];
   const groupByParts: string[] = [];
+  const columnNames: string[] = [];
 
   for (const fieldId of selectedFieldIds) {
     const columnName = fieldIdToColumn.get(fieldId);
     if (columnName) {
       selectParts.push(`"${columnName}"`);
       groupByParts.push(`"${columnName}"`);
+      columnNames.push(columnName);
     }
   }
 
-  return { selectParts, groupByParts };
+  return { selectParts, groupByParts, columnNames };
 }
 
 /** Build SQL expression for a single metric aggregation */
@@ -389,7 +457,7 @@ function buildMetricColumns(
  */
 function buildAggregatedSQL(
   fromClause: string,
-  baseFields: Field[],
+  allFields: Field[],
   insight: Insight,
   options: BuildInsightSQLOptions,
 ): string {
@@ -398,20 +466,38 @@ function buildAggregatedSQL(
 
   // No configuration: fall back to raw data
   if (!hasSelectedFields && !hasMetrics) {
-    return appendPagination(`SELECT * FROM ${fromClause}`, options);
+    // Build valid columns from all fields
+    const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
+    return appendPagination(
+      `SELECT * FROM ${fromClause}`,
+      options,
+      validColumns,
+    );
   }
 
-  // Build dimension columns (SELECT + GROUP BY)
-  const fieldIdToColumn = buildFieldIdToColumnMap(baseFields);
-  const { selectParts: dimensionSelects, groupByParts } = hasSelectedFields
+  // Build dimension columns (SELECT + GROUP BY) from all available fields
+  const fieldIdToColumn = buildFieldIdToColumnMap(allFields);
+  const {
+    selectParts: dimensionSelects,
+    groupByParts,
+    columnNames: dimensionColumnNames,
+  } = hasSelectedFields
     ? buildDimensionColumns(insight.selectedFields!, fieldIdToColumn)
-    : { selectParts: [], groupByParts: [] };
+    : { selectParts: [], groupByParts: [], columnNames: [] };
 
   // Build metric columns
   const metricSelects = hasMetrics ? buildMetricColumns(insight.metrics!) : [];
 
   // Combine SELECT parts
   const selectParts = [...dimensionSelects, ...metricSelects];
+
+  // Build set of valid columns for sorting (dimension columns + metric names)
+  const validColumns = new Set<string>(dimensionColumnNames);
+  if (hasMetrics) {
+    for (const metric of insight.metrics!) {
+      validColumns.add(metric.name);
+    }
+  }
 
   // Build final SQL
   let sql = `SELECT ${selectParts.join(", ")} FROM ${fromClause}`;
@@ -420,20 +506,32 @@ function buildAggregatedSQL(
     sql += ` GROUP BY ${groupByParts.join(", ")}`;
   }
 
-  return appendPagination(sql, options);
+  return appendPagination(sql, options, validColumns);
 }
 
 /**
  * Appends ORDER BY, LIMIT, and OFFSET clauses to SQL.
+ *
+ * @param sql - The base SQL query
+ * @param options - Query options including sort, limit, offset
+ * @param validColumns - Optional set of column names that exist in the query result.
+ *                       If provided, sortColumn must be in this set to be applied.
+ *                       This prevents sorting by metric columns that don't exist in model mode.
  */
 function appendPagination(
   sql: string,
   options: BuildInsightSQLOptions,
+  validColumns?: Set<string>,
 ): string {
   const { sortColumn, sortDirection, limit, offset } = options;
 
+  // Only apply ORDER BY if sortColumn exists in valid columns (if specified)
+  // This prevents errors when sorting by metric columns in model mode
   if (sortColumn && sortDirection) {
-    sql += ` ORDER BY "${sortColumn}" ${sortDirection.toUpperCase()}`;
+    const isValidColumn = !validColumns || validColumns.has(sortColumn);
+    if (isValidColumn) {
+      sql += ` ORDER BY "${sortColumn}" ${sortDirection.toUpperCase()}`;
+    }
   }
   if (limit !== undefined) {
     sql += ` LIMIT ${limit}`;

@@ -2,10 +2,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
-import type {
-  VisualizationEncoding,
-  VisualizationType,
-} from "@dashframe/types";
+import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
 import { useContainerDimensions } from "@dashframe/ui";
 
@@ -80,8 +77,8 @@ export interface ChartProps {
   /** Type of visualization */
   visualizationType: VisualizationType;
 
-  /** Column encoding configuration */
-  encoding: VisualizationEncoding;
+  /** Column encoding configuration - uses plain strings (column names or SQL expressions) */
+  encoding: ChartEncoding;
 
   /** Optional CSS class name */
   className?: string;

@@ -6,6 +6,14 @@ import "./config";
 export { useDataFramesStore, type DataFrameEntry } from "./dataframes-store";
 
 // ============================================================================
+// UI Stores - Ephemeral UI state (not persisted)
+// ============================================================================
+export {
+  useConfirmDialogStore,
+  type ConfirmDialogConfig,
+} from "./confirm-dialog-store";
+
+// ============================================================================
 // Legacy Stores - Being migrated to Convex
 // These stores are kept for backward compatibility with components that
 // haven't been migrated yet (e.g., JoinFlowModal, legacy workbench components)

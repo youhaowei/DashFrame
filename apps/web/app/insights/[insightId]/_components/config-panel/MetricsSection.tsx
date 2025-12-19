@@ -11,7 +11,7 @@ import {
   CollapsibleTrigger,
   cn,
 } from "@dashframe/ui";
-import { Calculator, Plus, ChevronRight, X } from "@dashframe/ui/icons";
+import { Calculator, Plus, ChevronRight, X, Edit3 } from "@dashframe/ui/icons";
 import type { InsightMetric } from "@dashframe/types";
 
 /** Extended sortable item with metric data */
@@ -23,6 +23,7 @@ interface MetricsSectionProps {
   metrics: InsightMetric[];
   onReorder: (metrics: InsightMetric[]) => void;
   onRemove: (metricId: string) => void;
+  onEditClick: (metric: InsightMetric) => void;
   onAddClick: () => void;
   defaultOpen?: boolean;
 }
@@ -37,6 +38,7 @@ export function MetricsSection({
   metrics,
   onReorder,
   onRemove,
+  onEditClick,
   onAddClick,
   defaultOpen = true,
 }: MetricsSectionProps) {
@@ -98,6 +100,7 @@ export function MetricsSection({
                   <MetricItemContent
                     metric={item.metric}
                     onRemove={() => onRemove(item.id)}
+                    onEditClick={() => onEditClick(item.metric)}
                   />
                 )}
               />
@@ -116,18 +119,40 @@ export function MetricsSection({
 interface MetricItemContentProps {
   metric: InsightMetric;
   onRemove: () => void;
+  onEditClick: () => void;
 }
 
-function MetricItemContent({ metric, onRemove }: MetricItemContentProps) {
+function MetricItemContent({
+  metric,
+  onRemove,
+  onEditClick,
+}: MetricItemContentProps) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <Calculator className="text-primary h-3 w-3 shrink-0" />
-      <span className="text-primary min-w-0 flex-1 truncate text-sm">
+      <span
+        className="text-primary min-w-0 flex-1 cursor-pointer truncate text-sm hover:underline"
+        onClick={(e) => {
+          e.stopPropagation();
+          onEditClick();
+        }}
+        title={`${metric.name} (click to edit)`}
+      >
         {metric.name}
       </span>
       <span className="text-primary/60 shrink-0 text-xs">
         {metric.aggregation}
       </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onEditClick();
+        }}
+        className="text-primary/60 hover:bg-primary/10 hover:text-primary shrink-0 rounded-full p-0.5"
+        aria-label={`Edit ${metric.name}`}
+      >
+        <Edit3 className="h-3 w-3" />
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();

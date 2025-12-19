@@ -11,9 +11,52 @@ import {
   CollapsibleTrigger,
   cn,
 } from "@dashframe/ui";
-import { ChevronRight, X, Plus, Hash } from "@dashframe/ui/icons";
+import {
+  ChevronRight,
+  X,
+  Plus,
+  Hash,
+  Edit3,
+  Calendar,
+  Toggle,
+  Type,
+} from "@dashframe/ui/icons";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import { getFieldTypeIcon } from "@/lib/utils/field-icons";
+
+/**
+ * Render field type icon based on type string.
+ * Uses direct JSX rendering to avoid React Compiler "component created during render" error.
+ * The icon components (Hash, Calendar, etc.) are statically imported.
+ */
+function FieldTypeIcon({ type }: { type: string }) {
+  const className = "text-muted-foreground h-3 w-3 shrink-0";
+  const normalizedType = type.toLowerCase();
+
+  // Numeric types
+  if (
+    ["number", "integer", "float", "decimal", "int", "bigint"].includes(
+      normalizedType,
+    )
+  ) {
+    return <Hash className={className} title={type} />;
+  }
+
+  // Date/time types
+  if (
+    ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
+    normalizedType.includes("date")
+  ) {
+    return <Calendar className={className} title={type} />;
+  }
+
+  // Boolean types
+  if (["boolean", "bool"].includes(normalizedType)) {
+    return <Toggle className={className} title={type} />;
+  }
+
+  // Default to text/string
+  return <Type className={className} title={type} />;
+}
 
 /** Extended sortable item with field data */
 interface FieldSortableItem extends SortableListItem {
@@ -27,6 +70,7 @@ interface FieldsSectionProps {
   baseTableId: string;
   onReorder: (newOrder: string[]) => void;
   onRemove: (fieldId: string) => void;
+  onRenameClick: (field: CombinedField) => void;
   onAddClick: () => void;
   defaultOpen?: boolean;
 }
@@ -42,6 +86,7 @@ export function FieldsSection({
   baseTableId,
   onReorder,
   onRemove,
+  onRenameClick,
   onAddClick,
   defaultOpen = true,
 }: FieldsSectionProps) {
@@ -104,6 +149,7 @@ export function FieldsSection({
                     field={item.field}
                     isJoined={item.isJoined}
                     onRemove={() => onRemove(item.id)}
+                    onRenameClick={() => onRenameClick(item.field)}
                   />
                 )}
               />
@@ -123,22 +169,27 @@ interface FieldItemContentProps {
   field: CombinedField;
   isJoined: boolean;
   onRemove: () => void;
+  onRenameClick: () => void;
 }
 
 function FieldItemContent({
   field,
   isJoined,
   onRemove,
+  onRenameClick,
 }: FieldItemContentProps) {
-  const FieldIcon = getFieldTypeIcon(field.type);
-
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <FieldIcon
-        className="text-muted-foreground h-3 w-3 shrink-0"
-        title={field.type}
-      />
-      <span className="min-w-0 flex-1 truncate text-sm">
+      {/* Render icon inline to avoid "component created during render" error */}
+      <FieldTypeIcon type={field.type} />
+      <span
+        className="min-w-0 flex-1 cursor-pointer truncate text-sm hover:underline"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRenameClick();
+        }}
+        title={`${field.displayName} (click to rename)`}
+      >
         {field.displayName}
       </span>
       {isJoined && (
@@ -149,6 +200,16 @@ function FieldItemContent({
           joined
         </Badge>
       )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRenameClick();
+        }}
+        className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-full p-0.5"
+        aria-label={`Rename ${field.displayName}`}
+      >
+        <Edit3 className="h-3 w-3" />
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();

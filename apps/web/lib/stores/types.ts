@@ -1,4 +1,12 @@
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/types";
+import type {
+  UUID,
+  Field,
+  Metric,
+  SourceSchema,
+  VisualizationType,
+  AxisType,
+  VisualizationEncoding,
+} from "@dashframe/types";
 
 // ============================================================================
 // DataTables (raw table data from sources)
@@ -157,23 +165,8 @@ export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
 // Visualizations
 // ============================================================================
 
-export type VisualizationType =
-  | "bar"
-  | "barHorizontal"
-  | "line"
-  | "scatter"
-  | "area";
-
-export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
-
-export interface VisualizationEncoding {
-  x?: string;
-  y?: string;
-  xType?: AxisType;
-  yType?: AxisType;
-  color?: string;
-  size?: string;
-}
+// Re-export visualization types from @dashframe/types
+export type { VisualizationType, AxisType, VisualizationEncoding };
 
 export interface VisualizationSource {
   dataFrameId: UUID; // The DataFrame being visualized

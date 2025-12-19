@@ -12,26 +12,26 @@ All radius values derive from a single `--radius` base value, making the entire 
 
 ```css
 :root {
-  --radius: 0.625rem;  /* 10px base */
+  --radius: 0.625rem; /* 10px base */
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);  /* 6px */
-  --radius-md: calc(var(--radius) - 2px);  /* 8px */
-  --radius-lg: var(--radius);              /* 10px */
-  --radius-xl: calc(var(--radius) + 4px);  /* 14px */
+  --radius-sm: calc(var(--radius) - 4px); /* 6px */
+  --radius-md: calc(var(--radius) - 2px); /* 8px */
+  --radius-lg: var(--radius); /* 10px */
+  --radius-xl: calc(var(--radius) + 4px); /* 14px */
 }
 ```
 
 ## Scale Reference
 
-| Tailwind Class | CSS Variable | Size | Usage |
-| -------------- | ------------ | ---- | ----- |
-| `rounded-sm` | `--radius-sm` | 6px | Form inputs, menu items |
-| `rounded-md` | `--radius-md` | 8px | Buttons, dropdowns, tooltips |
-| `rounded-lg` | `--radius-lg` | 10px | Cards, dialogs, alerts |
-| `rounded-xl` | `--radius-xl` | 14px | Surfaces, panels, badges |
-| `rounded-full` | - | 50% | Switches, avatars, pills |
+| Tailwind Class | CSS Variable  | Size | Usage                        |
+| -------------- | ------------- | ---- | ---------------------------- |
+| `rounded-sm`   | `--radius-sm` | 6px  | Form inputs, menu items      |
+| `rounded-md`   | `--radius-md` | 8px  | Buttons, dropdowns, tooltips |
+| `rounded-lg`   | `--radius-lg` | 10px | Cards, dialogs, alerts       |
+| `rounded-xl`   | `--radius-xl` | 14px | Surfaces, panels, badges     |
+| `rounded-full` | -             | 50%  | Switches, avatars, pills     |
 
 ## Visual Hierarchy
 

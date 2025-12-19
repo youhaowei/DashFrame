@@ -1,14 +1,50 @@
 /* eslint-disable sonarjs/cognitive-complexity */
-import type { VisualizationType, VisualizationEncoding } from "../stores/types";
+import type { VisualizationType } from "../stores/types";
 import type { Insight } from "../stores/types";
-import type { Field } from "@dashframe/types";
+import type { Field, ChartEncoding } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
+
+/**
+ * Re-export ChartEncoding as SuggestionEncoding for backwards compatibility.
+ *
+ * ChartEncoding uses plain strings (SQL expressions or column names) which is
+ * exactly what suggestions need. When a user clicks "Create", these SQL expressions
+ * are converted to EncodingValue (field:uuid or metric:uuid) for persistence.
+ */
+export type SuggestionEncoding = ChartEncoding;
 import {
   isBlockedColumn,
   hasNumericalVariance,
   isSuitableCategoricalXAxis,
   isSuitableColorColumn,
 } from "./encoding-criteria";
+
+/**
+ * Extract raw field names from a visualization encoding.
+ * Strips aggregation and date-binning wrappers to get the underlying column names.
+ *
+ * @example
+ * // Returns ["revenue", "date", "category"]
+ * extractRawFieldsFromEncoding({ x: "dateMonth(date)", y: "sum(revenue)", color: "category" })
+ *
+ * @param encoding - Visualization encoding with x, y, color, size channels
+ * @returns Array of raw field names (without aggregation wrappers)
+ */
+function extractRawFieldsFromEncoding(encoding: SuggestionEncoding): string[] {
+  const fields: string[] = [];
+  const addField = (value?: string) => {
+    if (!value) return;
+    const match = value.match(
+      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+    );
+    fields.push(match ? match[1] : value);
+  };
+  addField(encoding.x);
+  addField(encoding.y);
+  addField(encoding.color);
+  addField(encoding.size);
+  return fields;
+}
 
 /**
  * Patterns that indicate a column is a meaningful metric for Y-axis.
@@ -89,7 +125,7 @@ export interface ChartSuggestion {
   id: string;
   title: string; // e.g., "Revenue by Region"
   chartType: VisualizationType;
-  encoding: VisualizationEncoding;
+  encoding: SuggestionEncoding;
   rationale?: string; // Why this chart was suggested
   /** Fields that would be newly added (not currently in insight) */
   newFields?: string[];
@@ -174,39 +210,19 @@ export function suggestCharts(
   const excludedChartTypeSet = new Set(excludeChartTypes);
 
   // Helper to create encoding signature for deduplication
-  const getEncodingSignature = (encoding: VisualizationEncoding): string => {
+  const getEncodingSignature = (encoding: SuggestionEncoding): string => {
     return [encoding.x ?? "", encoding.y ?? "", encoding.color ?? ""].join("|");
   };
 
   // Helper to check if a suggestion should be excluded (matches existing visualization)
-  const isExcludedEncoding = (encoding: VisualizationEncoding): boolean => {
+  const isExcludedEncoding = (encoding: SuggestionEncoding): boolean => {
     if (!excludeEncodings || excludeEncodings.size === 0) return false;
     return excludeEncodings.has(getEncodingSignature(encoding));
   };
 
-  // Helper to extract raw field names from encoding (strips aggregation wrappers)
-  const extractFieldsFromEncoding = (
-    encoding: VisualizationEncoding,
-  ): string[] => {
-    const fields: string[] = [];
-    const extractField = (value?: string) => {
-      if (!value) return;
-      // Strip aggregation wrapper: sum(field) -> field, dateMonth(field) -> field
-      const match = value.match(
-        /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
-      );
-      fields.push(match ? match[1] : value);
-    };
-    extractField(encoding.x);
-    extractField(encoding.y);
-    extractField(encoding.color);
-    extractField(encoding.size);
-    return fields;
-  };
-
   // Helper to annotate a suggestion with new field info
   const annotateSuggestion = (suggestion: ChartSuggestion): ChartSuggestion => {
-    const usedFields = extractFieldsFromEncoding(suggestion.encoding);
+    const usedFields = extractRawFieldsFromEncoding(suggestion.encoding);
     const newFields = usedFields.filter((f) => !existingFieldSet.has(f));
     return {
       ...suggestion,
@@ -303,7 +319,7 @@ export function suggestCharts(
     for (const xCol of categorical) {
       for (const yCol of numerical) {
         const xAxisType = getAxisType(xCol);
-        const encoding: VisualizationEncoding = {
+        const encoding: SuggestionEncoding = {
           x: xCol.columnName,
           y: `sum(${yCol.columnName})`,
           xType: xAxisType,
@@ -330,7 +346,7 @@ export function suggestCharts(
   if (temporal.length > 0 && numerical.length > 0) {
     for (const xCol of temporal) {
       for (const yCol of numerical) {
-        const encoding: VisualizationEncoding = {
+        const encoding: SuggestionEncoding = {
           x: `dateMonth(${xCol.columnName})`,
           y: `sum(${yCol.columnName})`,
           xType: "temporal",
@@ -353,27 +369,25 @@ export function suggestCharts(
 
   // Heuristic 3: Scatter Plot (2 numerical columns)
   if (numerical.length >= 2) {
-    outer: for (let i = 0; i < numerical.length; i++) {
-      for (let j = 0; j < numerical.length; j++) {
+    let scatterAdded = false;
+    for (let i = 0; i < numerical.length && !scatterAdded; i++) {
+      for (let j = 0; j < numerical.length && !scatterAdded; j++) {
         if (i === j) continue;
         const xCol = numerical[i];
         const yCol = numerical[j];
-        const encoding: VisualizationEncoding = {
+        const encoding: SuggestionEncoding = {
           x: xCol.columnName,
           y: yCol.columnName,
           xType: "quantitative",
           yType: "quantitative",
         };
-        if (
-          addSuggestion({
-            id: `scatter-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} vs ${xCol.columnName}`,
-            chartType: "scatter",
-            encoding,
-            rationale: "Two numeric dimensions for correlation",
-          })
-        )
-          break outer;
+        scatterAdded = addSuggestion({
+          id: `scatter-${xCol.columnName}-${yCol.columnName}`,
+          title: `${yCol.columnName} vs ${xCol.columnName}`,
+          chartType: "scatter",
+          encoding,
+          rationale: "Two numeric dimensions for correlation",
+        });
       }
     }
   }
@@ -387,7 +401,7 @@ export function suggestCharts(
   ) {
     for (const xCol of temporal) {
       for (const yCol of numerical) {
-        const encoding: VisualizationEncoding = {
+        const encoding: SuggestionEncoding = {
           x: `dateMonth(${xCol.columnName})`,
           y: `sum(${yCol.columnName})`,
           xType: "temporal",
@@ -446,7 +460,7 @@ export function suggestCharts(
     if (colorCol && numerical.length > 0) {
       const yCol = numerical[0];
       const xAxisType = getAxisType(xCol);
-      const encoding: VisualizationEncoding = {
+      const encoding: SuggestionEncoding = {
         x: xCol.columnName,
         y: `sum(${yCol.columnName})`,
         xType: xAxisType,
@@ -520,7 +534,7 @@ function coverageScore(
   return tables.size;
 }
 
-function pickBestPair(
+function _pickBestPair(
   first: ColumnAnalysis[],
   second: ColumnAnalysis[],
   columnTableMap?: Record<string, string[]>,
@@ -604,7 +618,7 @@ function pickBestPair(
   return validPairs[0].pair;
 }
 
-function pickBestTriple(
+function _pickBestTriple(
   xCategories: ColumnAnalysis[],
   colorCategories: ColumnAnalysis[],
   numericalCols: ColumnAnalysis[],
@@ -697,23 +711,11 @@ function tablesUsedBySuggestion(
 }
 
 /**
- * Extract field names from a suggestion's encoding
+ * Extract field names from a suggestion's encoding.
+ * Wrapper for extractRawFieldsFromEncoding that takes a suggestion.
  */
 function getFieldsFromSuggestion(suggestion: ChartSuggestion): string[] {
-  const fields: string[] = [];
-  const extractField = (value?: string) => {
-    if (!value) return;
-    // Strip aggregation wrapper: sum(field) -> field, dateMonth(field) -> field
-    const match = value.match(
-      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
-    );
-    fields.push(match ? match[1] : value);
-  };
-  extractField(suggestion.encoding.x);
-  extractField(suggestion.encoding.y);
-  extractField(suggestion.encoding.color);
-  extractField(suggestion.encoding.size);
-  return fields;
+  return extractRawFieldsFromEncoding(suggestion.encoding);
 }
 
 /**
@@ -724,6 +726,245 @@ function getFieldsFromSuggestion(suggestion: ChartSuggestion): string[] {
  * 3. Chart type priority: Line/Area > Bar > Scatter > Table
  * 4. Simpler encodings (no color) over complex ones
  */
+/**
+ * Generates a single chart suggestion for a specific chart type.
+ * Uses targeted heuristics for each chart type to ensure viable suggestions.
+ *
+ * @param insight - The insight to generate suggestion for
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
+ * @param fields - Field definitions for analysis
+ * @param chartType - The specific chart type to generate a suggestion for
+ * @param options - Configuration options
+ * @returns A single chart suggestion or null if no valid suggestion
+ */
+export function suggestByChartType(
+  insight: Insight,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
+  fields: Record<string, Field>,
+  chartType: VisualizationType,
+  options: Omit<SuggestChartsOptions, "limit" | "excludeChartTypes"> = {},
+): ChartSuggestion | null {
+  const { existingFields = [], excludeEncodings } = options;
+  const existingFieldSet = new Set(existingFields);
+
+  // Helper wrappers for column filtering
+  const isBlocked = (col: ColumnAnalysis): boolean => {
+    return !isBlockedColumn(col, fields[col.columnName], rowCount).good;
+  };
+
+  const hasVariance = (col: ColumnAnalysis): boolean => {
+    return hasNumericalVariance(col, rowCount).good;
+  };
+
+  // Categorize columns
+  const numerical = analysis.filter(
+    (a) => a.category === "numerical" && !isBlocked(a) && hasVariance(a),
+  );
+  const temporal = analysis.filter(
+    (a) => a.category === "temporal" && !isBlocked(a),
+  );
+  const categorical = analysis.filter(
+    (a) =>
+      (a.category === "categorical" ||
+        a.category === "text" ||
+        a.category === "boolean") &&
+      !isBlocked(a) &&
+      isSuitableCategoricalXAxis(a),
+  );
+
+  // Helper to check if encoding is excluded
+  const isExcludedEncoding = (encoding: SuggestionEncoding): boolean => {
+    if (!excludeEncodings || excludeEncodings.size === 0) return false;
+    const sig = [encoding.x ?? "", encoding.y ?? "", encoding.color ?? ""].join(
+      "|",
+    );
+    return excludeEncodings.has(sig);
+  };
+
+  // Helper to annotate suggestion with new field info
+  const annotateSuggestion = (suggestion: ChartSuggestion): ChartSuggestion => {
+    const extractField = (value?: string): string | null => {
+      if (!value) return null;
+      const match = value.match(
+        /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+      );
+      return match ? match[1] : value;
+    };
+    const usedFields = [
+      extractField(suggestion.encoding.x),
+      extractField(suggestion.encoding.y),
+      extractField(suggestion.encoding.color),
+    ].filter((f): f is string => f !== null);
+    const newFields = usedFields.filter((f) => !existingFieldSet.has(f));
+    return {
+      ...suggestion,
+      newFields: newFields.length > 0 ? newFields : undefined,
+      usesExistingFieldsOnly: newFields.length === 0,
+    };
+  };
+
+  let suggestion: ChartSuggestion | null = null;
+
+  switch (chartType) {
+    case "bar":
+      // Bar Chart: categorical/temporal X + numerical Y
+      if (categorical.length > 0 && numerical.length > 0) {
+        const xCol = categorical[0];
+        const yCol = numerical[0];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: `sum(${yCol.columnName})`,
+          xType: getAxisType(xCol),
+          yType: "quantitative",
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `bar-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} by ${xCol.columnName}`,
+            chartType: "bar",
+            encoding,
+            rationale: "Categorical dimension with numeric measure",
+          };
+        }
+      }
+      break;
+
+    case "barHorizontal":
+      // Horizontal Bar: numerical X + categorical Y
+      if (categorical.length > 0 && numerical.length > 0) {
+        const yCol = categorical[0];
+        const xCol = numerical[0];
+        const encoding: SuggestionEncoding = {
+          x: `sum(${xCol.columnName})`,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: getAxisType(yCol),
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `barHorizontal-${xCol.columnName}-${yCol.columnName}`,
+            title: `${xCol.columnName} by ${yCol.columnName}`,
+            chartType: "barHorizontal",
+            encoding,
+            rationale: "Horizontal categorical comparison",
+          };
+        }
+      }
+      break;
+
+    case "line":
+      // Line Chart: temporal X + numerical Y
+      if (temporal.length > 0 && numerical.length > 0) {
+        const xCol = temporal[0];
+        const yCol = numerical[0];
+        const encoding: SuggestionEncoding = {
+          x: `dateMonth(${xCol.columnName})`,
+          y: `sum(${yCol.columnName})`,
+          xType: "temporal",
+          yType: "quantitative",
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `line-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} by month`,
+            chartType: "line",
+            encoding,
+            rationale: "Time series data aggregated by month",
+          };
+        }
+      }
+      break;
+
+    case "area":
+      // Area Chart: temporal X + numerical Y
+      if (temporal.length > 0 && numerical.length > 0) {
+        const xCol = temporal[0];
+        const yCol = numerical[0];
+        const encoding: SuggestionEncoding = {
+          x: `dateMonth(${xCol.columnName})`,
+          y: `sum(${yCol.columnName})`,
+          xType: "temporal",
+          yType: "quantitative",
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `area-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} trend`,
+            chartType: "area",
+            encoding,
+            rationale: "Cumulative trend visualization by month",
+          };
+        }
+      }
+      break;
+
+    case "scatter":
+      // Scatter Plot: 2 numerical columns
+      if (numerical.length >= 2) {
+        const xCol = numerical[0];
+        const yCol = numerical[1];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `scatter-${xCol.columnName}-${yCol.columnName}`,
+            title: `${yCol.columnName} vs ${xCol.columnName}`,
+            chartType: "scatter",
+            encoding,
+            rationale: "Two numeric dimensions for correlation",
+          };
+        }
+      }
+      break;
+  }
+
+  return suggestion ? annotateSuggestion(suggestion) : null;
+}
+
+/**
+ * Generates suggestions for all chart types at once.
+ * Calls suggestByChartType for each type to ensure all viable suggestions are found.
+ *
+ * @param insight - The insight to generate suggestions for
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
+ * @param fields - Field definitions for analysis
+ * @param chartTypes - Array of chart types to generate suggestions for
+ * @param options - Configuration options
+ * @returns Map of chart type to suggestion (or null)
+ */
+export function suggestForAllChartTypes(
+  insight: Insight,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
+  fields: Record<string, Field>,
+  chartTypes: VisualizationType[],
+  options: Omit<SuggestChartsOptions, "limit" | "excludeChartTypes"> = {},
+): Map<VisualizationType, ChartSuggestion | null> {
+  const result = new Map<VisualizationType, ChartSuggestion | null>();
+
+  // Generate suggestion for each chart type independently
+  for (const chartType of chartTypes) {
+    const suggestion = suggestByChartType(
+      insight,
+      analysis,
+      rowCount,
+      fields,
+      chartType,
+      options,
+    );
+    result.set(chartType, suggestion);
+  }
+
+  return result;
+}
+
 function rankSuggestions(
   suggestions: ChartSuggestion[],
   columnTableMap?: Record<string, string[]>,

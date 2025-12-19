@@ -24,7 +24,7 @@ import { DataPreviewSection } from "./sections/DataPreviewSection";
 import { SuggestedChartsSection } from "./sections/SuggestedChartsSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
 import { InsightConfigPanel } from "./config-panel";
-import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
@@ -34,9 +34,207 @@ import {
   analyzeInsight,
   type ColumnAnalysis,
 } from "@dashframe/engine-browser";
+import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 
 interface InsightViewProps {
   insight: Insight;
+}
+
+interface ParsedEncoding {
+  dimensionFields: string[];
+  metrics: InsightMetric[];
+}
+
+/**
+ * Parse a single encoding axis value to determine if it's a dimension or metric.
+ * Dimensions are raw field names, metrics are aggregation expressions like "sum(revenue)".
+ *
+ * @param value - The encoding value (e.g., "category" or "sum(revenue)")
+ * @param parseAggregateExpression - Function to parse aggregation expressions
+ * @param dataTableId - ID of the data table for metric creation
+ * @returns Object with either a dimension field name or a metric object
+ */
+function parseEncodingAxis(
+  value: string | undefined,
+  parseAggregateExpression: (expr: string) => {
+    aggregation: InsightMetric["aggregation"];
+    columnName?: string;
+  } | null,
+  dataTableId: string,
+): { dimension?: string; metric?: InsightMetric } {
+  if (!value) return {};
+
+  const parsed = parseAggregateExpression(value);
+  if (parsed) {
+    return {
+      metric: {
+        id: crypto.randomUUID() as UUID,
+        name: value,
+        sourceTable: dataTableId,
+        columnName: parsed.columnName,
+        aggregation: parsed.aggregation,
+      },
+    };
+  }
+  return { dimension: value };
+}
+
+/**
+ * Process a full chart encoding to extract all dimensions and metrics.
+ * Analyzes x, y, and color channels to separate raw fields from aggregations.
+ *
+ * @param encoding - The chart encoding with SQL expressions (ChartEncoding)
+ * @param parseAggregateExpression - Function to parse aggregation expressions
+ * @param dataTableId - ID of the data table for metric creation
+ * @returns Object containing arrays of dimension field names and metric objects
+ */
+function parseChartEncoding(
+  encoding: ChartEncoding,
+  parseAggregateExpression: (expr: string) => {
+    aggregation: InsightMetric["aggregation"];
+    columnName?: string;
+  } | null,
+  dataTableId: string,
+): ParsedEncoding {
+  const dimensionFields: string[] = [];
+  const metrics: InsightMetric[] = [];
+
+  // Process X axis
+  const xResult = parseEncodingAxis(
+    encoding.x,
+    parseAggregateExpression,
+    dataTableId,
+  );
+  if (xResult.dimension) dimensionFields.push(xResult.dimension);
+  if (xResult.metric) metrics.push(xResult.metric);
+
+  // Process Y axis
+  const yResult = parseEncodingAxis(
+    encoding.y,
+    parseAggregateExpression,
+    dataTableId,
+  );
+  if (yResult.dimension) dimensionFields.push(yResult.dimension);
+  if (yResult.metric) metrics.push(yResult.metric);
+
+  // Process color (only as dimension)
+  if (encoding.color) {
+    const colorParsed = parseAggregateExpression(encoding.color);
+    if (!colorParsed) {
+      dimensionFields.push(encoding.color);
+    }
+  }
+
+  return { dimensionFields, metrics };
+}
+
+/**
+ * Merge new fields and metrics with existing insight fields, avoiding duplicates.
+ * Field IDs are compared directly; metrics are compared by column name + aggregation.
+ *
+ * @param newFieldIds - Field IDs to add from the new visualization
+ * @param newMetrics - Metrics to add from the new visualization
+ * @param existingFieldIds - Current insight field IDs
+ * @param existingMetrics - Current insight metrics
+ * @returns Merged arrays with no duplicates
+ */
+function mergeFieldsAndMetrics(
+  newFieldIds: UUID[],
+  newMetrics: InsightMetric[],
+  existingFieldIds: UUID[],
+  existingMetrics: InsightMetric[],
+): { mergedFieldIds: UUID[]; mergedMetrics: InsightMetric[] } {
+  const mergedFieldIds = [
+    ...existingFieldIds,
+    ...newFieldIds.filter((id) => !existingFieldIds.includes(id)),
+  ];
+
+  const mergedMetrics = [...existingMetrics];
+  for (const newMetric of newMetrics) {
+    const isDuplicate = existingMetrics.some(
+      (m) =>
+        m.columnName === newMetric.columnName &&
+        m.aggregation === newMetric.aggregation,
+    );
+    if (!isDuplicate) {
+      mergedMetrics.push(newMetric);
+    }
+  }
+
+  return { mergedFieldIds, mergedMetrics };
+}
+
+/**
+ * Convert a ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs).
+ *
+ * This is the key conversion point between:
+ * - ChartEncoding: Used for rendering (plain strings like "category" or "sum(revenue)")
+ * - VisualizationEncoding: Used for persistence (prefixed IDs like "field:uuid" or "metric:uuid")
+ *
+ * @param chartEncoding - The chart encoding with SQL expressions
+ * @param fieldIdMap - Map from column name to field ID
+ * @param mergedMetrics - Metrics array (after merge) with their IDs
+ * @param parseAggregateExpression - Function to detect if a string is an aggregation
+ */
+function convertToVisualizationEncoding(
+  chartEncoding: ChartEncoding,
+  fieldIdMap: Map<string, UUID>,
+  mergedMetrics: InsightMetric[],
+  parseAggregateExpression: (expr: string) => {
+    aggregation: InsightMetric["aggregation"];
+    columnName?: string;
+  } | null,
+): VisualizationEncoding {
+  const result: VisualizationEncoding = {};
+
+  // Helper to convert a single channel
+  const convertChannel = (
+    value: string | undefined,
+  ):
+    | ReturnType<typeof fieldEncoding>
+    | ReturnType<typeof metricEncoding>
+    | undefined => {
+    if (!value) return undefined;
+
+    // Check if it's an aggregation expression
+    const parsed = parseAggregateExpression(value);
+    if (parsed) {
+      // It's a metric - find matching metric in mergedMetrics by aggregation + columnName
+      const metric = mergedMetrics.find(
+        (m) =>
+          m.aggregation === parsed.aggregation &&
+          m.columnName === parsed.columnName,
+      );
+      if (metric) {
+        return metricEncoding(metric.id);
+      }
+      // Fallback: shouldn't happen if mergeFieldsAndMetrics was called first
+      console.warn(
+        `[convertToVisualizationEncoding] Metric not found for: ${value}`,
+      );
+      return undefined;
+    }
+
+    // It's a dimension field - find field ID by column name
+    const fieldId = fieldIdMap.get(value);
+    if (fieldId) {
+      return fieldEncoding(fieldId);
+    }
+    console.warn(
+      `[convertToVisualizationEncoding] Field not found for: ${value}`,
+    );
+    return undefined;
+  };
+
+  result.x = convertChannel(chartEncoding.x);
+  result.y = convertChannel(chartEncoding.y);
+  result.color = convertChannel(chartEncoding.color);
+  result.size = convertChannel(chartEncoding.size);
+  result.xType = chartEncoding.xType;
+  result.yType = chartEncoding.yType;
+
+  return result;
 }
 
 /**
@@ -119,10 +317,11 @@ export function InsightView({ insight }: InsightViewProps) {
     [allDataTables, insight.baseTableId],
   );
 
-  // Pagination hook for DuckDB table readiness
-  const { isReady: isPreviewReady } = useDataFramePagination(
-    dataTable?.dataFrameId,
-  );
+  // Pagination hook for DuckDB table readiness (loads base + joined tables)
+  const { isReady: isPreviewReady } = useInsightPagination({
+    insight,
+    showModelPreview: false,
+  });
 
   // Compute metadata
   const baseDataFrameEntry = useMemo(
@@ -130,7 +329,7 @@ export function InsightView({ insight }: InsightViewProps) {
       dataTable?.dataFrameId
         ? allDataFrameEntries.find((e) => e.id === dataTable.dataFrameId)
         : undefined,
-    [allDataFrameEntries, dataTable?.dataFrameId],
+    [allDataFrameEntries, dataTable],
   );
 
   const rowCount = baseDataFrameEntry?.rowCount ?? 0;
@@ -153,16 +352,38 @@ export function InsightView({ insight }: InsightViewProps) {
   );
 
   // Build field map for suggestions
+  // Key by columnName to match DuckDB column analysis results
+  // Includes fields from both base table AND joined tables
   const fieldMap = useMemo<Record<string, Field>>(() => {
     if (!dataTable) return {};
     const map: Record<string, Field> = {};
+
+    // Add base table fields
     (dataTable.fields ?? [])
       .filter((f) => !f.name.startsWith("_"))
       .forEach((f) => {
-        map[f.name] = f;
+        const key = f.columnName ?? f.name;
+        map[key] = f;
       });
+
+    // Add fields from joined tables
+    insight.joins?.forEach((join) => {
+      const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+      if (joinTable) {
+        (joinTable.fields ?? [])
+          .filter((f) => !f.name.startsWith("_"))
+          .forEach((f) => {
+            const key = f.columnName ?? f.name;
+            // Don't overwrite if column already exists (base table takes precedence)
+            if (!map[key]) {
+              map[key] = f;
+            }
+          });
+      }
+    });
+
     return map;
-  }, [dataTable]);
+  }, [dataTable, insight.joins, allDataTables]);
 
   // Build Insight object for analysis (matches VisualizationPage pattern)
   const insightObj = useMemo(() => {
@@ -240,6 +461,13 @@ export function InsightView({ insight }: InsightViewProps) {
   // Column analysis effect - runs DuckDB analysis on the Insight result
   // Uses analyzeInsight() for accurate cardinality including joined columns
   useEffect(() => {
+    console.debug("[InsightView] Analysis effect check:", {
+      hasDuckDBConnection: !!duckDBConnection,
+      isDuckDBReady,
+      hasInsightObj: !!insightObj,
+      isPreviewReady,
+    });
+
     if (!duckDBConnection || !isDuckDBReady) return;
     if (!insightObj) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: clearing state when insight is unavailable
@@ -250,7 +478,12 @@ export function InsightView({ insight }: InsightViewProps) {
 
     const runAnalysis = async () => {
       try {
+        console.debug("[InsightView] Running analyzeInsight...");
         const results = await analyzeInsight(duckDBConnection, insightObj);
+        console.debug("[InsightView] Analysis complete:", {
+          columnCount: results.length,
+          columns: results.map((c) => c.columnName),
+        });
         setColumnAnalysis(results);
       } catch (e) {
         console.error("[InsightView] Analysis failed:", e);
@@ -262,16 +495,28 @@ export function InsightView({ insight }: InsightViewProps) {
   }, [duckDBConnection, isDuckDBReady, insightObj, isPreviewReady]);
 
   // Get existing field and metric column names from insight configuration
+  // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
     if (!dataTable) return [];
 
     const names: string[] = [];
 
-    // Map selected field IDs to column names
+    // Map selected field IDs to column names (includes base + joined tables)
     const fieldIdToName = new Map<string, string>();
     (dataTable.fields ?? []).forEach((f) => {
       fieldIdToName.set(f.id, f.columnName ?? f.name);
     });
+
+    // Add joined table fields to the mapping
+    insight.joins?.forEach((join) => {
+      const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+      if (joinTable) {
+        (joinTable.fields ?? []).forEach((f) => {
+          fieldIdToName.set(f.id, f.columnName ?? f.name);
+        });
+      }
+    });
+
     (insight.selectedFields ?? []).forEach((id) => {
       const name = fieldIdToName.get(id);
       if (name) names.push(name);
@@ -285,7 +530,13 @@ export function InsightView({ insight }: InsightViewProps) {
     });
 
     return names;
-  }, [dataTable, insight.selectedFields, insight.metrics]);
+  }, [
+    dataTable,
+    insight.selectedFields,
+    insight.metrics,
+    insight.joins,
+    allDataTables,
+  ]);
 
   // Build set of existing visualization encoding signatures for deduplication
   const existingVizSignatures = useMemo(() => {
@@ -304,6 +555,64 @@ export function InsightView({ insight }: InsightViewProps) {
     return signatures;
   }, [insightVisualizations]);
 
+  // Create minimal insight object for suggestions
+  // Uses LocalInsight type from stores which is expected by suggestCharts
+  const insightForSuggestions = useMemo<LocalInsight | null>(() => {
+    if (!dataTable) return null;
+    return {
+      id: insightId,
+      name: insight.name,
+      baseTable: {
+        tableId: dataTable.id,
+        selectedFields: [],
+      },
+      metrics: [],
+      createdAt: insight.createdAt,
+      updatedAt: insight.updatedAt ?? insight.createdAt,
+    };
+  }, [
+    insightId,
+    insight.name,
+    insight.createdAt,
+    insight.updatedAt,
+    dataTable,
+  ]);
+
+  // Column table map for ranking multi-table charts
+  // Maps column names to their source table IDs (includes joined tables)
+  const columnTableMap = useMemo<Record<string, UUID[]>>(() => {
+    if (!dataTable) return {};
+    const map: Record<string, UUID[]> = {};
+
+    // Add base table fields
+    (dataTable.fields ?? [])
+      .filter((f) => !f.name.startsWith("_"))
+      .forEach((field) => {
+        const name = field.columnName ?? field.name;
+        map[name] = [dataTable.id];
+      });
+
+    // Add fields from joined tables
+    insight.joins?.forEach((join) => {
+      const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+      if (joinTable) {
+        (joinTable.fields ?? [])
+          .filter((f) => !f.name.startsWith("_"))
+          .forEach((field) => {
+            const name = field.columnName ?? field.name;
+            // Track all tables that have this column
+            if (!map[name]) {
+              map[name] = [joinTable.id];
+            } else if (!map[name].includes(joinTable.id)) {
+              map[name].push(joinTable.id);
+            }
+          });
+      }
+    });
+
+    return map;
+  }, [dataTable, insight.joins, allDataTables]);
+
   // Generate chart suggestions for all insights
   // Filters out suggestions that match existing visualizations
   const suggestions = useMemo<ChartSuggestion[]>(() => {
@@ -311,31 +620,9 @@ export function InsightView({ insight }: InsightViewProps) {
     if (!isPreviewReady) return [];
     if (columnAnalysis.length === 0) return [];
     if (rowCount === 0) return [];
+    if (!insightForSuggestions) return [];
 
     try {
-      // Create minimal insight object for suggestions
-      // Uses LocalInsight type from stores which is expected by suggestCharts
-      const insightForSuggestions: LocalInsight = {
-        id: insightId,
-        name: insight.name,
-        baseTable: {
-          tableId: dataTable!.id,
-          selectedFields: [],
-        },
-        metrics: [],
-        createdAt: insight.createdAt,
-        updatedAt: insight.updatedAt ?? insight.createdAt,
-      };
-
-      // Column table map for ranking multi-table charts
-      const columnTableMap: Record<string, UUID[]> = {};
-      (dataTable!.fields ?? [])
-        .filter((f) => !f.name.startsWith("_"))
-        .forEach((field) => {
-          const name = field.columnName ?? field.name;
-          columnTableMap[name] = [dataTable!.id];
-        });
-
       // Generate suggestions with options
       // Pass excludeEncodings so suggestCharts filters during generation
       return suggestCharts(
@@ -359,10 +646,9 @@ export function InsightView({ insight }: InsightViewProps) {
     isPreviewReady,
     columnAnalysis,
     rowCount,
-    insightId,
-    insight,
-    dataTable,
+    insightForSuggestions,
     fieldMap,
+    columnTableMap,
     suggestionSeed,
     existingFieldNames,
     existingVizSignatures,
@@ -393,64 +679,35 @@ export function InsightView({ insight }: InsightViewProps) {
   // Handle creating a chart from suggestion
   const handleCreateChart = useCallback(
     async (suggestion: ChartSuggestion) => {
-      if (!dataTable?.dataFrameId) return;
-      if (!isPreviewReady) return;
+      if (!dataTable?.dataFrameId || !isPreviewReady) return;
 
-      // Parse encoding to determine fields and metrics for the insight
-      const encoding = suggestion.encoding;
-      const dimensionFields: string[] = []; // Column names to group by
-      const metrics: InsightMetric[] = [];
+      // Parse encoding to extract dimensions and metrics
+      const { dimensionFields, metrics } = parseChartEncoding(
+        suggestion.encoding,
+        parseAggregateExpression,
+        dataTable.id,
+      );
 
-      // Process X axis
-      if (encoding.x) {
-        const parsed = parseAggregateExpression(encoding.x);
-        if (parsed) {
-          // X is an aggregate
-          const metricId = crypto.randomUUID() as UUID;
-          metrics.push({
-            id: metricId,
-            name: encoding.x,
-            sourceTable: dataTable.id,
-            columnName: parsed.columnName,
-            aggregation: parsed.aggregation,
-          });
-        } else {
-          // X is a dimension field
-          dimensionFields.push(encoding.x);
-        }
-      }
-
-      // Process Y axis
-      if (encoding.y) {
-        const parsed = parseAggregateExpression(encoding.y);
-        if (parsed) {
-          // Y is an aggregate - add as metric
-          const metricId = crypto.randomUUID() as UUID;
-          metrics.push({
-            id: metricId,
-            name: encoding.y,
-            sourceTable: dataTable.id,
-            columnName: parsed.columnName,
-            aggregation: parsed.aggregation,
-          });
-        } else {
-          // Y is a dimension
-          dimensionFields.push(encoding.y);
-        }
-      }
-
-      // Process color
-      if (encoding.color) {
-        const parsed = parseAggregateExpression(encoding.color);
-        if (!parsed) {
-          dimensionFields.push(encoding.color);
-        }
-      }
-
-      // Map dimension column names to field IDs
+      // Map dimension column names to field IDs (base table + joined tables)
       const fieldIdMap = new Map<string, UUID>();
+
+      // Base table fields
       (dataTable.fields ?? []).forEach((f) => {
         fieldIdMap.set(f.columnName ?? f.name, f.id);
+      });
+
+      // Joined table fields
+      insight.joins?.forEach((join) => {
+        const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+        if (joinTable) {
+          (joinTable.fields ?? []).forEach((f) => {
+            const key = f.columnName ?? f.name;
+            // Don't overwrite if column already exists (base table takes precedence)
+            if (!fieldIdMap.has(key)) {
+              fieldIdMap.set(key, f.id);
+            }
+          });
+        }
       });
 
       // Convert dimension column names to field IDs
@@ -458,27 +715,13 @@ export function InsightView({ insight }: InsightViewProps) {
         .map((colName) => fieldIdMap.get(colName))
         .filter((id): id is UUID => id !== undefined);
 
-      // Merge with existing insight fields/metrics (don't overwrite if already present)
-      // This preserves fields/metrics used by other visualizations
-      const existingFieldIds = insight.selectedFields ?? [];
-      const mergedFieldIds = [
-        ...existingFieldIds,
-        ...newSelectedFieldIds.filter((id) => !existingFieldIds.includes(id)),
-      ];
-
-      // Merge metrics - check by columnName + aggregation combo to avoid duplicates
-      const existingMetrics = insight.metrics ?? [];
-      const mergedMetrics = [...existingMetrics];
-      for (const newMetric of metrics) {
-        const isDuplicate = existingMetrics.some(
-          (m) =>
-            m.columnName === newMetric.columnName &&
-            m.aggregation === newMetric.aggregation,
-        );
-        if (!isDuplicate) {
-          mergedMetrics.push(newMetric);
-        }
-      }
+      // Merge with existing insight fields/metrics
+      const { mergedFieldIds, mergedMetrics } = mergeFieldsAndMetrics(
+        newSelectedFieldIds,
+        metrics,
+        insight.selectedFields ?? [],
+        insight.metrics ?? [],
+      );
 
       // Update insight with merged fields and metrics
       updateInsight(insightId, {
@@ -486,13 +729,21 @@ export function InsightView({ insight }: InsightViewProps) {
         metrics: mergedMetrics,
       });
 
+      // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)
+      const visualizationEncoding = convertToVisualizationEncoding(
+        suggestion.encoding,
+        fieldIdMap,
+        mergedMetrics,
+        parseAggregateExpression,
+      );
+
       // Create visualization using encoding-driven rendering
       const vizId = await createVisualizationLocal(
         suggestion.title,
         insightId,
         suggestion.chartType,
         {} as VegaLiteSpec, // Deprecated: rendering now uses encoding
-        suggestion.encoding,
+        visualizationEncoding,
       );
 
       // Navigate to the visualization
@@ -500,8 +751,10 @@ export function InsightView({ insight }: InsightViewProps) {
     },
     [
       dataTable,
+      allDataTables,
       isPreviewReady,
       parseAggregateExpression,
+      insight,
       updateInsight,
       insightId,
       createVisualizationLocal,
@@ -551,28 +804,38 @@ export function InsightView({ insight }: InsightViewProps) {
           combinedFieldCount={combinedFieldCount}
         />
 
-        {/* Visualizations - Only show if there are visualizations */}
-        {insightVisualizations.length > 0 && (
-          <VisualizationsSection
-            visualizations={insightVisualizations}
-            insightId={insightId}
-          />
-        )}
+        {/* Visualizations - Always show section with "Create visualization" button */}
+        <VisualizationsSection
+          visualizations={insightVisualizations}
+          tableName={
+            dataTable.dataFrameId
+              ? `df_${dataTable.dataFrameId.replace(/-/g, "_")}`
+              : undefined
+          }
+          insight={insightForSuggestions ?? undefined}
+          columnAnalysis={columnAnalysis}
+          rowCount={rowCount}
+          fieldMap={fieldMap}
+          existingFields={existingFieldNames}
+          onCreateChart={handleCreateChart}
+        />
 
-        {/* Suggested Charts - Shows below visualizations, filters out existing chart types */}
-        {dataTable.dataFrameId && suggestions.length > 0 && (
-          <SuggestedChartsSection
-            tableName={`df_${dataTable.dataFrameId.replace(/-/g, "_")}`}
-            suggestions={suggestions}
-            isLoading={
-              !isPreviewReady ||
-              (isPreviewReady && columnAnalysis.length === 0 && rowCount > 0)
-            }
-            onCreateChart={handleCreateChart}
-            onRegenerate={handleRegenerate}
-            hasExistingVisualizations={insightVisualizations.length > 0}
-          />
-        )}
+        {/* Suggested Charts - Only show when no visualizations exist yet */}
+        {insightVisualizations.length === 0 &&
+          dataTable.dataFrameId &&
+          suggestions.length > 0 && (
+            <SuggestedChartsSection
+              tableName={`df_${dataTable.dataFrameId.replace(/-/g, "_")}`}
+              suggestions={suggestions}
+              isLoading={
+                !isPreviewReady ||
+                (isPreviewReady && columnAnalysis.length === 0 && rowCount > 0)
+              }
+              onCreateChart={handleCreateChart}
+              onRegenerate={handleRegenerate}
+              hasExistingVisualizations={false}
+            />
+          )}
       </div>
     </AppLayout>
   );

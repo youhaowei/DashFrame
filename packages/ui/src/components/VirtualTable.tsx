@@ -392,6 +392,20 @@ export function VirtualTable({
     [onFetchData, pageSize, inferredColumns.length],
   );
 
+  // Reset state when onFetchData changes (e.g., switching data sources)
+  const onFetchDataRef = useRef(onFetchData);
+  useEffect(() => {
+    if (onFetchDataRef.current !== onFetchData) {
+      // Data source changed - reset all state
+      setInferredColumns([]);
+      setData([]);
+      setTotalCount(0);
+      loadedPagesRef.current.clear();
+      fetchQueueRef.current = [];
+      onFetchDataRef.current = onFetchData;
+    }
+  }, [onFetchData]);
+
   // Initial fetch for async mode
   useEffect(() => {
     if (isAsyncMode) {

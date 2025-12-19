@@ -125,6 +125,50 @@ export interface SortableListProps<
  * />
  * ```
  */
+
+/**
+ * Helper function to render DragOverlay content.
+ * Extracted to avoid nested ternary operations in the main component.
+ */
+function renderDragOverlayContent<T extends SortableListItem>(
+  activeItem: T | null | undefined,
+  items: T[],
+  renderItem: ((item: T, index: number) => React.ReactNode) | undefined,
+  renderIcon: (icon: ListItem["icon"]) => React.ReactNode,
+  itemClassName?: string,
+): React.ReactNode {
+  if (!activeItem) {
+    return null;
+  }
+
+  if (renderItem) {
+    return (
+      <div
+        className={cn(
+          "bg-card flex items-center gap-2 rounded-lg border px-2 py-1.5 shadow-lg",
+          itemClassName,
+        )}
+      >
+        <GripVertical className="text-muted-foreground h-4 w-4 shrink-0" />
+        {renderItem(activeItem, items.indexOf(activeItem))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pl-6">
+      <ItemCard
+        icon={renderIcon(activeItem.icon) || <div className="h-4 w-4" />}
+        title={activeItem.title}
+        subtitle={activeItem.subtitle}
+        badge={activeItem.badge}
+        active={activeItem.active}
+        className={cn("shadow-lg", itemClassName)}
+      />
+    </div>
+  );
+}
+
 export function SortableList<T extends SortableListItem>({
   items,
   onReorder,
@@ -178,12 +222,15 @@ export function SortableList<T extends SortableListItem>({
     : null;
 
   // Get sorting strategy based on orientation
-  const sortingStrategy =
-    orientation === "horizontal"
-      ? horizontalListSortingStrategy
-      : orientation === "grid"
-        ? rectSortingStrategy
-        : verticalListSortingStrategy;
+  // Using if/else instead of nested ternary for lint compliance
+  let sortingStrategy;
+  if (orientation === "horizontal") {
+    sortingStrategy = horizontalListSortingStrategy;
+  } else if (orientation === "grid") {
+    sortingStrategy = rectSortingStrategy;
+  } else {
+    sortingStrategy = verticalListSortingStrategy;
+  }
 
   // Show empty state when no items
   if (items.length === 0) {
@@ -300,28 +347,13 @@ export function SortableList<T extends SortableListItem>({
 
       {/* DragOverlay renders in a portal to escape overflow boundaries */}
       <DragOverlay>
-        {activeItem && renderItem ? (
-          <div
-            className={cn(
-              "bg-card flex items-center gap-2 rounded-lg border px-2 py-1.5 shadow-lg",
-              itemClassName,
-            )}
-          >
-            <GripVertical className="text-muted-foreground h-4 w-4 shrink-0" />
-            {renderItem(activeItem, items.indexOf(activeItem))}
-          </div>
-        ) : activeItem ? (
-          <div className="pl-6">
-            <ItemCard
-              icon={renderIcon(activeItem.icon) || <div className="h-4 w-4" />}
-              title={activeItem.title}
-              subtitle={activeItem.subtitle}
-              badge={activeItem.badge}
-              active={activeItem.active}
-              className={cn("shadow-lg", itemClassName)}
-            />
-          </div>
-        ) : null}
+        {renderDragOverlayContent(
+          activeItem,
+          items,
+          renderItem,
+          renderIcon,
+          itemClassName,
+        )}
       </DragOverlay>
     </DndContext>
   );

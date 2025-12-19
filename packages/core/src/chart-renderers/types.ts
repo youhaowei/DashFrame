@@ -16,10 +16,7 @@
  * ```
  */
 
-import type {
-  VisualizationEncoding,
-  VisualizationType,
-} from "@dashframe/types";
+import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 
 // ============================================================================
 // Chart Theme
@@ -58,8 +55,8 @@ export interface ChartConfig {
   /** DuckDB table name (usually DataFrame ID) */
   tableName: string;
 
-  /** Column encoding mappings (x, y, color, size) */
-  encoding: VisualizationEncoding;
+  /** Column encoding mappings (x, y, color, size) - uses plain strings for rendering */
+  encoding: ChartEncoding;
 
   /** Optional theme configuration */
   theme?: ChartTheme;

@@ -31,7 +31,6 @@ interface InsightMetricEditorModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   dataTable: DataTable;
-  insightId: UUID;
   onSave: (metric: InsightMetric) => void;
 }
 
@@ -47,7 +46,6 @@ export function InsightMetricEditorModal({
   isOpen,
   onOpenChange,
   dataTable,
-  insightId,
   onSave,
 }: InsightMetricEditorModalProps) {
   const [name, setName] = useState("");

@@ -10,6 +10,7 @@ import {
 } from "@dashframe/ui";
 import { AlertCircle, ArrowUpDown } from "@dashframe/ui/icons";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import { metricToSqlExpression } from "@dashframe/engine";
 import type { VisualizationType, CompiledInsight } from "@dashframe/types";
 import {
   getRankedColumnOptions,
@@ -86,10 +87,11 @@ export function AxisSelectField({
       options.push({ label: field.name, value: field.name });
     });
 
-    // Add metrics using their display names
-    // metric.name matches the SQL alias (AS "${metric.name}") and columnAnalysis
+    // Add metrics as SQL aggregation expressions
+    // vgplot expects "count(*)" or "sum(column)" format, not metric names
     compiledInsight.metrics.forEach((metric) => {
-      options.push({ label: metric.name, value: metric.name });
+      const sqlExpr = metricToSqlExpression(metric);
+      options.push({ label: metric.name, value: sqlExpr });
     });
 
     return options;
@@ -101,9 +103,11 @@ export function AxisSelectField({
     return hint ? `${label} (${hint})` : label;
   }, [label, axis, chartType]);
 
-  // Build set of metric names for icon lookup
-  const metricNames = useMemo(() => {
-    return new Set(compiledInsight.metrics.map((m) => m.name));
+  // Build set of metric values (SQL expressions) for icon lookup
+  const metricValues = useMemo(() => {
+    return new Set(
+      compiledInsight.metrics.map((m) => metricToSqlExpression(m)),
+    );
   }, [compiledInsight.metrics]);
 
   // Get ranked options with warnings when analysis data is available
@@ -115,7 +119,7 @@ export function AxisSelectField({
         label: opt.label,
         value: opt.value,
         description: undefined,
-        icon: getColumnIcon(opt.value, columnAnalysis, metricNames),
+        icon: getColumnIcon(opt.value, columnAnalysis, metricValues),
       }));
     }
 
@@ -161,7 +165,7 @@ export function AxisSelectField({
         label: opt.label,
         value: opt.value,
         description,
-        icon: getColumnIcon(opt.value, columnAnalysis, metricNames),
+        icon: getColumnIcon(opt.value, columnAnalysis, metricValues),
       };
     });
 
@@ -175,7 +179,11 @@ export function AxisSelectField({
           label: currentOption.label,
           value: currentOption.value,
           description: "⛔ Invalid for this chart type",
-          icon: getColumnIcon(currentOption.value, columnAnalysis, metricNames),
+          icon: getColumnIcon(
+            currentOption.value,
+            columnAnalysis,
+            metricValues,
+          ),
         });
       }
     }
@@ -187,7 +195,8 @@ export function AxisSelectField({
     chartType,
     columnAnalysis,
     compiledInsight,
-    metricNames,
+    metricValues,
+    onSwapAxes,
     otherAxisColumn,
     value,
   ]);

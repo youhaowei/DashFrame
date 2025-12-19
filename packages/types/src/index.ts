@@ -72,6 +72,28 @@ export type {
   UseVisualizationMutations,
 } from "./visualizations";
 
+// =============================================================================
+// Encoding Helpers
+// =============================================================================
+
+export type {
+  FieldEncodingValue,
+  MetricEncodingValue,
+  EncodingValue,
+  EncodingType,
+  ParsedEncoding,
+  ChartEncoding,
+} from "./encoding-helpers";
+
+export {
+  parseEncoding,
+  fieldEncoding,
+  metricEncoding,
+  isFieldEncoding,
+  isMetricEncoding,
+  isValidEncoding,
+} from "./encoding-helpers";
+
 export type {
   DashboardItemType,
   DashboardItem,

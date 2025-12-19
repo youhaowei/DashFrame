@@ -29,12 +29,15 @@ export const DataPreviewSection = memo(function DataPreviewSection({
   insight,
   combinedFieldCount,
 }: DataPreviewSectionProps) {
-  const [previewMode, setPreviewMode] = useState<PreviewMode>("join");
-
   // Determine if insight has configuration (fields or metrics)
   const hasConfiguration =
     (insight.selectedFields?.length ?? 0) > 0 ||
     (insight.metrics?.length ?? 0) > 0;
+
+  // Default to "result" mode if insight has configuration, otherwise "join"
+  const [previewMode, setPreviewMode] = useState<PreviewMode>(
+    hasConfiguration ? "result" : "join",
+  );
 
   // Use insight pagination for join preview (raw data)
   const joinPagination = useInsightPagination({

@@ -41,6 +41,7 @@ import {
   analyzeInsight,
   type ColumnAnalysis,
 } from "@dashframe/engine-browser";
+import { metricToSqlExpression } from "@dashframe/engine";
 import type {
   UUID,
   DataFrameColumn,
@@ -419,7 +420,10 @@ export default function VisualizationPage({ params }: PageProps) {
   const columnOptions = useMemo(() => {
     if (!compiledInsight) return [];
 
-    const metricNames = new Set(compiledInsight.metrics.map((m) => m.name));
+    // Build set of metric SQL expressions for icon lookup
+    const metricSqlExprs = new Set(
+      compiledInsight.metrics.map((m) => metricToSqlExpression(m)),
+    );
     const options: Array<{
       label: string;
       value: string;
@@ -431,16 +435,17 @@ export default function VisualizationPage({ params }: PageProps) {
       options.push({
         label: field.name,
         value: field.name,
-        icon: getColumnIcon(field.name, columnAnalysis, metricNames),
+        icon: getColumnIcon(field.name, columnAnalysis, metricSqlExprs),
       });
     });
 
-    // Add metrics using their display names
+    // Add metrics as SQL expressions (vgplot expects "count(*)" format)
     compiledInsight.metrics.forEach((metric) => {
+      const sqlExpr = metricToSqlExpression(metric);
       options.push({
         label: metric.name,
-        value: metric.name,
-        icon: getColumnIcon(metric.name, columnAnalysis, metricNames),
+        value: sqlExpr,
+        icon: getColumnIcon(sqlExpr, columnAnalysis, metricSqlExprs),
       });
     });
 

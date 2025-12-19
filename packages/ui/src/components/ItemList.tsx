@@ -16,9 +16,14 @@ export interface ListItem {
    */
   title: string;
   /**
-   * Optional subtitle or metadata text
+   * Optional subtitle or metadata text (single line, truncated)
    */
   subtitle?: string;
+  /**
+   * Optional rich content section below subtitle.
+   * Can contain any React content for flexible formatting.
+   */
+  content?: React.ReactNode;
   /**
    * Optional badge text to display
    */
@@ -51,9 +56,10 @@ export interface ItemListProps<T extends ListItem = ListItem> {
    */
   items: T[];
   /**
-   * Callback when an item is selected
+   * Callback when an item is selected.
+   * If not provided, items will not be clickable (no pointer cursor).
    */
-  onSelect: (id: string) => void;
+  onSelect?: (id: string) => void;
   /**
    * Layout orientation
    * @default "vertical"
@@ -74,6 +80,11 @@ export interface ItemListProps<T extends ListItem = ListItem> {
    * @default 220
    */
   itemWidth?: number;
+  /**
+   * Number of columns for grid orientation.
+   * When not specified, uses responsive defaults (1 on mobile, 2 on md, 3 on lg).
+   */
+  gridColumns?: number;
   /**
    * Additional CSS classes for the container
    */
@@ -152,6 +163,7 @@ export function ItemList<T extends ListItem>({
   maxSize,
   gap = 8,
   itemWidth = 220,
+  gridColumns,
   className,
   emptyMessage = "No items",
   emptyIcon,
@@ -193,10 +205,11 @@ export function ItemList<T extends ListItem>({
 
   // Render a single item - uses custom renderItem if provided, otherwise default ItemCard
   const renderListItem = (item: T) => {
-    const onClick = () => onSelect(item.id);
+    // Only create onClick handler if onSelect is provided
+    const onClick = onSelect ? () => onSelect(item.id) : undefined;
 
     if (renderItem) {
-      return renderItem(item, onClick);
+      return renderItem(item, onClick || (() => {}));
     }
 
     return (
@@ -204,6 +217,7 @@ export function ItemList<T extends ListItem>({
         icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
         title={item.title}
         subtitle={item.subtitle}
+        content={item.content}
         badge={item.badge}
         active={item.active}
         actions={item.actions}
@@ -242,13 +256,20 @@ export function ItemList<T extends ListItem>({
 
   // Grid orientation
   if (orientation === "grid") {
+    // Use custom gridColumns if provided, otherwise use responsive defaults
+    const gridStyle = gridColumns
+      ? { gap: `${gap}px`, gridTemplateColumns: `repeat(${gridColumns}, 1fr)` }
+      : { gap: `${gap}px` };
+
     return (
       <div
         className={cn(
-          "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
+          "grid",
+          // Only apply responsive defaults when gridColumns is not specified
+          !gridColumns && "grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
           className,
         )}
-        style={{ gap: `${gap}px` }}
+        style={gridStyle}
       >
         {items.map((item) => (
           <div key={item.id}>{renderListItem(item)}</div>

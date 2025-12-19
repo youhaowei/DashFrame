@@ -10,6 +10,7 @@ import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export const metadata: Metadata = {
   title: "DashFrame",
@@ -68,6 +69,7 @@ export default function RootLayout({
                         </main>
                       </div>
                       <Toaster />
+                      <ConfirmDialog />
                     </VisualizationSetup>
                   </DuckDBProvider>
                 </DatabaseProvider>

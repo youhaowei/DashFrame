@@ -28,10 +28,7 @@
  */
 
 import type { ChartConfig, ChartCleanup, ChartRenderer } from "@dashframe/core";
-import type {
-  VisualizationType,
-  VisualizationEncoding,
-} from "@dashframe/types";
+import type { VisualizationType, ChartEncoding } from "@dashframe/types";
 
 /**
  * vgplot API type from dynamic import.
@@ -100,9 +97,24 @@ const SQL_FUNCTION_PATTERN =
   /^(sum|avg|count|min|max|median|mode|first|last|dateMonth|dateDay|dateYear|dateMonthDay)\((.+)\)$/i;
 
 /**
+ * Pattern for count_distinct(column) - handled specially via count(col).distinct()
+ */
+const COUNT_DISTINCT_PATTERN = /^count_distinct\((.+)\)$/i;
+
+/**
+ * AggregateNode type with distinct() method for count distinct support.
+ */
+interface AggregateNode {
+  distinct: () => unknown;
+}
+
+/**
  * Parse an encoding value and convert SQL expressions to vgplot API calls.
  * Converts strings like "sum(contractpeak)" to api.sum("contractpeak")
  * and "dateMonth(created)" to api.dateMonth("created").
+ *
+ * Special handling for count_distinct:
+ * - "count_distinct(column)" → api.count("column").distinct()
  *
  * @param api - vgplot API instance
  * @param value - Encoding value (string or undefined)
@@ -113,6 +125,19 @@ function parseEncodingValue(
   value: string | undefined,
 ): unknown {
   if (!value) return undefined;
+
+  // Special case: count_distinct(column) → count(column).distinct()
+  const countDistinctMatch = value.match(COUNT_DISTINCT_PATTERN);
+  if (countDistinctMatch) {
+    const [, columnName] = countDistinctMatch;
+    // Mosaic uses count(col).distinct() for COUNT(DISTINCT col)
+    const countResult = api.count(columnName) as AggregateNode;
+    if (countResult && typeof countResult.distinct === "function") {
+      return countResult.distinct();
+    }
+    // Fallback: return regular count if .distinct() not available
+    return api.count(columnName);
+  }
 
   // Check if this is a SQL function expression like "sum(column)" or "dateMonth(column)"
   const match = value.match(SQL_FUNCTION_PATTERN);
@@ -190,7 +215,7 @@ function getBarChartOptions(
  */
 function buildEncodingOptions(
   api: VgplotAPI,
-  encoding: VisualizationEncoding,
+  encoding: ChartEncoding,
   chartType?: VisualizationType,
 ) {
   const options: Record<string, unknown> = {};
@@ -321,7 +346,7 @@ function buildMark(
   api: VgplotAPI,
   type: VisualizationType,
   tableName: string,
-  encoding: VisualizationEncoding,
+  encoding: ChartEncoding,
 ) {
   const source = api.from(tableName);
   const options = buildEncodingOptions(api, encoding, type);

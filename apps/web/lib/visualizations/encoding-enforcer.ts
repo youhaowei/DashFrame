@@ -7,7 +7,7 @@
  * - bar (vertical): X = dimension (field), Y = metric (aggregation)
  * - barHorizontal: X = metric (aggregation), Y = dimension (field)
  * - line/area: X = continuous (temporal/numerical), Y = metric (aggregation)
- * - scatter: X = continuous, Y = continuous
+ * - scatter: X = continuous, Y = continuous (metrics treated as numerical)
  *
  * IMPORTANT: For bar and line/area charts, the "value" axis must be a **metric**
  * (an explicit aggregation from insight.metrics like SUM, COUNT, AVG).
@@ -20,6 +20,10 @@
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { looksLikeIdentifier } from "@dashframe/engine-browser";
 import type { VisualizationType, CompiledInsight } from "@dashframe/types";
+import {
+  resolveForAnalysis,
+  type EncodingResolutionContext,
+} from "@dashframe/engine";
 
 // ============================================================================
 // Types
@@ -90,27 +94,344 @@ function isTemporal(col: ColumnAnalysis): boolean {
 }
 
 // ============================================================================
-// Metric Detection from Insight
+// Resolution Context Builder
 // ============================================================================
 
 /**
- * Build a set of metric names from a compiled insight.
- * Metrics are the aggregated columns (SUM, COUNT, AVG, etc.).
+ * Build resolution context from compiled insight.
  */
-function getMetricNames(compiledInsight?: CompiledInsight): Set<string> {
+function buildResolutionContext(
+  compiledInsight?: CompiledInsight,
+): EncodingResolutionContext {
+  return {
+    fields: compiledInsight?.dimensions ?? [],
+    metrics: compiledInsight?.metrics ?? [],
+  };
+}
+
+/**
+ * Build a set of metric IDs from a compiled insight for quick lookup.
+ */
+function getMetricIds(compiledInsight?: CompiledInsight): Set<string> {
   if (!compiledInsight?.metrics) return new Set();
-  return new Set(compiledInsight.metrics.map((m) => m.name));
-}
-
-/**
- * Check if a column is a metric (aggregation) from the insight.
- */
-function isMetric(columnName: string, metricNames: Set<string>): boolean {
-  return metricNames.has(columnName);
+  return new Set(compiledInsight.metrics.map((m) => m.id));
 }
 
 // ============================================================================
-// Channel Validation by Chart Type
+// Channel Validation by Chart Type (New Encoding Format)
+// ============================================================================
+
+/**
+ * Validate encoding value for bar chart X axis (vertical bar).
+ * X should be a dimension (categorical or temporal field from selectedFields).
+ */
+function validateBarX(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format (not field: or metric:)
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // X axis should NOT be a metric - it should be a dimension
+  if (resolved.isMetric) {
+    return {
+      suitable: false,
+      reason: "Bar chart X axis needs a dimension, not a metric",
+    };
+  }
+
+  // For fields, lookup ColumnAnalysis
+  if (!resolved.columnName) {
+    return { suitable: false, reason: "Field not found" };
+  }
+
+  const col = analysis.find((c) => c.columnName === resolved.columnName);
+  if (!col) {
+    return { suitable: false, reason: "Column not found in analysis" };
+  }
+
+  if (isBlockedCategory(col)) {
+    return {
+      suitable: false,
+      reason: "Identifiers cannot be used as categories",
+    };
+  }
+
+  if (isCategorical(col) || isTemporal(col)) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason: "Bar chart X axis needs a category or date",
+  };
+}
+
+/**
+ * Validate encoding value for bar chart Y axis (vertical bar).
+ * Y should be a metric (aggregation from insight.metrics).
+ */
+function validateBarY(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // Y axis MUST be a metric for bar charts - metrics are always valid (numerical aggregations)
+  if (resolved.isMetric) {
+    return { suitable: true };
+  }
+
+  // It's a field, not a metric
+  return {
+    suitable: false,
+    reason:
+      "Bar chart Y axis needs a metric (add an aggregation in the insight)",
+  };
+}
+
+/**
+ * Validate encoding value for horizontal bar X axis.
+ * X should be a metric (aggregation from insight.metrics).
+ */
+function validateBarHorizontalX(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // X axis MUST be a metric for horizontal bar charts
+  if (resolved.isMetric) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason:
+      "Horizontal bar X axis needs a metric (add an aggregation in the insight)",
+  };
+}
+
+/**
+ * Validate encoding value for horizontal bar Y axis.
+ * Y should be a dimension (categorical or temporal field from selectedFields).
+ */
+function validateBarHorizontalY(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // Y axis should NOT be a metric - it should be a dimension
+  if (resolved.isMetric) {
+    return {
+      suitable: false,
+      reason: "Horizontal bar Y axis needs a dimension, not a metric",
+    };
+  }
+
+  // For fields, lookup ColumnAnalysis
+  if (!resolved.columnName) {
+    return { suitable: false, reason: "Field not found" };
+  }
+
+  const col = analysis.find((c) => c.columnName === resolved.columnName);
+  if (!col) {
+    return { suitable: false, reason: "Column not found in analysis" };
+  }
+
+  if (isBlockedCategory(col)) {
+    return {
+      suitable: false,
+      reason: "Identifiers cannot be used as categories",
+    };
+  }
+
+  if (isCategorical(col) || isTemporal(col)) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason: "Horizontal bar Y axis needs a category or date",
+  };
+}
+
+/**
+ * Validate encoding value for line/area X axis.
+ * X should be continuous (temporal or numerical dimension).
+ */
+function validateLineAreaX(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // X axis should NOT be a metric for line/area - it's the time/continuous dimension
+  if (resolved.isMetric) {
+    return {
+      suitable: false,
+      reason: "Line/Area X axis needs a dimension, not a metric",
+    };
+  }
+
+  // For fields, lookup ColumnAnalysis
+  if (!resolved.columnName) {
+    return { suitable: false, reason: "Field not found" };
+  }
+
+  const col = analysis.find((c) => c.columnName === resolved.columnName);
+  if (!col) {
+    return { suitable: false, reason: "Column not found in analysis" };
+  }
+
+  if (isBlockedCategory(col)) {
+    return { suitable: false, reason: "Identifiers cannot be used on axes" };
+  }
+
+  if (isContinuous(col)) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason: "Line/Area X axis needs a date or number (continuous)",
+  };
+}
+
+/**
+ * Validate encoding value for line/area Y axis.
+ * Y should be a metric (aggregation from insight.metrics).
+ */
+function validateLineAreaY(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // Y axis MUST be a metric for line/area charts
+  if (resolved.isMetric) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason:
+      "Line/Area Y axis needs a metric (add an aggregation in the insight)",
+  };
+}
+
+/**
+ * Validate encoding value for scatter X/Y axis.
+ * Both axes should be continuous (temporal or numerical).
+ * Scatter plots can use both metrics and dimensions - metrics are treated as numerical.
+ */
+function validateScatterAxis(
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+): ColumnSuitability {
+  if (!encodingValue) {
+    return { suitable: false, reason: "No column selected" };
+  }
+
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format
+  if (!resolved.valid) {
+    return { suitable: false, reason: "Invalid encoding format" };
+  }
+
+  // Metrics are numerical → valid for scatter axes
+  if (resolved.isMetric) {
+    return { suitable: true };
+  }
+
+  // For fields, check if numerical/temporal
+  if (!resolved.columnName) {
+    return { suitable: false, reason: "Field not found" };
+  }
+
+  const col = analysis.find((c) => c.columnName === resolved.columnName);
+  if (!col) {
+    return { suitable: false, reason: "Column not found in analysis" };
+  }
+
+  if (isBlockedCategory(col)) {
+    return { suitable: false, reason: "Identifiers cannot be used on axes" };
+  }
+
+  if (isContinuous(col)) {
+    return { suitable: true };
+  }
+
+  return {
+    suitable: false,
+    reason: "Scatter plot axes need dates or numbers (continuous)",
+  };
+}
+
+// ============================================================================
+// Legacy Column-Based Validation (for getValidColumnsForChannel)
 // ============================================================================
 
 /**
@@ -119,19 +440,12 @@ function isMetric(columnName: string, metricNames: Set<string>): boolean {
  */
 function isValidBarX(
   col: ColumnAnalysis,
-  metricNames: Set<string>,
+  _metricIds: Set<string>,
 ): ColumnSuitability {
   if (isBlockedCategory(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
-    };
-  }
-  // X axis should NOT be a metric - it should be a dimension
-  if (isMetric(col.columnName, metricNames)) {
-    return {
-      suitable: false,
-      reason: "Bar chart X axis needs a dimension, not a metric",
     };
   }
   if (isCategorical(col) || isTemporal(col)) {
@@ -145,19 +459,12 @@ function isValidBarX(
 
 /**
  * Check if a column is valid for bar chart Y axis (vertical bar)
- * Y should be a metric (aggregation from insight.metrics)
+ * Y should be a metric - for column filtering, we return false (only metrics are valid)
  */
-function isValidBarY(
-  col: ColumnAnalysis,
-  metricNames: Set<string>,
-): ColumnSuitability {
-  if (isBlockedCategory(col)) {
-    return { suitable: false, reason: "Identifiers cannot be used as values" };
-  }
-  // Y axis MUST be a metric for bar charts
-  if (isMetric(col.columnName, metricNames)) {
-    return { suitable: true };
-  }
+function isValidBarY(_col: ColumnAnalysis): ColumnSuitability {
+  // This function is only for filtering ColumnAnalysis columns
+  // Metrics are not in ColumnAnalysis, so we need different logic
+  // For column filtering, bar Y axis should only allow metrics (not columns)
   return {
     suitable: false,
     reason:
@@ -167,19 +474,9 @@ function isValidBarY(
 
 /**
  * Check if a column is valid for horizontal bar X axis
- * X should be a metric (aggregation from insight.metrics)
+ * X should be a metric - for column filtering, we return false
  */
-function isValidBarHorizontalX(
-  col: ColumnAnalysis,
-  metricNames: Set<string>,
-): ColumnSuitability {
-  if (isBlockedCategory(col)) {
-    return { suitable: false, reason: "Identifiers cannot be used as values" };
-  }
-  // X axis MUST be a metric for horizontal bar charts
-  if (isMetric(col.columnName, metricNames)) {
-    return { suitable: true };
-  }
+function isValidBarHorizontalX(_col: ColumnAnalysis): ColumnSuitability {
   return {
     suitable: false,
     reason:
@@ -193,19 +490,12 @@ function isValidBarHorizontalX(
  */
 function isValidBarHorizontalY(
   col: ColumnAnalysis,
-  metricNames: Set<string>,
+  _metricIds: Set<string>,
 ): ColumnSuitability {
   if (isBlockedCategory(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
-    };
-  }
-  // Y axis should NOT be a metric - it should be a dimension
-  if (isMetric(col.columnName, metricNames)) {
-    return {
-      suitable: false,
-      reason: "Horizontal bar Y axis needs a dimension, not a metric",
     };
   }
   if (isCategorical(col) || isTemporal(col)) {
@@ -221,19 +511,9 @@ function isValidBarHorizontalY(
  * Check if a column is valid for line/area X axis
  * X should be continuous (temporal or numerical dimension)
  */
-function isValidLineAreaX(
-  col: ColumnAnalysis,
-  metricNames: Set<string>,
-): ColumnSuitability {
+function isValidLineAreaX(col: ColumnAnalysis): ColumnSuitability {
   if (isBlockedCategory(col)) {
     return { suitable: false, reason: "Identifiers cannot be used on axes" };
-  }
-  // X axis should NOT be a metric for line/area - it's the time/continuous dimension
-  if (isMetric(col.columnName, metricNames)) {
-    return {
-      suitable: false,
-      reason: "Line/Area X axis needs a dimension, not a metric",
-    };
   }
   if (isContinuous(col)) {
     return { suitable: true };
@@ -246,19 +526,9 @@ function isValidLineAreaX(
 
 /**
  * Check if a column is valid for line/area Y axis
- * Y should be a metric (aggregation from insight.metrics)
+ * Y should be a metric - for column filtering, we return false
  */
-function isValidLineAreaY(
-  col: ColumnAnalysis,
-  metricNames: Set<string>,
-): ColumnSuitability {
-  if (isBlockedCategory(col)) {
-    return { suitable: false, reason: "Identifiers cannot be used as values" };
-  }
-  // Y axis MUST be a metric for line/area charts
-  if (isMetric(col.columnName, metricNames)) {
-    return { suitable: true };
-  }
+function isValidLineAreaY(_col: ColumnAnalysis): ColumnSuitability {
   return {
     suitable: false,
     reason:
@@ -269,7 +539,6 @@ function isValidLineAreaY(
 /**
  * Check if a column is valid for scatter X/Y axis
  * Both axes should be continuous (temporal or numerical)
- * Scatter plots can use both metrics and dimensions
  */
 function isValidScatterAxis(col: ColumnAnalysis): ColumnSuitability {
   if (isBlockedCategory(col)) {
@@ -291,9 +560,12 @@ function isValidScatterAxis(col: ColumnAnalysis): ColumnSuitability {
 /**
  * Get columns that are valid for a specific channel and chart type.
  *
- * This is the primary function for filtering dropdown options in the UI.
- * It returns only columns that satisfy the hard constraints for the given
- * chart type and axis.
+ * This function returns column names (from ColumnAnalysis) that satisfy
+ * the hard constraints for the given chart type and axis. It's used for
+ * filtering dropdown options in the UI.
+ *
+ * Note: This returns column names, not EncodingValues. The UI should
+ * convert these to EncodingValues (field:uuid) when building options.
  *
  * @param channel - The encoding channel ("x" or "y")
  * @param chartType - The visualization type
@@ -312,68 +584,73 @@ export function getValidColumnsForChannel(
     return analysis.map((col) => col.columnName);
   }
 
-  const metricNames = getMetricNames(compiledInsight);
-  const validatorFn = getValidatorFunction(channel, chartType, metricNames);
+  const metricIds = getMetricIds(compiledInsight);
+  const validColumns: string[] = [];
 
-  return analysis
-    .filter((col) => validatorFn(col).suitable)
-    .map((col) => col.columnName);
+  // First, add valid columns from ColumnAnalysis (dimensions)
+  const validatorFn = getColumnValidatorFunction(channel, chartType, metricIds);
+  for (const col of analysis) {
+    if (validatorFn(col).suitable) {
+      validColumns.push(col.columnName);
+    }
+  }
+
+  // Then, add metrics for channels that accept them
+  const metricsAllowed = isMetricAllowedOnChannel(channel, chartType);
+  if (metricsAllowed && compiledInsight?.metrics) {
+    for (const metric of compiledInsight.metrics) {
+      // Use metric name as the column name (will be resolved to SQL expression later)
+      validColumns.push(metric.name);
+    }
+  }
+
+  return validColumns;
 }
 
 /**
- * Check if a specific column is valid for a channel and chart type.
- *
- * @param columnName - The column to check
- * @param channel - The encoding channel
- * @param chartType - The visualization type
- * @param analysis - Column analysis data
- * @param compiledInsight - The compiled insight (provides metrics vs dimensions distinction)
- * @returns Suitability result with reason if not suitable
+ * Check if metrics are allowed on a specific channel for a chart type.
  */
-export function isColumnValidForChannel(
-  columnName: string,
+function isMetricAllowedOnChannel(
   channel: EncodingChannel,
   chartType: VisualizationType,
-  analysis: ColumnAnalysis[],
-  compiledInsight?: CompiledInsight,
-): ColumnSuitability {
-  const col = analysis.find((c) => c.columnName === columnName);
-  if (!col) {
-    return { suitable: false, reason: "Column not found" };
+): boolean {
+  switch (chartType) {
+    case "bar":
+      return channel === "y"; // Y axis only
+    case "barHorizontal":
+      return channel === "x"; // X axis only
+    case "line":
+    case "area":
+      return channel === "y"; // Y axis only
+    case "scatter":
+      return true; // Both axes allow metrics
+    default:
+      return false;
   }
-
-  // Color and size have looser constraints
-  if (channel === "color" || channel === "size") {
-    return { suitable: true };
-  }
-
-  const metricNames = getMetricNames(compiledInsight);
-  const validatorFn = getValidatorFunction(channel, chartType, metricNames);
-  return validatorFn(col);
 }
 
 /**
- * Get the validator function for a channel and chart type combination.
+ * Get the column validator function for filtering ColumnAnalysis entries.
  */
-function getValidatorFunction(
+function getColumnValidatorFunction(
   channel: EncodingChannel,
   chartType: VisualizationType,
-  metricNames: Set<string>,
+  metricIds: Set<string>,
 ): (col: ColumnAnalysis) => ColumnSuitability {
   switch (chartType) {
     case "bar":
       return channel === "x"
-        ? (col) => isValidBarX(col, metricNames)
-        : (col) => isValidBarY(col, metricNames);
+        ? (col) => isValidBarX(col, metricIds)
+        : () => isValidBarY({} as ColumnAnalysis); // Y axis only allows metrics
     case "barHorizontal":
       return channel === "x"
-        ? (col) => isValidBarHorizontalX(col, metricNames)
-        : (col) => isValidBarHorizontalY(col, metricNames);
+        ? () => isValidBarHorizontalX({} as ColumnAnalysis) // X axis only allows metrics
+        : (col) => isValidBarHorizontalY(col, metricIds);
     case "line":
     case "area":
       return channel === "x"
-        ? (col) => isValidLineAreaX(col, metricNames)
-        : (col) => isValidLineAreaY(col, metricNames);
+        ? isValidLineAreaX
+        : () => isValidLineAreaY({} as ColumnAnalysis); // Y axis only allows metrics
     case "scatter":
       return isValidScatterAxis;
     default:
@@ -384,6 +661,72 @@ function getValidatorFunction(
           ? "Identifiers cannot be used"
           : undefined,
       });
+  }
+}
+
+/**
+ * Check if a specific encoding value is valid for a channel and chart type.
+ *
+ * This function validates EncodingValue strings (field:uuid or metric:uuid)
+ * against the chart type constraints.
+ *
+ * @param encodingValue - The encoding value to check (field:uuid or metric:uuid)
+ * @param channel - The encoding channel
+ * @param chartType - The visualization type
+ * @param analysis - Column analysis data
+ * @param compiledInsight - The compiled insight (provides fields and metrics)
+ * @returns Suitability result with reason if not suitable
+ */
+export function isColumnValidForChannel(
+  encodingValue: string,
+  channel: EncodingChannel,
+  chartType: VisualizationType,
+  analysis: ColumnAnalysis[],
+  compiledInsight?: CompiledInsight,
+): ColumnSuitability {
+  // Color and size have looser constraints
+  if (channel === "color" || channel === "size") {
+    return { suitable: true };
+  }
+
+  const context = buildResolutionContext(compiledInsight);
+  return getEncodingValidator(channel, chartType)(
+    encodingValue,
+    analysis,
+    context,
+  );
+}
+
+/**
+ * Get the encoding validator function for a channel and chart type combination.
+ */
+function getEncodingValidator(
+  channel: EncodingChannel,
+  chartType: VisualizationType,
+): (
+  encodingValue: string | undefined,
+  analysis: ColumnAnalysis[],
+  context: EncodingResolutionContext,
+) => ColumnSuitability {
+  switch (chartType) {
+    case "bar":
+      return channel === "x" ? validateBarX : validateBarY;
+    case "barHorizontal":
+      return channel === "x" ? validateBarHorizontalX : validateBarHorizontalY;
+    case "line":
+    case "area":
+      return channel === "x" ? validateLineAreaX : validateLineAreaY;
+    case "scatter":
+      return validateScatterAxis;
+    default:
+      // Fallback: check valid format only
+      return (encodingValue, _analysis, context) => {
+        const resolved = resolveForAnalysis(encodingValue, context);
+        if (!resolved.valid) {
+          return { suitable: false, reason: "Invalid encoding format" };
+        }
+        return { suitable: true };
+      };
   }
 }
 

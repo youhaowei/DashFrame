@@ -3,7 +3,11 @@ import {
   looksLikeIdentifier,
   CARDINALITY_THRESHOLDS,
 } from "@dashframe/engine-browser";
-import type { VisualizationType } from "../stores/types";
+import type { VisualizationType, CompiledInsight } from "@dashframe/types";
+import {
+  resolveForAnalysis,
+  type EncodingResolutionContext,
+} from "@dashframe/engine";
 
 /**
  * Warning message with reason explanation for axis selection
@@ -63,10 +67,25 @@ function isMeasureCategory(
 export type EncodingChannel = "x" | "y" | "color" | "size";
 
 /**
+ * Build resolution context from compiled insight.
+ */
+function buildResolutionContext(
+  compiledInsight?: CompiledInsight,
+): EncodingResolutionContext {
+  return {
+    fields: compiledInsight?.dimensions ?? [],
+    metrics: compiledInsight?.metrics ?? [],
+  };
+}
+
+/**
  * Get a warning message for a column selection based on analysis and context.
  *
  * Evaluates whether a column is appropriate for a given encoding channel and chart type,
  * returning a user-friendly warning message if the selection is problematic.
+ *
+ * This function works with COLUMN NAMES (not EncodingValue strings). For EncodingValue
+ * validation, use getEncodingWarning instead.
  *
  * @param columnName - The selected column name
  * @param channel - Which encoding channel ("x", "y", "color", or "size")
@@ -102,12 +121,12 @@ export function getColumnWarning(
   const isBoolean = col.category === "boolean";
 
   // For backwards compatibility: extract otherAxisColumn for x/y logic
-  const otherAxisColumn =
-    channel === "x"
-      ? otherColumns?.y
-      : channel === "y"
-        ? otherColumns?.x
-        : undefined;
+  let otherAxisColumn: string | undefined;
+  if (channel === "x") {
+    otherAxisColumn = otherColumns?.y;
+  } else if (channel === "y") {
+    otherAxisColumn = otherColumns?.x;
+  }
 
   // 1. Color Encoding Logic
   if (channel === "color") {
@@ -297,10 +316,242 @@ export function getColumnWarning(
 }
 
 /**
+ * Get a warning message for an encoding value (field:uuid or metric:uuid).
+ *
+ * This function validates EncodingValue strings against chart type constraints
+ * and returns appropriate warnings for soft issues.
+ *
+ * @param encodingValue - The encoding value (field:uuid or metric:uuid)
+ * @param channel - Which encoding channel ("x", "y", "color", or "size")
+ * @param chartType - The current visualization type
+ * @param analysis - Column analysis data
+ * @param compiledInsight - The compiled insight (provides fields and metrics)
+ * @param otherAxisEncodingValue - The encoding value on the other axis (for detecting same-column warnings)
+ * @returns Warning object with message and reason, or null if selection is fine
+ */
+export function getEncodingWarning(
+  encodingValue: string | undefined,
+  channel: EncodingChannel,
+  chartType: VisualizationType,
+  analysis: ColumnAnalysis[],
+  compiledInsight?: CompiledInsight,
+  otherAxisEncodingValue?: string,
+): AxisWarning | null {
+  if (!encodingValue) return null;
+
+  const context = buildResolutionContext(compiledInsight);
+  const resolved = resolveForAnalysis(encodingValue, context);
+
+  // Invalid encoding format - return warning (validation handles this as error)
+  if (!resolved.valid) {
+    return {
+      message: "Invalid encoding",
+      reason: "This encoding value has an invalid format.",
+    };
+  }
+
+  // Metrics are treated as numerical for warning purposes
+  if (resolved.isMetric) {
+    // Check if same as other axis (encoded by the same metric ID)
+    if (otherAxisEncodingValue && encodingValue === otherAxisEncodingValue) {
+      return {
+        message: "Same metric on both axes",
+        reason:
+          "Comparing a metric to itself usually doesn't show meaningful insights.",
+      };
+    }
+
+    // Metrics are always valid for numerical contexts - no warnings needed
+    // (Validation handles whether metrics are allowed on specific axes)
+    return null;
+  }
+
+  // For fields, delegate to column-based warning logic
+  if (!resolved.columnName) {
+    return {
+      message: "Field not found",
+      reason: "The referenced field could not be resolved.",
+    };
+  }
+
+  // Resolve other axis encoding to column name for comparison
+  let otherAxisColumnName: string | undefined;
+  if (otherAxisEncodingValue) {
+    const otherResolved = resolveForAnalysis(otherAxisEncodingValue, context);
+    if (otherResolved.valid && !otherResolved.isMetric) {
+      otherAxisColumnName = otherResolved.columnName;
+    }
+  }
+
+  // Build otherColumns object for column-based warning logic
+  let otherColumns: { x?: string; y?: string } | undefined;
+  if (channel === "x") {
+    otherColumns = { y: otherAxisColumnName };
+  } else if (channel === "y") {
+    otherColumns = { x: otherAxisColumnName };
+  }
+
+  return getColumnWarning(
+    resolved.columnName,
+    channel,
+    chartType,
+    analysis,
+    otherColumns,
+  );
+}
+
+// ============================================================================
+// Column Scoring Helpers
+// ============================================================================
+
+interface ColumnTypeFlags {
+  isNumerical: boolean;
+  isTemporal: boolean;
+  isCategorical: boolean;
+  isIdentifier: boolean;
+}
+
+/**
+ * Score a column for vertical bar chart axis placement.
+ * X axis prefers categorical/temporal dimensions, Y axis prefers numerical measures.
+ *
+ * @param axis - Target axis ("x" or "y")
+ * @param flags - Column type classification flags
+ * @returns Score adjustment (positive = good fit, negative = poor fit)
+ */
+function scoreBarVertical(axis: "x" | "y", flags: ColumnTypeFlags): number {
+  let score = 0;
+  if (axis === "x") {
+    // X axis needs categorical or temporal dimensions
+    if (flags.isCategorical) score += 100;
+    if (flags.isTemporal) score += 80;
+    if (flags.isNumerical) score -= 50;
+  } else {
+    // Y axis needs metrics (numerical aggregations)
+    if (flags.isNumerical) score += 100;
+    if (!flags.isNumerical) score -= 50;
+  }
+  if (flags.isIdentifier) score -= 100;
+  return score;
+}
+
+/**
+ * Score a column for horizontal bar chart axis placement.
+ * X axis prefers numerical measures, Y axis prefers categorical/temporal dimensions.
+ * (Inverted from vertical bar chart)
+ *
+ * @param axis - Target axis ("x" or "y")
+ * @param flags - Column type classification flags
+ * @returns Score adjustment (positive = good fit, negative = poor fit)
+ */
+function scoreBarHorizontal(axis: "x" | "y", flags: ColumnTypeFlags): number {
+  let score = 0;
+  if (axis === "x") {
+    // X axis needs metrics (numerical aggregations)
+    if (flags.isNumerical) score += 100;
+    if (!flags.isNumerical) score -= 50;
+  } else {
+    // Y axis needs categorical or temporal dimensions
+    if (flags.isCategorical) score += 100;
+    if (flags.isTemporal) score += 80;
+    if (flags.isNumerical) score -= 50;
+  }
+  if (flags.isIdentifier) score -= 100;
+  return score;
+}
+
+/**
+ * Score a column for Y axis in line/area/scatter charts.
+ * Y axis strongly prefers numerical columns for all these chart types.
+ *
+ * @param chartType - The visualization type (line, area, scatter, etc.)
+ * @param flags - Column type classification flags
+ * @returns Score adjustment (positive = good fit, negative = poor fit)
+ */
+function scoreYAxisNonBar(
+  chartType: VisualizationType,
+  flags: ColumnTypeFlags,
+): number {
+  let score = 0;
+  if (flags.isNumerical) score += 100;
+  if (!flags.isNumerical && ["line", "area", "scatter"].includes(chartType)) {
+    score -= 50;
+  }
+  if (flags.isIdentifier) score -= 100;
+  return score;
+}
+
+/**
+ * Score a column for X axis in line/area/scatter charts.
+ * Line/area prefer temporal, scatter requires numerical.
+ *
+ * @param chartType - The visualization type (line, area, scatter, etc.)
+ * @param flags - Column type classification flags
+ * @returns Score adjustment (positive = good fit, negative = poor fit)
+ */
+function scoreXAxisNonBar(
+  chartType: VisualizationType,
+  flags: ColumnTypeFlags,
+): number {
+  let score = 0;
+  if (chartType === "line" || chartType === "area") {
+    if (flags.isTemporal) score += 100;
+    if (flags.isNumerical) score += 60;
+    if (flags.isCategorical) score += 20;
+  } else if (chartType === "scatter") {
+    if (flags.isNumerical) score += 100;
+    if (!flags.isNumerical) score -= 50;
+  }
+  return score;
+}
+
+/**
+ * Calculate overall suitability score for a column on a given axis.
+ * Combines chart-type-specific scoring with general penalties for warnings
+ * and duplicate axis usage.
+ *
+ * @param axis - Target axis ("x" or "y")
+ * @param chartType - The visualization type
+ * @param flags - Column type classification flags
+ * @param hasWarning - Whether the column has a warning for this placement
+ * @param isSameAsOtherAxis - Whether this column is already used on the other axis
+ * @returns Final score (higher = more suitable)
+ */
+function calculateColumnScore(
+  axis: "x" | "y",
+  chartType: VisualizationType,
+  flags: ColumnTypeFlags,
+  hasWarning: boolean,
+  isSameAsOtherAxis: boolean,
+): number {
+  let score = 50; // Base score
+
+  // Chart-type specific scoring
+  if (chartType === "bar") {
+    score += scoreBarVertical(axis, flags);
+  } else if (chartType === "barHorizontal") {
+    score += scoreBarHorizontal(axis, flags);
+  } else if (axis === "y") {
+    score += scoreYAxisNonBar(chartType, flags);
+  } else {
+    score += scoreXAxisNonBar(chartType, flags);
+  }
+
+  // General penalties
+  if (isSameAsOtherAxis) score -= 200;
+  if (hasWarning) score -= 50;
+
+  return score;
+}
+
+/**
  * Create column options ranked by suitability with inline warning indicators.
  *
  * Scores each column based on how appropriate it is for the given axis and chart type,
  * then sorts them by score (best options first). Each option includes its warning if any.
+ *
+ * This function works with COLUMN NAMES (not EncodingValue strings). The caller should
+ * convert column names to EncodingValue strings when building UI options.
  *
  * @param columns - Array of column names
  * @param axis - Which axis to rank for ("x" or "y")
@@ -309,7 +560,6 @@ export function getColumnWarning(
  * @param otherAxisColumn - The column currently selected for the other axis
  * @returns Sorted array of column options with scores and warnings
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: ranks columns based on multiple heuristics and chart type
 export function getRankedColumnOptions(
   columns: string[],
   axis: "x" | "y",
@@ -344,87 +594,22 @@ export function getRankedColumnOptions(
         };
       }
 
-      const isNumerical = colAnalysis.category === "numerical";
-      const isTemporal = colAnalysis.category === "temporal";
-      const isCategorical = colAnalysis.category === "categorical";
-      const isIdentifier =
-        colAnalysis.category === "identifier" ||
-        colAnalysis.category === "uuid";
+      const flags: ColumnTypeFlags = {
+        isNumerical: colAnalysis.category === "numerical",
+        isTemporal: colAnalysis.category === "temporal",
+        isCategorical: colAnalysis.category === "categorical",
+        isIdentifier:
+          colAnalysis.category === "identifier" ||
+          colAnalysis.category === "uuid",
+      };
 
-      // Base Score
-      let score = 50;
-
-      // --- VERTICAL BAR CHART SCORING ---
-      // For vertical bar charts: X = dimension (categorical/temporal), Y = metric
-      if (chartType === "bar") {
-        if (axis === "x") {
-          // X axis needs categorical or temporal dimensions
-          if (isCategorical) score += 100;
-          if (isTemporal) score += 80;
-          // Numerical dimensions are blocked by enforcer, but penalize if somehow present
-          if (isNumerical) score -= 50;
-        } else {
-          // Y axis needs metrics (numerical aggregations)
-          if (isNumerical) score += 100;
-          if (!isNumerical) score -= 50;
-        }
-        if (isIdentifier) score -= 100;
-      }
-
-      // --- HORIZONTAL BAR CHART SCORING ---
-      // For horizontal bar charts: X = metric, Y = dimension (categorical/temporal)
-      else if (chartType === "barHorizontal") {
-        if (axis === "x") {
-          // X axis needs metrics (numerical aggregations)
-          if (isNumerical) score += 100;
-          if (!isNumerical) score -= 50;
-        } else {
-          // Y axis needs categorical or temporal dimensions
-          if (isCategorical) score += 100;
-          if (isTemporal) score += 80;
-          // Numerical dimensions are blocked by enforcer, but penalize if somehow present
-          if (isNumerical) score -= 50;
-        }
-        if (isIdentifier) score -= 100;
-      }
-      // --- Y-AXIS SCORING (non-bar charts) ---
-      else if (axis === "y") {
-        // Y-axis is almost always the "Measure" (Numerical)
-        if (isNumerical) score += 100;
-
-        // Penalize non-numericals heavily for standard charts
-        if (!isNumerical && ["line", "area", "scatter"].includes(chartType)) {
-          score -= 50;
-        }
-
-        // Identifiers are terrible Y-axis candidates
-        if (isIdentifier) score -= 100;
-      }
-      // --- X-AXIS SCORING (non-bar) ---
-      else if (axis === "x") {
-        if (chartType === "line" || chartType === "area") {
-          // Line charts love Time
-          if (isTemporal) score += 100;
-          if (isNumerical) score += 60; // Continuous X is good
-          if (isCategorical) score += 20; // Categories ok if low cardinality
-        } else if (chartType === "scatter") {
-          // Scatter needs Numerical X
-          if (isNumerical) score += 100;
-          if (!isNumerical) score -= 50;
-        }
-      }
-
-      // --- GENERAL PENALTIES ---
-
-      // Severe penalty for using the same column on both axes
-      if (otherAxisColumn && col === otherAxisColumn) {
-        score -= 200;
-      }
-
-      // Penalty for existing warnings (ensure warned items drop to bottom)
-      if (warning) {
-        score -= 50;
-      }
+      const score = calculateColumnScore(
+        axis,
+        chartType,
+        flags,
+        !!warning,
+        col === otherAxisColumn,
+      );
 
       return { label: col, value: col, score, warning: warning || undefined };
     })

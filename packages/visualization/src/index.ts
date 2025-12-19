@@ -120,4 +120,5 @@ export type {
 export type {
   VisualizationType,
   VisualizationEncoding,
+  ChartEncoding,
 } from "@dashframe/types";

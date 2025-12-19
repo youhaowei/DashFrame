@@ -1,6 +1,14 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { ButtonGroup, type ItemAction } from "../components/ButtonGroup";
+import { type ItemAction } from "../components/ButtonGroup";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./dropdown-menu";
+import { Button as PrimitiveButton } from "./button";
+import { MoreOptions } from "../lib/icons";
 
 export type { ItemAction };
 
@@ -15,9 +23,14 @@ export interface ItemCardProps {
    */
   title?: string;
   /**
-   * Optional subtitle or metadata text
+   * Optional subtitle or metadata text (single line, truncated)
    */
   subtitle?: string;
+  /**
+   * Optional rich content section below subtitle.
+   * Can contain any React content for flexible formatting.
+   */
+  content?: React.ReactNode;
   /**
    * Optional badge text to display
    */
@@ -99,6 +112,7 @@ export function ItemCard({
   icon,
   title,
   subtitle,
+  content,
   badge,
   onClick,
   active = false,
@@ -147,61 +161,86 @@ export function ItemCard({
 
   // Content section (icon + title + subtitle + badge + actions)
   // Compact mode uses p-3.5 for better visual separation from Input fields
+  // When content is present, actions move below; otherwise they stay on the right
   const contentSection = (
-    <div
-      className={cn("flex items-start gap-3", preview ? "p-4" : "px-3.5 py-3")}
-    >
-      {/* Icon with background (optional) */}
-      {icon && (
-        <div
-          className={cn(
-            "mt-0.5 shrink-0 rounded p-1.5 transition-all",
-            active
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {icon}
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        {(title || badge) && (
-          <div className="flex items-center gap-2">
-            {title && (
-              <p
-                className={cn(
-                  "truncate text-sm font-medium transition-all",
-                  active ? "text-primary" : "text-foreground",
-                )}
-              >
-                {title}
-              </p>
+    <div className={cn(preview ? "p-4" : "px-3.5 py-3")}>
+      <div className="flex items-start gap-3">
+        {/* Icon with background (optional) */}
+        {icon && (
+          <div
+            className={cn(
+              "mt-0.5 shrink-0 rounded p-1.5 transition-all",
+              active
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground",
             )}
-            {badge && (
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {badge}
-              </span>
-            )}
+          >
+            {icon}
           </div>
         )}
-        {subtitle && (
-          <p className="text-muted-foreground mt-1 truncate text-xs">
-            {subtitle}
-          </p>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1">
+          {(title || badge) && (
+            <div className="flex items-center gap-2">
+              {title && (
+                <p
+                  className={cn(
+                    "truncate text-sm font-medium transition-all",
+                    active ? "text-primary" : "text-foreground",
+                  )}
+                >
+                  {title}
+                </p>
+              )}
+              {badge && (
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {badge}
+                </span>
+              )}
+            </div>
+          )}
+          {subtitle && (
+            <p className="text-muted-foreground mt-1 truncate text-xs">
+              {subtitle}
+            </p>
+          )}
+          {content && <div className="mt-2">{content}</div>}
+        </div>
+
+        {/* Actions dropdown menu - always visible */}
+        {hasActions && (
+          <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <PrimitiveButton
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <MoreOptions className="h-4 w-4" />
+                  <span className="sr-only">Actions</span>
+                </PrimitiveButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {actions.map((action, index) => (
+                  <DropdownMenuItem
+                    key={index}
+                    onClick={action.onClick}
+                    className={cn(
+                      action.variant === "destructive" &&
+                        "text-destructive focus:text-destructive",
+                    )}
+                  >
+                    {action.icon && <action.icon className="h-4 w-4" />}
+                    {action.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         )}
       </div>
-
-      {/* Actions (hover-visible) */}
-      {hasActions && (
-        <div
-          className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ButtonGroup actions={actions} iconOnly />
-        </div>
-      )}
     </div>
   );
 

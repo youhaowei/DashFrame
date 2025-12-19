@@ -60,6 +60,11 @@ import {
   LuUsers,
   LuX,
   LuCloud,
+  LuChartBar,
+  LuChartLine,
+  LuChartArea,
+  LuChartScatter,
+  LuChartBarBig,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
 import { SiGithub, SiNotion } from "react-icons/si";
@@ -100,8 +105,13 @@ export { LuEllipsisVertical as MoreHorizontal };
 
 // Content & Data
 export { LuTrendingUp as Chart };
-export { LuTrendingUp as LineChart };
-export { LuTrendingUp as BarChart3 };
+export { LuTrendingUp as TrendingUp };
+export { LuChartLine as LineChart };
+export { LuChartBar as BarChart };
+export { LuChartBar as BarChart3 };
+export { LuChartBarBig as BarChartHorizontal };
+export { LuChartArea as AreaChart };
+export { LuChartScatter as ScatterChart };
 export { LuTable as TableIcon };
 export { LuTable2 as Table2 };
 export { LuLayoutGrid as Grid };

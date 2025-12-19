@@ -1,5 +1,9 @@
 import type { UUID } from "./uuid";
 import type { UseQueryResult } from "./repository-base";
+import type { EncodingValue, AxisType } from "./encoding-helpers";
+
+// Re-export AxisType for convenience
+export type { AxisType };
 
 // ============================================================================
 // Visualization Types
@@ -29,20 +33,21 @@ export type VisualizationType =
   | "area";
 
 /**
- * Axis type for chart encoding.
- */
-export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
-
-/**
  * Column encoding for chart visualization.
+ *
+ * Encoding values use prefixed string IDs:
+ * - `field:<uuid>` for dimension fields
+ * - `metric:<uuid>` for metric aggregations
+ *
+ * This ensures encodings remain stable when renaming metrics/fields.
  */
 export interface VisualizationEncoding {
-  x?: string;
-  y?: string;
+  x?: EncodingValue;
+  y?: EncodingValue;
   xType?: AxisType;
   yType?: AxisType;
-  color?: string;
-  size?: string;
+  color?: EncodingValue;
+  size?: EncodingValue;
 }
 
 /**
