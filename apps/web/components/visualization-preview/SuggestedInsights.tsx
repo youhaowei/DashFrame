@@ -1,49 +1,20 @@
 "use client";
 
-import { Card, Badge } from "@dashframe/ui";
+import { Card } from "@dashframe/ui";
 import { Button } from "@dashframe/ui/primitives/button";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
 
 /**
- * Extract raw field name from an encoding value (strips aggregation wrappers)
+ * EncodingRow - Displays a single encoding channel
  */
-function extractFieldName(value: string): string {
-  const match = value.match(
-    /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
-  );
-  return match ? match[1] : value;
-}
-
-/**
- * EncodingRow - Displays a single encoding channel with optional "new" badge
- */
-function EncodingRow({
-  label,
-  value,
-  newFields,
-}: {
-  label: string;
-  value?: string;
-  newFields?: string[];
-}) {
+function EncodingRow({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
-
-  const fieldName = extractFieldName(value);
-  const isNew = newFields?.includes(fieldName);
 
   return (
     <div className="flex items-start gap-1">
       <span className="min-w-[40px] font-medium">{label}:</span>
       <span className="truncate">{value}</span>
-      {isNew && (
-        <Badge
-          variant="outline"
-          className="ml-1 shrink-0 border-amber-500/50 bg-amber-500/10 px-1 py-0 text-[10px] text-amber-600 dark:text-amber-400"
-        >
-          + new
-        </Badge>
-      )}
     </div>
   );
 }
@@ -174,21 +145,15 @@ export function SuggestedInsights({
               </div>
 
               <div className="text-muted-foreground mb-3 space-y-1 text-xs">
-                <EncodingRow
-                  label="X"
-                  value={suggestion.encoding.x}
-                  newFields={suggestion.newFields}
-                />
+                <EncodingRow label="X" value={suggestion.encoding.x} />
                 <EncodingRow
                   label="Y"
                   value={formatYAxisLabel(suggestion.encoding.y ?? "")}
-                  newFields={suggestion.newFields}
                 />
                 {suggestion.encoding.color && (
                   <EncodingRow
                     label="Color"
                     value={suggestion.encoding.color}
-                    newFields={suggestion.newFields}
                   />
                 )}
               </div>

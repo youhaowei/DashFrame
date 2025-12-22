@@ -7,12 +7,17 @@
  * - `resolveToSql`: For rendering - returns SQL expressions (e.g., "category", "sum(revenue)")
  * - `resolveForAnalysis`: For validation - returns column info for ColumnAnalysis lookup
  *
+ * Date transforms can be applied to resolved values via ChannelTransform:
+ * - Temporal aggregation: `date_trunc('month', "col")` for time series
+ * - Categorical grouping: `monthname("col")` for seasonal analysis
+ *
  * No legacy format support - invalid formats return undefined or { valid: false }.
  */
 
-import type { Field, InsightMetric } from "@dashframe/types";
+import type { Field, InsightMetric, ChannelTransform } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { metricToSqlExpression } from "./insight-sql";
+import { applyDateTransformToSql } from "./date-transforms";
 
 // ============================================================================
 // Resolution Context
@@ -37,8 +42,11 @@ export interface EncodingResolutionContext {
  * Resolve an encoding string to a SQL expression for chart rendering.
  * Returns undefined for invalid encoding formats or missing references.
  *
+ * Optionally applies a date transform to the resolved value (for temporal fields).
+ *
  * @param value - Encoding string (e.g., "field:abc-123" or "metric:xyz-456")
  * @param context - Resolution context with fields and metrics
+ * @param transform - Optional date transform to apply to the resolved column
  * @returns SQL expression (column name or aggregation) or undefined
  *
  * @example
@@ -46,6 +54,10 @@ export interface EncodingResolutionContext {
  * // Field encoding resolves to column name
  * resolveToSql("field:abc-123", context)
  * // Returns: "category" (the field's columnName)
+ *
+ * // Field with date transform
+ * resolveToSql("field:date-id", context, { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } })
+ * // Returns: "date_trunc('month', \"created_at\")"
  *
  * // Metric encoding resolves to SQL aggregation
  * resolveToSql("metric:xyz-456", context)
@@ -59,20 +71,43 @@ export interface EncodingResolutionContext {
 export function resolveToSql(
   value: string | undefined,
   context: EncodingResolutionContext,
+  transform?: ChannelTransform,
 ): string | undefined {
   const parsed = parseEncoding(value);
   if (!parsed) return undefined; // Invalid format
 
+  let baseSql: string | undefined;
+
   switch (parsed.type) {
     case "field": {
       const field = context.fields.find((f) => f.id === parsed.id);
-      return field ? (field.columnName ?? field.name) : undefined;
+      baseSql = field ? (field.columnName ?? field.name) : undefined;
+      break;
     }
     case "metric": {
       const metric = context.metrics.find((m) => m.id === parsed.id);
-      return metric ? metricToSqlExpression(metric) : undefined;
+      baseSql = metric ? metricToSqlExpression(metric) : undefined;
+      // Note: Transforms are typically not applied to metrics (aggregations)
+      // as they're already wrapped in aggregation functions
+      return baseSql;
     }
   }
+
+  if (!baseSql) return undefined;
+
+  // Apply date transform if specified
+  if (transform?.type === "date") {
+    // Don't apply transform if aggregation is 'none'
+    if (
+      transform.transform.kind === "temporal" &&
+      transform.transform.aggregation === "none"
+    ) {
+      return baseSql;
+    }
+    return applyDateTransformToSql(baseSql, transform.transform);
+  }
+
+  return baseSql;
 }
 
 // ============================================================================
@@ -178,18 +213,29 @@ export interface ResolvedEncoding {
  * Resolve all encoding channels to SQL expressions for rendering.
  * Invalid or missing encodings result in undefined values.
  *
- * @param encoding - Visualization encoding with channel mappings
+ * Applies date transforms to x and y channels when specified in the encoding.
+ *
+ * @param encoding - Visualization encoding with channel mappings and optional transforms
  * @param context - Resolution context with fields and metrics
  * @returns Resolved encoding with SQL expressions
  *
  * @example
  * ```typescript
+ * // Without transforms
  * resolveEncodingToSql({
  *   x: "field:category-id",
  *   y: "metric:sum-revenue-id",
  *   color: "field:region-id"
  * }, context)
  * // Returns: { x: "category", y: "sum(revenue)", color: "region" }
+ *
+ * // With date transform on x-axis
+ * resolveEncodingToSql({
+ *   x: "field:date-id",
+ *   y: "metric:sum-revenue-id",
+ *   xTransform: { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } }
+ * }, context)
+ * // Returns: { x: "date_trunc('month', \"created_at\")", y: "sum(revenue)" }
  * ```
  */
 export function resolveEncodingToSql(
@@ -198,12 +244,14 @@ export function resolveEncodingToSql(
     y?: string;
     color?: string;
     size?: string;
+    xTransform?: ChannelTransform;
+    yTransform?: ChannelTransform;
   },
   context: EncodingResolutionContext,
 ): ResolvedEncoding {
   return {
-    x: resolveToSql(encoding.x, context),
-    y: resolveToSql(encoding.y, context),
+    x: resolveToSql(encoding.x, context, encoding.xTransform),
+    y: resolveToSql(encoding.y, context, encoding.yTransform),
     color: resolveToSql(encoding.color, context),
     size: resolveToSql(encoding.size, context),
   };

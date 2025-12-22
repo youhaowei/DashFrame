@@ -40,6 +40,10 @@ export type ColumnAnalysis = {
   zeroCount?: number;
   /** Ratio of the most frequent value (0-1). High value = dominated by one category */
   maxFrequencyRatio?: number;
+  /** Min timestamp (ms since epoch) for temporal columns - used for date transform auto-selection */
+  minDate?: number;
+  /** Max timestamp (ms since epoch) for temporal columns - used for date transform auto-selection */
+  maxDate?: number;
 };
 
 // ============================================================================
@@ -129,6 +133,7 @@ export async function analyzeDataFrame(
   }
 
   // Build batched stats query for all columns (UNION ALL)
+  // Includes both numeric stats (min/max/stddev) and temporal stats (min_date/max_date)
   const statsQuery = columnNames
     .map((columnName) => {
       const quotedColumn = `"${columnName}"`;
@@ -141,7 +146,10 @@ export async function analyzeDataFrame(
           MIN(TRY_CAST(${quotedColumn} AS DOUBLE)) as min_val,
           MAX(TRY_CAST(${quotedColumn} AS DOUBLE)) as max_val,
           STDDEV(TRY_CAST(${quotedColumn} AS DOUBLE)) as std_dev,
-          COUNT(CASE WHEN TRY_CAST(${quotedColumn} AS DOUBLE) = 0 THEN 1 END) as zero_count
+          COUNT(CASE WHEN TRY_CAST(${quotedColumn} AS DOUBLE) = 0 THEN 1 END) as zero_count,
+          -- Temporal stats: extract epoch_ms for date range detection
+          epoch_ms(MIN(TRY_CAST(${quotedColumn} AS TIMESTAMP))) as min_date,
+          epoch_ms(MAX(TRY_CAST(${quotedColumn} AS TIMESTAMP))) as max_date
         FROM ${quotedTable}
       `;
     })
@@ -187,6 +195,8 @@ export async function analyzeDataFrame(
     max_val: number | null;
     std_dev: number | null;
     zero_count: bigint;
+    min_date: bigint | null;
+    max_date: bigint | null;
   }[];
 
   // Parse samples results and group by column
@@ -349,6 +359,16 @@ export async function analyzeDataFrame(
       const maxFreq = maxFreqByColumn.get(columnName) ?? 0;
       const maxFrequencyRatio = rowCount > 0 ? maxFreq / rowCount : undefined;
 
+      // Extract temporal date range for temporal columns (used for auto-selecting date transforms)
+      const minDate =
+        category === "temporal" && stats.min_date != null
+          ? Number(stats.min_date)
+          : undefined;
+      const maxDate =
+        category === "temporal" && stats.max_date != null
+          ? Number(stats.max_date)
+          : undefined;
+
       return {
         columnName,
         category,
@@ -364,6 +384,8 @@ export async function analyzeDataFrame(
         stdDev,
         zeroCount,
         maxFrequencyRatio,
+        minDate,
+        maxDate,
       };
     } catch (error) {
       console.warn(

@@ -20,3 +20,12 @@ export {
   type ResolvedForAnalysis,
   type ResolvedEncoding,
 } from "./encoding-resolution";
+
+export {
+  selectTemporalAggregation,
+  applyDateTransformToSql,
+  getAxisTypeForTransform,
+  temporalTransform,
+  categoricalTransform,
+  getDateTransformLabel,
+} from "./date-transforms";

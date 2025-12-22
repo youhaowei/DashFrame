@@ -103,3 +103,16 @@ export {
   type ResolvedForAnalysis,
   type ResolvedEncoding,
 } from "./sql";
+
+// ============================================================================
+// Date Transforms
+// ============================================================================
+
+export {
+  selectTemporalAggregation,
+  applyDateTransformToSql,
+  getAxisTypeForTransform,
+  temporalTransform,
+  categoricalTransform,
+  getDateTransformLabel,
+} from "./sql";

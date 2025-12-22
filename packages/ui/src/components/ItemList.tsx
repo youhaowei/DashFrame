@@ -48,6 +48,11 @@ export interface ListItem {
    * Height of the preview section in pixels
    */
   previewHeight?: number;
+  /**
+   * Whether the item is disabled. When a string is provided,
+   * it's used as the reason/explanation shown to the user.
+   */
+  disabled?: boolean | string;
 }
 
 export interface ItemListProps<T extends ListItem = ListItem> {
@@ -223,6 +228,7 @@ export function ItemList<T extends ListItem>({
         actions={item.actions}
         preview={item.preview}
         previewHeight={item.previewHeight}
+        disabled={item.disabled}
         onClick={onClick}
       />
     );

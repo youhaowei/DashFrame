@@ -1,8 +1,14 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 import type { VisualizationType } from "../stores/types";
 import type { Insight } from "../stores/types";
-import type { Field, ChartEncoding } from "@dashframe/types";
+import type { Field, ChartEncoding, ChannelTransform } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import {
+  selectTemporalAggregation,
+  applyDateTransformToSql,
+  getAxisTypeForTransform,
+  temporalTransform,
+} from "@dashframe/engine";
 
 /**
  * Re-export ChartEncoding as SuggestionEncoding for backwards compatibility.
@@ -23,9 +29,12 @@ import {
  * Extract raw field names from a visualization encoding.
  * Strips aggregation and date-binning wrappers to get the underlying column names.
  *
+ * Handles both legacy vgplot functions (dateMonth, etc.) and new DuckDB functions (date_trunc).
+ *
  * @example
  * // Returns ["revenue", "date", "category"]
  * extractRawFieldsFromEncoding({ x: "dateMonth(date)", y: "sum(revenue)", color: "category" })
+ * extractRawFieldsFromEncoding({ x: "date_trunc('month', \"date\")", y: "sum(revenue)" })
  *
  * @param encoding - Visualization encoding with x, y, color, size channels
  * @returns Array of raw field names (without aggregation wrappers)
@@ -34,10 +43,24 @@ function extractRawFieldsFromEncoding(encoding: SuggestionEncoding): string[] {
   const fields: string[] = [];
   const addField = (value?: string) => {
     if (!value) return;
-    const match = value.match(
-      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+    // Pattern 1: Simple aggregation functions - sum(col), avg(col), etc.
+    const simpleMatch = value.match(
+      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
     );
-    fields.push(match ? match[1] : value);
+    if (simpleMatch) {
+      // Remove quotes from column name if present
+      fields.push(simpleMatch[1].replace(/(?:^["'])|(?:["']$)/g, ""));
+      return;
+    }
+    // Pattern 2: date_trunc('period', "column") - DuckDB date functions
+    // Use possessive-like pattern to avoid backtracking
+    const dateTruncMatch = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
+    if (dateTruncMatch) {
+      fields.push(dateTruncMatch[1]);
+      return;
+    }
+    // No wrapper, use as-is (remove quotes if present)
+    fields.push(value.replace(/(?:^["'])|(?:["']$)/g, ""));
   };
   addField(encoding.x);
   addField(encoding.y);
@@ -131,6 +154,10 @@ export interface ChartSuggestion {
   newFields?: string[];
   /** Whether this suggestion uses only existing fields (no new additions) */
   usesExistingFieldsOnly?: boolean;
+  /** Date transform for X-axis (when applicable) - for persistence */
+  xTransform?: ChannelTransform;
+  /** Date transform for Y-axis (when applicable) - for persistence */
+  yTransform?: ChannelTransform;
 }
 
 /**
@@ -156,6 +183,51 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
+}
+
+/**
+ * Build a temporal encoding for a date column using auto-selected aggregation.
+ *
+ * Uses the column's minDate/maxDate to select optimal granularity:
+ * - < 14 days: none (raw dates)
+ * - 14 days - 6 months: yearWeek (weekly)
+ * - 6 months - 5 years: yearMonth (monthly)
+ * - > 5 years: year (yearly)
+ *
+ * @param col - Temporal column analysis (with minDate/maxDate)
+ * @returns Object with x expression, axis type, and transform config
+ */
+function buildTemporalEncoding(col: ColumnAnalysis): {
+  xExpr: string;
+  xType: "temporal" | "ordinal";
+  xTransform: ChannelTransform;
+  aggregationLabel: string;
+} {
+  // Auto-select aggregation based on date range
+  const aggregation = selectTemporalAggregation(col.minDate, col.maxDate);
+  const transform = temporalTransform(aggregation);
+
+  // Generate SQL expression using DuckDB date_trunc
+  const xExpr = applyDateTransformToSql(col.columnName, transform);
+
+  // Get appropriate axis type (temporal for aggregations, temporal for none too)
+  const xType = getAxisTypeForTransform(transform) as "temporal" | "ordinal";
+
+  // Human-readable label for the title
+  const aggregationLabels: Record<string, string> = {
+    none: "",
+    yearWeek: "by week",
+    yearMonth: "by month",
+    year: "by year",
+  };
+  const aggregationLabel = aggregationLabels[aggregation] || "by month";
+
+  return {
+    xExpr,
+    xType,
+    xTransform: { type: "date", transform },
+    aggregationLabel,
+  };
 }
 
 /**
@@ -342,23 +414,30 @@ export function suggestCharts(
   }
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
-  // Use dateMonth() binning to aggregate dates by month for readable time series
+  // Use auto-selected temporal aggregation based on date range
+  // Line charts require temporal data - no fallback to categorical
   if (temporal.length > 0 && numerical.length > 0) {
     for (const xCol of temporal) {
       for (const yCol of numerical) {
+        const { xExpr, xType, xTransform, aggregationLabel } =
+          buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
-          x: `dateMonth(${xCol.columnName})`,
+          x: xExpr,
           y: `sum(${yCol.columnName})`,
-          xType: "temporal",
+          xType,
           yType: "quantitative",
         };
+        const title = aggregationLabel
+          ? `${yCol.columnName} ${aggregationLabel}`
+          : `${yCol.columnName} over time`;
         if (
           addSuggestion({
             id: `line-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} by month`,
+            title,
             chartType: "line",
             encoding,
-            rationale: "Time series data aggregated by month",
+            rationale: `Time series data ${aggregationLabel || ""}`.trim(),
+            xTransform,
           })
         )
           break;
@@ -393,18 +472,17 @@ export function suggestCharts(
   }
 
   // Heuristic 4: Area Chart (alternative to line for temporal data)
-  // Use dateMonth() binning to aggregate dates by month
-  if (
-    temporal.length > 0 &&
-    numerical.length > 0 &&
-    !suggestions.some((s) => s.chartType === "line")
-  ) {
+  // Use auto-selected temporal aggregation based on date range
+  // Area charts require temporal data - no fallback to categorical
+  if (temporal.length > 0 && numerical.length > 0) {
     for (const xCol of temporal) {
       for (const yCol of numerical) {
+        const { xExpr, xType, xTransform, aggregationLabel } =
+          buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
-          x: `dateMonth(${xCol.columnName})`,
+          x: xExpr,
           y: `sum(${yCol.columnName})`,
-          xType: "temporal",
+          xType,
           yType: "quantitative",
         };
         if (
@@ -413,7 +491,9 @@ export function suggestCharts(
             title: `${yCol.columnName} trend`,
             chartType: "area",
             encoding,
-            rationale: "Cumulative trend visualization by month",
+            rationale:
+              `Cumulative trend visualization ${aggregationLabel || ""}`.trim(),
+            xTransform,
           })
         )
           break;
@@ -856,36 +936,47 @@ export function suggestByChartType(
 
     case "line":
       // Line Chart: temporal X + numerical Y
+      // Line charts require temporal data for meaningful visualization
       if (temporal.length > 0 && numerical.length > 0) {
         const xCol = temporal[0];
         const yCol = numerical[0];
+        const { xExpr, xType, xTransform, aggregationLabel } =
+          buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
-          x: `dateMonth(${xCol.columnName})`,
+          x: xExpr,
           y: `sum(${yCol.columnName})`,
-          xType: "temporal",
+          xType,
           yType: "quantitative",
         };
         if (!isExcludedEncoding(encoding)) {
+          const title = aggregationLabel
+            ? `${yCol.columnName} ${aggregationLabel}`
+            : `${yCol.columnName} over time`;
           suggestion = {
             id: `line-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} by month`,
+            title,
             chartType: "line",
             encoding,
-            rationale: "Time series data aggregated by month",
+            rationale: `Time series data ${aggregationLabel || ""}`.trim(),
+            xTransform,
           };
         }
       }
+      // No fallback for line charts - they require temporal data
       break;
 
     case "area":
       // Area Chart: temporal X + numerical Y
+      // Area charts require temporal data for meaningful visualization
       if (temporal.length > 0 && numerical.length > 0) {
         const xCol = temporal[0];
         const yCol = numerical[0];
+        const { xExpr, xType, xTransform, aggregationLabel } =
+          buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
-          x: `dateMonth(${xCol.columnName})`,
+          x: xExpr,
           y: `sum(${yCol.columnName})`,
-          xType: "temporal",
+          xType,
           yType: "quantitative",
         };
         if (!isExcludedEncoding(encoding)) {
@@ -894,10 +985,13 @@ export function suggestByChartType(
             title: `${yCol.columnName} trend`,
             chartType: "area",
             encoding,
-            rationale: "Cumulative trend visualization by month",
+            rationale:
+              `Cumulative trend visualization ${aggregationLabel || ""}`.trim(),
+            xTransform,
           };
         }
       }
+      // No fallback for area charts - they require temporal data
       break;
 
     case "scatter":
@@ -963,6 +1057,93 @@ export function suggestForAllChartTypes(
   }
 
   return result;
+}
+
+/**
+ * Date-related column name patterns.
+ * Fallback heuristic for edge cases where dates aren't properly typed.
+ * Note: CSV connector now uses TimestampMillisecond for date columns,
+ * so this is mainly for data from other sources or legacy imports.
+ */
+const DATE_COLUMN_PATTERNS = [
+  /date$/i, // leaddate, bookdate, etc.
+  /^date/i, // date, dateCreated, etc.
+  /_date$/i, // created_date, etc.
+  /arrival/i,
+  /departure/i,
+  /timestamp/i,
+  /created/i,
+  /updated/i,
+  /modified/i,
+  /time$/i,
+];
+
+/**
+ * Returns a human-readable reason why a chart type isn't available for the data.
+ * Used to display explanations when graying out chart types in the picker.
+ *
+ * @param chartType - The chart type to check
+ * @param analysis - Column analysis from DuckDB
+ * @returns Explanation string, or null if chart type should be available
+ */
+export function getChartTypeUnavailableReason(
+  chartType: VisualizationType,
+  analysis: ColumnAnalysis[],
+): string | null {
+  // Check for temporal columns (native DATE/TIMESTAMP types)
+  const hasTemporal = analysis.some((c) => c.category === "temporal");
+
+  // Also check for date-like column names (for string dates like "Feb 22, 2026")
+  const hasDateLikeColumn = analysis.some((c) =>
+    DATE_COLUMN_PATTERNS.some((pattern) => pattern.test(c.columnName)),
+  );
+
+  const hasTemporalOrDateLike = hasTemporal || hasDateLikeColumn;
+
+  const hasNumerical = analysis.some((c) => c.category === "numerical");
+  const hasCategorical = analysis.some(
+    (c) =>
+      c.category === "categorical" ||
+      c.category === "text" ||
+      c.category === "boolean",
+  );
+  const numericalCount = analysis.filter(
+    (c) => c.category === "numerical",
+  ).length;
+
+  switch (chartType) {
+    case "line":
+    case "area":
+      // Line and area charts require temporal + numerical data
+      if (!hasTemporalOrDateLike) {
+        return "Requires date column";
+      }
+      if (!hasNumerical) {
+        return "Requires numeric column";
+      }
+      return null;
+
+    case "scatter":
+      // Scatter plots need at least 2 numerical columns
+      if (numericalCount < 2) {
+        return "Requires 2+ numeric columns";
+      }
+      return null;
+
+    case "bar":
+    case "barHorizontal":
+      // Bar charts need categorical + numerical
+      if (!hasCategorical && !hasTemporalOrDateLike) {
+        return "Requires category column";
+      }
+      if (!hasNumerical) {
+        return "Requires numeric column";
+      }
+      return null;
+
+    default:
+      return null;
+  }
 }
 
 function rankSuggestions(

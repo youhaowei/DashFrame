@@ -7,7 +7,17 @@ import type {
   SourceSchema,
 } from "@dashframe/engine-browser";
 import { DataFrame as DataFrameClass } from "@dashframe/engine-browser";
-import { tableFromArrays, tableToIPC } from "apache-arrow";
+import {
+  tableToIPC,
+  Table,
+  vectorFromArray,
+  Float64,
+  Bool,
+  Utf8,
+  TimestampMillisecond,
+  type Vector,
+  type DataType,
+} from "apache-arrow";
 
 /**
  * Represents CSV data as an array of string arrays.
@@ -29,7 +39,9 @@ const inferType = (value: string): ColumnType => {
 };
 
 /**
- * Parse a raw CSV cell value into the appropriate typed value
+ * Parse a raw CSV cell value into the appropriate typed value.
+ * For date columns, returns Date objects (not ISO strings) so Arrow can
+ * properly serialize them as TimestampMillisecond type.
  */
 const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
   if (raw === undefined || raw === "") {
@@ -43,8 +55,11 @@ const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
     }
     case "boolean":
       return raw === "true";
-    case "date":
-      return new Date(raw).toISOString();
+    case "date": {
+      // Return Date object for proper Arrow timestamp serialization
+      const date = new Date(raw);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
     default:
       return raw;
   }
@@ -154,17 +169,40 @@ export async function csvToDataFrame(
     })),
   ];
 
-  // Step 4: Convert to Arrow table (include _rowIndex for queries)
-  const columnNames = ["_rowIndex", ...userColumns.map((col) => col.name)];
-  const arrays = columnNames.reduce(
-    (acc, col) => {
-      acc[col] = rows.map((row) => row[col]);
-      return acc;
-    },
-    {} as Record<string, unknown[]>,
-  );
+  // Step 4: Convert to Arrow table with explicit types
+  // Using vectorFromArray with type hints ensures dates become TimestampMillisecond
+  // instead of being inferred as VARCHAR strings.
+  const allColumns = [
+    { name: "_rowIndex", type: "number" as ColumnType },
+    ...userColumns,
+  ];
 
-  const arrowTable = tableFromArrays(arrays);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arrowColumns: Record<string, Vector<DataType<any, any>>> = {};
+  for (const col of allColumns) {
+    const values = rows.map((row) => row[col.name]);
+
+    // Create typed Arrow vectors based on column type
+    switch (col.type) {
+      case "number":
+        arrowColumns[col.name] = vectorFromArray(values, new Float64());
+        break;
+      case "boolean":
+        arrowColumns[col.name] = vectorFromArray(values, new Bool());
+        break;
+      case "date":
+        // TimestampMillisecond ensures DuckDB recognizes this as temporal
+        arrowColumns[col.name] = vectorFromArray(
+          values,
+          new TimestampMillisecond(),
+        );
+        break;
+      default:
+        arrowColumns[col.name] = vectorFromArray(values, new Utf8());
+    }
+  }
+
+  const arrowTable = new Table(arrowColumns);
   const ipcBuffer = tableToIPC(arrowTable);
 
   // Step 5: Create DataFrame with IndexedDB storage

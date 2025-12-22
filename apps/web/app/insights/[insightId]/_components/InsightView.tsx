@@ -842,24 +842,6 @@ export function InsightView({ insight }: InsightViewProps) {
           combinedFieldCount={combinedFieldCount}
         />
 
-        {/* Visualizations - Always show section with "Create visualization" button */}
-        <VisualizationsSection
-          visualizations={insightVisualizations}
-          tableName={
-            dataTable.dataFrameId
-              ? `df_${dataTable.dataFrameId.replace(/-/g, "_")}`
-              : undefined
-          }
-          insight={insightForSuggestions ?? undefined}
-          columnAnalysis={columnAnalysis}
-          rowCount={rowCount}
-          fieldMap={fieldMap}
-          existingFields={existingFieldNames}
-          onCreateChart={handleCreateChart}
-          onDuplicateVisualization={handleDuplicateVisualization}
-          onDeleteVisualization={handleDeleteVisualization}
-        />
-
         {/* Suggested Charts - Only show when no visualizations exist yet */}
         {insightVisualizations.length === 0 &&
           dataTable.dataFrameId &&
@@ -876,6 +858,24 @@ export function InsightView({ insight }: InsightViewProps) {
               hasExistingVisualizations={false}
             />
           )}
+
+        {/* Visualizations - Shows inline picker for unconfigured insights, grid for configured */}
+        <VisualizationsSection
+          visualizations={insightVisualizations}
+          tableName={
+            dataTable.dataFrameId
+              ? `df_${dataTable.dataFrameId.replace(/-/g, "_")}`
+              : undefined
+          }
+          insight={insightForSuggestions ?? undefined}
+          columnAnalysis={columnAnalysis}
+          rowCount={rowCount}
+          fieldMap={fieldMap}
+          existingFields={existingFieldNames}
+          onCreateChart={handleCreateChart}
+          onDuplicateVisualization={handleDuplicateVisualization}
+          onDeleteVisualization={handleDeleteVisualization}
+        />
       </div>
     </AppLayout>
   );

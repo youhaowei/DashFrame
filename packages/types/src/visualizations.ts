@@ -1,6 +1,10 @@
 import type { UUID } from "./uuid";
 import type { UseQueryResult } from "./repository-base";
-import type { EncodingValue, AxisType } from "./encoding-helpers";
+import type {
+  EncodingValue,
+  AxisType,
+  ChannelTransform,
+} from "./encoding-helpers";
 
 // Re-export AxisType for convenience
 export type { AxisType };
@@ -40,6 +44,9 @@ export type VisualizationType =
  * - `metric:<uuid>` for metric aggregations
  *
  * This ensures encodings remain stable when renaming metrics/fields.
+ *
+ * Transforms can be applied to encoding channels to modify the data:
+ * - `xTransform` / `yTransform`: Date transforms for temporal fields
  */
 export interface VisualizationEncoding {
   x?: EncodingValue;
@@ -48,6 +55,10 @@ export interface VisualizationEncoding {
   yType?: AxisType;
   color?: EncodingValue;
   size?: EncodingValue;
+  /** Date transform for X-axis (when X is a temporal field) */
+  xTransform?: ChannelTransform;
+  /** Date transform for Y-axis (when Y is a temporal field) */
+  yTransform?: ChannelTransform;
 }
 
 /**

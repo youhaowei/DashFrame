@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { Section } from "@dashframe/ui";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
@@ -31,20 +31,9 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
   onRegenerate,
   hasExistingVisualizations = false,
 }: SuggestedChartsSectionProps) {
-  // Check if any suggestions would add new fields
-  const hasNewFields = useMemo(
-    () => suggestions.some((s) => s.newFields && s.newFields.length > 0),
-    [suggestions],
-  );
-
-  // Build contextual description
-  const description = useMemo(() => {
-    if (isLoading) return "Analyzing data...";
-    if (hasNewFields) {
-      return 'Fields marked with "+ new" will be added to your insight configuration';
-    }
-    return "Click a suggestion to create a visualization";
-  }, [isLoading, hasNewFields]);
+  const description = isLoading
+    ? "Analyzing data..."
+    : "Click a suggestion to create a visualization";
 
   return (
     <Section title="Suggested charts" description={description}>

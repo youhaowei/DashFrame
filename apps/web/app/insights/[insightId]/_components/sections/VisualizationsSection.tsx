@@ -12,6 +12,7 @@ import { BarChart3, Plus, Copy, Trash2 } from "@dashframe/ui/icons";
 import type { Visualization, Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
+import { ChartTypePicker } from "@/components/visualizations/ChartTypePicker";
 import { ChartTypePickerModal } from "@/components/visualizations/ChartTypePickerModal";
 import type { Insight } from "@/lib/stores/types";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
@@ -45,13 +46,13 @@ interface VisualizationListItem extends ListItem {
 }
 
 /**
- * VisualizationsSection - Shows grid of created visualizations
+ * VisualizationsSection - Shows visualizations or creation flow
  *
- * Displays all visualizations created from this insight using ItemList grid.
- * Each card shows a live chart preview and creation date.
- * Clicking a visualization navigates to its detail page.
- *
- * Uses custom renderItem to display VisualizationItemCard instead of default ItemCard.
+ * Two states:
+ * 1. Empty state (no visualizations): Shows inline ChartTypePicker grid
+ *    for immediate chart creation without modal.
+ * 2. Has visualizations: Shows grid of existing visualizations with
+ *    "Create visualization" button that opens modal.
  *
  * Memoized to prevent re-renders when unrelated data changes.
  */
@@ -141,22 +142,48 @@ export const VisualizationsSection = memo(function VisualizationsSection({
     [],
   );
 
-  // Check if we have the required props for the modal
-  const canShowModal = tableName && insight;
+  // Check if we have the required props for chart creation
+  const canCreateChart = tableName && insight && onCreateChart;
+  const hasVisualizations = visualizations.length > 0;
 
+  // Empty state: show inline chart type picker
+  if (!hasVisualizations && canCreateChart) {
+    return (
+      <Section
+        title="Create visualization"
+        description="Select a chart type to get started"
+      >
+        <ChartTypePicker
+          tableName={tableName}
+          insight={insight}
+          columnAnalysis={columnAnalysis}
+          rowCount={rowCount}
+          fieldMap={fieldMap}
+          existingFields={existingFields}
+          onCreateChart={onCreateChart}
+          gridColumns={3}
+        />
+      </Section>
+    );
+  }
+
+  // Has visualizations: show grid with "Create visualization" button
   return (
     <>
       <Section
         title="Visualizations"
-        actions={[
-          {
-            label: "Create visualization",
-            icon: Plus,
-            variant: "outline",
-            onClick: handleCreateVisualization,
-            disabled: !canShowModal,
-          },
-        ]}
+        actions={
+          canCreateChart
+            ? [
+                {
+                  label: "Create visualization",
+                  icon: Plus,
+                  variant: "outline",
+                  onClick: handleCreateVisualization,
+                },
+              ]
+            : undefined
+        }
       >
         <ItemList
           items={items}
@@ -169,8 +196,8 @@ export const VisualizationsSection = memo(function VisualizationsSection({
         />
       </Section>
 
-      {/* Chart type picker modal */}
-      {canShowModal && (
+      {/* Chart type picker modal - only used when visualizations exist */}
+      {canCreateChart && (
         <ChartTypePickerModal
           isOpen={isModalOpen}
           onClose={handleCloseModal}

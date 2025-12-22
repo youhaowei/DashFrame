@@ -83,6 +83,10 @@ export type {
   EncodingType,
   ParsedEncoding,
   ChartEncoding,
+  TemporalAggregation,
+  CategoricalDateGroup,
+  DateTransform,
+  ChannelTransform,
 } from "./encoding-helpers";
 
 export {

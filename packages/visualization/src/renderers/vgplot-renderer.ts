@@ -91,7 +91,9 @@ function colorToHex(color: string): string {
 /**
  * Supported SQL function patterns.
  * - Aggregates: sum, avg, count, min, max, median, mode, first, last
- * - Date binning: dateMonth, dateDay, dateYear, dateMonthDay
+ * - Date binning (legacy vgplot functions): dateMonth, dateDay, dateYear, dateMonthDay
+ *
+ * Note: New date transforms use DuckDB's date_trunc() which is passed through as-is.
  */
 const SQL_FUNCTION_PATTERN =
   /^(sum|avg|count|min|max|median|mode|first|last|dateMonth|dateDay|dateYear|dateMonthDay)\((.+)\)$/i;
@@ -100,6 +102,19 @@ const SQL_FUNCTION_PATTERN =
  * Pattern for count_distinct(column) - handled specially via count(col).distinct()
  */
 const COUNT_DISTINCT_PATTERN = /^count_distinct\((.+)\)$/i;
+
+/**
+ * Pattern for DuckDB date_trunc function.
+ * Format: date_trunc('period', "column") or date_trunc('period', column)
+ * These are passed through to DuckDB without vgplot transformation.
+ */
+const DATE_TRUNC_PATTERN = /^date_trunc\([^)]+\)$/i;
+
+/**
+ * Pattern for DuckDB categorical date functions.
+ * Format: monthname("column"), dayname("column"), quarter("column")
+ */
+const CATEGORICAL_DATE_PATTERN = /^(monthname|dayname|quarter)\([^)]+\)$/i;
 
 /**
  * AggregateNode type with distinct() method for count distinct support.
@@ -113,8 +128,10 @@ interface AggregateNode {
  * Converts strings like "sum(contractpeak)" to api.sum("contractpeak")
  * and "dateMonth(created)" to api.dateMonth("created").
  *
- * Special handling for count_distinct:
+ * Special handling:
  * - "count_distinct(column)" → api.count("column").distinct()
+ * - "date_trunc('period', column)" → passed through as SQL (DuckDB expression)
+ * - "monthname(column)", "dayname(column)", "quarter(column)" → passed through as SQL
  *
  * @param api - vgplot API instance
  * @param value - Encoding value (string or undefined)
@@ -137,6 +154,20 @@ function parseEncodingValue(
     }
     // Fallback: return regular count if .distinct() not available
     return api.count(columnName);
+  }
+
+  // DuckDB date_trunc expressions are passed through as-is
+  // These are SQL expressions that get executed by DuckDB before vgplot sees the data
+  if (DATE_TRUNC_PATTERN.test(value)) {
+    // For vgplot/Mosaic, we use api.sql() to pass raw SQL expressions
+    // This tells Mosaic to use the expression directly in the query
+    return api.sql`${value}`;
+  }
+
+  // DuckDB categorical date functions (monthname, dayname, quarter)
+  // Also passed through as SQL expressions
+  if (CATEGORICAL_DATE_PATTERN.test(value)) {
+    return api.sql`${value}`;
   }
 
   // Check if this is a SQL function expression like "sum(column)" or "dateMonth(column)"
@@ -223,12 +254,20 @@ function buildEncodingOptions(
   if (encoding.x) options.x = parseEncodingValue(api, encoding.x);
   if (encoding.y) options.y = parseEncodingValue(api, encoding.y);
 
-  // Color encoding
+  // Color encoding - line charts use stroke, others use fill
+  const isLineChart = chartType === "line";
+  const colorProperty = isLineChart ? "stroke" : "fill";
+
   if (encoding.color) {
-    options.fill = parseEncodingValue(api, encoding.color);
+    options[colorProperty] = parseEncodingValue(api, encoding.color);
   } else {
-    const defaultFill = getDefaultFillColor();
-    if (defaultFill) options.fill = defaultFill;
+    const defaultColor = getDefaultFillColor();
+    if (defaultColor) options[colorProperty] = defaultColor;
+  }
+
+  // Line chart styling
+  if (isLineChart) {
+    options.strokeWidth = 2; // Reasonable line thickness
   }
 
   if (encoding.size) options.r = parseEncodingValue(api, encoding.size);

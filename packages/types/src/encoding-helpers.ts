@@ -151,6 +151,74 @@ export function isValidEncoding(
 }
 
 // ============================================================================
+// Date Transform Types
+// ============================================================================
+
+/**
+ * Temporal aggregation - reduces data points while preserving time continuity.
+ * Uses DuckDB's `date_trunc()` function to group dates.
+ *
+ * - `none`: No aggregation, use raw timestamps
+ * - `yearWeek`: Group by week (date_trunc('week', col))
+ * - `yearMonth`: Group by month (date_trunc('month', col))
+ * - `year`: Group by year (date_trunc('year', col))
+ *
+ * Output is still a timestamp, so x-axis remains temporal (continuous time flow).
+ */
+export type TemporalAggregation = "none" | "yearWeek" | "yearMonth" | "year";
+
+/**
+ * Categorical date grouping - extracts period names for seasonal analysis.
+ * Groups data across all years by the extracted period.
+ *
+ * - `monthName`: Extract month name (monthname(col) → "January", "February", ...)
+ * - `dayOfWeek`: Extract day name (dayname(col) → "Monday", "Tuesday", ...)
+ * - `quarter`: Extract quarter number (quarter(col) → 1, 2, 3, 4)
+ *
+ * Output is categorical, so x-axis becomes ordinal (discrete categories).
+ */
+export type CategoricalDateGroup = "monthName" | "dayOfWeek" | "quarter";
+
+/**
+ * Date transform configuration.
+ * Discriminated union that determines how date columns are transformed.
+ *
+ * @example Temporal aggregation (monthly time series)
+ * ```typescript
+ * const transform: DateTransform = {
+ *   kind: 'temporal',
+ *   aggregation: 'yearMonth'
+ * };
+ * // SQL: date_trunc('month', created_at)
+ * // Output: 2024-01-01, 2024-02-01, ...
+ * // X-axis: temporal (continuous)
+ * ```
+ *
+ * @example Categorical grouping (compare months across years)
+ * ```typescript
+ * const transform: DateTransform = {
+ *   kind: 'categorical',
+ *   groupBy: 'monthName'
+ * };
+ * // SQL: monthname(created_at)
+ * // Output: "January", "February", ...
+ * // X-axis: ordinal (discrete)
+ * ```
+ */
+export type DateTransform =
+  | { kind: "temporal"; aggregation: TemporalAggregation }
+  | { kind: "categorical"; groupBy: CategoricalDateGroup };
+
+/**
+ * Channel transform configuration for encoding channels (x, y).
+ * Currently supports date transforms; extensible for future transform types.
+ */
+export interface ChannelTransform {
+  type: "date";
+  transform: DateTransform;
+}
+
+// ============================================================================
 // Chart Encoding (Rendering Format)
 // ============================================================================
 
