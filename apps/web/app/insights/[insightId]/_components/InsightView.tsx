@@ -36,6 +36,7 @@ import {
 } from "@dashframe/engine-browser";
 import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 
 interface InsightViewProps {
   insight: Insight;
@@ -271,7 +272,9 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
-  const { create: createVisualizationLocal } = useVisualizationMutations();
+  const { create: createVisualizationLocal, remove: removeVisualization } =
+    useVisualizationMutations();
+  const { confirm } = useConfirmDialogStore();
 
   // Debounced save for insight name (500ms after typing stops)
   const handleNameChange = useCallback(
@@ -767,6 +770,41 @@ export function InsightView({ insight }: InsightViewProps) {
     setSuggestionSeed((prev) => prev + 1);
   }, []);
 
+  // Handle duplicating a visualization
+  const handleDuplicateVisualization = useCallback(
+    async (vizId: string) => {
+      const viz = insightVisualizations.find((v) => v.id === vizId);
+      if (!viz) return;
+
+      const newVizId = await createVisualizationLocal(
+        `${viz.name} (copy)`,
+        insightId,
+        viz.visualizationType,
+        viz.spec,
+        viz.encoding,
+      );
+
+      router.push(`/visualizations/${newVizId}`);
+    },
+    [insightVisualizations, createVisualizationLocal, insightId, router],
+  );
+
+  // Handle deleting a visualization
+  const handleDeleteVisualization = useCallback(
+    (vizId: string, name: string) => {
+      confirm({
+        title: "Delete visualization",
+        description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+        confirmLabel: "Delete",
+        variant: "destructive",
+        onConfirm: async () => {
+          await removeVisualization(vizId);
+        },
+      });
+    },
+    [confirm, removeVisualization],
+  );
+
   // Data table not found - check after all hooks are called
   if (!dataTable) {
     return <NotFoundView type="dataTable" />;
@@ -818,6 +856,8 @@ export function InsightView({ insight }: InsightViewProps) {
           fieldMap={fieldMap}
           existingFields={existingFieldNames}
           onCreateChart={handleCreateChart}
+          onDuplicateVisualization={handleDuplicateVisualization}
+          onDeleteVisualization={handleDeleteVisualization}
         />
 
         {/* Suggested Charts - Only show when no visualizations exist yet */}

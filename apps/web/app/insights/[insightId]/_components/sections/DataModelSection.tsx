@@ -6,7 +6,6 @@ import {
   Section,
   ItemList,
   JoinTypeIcon,
-  Badge,
   type ListItem,
   type ItemAction,
 } from "@dashframe/ui";
@@ -124,20 +123,29 @@ export const DataModelSection = memo(function DataModelSection({
   const { update: updateInsight } = useInsightMutations();
   const { confirm } = useConfirmDialogStore();
 
-  // Remove join handler
+  // Remove join handler - shows confirmation then removes
   const handleRemoveJoin = useCallback(
-    async (joinIndex: number) => {
-      if (!insight.joins) return;
-      const updatedJoins = insight.joins.filter((_, idx) => idx !== joinIndex);
-      await updateInsight(insight.id, { joins: updatedJoins });
+    (joinIndex: number, tableName: string) => {
+      confirm({
+        title: "Remove table",
+        description: `Are you sure you want to remove "${tableName}" from the insight? This will remove the join relationship.`,
+        confirmLabel: "Remove",
+        variant: "destructive",
+        onConfirm: async () => {
+          if (!insight.joins) return;
+          const updatedJoins = insight.joins.filter(
+            (_, idx) => idx !== joinIndex,
+          );
+          await updateInsight(insight.id, { joins: updatedJoins });
+        },
+      });
     },
-    [insight.joins, insight.id, updateInsight],
+    [insight.joins, insight.id, updateInsight, confirm],
   );
 
   // Navigate to data source page for a table
   const handleOpenDataSource = useCallback(
-    (table: DataTable) => {
-      const sourceId = table.dataSourceId;
+    (sourceId: string | undefined) => {
       if (sourceId) {
         router.push(`/data-sources/${sourceId}`);
       }
@@ -167,12 +175,12 @@ export const DataModelSection = memo(function DataModelSection({
           {
             icon: ExternalLink,
             label: "View source",
-            onClick: () => handleOpenDataSource(dataTable),
+            onClick: () => handleOpenDataSource(dataTable.dataSourceId),
           },
         ]
       : [];
 
-    // Base table item - clean layout with badge in content
+    // Base table item - using native badge prop for inline display
     const baseItem: ListItem = {
       id: "base",
       title: dataTable.name,
@@ -181,14 +189,10 @@ export const DataModelSection = memo(function DataModelSection({
       ) : (
         <Database className="h-4 w-4" />
       ),
+      badge: "primary",
       actions: baseActions,
       content: (
         <div className="space-y-1.5 text-xs">
-          <div>
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-              primary
-            </Badge>
-          </div>
           <div className="text-muted-foreground">
             {baseRowCount.toLocaleString()} rows • {baseFieldCount} fields
           </div>
@@ -216,34 +220,24 @@ export const DataModelSection = memo(function DataModelSection({
         ? allDataSources.find((s) => s.id === joinTable.dataSourceId)
         : undefined;
 
-      // Bind the index to avoid nested arrow function in onConfirm
-      const boundRemoveHandler = handleRemoveJoin.bind(null, idx);
-
-      // Extract confirm handler to reduce nesting depth
-      const confirmRemoveJoin = () => {
-        confirm({
-          title: "Remove table",
-          description: `Are you sure you want to remove "${joinTable?.name || "this table"}" from the insight? This will remove the join relationship.`,
-          confirmLabel: "Remove",
-          variant: "destructive",
-          onConfirm: boundRemoveHandler,
-        });
-      };
+      // Capture values for action handlers (avoid creating closures over full objects)
+      const tableName = joinTable?.name || "this table";
+      const tableSourceId = joinTable?.dataSourceId;
 
       const actions: ItemAction[] = [
-        ...(joinTable?.dataSourceId
+        ...(tableSourceId
           ? [
               {
                 icon: ExternalLink,
                 label: "View source",
-                onClick: () => handleOpenDataSource(joinTable),
+                onClick: () => handleOpenDataSource(tableSourceId),
               },
             ]
           : []),
         {
           icon: X,
           label: "Remove",
-          onClick: confirmRemoveJoin,
+          onClick: () => handleRemoveJoin(idx, tableName),
           variant: "destructive" as const,
         },
       ];
@@ -252,14 +246,10 @@ export const DataModelSection = memo(function DataModelSection({
         id: join.rightTableId,
         title: joinTable?.name || "Unknown table",
         icon: <JoinTypeIcon type={join.type} className="h-4 w-4" />,
+        badge: `${join.type} join`,
         actions,
         content: (
           <div className="space-y-1.5 text-xs">
-            <div>
-              <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                {join.type} join
-              </Badge>
-            </div>
             <div className="text-muted-foreground">
               {joinRowCount.toLocaleString()} rows • {joinFieldCount} fields
             </div>
@@ -283,7 +273,6 @@ export const DataModelSection = memo(function DataModelSection({
     allDataTables,
     handleRemoveJoin,
     handleOpenDataSource,
-    confirm,
   ]);
 
   // User-friendly description

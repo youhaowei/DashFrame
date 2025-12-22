@@ -2,8 +2,13 @@
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Section, ItemList, type ListItem } from "@dashframe/ui";
-import { BarChart3, Plus } from "@dashframe/ui/icons";
+import {
+  Section,
+  ItemList,
+  type ListItem,
+  type ItemAction,
+} from "@dashframe/ui";
+import { BarChart3, Plus, Copy, Trash2 } from "@dashframe/ui/icons";
 import type { Visualization, Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
@@ -27,11 +32,16 @@ interface VisualizationsSectionProps {
   existingFields?: string[];
   /** Callback when a chart is created */
   onCreateChart?: (suggestion: ChartSuggestion) => void;
+  /** Callback when a visualization is duplicated */
+  onDuplicateVisualization?: (vizId: string) => void;
+  /** Callback when a visualization is deleted */
+  onDeleteVisualization?: (vizId: string, name: string) => void;
 }
 
-/** Extended ListItem that includes the full visualization object */
+/** Extended ListItem that includes the full visualization object and actions */
 interface VisualizationListItem extends ListItem {
   visualization: Visualization;
+  actions?: ItemAction[];
 }
 
 /**
@@ -54,6 +64,8 @@ export const VisualizationsSection = memo(function VisualizationsSection({
   fieldMap = {},
   existingFields = [],
   onCreateChart,
+  onDuplicateVisualization,
+  onDeleteVisualization,
 }: VisualizationsSectionProps) {
   const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,15 +95,37 @@ export const VisualizationsSection = memo(function VisualizationsSection({
     [onCreateChart],
   );
 
-  // Convert visualizations to extended ListItem format
+  // Convert visualizations to extended ListItem format with actions
   const items: VisualizationListItem[] = useMemo(
     () =>
-      visualizations.map((viz) => ({
-        id: viz.id,
-        title: viz.name,
-        visualization: viz,
-      })),
-    [visualizations],
+      visualizations.map((viz) => {
+        const actions: ItemAction[] = [];
+
+        if (onDuplicateVisualization) {
+          actions.push({
+            icon: Copy,
+            label: "Duplicate",
+            onClick: () => onDuplicateVisualization(viz.id),
+          });
+        }
+
+        if (onDeleteVisualization) {
+          actions.push({
+            icon: Trash2,
+            label: "Delete",
+            onClick: () => onDeleteVisualization(viz.id, viz.name),
+            variant: "destructive" as const,
+          });
+        }
+
+        return {
+          id: viz.id,
+          title: viz.name,
+          visualization: viz,
+          actions: actions.length > 0 ? actions : undefined,
+        };
+      }),
+    [visualizations, onDuplicateVisualization, onDeleteVisualization],
   );
 
   // Custom render function for visualization cards
@@ -101,6 +135,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
         visualization={item.visualization}
         onClick={onClick}
         previewHeight={140}
+        actions={item.actions}
       />
     ),
     [],

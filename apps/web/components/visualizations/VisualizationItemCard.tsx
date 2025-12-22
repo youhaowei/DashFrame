@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "@dashframe/ui";
+import {
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  PrimitiveButton,
+  type ItemAction,
+} from "@dashframe/ui";
 import type { Visualization } from "@dashframe/types";
 import { VisualizationPreview } from "./VisualizationPreview";
 import {
@@ -9,6 +17,7 @@ import {
   CircleDot,
   LineChart,
   TableIcon,
+  MoreOptions,
 } from "@dashframe/ui/icons";
 
 interface VisualizationItemCardProps {
@@ -22,6 +31,8 @@ interface VisualizationItemCardProps {
   previewHeight?: number;
   /** Additional CSS classes */
   className?: string;
+  /** Optional list of actions to display in a dropdown menu */
+  actions?: ItemAction[];
 }
 
 /**
@@ -68,6 +79,7 @@ export function VisualizationItemCard({
   active = false,
   previewHeight = 140,
   className,
+  actions,
 }: VisualizationItemCardProps) {
   const vizType = visualization.visualizationType ?? "table";
   const createdDate = new Date(visualization.createdAt).toLocaleDateString(
@@ -78,6 +90,7 @@ export function VisualizationItemCard({
       year: "numeric",
     },
   );
+  const hasActions = actions && actions.length > 0;
 
   const handleClick = () => {
     onClick?.();
@@ -117,16 +130,51 @@ export function VisualizationItemCard({
         />
       </div>
 
-      {/* Content Section - simplified without icon/badge */}
+      {/* Content Section - title, date, and actions */}
       <div className="p-4">
-        <p
-          className={cn(
-            "truncate text-sm font-medium transition-all",
-            active ? "text-primary" : "text-foreground",
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-medium transition-all",
+              active ? "text-primary" : "text-foreground",
+            )}
+          >
+            {visualization.name}
+          </p>
+
+          {/* Actions dropdown menu */}
+          {hasActions && (
+            <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <PrimitiveButton
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <MoreOptions className="h-4 w-4" />
+                    <span className="sr-only">Actions</span>
+                  </PrimitiveButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {actions.map((action, index) => (
+                    <DropdownMenuItem
+                      key={index}
+                      onClick={action.onClick}
+                      className={cn(
+                        action.variant === "destructive" &&
+                          "text-destructive focus:text-destructive",
+                      )}
+                    >
+                      {action.icon && <action.icon className="h-4 w-4" />}
+                      {action.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
-        >
-          {visualization.name}
-        </p>
+        </div>
         <p className="text-muted-foreground mt-1 truncate text-xs">
           Created {createdDate}
         </p>

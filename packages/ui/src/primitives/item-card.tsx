@@ -159,17 +159,18 @@ export function ItemCard({
   }
   const wrapperProps = getWrapperProps();
 
-  // Content section (icon + title + subtitle + badge + actions)
-  // Compact mode uses p-3.5 for better visual separation from Input fields
-  // When content is present, actions move below; otherwise they stay on the right
+  // Content section layout:
+  // - Header row: icon + title + subtitle + badge + actions (all inline)
+  // - Content row: below header, spanning full width (when content is provided)
   const contentSection = (
     <div className={cn(preview ? "p-4" : "px-3.5 py-3")}>
-      <div className="flex items-start gap-3">
+      {/* Header row: everything on one line */}
+      <div className="flex items-center gap-2">
         {/* Icon with background (optional) */}
         {icon && (
           <div
             className={cn(
-              "mt-0.5 shrink-0 rounded p-1.5 transition-all",
+              "shrink-0 rounded p-1.5 transition-colors",
               active
                 ? "bg-primary/10 text-primary"
                 : "bg-muted text-muted-foreground",
@@ -179,38 +180,38 @@ export function ItemCard({
           </div>
         )}
 
-        {/* Content */}
-        <div className="min-w-0 flex-1">
-          {(title || badge) && (
-            <div className="flex items-center gap-2">
-              {title && (
-                <p
-                  className={cn(
-                    "truncate text-sm font-medium transition-all",
-                    active ? "text-primary" : "text-foreground",
-                  )}
-                >
-                  {title}
-                </p>
-              )}
-              {badge && (
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {badge}
-                </span>
-              )}
-            </div>
-          )}
-          {subtitle && (
-            <p className="text-muted-foreground mt-1 truncate text-xs">
-              {subtitle}
-            </p>
-          )}
-          {content && <div className="mt-2">{content}</div>}
-        </div>
+        {/* Title - truncates to fit */}
+        {title && (
+          <p
+            className={cn(
+              "min-w-0 truncate text-sm font-medium transition-colors",
+              active ? "text-primary" : "text-foreground",
+            )}
+          >
+            {title}
+          </p>
+        )}
+
+        {/* Subtitle - secondary info, also truncates */}
+        {subtitle && (
+          <span className="text-muted-foreground shrink-0 text-xs">
+            {subtitle}
+          </span>
+        )}
+
+        {/* Badge */}
+        {badge && (
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs">
+            {badge}
+          </span>
+        )}
+
+        {/* Spacer to push actions to the right */}
+        <div className="flex-1" />
 
         {/* Actions dropdown menu - always visible */}
         {hasActions && (
-          <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <PrimitiveButton
@@ -241,6 +242,9 @@ export function ItemCard({
           </div>
         )}
       </div>
+
+      {/* Content row: below header, full width */}
+      {content && <div className="mt-2">{content}</div>}
     </div>
   );
 
@@ -250,7 +254,7 @@ export function ItemCard({
       <Wrapper
         {...wrapperProps}
         className={cn(
-          "group w-full overflow-hidden rounded-lg border text-left transition-all",
+          "group w-full overflow-hidden rounded-lg border text-left transition-colors transition-shadow",
           onClick && "hover:bg-accent/50 cursor-pointer",
           active
             ? "border-primary ring-primary ring-2"
@@ -278,7 +282,7 @@ export function ItemCard({
     <Wrapper
       {...wrapperProps}
       className={cn(
-        "group w-full rounded-lg border text-left transition-all",
+        "group w-full rounded-lg border text-left transition-colors transition-shadow",
         onClick && "hover:bg-accent/50 cursor-pointer",
         active
           ? "border-primary bg-primary/5"
