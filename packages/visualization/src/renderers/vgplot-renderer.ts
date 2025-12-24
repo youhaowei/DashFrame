@@ -321,11 +321,13 @@ function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
 /**
  * Build margin and axis options for the plot.
  * Applies SI notation formatting to the metric axis (Y for vertical, X for horizontal).
+ * Uses human-readable axis labels from encoding when available.
  */
 function buildAxisOptions(
   api: VgplotAPI,
   isPreview: boolean,
   chartType: VisualizationType,
+  encoding?: ChartEncoding,
 ): unknown[] {
   if (isPreview) {
     return [api.axis(null), api.margin(4)];
@@ -342,6 +344,18 @@ function buildAxisOptions(
   } else {
     options.push(api.yTickFormat("~s"));
     options.push(api.yGrid(true));
+  }
+
+  // Apply human-readable axis labels when provided
+  // These override the UUID column names in the chart display
+  if (encoding?.xLabel) {
+    options.push(api.xLabel(encoding.xLabel));
+  }
+  if (encoding?.yLabel) {
+    options.push(api.yLabel(encoding.yLabel));
+  }
+  if (encoding?.colorLabel) {
+    options.push(api.colorLabel(encoding.colorLabel));
   }
 
   return options;
@@ -401,6 +415,31 @@ function buildMark(
       return api.areaY(source, options);
     case "scatter":
       return api.dot(source, options);
+    case "hexbin":
+      // Hexagonal binning - aggregates points into hex cells
+      // Color intensity shows point density (count per cell)
+      return api.hexbin(source, {
+        ...options,
+        binWidth: 20, // Hex cell size in pixels
+        fill: api.count(), // Color by density
+      });
+    case "heatmap":
+      // Density heatmap - smooth color gradient
+      // Uses kernel density estimation with linear interpolation
+      return api.heatmap(source, {
+        ...options,
+        fill: "density",
+        bandwidth: 20, // Smoothing kernel size
+        pixelSize: 2, // Grid resolution
+      });
+    case "raster":
+      // Pixel-based aggregation - fastest for huge datasets
+      // Each pixel shows aggregate value for that region
+      return api.raster(source, {
+        ...options,
+        fill: "density",
+        pixelSize: 1, // 1:1 pixel mapping
+      });
     default:
       throw new Error(`Unsupported chart type: ${type}`);
   }
@@ -444,6 +483,9 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       "line",
       "area",
       "scatter",
+      "hexbin",
+      "heatmap",
+      "raster",
     ] as const,
 
     render(
@@ -459,7 +501,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         const plotOptions: unknown[] = [
           mark,
           ...buildSizingOptions(api, config),
-          ...buildAxisOptions(api, !!config.preview, type),
+          ...buildAxisOptions(api, !!config.preview, type, config.encoding),
         ];
 
         // Apply color scheme
@@ -522,4 +564,7 @@ export const VGPLOT_SUPPORTED_TYPES: readonly VisualizationType[] = [
   "line",
   "area",
   "scatter",
+  "hexbin",
+  "heatmap",
+  "raster",
 ] as const;

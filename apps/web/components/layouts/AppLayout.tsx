@@ -80,7 +80,7 @@ export function AppLayout({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left panel */}
         {leftPanel && (
-          <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto p-2">
+          <aside className="flex h-full w-80 shrink-0 flex-col overflow-y-auto overflow-x-hidden p-2">
             {leftPanel}
           </aside>
         )}

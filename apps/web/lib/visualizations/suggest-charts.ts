@@ -8,22 +8,64 @@ import {
   applyDateTransformToSql,
   getAxisTypeForTransform,
   temporalTransform,
+  extractUUIDFromColumnAlias,
 } from "@dashframe/engine";
 
 /**
  * Re-export ChartEncoding as SuggestionEncoding for backwards compatibility.
  *
- * ChartEncoding uses plain strings (SQL expressions or column names) which is
- * exactly what suggestions need. When a user clicks "Create", these SQL expressions
- * are converted to EncodingValue (field:uuid or metric:uuid) for persistence.
+ * With UUID-based column naming, encoding values are now `field_<uuid>` format.
+ * This format is used directly in SQL queries without transformation.
+ * Display names are looked up from field definitions when rendering UI.
  */
 export type SuggestionEncoding = ChartEncoding;
+
+/**
+ * Extended column analysis that includes display name from field metadata.
+ * The columnName is the UUID alias (field_<uuid>), displayName is the user-visible name.
+ */
+interface ExtendedColumnAnalysis extends ColumnAnalysis {
+  /** User-visible display name from field metadata */
+  displayName: string;
+  /** Original field ID extracted from column alias */
+  fieldId: string | null;
+}
 import {
   isBlockedColumn,
   hasNumericalVariance,
   isSuitableCategoricalXAxis,
   isSuitableColorColumn,
 } from "./encoding-criteria";
+
+/**
+ * Enrich column analysis with display names from field metadata.
+ *
+ * With UUID-based column naming, column names in analysis are like `field_<uuid>`.
+ * This function looks up the original field display name for use in suggestion titles.
+ *
+ * @param analysis - Raw column analysis with UUID column names
+ * @param fields - Field metadata keyed by field ID
+ * @returns Enriched analysis with displayName and fieldId
+ */
+function enrichColumnAnalysis(
+  analysis: ColumnAnalysis[],
+  fields: Record<string, Field>,
+): ExtendedColumnAnalysis[] {
+  return analysis.map((col) => {
+    // Extract field ID from column alias (field_<uuid> → uuid)
+    const fieldId = extractUUIDFromColumnAlias(col.columnName);
+
+    // Look up field by ID for display name
+    const field = fieldId ? fields[fieldId] : undefined;
+    const displayName = field?.name ?? col.columnName;
+
+    return {
+      ...col,
+      displayName,
+      fieldId,
+    };
+  });
+}
 
 /**
  * Extract raw field names from a visualization encoding.
@@ -116,12 +158,21 @@ const NON_METRIC_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Maximum number of points for scatter plots before switching to hexbin.
+ * Scatter plots with raw dots become unreadable with too many points.
+ * Hexbin aggregates points into hexagonal cells by density.
+ */
+const SCATTER_MAX_POINTS = 5000;
+
+/**
  * Scores a column for how likely it is to be a meaningful metric.
  * Higher score = better candidate for Y-axis aggregation.
  * Returns 0 for columns that look like IDs.
+ *
+ * @param displayName - The user-visible display name (not UUID alias)
  */
-function getMetricScore(columnName: string): number {
-  const name = columnName.toLowerCase();
+function getMetricScore(displayName: string): number {
+  const name = displayName.toLowerCase();
 
   // Check if it looks like an ID first
   if (NON_METRIC_PATTERNS.some((pattern) => pattern.test(name))) {
@@ -197,7 +248,7 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
  * @param col - Temporal column analysis (with minDate/maxDate)
  * @returns Object with x expression, axis type, and transform config
  */
-function buildTemporalEncoding(col: ColumnAnalysis): {
+function buildTemporalEncoding(col: ExtendedColumnAnalysis): {
   xExpr: string;
   xType: "temporal" | "ordinal";
   xTransform: ChannelTransform;
@@ -208,6 +259,7 @@ function buildTemporalEncoding(col: ColumnAnalysis): {
   const transform = temporalTransform(aggregation);
 
   // Generate SQL expression using DuckDB date_trunc
+  // Use UUID column name for SQL, not display name
   const xExpr = applyDateTransformToSql(col.columnName, transform);
 
   // Get appropriate axis type (temporal for aggregations, temporal for none too)
@@ -275,6 +327,10 @@ export function suggestCharts(
     excludeEncodings,
   } = options;
 
+  // Enrich analysis with display names from field metadata
+  // This allows us to use UUID column names for SQL while showing readable names in UI
+  const enrichedAnalysis = enrichColumnAnalysis(analysis, fields);
+
   // Convert existing fields to a Set for O(1) lookup
   const existingFieldSet = new Set(existingFields);
 
@@ -307,11 +363,13 @@ export function suggestCharts(
   const random = createSeededRandom(seed);
 
   // Helper wrappers that use unified encoding criteria
-  const isBlocked = (col: ColumnAnalysis): boolean => {
-    return !isBlockedColumn(col, fields[col.columnName], rowCount).good;
+  // Note: Use fieldId to look up field metadata since columnName is now UUID-based
+  const isBlocked = (col: ExtendedColumnAnalysis): boolean => {
+    const field = col.fieldId ? fields[col.fieldId] : undefined;
+    return !isBlockedColumn(col, field, rowCount).good;
   };
 
-  const hasVariance = (col: ColumnAnalysis): boolean => {
+  const hasVariance = (col: ExtendedColumnAnalysis): boolean => {
     return hasNumericalVariance(col, rowCount).good;
   };
 
@@ -319,19 +377,19 @@ export function suggestCharts(
   // Shuffle with seed to introduce variety when regenerating
   // For numerical columns, also check for meaningful variance (not all zeros)
   const numerical = shuffleWithSeed(
-    analysis.filter(
+    enrichedAnalysis.filter(
       (a) => a.category === "numerical" && !isBlocked(a) && hasVariance(a),
     ),
     random,
   );
   const temporal = shuffleWithSeed(
-    analysis.filter((a) => a.category === "temporal" && !isBlocked(a)),
+    enrichedAnalysis.filter((a) => a.category === "temporal" && !isBlocked(a)),
     random,
   );
   // For categorical columns, also filter for good X-axis candidates
   // (proper variance - not too few or too many unique values)
   const categorical = shuffleWithSeed(
-    analysis.filter(
+    enrichedAnalysis.filter(
       (a) =>
         (a.category === "categorical" ||
           a.category === "text" ||
@@ -344,7 +402,7 @@ export function suggestCharts(
 
   // Separate list for color-suitable columns (lower cardinality for readable legends)
   const colorSuitable = shuffleWithSeed(
-    analysis.filter(
+    enrichedAnalysis.filter(
       (a) =>
         (a.category === "categorical" ||
           a.category === "text" ||
@@ -357,16 +415,26 @@ export function suggestCharts(
 
   // Debug logging to understand filtering
   console.debug("[suggestCharts] Column filtering results", {
-    totalColumns: analysis.length,
+    totalColumns: enrichedAnalysis.length,
     numerical: numerical.length,
     temporal: temporal.length,
     categorical: categorical.length,
     colorSuitable: colorSuitable.length,
-    numericalColumns: numerical.map((c) => c.columnName),
-    temporalColumns: temporal.map((c) => c.columnName),
-    categoricalColumns: categorical.map((c) => c.columnName),
-    allCategories: analysis.map((a) => ({
-      name: a.columnName,
+    numericalColumns: numerical.map((c) => ({
+      uuid: c.columnName,
+      display: c.displayName,
+    })),
+    temporalColumns: temporal.map((c) => ({
+      uuid: c.columnName,
+      display: c.displayName,
+    })),
+    categoricalColumns: categorical.map((c) => ({
+      uuid: c.columnName,
+      display: c.displayName,
+    })),
+    allCategories: enrichedAnalysis.map((a) => ({
+      uuid: a.columnName,
+      display: a.displayName,
       category: a.category,
       blocked: isBlocked(a),
     })),
@@ -387,6 +455,7 @@ export function suggestCharts(
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
   // Try multiple combinations if first choice is excluded
+  // Note: Use columnName (UUID) for encoding, displayName for titles
   if (categorical.length > 0 && numerical.length > 0) {
     for (const xCol of categorical) {
       for (const yCol of numerical) {
@@ -396,11 +465,13 @@ export function suggestCharts(
           y: `sum(${yCol.columnName})`,
           xType: xAxisType,
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (
           addSuggestion({
-            id: `bar-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} by ${xCol.columnName}`,
+            id: `bar-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} by ${xCol.displayName}`,
             chartType: "bar",
             encoding,
             rationale: "Categorical dimension with numeric measure",
@@ -426,13 +497,15 @@ export function suggestCharts(
           y: `sum(${yCol.columnName})`,
           xType,
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         const title = aggregationLabel
-          ? `${yCol.columnName} ${aggregationLabel}`
-          : `${yCol.columnName} over time`;
+          ? `${yCol.displayName} ${aggregationLabel}`
+          : `${yCol.displayName} over time`;
         if (
           addSuggestion({
-            id: `line-${xCol.columnName}-${yCol.columnName}`,
+            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
             title,
             chartType: "line",
             encoding,
@@ -459,10 +532,12 @@ export function suggestCharts(
           y: yCol.columnName,
           xType: "quantitative",
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         scatterAdded = addSuggestion({
-          id: `scatter-${xCol.columnName}-${yCol.columnName}`,
-          title: `${yCol.columnName} vs ${xCol.columnName}`,
+          id: `scatter-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+          title: `${yCol.displayName} vs ${xCol.displayName}`,
           chartType: "scatter",
           encoding,
           rationale: "Two numeric dimensions for correlation",
@@ -484,11 +559,13 @@ export function suggestCharts(
           y: `sum(${yCol.columnName})`,
           xType,
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (
           addSuggestion({
-            id: `area-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} trend`,
+            id: `area-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} trend`,
             chartType: "area",
             encoding,
             rationale:
@@ -546,10 +623,13 @@ export function suggestCharts(
         xType: xAxisType,
         yType: "quantitative",
         color: colorCol.columnName,
+        xLabel: xCol.displayName,
+        yLabel: yCol.displayName,
+        colorLabel: colorCol.displayName,
       };
       addSuggestion({
-        id: `bar-grouped-${xCol.columnName}-${colorCol.columnName}-${yCol.columnName}`,
-        title: `${yCol.columnName} by ${xCol.columnName} and ${colorCol.columnName}`,
+        id: `bar-grouped-${xCol.fieldId ?? xCol.columnName}-${colorCol.fieldId ?? colorCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+        title: `${yCol.displayName} by ${xCol.displayName} and ${colorCol.displayName}`,
         chartType: "bar",
         encoding,
         rationale: "Multi-dimensional categorical comparison",
@@ -826,32 +906,46 @@ export function suggestByChartType(
   chartType: VisualizationType,
   options: Omit<SuggestChartsOptions, "limit" | "excludeChartTypes"> = {},
 ): ChartSuggestion | null {
-  const { existingFields = [], excludeEncodings } = options;
+  const { existingFields = [], excludeEncodings, seed = 0 } = options;
   const existingFieldSet = new Set(existingFields);
 
+  // Create seeded random for reproducible variety when regenerating
+  const random = createSeededRandom(seed);
+
+  // Enrich analysis with display names from field metadata
+  const enrichedAnalysis = enrichColumnAnalysis(analysis, fields);
+
   // Helper wrappers for column filtering
-  const isBlocked = (col: ColumnAnalysis): boolean => {
-    return !isBlockedColumn(col, fields[col.columnName], rowCount).good;
+  const isBlocked = (col: ExtendedColumnAnalysis): boolean => {
+    const field = col.fieldId ? fields[col.fieldId] : undefined;
+    return !isBlockedColumn(col, field, rowCount).good;
   };
 
-  const hasVariance = (col: ColumnAnalysis): boolean => {
+  const hasVariance = (col: ExtendedColumnAnalysis): boolean => {
     return hasNumericalVariance(col, rowCount).good;
   };
 
-  // Categorize columns
-  const numerical = analysis.filter(
-    (a) => a.category === "numerical" && !isBlocked(a) && hasVariance(a),
+  // Categorize columns and shuffle with seed to vary suggestions on regenerate
+  const numerical = shuffleWithSeed(
+    enrichedAnalysis.filter(
+      (a) => a.category === "numerical" && !isBlocked(a) && hasVariance(a),
+    ),
+    random,
   );
-  const temporal = analysis.filter(
-    (a) => a.category === "temporal" && !isBlocked(a),
+  const temporal = shuffleWithSeed(
+    enrichedAnalysis.filter((a) => a.category === "temporal" && !isBlocked(a)),
+    random,
   );
-  const categorical = analysis.filter(
-    (a) =>
-      (a.category === "categorical" ||
-        a.category === "text" ||
-        a.category === "boolean") &&
-      !isBlocked(a) &&
-      isSuitableCategoricalXAxis(a),
+  const categorical = shuffleWithSeed(
+    enrichedAnalysis.filter(
+      (a) =>
+        (a.category === "categorical" ||
+          a.category === "text" ||
+          a.category === "boolean") &&
+        !isBlocked(a) &&
+        isSuitableCategoricalXAxis(a),
+    ),
+    random,
   );
 
   // Helper to check if encoding is excluded
@@ -898,11 +992,13 @@ export function suggestByChartType(
           y: `sum(${yCol.columnName})`,
           xType: getAxisType(xCol),
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (!isExcludedEncoding(encoding)) {
           suggestion = {
-            id: `bar-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} by ${xCol.columnName}`,
+            id: `bar-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} by ${xCol.displayName}`,
             chartType: "bar",
             encoding,
             rationale: "Categorical dimension with numeric measure",
@@ -921,11 +1017,13 @@ export function suggestByChartType(
           y: yCol.columnName,
           xType: "quantitative",
           yType: getAxisType(yCol),
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (!isExcludedEncoding(encoding)) {
           suggestion = {
-            id: `barHorizontal-${xCol.columnName}-${yCol.columnName}`,
-            title: `${xCol.columnName} by ${yCol.columnName}`,
+            id: `barHorizontal-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${xCol.displayName} by ${yCol.displayName}`,
             chartType: "barHorizontal",
             encoding,
             rationale: "Horizontal categorical comparison",
@@ -947,13 +1045,15 @@ export function suggestByChartType(
           y: `sum(${yCol.columnName})`,
           xType,
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (!isExcludedEncoding(encoding)) {
           const title = aggregationLabel
-            ? `${yCol.columnName} ${aggregationLabel}`
-            : `${yCol.columnName} over time`;
+            ? `${yCol.displayName} ${aggregationLabel}`
+            : `${yCol.displayName} over time`;
           suggestion = {
-            id: `line-${xCol.columnName}-${yCol.columnName}`,
+            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
             title,
             chartType: "line",
             encoding,
@@ -978,11 +1078,13 @@ export function suggestByChartType(
           y: `sum(${yCol.columnName})`,
           xType,
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (!isExcludedEncoding(encoding)) {
           suggestion = {
-            id: `area-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} trend`,
+            id: `area-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} trend`,
             chartType: "area",
             encoding,
             rationale:
@@ -996,6 +1098,34 @@ export function suggestByChartType(
 
     case "scatter":
       // Scatter Plot: 2 numerical columns
+      // Only suggest scatter for small datasets - hexbin handles large ones
+      if (numerical.length >= 2 && rowCount <= SCATTER_MAX_POINTS) {
+        const xCol = numerical[0];
+        const yCol = numerical[1];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `scatter-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} vs ${xCol.displayName}`,
+            chartType: "scatter",
+            encoding,
+            rationale: "Two numeric dimensions for correlation",
+          };
+        }
+      }
+      // No suggestion for scatter with large datasets - use hexbin instead
+      break;
+
+    case "hexbin":
+      // Hexbin: density visualization for 2 numerical columns
+      // Always available, but especially useful for large datasets
       if (numerical.length >= 2) {
         const xCol = numerical[0];
         const yCol = numerical[1];
@@ -1004,14 +1134,19 @@ export function suggestByChartType(
           y: yCol.columnName,
           xType: "quantitative",
           yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
         };
         if (!isExcludedEncoding(encoding)) {
+          const isLargeDataset = rowCount > SCATTER_MAX_POINTS;
           suggestion = {
-            id: `scatter-${xCol.columnName}-${yCol.columnName}`,
-            title: `${yCol.columnName} vs ${xCol.columnName}`,
-            chartType: "scatter",
+            id: `hexbin-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} vs ${xCol.displayName}${isLargeDataset ? "" : " (density)"}`,
+            chartType: "hexbin",
             encoding,
-            rationale: "Two numeric dimensions for correlation",
+            rationale: isLargeDataset
+              ? `Density plot for ${rowCount.toLocaleString()} points`
+              : "Hexagonal binning shows point density distribution",
           };
         }
       }
@@ -1158,6 +1293,9 @@ function rankSuggestions(
     bar: 2,
     barHorizontal: 2,
     scatter: 3,
+    hexbin: 3,
+    heatmap: 3,
+    raster: 3,
   };
 
   // Helper to count new fields (fields not in existingFieldSet)

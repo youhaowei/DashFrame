@@ -653,20 +653,78 @@ export function suggestJoinColumns(
 }
 
 // ============================================================================
-// Insight Analysis - Run DuckDB analysis on Insight result
+// View Analysis - Run DuckDB analysis on an existing view/table
+// ============================================================================
+
+/**
+ * Analyze an existing DuckDB view or table.
+ *
+ * Use this when you already have a view created (e.g., via useInsightView)
+ * that has the correct column names (UUID-based aliases).
+ *
+ * @param conn - DuckDB connection
+ * @param viewName - Name of the existing view or table to analyze
+ * @returns Column analysis for all columns in the view
+ */
+export async function analyzeView(
+  conn: AsyncDuckDBConnection,
+  viewName: string,
+): Promise<ColumnAnalysis[]> {
+  try {
+    // 1. Get column info from the view
+    const columnsResult = await conn.query(`DESCRIBE "${viewName}"`);
+    const columnsArray = columnsResult.toArray();
+
+    // Build columns array with type info
+    const columns: DataFrameColumn[] = columnsArray.map((row) => ({
+      name: String(row.column_name),
+      type: mapDuckDBTypeToDataFrameType(String(row.column_type)),
+    }));
+
+    // 2. Get row count for analysis
+    const countResult = await conn.query(
+      `SELECT COUNT(*) as cnt FROM "${viewName}"`,
+    );
+    const totalRows = Number(countResult.toArray()[0]?.cnt ?? 0);
+
+    // 3. Run full analysis on the view
+    const analysis = await analyzeDataFrame(
+      conn,
+      viewName,
+      columns,
+      undefined, // fields - not needed, analysis infers from data
+      totalRows,
+    );
+
+    return analysis;
+  } catch (e) {
+    // If view doesn't exist, return empty analysis
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    if (
+      errorMessage.includes("does not exist") ||
+      errorMessage.includes("not found")
+    ) {
+      console.debug("[analyzeView] View not found, skipping analysis");
+      return [];
+    }
+    throw e; // Re-throw other errors
+  }
+}
+
+// ============================================================================
+// Insight Analysis - Run DuckDB analysis on Insight result (LEGACY)
 // ============================================================================
 
 /**
  * Analyze an Insight's result using DuckDB.
  *
+ * @deprecated Use `analyzeView()` with a view created by `useInsightView()` instead.
+ * This function uses `insight.toSQL()` which generates original column names,
+ * not UUID-based aliases. For consistent column naming with visualizations,
+ * use the view created by useInsightView and analyze with `analyzeView()`.
+ *
  * Uses `insight.toSQL()` to get the query (handles joins, aggregation, filters),
  * then runs full statistical analysis on the result columns.
- *
- * This ensures:
- * - Analysis matches what the visualization actually shows
- * - Joined columns are included in analysis
- * - Metrics (aggregations) are analyzed with real cardinality
- * - Consistent SQL generation via Insight class
  *
  * @param conn - DuckDB connection
  * @param insight - Insight instance with toSQL() method
@@ -676,7 +734,7 @@ export async function analyzeInsight(
   conn: AsyncDuckDBConnection,
   insight: Insight,
 ): Promise<ColumnAnalysis[]> {
-  const viewName = `__insight_analysis_${Date.now()}`;
+  const tempViewName = `__insight_analysis_${Date.now()}`;
 
   try {
     // 1. Get SQL from Insight (handles joins, aggregation, GROUP BY)
@@ -686,7 +744,7 @@ export async function analyzeInsight(
     // This may fail if tables haven't been loaded into DuckDB yet
     try {
       await conn.query(
-        `CREATE OR REPLACE TEMP VIEW "${viewName}" AS ${insightSQL}`,
+        `CREATE OR REPLACE TEMP VIEW "${tempViewName}" AS ${insightSQL}`,
       );
     } catch (e) {
       // If table doesn't exist, return empty analysis
@@ -702,7 +760,7 @@ export async function analyzeInsight(
     }
 
     // 3. Get column info from the view
-    const columnsResult = await conn.query(`DESCRIBE "${viewName}"`);
+    const columnsResult = await conn.query(`DESCRIBE "${tempViewName}"`);
     const columnsArray = columnsResult.toArray();
 
     // Build columns array with type info
@@ -713,14 +771,14 @@ export async function analyzeInsight(
 
     // 4. Get row count for analysis
     const countResult = await conn.query(
-      `SELECT COUNT(*) as cnt FROM "${viewName}"`,
+      `SELECT COUNT(*) as cnt FROM "${tempViewName}"`,
     );
     const totalRows = Number(countResult.toArray()[0]?.cnt ?? 0);
 
     // 5. Run full analysis on the view
     const analysis = await analyzeDataFrame(
       conn,
-      viewName,
+      tempViewName,
       columns,
       undefined, // fields - not needed, analysis infers from data
       totalRows,
@@ -730,7 +788,7 @@ export async function analyzeInsight(
   } finally {
     // Clean up temporary view
     try {
-      await conn.query(`DROP VIEW IF EXISTS "${viewName}"`);
+      await conn.query(`DROP VIEW IF EXISTS "${tempViewName}"`);
     } catch {
       // Ignore cleanup errors
     }

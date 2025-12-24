@@ -89,7 +89,7 @@ export function MetricsSection({
           />
         </div>
         <CollapsibleContent>
-          <div className="px-4 pb-4">
+          <div className="overflow-hidden px-4 pb-4">
             {sortableItems.length > 0 ? (
               <SortableList
                 items={sortableItems}

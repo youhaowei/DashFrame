@@ -21,19 +21,14 @@ import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { NotFoundView } from "./NotFoundView";
 import { DataModelSection } from "./sections/DataModelSection";
 import { DataPreviewSection } from "./sections/DataPreviewSection";
-import { SuggestedChartsSection } from "./sections/SuggestedChartsSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
 import { InsightConfigPanel } from "./config-panel";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import { useInsightView } from "@/hooks/useInsightView";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { suggestCharts } from "@/lib/visualizations/suggest-charts";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
-import {
-  Insight as InsightClass,
-  analyzeInsight,
-  type ColumnAnalysis,
-} from "@dashframe/engine-browser";
+import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
@@ -177,6 +172,7 @@ function mergeFieldsAndMetrics(
  * @param fieldIdMap - Map from column name to field ID
  * @param mergedMetrics - Metrics array (after merge) with their IDs
  * @param parseAggregateExpression - Function to detect if a string is an aggregation
+ * @param suggestion - The full chart suggestion containing transforms
  */
 function convertToVisualizationEncoding(
   chartEncoding: ChartEncoding,
@@ -186,6 +182,7 @@ function convertToVisualizationEncoding(
     aggregation: InsightMetric["aggregation"];
     columnName?: string;
   } | null,
+  suggestion?: ChartSuggestion,
 ): VisualizationEncoding {
   const result: VisualizationEncoding = {};
 
@@ -234,6 +231,14 @@ function convertToVisualizationEncoding(
   result.size = convertChannel(chartEncoding.size);
   result.xType = chartEncoding.xType;
   result.yType = chartEncoding.yType;
+
+  // Copy date transforms from suggestion (for temporal axis aggregation)
+  if (suggestion?.xTransform) {
+    result.xTransform = suggestion.xTransform;
+  }
+  if (suggestion?.yTransform) {
+    result.yTransform = suggestion.yTransform;
+  }
 
   return result;
 }
@@ -320,11 +325,11 @@ export function InsightView({ insight }: InsightViewProps) {
     [allDataTables, insight.baseTableId],
   );
 
-  // Pagination hook for DuckDB table readiness (loads base + joined tables)
-  const { isReady: isPreviewReady } = useInsightPagination({
-    insight,
-    showModelPreview: false,
-  });
+  // Get DuckDB view/table name for chart rendering
+  // For insights with joins, creates a view with joined data
+  // For simple insights, returns the base table name
+  const { viewName: chartTableName, isReady: isChartViewReady } =
+    useInsightView(insight);
 
   // Compute metadata
   const baseDataFrameEntry = useMemo(
@@ -355,31 +360,29 @@ export function InsightView({ insight }: InsightViewProps) {
   );
 
   // Build field map for suggestions
-  // Key by columnName to match DuckDB column analysis results
+  // Key by field ID to match enrichColumnAnalysis lookup in suggest-charts.ts
   // Includes fields from both base table AND joined tables
   const fieldMap = useMemo<Record<string, Field>>(() => {
     if (!dataTable) return {};
     const map: Record<string, Field> = {};
 
-    // Add base table fields
+    // Add base table fields (keyed by field ID)
     (dataTable.fields ?? [])
       .filter((f) => !f.name.startsWith("_"))
       .forEach((f) => {
-        const key = f.columnName ?? f.name;
-        map[key] = f;
+        map[f.id] = f;
       });
 
-    // Add fields from joined tables
+    // Add fields from joined tables (keyed by field ID)
     insight.joins?.forEach((join) => {
       const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
       if (joinTable) {
         (joinTable.fields ?? [])
           .filter((f) => !f.name.startsWith("_"))
           .forEach((f) => {
-            const key = f.columnName ?? f.name;
-            // Don't overwrite if column already exists (base table takes precedence)
-            if (!map[key]) {
-              map[key] = f;
+            // Don't overwrite if field ID already exists (base table takes precedence)
+            if (!map[f.id]) {
+              map[f.id] = f;
             }
           });
       }
@@ -388,105 +391,20 @@ export function InsightView({ insight }: InsightViewProps) {
     return map;
   }, [dataTable, insight.joins, allDataTables]);
 
-  // Build Insight object for analysis (matches VisualizationPage pattern)
-  const insightObj = useMemo(() => {
-    if (!insight || !dataTable) return null;
-
-    // Build DataTableInfo for base table
-    const baseTableInfo = {
-      id: dataTable.id,
-      name: dataTable.name,
-      dataFrameId: dataTable.dataFrameId,
-      fields: dataTable.fields ?? [],
-    };
-
-    // Build joins with full table info (mapping store types → engine types)
-    const resolvedJoins = insight.joins
-      ?.map((join) => {
-        const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
-        if (!joinTable) return null;
-
-        const baseField = dataTable.fields?.find(
-          (f) => f.columnName === join.leftKey || f.name === join.leftKey,
-        )?.id;
-        const joinedField = joinTable.fields?.find(
-          (f) => f.columnName === join.rightKey || f.name === join.rightKey,
-        )?.id;
-
-        if (!baseField || !joinedField) return null;
-
-        const joinType =
-          join.type === "full"
-            ? "outer"
-            : (join.type as "inner" | "left" | "right" | "outer");
-
-        return {
-          table: {
-            id: joinTable.id,
-            name: joinTable.name,
-            dataFrameId: joinTable.dataFrameId,
-            fields: joinTable.fields ?? [],
-          },
-          selectedFields: [] as string[],
-          joinOn: { baseField, joinedField },
-          joinType,
-        };
-      })
-      .filter(Boolean) as
-      | Array<{
-          table: {
-            id: string;
-            name: string;
-            dataFrameId?: string;
-            fields: Array<{
-              id: string;
-              name: string;
-              columnName?: string;
-              type?: string;
-            }>;
-          };
-          selectedFields: string[];
-          joinOn: { baseField: string; joinedField: string };
-          joinType: "inner" | "left" | "right" | "outer";
-        }>
-      | undefined;
-
-    return new InsightClass({
-      id: insight.id,
-      name: insight.name ?? "Untitled",
-      baseTable: baseTableInfo,
-      selectedFields: insight.selectedFields,
-      metrics: insight.metrics,
-      joins: resolvedJoins,
-    });
-  }, [insight, dataTable, allDataTables]);
-
-  // Column analysis effect - runs DuckDB analysis on the Insight result
-  // Uses analyzeInsight() for accurate cardinality including joined columns
+  // Column analysis effect - runs DuckDB analysis on the chart view
+  // Uses analyzeView() with the view created by useInsightView, which has
+  // UUID-based column names (field_<uuid>) for consistent naming with charts
   useEffect(() => {
-    console.debug("[InsightView] Analysis effect check:", {
-      hasDuckDBConnection: !!duckDBConnection,
-      isDuckDBReady,
-      hasInsightObj: !!insightObj,
-      isPreviewReady,
-    });
-
     if (!duckDBConnection || !isDuckDBReady) return;
-    if (!insightObj) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: clearing state when insight is unavailable
+    if (!chartTableName || !isChartViewReady) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: clearing state when view is unavailable
       setColumnAnalysis([]);
       return;
     }
-    if (!isPreviewReady) return;
 
     const runAnalysis = async () => {
       try {
-        console.debug("[InsightView] Running analyzeInsight...");
-        const results = await analyzeInsight(duckDBConnection, insightObj);
-        console.debug("[InsightView] Analysis complete:", {
-          columnCount: results.length,
-          columns: results.map((c) => c.columnName),
-        });
+        const results = await analyzeView(duckDBConnection, chartTableName);
         setColumnAnalysis(results);
       } catch (e) {
         console.error("[InsightView] Analysis failed:", e);
@@ -495,7 +413,7 @@ export function InsightView({ insight }: InsightViewProps) {
     };
 
     runAnalysis();
-  }, [duckDBConnection, isDuckDBReady, insightObj, isPreviewReady]);
+  }, [duckDBConnection, isDuckDBReady, chartTableName, isChartViewReady]);
 
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
@@ -541,23 +459,6 @@ export function InsightView({ insight }: InsightViewProps) {
     allDataTables,
   ]);
 
-  // Build set of existing visualization encoding signatures for deduplication
-  const existingVizSignatures = useMemo(() => {
-    const signatures = new Set<string>();
-    insightVisualizations.forEach((viz) => {
-      if (viz.encoding) {
-        // Create a normalized signature from encoding (x, y, color)
-        const sig = [
-          viz.encoding.x ?? "",
-          viz.encoding.y ?? "",
-          viz.encoding.color ?? "",
-        ].join("|");
-        signatures.add(sig);
-      }
-    });
-    return signatures;
-  }, [insightVisualizations]);
-
   // Create minimal insight object for suggestions
   // Uses LocalInsight type from stores which is expected by suggestCharts
   const insightForSuggestions = useMemo<LocalInsight | null>(() => {
@@ -579,82 +480,6 @@ export function InsightView({ insight }: InsightViewProps) {
     insight.createdAt,
     insight.updatedAt,
     dataTable,
-  ]);
-
-  // Column table map for ranking multi-table charts
-  // Maps column names to their source table IDs (includes joined tables)
-  const columnTableMap = useMemo<Record<string, UUID[]>>(() => {
-    if (!dataTable) return {};
-    const map: Record<string, UUID[]> = {};
-
-    // Add base table fields
-    (dataTable.fields ?? [])
-      .filter((f) => !f.name.startsWith("_"))
-      .forEach((field) => {
-        const name = field.columnName ?? field.name;
-        map[name] = [dataTable.id];
-      });
-
-    // Add fields from joined tables
-    insight.joins?.forEach((join) => {
-      const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
-      if (joinTable) {
-        (joinTable.fields ?? [])
-          .filter((f) => !f.name.startsWith("_"))
-          .forEach((field) => {
-            const name = field.columnName ?? field.name;
-            // Track all tables that have this column
-            if (!map[name]) {
-              map[name] = [joinTable.id];
-            } else if (!map[name].includes(joinTable.id)) {
-              map[name].push(joinTable.id);
-            }
-          });
-      }
-    });
-
-    return map;
-  }, [dataTable, insight.joins, allDataTables]);
-
-  // Generate chart suggestions for all insights
-  // Filters out suggestions that match existing visualizations
-  const suggestions = useMemo<ChartSuggestion[]>(() => {
-    // Wait for prerequisites
-    if (!isPreviewReady) return [];
-    if (columnAnalysis.length === 0) return [];
-    if (rowCount === 0) return [];
-    if (!insightForSuggestions) return [];
-
-    try {
-      // Generate suggestions with options
-      // Pass excludeEncodings so suggestCharts filters during generation
-      return suggestCharts(
-        insightForSuggestions,
-        columnAnalysis,
-        rowCount,
-        fieldMap,
-        {
-          limit: 3,
-          columnTableMap,
-          seed: suggestionSeed,
-          existingFields: existingFieldNames,
-          excludeEncodings: existingVizSignatures,
-        },
-      );
-    } catch (error) {
-      console.error("Failed to generate suggestions:", error);
-      return [];
-    }
-  }, [
-    isPreviewReady,
-    columnAnalysis,
-    rowCount,
-    insightForSuggestions,
-    fieldMap,
-    columnTableMap,
-    suggestionSeed,
-    existingFieldNames,
-    existingVizSignatures,
   ]);
 
   // Parse aggregate expression like "sum(amount)" → { aggregation: "sum", columnName: "amount" }
@@ -682,7 +507,7 @@ export function InsightView({ insight }: InsightViewProps) {
   // Handle creating a chart from suggestion
   const handleCreateChart = useCallback(
     async (suggestion: ChartSuggestion) => {
-      if (!dataTable?.dataFrameId || !isPreviewReady) return;
+      if (!dataTable?.dataFrameId || !isChartViewReady) return;
 
       // Parse encoding to extract dimensions and metrics
       const { dimensionFields, metrics } = parseChartEncoding(
@@ -692,14 +517,18 @@ export function InsightView({ insight }: InsightViewProps) {
       );
 
       // Map dimension column names to field IDs (base table + joined tables)
+      // Supports both original column names AND UUID-based aliases (field_<uuid>)
+      // because suggestions use UUID aliases but we need to look up field IDs
       const fieldIdMap = new Map<string, UUID>();
 
-      // Base table fields
+      // Base table fields - add both original name and UUID alias
       (dataTable.fields ?? []).forEach((f) => {
         fieldIdMap.set(f.columnName ?? f.name, f.id);
+        // Also add UUID-based alias (field_<uuid>) for suggestion encoding lookups
+        fieldIdMap.set(fieldIdToColumnAlias(f.id), f.id);
       });
 
-      // Joined table fields
+      // Joined table fields - add both original name and UUID alias
       insight.joins?.forEach((join) => {
         const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
         if (joinTable) {
@@ -709,6 +538,8 @@ export function InsightView({ insight }: InsightViewProps) {
             if (!fieldIdMap.has(key)) {
               fieldIdMap.set(key, f.id);
             }
+            // Always add UUID alias (no collision risk with these unique keys)
+            fieldIdMap.set(fieldIdToColumnAlias(f.id), f.id);
           });
         }
       });
@@ -733,11 +564,13 @@ export function InsightView({ insight }: InsightViewProps) {
       });
 
       // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)
+      // Pass the full suggestion to preserve xTransform/yTransform for temporal axes
       const visualizationEncoding = convertToVisualizationEncoding(
         suggestion.encoding,
         fieldIdMap,
         mergedMetrics,
         parseAggregateExpression,
+        suggestion,
       );
 
       // Create visualization using encoding-driven rendering
@@ -755,7 +588,7 @@ export function InsightView({ insight }: InsightViewProps) {
     [
       dataTable,
       allDataTables,
-      isPreviewReady,
+      isChartViewReady,
       parseAggregateExpression,
       insight,
       updateInsight,
@@ -842,31 +675,10 @@ export function InsightView({ insight }: InsightViewProps) {
           combinedFieldCount={combinedFieldCount}
         />
 
-        {/* Suggested Charts - Only show when no visualizations exist yet */}
-        {insightVisualizations.length === 0 &&
-          dataTable.dataFrameId &&
-          suggestions.length > 0 && (
-            <SuggestedChartsSection
-              tableName={`df_${dataTable.dataFrameId.replace(/-/g, "_")}`}
-              suggestions={suggestions}
-              isLoading={
-                !isPreviewReady ||
-                (isPreviewReady && columnAnalysis.length === 0 && rowCount > 0)
-              }
-              onCreateChart={handleCreateChart}
-              onRegenerate={handleRegenerate}
-              hasExistingVisualizations={false}
-            />
-          )}
-
-        {/* Visualizations - Shows inline picker for unconfigured insights, grid for configured */}
+        {/* Visualizations - Shows chart type picker or grid of existing visualizations */}
         <VisualizationsSection
           visualizations={insightVisualizations}
-          tableName={
-            dataTable.dataFrameId
-              ? `df_${dataTable.dataFrameId.replace(/-/g, "_")}`
-              : undefined
-          }
+          tableName={chartTableName ?? undefined}
           insight={insightForSuggestions ?? undefined}
           columnAnalysis={columnAnalysis}
           rowCount={rowCount}
@@ -875,6 +687,9 @@ export function InsightView({ insight }: InsightViewProps) {
           onCreateChart={handleCreateChart}
           onDuplicateVisualization={handleDuplicateVisualization}
           onDeleteVisualization={handleDeleteVisualization}
+          isChartViewLoading={!isChartViewReady}
+          suggestionSeed={suggestionSeed}
+          onRegenerate={handleRegenerate}
         />
       </div>
     </AppLayout>

@@ -106,12 +106,24 @@ export function useRegistryVersion(): number {
  * ```
  */
 export function registerRenderer(renderer: ChartRenderer): void {
+  // Check if any type is being registered for the first time
+  // We only want to notify/re-render when adding NEW capabilities, not when
+  // re-registering the same types (e.g., during HMR or component remounts)
+  let hasNewTypes = false;
   for (const type of renderer.supportedTypes) {
+    const existingRenderer = rendererMap.get(type);
+    if (!existingRenderer) {
+      hasNewTypes = true;
+    }
     rendererMap.set(type, renderer);
   }
-  // Increment version and notify listeners to trigger re-renders in Chart components
-  registryVersion++;
-  notifyListeners();
+
+  // Only increment version and notify if there are genuinely new types registered
+  // This prevents cascading re-renders during HMR and component remounts
+  if (hasNewTypes) {
+    registryVersion++;
+    notifyListeners();
+  }
 }
 
 /**

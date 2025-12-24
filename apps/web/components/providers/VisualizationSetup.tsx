@@ -15,10 +15,11 @@ import { useDuckDB } from "./DuckDBProvider";
 
 /**
  * Registers chart renderers when the visualization system is ready.
- * This component runs once on mount and sets up the vgplot renderer.
+ * This component runs on mount and sets up the vgplot renderer.
  *
- * NOTE: Including createVgplotRenderer in deps ensures hot reload works
- * when making changes to the renderer implementation.
+ * Note: registerRenderer() is idempotent - it only triggers re-renders
+ * when registering genuinely new chart types, not when re-registering
+ * existing types (e.g., during HMR or component remounts).
  */
 function RendererRegistration() {
   const { api, isReady } = useVisualization();
@@ -26,11 +27,10 @@ function RendererRegistration() {
   useEffect(() => {
     if (isReady && api) {
       // Register vgplot renderer for standard chart types
+      // This is idempotent - won't cause re-renders if types already registered
       registerRenderer(createVgplotRenderer(api));
-      console.log("[VisualizationSetup] Registered vgplot renderer");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, isReady, createVgplotRenderer]);
+  }, [api, isReady]);
 
   return null;
 }

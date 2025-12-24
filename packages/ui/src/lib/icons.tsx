@@ -65,6 +65,9 @@ import {
   LuChartArea,
   LuChartScatter,
   LuChartBarBig,
+  LuHexagon,
+  LuFlame,
+  LuGrid2X2,
 } from "react-icons/lu";
 import { FiFileText } from "react-icons/fi";
 import { SiGithub, SiNotion } from "react-icons/si";
@@ -181,3 +184,8 @@ export { LuGripHorizontal as GripHorizontal };
 export { LuGripVertical as GripVertical };
 export { LuSearch as Search };
 export { LuSettings2 as Settings2 };
+
+// Aggregation Chart Icons
+export { LuHexagon as Hexagon };
+export { LuFlame as Flame };
+export { LuGrid2X2 as Grid2x2 };

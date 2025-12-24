@@ -145,7 +145,7 @@ function renderDragOverlayContent<T extends SortableListItem>(
     return (
       <div
         className={cn(
-          "bg-card flex items-center gap-2 rounded-lg border px-2 py-1.5 shadow-lg",
+          "bg-card flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5 shadow-lg",
           itemClassName,
         )}
       >
@@ -277,12 +277,15 @@ export function SortableList<T extends SortableListItem>({
         items={items.map((item) => item.id)}
         strategy={sortingStrategy}
       >
-        {orientation === "vertical" && (
+        {orientation === "vertical" && maxSizeValue && (
           <ScrollArea
             className={cn("w-full", className)}
-            style={maxSizeValue ? { maxHeight: maxSizeValue } : undefined}
+            style={{ maxHeight: maxSizeValue }}
           >
-            <div className="flex flex-col" style={{ gap: `${gap}px` }}>
+            <div
+              className="flex min-w-0 max-w-full flex-col"
+              style={{ gap: `${gap}px` }}
+            >
               {items.map((item, index) => (
                 <SortableItem
                   key={item.id}
@@ -296,6 +299,25 @@ export function SortableList<T extends SortableListItem>({
               ))}
             </div>
           </ScrollArea>
+        )}
+
+        {orientation === "vertical" && !maxSizeValue && (
+          <div
+            className={cn("flex min-w-0 flex-col", className)}
+            style={{ gap: `${gap}px` }}
+          >
+            {items.map((item, index) => (
+              <SortableItem
+                key={item.id}
+                item={item}
+                index={index}
+                renderIcon={renderIcon}
+                renderItem={renderItem}
+                onSelect={onSelect}
+                itemClassName={itemClassName}
+              />
+            ))}
+          </div>
         )}
 
         {orientation === "horizontal" && (
@@ -396,13 +418,14 @@ function SortableItem<T extends SortableListItem>({
   };
 
   // Custom renderItem mode - simpler inline layout with drag handle
+  // Note: min-w-0 is essential for truncate to work in flex children
   if (renderItem) {
     return (
       <div
         ref={setNodeRef}
         style={sortableStyle}
         className={cn(
-          "bg-card flex items-center gap-2 rounded-lg border px-2 py-1.5",
+          "bg-card flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5",
           isDragging && "opacity-50",
           className,
           itemClassName,

@@ -73,6 +73,7 @@ export type {
 
 export {
   analyzeDataFrame,
+  analyzeView,
   analyzeInsight,
   suggestJoinColumns,
   looksLikeIdentifier,

@@ -1,10 +1,14 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import { ensureTableLoaded } from "@dashframe/engine-browser";
-import { buildInsightSQL } from "@dashframe/engine";
+import {
+  buildInsightSQL,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import type { Insight, DataTable, UUID } from "@dashframe/types";
+import type { Insight, DataTable, UUID, Field } from "@dashframe/types";
 
 /**
  * Options for useInsightPagination hook.
@@ -18,6 +22,13 @@ export interface UseInsightPaginationOptions {
    * - true: Show all rows from joined tables, ignore aggregations/filters
    */
   showModelPreview?: boolean;
+  /**
+   * Enable/disable the hook execution.
+   * When false, the hook returns immediately without loading data.
+   * Useful for lazy initialization - only load data when needed.
+   * @default true
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -46,6 +57,7 @@ export interface UseInsightPaginationOptions {
 export function useInsightPagination({
   insight,
   showModelPreview = false,
+  enabled = true,
 }: UseInsightPaginationOptions) {
   const { connection, isInitialized } = useDuckDB();
 
@@ -55,6 +67,7 @@ export function useInsightPagination({
   const [fieldCount, setFieldCount] = useState<number>(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedFields, setResolvedFields] = useState<Field[]>([]);
 
   // Cache resolved tables to avoid re-fetching
   const resolvedTablesRef = useRef<{
@@ -62,33 +75,68 @@ export function useInsightPagination({
     joinedTables: Map<UUID, DataTable>;
   }>({ baseTable: null, joinedTables: new Map() });
 
-  // Resolve tables: fetch base table and joined tables from core
+  // Resolve tables: fetch base table and joined tables from core (parallel)
   const resolveTables = useCallback(async (): Promise<{
     baseTable: DataTable | null;
     joinedTables: Map<UUID, DataTable>;
+    allFields: Field[];
   }> => {
-    // Fetch base table
-    const baseTable = await getDataTable(insight.baseTableId);
+    // Fetch base table and all joined tables in parallel
+    const [baseTable, ...joinTableResults] = await Promise.all([
+      getDataTable(insight.baseTableId),
+      ...(insight.joins ?? []).map((join) => getDataTable(join.rightTableId)),
+    ]);
+
     if (!baseTable) {
-      return { baseTable: null, joinedTables: new Map() };
+      return { baseTable: null, joinedTables: new Map(), allFields: [] };
     }
 
-    // Fetch joined tables
+    // Build joined tables map from parallel results
     const joinedTables = new Map<UUID, DataTable>();
-    for (const join of insight.joins ?? []) {
-      const joinTable = await getDataTable(join.rightTableId);
+    (insight.joins ?? []).forEach((join, index) => {
+      const joinTable = joinTableResults[index];
       if (joinTable) {
         joinedTables.set(join.rightTableId, joinTable);
       }
-    }
+    });
 
     // Cache for later use
     resolvedTablesRef.current = { baseTable, joinedTables };
 
-    return { baseTable, joinedTables };
+    // Collect all fields from base + joined tables
+    const allFields: Field[] = [
+      ...(baseTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
+    ];
+    for (const joinTable of joinedTables.values()) {
+      allFields.push(
+        ...(joinTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
+      );
+    }
+
+    return { baseTable, joinedTables, allFields };
   }, [insight.baseTableId, insight.joins]);
 
-  // Load DataFrames into DuckDB
+  // Build mapping from UUID column aliases to display names
+  // This allows VirtualTable to show human-readable column headers
+  const columnDisplayNames = useMemo(() => {
+    const displayNames: Record<string, string> = {};
+
+    // Map field IDs to display names
+    for (const field of resolvedFields) {
+      const alias = fieldIdToColumnAlias(field.id);
+      displayNames[alias] = field.name;
+    }
+
+    // Map metric IDs to display names
+    for (const metric of insight.metrics ?? []) {
+      const alias = metricIdToColumnAlias(metric.id);
+      displayNames[alias] = metric.name;
+    }
+
+    return displayNames;
+  }, [resolvedFields, insight.metrics]);
+
+  // Load DataFrames into DuckDB (parallel loading for performance)
   const loadDataFrames = useCallback(
     async (baseTable: DataTable, joinedTables: Map<UUID, DataTable>) => {
       if (!connection) return false;
@@ -101,17 +149,26 @@ export function useInsightPagination({
         setError(`Base DataFrame not found: ${baseTable.dataFrameId}`);
         return false;
       }
-      await ensureTableLoaded(baseDataFrame, connection);
 
-      // Load joined DataFrames
-      for (const [, joinTable] of joinedTables) {
-        if (!joinTable.dataFrameId) continue;
+      // Collect all DataFrames to load
+      const dataFramesToLoad = [baseDataFrame];
 
-        const joinDataFrame = await getDataFrame(joinTable.dataFrameId);
-        if (joinDataFrame) {
-          await ensureTableLoaded(joinDataFrame, connection);
-        }
-      }
+      // Get all joined DataFrames in parallel
+      const joinLoadResults = await Promise.all(
+        Array.from(joinedTables.values())
+          .filter((t) => t.dataFrameId)
+          .map((joinTable) => getDataFrame(joinTable.dataFrameId!)),
+      );
+
+      // Add successfully resolved join DataFrames
+      joinLoadResults.forEach((df) => {
+        if (df) dataFramesToLoad.push(df);
+      });
+
+      // Load ALL DataFrames into DuckDB in parallel
+      await Promise.all(
+        dataFramesToLoad.map((df) => ensureTableLoaded(df, connection)),
+      );
 
       return true;
     },
@@ -120,6 +177,11 @@ export function useInsightPagination({
 
   // Initialize: resolve tables, load DataFrames, get count
   useEffect(() => {
+    // Skip initialization if hook is disabled (lazy loading optimization)
+    if (!enabled) {
+      return;
+    }
+
     if (!connection || !isInitialized) {
       requestAnimationFrame(() => setIsReady(false));
       return;
@@ -128,12 +190,15 @@ export function useInsightPagination({
     const init = async () => {
       try {
         // Resolve tables
-        const { baseTable, joinedTables } = await resolveTables();
+        const { baseTable, joinedTables, allFields } = await resolveTables();
         if (!baseTable) {
           setError("Base table not found");
           setIsReady(false);
           return;
         }
+
+        // Store resolved fields for display name mapping
+        setResolvedFields(allFields);
 
         // Load DataFrames into DuckDB
         const loaded = await loadDataFrames(baseTable, joinedTables);
@@ -200,6 +265,7 @@ export function useInsightPagination({
     isInitialized,
     insight,
     showModelPreview,
+    enabled,
     resolveTables,
     loadDataFrames,
   ]);
@@ -268,5 +334,13 @@ export function useInsightPagination({
     fieldCount,
     isReady,
     error,
+    /**
+     * Mapping from UUID column aliases to human-readable display names.
+     * Use this to show friendly column headers in VirtualTable.
+     *
+     * Keys: `field_<uuid>` or `metric_<uuid>`
+     * Values: Human-readable field/metric names
+     */
+    columnDisplayNames,
   };
 }

@@ -16,6 +16,7 @@ interface SelectOption {
   value: string;
   description?: string;
   icon?: React.ComponentType<{ className?: string }>;
+  disabled?: boolean;
 }
 
 interface SelectProps {
@@ -64,6 +65,7 @@ export function Select({
             <SelectPrimitiveParts.Item
               key={option.value}
               value={option.value}
+              disabled={option.disabled}
               className={cn(
                 "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
               )}

@@ -1,16 +1,22 @@
 "use client";
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
-import { BarChart3, TableIcon, Layers, Surface, Toggle } from "@dashframe/ui";
-import { useVisualizations, useInsights, useDataTables } from "@dashframe/core";
-import type { Visualization } from "@dashframe/types";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { VirtualTable } from "@dashframe/ui";
-import { Chart } from "@dashframe/visualization";
 import {
-  computeInsightPreview,
-  type PreviewResult,
-} from "@/lib/insights/compute-preview";
+  BarChart3,
+  TableIcon,
+  Layers,
+  Surface,
+  Toggle,
+  VirtualTable,
+  type VirtualTableColumnConfig,
+} from "@dashframe/ui";
+import { useVisualizations, useInsights } from "@dashframe/core";
+import type { Visualization, ChartEncoding, Insight } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { useInsightView } from "@/hooks/useInsightView";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
+import { Chart } from "@dashframe/visualization";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
@@ -37,7 +43,6 @@ export function VisualizationDisplay({
   const { data: visualizations = [], isLoading: isVizLoading } =
     useVisualizations();
   const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
 
   // Get the visualization
   const activeViz = useMemo((): Visualization | null => {
@@ -45,60 +50,40 @@ export function VisualizationDisplay({
     return visualizations.find((v) => v.id === visualizationId) ?? null;
   }, [visualizationId, visualizations]);
 
-  // Derive dataFrameId through relationship chain
-  const dataFrameId = useMemo(() => {
-    if (!activeViz) return undefined;
-    const insight = insights.find((i) => i.id === activeViz.insightId);
-    if (!insight) return undefined;
-    const dataTable = dataTables.find((t) => t.id === insight.baseTableId);
-    return dataTable?.dataFrameId;
-  }, [activeViz, insights, dataTables]);
-
-  const {
-    data: dataFrameData,
-    isLoading: isLoadingData,
-    entry: dataFrameEntry,
-  } = useDataFrameData(dataFrameId);
-
-  // Get insight and dataTable for aggregation
+  // Get insight for the visualization
   const insight = useMemo(() => {
     if (!activeViz) return undefined;
     return insights.find((i) => i.id === activeViz.insightId);
   }, [activeViz, insights]);
 
-  const dataTable = useMemo(() => {
-    if (!insight) return undefined;
-    return dataTables.find((t) => t.id === insight.baseTableId);
-  }, [insight, dataTables]);
+  // Build an Insight-compatible object for useInsightView
+  // This transforms the store insight format to what useInsightView expects
+  const insightForView: Insight | null = useMemo(() => {
+    if (!insight) return null;
+    return {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      joins: insight.joins,
+    } as Insight;
+  }, [insight]);
 
-  // Compute aggregated data if insight has metrics/dimensions
-  const aggregatedPreview = useMemo<PreviewResult | null>(() => {
-    if (!dataFrameData || !insight || !dataTable) return null;
+  // Use insight view hook to get the proper table name (handles joins)
+  const { viewName: insightViewName, isReady: isInsightViewReady } =
+    useInsightView(insightForView);
 
-    const selectedFields = insight.selectedFields ?? [];
-    const metrics = insight.metrics ?? [];
-
-    // If no aggregation config, return null (use raw data)
-    if (selectedFields.length === 0 && metrics.length === 0) return null;
-
-    return computeInsightPreview(
-      insight,
-      dataTable,
-      dataFrameData,
-      1000, // Allow more rows for visualization
-    );
-  }, [dataFrameData, insight, dataTable]);
-
-  // Use aggregated data if available, otherwise raw data
-  const displayData = useMemo(() => {
-    if (aggregatedPreview) {
-      return {
-        rows: aggregatedPreview.dataFrame.rows,
-        columns: aggregatedPreview.dataFrame.columns ?? [],
-      };
-    }
-    return dataFrameData;
-  }, [aggregatedPreview, dataFrameData]);
+  // Use insight pagination for table data (queries DuckDB directly)
+  const {
+    fetchData,
+    totalCount,
+    columns,
+    isReady: isPaginationReady,
+    columnDisplayNames,
+  } = useInsightPagination({
+    insight: insightForView ?? ({} as Insight),
+    showModelPreview: false, // Apply full insight transformations
+    enabled: !!insightForView, // Only enable when we have an insight
+  });
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -123,7 +108,7 @@ export function VisualizationDisplay({
   };
 
   // Watch container size changes to detect available space for "Show Both" mode
-  const isDataReady = !!activeViz && !!displayData;
+  const isDataReady = !!activeViz && isPaginationReady;
 
   // Immediate measurement on layout (before paint) to set correct initial tab
   useLayoutEffect(() => {
@@ -149,17 +134,77 @@ export function VisualizationDisplay({
     return () => observer.disconnect();
   }, [isDataReady]);
 
-  const activeResolved = useMemo(() => {
-    if (!activeViz || !displayData) return null;
-    return { viz: activeViz, dataFrame: displayData, entry: dataFrameEntry };
-  }, [activeViz, displayData, dataFrameEntry]);
-
-  // Compute DuckDB table name from dataFrameId
-  // Table naming convention: df_${dataFrameId.replace(/-/g, "_")}
+  // Get table name for chart rendering from insight view
+  // The insight view is created by useInsightView and includes all joined columns with UUID aliases
   const tableName = useMemo(() => {
-    if (!dataFrameId) return null;
-    return `df_${dataFrameId.replace(/-/g, "_")}`;
-  }, [dataFrameId]);
+    if (insightViewName && isInsightViewReady) {
+      return insightViewName;
+    }
+    return null;
+  }, [insightViewName, isInsightViewReady]);
+
+  /**
+   * Convert encoding value from storage format (field:<uuid>) to SQL column alias (field_<uuid>).
+   * Also handles metric: prefix conversion.
+   */
+  const resolveEncodingChannel = (
+    value: string | undefined,
+  ): string | undefined => {
+    if (!value) return undefined;
+    const parsed = parseEncoding(value);
+    if (!parsed) return undefined;
+    return parsed.type === "field"
+      ? fieldIdToColumnAlias(parsed.id)
+      : metricIdToColumnAlias(parsed.id);
+  };
+
+  // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
+  // The encoding values stored in the visualization use prefix format, but the SQL columns
+  // use underscore-based aliases created by buildInsightSQL
+  const resolvedEncoding = useMemo((): ChartEncoding => {
+    if (!activeViz?.encoding) {
+      return {};
+    }
+
+    // Convert each channel from field:<uuid> to field_<uuid> format
+    const x = resolveEncodingChannel(activeViz.encoding.x);
+    const y = resolveEncodingChannel(activeViz.encoding.y);
+    const color = resolveEncodingChannel(activeViz.encoding.color);
+    const size = resolveEncodingChannel(activeViz.encoding.size);
+
+    return {
+      x,
+      y,
+      color,
+      size,
+      xType: activeViz.encoding.xType,
+      yType: activeViz.encoding.yType,
+      // Include human-readable axis labels for chart display
+      // Look up using the resolved column alias
+      xLabel: x ? columnDisplayNames[x] : undefined,
+      yLabel: y ? columnDisplayNames[y] : undefined,
+      colorLabel: color ? columnDisplayNames[color] : undefined,
+      sizeLabel: size ? columnDisplayNames[size] : undefined,
+    };
+  }, [activeViz, columnDisplayNames]);
+
+  // Build column configs for VirtualTable to show human-readable headers
+  const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
+    return columns.map((col) => ({
+      id: col.name,
+      label: columnDisplayNames[col.name] ?? col.name,
+    }));
+  }, [columns, columnDisplayNames]);
+
+  // Get human-readable display name for color encoding
+  const colorDisplayName = useMemo(() => {
+    const colorEncoding = activeViz?.encoding?.color;
+    if (!colorEncoding) return null;
+    // Resolve to column alias first, then look up display name
+    const colorAlias = resolveEncodingChannel(colorEncoding);
+    if (!colorAlias) return null;
+    return columnDisplayNames[colorAlias] ?? colorAlias;
+  }, [activeViz, columnDisplayNames]);
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
@@ -180,13 +225,14 @@ export function VisualizationDisplay({
     previousCanShowBothRef.current = canShowBoth;
   }, [canShowBoth, activeTab]);
 
-  // Show loading when not mounted, loading data, or have ID but no data yet
+  // Show loading when not mounted, loading visualization, or waiting for data to be ready
   const isWaitingForData =
-    (visualizationId && !activeResolved) ||
     (visualizationId && !activeViz) ||
-    isVizLoading;
+    isVizLoading ||
+    !isInsightViewReady ||
+    !isPaginationReady;
 
-  if (!isMounted || isLoadingData || isWaitingForData) {
+  if (!isMounted || isWaitingForData) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <Surface
@@ -207,8 +253,8 @@ export function VisualizationDisplay({
     );
   }
 
-  // No visualization or data selected
-  if (!activeResolved) {
+  // No visualization selected
+  if (!activeViz) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <Surface
@@ -230,24 +276,22 @@ export function VisualizationDisplay({
     );
   }
 
-  const { viz, dataFrame, entry } = activeResolved;
-
   // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
       <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-foreground text-xl font-semibold">{viz.name}</p>
+            <p className="text-foreground text-xl font-semibold">
+              {activeViz.name}
+            </p>
             <div className="flex items-center gap-2">
               <p className="text-muted-foreground text-sm">
-                {(entry?.rowCount ?? dataFrame.rows.length).toLocaleString()}{" "}
-                rows · {entry?.columnCount ?? dataFrame.columns?.length ?? 0}{" "}
-                columns
+                {totalCount.toLocaleString()} rows · {columns.length} columns
               </p>
-              {viz.encoding?.color && (
+              {colorDisplayName && (
                 <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
-                  Color: {viz.encoding.color}
+                  Color: {colorDisplayName}
                 </span>
               )}
             </div>
@@ -287,8 +331,8 @@ export function VisualizationDisplay({
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
             tableName={tableName}
-            visualizationType={viz.visualizationType}
-            encoding={viz.encoding ?? {}}
+            visualizationType={activeViz.visualizationType}
+            encoding={resolvedEncoding}
             className="h-full w-full"
           />
         </div>
@@ -301,8 +345,9 @@ export function VisualizationDisplay({
             className="flex min-h-0 flex-1 flex-col p-4"
           >
             <VirtualTable
-              rows={dataFrame.rows}
-              columns={dataFrame.columns}
+              columns={columns}
+              onFetchData={fetchData}
+              columnConfigs={columnConfigs}
               height="100%"
               className="flex-1"
             />
@@ -316,8 +361,8 @@ export function VisualizationDisplay({
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
             <Chart
               tableName={tableName}
-              visualizationType={viz.visualizationType}
-              encoding={viz.encoding ?? {}}
+              visualizationType={activeViz.visualizationType}
+              encoding={resolvedEncoding}
               className="h-full w-full"
             />
           </div>
@@ -328,8 +373,9 @@ export function VisualizationDisplay({
               className="flex min-h-0 flex-1 flex-col p-4"
             >
               <VirtualTable
-                rows={dataFrame.rows}
-                columns={dataFrame.columns}
+                columns={columns}
+                onFetchData={fetchData}
+                columnConfigs={columnConfigs}
                 height="100%"
                 className="flex-1"
               />

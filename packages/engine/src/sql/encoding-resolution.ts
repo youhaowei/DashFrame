@@ -16,7 +16,11 @@
 
 import type { Field, InsightMetric, ChannelTransform } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
-import { metricToSqlExpression } from "./insight-sql";
+import {
+  metricToSqlExpression,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "./insight-sql";
 import { applyDateTransformToSql } from "./date-transforms";
 
 // ============================================================================
@@ -138,7 +142,8 @@ export interface ResolvedForAnalysis {
  * Key behaviors:
  * - Invalid formats (missing prefix) return { valid: false, isMetric: false }
  * - Missing field/metric references return { valid: true, isMetric: ..., columnName: undefined }
- * - count(*) metrics return { valid: true, isMetric: true, columnName: undefined }
+ * - Column names are returned as UUID-based aliases (field_<uuid> or metric_<uuid>)
+ *   to match the column names in ColumnAnalysis from the insight view
  *
  * @param value - Encoding string
  * @param context - Resolution context with fields and metrics
@@ -146,17 +151,13 @@ export interface ResolvedForAnalysis {
  *
  * @example
  * ```typescript
- * // Field encoding
+ * // Field encoding - returns UUID-based alias
  * resolveForAnalysis("field:abc-123", context)
- * // Returns: { columnName: "category", isMetric: false, valid: true }
+ * // Returns: { columnName: "field_abc_123", isMetric: false, valid: true }
  *
- * // Metric encoding
+ * // Metric encoding - returns UUID-based alias and SQL expression
  * resolveForAnalysis("metric:xyz-456", context)
- * // Returns: { columnName: "revenue", isMetric: true, sqlExpression: "sum(revenue)", valid: true }
- *
- * // count(*) metric
- * resolveForAnalysis("metric:count-all", context)
- * // Returns: { columnName: undefined, isMetric: true, sqlExpression: "count(*)", valid: true }
+ * // Returns: { columnName: "metric_xyz_456", isMetric: true, sqlExpression: "sum(revenue)", valid: true }
  *
  * // Invalid format
  * resolveForAnalysis("sum(revenue)", context)
@@ -176,16 +177,20 @@ export function resolveForAnalysis(
   switch (parsed.type) {
     case "field": {
       const field = context.fields.find((f) => f.id === parsed.id);
+      // Use UUID-based column alias to match column names in ColumnAnalysis
+      // The insight view uses field_<uuid> format for column names
       return {
-        columnName: field ? (field.columnName ?? field.name) : undefined,
+        columnName: field ? fieldIdToColumnAlias(field.id) : undefined,
         isMetric: false,
         valid: true,
       };
     }
     case "metric": {
       const metric = context.metrics.find((m) => m.id === parsed.id);
+      // Use UUID-based column alias for metrics too
+      // Note: count(*) metrics still have undefined columnName but a valid sqlExpression
       return {
-        columnName: metric?.columnName, // May be undefined for count(*)
+        columnName: metric ? metricIdToColumnAlias(metric.id) : undefined,
         isMetric: true,
         sqlExpression: metric ? metricToSqlExpression(metric) : undefined,
         valid: true,

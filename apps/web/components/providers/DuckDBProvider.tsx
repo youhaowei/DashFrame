@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import * as duckdb from "@duckdb/duckdb-wasm";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
+import { clearInsightViewCache } from "@/hooks/useInsightView";
 
 /**
  * Custom DuckDB logger with cleaner console output.
@@ -122,6 +123,7 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
         // Clear table caches since this is a fresh DuckDB instance
         // Any previously cached tables no longer exist
         clearAllTableCaches();
+        clearInsightViewCache();
 
         if (cancelled) return;
 
@@ -158,6 +160,7 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
       dbRef.current?.terminate();
       // Clear table caches since DuckDB instance is being destroyed
       clearAllTableCaches();
+      clearInsightViewCache();
     };
   }, []);
 

@@ -27,13 +27,19 @@ export type VegaLiteSpec = Record<string, unknown>;
  * - barHorizontal: Horizontal bar chart (numerical X, categorical Y)
  * - line: Line chart (continuous X, numerical Y)
  * - area: Area chart (continuous X, numerical Y)
- * - scatter: Scatter plot (continuous X, continuous Y)
+ * - scatter: Scatter plot (continuous X, continuous Y) - raw dots, best for <10K points
+ * - hexbin: Hexagonal binning (aggregates scatter points into hex cells by density)
+ * - heatmap: Density heatmap (smooth color gradient showing point concentration)
+ * - raster: Pixel-based aggregation (fastest for very large datasets)
  */
 export type VisualizationType =
   | "bar"
   | "barHorizontal"
   | "line"
   | "scatter"
+  | "hexbin"
+  | "heatmap"
+  | "raster"
   | "area";
 
 /**

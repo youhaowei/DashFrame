@@ -285,11 +285,11 @@ export const DataModelSection = memo(function DataModelSection({
   return (
     <>
       <Section
-        title="Your data"
+        title="Data model"
         description={sectionDescription}
         actions={[
           {
-            label: "Combine tables",
+            label: "Add join",
             icon: Plus,
             onClick: () => setIsJoinFlowOpen(true),
             variant: "outline",

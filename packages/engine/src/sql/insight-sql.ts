@@ -3,6 +3,17 @@
  *
  * This module generates standard SQL that works across databases (DuckDB, PostgreSQL, SQLite).
  * No async operations, no data fetching - just pure SQL string generation.
+ *
+ * ## Column Naming Convention
+ *
+ * All columns use UUID-based aliases for consistency:
+ * - Fields: `field_<uuid>` (e.g., `field_dd05ef4b_1234_5678_abcd_ef1234567890`)
+ * - Metrics: `metric_<uuid>` (e.g., `metric_cc33dd44_1234_5678_abcd_ef1234567890`)
+ *
+ * This ensures:
+ * - No collision handling needed (UUIDs are globally unique)
+ * - Encoding value = SQL column name = axis selection key (zero transformation)
+ * - Display names looked up from field/metric definitions when rendering UI
  */
 
 import type {
@@ -12,6 +23,58 @@ import type {
   Field,
   InsightMetric,
 } from "@dashframe/types";
+
+// ============================================================================
+// UUID Column Naming Utilities
+// ============================================================================
+
+/**
+ * Convert a field ID to a SQL-safe column alias.
+ * Format: field_<uuid_with_underscores>
+ *
+ * @example
+ * fieldIdToColumnAlias("dd05ef4b-1234-5678-abcd-ef1234567890")
+ * // Returns: "field_dd05ef4b_1234_5678_abcd_ef1234567890"
+ */
+export function fieldIdToColumnAlias(fieldId: string): string {
+  return `field_${fieldId.replace(/-/g, "_")}`;
+}
+
+/**
+ * Convert a metric ID to a SQL-safe column alias.
+ * Format: metric_<uuid_with_underscores>
+ *
+ * @example
+ * metricIdToColumnAlias("cc33dd44-1234-5678-abcd-ef1234567890")
+ * // Returns: "metric_cc33dd44_1234_5678_abcd_ef1234567890"
+ */
+export function metricIdToColumnAlias(metricId: string): string {
+  return `metric_${metricId.replace(/-/g, "_")}`;
+}
+
+/**
+ * Extract the original UUID from a column alias.
+ * Handles both field_* and metric_* formats.
+ *
+ * @example
+ * extractUUIDFromColumnAlias("field_dd05ef4b_1234_5678_abcd_ef1234567890")
+ * // Returns: "dd05ef4b-1234-5678-abcd-ef1234567890"
+ */
+export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
+  const match = columnAlias.match(/^(?:field|metric)_(.+)$/);
+  if (!match) return null;
+
+  // Convert underscores back to hyphens in UUID format
+  const uuidPart = match[1];
+  // UUID format: 8-4-4-4-12 characters
+  // With underscores: 8_4_4_4_12
+  const parts = uuidPart.split("_");
+  if (parts.length === 5) {
+    return parts.join("-");
+  }
+  // Fallback: just replace all underscores (may not be exact UUID format)
+  return uuidPart.replace(/_/g, "-");
+}
 
 // ============================================================================
 // Metric SQL Expression
@@ -189,6 +252,10 @@ export function buildInsightSQL(
 
 /**
  * Builds SQL for a simple query without joins.
+ *
+ * In model mode, wraps the table with UUID-aliased columns for consistency
+ * with joined queries. This ensures Chart components always receive the same
+ * column format regardless of whether joins exist.
  */
 function buildSimpleSQL(
   tableName: string,
@@ -199,37 +266,34 @@ function buildSimpleSQL(
 ): string {
   const { mode } = options;
 
-  // Model mode or no configuration: return all rows
+  // Model mode or no configuration: return all rows with UUID aliases
   if (
     mode === "model" ||
     (!insight.selectedFields?.length && !insight.metrics?.length)
   ) {
-    // Build set of valid column names (only base table columns exist in model mode)
-    const validColumns = new Set(baseFields.map((f) => f.columnName ?? f.name));
+    // Build SELECT with UUID aliases for consistency
+    const selectParts = buildFieldSelects(displayName, baseFields);
+    const validColumns = new Set(
+      baseFields.map((f) => fieldIdToColumnAlias(f.id)),
+    );
     return appendPagination(
-      `SELECT * FROM ${tableName} AS "${displayName}"`,
+      `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`,
       options,
       validColumns,
     );
   }
 
-  // Query mode with configuration: apply aggregations
-  return buildAggregatedSQL(
-    `${tableName} AS "${displayName}"`,
-    baseFields,
-    insight,
-    options,
-  );
+  // Query mode with configuration: wrap table with UUID aliases, then apply aggregations
+  // This ensures the FROM clause for aggregation has UUID-aliased columns
+  const selectParts = buildFieldSelects(displayName, baseFields);
+  const wrappedFromClause = `(SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}")`;
+
+  return buildAggregatedSQL(wrappedFromClause, baseFields, insight, options);
 }
 
 // ============================================================================
 // Join SQL Helpers
 // ============================================================================
-
-/** Extract column names from fields, using columnName or falling back to name */
-function getColumnNames(fields: Field[]): string[] {
-  return fields.map((f) => f.columnName ?? f.name);
-}
 
 /** Find a field by its column name (or name fallback) */
 function findFieldByColumnName(
@@ -239,54 +303,35 @@ function findFieldByColumnName(
   return fields.find((f) => (f.columnName ?? f.name) === columnName);
 }
 
-/** Build SELECT part for a column, with optional alias for collision handling */
-function buildColumnSelect(
+/**
+ * Build SELECT part for a column using UUID-based alias.
+ * Format: "tableName"."columnName" AS "field_<uuid>"
+ *
+ * No collision handling needed - UUIDs are globally unique.
+ */
+function buildColumnSelectWithFieldId(
   tableName: string,
   columnName: string,
-  needsAlias: boolean,
+  fieldId: string,
 ): string {
-  if (needsAlias) {
-    const alias = `${tableName}.${columnName}`;
-    return `"${tableName}"."${columnName}" AS "${alias}"`;
-  }
-  return `"${tableName}"."${columnName}"`;
+  const alias = fieldIdToColumnAlias(fieldId);
+  return `"${tableName}"."${columnName}" AS "${alias}"`;
 }
 
-/** Check if a column name exists in another table (case-insensitive) */
-function columnExistsIn(columnName: string, otherColumns: string[]): boolean {
-  const lowerName = columnName.toLowerCase();
-  return otherColumns.some((c) => c.toLowerCase() === lowerName);
-}
-
-/** Build SELECT parts for base table columns with collision handling */
-function buildBaseColumnSelects(
-  baseDisplayName: string,
-  baseColNames: string[],
-  joinColNames: string[],
-  leftKeyColName: string,
-): string[] {
-  return baseColNames.map((col) => {
-    const isDuplicate =
-      columnExistsIn(col, joinColNames) &&
-      col.toLowerCase() !== leftKeyColName.toLowerCase();
-    return buildColumnSelect(baseDisplayName, col, isDuplicate);
-  });
-}
-
-/** Build SELECT parts for joined table columns with collision handling */
-function buildJoinColumnSelects(
-  joinDisplayName: string,
-  joinColNames: string[],
-  baseColNamesLower: Set<string>,
-): string[] {
-  return joinColNames.map((col) => {
-    const isDuplicate = baseColNamesLower.has(col.toLowerCase());
-    return buildColumnSelect(joinDisplayName, col, isDuplicate);
+/** Build SELECT parts for all fields from a table using UUID aliases */
+function buildFieldSelects(tableName: string, fields: Field[]): string[] {
+  return fields.map((field) => {
+    const columnName = field.columnName ?? field.name;
+    return buildColumnSelectWithFieldId(tableName, columnName, field.id);
   });
 }
 
 /**
- * Builds the JOIN SQL, handling column name collisions.
+ * Builds the JOIN SQL using UUID-based column aliases.
+ * No collision handling needed - UUIDs are globally unique.
+ *
+ * The first step wraps the base table with UUID aliases, then subsequent joins
+ * can reference columns by their UUID alias names.
  */
 function buildJoinedSQL(
   baseDFTable: string,
@@ -295,10 +340,10 @@ function buildJoinedSQL(
   insight: Insight,
   joinedTables: Map<UUID, DataTable>,
 ): string | null {
-  const baseColNames = getColumnNames(baseFields);
-  const baseColNamesLower = new Set(baseColNames.map((c) => c.toLowerCase()));
-
-  let currentSQL = `${baseDFTable} AS "${baseDisplayName}"`;
+  // First, wrap base table with UUID-aliased columns
+  const baseSelects = buildFieldSelects(baseDisplayName, baseFields);
+  let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS "${baseDisplayName}")`;
+  let currentFields = baseFields;
 
   for (const join of insight.joins ?? []) {
     const joinResult = processSingleJoin(
@@ -306,29 +351,37 @@ function buildJoinedSQL(
       joinedTables,
       currentSQL,
       baseDisplayName,
-      baseFields,
-      baseColNames,
-      baseColNamesLower,
+      currentFields,
     );
 
     if (joinResult) {
-      currentSQL = joinResult;
+      currentSQL = joinResult.sql;
+      // Accumulate fields from all joined tables for subsequent joins
+      currentFields = joinResult.allFields;
     }
   }
 
   return currentSQL;
 }
 
-/** Process a single join and return the updated SQL, or null if join is invalid */
+/** Result from processing a single join */
+interface JoinResult {
+  sql: string;
+  allFields: Field[];
+  displayName: string;
+}
+
+/**
+ * Process a single join and return the updated SQL with UUID-based column aliases.
+ * Returns null if join is invalid.
+ */
 function processSingleJoin(
   join: NonNullable<Insight["joins"]>[number],
   joinedTables: Map<UUID, DataTable>,
   currentSQL: string,
-  baseDisplayName: string,
-  baseFields: Field[],
-  baseColNames: string[],
-  baseColNamesLower: Set<string>,
-): string | null {
+  currentDisplayName: string,
+  currentFields: Field[],
+): JoinResult | null {
   // Validate join table
   const joinTable = joinedTables.get(join.rightTableId);
   if (!joinTable) {
@@ -346,114 +399,183 @@ function processSingleJoin(
   const joinFields = (joinTable.fields ?? []).filter(
     (f) => !f.name.startsWith("_"),
   );
-  const joinColNames = getColumnNames(joinFields);
 
   // Find and validate join keys
-  const baseKeyField = findFieldByColumnName(baseFields, join.leftKey);
+  const currentKeyField = findFieldByColumnName(currentFields, join.leftKey);
   const joinKeyField = findFieldByColumnName(joinFields, join.rightKey);
-  if (!baseKeyField || !joinKeyField) {
+  if (!currentKeyField || !joinKeyField) {
     console.warn(
       `Join key fields not found: ${join.leftKey}, ${join.rightKey}`,
     );
     return null;
   }
 
-  const leftColName = baseKeyField.columnName ?? baseKeyField.name;
   const rightColName = joinKeyField.columnName ?? joinKeyField.name;
 
-  // Build SELECT parts
-  const baseSelects = buildBaseColumnSelects(
-    baseDisplayName,
-    baseColNames,
-    joinColNames,
-    leftColName,
-  );
-  const joinSelects = buildJoinColumnSelects(
-    joinDisplayName,
-    joinColNames,
-    baseColNamesLower,
-  );
+  // Build SELECT parts using UUID-based aliases
+  // For the left side, use the field alias (field_<uuid>) since it's already aliased
+  const leftKeyAlias = fieldIdToColumnAlias(currentKeyField.id);
+  const baseSelects = currentFields.map((field) => {
+    const alias = fieldIdToColumnAlias(field.id);
+    return `"${alias}"`;
+  });
+
+  // For the right side, select with UUID aliases (excluding join key to avoid duplication)
+  const joinSelects = joinFields
+    .filter((f) => {
+      const colName = f.columnName ?? f.name;
+      return colName !== rightColName;
+    })
+    .map((field) => {
+      const columnName = field.columnName ?? field.name;
+      return buildColumnSelectWithFieldId(
+        joinDisplayName,
+        columnName,
+        field.id,
+      );
+    });
+
   const selectParts = [...baseSelects, ...joinSelects];
 
-  // Build JOIN SQL
+  // Build JOIN SQL using the UUID alias for the join condition
   const joinTypeSQL = (join.type ?? "inner").toUpperCase();
-  return `(
+  const sql = `(
     SELECT ${selectParts.join(", ")}
     FROM ${currentSQL}
     ${joinTypeSQL} JOIN ${joinDFTable} AS "${joinDisplayName}"
-    ON "${baseDisplayName}"."${leftColName}" = "${joinDisplayName}"."${rightColName}"
+    ON "${leftKeyAlias}" = "${joinDisplayName}"."${rightColName}"
   )`;
+
+  // Combine all fields for subsequent joins (excluding duplicate join key)
+  const allFields = [
+    ...currentFields,
+    ...joinFields.filter((f) => {
+      const colName = f.columnName ?? f.name;
+      return colName !== rightColName;
+    }),
+  ];
+
+  return { sql, allFields, displayName: joinDisplayName };
 }
 
 // ============================================================================
 // Aggregation SQL Helpers
 // ============================================================================
 
-/** Build a map from field ID to column name */
-function buildFieldIdToColumnMap(fields: Field[]): Map<string, string> {
-  const map = new Map<string, string>();
+/** Build a map from field ID to Field */
+function buildFieldIdMap(fields: Field[]): Map<string, Field> {
+  const map = new Map<string, Field>();
   for (const field of fields) {
-    map.set(field.id, field.columnName ?? field.name);
+    map.set(field.id, field);
   }
   return map;
 }
 
-/** Build dimension column parts (SELECT and GROUP BY) from selected field IDs */
+/**
+ * Build dimension column parts (SELECT and GROUP BY) from selected field IDs.
+ *
+ * Output uses UUID-based aliases:
+ * - SELECT: `"field_<uuid>"` (passthrough since source already has this alias)
+ * - GROUP BY: `"field_<uuid>"`
+ * - Valid columns: `field_<uuid>` (for pagination sorting)
+ */
 function buildDimensionColumns(
   selectedFieldIds: string[],
-  fieldIdToColumn: Map<string, string>,
-): { selectParts: string[]; groupByParts: string[]; columnNames: string[] } {
+  fieldIdMap: Map<string, Field>,
+): { selectParts: string[]; groupByParts: string[]; columnAliases: string[] } {
   const selectParts: string[] = [];
   const groupByParts: string[] = [];
-  const columnNames: string[] = [];
+  const columnAliases: string[] = [];
 
   for (const fieldId of selectedFieldIds) {
-    const columnName = fieldIdToColumn.get(fieldId);
-    if (columnName) {
-      selectParts.push(`"${columnName}"`);
-      groupByParts.push(`"${columnName}"`);
-      columnNames.push(columnName);
+    const field = fieldIdMap.get(fieldId);
+    if (field) {
+      const alias = fieldIdToColumnAlias(fieldId);
+      // Source column already has UUID alias, just reference it
+      selectParts.push(`"${alias}"`);
+      groupByParts.push(`"${alias}"`);
+      columnAliases.push(alias);
     }
   }
 
-  return { selectParts, groupByParts, columnNames };
-}
-
-/** Build SQL expression for a single metric aggregation */
-function buildMetricExpression(
-  metric: NonNullable<Insight["metrics"]>[number],
-): string | null {
-  const aggFn = metric.aggregation.toUpperCase();
-
-  // COUNT(*) - no column needed
-  if (metric.aggregation === "count" && !metric.columnName) {
-    return `COUNT(*) AS "${metric.name}"`;
-  }
-
-  // COUNT(DISTINCT column)
-  if (metric.aggregation === "count_distinct" && metric.columnName) {
-    return `COUNT(DISTINCT "${metric.columnName}") AS "${metric.name}"`;
-  }
-
-  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
-  if (metric.columnName) {
-    return `${aggFn}("${metric.columnName}") AS "${metric.name}"`;
-  }
-
-  return null;
-}
-
-/** Build SELECT parts for all metrics */
-function buildMetricColumns(
-  metrics: NonNullable<Insight["metrics"]>,
-): string[] {
-  return metrics
-    .map(buildMetricExpression)
-    .filter((expr): expr is string => expr !== null);
+  return { selectParts, groupByParts, columnAliases };
 }
 
 /**
- * Builds aggregated SQL with GROUP BY and metrics.
+ * Build SQL expression for a single metric aggregation with UUID alias.
+ *
+ * @param metric - The metric configuration
+ * @param fieldIdMap - Map of field ID to Field for resolving source column
+ *
+ * Output format: `AGG("source_column") AS "metric_<uuid>"`
+ *
+ * Note: When aggregating from a joined view, the source column is already aliased
+ * as `field_<uuid>`. We need to look up the field by columnName to get its UUID.
+ */
+function buildMetricExpressionWithUUID(
+  metric: NonNullable<Insight["metrics"]>[number],
+  fieldIdMap: Map<string, Field>,
+): string | null {
+  const aggFn = metric.aggregation.toUpperCase();
+  const outputAlias = metricIdToColumnAlias(metric.id);
+
+  // COUNT(*) - no column needed
+  if (metric.aggregation === "count" && !metric.columnName) {
+    return `COUNT(*) AS "${outputAlias}"`;
+  }
+
+  if (!metric.columnName) return null;
+
+  // Find the source field by columnName to get its UUID alias
+  let sourceColumnRef: string;
+  const sourceField = Array.from(fieldIdMap.values()).find(
+    (f) => (f.columnName ?? f.name) === metric.columnName,
+  );
+
+  if (sourceField) {
+    // Source is a field with UUID alias
+    sourceColumnRef = fieldIdToColumnAlias(sourceField.id);
+  } else {
+    // Fallback: use raw column name (shouldn't happen with proper config)
+    sourceColumnRef = metric.columnName;
+  }
+
+  // COUNT(DISTINCT column)
+  if (metric.aggregation === "count_distinct") {
+    return `COUNT(DISTINCT "${sourceColumnRef}") AS "${outputAlias}"`;
+  }
+
+  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
+  return `${aggFn}("${sourceColumnRef}") AS "${outputAlias}"`;
+}
+
+/** Build SELECT parts for all metrics with UUID aliases */
+function buildMetricColumnsWithUUID(
+  metrics: NonNullable<Insight["metrics"]>,
+  fieldIdMap: Map<string, Field>,
+): { selectParts: string[]; columnAliases: string[] } {
+  const selectParts: string[] = [];
+  const columnAliases: string[] = [];
+
+  for (const metric of metrics) {
+    const expr = buildMetricExpressionWithUUID(metric, fieldIdMap);
+    if (expr) {
+      selectParts.push(expr);
+      columnAliases.push(metricIdToColumnAlias(metric.id));
+    }
+  }
+
+  return { selectParts, columnAliases };
+}
+
+/**
+ * Builds aggregated SQL with GROUP BY and metrics using UUID column aliases.
+ *
+ * All output columns use UUID-based naming:
+ * - Dimensions: `field_<uuid>`
+ * - Metrics: `metric_<uuid>`
+ *
+ * The source FROM clause already has UUID-aliased columns from model SQL.
  */
 function buildAggregatedSQL(
   fromClause: string,
@@ -464,10 +586,15 @@ function buildAggregatedSQL(
   const hasSelectedFields = (insight.selectedFields?.length ?? 0) > 0;
   const hasMetrics = (insight.metrics?.length ?? 0) > 0;
 
-  // No configuration: fall back to raw data
+  // Build field map for lookups
+  const fieldIdMap = buildFieldIdMap(allFields);
+
+  // No configuration: fall back to raw data (all fields with UUID aliases)
   if (!hasSelectedFields && !hasMetrics) {
-    // Build valid columns from all fields
-    const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
+    // Valid columns are UUID aliases
+    const validColumns = new Set(
+      allFields.map((f) => fieldIdToColumnAlias(f.id)),
+    );
     return appendPagination(
       `SELECT * FROM ${fromClause}`,
       options,
@@ -475,29 +602,26 @@ function buildAggregatedSQL(
     );
   }
 
-  // Build dimension columns (SELECT + GROUP BY) from all available fields
-  const fieldIdToColumn = buildFieldIdToColumnMap(allFields);
+  // Build dimension columns with UUID aliases
   const {
     selectParts: dimensionSelects,
     groupByParts,
-    columnNames: dimensionColumnNames,
+    columnAliases: dimensionAliases,
   } = hasSelectedFields
-    ? buildDimensionColumns(insight.selectedFields!, fieldIdToColumn)
-    : { selectParts: [], groupByParts: [], columnNames: [] };
+    ? buildDimensionColumns(insight.selectedFields!, fieldIdMap)
+    : { selectParts: [], groupByParts: [], columnAliases: [] };
 
-  // Build metric columns
-  const metricSelects = hasMetrics ? buildMetricColumns(insight.metrics!) : [];
+  // Build metric columns with UUID aliases
+  const { selectParts: metricSelects, columnAliases: metricAliases } =
+    hasMetrics
+      ? buildMetricColumnsWithUUID(insight.metrics!, fieldIdMap)
+      : { selectParts: [], columnAliases: [] };
 
   // Combine SELECT parts
   const selectParts = [...dimensionSelects, ...metricSelects];
 
-  // Build set of valid columns for sorting (dimension columns + metric names)
-  const validColumns = new Set<string>(dimensionColumnNames);
-  if (hasMetrics) {
-    for (const metric of insight.metrics!) {
-      validColumns.add(metric.name);
-    }
-  }
+  // Build set of valid columns for sorting (all use UUID aliases now)
+  const validColumns = new Set<string>([...dimensionAliases, ...metricAliases]);
 
   // Build final SQL
   let sql = `SELECT ${selectParts.join(", ")} FROM ${fromClause}`;

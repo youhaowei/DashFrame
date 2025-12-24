@@ -31,6 +31,12 @@ interface ChartTypePickerModalProps {
   existingFields: string[];
   /** Callback when a chart is created */
   onCreateChart: (suggestion: ChartSuggestion) => void;
+  /** Whether chart view is still loading */
+  isLoading?: boolean;
+  /** Seed for shuffling chart suggestions */
+  suggestionSeed?: number;
+  /** Callback to regenerate suggestions with a new seed */
+  onRegenerate?: () => void;
 }
 
 /**
@@ -49,6 +55,9 @@ export function ChartTypePickerModal({
   fieldMap,
   existingFields,
   onCreateChart,
+  isLoading = false,
+  suggestionSeed = 0,
+  onRegenerate,
 }: ChartTypePickerModalProps) {
   // Wrap onCreateChart to also close the modal
   const handleCreateChart = useCallback(
@@ -80,6 +89,9 @@ export function ChartTypePickerModal({
             existingFields={existingFields}
             onCreateChart={handleCreateChart}
             gridColumns={3}
+            isLoading={isLoading}
+            suggestionSeed={suggestionSeed}
+            onRegenerate={onRegenerate}
           />
         </div>
       </DialogContent>

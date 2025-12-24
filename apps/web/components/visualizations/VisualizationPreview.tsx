@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
-import type { Visualization } from "@dashframe/types";
-import { useInsights, useDataTables } from "@dashframe/core";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useMemo, useState, useEffect } from "react";
+import type { Visualization, ChartEncoding } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { getCachedViewName } from "@/hooks/useInsightView";
 import { Chart } from "@dashframe/visualization";
 
 function PreviewLoading() {
@@ -24,61 +26,144 @@ interface VisualizationPreviewProps {
 }
 
 /**
+ * Convert encoding value from storage format (field:<uuid>) to SQL column alias (field_<uuid>).
+ */
+function resolveEncodingChannel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = parseEncoding(value);
+  if (!parsed) return undefined;
+  return parsed.type === "field"
+    ? fieldIdToColumnAlias(parsed.id)
+    : metricIdToColumnAlias(parsed.id);
+}
+
+/**
  * Renders a small preview of a visualization for use in cards and lists.
  *
  * Uses Chart with preview mode enabled for minimal chrome
  * (no axes, legends, or padding).
  *
- * Data is loaded via useDataFrameData which registers the table in DuckDB.
- * vgplot then queries directly from DuckDB - no inline data needed.
+ * The view name is deterministic: `insight_view_<insightId>`.
+ * This component assumes the parent page (InsightView) has already created the view.
+ * It polls DuckDB to check if the view exists before rendering.
  */
 export function VisualizationPreview({
   visualization,
   height = 160,
   fallback,
 }: VisualizationPreviewProps) {
-  // Derive dataFrameId through the relationship chain:
-  // visualization.insightId → insight.baseTableId → dataTable.dataFrameId
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
+  const { connection, isInitialized } = useDuckDB();
 
-  const dataFrameId = useMemo(() => {
-    const insight = insights.find((i) => i.id === visualization.insightId);
-    if (!insight) return undefined;
-    const dataTable = dataTables.find((t) => t.id === insight.baseTableId);
-    return dataTable?.dataFrameId;
-  }, [insights, dataTables, visualization.insightId]);
+  // Check cache first for instant rendering (set by useInsightView)
+  const cachedViewName = visualization.insightId
+    ? getCachedViewName(visualization.insightId)
+    : null;
 
-  // Compute DuckDB table name from dataFrameId
-  const tableName = useMemo(() => {
-    if (!dataFrameId) return null;
-    return `df_${dataFrameId.replace(/-/g, "_")}`;
-  }, [dataFrameId]);
+  // Use cached view name if available, otherwise compute it
+  const viewName = useMemo(() => {
+    if (cachedViewName) return cachedViewName;
+    if (!visualization.insightId) return null;
+    return `insight_view_${visualization.insightId.replace(/-/g, "_")}`;
+  }, [visualization.insightId, cachedViewName]);
 
-  // Load data to ensure table is registered in DuckDB
-  // We don't need the data itself since vgplot queries DuckDB directly
-  const { data, isLoading, error } = useDataFrameData(dataFrameId);
+  // If we have a cached view name, we know it exists - skip polling
+  const [viewExists, setViewExists] = useState(!!cachedViewName);
 
-  // Loading state
-  if (isLoading || !dataFrameId || !tableName) {
+  // Only poll DuckDB if view isn't in cache
+  useEffect(() => {
+    // If cache hit, view already exists - no need to poll
+    if (cachedViewName) {
+      setViewExists(true);
+      return;
+    }
+
+    if (!connection || !isInitialized || !viewName) {
+      setViewExists(false);
+      return;
+    }
+
+    let cancelled = false;
+    let retryCount = 0;
+    const maxRetries = 5; // Reduced from 10 - faster failure
+    const retryDelay = 100; // Reduced from 200ms - faster polling
+
+    const checkViewExists = async () => {
+      try {
+        // Query information_schema to check if view exists
+        const result = await connection.query(`
+          SELECT 1 FROM information_schema.tables
+          WHERE table_name = '${viewName}'
+          LIMIT 1
+        `);
+        const exists = result.toArray().length > 0;
+
+        if (!cancelled) {
+          if (exists) {
+            setViewExists(true);
+          } else if (retryCount < maxRetries) {
+            retryCount++;
+            setTimeout(checkViewExists, retryDelay);
+          }
+        }
+      } catch (err) {
+        console.error("[VisualizationPreview] Error checking view:", err);
+        if (!cancelled && retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(checkViewExists, retryDelay);
+        }
+      }
+    };
+
+    checkViewExists();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, isInitialized, viewName, cachedViewName]);
+
+  // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
+  const resolvedEncoding = useMemo((): ChartEncoding => {
+    if (!visualization.encoding) {
+      return {};
+    }
+
+    return {
+      x: resolveEncodingChannel(visualization.encoding.x),
+      y: resolveEncodingChannel(visualization.encoding.y),
+      color: resolveEncodingChannel(visualization.encoding.color),
+      size: resolveEncodingChannel(visualization.encoding.size),
+      xType: visualization.encoding.xType,
+      yType: visualization.encoding.yType,
+    };
+  }, [visualization.encoding]);
+
+  // Loading state - waiting for DuckDB or view to be created
+  if (!isInitialized || !viewName || !viewExists) {
     return <PreviewLoading />;
   }
 
-  // Error or no data - show fallback
-  if (error || !data) {
+  // Check if encoding has required data channels (x or y)
+  // Visualizations created before the encoding fix may be missing these
+  const hasValidEncoding = resolvedEncoding.x || resolvedEncoding.y;
+
+  // Show fallback for visualizations with missing encoding (legacy data)
+  if (!hasValidEncoding) {
     return (
-      <div className="bg-muted flex h-full w-full items-center justify-center">
-        {fallback}
-      </div>
+      fallback ?? (
+        <div className="bg-muted/50 text-muted-foreground flex h-full w-full items-center justify-center text-xs">
+          <span>Encoding missing</span>
+        </div>
+      )
     );
   }
 
   return (
     <div className="h-full w-full overflow-hidden" style={{ height }}>
       <Chart
-        tableName={tableName}
+        tableName={viewName}
         visualizationType={visualization.visualizationType}
-        encoding={visualization.encoding ?? {}}
+        encoding={resolvedEncoding}
+        width="container"
         height={height}
         preview
         className="h-full w-full"

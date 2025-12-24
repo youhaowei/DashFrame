@@ -115,38 +115,41 @@ describe("encoding-resolution", () => {
   });
 
   describe("resolveForAnalysis", () => {
-    it("should resolve field encoding with columnName and isMetric=false", () => {
+    it("should resolve field encoding with UUID-based columnName alias", () => {
       const result = resolveForAnalysis(
         fieldEncoding("field-1" as UUID),
         context,
       );
+      // Now returns UUID-based alias to match ColumnAnalysis column names
       expect(result).toEqual({
-        columnName: "category",
+        columnName: "field_field_1", // field_<uuid with dashes replaced by underscores>
         isMetric: false,
         valid: true,
       });
     });
 
-    it("should resolve metric encoding with columnName and isMetric=true", () => {
+    it("should resolve metric encoding with UUID-based columnName alias", () => {
       const result = resolveForAnalysis(
         metricEncoding("metric-1" as UUID),
         context,
       );
+      // Now returns UUID-based alias for metrics too
       expect(result).toEqual({
-        columnName: "revenue",
+        columnName: "metric_metric_1", // metric_<uuid with dashes replaced by underscores>
         isMetric: true,
         sqlExpression: "sum(revenue)",
         valid: true,
       });
     });
 
-    it("should handle count(*) metric with undefined columnName", () => {
+    it("should return UUID-based alias for count(*) metric", () => {
       const result = resolveForAnalysis(
         metricEncoding("metric-2" as UUID),
         context,
       );
+      // count(*) metrics now have UUID-based alias too
       expect(result).toEqual({
-        columnName: undefined,
+        columnName: "metric_metric_2",
         isMetric: true,
         sqlExpression: "count(*)",
         valid: true,

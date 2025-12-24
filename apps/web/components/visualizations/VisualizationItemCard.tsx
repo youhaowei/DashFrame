@@ -110,7 +110,7 @@ export function VisualizationItemCard({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        "group w-full overflow-hidden rounded-lg border text-left transition-all",
+        "group w-full overflow-hidden rounded-lg border text-left transition-[border-color,background-color] duration-150",
         onClick && "hover:bg-accent/50 cursor-pointer",
         active
           ? "border-primary ring-primary ring-2"
@@ -135,7 +135,7 @@ export function VisualizationItemCard({
         <div className="flex items-center gap-2">
           <p
             className={cn(
-              "min-w-0 flex-1 truncate text-sm font-medium transition-all",
+              "min-w-0 flex-1 truncate text-sm font-medium transition-colors",
               active ? "text-primary" : "text-foreground",
             )}
           >

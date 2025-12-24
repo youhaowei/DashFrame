@@ -36,11 +36,7 @@ import {
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { getColumnIcon } from "@/lib/utils/field-icons";
-import {
-  Insight,
-  analyzeInsight,
-  type ColumnAnalysis,
-} from "@dashframe/engine-browser";
+import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
 import { metricToSqlExpression } from "@dashframe/engine";
 import type {
   UUID,
@@ -56,6 +52,8 @@ import {
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useInsightView } from "@/hooks/useInsightView";
+import type { Insight as InsightType } from "@dashframe/types";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
@@ -71,6 +69,9 @@ function getVizIcon(type: string) {
     case "area":
       return <LineChart className="h-5 w-5" />;
     case "scatter":
+    case "hexbin":
+    case "heatmap":
+    case "raster":
       return <LuCircleDot className="h-5 w-5" />;
     default:
       return <BarChart3 className="h-5 w-5" />;
@@ -107,7 +108,7 @@ export default function VisualizationPage({ params }: PageProps) {
     [visualizations, visualizationId],
   );
 
-  // Find the insight (raw - for building insightObj for DuckDB)
+  // Find the insight
   const insight = useMemo(
     () =>
       visualization?.insightId
@@ -143,6 +144,21 @@ export default function VisualizationPage({ params }: PageProps) {
   // DuckDB connection for join computation
   const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
     useDuckDB();
+
+  // Build Insight object for useInsightView (needs baseTableId and joins)
+  const insightForView: InsightType | null = useMemo(() => {
+    if (!insight) return null;
+    return {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      joins: insight.joins,
+    } as InsightType;
+  }, [insight]);
+
+  // Get DuckDB view name for analysis (uses UUID-based column names)
+  const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
+    useInsightView(insightForView);
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -317,95 +333,17 @@ export default function VisualizationPage({ params }: PageProps) {
   // State for DuckDB-computed column analysis
   const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
 
-  // Build Insight object from store data for analysis
-  const insightObj = useMemo(() => {
-    if (!insight || !dataTable) return null;
-
-    // Build DataTableInfo for base table
-    const baseTableInfo = {
-      id: dataTable.id,
-      name: dataTable.name,
-      dataFrameId: dataTable.dataFrameId,
-      fields: dataTable.fields ?? [],
-    };
-
-    // Build joins with full table info (mapping store types → engine types)
-    // Store: { rightTableId, leftKey, rightKey, type }
-    // Engine: { table, selectedFields, joinOn: {baseField, joinedField}, joinType }
-    const resolvedJoins = insight.joins
-      ?.map((join) => {
-        const joinTable = dataTables.find((t) => t.id === join.rightTableId);
-        if (!joinTable) return null;
-
-        // Find field IDs by column name
-        const baseField = dataTable.fields?.find(
-          (f) => f.columnName === join.leftKey || f.name === join.leftKey,
-        )?.id;
-        const joinedField = joinTable.fields?.find(
-          (f) => f.columnName === join.rightKey || f.name === join.rightKey,
-        )?.id;
-
-        if (!baseField || !joinedField) return null;
-
-        // Map join type: store uses "full", engine uses "outer"
-        const joinType =
-          join.type === "full"
-            ? "outer"
-            : (join.type as "inner" | "left" | "right" | "outer");
-
-        return {
-          table: {
-            id: joinTable.id,
-            name: joinTable.name,
-            dataFrameId: joinTable.dataFrameId,
-            fields: joinTable.fields ?? [],
-          },
-          selectedFields: [] as string[], // No field selection in store join config
-          joinOn: { baseField, joinedField },
-          joinType,
-        };
-      })
-      .filter(Boolean) as
-      | Array<{
-          table: {
-            id: string;
-            name: string;
-            dataFrameId?: string;
-            fields: Array<{
-              id: string;
-              name: string;
-              columnName?: string;
-              type?: string;
-            }>;
-          };
-          selectedFields: string[];
-          joinOn: { baseField: string; joinedField: string };
-          joinType: "inner" | "left" | "right" | "outer";
-        }>
-      | undefined;
-
-    return new Insight({
-      id: insight.id,
-      name: insight.name ?? "Untitled",
-      baseTable: baseTableInfo,
-      selectedFields: insight.selectedFields,
-      metrics: insight.metrics,
-      joins: resolvedJoins,
-      // Note: filters omitted - store format doesn't match FilterPredicate
-    });
-  }, [insight, dataTable, dataTables]);
-
-  // Run DuckDB analysis on Insight result (handles joins/aggregation)
+  // Run DuckDB analysis on the insight view (has UUID-based column names)
   useEffect(() => {
     if (!duckDBConnection || !isDuckDBReady) return;
-    if (!insightObj) {
+    if (!analysisViewName || !isAnalysisViewReady) {
       setColumnAnalysis([]);
       return;
     }
 
     const runAnalysis = async () => {
       try {
-        const results = await analyzeInsight(duckDBConnection, insightObj);
+        const results = await analyzeView(duckDBConnection, analysisViewName);
         setColumnAnalysis(results);
       } catch (e) {
         console.error("[VisualizationPage] Analysis failed:", e);
@@ -413,7 +351,7 @@ export default function VisualizationPage({ params }: PageProps) {
       }
     };
     runAnalysis();
-  }, [duckDBConnection, isDuckDBReady, insightObj]);
+  }, [duckDBConnection, isDuckDBReady, analysisViewName, isAnalysisViewReady]);
 
   // Get column options for Color/Size selects (derived from compiledInsight)
   // Includes icons to show column types
@@ -628,19 +566,69 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // Visualization type options
+  // Visualization type options - condensed (bar orientations combined, scatter as umbrella)
   const hasNumericColumns = dataFrame?.columns?.some(
     (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-        { label: "Vertical Bar", value: "bar" },
-        { label: "Horizontal Bar", value: "barHorizontal" },
-        { label: "Line Chart", value: "line" },
-        { label: "Scatter Plot", value: "scatter" },
-        { label: "Area Chart", value: "area" },
+        { label: "Bar", value: "bar" },
+        { label: "Line", value: "line" },
+        { label: "Scatter", value: "scatter" },
+        { label: "Area", value: "area" },
       ]
     : [];
+
+  // Check if current chart is a scatter-type (scatter, hexbin, heatmap, raster)
+  const isScatterType = ["scatter", "hexbin", "heatmap", "raster"].includes(
+    visualization?.visualizationType ?? "",
+  );
+
+  // Scatter render mode options - disable Dots for large datasets
+  const rowCount = dataFrameEntry?.rowCount ?? 0;
+  const isLargeDataset = rowCount > 10000;
+  const scatterRenderModeOptions = [
+    {
+      label: "Dots",
+      value: "scatter",
+      description: isLargeDataset
+        ? `Disabled for large datasets (${rowCount.toLocaleString()} rows)`
+        : "Raw dots - best for small datasets",
+      disabled: isLargeDataset,
+    },
+    {
+      label: "Hexbin",
+      value: "hexbin",
+      description: "Hexagonal binning - shows density patterns",
+    },
+    {
+      label: "Heatmap",
+      value: "heatmap",
+      description: "Smooth density visualization",
+    },
+    {
+      label: "Raster",
+      value: "raster",
+      description: "Pixel aggregation - fastest for huge datasets",
+    },
+  ];
+
+  // Get the display chart type (maps scatter variants back to "scatter" for UI)
+  const displayChartType = isScatterType
+    ? "scatter"
+    : (visualization?.visualizationType ?? "bar");
+
+  // Handle chart type change with scatter umbrella logic
+  const handleDisplayTypeChange = async (type: string) => {
+    if (type === "scatter" && !isScatterType) {
+      // Switching to scatter - default to appropriate render mode based on data size
+      const newType = isLargeDataset ? "hexbin" : "scatter";
+      await handleTypeChange(newType);
+    } else if (type !== "scatter") {
+      await handleTypeChange(type);
+    }
+    // If already scatter-type and selecting scatter, keep current render mode
+  };
 
   // Handle swap button click - swaps X/Y axes and toggles bar orientation
   const handleSwapAxes = async () => {
@@ -810,10 +798,22 @@ export default function VisualizationPage({ params }: PageProps) {
             <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
             <SelectField
               label=""
-              value={visualization.visualizationType}
-              onChange={handleTypeChange}
+              value={displayChartType}
+              onChange={handleDisplayTypeChange}
               options={vizTypeOptions}
             />
+
+            {/* Render mode selector for scatter-type charts */}
+            {isScatterType && (
+              <div className="mt-3">
+                <SelectField
+                  label="Render mode"
+                  value={visualization.visualizationType}
+                  onChange={handleTypeChange}
+                  options={scatterRenderModeOptions}
+                />
+              </div>
+            )}
           </div>
 
           {/* Source insight link */}

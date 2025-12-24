@@ -244,4 +244,16 @@ export interface ChartEncoding {
   yType?: AxisType;
   color?: string;
   size?: string;
+
+  /**
+   * Human-readable axis labels for display in chart UI.
+   * These are the field/metric names shown on axes, legends, and tooltips.
+   *
+   * When set, the renderer should use these labels instead of the column names
+   * (which may be UUID-based for consistency).
+   */
+  xLabel?: string;
+  yLabel?: string;
+  colorLabel?: string;
+  sizeLabel?: string;
 }

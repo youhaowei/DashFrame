@@ -37,6 +37,12 @@ interface VisualizationsSectionProps {
   onDuplicateVisualization?: (vizId: string) => void;
   /** Callback when a visualization is deleted */
   onDeleteVisualization?: (vizId: string, name: string) => void;
+  /** Whether chart view is still loading (shows skeletons) */
+  isChartViewLoading?: boolean;
+  /** Seed for shuffling chart suggestions */
+  suggestionSeed?: number;
+  /** Callback to regenerate suggestions with a new seed */
+  onRegenerate?: () => void;
 }
 
 /** Extended ListItem that includes the full visualization object and actions */
@@ -67,6 +73,9 @@ export const VisualizationsSection = memo(function VisualizationsSection({
   onCreateChart,
   onDuplicateVisualization,
   onDeleteVisualization,
+  isChartViewLoading = false,
+  suggestionSeed = 0,
+  onRegenerate,
 }: VisualizationsSectionProps) {
   const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -162,6 +171,9 @@ export const VisualizationsSection = memo(function VisualizationsSection({
           existingFields={existingFields}
           onCreateChart={onCreateChart}
           gridColumns={3}
+          isLoading={isChartViewLoading}
+          suggestionSeed={suggestionSeed}
+          onRegenerate={onRegenerate}
         />
       </Section>
     );
@@ -208,6 +220,9 @@ export const VisualizationsSection = memo(function VisualizationsSection({
           fieldMap={fieldMap}
           existingFields={existingFields}
           onCreateChart={handleCreateChart}
+          isLoading={isChartViewLoading}
+          suggestionSeed={suggestionSeed}
+          onRegenerate={onRegenerate}
         />
       )}
     </>

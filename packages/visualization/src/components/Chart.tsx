@@ -205,6 +205,7 @@ export function Chart({
     isReady: areDimensionsReady,
   } = useContainerDimensions({
     minSize: 10, // Require at least 10x10px
+    debounce: 50, // Debounce to prevent multiple re-renders during layout stabilization
   });
 
   // Merge refs if we need dimension tracking
@@ -326,6 +327,8 @@ export function Chart({
   }
 
   // Container for chart rendering
+  // In preview mode, disable pointer events to prevent Vega-Lite's
+  // interactive features (tooltips, crosshairs) from causing lag on hover
   return (
     <div
       ref={containerRef}
@@ -335,6 +338,7 @@ export function Chart({
         height: height === "container" ? "100%" : height,
         minHeight: 0,
         overflow: "hidden",
+        pointerEvents: preview ? "none" : "auto",
       }}
     />
   );
