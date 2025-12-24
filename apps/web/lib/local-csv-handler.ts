@@ -1,9 +1,9 @@
 import { csvToDataFrame } from "@dashframe/connector-csv";
 import { getDataSourceByType, getDataTable, db } from "@dashframe/core";
 import { deleteArrowData } from "@dashframe/engine-browser";
+import type { BrowserDataFrame } from "@dashframe/engine-browser";
 import type { Metric } from "@dashframe/types";
 import type { FileParseResult } from "@dashframe/engine";
-import type { BrowserDataFrame } from "@dashframe/engine-browser";
 
 const ensureCountMetric = (
   existing: Metric[] = [],
@@ -165,6 +165,9 @@ export async function handleLocalCSVUpload(
     await db.dataTables.update(dataTableId, { dataFrameId });
   }
 
+  // Note: Column analysis is run lazily in InsightView when first needed
+  // This keeps upload fast and defers expensive DuckDB queries
+
   return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
 }
 
@@ -290,6 +293,9 @@ export async function handleFileConnectorResult(
     // Link DataFrame to DataTable
     await db.dataTables.update(dataTableId, { dataFrameId });
   }
+
+  // Note: Column analysis is run lazily in InsightView when first needed
+  // This keeps upload fast and defers expensive DuckDB queries
 
   return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
 }

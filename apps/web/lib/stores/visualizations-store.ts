@@ -99,7 +99,7 @@ function migrateVisualizationsState(
           {
             ...viz,
             // Add default visualizationType if missing (backward compatibility)
-            visualizationType: viz.visualizationType || "bar",
+            visualizationType: viz.visualizationType || "barY",
           } as Visualization,
         ],
       ),
@@ -111,7 +111,7 @@ function migrateVisualizationsState(
   if (state.visualizations instanceof Map) {
     for (const [id, viz] of state.visualizations.entries()) {
       if (!viz.visualizationType) {
-        state.visualizations.set(id, { ...viz, visualizationType: "bar" });
+        state.visualizations.set(id, { ...viz, visualizationType: "barY" });
       }
     }
   }
@@ -131,8 +131,8 @@ export const useVisualizationsStore = create<VisualizationsStore>()(
       _cachedVisualizations: [],
       activeId: null,
 
-      // Create visualization (default to bar chart - table view available on insights)
-      create: (source, name, spec, visualizationType = "bar", encoding) => {
+      // Create visualization (default to barY chart - table view available on insights)
+      create: (source, name, spec, visualizationType = "barY", encoding) => {
         const id = crypto.randomUUID();
         const now = Date.now();
 

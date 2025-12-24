@@ -6,13 +6,14 @@ import { cn } from "../lib/utils";
 export interface ButtonProps {
   label: string;
   onClick?: () => void;
-  variant?:
-    | "default"
-    | "outline"
-    | "destructive"
-    | "secondary"
-    | "ghost"
-    | "link";
+  /**
+   * Button style variant - controls the visual appearance (filled, outlined, text, link)
+   */
+  variant?: "filled" | "outlined" | "text" | "link";
+  /**
+   * Button color - controls the color scheme (primary, secondary, warn, danger, success)
+   */
+  color?: "primary" | "secondary" | "warn" | "danger" | "success";
   icon?: LucideIcon;
   size?: "default" | "sm" | "lg";
   asChild?: boolean;
@@ -82,30 +83,28 @@ type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
  * buttons with icons, labels, and tooltips. Framework-agnostic - use asChild for links.
  *
  * Features:
+ * - Separated variant (style) and color (intent) props for flexible styling
  * - Icon + label rendering with automatic padding adjustment (via shadcn has-[>svg])
  * - Icon-only mode (shows icon with sr-only label)
  * - Tooltip support
- * - All shadcn button variants
  * - asChild prop for rendering as Link or other components (Radix Slot pattern)
+ *
+ * Variants: filled, outlined, text, link
+ * Colors: primary, secondary, warn, danger, success
  *
  * @example
  * ```tsx
- * // Standard button with icon and label
- * <Button
- *   label="Save"
- *   onClick={handleSave}
- *   icon={Save}
- *   variant="default"
- * />
+ * // Standard filled button (default)
+ * <Button label="Save" onClick={handleSave} icon={Save} />
+ *
+ * // Danger button (filled red)
+ * <Button label="Delete" onClick={handleDelete} icon={Trash2} color="danger" />
+ *
+ * // Outlined danger button (softer delete action)
+ * <Button label="Remove" variant="outlined" color="danger" />
  *
  * // Icon-only button
- * <Button
- *   label="Delete"
- *   onClick={handleDelete}
- *   icon={Trash2}
- *   variant="destructive"
- *   iconOnly
- * />
+ * <Button label="Delete" icon={Trash2} color="danger" iconOnly />
  *
  * // Link button (using asChild)
  * <Button label="View Details" icon={ArrowRight} asChild>
@@ -116,7 +115,8 @@ type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
 export function Button({
   label,
   onClick,
-  variant = "default",
+  variant = "filled",
+  color = "primary",
   icon: Icon,
   size,
   asChild,
@@ -150,6 +150,7 @@ export function Button({
   return (
     <PrimitiveButton
       variant={variant}
+      color={color}
       size={buttonSize}
       className={cn("flex items-center justify-center", className)}
       title={tooltip || (iconOnly ? label : undefined)}

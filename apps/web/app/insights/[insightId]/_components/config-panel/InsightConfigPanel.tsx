@@ -5,14 +5,10 @@ import { Panel, InputField } from "@dashframe/ui";
 import {
   useInsightMutations,
   useVisualizations,
+  useVisualizationMutations,
   useDataTableMutations,
 } from "@dashframe/core";
-import type {
-  Insight,
-  DataTable,
-  InsightMetric,
-  Visualization,
-} from "@dashframe/types";
+import type { Insight, DataTable, InsightMetric } from "@dashframe/types";
 import {
   computeCombinedFields,
   type CombinedField,
@@ -23,46 +19,14 @@ import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { MetricEditDialog } from "./MetricEditDialog";
-
-/**
- * Check if a field (by column name) is used by any visualization's encoding
- */
-function isFieldUsedByVisualization(
-  columnName: string,
-  visualizations: Visualization[],
-): Visualization | undefined {
-  return visualizations.find((viz) => {
-    const enc = viz.encoding;
-    if (!enc) return false;
-    // Check if encoding x/y/color/size references this column (as dimension)
-    return (
-      enc.x === columnName ||
-      enc.y === columnName ||
-      enc.color === columnName ||
-      enc.size === columnName
-    );
-  });
-}
-
-/**
- * Check if a metric (by name like "sum(amount)") is used by any visualization's encoding
- */
-function isMetricUsedByVisualization(
-  metricName: string,
-  visualizations: Visualization[],
-): Visualization | undefined {
-  return visualizations.find((viz) => {
-    const enc = viz.encoding;
-    if (!enc) return false;
-    // Metrics appear in encoding as aggregate expressions like "sum(amount)"
-    return (
-      enc.x === metricName ||
-      enc.y === metricName ||
-      enc.color === metricName ||
-      enc.size === metricName
-    );
-  });
-}
+import {
+  DeleteConfirmDialog,
+  findVisualizationsUsingField,
+  findVisualizationsUsingMetric,
+  removeFromEncoding,
+  type AffectedVisualization,
+  type DeleteItemType,
+} from "./DeleteConfirmDialog";
 
 interface InsightConfigPanelProps {
   insight: Insight;
@@ -81,6 +45,21 @@ interface InsightConfigPanelProps {
  * - Drag-and-drop reordering via @dnd-kit
  * - Add/edit/remove functionality via dialog modals
  */
+/** State for the delete confirmation dialog (minimal state, affected visualizations computed reactively) */
+interface DeleteDialogState {
+  isOpen: boolean;
+  itemId: string;
+  itemName: string;
+  itemType: DeleteItemType;
+}
+
+const initialDeleteDialogState: DeleteDialogState = {
+  isOpen: false,
+  itemId: "",
+  itemName: "",
+  itemType: "field",
+};
+
 export function InsightConfigPanel({
   insight,
   dataTable,
@@ -95,13 +74,36 @@ export function InsightConfigPanel({
     null,
   );
   const [metricToEdit, setMetricToEdit] = useState<InsightMetric | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(
+    initialDeleteDialogState,
+  );
+  const [processingVizId, setProcessingVizId] = useState<string | null>(null);
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
   const { updateField } = useDataTableMutations();
+  const { updateEncoding, remove: removeVisualization } =
+    useVisualizationMutations();
 
   // Get visualizations for this insight to check dependencies
   const { data: insightVisualizations = [] } = useVisualizations(insight.id);
+
+  // Compute affected visualizations reactively based on current visualization state
+  // This avoids race conditions where stale state was stored in the dialog
+  const affectedVisualizations = useMemo(() => {
+    if (!deleteDialog.isOpen) return [];
+    return deleteDialog.itemType === "field"
+      ? findVisualizationsUsingField(deleteDialog.itemId, insightVisualizations)
+      : findVisualizationsUsingMetric(
+          deleteDialog.itemId,
+          insightVisualizations,
+        );
+  }, [
+    deleteDialog.isOpen,
+    deleteDialog.itemType,
+    deleteDialog.itemId,
+    insightVisualizations,
+  ]);
 
   // Compute combined fields from base + joined tables
   const { fields: combinedFields } = useMemo(
@@ -139,36 +141,19 @@ export function InsightConfigPanel({
 
   const handleRemoveField = useCallback(
     (fieldId: string) => {
-      // Find the field to get its column name
+      // Find the field to get its name
       const field = combinedFields.find((f) => f.id === fieldId);
       if (!field) return;
 
-      const columnName = field.columnName ?? field.name;
-
-      // Check if any visualization uses this field
-      const usingViz = isFieldUsedByVisualization(
-        columnName,
-        insightVisualizations,
-      );
-      if (usingViz) {
-        alert(
-          `Cannot remove field "${field.name}" because it is used by visualization "${usingViz.name}". Delete the visualization first.`,
-        );
-        return;
-      }
-
-      const updated = (insight.selectedFields ?? []).filter(
-        (id) => id !== fieldId,
-      );
-      updateInsight(insight.id, { selectedFields: updated });
+      // Open delete confirmation dialog (affected visualizations computed reactively)
+      setDeleteDialog({
+        isOpen: true,
+        itemId: fieldId,
+        itemName: field.displayName,
+        itemType: "field",
+      });
     },
-    [
-      insight.id,
-      insight.selectedFields,
-      updateInsight,
-      combinedFields,
-      insightVisualizations,
-    ],
+    [combinedFields],
   );
 
   const handleAddField = useCallback(
@@ -207,22 +192,15 @@ export function InsightConfigPanel({
       const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
       if (!metric) return;
 
-      // Check if any visualization uses this metric
-      const usingViz = isMetricUsedByVisualization(
-        metric.name,
-        insightVisualizations,
-      );
-      if (usingViz) {
-        alert(
-          `Cannot remove metric "${metric.name}" because it is used by visualization "${usingViz.name}". Delete the visualization first.`,
-        );
-        return;
-      }
-
-      const updated = (insight.metrics ?? []).filter((m) => m.id !== metricId);
-      updateInsight(insight.id, { metrics: updated });
+      // Open delete confirmation dialog (affected visualizations computed reactively)
+      setDeleteDialog({
+        isOpen: true,
+        itemId: metricId,
+        itemName: metric.name,
+        itemType: "metric",
+      });
     },
-    [insight.id, insight.metrics, updateInsight, insightVisualizations],
+    [insight.metrics],
   );
 
   const handleAddMetric = useCallback(
@@ -243,6 +221,79 @@ export function InsightConfigPanel({
     [insight.id, insight.metrics, updateInsight],
   );
 
+  // --- Delete dialog handlers ---
+  const handleCloseDeleteDialog = useCallback(() => {
+    setDeleteDialog(initialDeleteDialogState);
+    setProcessingVizId(null);
+  }, []);
+
+  const handleRemoveFromVisualization = useCallback(
+    async (vizId: string) => {
+      const viz = insightVisualizations.find((v) => v.id === vizId);
+      if (!viz) return;
+
+      setProcessingVizId(vizId);
+      try {
+        // Remove the item from the visualization's encoding
+        const newEncoding = removeFromEncoding(
+          viz.encoding,
+          deleteDialog.itemId,
+          deleteDialog.itemType,
+        );
+        await updateEncoding(vizId, newEncoding);
+        // No need to update state - affectedVisualizations is computed reactively
+      } catch (error) {
+        console.error("Failed to remove from visualization:", error);
+        alert("Failed to update visualization. Please try again.");
+      } finally {
+        setProcessingVizId(null);
+      }
+    },
+    [
+      insightVisualizations,
+      deleteDialog.itemId,
+      deleteDialog.itemType,
+      updateEncoding,
+    ],
+  );
+
+  const handleDeleteVisualization = useCallback(
+    async (vizId: string) => {
+      setProcessingVizId(vizId);
+      try {
+        await removeVisualization(vizId);
+        // No need to update state - affectedVisualizations is computed reactively
+      } catch (error) {
+        console.error("Failed to delete visualization:", error);
+        alert("Failed to delete visualization. Please try again.");
+      } finally {
+        setProcessingVizId(null);
+      }
+    },
+    [removeVisualization],
+  );
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteDialog.itemType === "field") {
+      const updated = (insight.selectedFields ?? []).filter(
+        (id) => id !== deleteDialog.itemId,
+      );
+      updateInsight(insight.id, { selectedFields: updated });
+    } else {
+      const updated = (insight.metrics ?? []).filter(
+        (m) => m.id !== deleteDialog.itemId,
+      );
+      updateInsight(insight.id, { metrics: updated });
+    }
+  }, [
+    deleteDialog.itemType,
+    deleteDialog.itemId,
+    insight.id,
+    insight.selectedFields,
+    insight.metrics,
+    updateInsight,
+  ]);
+
   return (
     <Panel
       header={
@@ -261,7 +312,6 @@ export function InsightConfigPanel({
         {/* Fields Section */}
         <FieldsSection
           selectedFields={selectedFields}
-          selectedFieldIds={insight.selectedFields ?? []}
           baseTableId={dataTable.id}
           onReorder={handleFieldsReorder}
           onRemove={handleRemoveField}
@@ -308,6 +358,17 @@ export function InsightConfigPanel({
         dataTable={dataTable}
         onOpenChange={(open) => !open && setMetricToEdit(null)}
         onSave={handleEditMetric}
+      />
+      <DeleteConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        itemName={deleteDialog.itemName}
+        itemType={deleteDialog.itemType}
+        affectedVisualizations={affectedVisualizations}
+        processingVizId={processingVizId}
+        onClose={handleCloseDeleteDialog}
+        onRemoveFromVisualization={handleRemoveFromVisualization}
+        onDeleteVisualization={handleDeleteVisualization}
+        onDelete={handleConfirmDelete}
       />
     </Panel>
   );

@@ -106,11 +106,15 @@ export function VisualizationRenderer({
     // Resolve prefixed IDs to SQL expressions
     const resolved = resolveEncodingToSql(visualization.encoding, context);
 
-    // Merge with axis types (xType, yType are not resolved, just passed through)
+    // Merge with axis types and transforms (passed through for renderer)
+    // xTransform/yTransform tell the renderer this is temporal data with aggregation,
+    // allowing it to use band scale for bar charts (suppresses vgplot warning)
     return {
       ...resolved,
       xType: visualization.encoding.xType,
       yType: visualization.encoding.yType,
+      xTransform: visualization.encoding.xTransform,
+      yTransform: visualization.encoding.yTransform,
     };
   }, [visualization, dataTable, insight]);
 

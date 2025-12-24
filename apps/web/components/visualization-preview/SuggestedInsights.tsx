@@ -145,15 +145,21 @@ export function SuggestedInsights({
               </div>
 
               <div className="text-muted-foreground mb-3 space-y-1 text-xs">
-                <EncodingRow label="X" value={suggestion.encoding.x} />
+                <EncodingRow
+                  label="X"
+                  value={suggestion.encoding.xLabel ?? suggestion.encoding.x}
+                />
                 <EncodingRow
                   label="Y"
-                  value={formatYAxisLabel(suggestion.encoding.y ?? "")}
+                  value={suggestion.encoding.yLabel ?? suggestion.encoding.y}
                 />
                 {suggestion.encoding.color && (
                   <EncodingRow
                     label="Color"
-                    value={suggestion.encoding.color}
+                    value={
+                      suggestion.encoding.colorLabel ??
+                      suggestion.encoding.color
+                    }
                   />
                 )}
               </div>

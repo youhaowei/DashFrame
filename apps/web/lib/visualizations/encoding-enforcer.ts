@@ -4,10 +4,10 @@
  * Provides hard validation for chart encoding configurations based on vgplot
  * mark requirements. Each chart type has specific axis constraints:
  *
- * - bar (vertical): X = dimension (field), Y = metric (aggregation)
- * - barHorizontal: X = metric (aggregation), Y = dimension (field)
- * - line/area: X = continuous (temporal/numerical), Y = metric (aggregation)
- * - scatter: X = continuous, Y = continuous (metrics treated as numerical)
+ * - barY (vertical): X = dimension (field), Y = metric (aggregation)
+ * - barX (horizontal): X = metric (aggregation), Y = dimension (field)
+ * - line/areaY: X = continuous (temporal/numerical), Y = metric (aggregation)
+ * - dot (scatter): X = continuous, Y = continuous (metrics treated as numerical)
  *
  * IMPORTANT: For bar and line/area charts, the "value" axis must be a **metric**
  * (an explicit aggregation from insight.metrics like SUM, COUNT, AVG).
@@ -17,8 +17,8 @@
  * channel and validating complete encoding configurations.
  */
 
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import { looksLikeIdentifier } from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/types";
+import { looksLikeIdentifier } from "@dashframe/types";
 import type { VisualizationType, CompiledInsight } from "@dashframe/types";
 import {
   resolveForAnalysis,
@@ -54,8 +54,8 @@ export interface ColumnSuitability {
 // Column Category Helpers
 // ============================================================================
 
-/** Categories that are always blocked from axes */
-const BLOCKED_CATEGORIES = new Set([
+/** Semantics that are always blocked from axes */
+const BLOCKED_SEMANTICS = new Set([
   "identifier",
   "reference",
   "email",
@@ -64,10 +64,10 @@ const BLOCKED_CATEGORIES = new Set([
 ]);
 
 /**
- * Check if a column is categorically blocked (identifiers, references, etc.)
+ * Check if a column has blocked semantic (identifiers, references, etc.)
  */
-function isBlockedCategory(col: ColumnAnalysis): boolean {
-  if (BLOCKED_CATEGORIES.has(col.category)) return true;
+function isBlockedSemantic(col: ColumnAnalysis): boolean {
+  if (BLOCKED_SEMANTICS.has(col.semantic)) return true;
   if (looksLikeIdentifier(col.columnName)) return true;
   return false;
 }
@@ -76,21 +76,21 @@ function isBlockedCategory(col: ColumnAnalysis): boolean {
  * Check if a column is categorical (discrete, unordered)
  */
 function isCategorical(col: ColumnAnalysis): boolean {
-  return col.category === "categorical" || col.category === "boolean";
+  return col.semantic === "categorical" || col.semantic === "boolean";
 }
 
 /**
  * Check if a column is continuous (ordered, interpolatable)
  */
 function isContinuous(col: ColumnAnalysis): boolean {
-  return col.category === "temporal" || col.category === "numerical";
+  return col.semantic === "temporal" || col.semantic === "numerical";
 }
 
 /**
  * Check if a column is temporal
  */
 function isTemporal(col: ColumnAnalysis): boolean {
-  return col.category === "temporal";
+  return col.semantic === "temporal";
 }
 
 // ============================================================================
@@ -159,7 +159,7 @@ function validateBarX(
     return { suitable: false, reason: "Column not found in analysis" };
   }
 
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
@@ -279,7 +279,7 @@ function validateBarHorizontalY(
     return { suitable: false, reason: "Column not found in analysis" };
   }
 
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
@@ -334,7 +334,7 @@ function validateLineAreaX(
     return { suitable: false, reason: "Column not found in analysis" };
   }
 
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return { suitable: false, reason: "Identifiers cannot be used on axes" };
   }
 
@@ -416,7 +416,7 @@ function validateScatterAxis(
     return { suitable: false, reason: "Column not found in analysis" };
   }
 
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return { suitable: false, reason: "Identifiers cannot be used on axes" };
   }
 
@@ -442,7 +442,7 @@ function isValidBarX(
   col: ColumnAnalysis,
   _metricIds: Set<string>,
 ): ColumnSuitability {
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
@@ -492,7 +492,7 @@ function isValidBarHorizontalY(
   col: ColumnAnalysis,
   _metricIds: Set<string>,
 ): ColumnSuitability {
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return {
       suitable: false,
       reason: "Identifiers cannot be used as categories",
@@ -512,7 +512,7 @@ function isValidBarHorizontalY(
  * X should be continuous (temporal or numerical dimension)
  */
 function isValidLineAreaX(col: ColumnAnalysis): ColumnSuitability {
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return { suitable: false, reason: "Identifiers cannot be used on axes" };
   }
   if (isContinuous(col)) {
@@ -541,7 +541,7 @@ function isValidLineAreaY(_col: ColumnAnalysis): ColumnSuitability {
  * Both axes should be continuous (temporal or numerical)
  */
 function isValidScatterAxis(col: ColumnAnalysis): ColumnSuitability {
-  if (isBlockedCategory(col)) {
+  if (isBlockedSemantic(col)) {
     return { suitable: false, reason: "Identifiers cannot be used on axes" };
   }
   if (isContinuous(col)) {
@@ -615,14 +615,14 @@ function isMetricAllowedOnChannel(
   chartType: VisualizationType,
 ): boolean {
   switch (chartType) {
-    case "bar":
+    case "barY":
       return channel === "y"; // Y axis only
-    case "barHorizontal":
+    case "barX":
       return channel === "x"; // X axis only
     case "line":
-    case "area":
+    case "areaY":
       return channel === "y"; // Y axis only
-    case "scatter":
+    case "dot":
       return true; // Both axes allow metrics
     default:
       return false;
@@ -638,26 +638,26 @@ function getColumnValidatorFunction(
   metricIds: Set<string>,
 ): (col: ColumnAnalysis) => ColumnSuitability {
   switch (chartType) {
-    case "bar":
+    case "barY":
       return channel === "x"
         ? (col) => isValidBarX(col, metricIds)
         : () => isValidBarY({} as ColumnAnalysis); // Y axis only allows metrics
-    case "barHorizontal":
+    case "barX":
       return channel === "x"
         ? () => isValidBarHorizontalX({} as ColumnAnalysis) // X axis only allows metrics
         : (col) => isValidBarHorizontalY(col, metricIds);
     case "line":
-    case "area":
+    case "areaY":
       return channel === "x"
         ? isValidLineAreaX
         : () => isValidLineAreaY({} as ColumnAnalysis); // Y axis only allows metrics
-    case "scatter":
+    case "dot":
       return isValidScatterAxis;
     default:
       // Fallback: allow anything that's not blocked
       return (col) => ({
-        suitable: !isBlockedCategory(col),
-        reason: isBlockedCategory(col)
+        suitable: !isBlockedSemantic(col),
+        reason: isBlockedSemantic(col)
           ? "Identifiers cannot be used"
           : undefined,
       });
@@ -709,14 +709,14 @@ function getEncodingValidator(
   context: EncodingResolutionContext,
 ) => ColumnSuitability {
   switch (chartType) {
-    case "bar":
+    case "barY":
       return channel === "x" ? validateBarX : validateBarY;
-    case "barHorizontal":
+    case "barX":
       return channel === "x" ? validateBarHorizontalX : validateBarHorizontalY;
     case "line":
-    case "area":
+    case "areaY":
       return channel === "x" ? validateLineAreaX : validateLineAreaY;
-    case "scatter":
+    case "dot":
       return validateScatterAxis;
     default:
       // Fallback: check valid format only
@@ -782,12 +782,12 @@ export function validateEncoding(
  */
 export function isSwapAllowed(chartType: VisualizationType): boolean {
   switch (chartType) {
-    case "bar":
-    case "barHorizontal":
-    case "scatter":
+    case "barY":
+    case "barX":
+    case "dot":
       return true;
     case "line":
-    case "area":
+    case "areaY":
       return false;
     default:
       return false;
@@ -804,10 +804,10 @@ export function getSwappedChartType(
   chartType: VisualizationType,
 ): VisualizationType {
   switch (chartType) {
-    case "bar":
-      return "barHorizontal";
-    case "barHorizontal":
-      return "bar";
+    case "barY":
+      return "barX";
+    case "barX":
+      return "barY";
     default:
       return chartType;
   }
@@ -823,14 +823,14 @@ export function getAxisSemanticLabel(
   chartType: VisualizationType,
 ): string {
   switch (chartType) {
-    case "bar":
+    case "barY":
       return axis === "x" ? "Category" : "Value";
-    case "barHorizontal":
+    case "barX":
       return axis === "x" ? "Value" : "Category";
     case "line":
-    case "area":
+    case "areaY":
       return axis === "x" ? "Continuous" : "Measure";
-    case "scatter":
+    case "dot":
       return "Continuous";
     default:
       return "";

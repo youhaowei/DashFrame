@@ -1,101 +1,298 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrameColumn, Field } from "@dashframe/engine";
+import type {
+  ColumnAnalysis,
+  StringAnalysis,
+  NumberAnalysis,
+  DateAnalysis,
+  BooleanAnalysis,
+  UnknownAnalysis,
+} from "@dashframe/types";
+import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
 import { Insight } from "./insight";
 
+// Re-export types and utilities from @dashframe/types for backward compatibility
+export type { ColumnAnalysis, DataFrameAnalysis } from "@dashframe/types";
+export type { ColumnCategory } from "@dashframe/types";
+export { looksLikeIdentifier, CARDINALITY_THRESHOLDS } from "@dashframe/types";
+
 // Pattern detection helpers
-// eslint-disable-next-line sonarjs/slow-regex -- Email validation pattern, input is bounded
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const URL_PATTERN = /^https?:\/\/.+/i;
+// Safe regex patterns that avoid catastrophic backtracking (ReDoS)
+// Using more specific patterns with length limits for sample value detection
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const URL_PATTERN = /^https?:\/\/[^\s]{1,2048}$/i;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const isEmail = (value: string): boolean => EMAIL_PATTERN.test(value);
-const isURL = (value: string): boolean => URL_PATTERN.test(value);
-const isUUID = (value: string): boolean => UUID_PATTERN.test(value);
-
-export type ColumnCategory =
-  | "identifier"
-  | "reference"
-  | "email"
-  | "url"
-  | "uuid"
-  | "categorical"
-  | "numerical"
-  | "temporal"
-  | "boolean"
-  | "text"
-  | "unknown";
-
-export type ColumnAnalysis = {
-  columnName: string;
-  category: ColumnCategory;
-  cardinality: number;
-  uniqueness: number; // 0 to 1
-  nullCount: number;
-  sampleValues: unknown[];
-  pattern?: string; // Detected pattern if applicable
-  min?: number;
-  max?: number;
-  stdDev?: number;
-  zeroCount?: number;
-  /** Ratio of the most frequent value (0-1). High value = dominated by one category */
-  maxFrequencyRatio?: number;
-  /** Min timestamp (ms since epoch) for temporal columns - used for date transform auto-selection */
-  minDate?: number;
-  /** Max timestamp (ms since epoch) for temporal columns - used for date transform auto-selection */
-  maxDate?: number;
+const isEmail = (value: string): boolean => {
+  // Length check to prevent ReDoS on extremely long strings
+  if (value.length > 320) return false;
+  return EMAIL_PATTERN.test(value);
 };
 
-// ============================================================================
-// Cardinality Thresholds - Single source of truth for all consumers
-// ============================================================================
+const isURL = (value: string): boolean => {
+  // Length check to prevent ReDoS on extremely long strings
+  if (value.length > 2048) return false;
+  return URL_PATTERN.test(value);
+};
+
+const isUUID = (value: string): boolean => UUID_PATTERN.test(value);
+
+// Helper functions for column analysis
+type ColumnStats = {
+  column_name: string;
+  cardinality: bigint;
+  null_count: bigint;
+  data_type: string;
+  min_val: number | null;
+  max_val: number | null;
+  std_dev: number | null;
+  zero_count: bigint;
+  min_date: bigint | null;
+  max_date: bigint | null;
+};
+
+type BaseProps = {
+  columnName: string;
+  cardinality: number;
+  uniqueness: number;
+  nullCount: number;
+  sampleValues: unknown[];
+};
 
 /**
- * Cardinality thresholds for column categorization and validation.
- * Used by suggest-charts, axis-warnings, and encoding-criteria.
+ * Check if a numeric column name matches ID patterns
  */
-export const CARDINALITY_THRESHOLDS = {
-  /** Max categories for readable color legend */
-  COLOR_MAX: 12,
-  /** Min categories for color to be useful */
-  COLOR_MIN: 2,
-  /** Max categories for X-axis readability */
-  CATEGORICAL_X_MAX: 50,
-  /** Cardinality ratio threshold for categorical detection (relative to row count) */
-  CATEGORICAL_RATIO: 0.2,
-} as const;
+function isNumericIdPattern(
+  columnName: string,
+  isExplicitIdentifier: boolean,
+): boolean {
+  if (isExplicitIdentifier) return true;
 
-// ============================================================================
-// Identifier Detection - Consolidated from axis-warnings.ts
-// ============================================================================
+  const colName = columnName.toLowerCase();
+  const numericIdPatterns = [
+    /id$/,
+    /_id$/,
+    /^id$/,
+    /^id_/,
+    /key$/,
+    /no$/,
+    /num$/,
+    /index$/,
+    /seq$/,
+  ];
+  const notIdPatterns = [/zipcode$/, /postcode$/, /areacode$/];
 
-/** Patterns that indicate a column is an identifier */
-const ID_NAME_PATTERNS = [
-  /^id$/i,
-  /_id$/i,
-  /^id_/i,
-  /Id$/, // camelCase: userId
-  /^uuid$/i,
-  /^guid$/i,
-  /^_rowindex$/i,
-  /^rowindex$/i,
-  /key$/i,
-  /^pk$/i,
-];
-
-/** Patterns that look like IDs but aren't (false positives) */
-const NOT_ID_PATTERNS = [/zipcode$/i, /postcode$/i, /areacode$/i];
+  return (
+    numericIdPatterns.some((p) => p.test(colName)) &&
+    !notIdPatterns.some((p) => p.test(colName))
+  );
+}
 
 /**
- * Check if a column name looks like an identifier.
- * Consolidated from axis-warnings.ts for single source of truth.
- *
- * @param name - Column name to check
- * @returns true if the column name matches identifier patterns
+ * Detect string pattern type (email, url, uuid) from sample values
  */
-export function looksLikeIdentifier(name: string): boolean {
-  if (NOT_ID_PATTERNS.some((p) => p.test(name))) return false;
-  return ID_NAME_PATTERNS.some((p) => p.test(name));
+function detectStringPattern(
+  stringValues: string[],
+): "email" | "url" | "uuid" | null {
+  if (stringValues.length === 0) return null;
+
+  const threshold = stringValues.length * 0.8;
+  const emailCount = stringValues.filter(isEmail).length;
+  const urlCount = stringValues.filter(isURL).length;
+  const uuidCount = stringValues.filter(isUUID).length;
+
+  if (emailCount >= threshold) return "email";
+  if (urlCount >= threshold) return "url";
+  if (uuidCount >= threshold) return "uuid";
+  return null;
+}
+
+/**
+ * Compute string length statistics
+ */
+function computeStringLengthStats(stringValues: string[]): {
+  minLength: number;
+  maxLength: number;
+  avgLength: number;
+} {
+  const lengths = stringValues.map((s) => s.length);
+  const minLength = Math.min(...lengths);
+  const maxLength = Math.max(...lengths);
+  const avgLength = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  return { minLength, maxLength, avgLength };
+}
+
+/**
+ * Check if a string column matches identifier patterns
+ */
+function isStringIdentifier(
+  columnName: string,
+  isExplicitIdentifier: boolean,
+  uniqueness: number,
+  rowCount: number,
+): boolean {
+  if (isExplicitIdentifier) return true;
+
+  const colName = columnName.toLowerCase();
+  const idPatterns = [
+    /_id$/,
+    /^id$/,
+    /^id_/,
+    /^uuid$/,
+    /^guid$/,
+    /^_rowindex$/,
+  ];
+  const camelCaseId = /[a-z]Id$/.test(columnName);
+
+  return (
+    idPatterns.some((p) => p.test(colName)) ||
+    camelCaseId ||
+    (uniqueness === 1 && rowCount > 1)
+  );
+}
+
+/**
+ * Analyze boolean column
+ */
+function analyzeBoolean(
+  baseProps: BaseProps,
+  sampleValues: unknown[],
+): BooleanAnalysis {
+  const trueCount = sampleValues.filter(
+    (v) => v === true || v === "true",
+  ).length;
+  const falseCount = sampleValues.filter(
+    (v) => v === false || v === "false",
+  ).length;
+
+  return {
+    ...baseProps,
+    dataType: "boolean",
+    semantic: "boolean",
+    trueCount,
+    falseCount,
+  };
+}
+
+/**
+ * Analyze numeric column
+ */
+function analyzeNumeric(
+  baseProps: BaseProps,
+  stats: ColumnStats,
+  isExplicitIdentifier: boolean,
+): NumberAnalysis {
+  const minVal = stats.min_val ?? 0;
+  const maxVal = stats.max_val ?? 0;
+  const stdDev = stats.std_dev ?? undefined;
+  const zeroCount = Number(stats.zero_count);
+
+  const isNumericId = isNumericIdPattern(
+    stats.column_name,
+    isExplicitIdentifier,
+  );
+
+  return {
+    ...baseProps,
+    dataType: "number",
+    semantic: isNumericId ? "identifier" : "numerical",
+    min: minVal,
+    max: maxVal,
+    stdDev,
+    zeroCount,
+  };
+}
+
+/**
+ * Analyze date/time column
+ */
+function analyzeDate(baseProps: BaseProps, stats: ColumnStats): DateAnalysis {
+  const minDate = stats.min_date != null ? Number(stats.min_date) : Date.now();
+  const maxDate = stats.max_date != null ? Number(stats.max_date) : Date.now();
+
+  return {
+    ...baseProps,
+    dataType: "date",
+    semantic: "temporal",
+    minDate,
+    maxDate,
+  };
+}
+
+/**
+ * Analyze string column with pattern and semantic detection
+ */
+function analyzeString(
+  baseProps: BaseProps,
+  stats: ColumnStats,
+  stringValues: string[],
+  isExplicitIdentifier: boolean,
+  maxFrequencyRatio: number | undefined,
+  rowCount: number,
+): StringAnalysis {
+  if (stringValues.length === 0) {
+    return {
+      ...baseProps,
+      dataType: "string",
+      semantic: "categorical",
+      maxFrequencyRatio,
+    };
+  }
+
+  const { minLength, maxLength, avgLength } =
+    computeStringLengthStats(stringValues);
+  const stringProps = {
+    ...baseProps,
+    dataType: "string" as const,
+    minLength,
+    maxLength,
+    avgLength,
+    maxFrequencyRatio,
+  };
+
+  // Check for pattern matches (email, url, uuid)
+  const pattern = detectStringPattern(stringValues);
+  if (pattern) {
+    return {
+      ...stringProps,
+      semantic: pattern,
+      pattern,
+    };
+  }
+
+  // Check for identifier patterns
+  if (
+    isStringIdentifier(
+      stats.column_name,
+      isExplicitIdentifier,
+      baseProps.uniqueness,
+      rowCount,
+    )
+  ) {
+    return {
+      ...stringProps,
+      semantic: "identifier",
+    };
+  }
+
+  // Categorical vs text based on cardinality
+  const cardinality = baseProps.cardinality;
+  if (
+    cardinality < rowCount * CARDINALITY_THRESHOLDS.CATEGORICAL_RATIO ||
+    cardinality < 50
+  ) {
+    return {
+      ...stringProps,
+      semantic: "categorical",
+    };
+  }
+
+  // Default to text for high-cardinality strings
+  return {
+    ...stringProps,
+    semantic: "text",
+  };
 }
 
 /**
@@ -223,7 +420,6 @@ export async function analyzeDataFrame(
   }
 
   // Process each column's analysis
-  // eslint-disable-next-line sonarjs/cognitive-complexity -- Complex analysis logic with multiple heuristics
   const analyses: ColumnAnalysis[] = statsRows.map((stats) => {
     const columnName = stats.column_name;
     const sampleValues = samplesByColumn.get(columnName) ?? [];
@@ -231,162 +427,91 @@ export async function analyzeDataFrame(
     try {
       const cardinality = Number(stats.cardinality);
       const nullCount = Number(stats.null_count);
-      const dataType = stats.data_type || "unknown";
+      const duckDBType = (stats.data_type || "unknown").toLowerCase();
       const nonNullCount = rowCount - nullCount;
       const uniqueness = nonNullCount > 0 ? cardinality / nonNullCount : 0;
-
-      const min = stats.min_val ?? undefined;
-      const max = stats.max_val ?? undefined;
-      const stdDev = stats.std_dev ?? undefined;
-      const zeroCount = Number(stats.zero_count);
-
-      // Determine category
-      let category: ColumnCategory = "unknown";
-
-      // 1. Check explicit field metadata
-      if (fields?.[columnName]) {
-        const field = fields[columnName];
-        if (field.isIdentifier) category = "identifier";
-        else if (field.isReference) category = "reference";
-      }
-
-      // 2. Pattern-based ID detection
-      if (category === "unknown") {
-        const colName = columnName.toLowerCase();
-        const idPatterns = [
-          /_id$/,
-          /^id$/,
-          /^id_/,
-          /^uuid$/,
-          /^guid$/,
-          /^_rowindex$/,
-        ];
-        const camelCaseId = /[a-z]Id$/.test(columnName);
-
-        const stringValues = sampleValues
-          .map((v) => String(v))
-          .filter((v) => v.length > 0);
-        const uuidCount = stringValues.filter(isUUID).length;
-        const isLikelyUUID =
-          stringValues.length > 0 && uuidCount >= stringValues.length * 0.8;
-
-        if (
-          !isLikelyUUID &&
-          (idPatterns.some((p) => p.test(colName)) ||
-            camelCaseId ||
-            (uniqueness > 0.95 && cardinality > 10))
-        ) {
-          category = "identifier";
-        }
-      }
-
-      // 3. Type-based heuristics using DuckDB data type
-      if (category === "unknown") {
-        const duckDBType = dataType.toLowerCase();
-
-        if (duckDBType === "boolean" || duckDBType === "bool") {
-          category = "boolean";
-        } else if (
-          duckDBType.includes("int") ||
-          duckDBType.includes("float") ||
-          duckDBType.includes("double") ||
-          duckDBType.includes("decimal") ||
-          duckDBType.includes("numeric") ||
-          duckDBType.includes("bigint")
-        ) {
-          // Check if numeric column looks like an ID
-          const colName = columnName.toLowerCase();
-          const numericIdPatterns = [
-            /id$/,
-            /_id$/,
-            /^id$/,
-            /^id_/,
-            /key$/,
-            /no$/,
-            /num$/,
-            /index$/,
-            /seq$/,
-          ];
-          const notIdPatterns = [/zipcode$/, /postcode$/, /areacode$/];
-
-          if (
-            numericIdPatterns.some((p) => p.test(colName)) &&
-            !notIdPatterns.some((p) => p.test(colName))
-          ) {
-            category = "identifier";
-          } else {
-            category = "numerical";
-          }
-        } else if (
-          duckDBType.includes("date") ||
-          duckDBType.includes("time") ||
-          duckDBType.includes("timestamp")
-        ) {
-          category = "temporal";
-        } else if (
-          duckDBType.includes("varchar") ||
-          duckDBType.includes("string") ||
-          duckDBType.includes("text")
-        ) {
-          const stringValues = sampleValues
-            .map((v) => String(v))
-            .filter((v) => v.length > 0);
-
-          if (stringValues.length > 0) {
-            const emailCount = stringValues.filter(isEmail).length;
-            const urlCount = stringValues.filter(isURL).length;
-            const uuidCount = stringValues.filter(isUUID).length;
-            const threshold = stringValues.length * 0.8;
-
-            if (emailCount >= threshold) {
-              category = "email";
-            } else if (urlCount >= threshold) {
-              category = "url";
-            } else if (uuidCount >= threshold) {
-              category = "uuid";
-            } else if (uniqueness === 1 && rowCount > 1) {
-              category = "identifier";
-            } else if (cardinality < rowCount * 0.2 || cardinality < 50) {
-              category = "categorical";
-            } else {
-              category = "text";
-            }
-          }
-        }
-      }
 
       // Compute max frequency ratio (what % of rows have the most common value)
       const maxFreq = maxFreqByColumn.get(columnName) ?? 0;
       const maxFrequencyRatio = rowCount > 0 ? maxFreq / rowCount : undefined;
 
-      // Extract temporal date range for temporal columns (used for auto-selecting date transforms)
-      const minDate =
-        category === "temporal" && stats.min_date != null
-          ? Number(stats.min_date)
-          : undefined;
-      const maxDate =
-        category === "temporal" && stats.max_date != null
-          ? Number(stats.max_date)
-          : undefined;
-
-      return {
+      // Base properties shared by all types
+      const baseProps: BaseProps = {
         columnName,
-        category,
         cardinality,
         uniqueness,
         nullCount,
         sampleValues: sampleValues.slice(0, 5),
-        ...(category === "email" || category === "url" || category === "uuid"
-          ? { pattern: category }
-          : {}),
-        min,
-        max,
-        stdDev,
-        zeroCount,
-        maxFrequencyRatio,
-        minDate,
-        maxDate,
       };
+
+      // Helper to check field metadata
+      const field = fields?.[columnName];
+      const isExplicitIdentifier = field?.isIdentifier ?? false;
+      const isExplicitReference = field?.isReference ?? false;
+
+      // String values for pattern detection
+      const stringValues = sampleValues
+        .map((v) => String(v))
+        .filter((v) => v.length > 0);
+
+      // Determine dataType and semantic based on DuckDB type and heuristics
+      if (duckDBType === "boolean" || duckDBType === "bool") {
+        return analyzeBoolean(baseProps, sampleValues);
+      }
+
+      if (
+        duckDBType.includes("int") ||
+        duckDBType.includes("float") ||
+        duckDBType.includes("double") ||
+        duckDBType.includes("decimal") ||
+        duckDBType.includes("numeric") ||
+        duckDBType.includes("bigint")
+      ) {
+        return analyzeNumeric(baseProps, stats, isExplicitIdentifier);
+      }
+
+      if (
+        duckDBType.includes("date") ||
+        duckDBType.includes("time") ||
+        duckDBType.includes("timestamp")
+      ) {
+        return analyzeDate(baseProps, stats);
+      }
+
+      if (
+        duckDBType.includes("[]") ||
+        duckDBType.includes("list") ||
+        isExplicitReference
+      ) {
+        return {
+          ...baseProps,
+          dataType: "array",
+          semantic: "reference",
+          avgLength: undefined, // TODO: compute if needed
+        };
+      }
+
+      if (
+        duckDBType.includes("varchar") ||
+        duckDBType.includes("string") ||
+        duckDBType.includes("text")
+      ) {
+        return analyzeString(
+          baseProps,
+          stats,
+          stringValues,
+          isExplicitIdentifier,
+          maxFrequencyRatio,
+          rowCount,
+        );
+      }
+
+      // Unknown type
+      return {
+        ...baseProps,
+        dataType: "unknown",
+        semantic: "unknown",
+      } as UnknownAnalysis;
     } catch (error) {
       console.warn(
         `[analyzeDataFrame] Error analyzing column ${columnName}:`,
@@ -394,12 +519,13 @@ export async function analyzeDataFrame(
       );
       return {
         columnName,
-        category: "unknown" as ColumnCategory,
+        dataType: "unknown",
+        semantic: "unknown",
         cardinality: 0,
         uniqueness: 0,
         nullCount: 0,
         sampleValues: [],
-      };
+      } as UnknownAnalysis;
     }
   });
 
@@ -417,95 +543,90 @@ export type JoinSuggestion = {
   reason: string;
 };
 
+// Helper functions for join column suggestion
+function isInternalColumn(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.startsWith("_") || // Internal columns like _rowIndex
+    lower === "rowindex" ||
+    lower === "row_index"
+  );
+}
+
+function typesCompatible(left: ColumnAnalysis, right: ColumnAnalysis): boolean {
+  const leftSem = left.semantic;
+  const rightSem = right.semantic;
+  // Identifiers and references are always compatible
+  if (
+    (leftSem === "identifier" || leftSem === "reference") &&
+    (rightSem === "identifier" || rightSem === "reference")
+  ) {
+    return true;
+  }
+  // Same semantic is compatible
+  if (leftSem === rightSem) return true;
+  // Numerical can join with identifier (foreign keys are often numeric)
+  if (
+    (leftSem === "numerical" && rightSem === "identifier") ||
+    (leftSem === "identifier" && rightSem === "numerical")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, "");
+}
+
+function extractBaseName(name: string): string | null {
+  const lower = name.toLowerCase();
+  // Match patterns like user_id, userId, user-id
+  const match = lower.match(/^(.+?)[-_]?id$/i);
+  return match ? match[1].replace(/[-_]/g, "") : null;
+}
+
+function isAlreadySuggested(
+  suggestions: JoinSuggestion[],
+  leftColumn: string,
+  rightColumn: string,
+): boolean {
+  return suggestions.some(
+    (s) => s.leftColumn === leftColumn && s.rightColumn === rightColumn,
+  );
+}
+
+function isLeftColumnSuggested(
+  suggestions: JoinSuggestion[],
+  columnName: string,
+): boolean {
+  return suggestions.some((s) => s.leftColumn === columnName);
+}
+
+function isRightColumnSuggested(
+  suggestions: JoinSuggestion[],
+  columnName: string,
+): boolean {
+  return suggestions.some((s) => s.rightColumn === columnName);
+}
+
 /**
- * Suggest join columns between two datasets based on column analysis.
- *
- * Matching strategies (in priority order):
- * 1. Exact name match on identifier columns (user_id = user_id) → high confidence
- * 2. Reference pattern: left.id matches right.*_id (users.id → orders.user_id) → high confidence
- * 2b. Reverse reference: left.*_id matches right.id (orders.user_id → users.id) → high confidence
- * 3. Same name with compatible types → medium confidence
- * 4. Identifier columns with matching types → low confidence
- *
- * @param leftAnalysis - Column analysis of the left (base) table
- * @param rightAnalysis - Column analysis of the right (join) table
- * @param leftTableName - Optional name of left table for reference pattern matching
- * @param rightTableName - Optional name of right table for reverse reference pattern matching
- * @returns Array of join suggestions sorted by confidence
+ * Strategy 1: Exact name match on identifier/reference columns
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex join matching with multiple strategies
-export function suggestJoinColumns(
+function findExactNameMatches(
   leftAnalysis: ColumnAnalysis[],
   rightAnalysis: ColumnAnalysis[],
-  leftTableName?: string,
-  rightTableName?: string,
 ): JoinSuggestion[] {
   const suggestions: JoinSuggestion[] = [];
 
-  // Filter out internal/auto-generated columns that shouldn't be used for joins
-  const isInternalColumn = (name: string): boolean => {
-    const lower = name.toLowerCase();
-    return (
-      lower.startsWith("_") || // Internal columns like _rowIndex
-      lower === "rowindex" ||
-      lower === "row_index"
-    );
-  };
-
-  // Filter analyses to exclude internal columns
-  const filteredLeftAnalysis = leftAnalysis.filter(
-    (col) => !isInternalColumn(col.columnName),
-  );
-  const filteredRightAnalysis = rightAnalysis.filter(
-    (col) => !isInternalColumn(col.columnName),
-  );
-
-  // Helper to check if types are compatible for joining
-  const typesCompatible = (
-    left: ColumnCategory,
-    right: ColumnCategory,
-  ): boolean => {
-    // Identifiers and references are always compatible
-    if (
-      (left === "identifier" || left === "reference") &&
-      (right === "identifier" || right === "reference")
-    ) {
-      return true;
-    }
-    // Same category is compatible
-    if (left === right) return true;
-    // Numerical can join with identifier (foreign keys are often numeric)
-    if (
-      (left === "numerical" && right === "identifier") ||
-      (left === "identifier" && right === "numerical")
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  // Helper to normalize column name for matching
-  const normalizeName = (name: string): string => {
-    return name.toLowerCase().replace(/[_-]/g, "");
-  };
-
-  // Helper to extract base name from foreign key pattern (user_id → user)
-  const extractBaseName = (name: string): string | null => {
-    const lower = name.toLowerCase();
-    // Match patterns like user_id, userId, user-id
-    const match = lower.match(/^(.+?)[-_]?id$/i);
-    return match ? match[1].replace(/[-_]/g, "") : null;
-  };
-
-  // Strategy 1: Exact name match on identifier/reference columns
-  for (const leftCol of filteredLeftAnalysis) {
-    if (leftCol.category !== "identifier" && leftCol.category !== "reference")
+  for (const leftCol of leftAnalysis) {
+    if (leftCol.semantic !== "identifier" && leftCol.semantic !== "reference")
       continue;
 
-    for (const rightCol of filteredRightAnalysis) {
+    for (const rightCol of rightAnalysis) {
       if (
-        rightCol.category !== "identifier" &&
-        rightCol.category !== "reference"
+        rightCol.semantic !== "identifier" &&
+        rightCol.semantic !== "reference"
       )
         continue;
 
@@ -522,84 +643,117 @@ export function suggestJoinColumns(
     }
   }
 
-  // Strategy 2: Reference pattern matching (users.id → orders.user_id)
-  // Look for left table's "id" column matching right table's "*_id" foreign key
-  const leftIdCol = filteredLeftAnalysis.find(
+  return suggestions;
+}
+
+/**
+ * Strategy 2: Reference pattern matching (users.id → orders.user_id)
+ */
+function findReferencePatternMatches(
+  leftAnalysis: ColumnAnalysis[],
+  rightAnalysis: ColumnAnalysis[],
+  leftTableName: string,
+  existingSuggestions: JoinSuggestion[],
+): JoinSuggestion[] {
+  const suggestions: JoinSuggestion[] = [];
+  const leftIdCol = leftAnalysis.find(
     (col) =>
       col.columnName.toLowerCase() === "id" &&
-      (col.category === "identifier" || col.category === "reference"),
+      (col.semantic === "identifier" || col.semantic === "reference"),
   );
 
-  if (leftIdCol && leftTableName) {
-    const tableBaseName = normalizeName(leftTableName.replace(/s$/, "")); // "users" → "user"
+  if (!leftIdCol) return suggestions;
 
-    for (const rightCol of filteredRightAnalysis) {
-      const fkBaseName = extractBaseName(rightCol.columnName);
-      if (fkBaseName && fkBaseName === tableBaseName) {
-        // Avoid duplicate suggestions
-        const alreadySuggested = suggestions.some(
-          (s) =>
-            s.leftColumn === leftIdCol.columnName &&
-            s.rightColumn === rightCol.columnName,
-        );
-        if (!alreadySuggested) {
-          suggestions.push({
-            leftColumn: leftIdCol.columnName,
-            rightColumn: rightCol.columnName,
-            confidence: "high",
-            reason: `Foreign key pattern: ${leftTableName}.id → ${rightCol.columnName}`,
-          });
-        }
+  const tableBaseName = normalizeName(leftTableName.replace(/s$/, "")); // "users" → "user"
+
+  for (const rightCol of rightAnalysis) {
+    const fkBaseName = extractBaseName(rightCol.columnName);
+    if (fkBaseName && fkBaseName === tableBaseName) {
+      if (
+        !isAlreadySuggested(
+          existingSuggestions,
+          leftIdCol.columnName,
+          rightCol.columnName,
+        )
+      ) {
+        suggestions.push({
+          leftColumn: leftIdCol.columnName,
+          rightColumn: rightCol.columnName,
+          confidence: "high",
+          reason: `Foreign key pattern: ${leftTableName}.id → ${rightCol.columnName}`,
+        });
       }
     }
   }
 
-  // Strategy 2b: Reverse reference pattern (orders.user_id → users.id)
-  // Look for left table's "*_id" foreign key matching right table's "id" column
-  const rightIdCol = filteredRightAnalysis.find(
+  return suggestions;
+}
+
+/**
+ * Strategy 2b: Reverse reference pattern (orders.user_id → users.id)
+ */
+function findReverseReferencePatternMatches(
+  leftAnalysis: ColumnAnalysis[],
+  rightAnalysis: ColumnAnalysis[],
+  rightTableName: string,
+  existingSuggestions: JoinSuggestion[],
+): JoinSuggestion[] {
+  const suggestions: JoinSuggestion[] = [];
+  const rightIdCol = rightAnalysis.find(
     (col) =>
       col.columnName.toLowerCase() === "id" &&
-      (col.category === "identifier" || col.category === "reference"),
+      (col.semantic === "identifier" || col.semantic === "reference"),
   );
 
-  if (rightIdCol && rightTableName) {
-    const tableBaseName = normalizeName(rightTableName.replace(/s$/, "")); // "users" → "user"
+  if (!rightIdCol) return suggestions;
 
-    for (const leftCol of filteredLeftAnalysis) {
-      const fkBaseName = extractBaseName(leftCol.columnName);
-      if (fkBaseName && fkBaseName === tableBaseName) {
-        // Avoid duplicate suggestions
-        const alreadySuggested = suggestions.some(
-          (s) =>
-            s.leftColumn === leftCol.columnName &&
-            s.rightColumn === rightIdCol.columnName,
-        );
-        if (!alreadySuggested) {
-          suggestions.push({
-            leftColumn: leftCol.columnName,
-            rightColumn: rightIdCol.columnName,
-            confidence: "high",
-            reason: `Foreign key pattern: ${leftCol.columnName} → ${rightTableName}.id`,
-          });
-        }
+  const tableBaseName = normalizeName(rightTableName.replace(/s$/, "")); // "users" → "user"
+
+  for (const leftCol of leftAnalysis) {
+    const fkBaseName = extractBaseName(leftCol.columnName);
+    if (fkBaseName && fkBaseName === tableBaseName) {
+      if (
+        !isAlreadySuggested(
+          existingSuggestions,
+          leftCol.columnName,
+          rightIdCol.columnName,
+        )
+      ) {
+        suggestions.push({
+          leftColumn: leftCol.columnName,
+          rightColumn: rightIdCol.columnName,
+          confidence: "high",
+          reason: `Foreign key pattern: ${leftCol.columnName} → ${rightTableName}.id`,
+        });
       }
     }
   }
 
-  // Strategy 3: Same name with compatible types (non-ID columns)
-  for (const leftCol of filteredLeftAnalysis) {
-    // Skip if already found as ID match
-    if (suggestions.some((s) => s.leftColumn === leftCol.columnName)) continue;
+  return suggestions;
+}
 
-    for (const rightCol of filteredRightAnalysis) {
-      // Skip if already suggested
-      if (suggestions.some((s) => s.rightColumn === rightCol.columnName))
+/**
+ * Strategy 3: Same name with compatible types (non-ID columns)
+ */
+function findSameNameMatches(
+  leftAnalysis: ColumnAnalysis[],
+  rightAnalysis: ColumnAnalysis[],
+  existingSuggestions: JoinSuggestion[],
+): JoinSuggestion[] {
+  const suggestions: JoinSuggestion[] = [];
+
+  for (const leftCol of leftAnalysis) {
+    if (isLeftColumnSuggested(existingSuggestions, leftCol.columnName))
+      continue;
+
+    for (const rightCol of rightAnalysis) {
+      if (isRightColumnSuggested(existingSuggestions, rightCol.columnName))
         continue;
 
       if (
         normalizeName(leftCol.columnName) ===
           normalizeName(rightCol.columnName) &&
-        typesCompatible(leftCol.category, rightCol.category)
+        typesCompatible(leftCol, rightCol)
       ) {
         suggestions.push({
           leftColumn: leftCol.columnName,
@@ -611,28 +765,49 @@ export function suggestJoinColumns(
     }
   }
 
-  // Strategy 4: ID pattern matching (look for *_id in right that might match left identifiers)
-  for (const rightCol of filteredRightAnalysis) {
-    // Skip if already suggested
-    if (suggestions.some((s) => s.rightColumn === rightCol.columnName))
+  return suggestions;
+}
+
+/**
+ * Check if a left column matches a foreign key base name
+ */
+function matchesForeignKeyBase(
+  leftCol: ColumnAnalysis,
+  fkBaseName: string,
+): boolean {
+  const leftBaseName =
+    extractBaseName(leftCol.columnName) || normalizeName(leftCol.columnName);
+  return (
+    leftBaseName === fkBaseName ||
+    normalizeName(leftCol.columnName) === fkBaseName
+  );
+}
+
+/**
+ * Strategy 4: ID pattern matching (look for *_id in right that might match left identifiers)
+ */
+function findIdPatternMatches(
+  leftAnalysis: ColumnAnalysis[],
+  rightAnalysis: ColumnAnalysis[],
+  existingSuggestions: JoinSuggestion[],
+): JoinSuggestion[] {
+  const suggestions: JoinSuggestion[] = [];
+  const identifierLeftCols = leftAnalysis.filter(
+    (col) => col.semantic === "identifier",
+  );
+
+  for (const rightCol of rightAnalysis) {
+    if (isRightColumnSuggested(existingSuggestions, rightCol.columnName))
       continue;
 
     const fkBaseName = extractBaseName(rightCol.columnName);
     if (!fkBaseName) continue;
 
-    // Look for matching identifier in left table
-    for (const leftCol of filteredLeftAnalysis) {
-      if (suggestions.some((s) => s.leftColumn === leftCol.columnName))
+    for (const leftCol of identifierLeftCols) {
+      if (isLeftColumnSuggested(existingSuggestions, leftCol.columnName))
         continue;
-      if (leftCol.category !== "identifier") continue;
 
-      const leftBaseName =
-        extractBaseName(leftCol.columnName) ||
-        normalizeName(leftCol.columnName);
-      if (
-        leftBaseName === fkBaseName ||
-        normalizeName(leftCol.columnName) === fkBaseName
-      ) {
+      if (matchesForeignKeyBase(leftCol, fkBaseName)) {
         suggestions.push({
           leftColumn: leftCol.columnName,
           rightColumn: rightCol.columnName,
@@ -642,6 +817,88 @@ export function suggestJoinColumns(
       }
     }
   }
+
+  return suggestions;
+}
+
+/**
+ * Suggest join columns between two datasets based on column analysis.
+ *
+ * Matching strategies (in priority order):
+ * 1. Exact name match on identifier columns (user_id = user_id) → high confidence
+ * 2. Reference pattern: left.id matches right.*_id (users.id → orders.user_id) → high confidence
+ * 2b. Reverse reference: left.*_id matches right.id (orders.user_id → users.id) → high confidence
+ * 3. Same name with compatible types → medium confidence
+ * 4. Identifier columns with matching types → low confidence
+ *
+ * @param leftAnalysis - Column analysis of the left (base) table
+ * @param rightAnalysis - Column analysis of the right (join) table
+ * @param leftTableName - Optional name of left table for reference pattern matching
+ * @param rightTableName - Optional name of right table for reverse reference pattern matching
+ * @returns Array of join suggestions sorted by confidence
+ */
+export function suggestJoinColumns(
+  leftAnalysis: ColumnAnalysis[],
+  rightAnalysis: ColumnAnalysis[],
+  leftTableName?: string,
+  rightTableName?: string,
+): JoinSuggestion[] {
+  // Filter analyses to exclude internal columns
+  const filteredLeftAnalysis = leftAnalysis.filter(
+    (col) => !isInternalColumn(col.columnName),
+  );
+  const filteredRightAnalysis = rightAnalysis.filter(
+    (col) => !isInternalColumn(col.columnName),
+  );
+
+  const suggestions: JoinSuggestion[] = [];
+
+  // Strategy 1: Exact name match on identifier/reference columns
+  suggestions.push(
+    ...findExactNameMatches(filteredLeftAnalysis, filteredRightAnalysis),
+  );
+
+  // Strategy 2: Reference pattern matching (users.id → orders.user_id)
+  if (leftTableName) {
+    suggestions.push(
+      ...findReferencePatternMatches(
+        filteredLeftAnalysis,
+        filteredRightAnalysis,
+        leftTableName,
+        suggestions,
+      ),
+    );
+  }
+
+  // Strategy 2b: Reverse reference pattern (orders.user_id → users.id)
+  if (rightTableName) {
+    suggestions.push(
+      ...findReverseReferencePatternMatches(
+        filteredLeftAnalysis,
+        filteredRightAnalysis,
+        rightTableName,
+        suggestions,
+      ),
+    );
+  }
+
+  // Strategy 3: Same name with compatible types (non-ID columns)
+  suggestions.push(
+    ...findSameNameMatches(
+      filteredLeftAnalysis,
+      filteredRightAnalysis,
+      suggestions,
+    ),
+  );
+
+  // Strategy 4: ID pattern matching
+  suggestions.push(
+    ...findIdPatternMatches(
+      filteredLeftAnalysis,
+      filteredRightAnalysis,
+      suggestions,
+    ),
+  );
 
   // Sort by confidence (high → medium → low)
   const confidenceOrder = { high: 0, medium: 1, low: 2 };

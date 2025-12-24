@@ -184,6 +184,20 @@ export {
   type JoinType,
 } from "./components/JoinTypeIcon";
 
+// Chart Icons (static SVG representations of chart types)
+export {
+  BarYIcon,
+  BarXIcon,
+  LineIcon,
+  AreaYIcon,
+  DotIcon,
+  HexbinIcon,
+  HeatmapIcon,
+  RasterIcon,
+  CHART_ICONS,
+  getChartIcon,
+} from "./components/chart-icons";
+
 // Field Wrappers (primitives + Field component)
 export { Input as InputField } from "./fields/input";
 export { MultiSelect as MultiSelectField } from "./fields/multi-select";

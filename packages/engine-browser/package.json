@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dashframe/engine": "workspace:*",
+    "@dashframe/types": "workspace:*",
     "@duckdb/duckdb-wasm": "^1.30.0",
     "apache-arrow": "^21.1.0",
     "idb-keyval": "^6.2.2"

@@ -1,6 +1,6 @@
 import type { VisualizationType, Insight } from "../stores/types";
 import type { DataFrameData, Field } from "@dashframe/types";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/types";
 import type { SuggestionEncoding } from "./suggest-charts";
 
 /**
@@ -20,7 +20,7 @@ export function autoSelectEncoding(
   const analysis: ColumnAnalysis[] = (dataFrame.columns || []).map((col) => {
     const typeStr = String(col.type).toLowerCase();
 
-    let category: ColumnAnalysis["category"];
+    // Map type string to dataType and semantic
     if (
       typeStr === "number" ||
       typeStr === "integer" ||
@@ -28,28 +28,57 @@ export function autoSelectEncoding(
       typeStr === "decimal" ||
       typeStr === "double"
     ) {
-      category = "numerical";
+      return {
+        columnName: col.name,
+        dataType: "number" as const,
+        semantic: "numerical" as const,
+        min: 0,
+        max: 0,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
     } else if (
       typeStr === "date" ||
       typeStr === "datetime" ||
       typeStr === "timestamp" ||
       typeStr === "time"
     ) {
-      category = "temporal";
+      return {
+        columnName: col.name,
+        dataType: "date" as const,
+        semantic: "temporal" as const,
+        minDate: 0,
+        maxDate: 0,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
     } else if (typeStr === "boolean") {
-      category = "boolean";
+      return {
+        columnName: col.name,
+        dataType: "boolean" as const,
+        semantic: "boolean" as const,
+        trueCount: 0,
+        falseCount: 0,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
     } else {
-      category = "categorical";
+      return {
+        columnName: col.name,
+        dataType: "string" as const,
+        semantic: "categorical" as const,
+        cardinality: 0,
+        uniqueness: 0,
+        nullCount: 0,
+        sampleValues: [],
+      };
     }
-
-    return {
-      columnName: col.name,
-      category,
-      cardinality: 0,
-      uniqueness: 0,
-      nullCount: 0,
-      sampleValues: [],
-    };
   });
 
   // Get metric names if insight is provided
@@ -59,8 +88,8 @@ export function autoSelectEncoding(
   const columnExists = (colName: string | undefined) =>
     colName && analysis.some((a) => a.columnName === colName);
 
-  // Categories we want to avoid for Y-axis in most charts
-  const nonMeasureCategories = new Set([
+  // Semantics we want to avoid for Y-axis in most charts
+  const nonMeasureSemantics = new Set([
     "identifier",
     "reference",
     "email",
@@ -70,27 +99,27 @@ export function autoSelectEncoding(
 
   let newEncoding = { ...currentEncoding };
 
-  if (type === "bar" || type === "line" || type === "area") {
+  if (type === "barY" || type === "line" || type === "areaY") {
     // For these charts: X is usually categorical/temporal, Y is numeric
 
     // Preserve X if it's valid (exists in analysis)
     let xColumn = newEncoding.x;
     if (!columnExists(xColumn)) {
       // Prefer temporal for line/area, categorical for bar
-      if (type === "line" || type === "area") {
-        xColumn = analysis.find((a) => a.category === "temporal")?.columnName;
+      if (type === "line" || type === "areaY") {
+        xColumn = analysis.find((a) => a.semantic === "temporal")?.columnName;
       }
       if (!xColumn) {
         xColumn = analysis.find(
           (a) =>
-            a.category === "categorical" ||
-            a.category === "text" ||
-            a.category === "boolean",
+            a.semantic === "categorical" ||
+            a.semantic === "text" ||
+            a.semantic === "boolean",
         )?.columnName;
       }
       // Fallback to first non-numerical column
       if (!xColumn) {
-        xColumn = analysis.find((a) => a.category !== "numerical")?.columnName;
+        xColumn = analysis.find((a) => a.semantic !== "numerical")?.columnName;
       }
       // Last resort: first column
       if (!xColumn && analysis.length > 0) {
@@ -101,10 +130,10 @@ export function autoSelectEncoding(
     // Preserve Y if it's valid AND numeric
     let yColumn = newEncoding.y;
     const yAnalysis = analysis.find((a) => a.columnName === yColumn);
-    if (!yColumn || yAnalysis?.category !== "numerical") {
+    if (!yColumn || yAnalysis?.semantic !== "numerical") {
       // PRIORITY 1: Prefer metrics (aggregated columns)
       const metricColumn = analysis.find(
-        (a) => a.category === "numerical" && metricNames.has(a.columnName),
+        (a) => a.semantic === "numerical" && metricNames.has(a.columnName),
       )?.columnName;
 
       if (metricColumn) {
@@ -113,13 +142,13 @@ export function autoSelectEncoding(
         // PRIORITY 2: Find a numerical column that's not an identifier
         yColumn = analysis.find(
           (a) =>
-            a.category === "numerical" && !nonMeasureCategories.has(a.category),
+            a.semantic === "numerical" && !nonMeasureSemantics.has(a.semantic),
         )?.columnName;
 
         // PRIORITY 3: Fallback to any numerical column
         if (!yColumn) {
           yColumn = analysis.find(
-            (a) => a.category === "numerical",
+            (a) => a.semantic === "numerical",
           )?.columnName;
         }
       }
@@ -130,10 +159,10 @@ export function autoSelectEncoding(
       x: xColumn,
       y: yColumn,
     };
-  } else if (type === "scatter") {
+  } else if (type === "dot") {
     // For scatter: X and Y should both be numeric
 
-    const numericalColumns = analysis.filter((a) => a.category === "numerical");
+    const numericalColumns = analysis.filter((a) => a.semantic === "numerical");
 
     // Preserve X if it's valid AND numeric
     let xColumn = newEncoding.x;
@@ -146,8 +175,7 @@ export function autoSelectEncoding(
     if (!numericalColumns.some((a) => a.columnName === yColumn)) {
       // Try to find a different numeric column for Y that's not an identifier
       yColumn = numericalColumns.find(
-        (a) =>
-          a.columnName !== xColumn && !nonMeasureCategories.has(a.category),
+        (a) => a.columnName !== xColumn && !nonMeasureSemantics.has(a.semantic),
       )?.columnName;
 
       // Fallback to any numeric column different from X

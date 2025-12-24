@@ -25,6 +25,8 @@ import {
   getSwappedChartType,
   validateEncoding,
 } from "@/lib/visualizations/encoding-enforcer";
+import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
+import { CHART_TYPE_METADATA } from "@dashframe/types";
 import {
   useVisualizations,
   useVisualizationMutations,
@@ -37,7 +39,12 @@ import { VisualizationDisplay } from "@/components/visualizations/VisualizationD
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
-import { metricToSqlExpression } from "@dashframe/engine";
+import {
+  metricToSqlExpression,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
+import { parseEncoding } from "@dashframe/types";
 import type {
   UUID,
   DataFrameColumn,
@@ -62,13 +69,13 @@ interface PageProps {
 // Get icon for visualization type
 function getVizIcon(type: string) {
   switch (type) {
-    case "bar":
-    case "barHorizontal":
+    case "barY":
+    case "barX":
       return <BarChart3 className="h-5 w-5" />;
     case "line":
-    case "area":
+    case "areaY":
       return <LineChart className="h-5 w-5" />;
-    case "scatter":
+    case "dot":
     case "hexbin":
     case "heatmap":
     case "raster":
@@ -354,13 +361,14 @@ export default function VisualizationPage({ params }: PageProps) {
   }, [duckDBConnection, isDuckDBReady, analysisViewName, isAnalysisViewReady]);
 
   // Get column options for Color/Size selects (derived from compiledInsight)
+  // Uses storage encoding format (field:<uuid>, metric:<uuid>) for values
   // Includes icons to show column types
   const columnOptions = useMemo(() => {
     if (!compiledInsight) return [];
 
-    // Build set of metric SQL expressions for icon lookup
-    const metricSqlExprs = new Set(
-      compiledInsight.metrics.map((m) => metricToSqlExpression(m)),
+    // Build set of metric SQL aliases for icon lookup
+    const metricAliases = new Set(
+      compiledInsight.metrics.map((m) => metricIdToColumnAlias(m.id)),
     );
     const options: Array<{
       label: string;
@@ -369,21 +377,23 @@ export default function VisualizationPage({ params }: PageProps) {
     }> = [];
 
     // Add dimensions (resolved Field objects from compiledInsight)
+    // Use field:<uuid> encoding format for value
     compiledInsight.dimensions.forEach((field) => {
+      const sqlAlias = fieldIdToColumnAlias(field.id);
       options.push({
         label: field.name,
-        value: field.name,
-        icon: getColumnIcon(field.name, columnAnalysis, metricSqlExprs),
+        value: `field:${field.id}`,
+        icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
       });
     });
 
-    // Add metrics as SQL expressions (vgplot expects "count(*)" format)
+    // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
-      const sqlExpr = metricToSqlExpression(metric);
+      const sqlAlias = metricIdToColumnAlias(metric.id);
       options.push({
         label: metric.name,
-        value: sqlExpr,
-        icon: getColumnIcon(sqlExpr, columnAnalysis, metricSqlExprs),
+        value: `metric:${metric.id}`,
+        icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
       });
     });
 
@@ -411,6 +421,7 @@ export default function VisualizationPage({ params }: PageProps) {
   };
 
   // Handle encoding change
+  // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
   const handleEncodingChange = async (
     field: "x" | "y" | "color" | "size",
     value: string,
@@ -424,15 +435,25 @@ export default function VisualizationPage({ params }: PageProps) {
 
     // Auto-detect type if changing x or y
     if (field === "x" || field === "y") {
-      const colAnalysis = columnAnalysis.find((c) => c.columnName === value);
+      // Convert storage encoding to SQL alias to find in columnAnalysis
+      const parsed = parseEncoding(value);
+      const sqlAlias = parsed
+        ? parsed.type === "field"
+          ? fieldIdToColumnAlias(parsed.id)
+          : metricIdToColumnAlias(parsed.id)
+        : undefined;
+
+      const colAnalysis = sqlAlias
+        ? columnAnalysis.find((c) => c.columnName === sqlAlias)
+        : undefined;
       const typeField = field === "x" ? "xType" : "yType";
 
       if (colAnalysis) {
         let axisType: "quantitative" | "nominal" | "ordinal" | "temporal" =
           "nominal";
-        if (colAnalysis.category === "numerical") {
+        if (colAnalysis.semantic === "numerical") {
           axisType = "quantitative";
-        } else if (colAnalysis.category === "temporal") {
+        } else if (colAnalysis.semantic === "temporal") {
           axisType = "temporal";
         }
         newEncoding[typeField] = axisType;
@@ -443,15 +464,15 @@ export default function VisualizationPage({ params }: PageProps) {
   };
 
   // Handle visualization type change
-  // Auto-swaps axes when switching between bar and barHorizontal
+  // Auto-swaps axes when switching between barY and barX
   const handleTypeChange = async (type: string) => {
     const newType = type as VisualizationType;
     const currentType = visualization?.visualizationType;
 
     // Check if switching between bar orientations - auto-swap axes
     const isBarSwitch =
-      (currentType === "bar" && newType === "barHorizontal") ||
-      (currentType === "barHorizontal" && newType === "bar");
+      (currentType === "barY" && newType === "barX") ||
+      (currentType === "barX" && newType === "barY");
 
     if (isBarSwitch && visualization?.encoding) {
       // Swap X and Y when changing bar orientation
@@ -572,15 +593,15 @@ export default function VisualizationPage({ params }: PageProps) {
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-        { label: "Bar", value: "bar" },
+        { label: "Bar", value: "barY" },
         { label: "Line", value: "line" },
-        { label: "Scatter", value: "scatter" },
-        { label: "Area", value: "area" },
+        { label: "Scatter", value: "dot" },
+        { label: "Area", value: "areaY" },
       ]
     : [];
 
-  // Check if current chart is a scatter-type (scatter, hexbin, heatmap, raster)
-  const isScatterType = ["scatter", "hexbin", "heatmap", "raster"].includes(
+  // Check if current chart is a scatter-type (dot, hexbin, heatmap, raster)
+  const isScatterType = ["dot", "hexbin", "heatmap", "raster"].includes(
     visualization?.visualizationType ?? "",
   );
 
@@ -590,7 +611,7 @@ export default function VisualizationPage({ params }: PageProps) {
   const scatterRenderModeOptions = [
     {
       label: "Dots",
-      value: "scatter",
+      value: "dot",
       description: isLargeDataset
         ? `Disabled for large datasets (${rowCount.toLocaleString()} rows)`
         : "Raw dots - best for small datasets",
@@ -613,21 +634,21 @@ export default function VisualizationPage({ params }: PageProps) {
     },
   ];
 
-  // Get the display chart type (maps scatter variants back to "scatter" for UI)
+  // Get the display chart type (maps scatter variants back to "dot" for UI)
   const displayChartType = isScatterType
-    ? "scatter"
-    : (visualization?.visualizationType ?? "bar");
+    ? "dot"
+    : (visualization?.visualizationType ?? "barY");
 
   // Handle chart type change with scatter umbrella logic
   const handleDisplayTypeChange = async (type: string) => {
-    if (type === "scatter" && !isScatterType) {
+    if (type === "dot" && !isScatterType) {
       // Switching to scatter - default to appropriate render mode based on data size
-      const newType = isLargeDataset ? "hexbin" : "scatter";
+      const newType = isLargeDataset ? "hexbin" : "dot";
       await handleTypeChange(newType);
-    } else if (type !== "scatter") {
+    } else if (type !== "dot") {
       await handleTypeChange(type);
     }
-    // If already scatter-type and selecting scatter, keep current render mode
+    // If already scatter-type and selecting dot, keep current render mode
   };
 
   // Handle swap button click - swaps X/Y axes and toggles bar orientation
@@ -781,7 +802,7 @@ export default function VisualizationPage({ params }: PageProps) {
                 placeholder="None"
               />
 
-              {visualization.visualizationType === "scatter" && (
+              {visualization.visualizationType === "dot" && (
                 <SelectField
                   label="Size (optional)"
                   value={visualization.encoding?.size || ""}
@@ -814,6 +835,39 @@ export default function VisualizationPage({ params }: PageProps) {
                 />
               </div>
             )}
+
+            {/* Alternative chart types - show related charts from same tags */}
+            {(() => {
+              const alternatives = getAlternativeChartTypes(
+                visualization.visualizationType,
+              );
+              if (alternatives.length === 0) return null;
+
+              return (
+                <div className="mt-3">
+                  <p className="text-muted-foreground mb-2 text-xs">
+                    Similar charts
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {alternatives.map((altType) => {
+                      const meta = CHART_TYPE_METADATA[altType];
+                      return (
+                        <PrimitiveButton
+                          key={altType}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTypeChange(altType)}
+                          className="text-xs"
+                          title={meta.hint}
+                        >
+                          {meta.displayName}
+                        </PrimitiveButton>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Source insight link */}

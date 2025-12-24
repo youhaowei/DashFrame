@@ -7,9 +7,14 @@ import { clearInsightViewCache } from "@/hooks/useInsightView";
 
 /**
  * Custom DuckDB logger with cleaner console output.
- * Formats log entries as readable strings instead of raw objects.
+ * Only logs warnings and errors by default to reduce console noise.
+ * Set localStorage['dashframe:duckdb-verbose'] = 'true' for all logs.
  */
 class DuckDBLogger implements duckdb.Logger {
+  private verbose =
+    typeof window !== "undefined" &&
+    localStorage.getItem("dashframe:duckdb-verbose") === "true";
+
   log(entry: duckdb.LogEntryVariant): void {
     const level = duckdb.getLogLevelLabel(entry.level);
     const topic = duckdb.getLogTopicLabel(entry.topic);
@@ -26,10 +31,9 @@ class DuckDBLogger implements duckdb.Logger {
         console.warn(message);
         break;
       case duckdb.LogLevel.DEBUG:
-        console.debug(message);
-        break;
       default:
-        console.log(message);
+        if (this.verbose) console.debug(message);
+        break;
     }
   }
 }

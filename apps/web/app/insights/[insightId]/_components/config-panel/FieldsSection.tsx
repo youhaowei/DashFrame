@@ -61,12 +61,10 @@ function FieldTypeIcon({ type }: { type: string }) {
 /** Extended sortable item with field data */
 interface FieldSortableItem extends SortableListItem {
   field: CombinedField;
-  isJoined: boolean;
 }
 
 interface FieldsSectionProps {
   selectedFields: CombinedField[];
-  selectedFieldIds: string[];
   baseTableId: string;
   onReorder: (newOrder: string[]) => void;
   onRemove: (fieldId: string) => void;
@@ -79,11 +77,10 @@ interface FieldsSectionProps {
  * FieldsSection - Collapsible section for managing insight fields (dimensions)
  *
  * Shows a sortable list of selected fields with drag-and-drop reordering.
- * Each field displays name, type, and source (base/joined).
+ * Each field displays name and type icon.
  */
 export function FieldsSection({
   selectedFields,
-  baseTableId,
   onReorder,
   onRemove,
   onRenameClick,
@@ -96,7 +93,6 @@ export function FieldsSection({
   const sortableItems: FieldSortableItem[] = selectedFields.map((field) => ({
     id: field.id,
     field,
-    isJoined: field.sourceTableId !== baseTableId,
   }));
 
   // Handle reorder - convert back to field IDs
@@ -147,7 +143,6 @@ export function FieldsSection({
                 renderItem={(item) => (
                   <FieldItemContent
                     field={item.field}
-                    isJoined={item.isJoined}
                     onRemove={() => onRemove(item.id)}
                     onRenameClick={() => onRenameClick(item.field)}
                   />
@@ -167,14 +162,12 @@ export function FieldsSection({
 
 interface FieldItemContentProps {
   field: CombinedField;
-  isJoined: boolean;
   onRemove: () => void;
   onRenameClick: () => void;
 }
 
 function FieldItemContent({
   field,
-  isJoined,
   onRemove,
   onRenameClick,
 }: FieldItemContentProps) {
@@ -192,14 +185,6 @@ function FieldItemContent({
       >
         {field.displayName}
       </span>
-      {isJoined && (
-        <Badge
-          variant="secondary"
-          className="shrink-0 bg-blue-500/10 text-[10px] text-blue-600"
-        >
-          joined
-        </Badge>
-      )}
       <button
         onClick={(e) => {
           e.stopPropagation();

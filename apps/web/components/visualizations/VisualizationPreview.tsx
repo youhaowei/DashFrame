@@ -134,6 +134,9 @@ export function VisualizationPreview({
       size: resolveEncodingChannel(visualization.encoding.size),
       xType: visualization.encoding.xType,
       yType: visualization.encoding.yType,
+      // Pass through date transforms for temporal bar charts
+      xTransform: visualization.encoding.xTransform,
+      yTransform: visualization.encoding.yTransform,
     };
   }, [visualization.encoding]);
 

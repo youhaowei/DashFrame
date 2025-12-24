@@ -9,6 +9,7 @@ import type {
   VisualizationType,
   VisualizationEncoding,
   DataFrameJSON,
+  DataFrameAnalysis,
 } from "@dashframe/types";
 
 // ============================================================================
@@ -131,6 +132,8 @@ export interface DataFrameEntity extends DataFrameJSON {
   insightId?: UUID; // Link to insight that produced this DataFrame
   rowCount?: number; // Cached for display (may be stale)
   columnCount?: number;
+  /** Cached column analysis - computed at upload/sync time */
+  analysis?: DataFrameAnalysis;
 }
 
 // ============================================================================

@@ -1,8 +1,5 @@
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import {
-  looksLikeIdentifier,
-  CARDINALITY_THRESHOLDS,
-} from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/types";
+import { looksLikeIdentifier, CARDINALITY_THRESHOLDS } from "@dashframe/types";
 import type { VisualizationType, CompiledInsight } from "@dashframe/types";
 import {
   resolveForAnalysis,
@@ -28,37 +25,37 @@ export interface RankedColumnOption {
 }
 
 /**
- * Helper: get the category of a column by name
+ * Helper: get the semantic of a column by name
  */
-function getColumnCategory(
+function getColumnSemantic(
   columnName: string | undefined,
   analysis: ColumnAnalysis[],
-): ColumnAnalysis["category"] | null {
+): ColumnAnalysis["semantic"] | null {
   if (!columnName) return null;
   const col = analysis.find((a) => a.columnName === columnName);
-  return col?.category ?? null;
+  return col?.semantic ?? null;
 }
 
 /**
- * Helper: check if a category represents a "dimension" (categorical/temporal)
+ * Helper: check if a semantic represents a "dimension" (categorical/temporal)
  */
-function isDimensionCategory(
-  category: ColumnAnalysis["category"] | null,
+function isDimensionSemantic(
+  semantic: ColumnAnalysis["semantic"] | null,
 ): boolean {
   return (
-    category === "categorical" ||
-    category === "temporal" ||
-    category === "boolean"
+    semantic === "categorical" ||
+    semantic === "temporal" ||
+    semantic === "boolean"
   );
 }
 
 /**
- * Helper: check if a category represents a "measure" (numerical)
+ * Helper: check if a semantic represents a "measure" (numerical)
  */
-function isMeasureCategory(
-  category: ColumnAnalysis["category"] | null,
+function isMeasureSemantic(
+  semantic: ColumnAnalysis["semantic"] | null,
 ): boolean {
-  return category === "numerical";
+  return semantic === "numerical";
 }
 
 /**
@@ -79,6 +76,221 @@ function buildResolutionContext(
 }
 
 /**
+ * Column type flags extracted from analysis
+ */
+interface ColumnTypeFlags {
+  isIdentifier: boolean;
+  isReference: boolean;
+  isNumerical: boolean;
+  isTemporal: boolean;
+  isCategorical: boolean;
+  isBoolean: boolean;
+}
+
+/**
+ * Extract column type flags from column analysis
+ */
+function getColumnTypeFlags(
+  col: ColumnAnalysis,
+  columnName: string,
+): ColumnTypeFlags {
+  return {
+    isIdentifier:
+      col.semantic === "identifier" ||
+      looksLikeIdentifier(columnName) ||
+      col.semantic === "uuid",
+    isReference:
+      col.semantic === "reference" ||
+      col.semantic === "url" ||
+      col.semantic === "email",
+    isNumerical: col.semantic === "numerical",
+    isTemporal: col.semantic === "temporal",
+    isCategorical: col.semantic === "categorical",
+    isBoolean: col.semantic === "boolean",
+  };
+}
+
+/**
+ * Get warning for color encoding channel
+ */
+function getColorWarning(
+  columnName: string,
+  col: ColumnAnalysis,
+  flags: ColumnTypeFlags,
+  otherColumns?: { x?: string; y?: string },
+): AxisWarning | null {
+  if (flags.isIdentifier || flags.isReference) {
+    return {
+      message: "Not suitable for color",
+      reason:
+        "Unique IDs or references create too many distinct colors to be meaningful.",
+    };
+  }
+
+  if (columnName === otherColumns?.x || columnName === otherColumns?.y) {
+    return {
+      message: "Already used on axis",
+      reason:
+        "This column is already encoded on an axis. Color works best with a different dimension to add information.",
+    };
+  }
+
+  if (
+    (flags.isCategorical || flags.isBoolean) &&
+    col.cardinality > CARDINALITY_THRESHOLDS.COLOR_MAX
+  ) {
+    return {
+      message: "Too many categories",
+      reason:
+        "More than 12 distinct colors are hard to distinguish. Consider filtering or grouping.",
+    };
+  }
+
+  if (flags.isNumerical && !flags.isTemporal && col.cardinality > 20) {
+    return {
+      message: "Consider a categorical column",
+      reason:
+        "Numerical measures work better on axes. Color is most effective with categories (2-12 values) for clear visual distinction.",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get warning for size encoding channel
+ */
+function getSizeWarning(
+  columnName: string,
+  flags: ColumnTypeFlags,
+  otherColumns?: { x?: string; y?: string },
+): AxisWarning | null {
+  if (!flags.isNumerical) {
+    return {
+      message: "Numerical column recommended",
+      reason: "Size encoding requires numerical values to map to point sizes.",
+    };
+  }
+
+  if (columnName === otherColumns?.x || columnName === otherColumns?.y) {
+    return {
+      message: "Already used on axis",
+      reason: "Using the same column for both axis and size is redundant.",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get warning for bar chart axis placement
+ */
+function getBarChartWarning(
+  columnName: string,
+  col: ColumnAnalysis,
+  flags: ColumnTypeFlags,
+  axis: "x" | "y",
+  otherAxisColumn: string | undefined,
+  otherAxisSemantic: ColumnAnalysis["semantic"] | null,
+): AxisWarning | null {
+  if (flags.isIdentifier || flags.isReference) {
+    return {
+      message: "Not suitable for bar charts",
+      reason:
+        "This column contains unique labels or IDs. Bar charts work best with categorical dimensions or numerical measures.",
+    };
+  }
+
+  if (isMeasureSemantic(otherAxisSemantic) && flags.isNumerical) {
+    return {
+      message: "Consider a categorical column",
+      reason:
+        "The other axis already has a numerical measure. Bar charts need one dimension (categorical/temporal) and one measure (numerical).",
+    };
+  }
+
+  if (isDimensionSemantic(otherAxisSemantic) && !flags.isNumerical) {
+    return {
+      message: "Numerical column recommended",
+      reason:
+        "The other axis already has a categorical dimension. Bar charts need a numerical measure on the other axis.",
+    };
+  }
+
+  if (!otherAxisColumn && flags.isNumerical && col.cardinality > 20) {
+    return {
+      message: "Many unique values",
+      reason:
+        "A numerical column with many values might be better suited for a Histogram or Scatter plot.",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get warning for Y-axis in non-bar charts
+ */
+function getYAxisWarning(
+  flags: ColumnTypeFlags,
+  chartType: VisualizationType,
+): AxisWarning | null {
+  if (flags.isIdentifier || flags.isReference) {
+    return {
+      message: "Not a measurable value",
+      reason:
+        "This column contains unique labels or IDs, which cannot be aggregated (sum/avg) meaningfully.",
+    };
+  }
+
+  if (["line", "areaY", "dot"].includes(chartType) && !flags.isNumerical) {
+    const chartName = chartType.charAt(0).toUpperCase() + chartType.slice(1);
+    return {
+      message: "Numerical column recommended",
+      reason: `${chartName} charts need numerical values on the Y-axis to show height, trends, or position.`,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get warning for X-axis in non-bar charts
+ */
+function getXAxisWarning(
+  col: ColumnAnalysis,
+  flags: ColumnTypeFlags,
+  chartType: VisualizationType,
+): AxisWarning | null {
+  if (chartType === "dot" && !flags.isNumerical) {
+    return {
+      message: "Numerical column recommended",
+      reason:
+        "Scatter plots need numerical values on both axes to show correlations between two measures.",
+    };
+  }
+
+  if (chartType === "line" || chartType === "areaY") {
+    if (flags.isCategorical && col.cardinality > 20) {
+      return {
+        message: "Too many categories",
+        reason:
+          "Line charts with many categories can look cluttered. Consider a Bar chart or filtering.",
+      };
+    }
+
+    if (!flags.isTemporal && !flags.isNumerical && !flags.isCategorical) {
+      return {
+        message: "Ordered column recommended",
+        reason: "Line charts work best with time-series or continuous data.",
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Get a warning message for a column selection based on analysis and context.
  *
  * Evaluates whether a column is appropriate for a given encoding channel and chart type,
@@ -94,7 +306,6 @@ function buildResolutionContext(
  * @param otherColumns - Other columns currently selected (for detecting duplicates)
  * @returns Warning object with message and reason, or null if selection is fine
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: evaluates multiple warning conditions based on chart type, axis, and data characteristics
 export function getColumnWarning(
   columnName: string | undefined,
   channel: EncodingChannel,
@@ -107,20 +318,19 @@ export function getColumnWarning(
   const col = analysis.find((a) => a.columnName === columnName);
   if (!col) return null;
 
-  const isIdentifier =
-    col.category === "identifier" ||
-    looksLikeIdentifier(columnName) ||
-    col.category === "uuid";
-  const isReference =
-    col.category === "reference" ||
-    col.category === "url" ||
-    col.category === "email";
-  const isNumerical = col.category === "numerical";
-  const isTemporal = col.category === "temporal";
-  const isCategorical = col.category === "categorical";
-  const isBoolean = col.category === "boolean";
+  const flags = getColumnTypeFlags(col, columnName);
 
-  // For backwards compatibility: extract otherAxisColumn for x/y logic
+  // Handle color and size channels
+  if (channel === "color") {
+    return getColorWarning(columnName, col, flags, otherColumns);
+  }
+
+  if (channel === "size") {
+    return getSizeWarning(columnName, flags, otherColumns);
+  }
+
+  // Handle x/y axis channels
+  const axis = channel as "x" | "y";
   let otherAxisColumn: string | undefined;
   if (channel === "x") {
     otherAxisColumn = otherColumns?.y;
@@ -128,78 +338,6 @@ export function getColumnWarning(
     otherAxisColumn = otherColumns?.x;
   }
 
-  // 1. Color Encoding Logic
-  if (channel === "color") {
-    // Identifiers/references are bad for color
-    if (isIdentifier || isReference) {
-      return {
-        message: "Not suitable for color",
-        reason:
-          "Unique IDs or references create too many distinct colors to be meaningful.",
-      };
-    }
-
-    // Check if same as X or Y axis (redundant encoding)
-    if (columnName === otherColumns?.x || columnName === otherColumns?.y) {
-      return {
-        message: "Already used on axis",
-        reason:
-          "This column is already encoded on an axis. Color works best with a different dimension to add information.",
-      };
-    }
-
-    // High cardinality categorical is hard to distinguish
-    if (
-      (isCategorical || isBoolean) &&
-      col.cardinality > CARDINALITY_THRESHOLDS.COLOR_MAX
-    ) {
-      return {
-        message: "Too many categories",
-        reason:
-          "More than 12 distinct colors are hard to distinguish. Consider filtering or grouping.",
-      };
-    }
-
-    // Numerical columns can work for gradients but may not be ideal
-    if (isNumerical && !isTemporal) {
-      // Only warn if it's clearly a measure (high cardinality)
-      if (col.cardinality > 20) {
-        return {
-          message: "Consider a categorical column",
-          reason:
-            "Numerical measures work better on axes. Color is most effective with categories (2-12 values) for clear visual distinction.",
-        };
-      }
-    }
-
-    return null;
-  }
-
-  // 2. Size Encoding Logic (for scatter plots)
-  if (channel === "size") {
-    // Size needs numerical values
-    if (!isNumerical) {
-      return {
-        message: "Numerical column recommended",
-        reason:
-          "Size encoding requires numerical values to map to point sizes.",
-      };
-    }
-
-    // Check if same as X or Y
-    if (columnName === otherColumns?.x || columnName === otherColumns?.y) {
-      return {
-        message: "Already used on axis",
-        reason: "Using the same column for both axis and size is redundant.",
-      };
-    }
-
-    return null;
-  }
-
-  // 3. General Axis Warnings (X and Y)
-
-  // Warn if X and Y are the same column
   if (otherAxisColumn && columnName === otherAxisColumn) {
     return {
       message: "Same column on both axes",
@@ -208,108 +346,24 @@ export function getColumnWarning(
     };
   }
 
-  // Get other axis category for bar chart bidirectional logic
-  const otherAxisCategory = getColumnCategory(otherAxisColumn, analysis);
-  const axis = channel as "x" | "y";
-
-  // 2. Bar Chart Logic (Bidirectional - can be vertical or horizontal)
-  // Bar charts need one dimension (categorical/temporal) and one measure (numerical)
-  if (chartType === "bar") {
-    // Identifiers are never good for bar charts
-    if (isIdentifier || isReference) {
-      return {
-        message: "Not suitable for bar charts",
-        reason:
-          "This column contains unique labels or IDs. Bar charts work best with categorical dimensions or numerical measures.",
-      };
-    }
-
-    // If other axis is numerical (measure), this axis should be a dimension
-    if (isMeasureCategory(otherAxisCategory)) {
-      if (isNumerical) {
-        return {
-          message: "Consider a categorical column",
-          reason:
-            "The other axis already has a numerical measure. Bar charts need one dimension (categorical/temporal) and one measure (numerical).",
-        };
-      }
-    }
-    // If other axis is a dimension, this axis should be numerical (measure)
-    else if (isDimensionCategory(otherAxisCategory)) {
-      if (!isNumerical) {
-        return {
-          message: "Numerical column recommended",
-          reason:
-            "The other axis already has a categorical dimension. Bar charts need a numerical measure on the other axis.",
-        };
-      }
-    }
-    // If other axis is not set yet, give general guidance
-    else if (!otherAxisColumn) {
-      // High cardinality numerical on either axis is suspicious
-      if (isNumerical && col.cardinality > 20) {
-        return {
-          message: "Many unique values",
-          reason:
-            "A numerical column with many values might be better suited for a Histogram or Scatter plot.",
-        };
-      }
-    }
-
-    return null;
+  if (chartType === "barY") {
+    const otherAxisSemantic = getColumnSemantic(otherAxisColumn, analysis);
+    return getBarChartWarning(
+      columnName,
+      col,
+      flags,
+      axis,
+      otherAxisColumn,
+      otherAxisSemantic,
+    );
   }
 
-  // 3. Y-Axis Specific Logic for non-bar charts
   if (axis === "y") {
-    // Identifiers and References are almost never good Y-axis candidates
-    if (isIdentifier || isReference) {
-      return {
-        message: "Not a measurable value",
-        reason:
-          "This column contains unique labels or IDs, which cannot be aggregated (sum/avg) meaningfully.",
-      };
-    }
-
-    // Line, Area, Scatter require a numerical Y-axis
-    if (["line", "area", "scatter"].includes(chartType)) {
-      if (!isNumerical) {
-        return {
-          message: "Numerical column recommended",
-          reason: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} charts need numerical values on the Y-axis to show height, trends, or position.`,
-        };
-      }
-    }
+    return getYAxisWarning(flags, chartType);
   }
 
-  // 4. X-Axis Specific Logic for non-bar charts
   if (axis === "x") {
-    // Scatter plots need numerical X-axis
-    if (chartType === "scatter") {
-      if (!isNumerical) {
-        return {
-          message: "Numerical column recommended",
-          reason:
-            "Scatter plots need numerical values on both axes to show correlations between two measures.",
-        };
-      }
-    }
-
-    // Line/Area charts prefer Temporal or Numerical (continuous)
-    if (chartType === "line" || chartType === "area") {
-      if (isCategorical && col.cardinality > 20) {
-        return {
-          message: "Too many categories",
-          reason:
-            "Line charts with many categories can look cluttered. Consider a Bar chart or filtering.",
-        };
-      }
-      if (!isTemporal && !isNumerical && !isCategorical) {
-        return {
-          message: "Ordered column recommended",
-          reason: "Line charts work best with time-series or continuous data.",
-        };
-      }
-    }
+    return getXAxisWarning(col, flags, chartType);
   }
 
   return null;
@@ -474,7 +528,7 @@ function scoreYAxisNonBar(
 ): number {
   let score = 0;
   if (flags.isNumerical) score += 100;
-  if (!flags.isNumerical && ["line", "area", "scatter"].includes(chartType)) {
+  if (!flags.isNumerical && ["line", "areaY", "dot"].includes(chartType)) {
     score -= 50;
   }
   if (flags.isIdentifier) score -= 100;
@@ -494,11 +548,11 @@ function scoreXAxisNonBar(
   flags: ColumnTypeFlags,
 ): number {
   let score = 0;
-  if (chartType === "line" || chartType === "area") {
+  if (chartType === "line" || chartType === "areaY") {
     if (flags.isTemporal) score += 100;
     if (flags.isNumerical) score += 60;
     if (flags.isCategorical) score += 20;
-  } else if (chartType === "scatter") {
+  } else if (chartType === "dot") {
     if (flags.isNumerical) score += 100;
     if (!flags.isNumerical) score -= 50;
   }
@@ -527,9 +581,9 @@ function calculateColumnScore(
   let score = 50; // Base score
 
   // Chart-type specific scoring
-  if (chartType === "bar") {
+  if (chartType === "barY") {
     score += scoreBarVertical(axis, flags);
-  } else if (chartType === "barHorizontal") {
+  } else if (chartType === "barX") {
     score += scoreBarHorizontal(axis, flags);
   } else if (axis === "y") {
     score += scoreYAxisNonBar(chartType, flags);
@@ -594,14 +648,7 @@ export function getRankedColumnOptions(
         };
       }
 
-      const flags: ColumnTypeFlags = {
-        isNumerical: colAnalysis.category === "numerical",
-        isTemporal: colAnalysis.category === "temporal",
-        isCategorical: colAnalysis.category === "categorical",
-        isIdentifier:
-          colAnalysis.category === "identifier" ||
-          colAnalysis.category === "uuid",
-      };
+      const flags = getColumnTypeFlags(colAnalysis, col);
 
       const score = calculateColumnScore(
         axis,

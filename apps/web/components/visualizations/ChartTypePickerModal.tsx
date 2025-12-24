@@ -70,7 +70,10 @@ export function ChartTypePickerModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent size="lg">
+      <DialogContent
+        size="xl"
+        className="w-[max(900px,50vw)] max-w-[calc(100%-2rem)]"
+      >
         <DialogHeader>
           <DialogTitle>Create visualization</DialogTitle>
           <DialogDescription>
@@ -78,7 +81,7 @@ export function ChartTypePickerModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Grid with 3 columns, vertical scroll if needed */}
+        {/* Grid with 4 columns for wider dialog, vertical scroll if needed */}
         <div className="max-h-[60vh] overflow-y-auto pt-4">
           <ChartTypePicker
             tableName={tableName}
@@ -88,7 +91,7 @@ export function ChartTypePickerModal({
             fieldMap={fieldMap}
             existingFields={existingFields}
             onCreateChart={handleCreateChart}
-            gridColumns={3}
+            gridColumns={4}
             isLoading={isLoading}
             suggestionSeed={suggestionSeed}
             onRegenerate={onRegenerate}

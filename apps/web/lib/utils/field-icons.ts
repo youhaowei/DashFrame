@@ -7,7 +7,7 @@
 
 import type { IconType } from "react-icons";
 import { Hash, Calendar, Toggle, Type, Calculator } from "@dashframe/ui/icons";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
 
 /**
  * Get icon for a field based on its type string.
@@ -46,16 +46,14 @@ export function getFieldTypeIcon(type: string): IconType {
 }
 
 /**
- * Get icon for a column based on its ColumnAnalysis category.
- * Works with ColumnAnalysis.category values from DuckDB analysis.
+ * Get icon for a column based on its ColumnAnalysis semantic.
+ * Works with ColumnAnalysis.semantic values from DuckDB analysis.
  *
- * @param category - Column category from ColumnAnalysis
- * @returns Icon component for the column category
+ * @param semantic - Column semantic from ColumnAnalysis
+ * @returns Icon component for the column semantic
  */
-export function getColumnCategoryIcon(
-  category: ColumnAnalysis["category"],
-): IconType {
-  switch (category) {
+export function getColumnCategoryIcon(semantic: ColumnSemantic): IconType {
+  switch (semantic) {
     case "numerical":
       return Hash;
     case "temporal":
@@ -68,6 +66,8 @@ export function getColumnCategoryIcon(
     case "uuid":
     case "url":
     case "email":
+    case "text":
+    case "unknown":
     default:
       return Type;
   }
@@ -96,5 +96,5 @@ export function getColumnIcon(
   const col = columnAnalysis.find((c) => c.columnName === columnName);
   if (!col) return Type;
 
-  return getColumnCategoryIcon(col.category);
+  return getColumnCategoryIcon(col.semantic);
 }

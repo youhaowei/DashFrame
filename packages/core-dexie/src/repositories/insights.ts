@@ -196,6 +196,9 @@ export function useInsight(id: UUID): UseQueryResult<Insight | null> {
  * - selectedFields (UUIDs) → dimensions (Field objects from base or joined tables)
  * - metrics remain as InsightMetric (already self-contained)
  *
+ * Only includes explicitly selected fields - empty selectedFields = empty dimensions.
+ * The visualization page should only show fields/metrics that are part of the insight.
+ *
  * Returns null if id is undefined, insight not found, or base dataTable not found.
  */
 export function useCompiledInsight(
@@ -225,6 +228,7 @@ export function useCompiledInsight(
     }
 
     // Resolve selectedFields to actual Field objects (from any table)
+    // Only includes fields explicitly selected - empty selectedFields = empty dimensions
     const dimensions = (entity.selectedFields ?? [])
       .map((fieldId) => allFields.find((f) => f.id === fieldId))
       .filter((f): f is NonNullable<typeof f> => f !== undefined);

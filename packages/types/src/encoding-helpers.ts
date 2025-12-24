@@ -256,4 +256,15 @@ export interface ChartEncoding {
   yLabel?: string;
   colorLabel?: string;
   sizeLabel?: string;
+
+  /**
+   * Date transform applied to X-axis (when X is temporal).
+   * Used by renderer to determine interval for rectY marks.
+   */
+  xTransform?: ChannelTransform;
+  /**
+   * Date transform applied to Y-axis (when Y is temporal).
+   * Used by renderer to determine interval for rectX marks.
+   */
+  yTransform?: ChannelTransform;
 }

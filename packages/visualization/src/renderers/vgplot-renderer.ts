@@ -273,8 +273,8 @@ function buildEncodingOptions(
   if (encoding.size) options.r = parseEncodingValue(api, encoding.size);
 
   // Bar chart styling (both vertical and horizontal)
-  if (chartType === "bar" || chartType === "barHorizontal") {
-    const isHorizontal = chartType === "barHorizontal";
+  if (chartType === "barY" || chartType === "barX") {
+    const isHorizontal = chartType === "barX";
     Object.assign(options, getBarChartOptions(!!encoding.color, isHorizontal));
   }
 
@@ -319,33 +319,75 @@ function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
 }
 
 /**
- * Build margin and axis options for the plot.
- * Applies SI notation formatting to the metric axis (Y for vertical, X for horizontal).
- * Uses human-readable axis labels from encoding when available.
+ * Build preview axis options (minimal for preview mode)
  */
-function buildAxisOptions(
+function buildPreviewAxisOptions(
   api: VgplotAPI,
-  isPreview: boolean,
   chartType: VisualizationType,
   encoding?: ChartEncoding,
 ): unknown[] {
-  if (isPreview) {
-    return [api.axis(null), api.margin(4)];
+  const previewOptions: unknown[] = [api.axis(null), api.margin(4)];
+
+  if (chartType === "barY" && encoding?.xTransform) {
+    previewOptions.push(api.xScale("band"));
+  }
+  if (chartType === "barX" && encoding?.yTransform) {
+    previewOptions.push(api.yScale("band"));
   }
 
-  const options: unknown[] = [api.marginRight(20), api.marginTop(20)];
+  return previewOptions;
+}
 
+/**
+ * Build metric axis options (SI notation and grid)
+ */
+function buildMetricAxisOptions(
+  api: VgplotAPI,
+  chartType: VisualizationType,
+): unknown[] {
+  const options: unknown[] = [];
   // Apply SI notation formatting to the metric axis
   // For horizontal bar charts, the metric (value) is on the X-axis
   // For vertical bar/line/area charts, the metric is on the Y-axis
-  if (chartType === "barHorizontal") {
+  if (chartType === "barX") {
     options.push(api.xTickFormat("~s"));
     options.push(api.xGrid(true));
   } else {
     options.push(api.yTickFormat("~s"));
     options.push(api.yGrid(true));
   }
+  return options;
+}
 
+/**
+ * Build scale options for temporal bar charts
+ */
+function buildScaleOptions(
+  api: VgplotAPI,
+  chartType: VisualizationType,
+  encoding?: ChartEncoding,
+): unknown[] {
+  const options: unknown[] = [];
+  // For bar charts with pre-aggregated temporal data, explicitly use band scale
+  // This suppresses vgplot warning about dates with bar marks and treats
+  // date_trunc'd values (e.g., "2020-01-01") as discrete categories
+  if (chartType === "barY" && encoding?.xTransform) {
+    options.push(api.xScale("band"));
+  }
+  if (chartType === "barX" && encoding?.yTransform) {
+    options.push(api.yScale("band"));
+  }
+  return options;
+}
+
+/**
+ * Build label options from encoding
+ */
+function buildLabelOptions(
+  api: VgplotAPI,
+  encoding?: ChartEncoding,
+): unknown[] {
+  const options: unknown[] = [];
   // Apply human-readable axis labels when provided
   // These override the UUID column names in the chart display
   if (encoding?.xLabel) {
@@ -357,6 +399,31 @@ function buildAxisOptions(
   if (encoding?.colorLabel) {
     options.push(api.colorLabel(encoding.colorLabel));
   }
+  return options;
+}
+
+/**
+ * Build margin and axis options for the plot.
+ * Applies SI notation formatting to the metric axis (Y for vertical, X for horizontal).
+ * Uses human-readable axis labels from encoding when available.
+ */
+function buildAxisOptions(
+  api: VgplotAPI,
+  isPreview: boolean,
+  chartType: VisualizationType,
+  encoding?: ChartEncoding,
+): unknown[] {
+  if (isPreview) {
+    return buildPreviewAxisOptions(api, chartType, encoding);
+  }
+
+  const options: unknown[] = [
+    api.marginRight(20),
+    api.marginTop(20),
+    ...buildMetricAxisOptions(api, chartType),
+    ...buildScaleOptions(api, chartType, encoding),
+    ...buildLabelOptions(api, encoding),
+  ];
 
   return options;
 }
@@ -394,6 +461,12 @@ function setupColorDomain(
 
 /**
  * Build a vgplot mark for the given chart type.
+ *
+ * Note on temporal bar charts:
+ * Our data is pre-aggregated via SQL (date_trunc), so X values are already
+ * discrete dates (e.g., Jan 1 2020, Jan 1 2021). We use regular barY which
+ * treats these as categorical values with band scale. This is simpler and
+ * avoids the complexity of rectY+interval which expects raw unaggregated dates.
  */
 function buildMark(
   api: VgplotAPI,
@@ -405,15 +478,15 @@ function buildMark(
   const options = buildEncodingOptions(api, encoding, type);
 
   switch (type) {
-    case "bar":
+    case "barY":
       return api.barY(source, options);
-    case "barHorizontal":
+    case "barX":
       return api.barX(source, options);
     case "line":
       return api.lineY(source, options);
-    case "area":
+    case "areaY":
       return api.areaY(source, options);
-    case "scatter":
+    case "dot":
       return api.dot(source, options);
     case "hexbin":
       // Hexagonal binning - aggregates points into hex cells
@@ -478,11 +551,11 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
 
   return {
     supportedTypes: [
-      "bar",
-      "barHorizontal",
+      "barY",
+      "barX",
       "line",
-      "area",
-      "scatter",
+      "areaY",
+      "dot",
       "hexbin",
       "heatmap",
       "raster",
@@ -520,7 +593,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
 
         // Set up color domain for stacked bar charts
         if (
-          type === "bar" &&
+          type === "barY" &&
           config.encoding?.color &&
           chartColors.length > 0
         ) {
@@ -559,11 +632,11 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
  * Chart types supported by VgplotRenderer.
  */
 export const VGPLOT_SUPPORTED_TYPES: readonly VisualizationType[] = [
-  "bar",
-  "barHorizontal",
+  "barY",
+  "barX",
   "line",
-  "area",
-  "scatter",
+  "areaY",
+  "dot",
   "hexbin",
   "heatmap",
   "raster",

@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import type { UUID, DataFrame } from "@dashframe/types";
+import type { UUID, DataFrame, DataFrameAnalysis } from "@dashframe/types";
 import {
   // Import the class for fromJSON() factory method
   // The class implements the DataFrame interface
@@ -85,6 +85,12 @@ export interface DataFrameMutations {
    * Clear all DataFrames and their IndexedDB data.
    */
   clear: () => Promise<void>;
+
+  /**
+   * Update the cached analysis for a DataFrame.
+   * Called after computing column analysis at upload/sync time.
+   */
+  updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
 }
 
 // ============================================================================
@@ -210,6 +216,13 @@ export function useDataFrameMutations(): DataFrameMutations {
 
         await db.dataFrames.clear();
       },
+
+      updateAnalysis: async (
+        id: UUID,
+        analysis: DataFrameAnalysis,
+      ): Promise<void> => {
+        await db.dataFrames.update(id, { analysis });
+      },
     }),
     [],
   );
@@ -262,4 +275,15 @@ export async function getDataFrameByInsight(
 export async function getAllDataFrames(): Promise<DataFrameEntry[]> {
   const entities = await db.dataFrames.toArray();
   return entities;
+}
+
+/**
+ * Update the cached analysis for a DataFrame.
+ * Called after computing column analysis at upload/sync time.
+ */
+export async function updateDataFrameAnalysis(
+  id: UUID,
+  analysis: DataFrameAnalysis,
+): Promise<void> {
+  await db.dataFrames.update(id, { analysis });
 }

@@ -9,11 +9,8 @@
  * - axis-warnings.ts: Warns users about problematic selections
  */
 
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import {
-  CARDINALITY_THRESHOLDS,
-  looksLikeIdentifier,
-} from "@dashframe/engine-browser";
+import type { ColumnAnalysis } from "@dashframe/types";
+import { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
 import type { VisualizationType } from "../stores/types";
 import type { Field } from "@dashframe/types";
 
@@ -35,8 +32,8 @@ export interface EncodingEvaluation {
 // Blocked Column Detection
 // ============================================================================
 
-/** Categories that should never be used on chart axes */
-const BLOCKED_AXIS_CATEGORIES = new Set([
+/** Semantics that should never be used on chart axes */
+const BLOCKED_AXIS_SEMANTICS = new Set([
   "identifier",
   "reference",
   "email",
@@ -61,8 +58,8 @@ export function isBlockedColumn(
   field?: Field,
   rowCount?: number,
 ): EncodingEvaluation {
-  // Check category (analyzeDataFrame handles ID detection)
-  if (BLOCKED_AXIS_CATEGORIES.has(col.category)) {
+  // Check semantic (analyzeDataFrame handles ID detection)
+  if (BLOCKED_AXIS_SEMANTICS.has(col.semantic)) {
     return {
       good: false,
       reason:
@@ -105,6 +102,87 @@ export function isBlockedColumn(
 // ============================================================================
 
 /**
+ * Check if column is suitable for scatter plot X-axis (requires numerical).
+ */
+function checkScatterXAxis(col: ColumnAnalysis): EncodingEvaluation {
+  if (col.semantic !== "numerical") {
+    return {
+      good: false,
+      reason:
+        "Scatter plots need numerical values on both axes to show correlations.",
+    };
+  }
+  return { good: true };
+}
+
+/**
+ * Check if column is suitable for line/area chart X-axis.
+ */
+function checkLineAreaXAxis(col: ColumnAnalysis): EncodingEvaluation {
+  const { semantic, cardinality } = col;
+
+  if (semantic === "temporal" || semantic === "numerical") {
+    return { good: true };
+  }
+
+  if (semantic === "categorical" || semantic === "boolean") {
+    if (cardinality > CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX) {
+      return {
+        good: false,
+        reason: `Too many categories (${cardinality}). Line charts work best with time-series or fewer than ${CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX} categories.`,
+      };
+    }
+    return { good: true };
+  }
+
+  return {
+    good: false,
+    reason: "Line charts work best with time-series or continuous data.",
+  };
+}
+
+/**
+ * Check if column is suitable for bar chart X-axis.
+ */
+function checkBarXAxis(col: ColumnAnalysis): EncodingEvaluation {
+  const { semantic, cardinality } = col;
+
+  if (semantic === "categorical" || semantic === "boolean") {
+    if (cardinality <= 1) {
+      return {
+        good: false,
+        reason:
+          "This column has only one unique value. Bar charts need categories to compare.",
+      };
+    }
+    if (cardinality > CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX) {
+      return {
+        good: false,
+        reason: `Too many categories (${cardinality}). Consider using a Histogram or filtering the data.`,
+      };
+    }
+    return { good: true };
+  }
+
+  if (semantic === "temporal") {
+    return { good: true };
+  }
+
+  if (semantic === "numerical") {
+    if (cardinality > 20) {
+      return {
+        good: false,
+        reason:
+          "Many unique numerical values. Consider a Histogram or Scatter plot instead.",
+      };
+    }
+    return { good: true };
+  }
+
+  return { good: true };
+}
+
+/**
  * Check if a column is suitable for X-axis based on chart type.
  *
  * Criteria vary by chart type:
@@ -112,7 +190,6 @@ export function isBlockedColumn(
  * - Line/Area: Temporal preferred, numerical continuous also good
  * - Scatter: Numerical required
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: evaluates multiple criteria based on chart type
 export function isGoodXAxis(
   col: ColumnAnalysis,
   chartType: VisualizationType,
@@ -123,77 +200,17 @@ export function isGoodXAxis(
   const blocked = isBlockedColumn(col, field, rowCount);
   if (!blocked.good) return blocked;
 
-  const { category, cardinality } = col;
-
-  // Scatter requires numerical X
-  if (chartType === "scatter") {
-    if (category !== "numerical") {
-      return {
-        good: false,
-        reason:
-          "Scatter plots need numerical values on both axes to show correlations.",
-      };
-    }
-    return { good: true };
+  // Route to chart-specific checkers
+  if (chartType === "dot") {
+    return checkScatterXAxis(col);
   }
 
-  // Line/Area prefer temporal or numerical
-  if (chartType === "line" || chartType === "area") {
-    if (category === "temporal") {
-      return { good: true };
-    }
-    if (category === "numerical") {
-      return { good: true };
-    }
-    if (category === "categorical" || category === "boolean") {
-      if (cardinality > CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX) {
-        return {
-          good: false,
-          reason: `Too many categories (${cardinality}). Line charts work best with time-series or fewer than ${CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX} categories.`,
-        };
-      }
-      return { good: true }; // Categorical OK if reasonable cardinality
-    }
-    return {
-      good: false,
-      reason: "Line charts work best with time-series or continuous data.",
-    };
+  if (chartType === "line" || chartType === "areaY") {
+    return checkLineAreaXAxis(col);
   }
 
-  // Bar chart: categorical or temporal preferred
-  if (chartType === "bar") {
-    if (category === "categorical" || category === "boolean") {
-      // Good categorical X-axis: 1-50 unique values
-      if (cardinality <= 1) {
-        return {
-          good: false,
-          reason:
-            "This column has only one unique value. Bar charts need categories to compare.",
-        };
-      }
-      if (cardinality > CARDINALITY_THRESHOLDS.CATEGORICAL_X_MAX) {
-        return {
-          good: false,
-          reason: `Too many categories (${cardinality}). Consider using a Histogram or filtering the data.`,
-        };
-      }
-      return { good: true };
-    }
-    if (category === "temporal") {
-      return { good: true };
-    }
-    if (category === "numerical") {
-      // Numerical can work for bar chart (horizontal bars with dimension on Y)
-      // But high cardinality numerical is usually not what user wants
-      if (cardinality > 20) {
-        return {
-          good: false,
-          reason:
-            "Many unique numerical values. Consider a Histogram or Scatter plot instead.",
-        };
-      }
-      return { good: true };
-    }
+  if (chartType === "barY") {
+    return checkBarXAxis(col);
   }
 
   // Default: allow if not blocked
@@ -219,11 +236,11 @@ export function isGoodYAxis(
   const blocked = isBlockedColumn(col, field, rowCount);
   if (!blocked.good) return blocked;
 
-  const { category } = col;
+  const { semantic } = col;
 
   // Most chart types want numerical Y-axis
-  if (["line", "area", "scatter", "bar"].includes(chartType)) {
-    if (category !== "numerical") {
+  if (["line", "areaY", "dot", "barY"].includes(chartType)) {
+    if (semantic !== "numerical") {
       return {
         good: false,
         reason: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} charts need numerical values on the Y-axis to show height/position.`,
@@ -257,7 +274,7 @@ export function isGoodColorColumn(
   col: ColumnAnalysis,
   currentEncoding?: { x?: string; y?: string },
 ): EncodingEvaluation {
-  const { category, cardinality, columnName } = col;
+  const { semantic, cardinality, columnName } = col;
 
   // Check if same as X or Y axis (redundant encoding)
   if (currentEncoding) {
@@ -271,7 +288,7 @@ export function isGoodColorColumn(
   }
 
   // Identifiers/references are bad for color
-  if (BLOCKED_AXIS_CATEGORIES.has(category)) {
+  if (BLOCKED_AXIS_SEMANTICS.has(semantic)) {
     return {
       good: false,
       reason:
@@ -296,12 +313,12 @@ export function isGoodColorColumn(
   }
 
   // Boolean and categorical are ideal for color
-  if (category === "boolean" || category === "categorical") {
+  if (semantic === "boolean" || semantic === "categorical") {
     return { good: true };
   }
 
   // Numerical with low cardinality can work (binned values)
-  if (category === "numerical") {
+  if (semantic === "numerical") {
     // High cardinality numerical creates gradient, which is OK but not ideal
     if (cardinality > 20) {
       return {
@@ -313,7 +330,7 @@ export function isGoodColorColumn(
   }
 
   // Temporal is usually not great for color (too many values)
-  if (category === "temporal") {
+  if (semantic === "temporal") {
     return {
       good: false,
       reason:
@@ -337,8 +354,8 @@ export function hasNumericalVariance(
   col: ColumnAnalysis,
   rowCount?: number,
 ): EncodingEvaluation {
-  // If we have extended stats (min/max), use them
-  if (col.min !== undefined && col.max !== undefined) {
+  // Only numerical columns have min/max/zeroCount stats
+  if (col.dataType === "number") {
     // No variance if min === max
     if (col.min === col.max) {
       return {
@@ -398,6 +415,6 @@ export function isSuitableCategoricalXAxis(col: ColumnAnalysis): boolean {
 export function isSuitableColorColumn(col: ColumnAnalysis): boolean {
   if (col.cardinality < CARDINALITY_THRESHOLDS.COLOR_MIN) return false;
   if (col.cardinality > CARDINALITY_THRESHOLDS.COLOR_MAX) return false;
-  if (BLOCKED_AXIS_CATEGORIES.has(col.category)) return false;
+  if (BLOCKED_AXIS_SEMANTICS.has(col.semantic)) return false;
   return true;
 }

@@ -179,6 +179,10 @@ export function VisualizationDisplay({
       size,
       xType: activeViz.encoding.xType,
       yType: activeViz.encoding.yType,
+      // Pass through date transforms for temporal bar charts
+      // These tell the renderer to use band scale (suppresses vgplot warning)
+      xTransform: activeViz.encoding.xTransform,
+      yTransform: activeViz.encoding.yTransform,
       // Include human-readable axis labels for chart display
       // Look up using the resolved column alias
       xLabel: x ? columnDisplayNames[x] : undefined,

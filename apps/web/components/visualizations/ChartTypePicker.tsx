@@ -1,135 +1,48 @@
 "use client";
 
-import { useMemo, useCallback, memo } from "react";
-import { cn } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
-import { Sparkles } from "@dashframe/ui/icons";
+import { useMemo, useCallback, memo, useState } from "react";
 import {
-  BarChart,
-  BarChartHorizontal,
-  LineChart,
-  AreaChart,
-  ScatterChart,
-  type LucideIcon,
-} from "@dashframe/ui/icons";
-import type { VisualizationType, Field } from "@dashframe/types";
+  cn,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Toggle,
+  CHART_ICONS,
+} from "@dashframe/ui";
+import { Button } from "@dashframe/ui/primitives/button";
+import { Sparkles, Info } from "@dashframe/ui/icons";
+import {
+  CHART_TYPE_METADATA,
+  getChartTypesForTag,
+  type VisualizationType,
+  type ChartTag,
+  type Field,
+} from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type { Insight } from "@/lib/stores/types";
 import {
-  suggestForAllChartTypes,
-  getChartTypeUnavailableReason,
+  suggestByTag,
+  suggestByChartType,
   type ChartSuggestion,
+  type TagSuggestion,
 } from "@/lib/visualizations/suggest-charts";
+import { SCATTER_MAX_POINTS } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 
-/**
- * Configuration for each chart type including display info, icon, and usage hints.
- */
-export const CHART_TYPE_CONFIG: Record<
-  VisualizationType,
-  { label: string; icon: LucideIcon; description: string; hint: string }
-> = {
-  bar: {
-    label: "Bar",
-    icon: BarChart,
-    description: "Compare categories",
-    hint: "Best for comparing values across categories (e.g., sales by region). Requires categorical X and numeric Y.",
-  },
-  barHorizontal: {
-    label: "Horizontal bar",
-    icon: BarChartHorizontal,
-    description: "Compare categories horizontally",
-    hint: "Good for long category labels or ranking comparisons with many categories.",
-  },
-  line: {
-    label: "Line",
-    icon: LineChart,
-    description: "Show trends over time",
-    hint: "Best for time series. Use when X-axis is temporal to see how values change over time.",
-  },
-  area: {
-    label: "Area",
-    icon: AreaChart,
-    description: "Show cumulative trends",
-    hint: "Like line charts but emphasizes volume. Good for cumulative totals over time.",
-  },
-  scatter: {
-    label: "Scatter",
-    icon: ScatterChart,
-    description: "Show correlations",
-    hint: "Explore relationships between two numeric variables. Best for <5K points.",
-  },
-  hexbin: {
-    label: "Hexbin",
-    icon: ScatterChart,
-    description: "Density binning for large datasets",
-    hint: "Aggregates points into hex cells by density. Use for 5K+ points where scatter overplots.",
-  },
-  heatmap: {
-    label: "Heatmap",
-    icon: ScatterChart,
-    description: "Smooth density visualization",
-    hint: "Shows continuous density distribution. Good for finding clusters in large datasets.",
-  },
-  raster: {
-    label: "Raster",
-    icon: ScatterChart,
-    description: "Pixel aggregation for huge datasets",
-    hint: "Fastest for massive datasets (100K+). Each pixel represents aggregated data.",
-  },
-};
-
-/**
- * Ordered list of chart types for display.
- */
-export const CHART_TYPES: VisualizationType[] = [
-  "bar",
-  "line",
-  "area",
-  "scatter",
-  "hexbin",
-  "barHorizontal",
-];
-
 /** Height of the chart preview area in pixels */
-const PREVIEW_HEIGHT = 140;
+const PREVIEW_HEIGHT = 120;
 
-/**
- * Internal data structure for chart type cards.
- * Used to hold computed state for each chart type.
- */
-interface ChartTypeItem {
-  chartType: VisualizationType;
-  suggestion: ChartSuggestion | null;
-  /** When string, shows as reason; when true/false, indicates availability */
-  disabled?: boolean | string;
-}
-
-interface ChartTypeCardProps {
-  chartType: VisualizationType;
-  suggestion: ChartSuggestion | null;
-  tableName: string;
-  /** When string, shows as reason; when true, just disables */
-  disabled?: boolean | string;
-  /** Show loading skeleton for chart preview */
-  isLoading?: boolean;
-  /** Callback when user clicks "Use suggestion" button */
-  onUseSuggestion: () => void;
-  /** Callback when user clicks "Create custom" button */
-  onCreateCustom: () => void;
-}
-
-/** Get subtitle text for chart type card */
-function getCardSubtitle(
-  showLoading: boolean,
-  hasSuggestion: boolean,
-  suggestion: ChartSuggestion | null,
-  description: string,
-): string {
-  if (showLoading) return "Loading preview...";
-  if (hasSuggestion && suggestion) return suggestion.title;
-  return description;
-}
+/** All chart types for the compact grid */
+const ALL_CHART_TYPES: VisualizationType[] = [
+  "barY",
+  "barX",
+  "line",
+  "areaY",
+  "dot",
+  "hexbin",
+  "heatmap",
+  "raster",
+];
 
 /** Format encoding spec for display */
 function formatEncodingSpec(suggestion: ChartSuggestion): string {
@@ -141,168 +54,327 @@ function formatEncodingSpec(suggestion: ChartSuggestion): string {
   return parts.join(" · ");
 }
 
-/** Render the preview content for a chart type card - memoized to prevent re-renders */
-const ChartTypeCardPreview = memo(function ChartTypeCardPreview({
-  showLoadingSkeleton,
-  hasSuggestion,
-  suggestion,
-  tableName,
-  chartType,
-  Icon,
-  disabledReason,
-}: {
-  showLoadingSkeleton: boolean;
-  hasSuggestion: boolean;
-  suggestion: ChartSuggestion | null;
+// =============================================================================
+// Category Card Component (for tag-based suggestions)
+// =============================================================================
+
+interface CategoryCardProps {
+  tagSuggestion: TagSuggestion;
   tableName: string;
-  chartType: VisualizationType;
-  Icon: typeof BarChart;
-  disabledReason: string | null;
-}) {
-  if (showLoadingSkeleton) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="bg-muted h-full w-full animate-pulse" />
-      </div>
-    );
-  }
-
-  if (hasSuggestion && suggestion) {
-    return (
-      <Chart
-        tableName={tableName}
-        visualizationType={chartType}
-        encoding={suggestion.encoding}
-        height={PREVIEW_HEIGHT}
-        preview
-        className="h-full w-full"
-      />
-    );
-  }
-
-  // Placeholder for unavailable/unconfigured chart types
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-      <Icon className="text-muted-foreground/40 h-10 w-10" />
-      <span className="text-muted-foreground/60 text-sm">
-        {disabledReason ?? "Configure manually"}
-      </span>
-    </div>
-  );
-});
+  /** Total row count - used to disable scatter for large datasets */
+  rowCount: number;
+  isLoading?: boolean;
+  /** Called when user clicks to create with current chart type */
+  onSelect: (chartType: VisualizationType, suggestion: ChartSuggestion) => void;
+  /** Get suggestion for a specific chart type within a tag context (for variant switching) */
+  getSuggestionForType: (
+    chartType: VisualizationType,
+    tag: ChartTag,
+  ) => ChartSuggestion | null;
+}
 
 /**
- * Chart type card with preview and explicit action buttons.
- * Shows a chart preview or placeholder icon with consistent sizing.
- * When disabled, shows grayed out state with explanation.
- * When loading AND has a suggestion, shows animated skeleton for the preview.
- *
- * Action buttons:
- * - "Use suggestion" - creates chart with auto-suggested encoding (only when suggestion exists)
- * - "Create custom" - creates chart with empty encoding for manual configuration
- *
- * Optimization: Cards without suggestions show placeholder icons immediately,
- * even during loading. Only cards with actual previews show loading skeletons.
+ * Category card showing a suggested chart for an analytical purpose (tag).
+ * Displays category title with info tooltip, chart preview, title and encoding.
+ * Includes variant toggle for switching between chart types in the same category.
  */
-const ChartTypeCard = memo(function ChartTypeCard({
-  chartType,
-  suggestion,
+const CategoryCard = memo(function CategoryCard({
+  tagSuggestion,
   tableName,
-  disabled,
+  rowCount,
   isLoading = false,
-  onUseSuggestion,
-  onCreateCustom,
-}: ChartTypeCardProps) {
-  const config = CHART_TYPE_CONFIG[chartType];
-  const Icon = config.icon;
-  const hasSuggestion = suggestion !== null;
-  const disabledReason = typeof disabled === "string" ? disabled : null;
+  onSelect,
+  getSuggestionForType,
+}: CategoryCardProps) {
+  const {
+    tag,
+    tagDisplayName,
+    tagDescription,
+    chartType: defaultChartType,
+    suggestion: defaultSuggestion,
+  } = tagSuggestion;
 
-  // Only show loading skeleton if we have a suggestion that will render a preview
-  const showLoadingSkeleton = isLoading && hasSuggestion;
+  // Get all chart types for this tag
+  const variantTypes = useMemo(() => getChartTypesForTag(tag), [tag]);
 
-  // Card is disabled if explicitly disabled OR if loading with a suggestion
-  const isDisabled = Boolean(disabled) || showLoadingSkeleton;
+  // Determine which chart types should be disabled (e.g., scatter for large datasets)
+  const disabledTypes = useMemo(() => {
+    const disabled = new Set<VisualizationType>();
+    // Disable scatter (dot) for datasets exceeding threshold
+    if (tag === "correlation" && rowCount > SCATTER_MAX_POINTS) {
+      disabled.add("dot");
+    }
+    return disabled;
+  }, [tag, rowCount]);
+
+  // State for selected variant (defaults to suggested chart type)
+  const [selectedType, setSelectedType] =
+    useState<VisualizationType>(defaultChartType);
+
+  // Get the current suggestion (either default or for selected variant)
+  // Pass the tag context so suggestions adapt to the analytical purpose
+  const currentSuggestion = useMemo(() => {
+    if (selectedType === defaultChartType) {
+      return defaultSuggestion;
+    }
+    return getSuggestionForType(selectedType, tag) ?? defaultSuggestion;
+  }, [
+    selectedType,
+    defaultChartType,
+    defaultSuggestion,
+    getSuggestionForType,
+    tag,
+  ]);
+
+  // Current chart type to display
+  const currentChartType =
+    currentSuggestion === defaultSuggestion ? defaultChartType : selectedType;
+  const currentMeta = CHART_TYPE_METADATA[currentChartType];
+  const ChartIcon = CHART_ICONS[currentChartType];
+
+  // Only show toggle if there are multiple variants
+  const showVariantToggle = variantTypes.length > 1;
+
+  // Handle click on the card (excluding the toggle area)
+  const handleCardClick = useCallback(() => {
+    if (!isLoading) {
+      onSelect(currentChartType, currentSuggestion);
+    }
+  }, [isLoading, onSelect, currentChartType, currentSuggestion]);
 
   return (
     <div
+      role="button"
+      tabIndex={isLoading ? -1 : 0}
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
       className={cn(
-        "group flex w-full flex-col overflow-hidden rounded-lg border",
-        "transition-[border-color,opacity] duration-150",
-        isDisabled ? "border-border/40 opacity-50" : "border-border/60",
+        "group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border",
+        "bg-card text-left transition-all duration-150",
+        "hover:border-primary/40 hover:shadow-sm",
+        "focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-2",
+        isLoading && "cursor-not-allowed opacity-50",
       )}
     >
-      {/* Preview Section */}
-      <div
-        className="bg-muted/30 w-full overflow-hidden"
-        style={{ height: `${PREVIEW_HEIGHT}px` }}
-      >
-        <ChartTypeCardPreview
-          showLoadingSkeleton={showLoadingSkeleton}
-          hasSuggestion={hasSuggestion}
-          suggestion={suggestion}
-          tableName={tableName}
-          chartType={chartType}
-          Icon={Icon}
-          disabledReason={disabledReason}
-        />
+      {/* Header: Category title + info icon with tooltip */}
+      <div className="flex items-center gap-1.5 px-3 pt-3">
+        <span className="text-foreground text-sm font-medium">
+          {tagDisplayName}
+        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="text-muted-foreground hover:text-foreground cursor-help"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[200px]">
+            <p className="text-xs">{tagDescription}</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* Content Section */}
-      <div className="flex flex-1 flex-col p-4">
-        <p
-          className={cn(
-            "text-sm font-medium",
-            isDisabled ? "text-muted-foreground" : "text-foreground",
-          )}
+      {/* Variant toggle - using existing Toggle component */}
+      {showVariantToggle && (
+        <div
+          className="flex justify-center px-3 pt-2"
+          onClick={(e) => e.stopPropagation()}
         >
-          {config.label}
-        </p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          {getCardSubtitle(
-            showLoadingSkeleton,
-            hasSuggestion,
-            suggestion,
-            config.description,
-          )}
-        </p>
-
-        {/* Show encoding spec when suggestion exists, or hint when it doesn't */}
-        {hasSuggestion && suggestion ? (
-          <p className="text-muted-foreground mt-1 font-mono text-xs">
-            {formatEncodingSpec(suggestion)}
-          </p>
-        ) : (
-          <p className="text-muted-foreground/70 mt-2 text-xs leading-relaxed">
-            {config.hint}
-          </p>
-        )}
-
-        {/* Action Buttons - stack vertically when space is limited */}
-        <div className="mt-3 flex flex-col gap-2">
-          {hasSuggestion && (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={onUseSuggestion}
-              disabled={isDisabled}
-            >
-              Use suggestion
-            </Button>
-          )}
-          <Button
-            variant={hasSuggestion ? "outline" : "default"}
+          <Toggle
+            variant="outline"
             size="sm"
-            onClick={onCreateCustom}
-            disabled={isDisabled}
-          >
-            Create custom
-          </Button>
+            value={currentChartType}
+            onValueChange={(type) => setSelectedType(type as VisualizationType)}
+            options={variantTypes.map((type) => {
+              const TypeIcon = CHART_ICONS[type];
+              const typeMeta = CHART_TYPE_METADATA[type];
+              const isDisabled = disabledTypes.has(type);
+              return {
+                value: type,
+                icon: <TypeIcon size={12} />,
+                label: typeMeta.displayName,
+                disabled: isDisabled,
+                tooltip: isDisabled
+                  ? `${typeMeta.displayName} not recommended for ${rowCount.toLocaleString()}+ rows`
+                  : undefined,
+              };
+            })}
+          />
         </div>
+      )}
+
+      {/* Preview Section */}
+      <div
+        className="bg-muted/30 mx-3 mt-2 overflow-hidden rounded-lg"
+        style={{ height: `${PREVIEW_HEIGHT}px` }}
+      >
+        {isLoading ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="bg-muted h-full w-full animate-pulse rounded-lg" />
+          </div>
+        ) : (
+          <Chart
+            tableName={tableName}
+            visualizationType={currentChartType}
+            encoding={currentSuggestion.encoding}
+            height={PREVIEW_HEIGHT}
+            preview
+            className="h-full w-full"
+          />
+        )}
+      </div>
+
+      {/* Content: Chart title and encoding */}
+      <div className="flex flex-1 flex-col px-3 pb-3 pt-2">
+        {/* Chart type with icon */}
+        <div className="flex items-center gap-1.5">
+          <ChartIcon size={14} className="text-muted-foreground" />
+          <span className="text-muted-foreground text-xs">
+            {currentMeta.displayName}
+          </span>
+        </div>
+
+        {/* Suggestion title */}
+        <p className="text-foreground mt-1 text-sm font-medium leading-tight">
+          {currentSuggestion.title}
+        </p>
+
+        {/* Encoding spec */}
+        <p className="text-muted-foreground mt-1 font-mono text-xs">
+          {formatEncodingSpec(currentSuggestion)}
+        </p>
       </div>
     </div>
   );
 });
+
+// =============================================================================
+// Compact Chart Type Grid
+// =============================================================================
+
+interface ChartTypeGridProps {
+  insight: Insight;
+  columnAnalysis: ColumnAnalysis[];
+  rowCount: number;
+  fieldMap: Record<string, Field>;
+  existingFields: string[];
+  onCreateChart: (suggestion: ChartSuggestion) => void;
+  isLoading?: boolean;
+  suggestionSeed?: number;
+}
+
+/**
+ * Compact grid of all chart types as clickable icons.
+ * Clicking creates a chart with auto-suggested encoding (or empty if no suggestion).
+ */
+const ChartTypeGrid = memo(function ChartTypeGrid({
+  insight,
+  columnAnalysis,
+  rowCount,
+  fieldMap,
+  existingFields,
+  onCreateChart,
+  isLoading = false,
+  suggestionSeed = 0,
+}: ChartTypeGridProps) {
+  // Generate suggestions for all chart types
+  const suggestionsByType = useMemo(() => {
+    const map = new Map<VisualizationType, ChartSuggestion | null>();
+    if (columnAnalysis.length === 0 || rowCount === 0) {
+      return map;
+    }
+
+    for (const chartType of ALL_CHART_TYPES) {
+      const suggestion = suggestByChartType(
+        insight,
+        columnAnalysis,
+        rowCount,
+        fieldMap,
+        chartType,
+        { existingFields, seed: suggestionSeed },
+      );
+      map.set(chartType, suggestion);
+    }
+    return map;
+  }, [
+    insight,
+    columnAnalysis,
+    rowCount,
+    fieldMap,
+    existingFields,
+    suggestionSeed,
+  ]);
+
+  const handleClick = useCallback(
+    (chartType: VisualizationType) => {
+      const suggestion = suggestionsByType.get(chartType);
+      if (suggestion) {
+        onCreateChart(suggestion);
+      } else {
+        // Create with empty encoding for manual configuration
+        const meta = CHART_TYPE_METADATA[chartType];
+        const customSuggestion: ChartSuggestion = {
+          id: `custom-${chartType}`,
+          title: `New ${meta.displayName.toLowerCase()} chart`,
+          chartType,
+          encoding: {},
+        };
+        onCreateChart(customSuggestion);
+      }
+    },
+    [suggestionsByType, onCreateChart],
+  );
+
+  return (
+    <div className="grid grid-cols-8 gap-1">
+      {ALL_CHART_TYPES.map((chartType) => {
+        const meta = CHART_TYPE_METADATA[chartType];
+        const ChartIcon = CHART_ICONS[chartType];
+        const hasSuggestion = suggestionsByType.get(chartType) !== null;
+
+        return (
+          <Tooltip key={chartType}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => handleClick(chartType)}
+                disabled={isLoading}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
+                  "transition-colors duration-100",
+                  "hover:bg-muted focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-2",
+                  isLoading && "cursor-not-allowed opacity-50",
+                  hasSuggestion && "text-foreground",
+                  !hasSuggestion && "text-muted-foreground",
+                )}
+              >
+                <ChartIcon size={20} />
+                <span className="text-[10px] leading-tight">
+                  {meta.displayName}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[200px]">
+              <p className="font-medium">{meta.displayName}</p>
+              <p className="text-muted-foreground text-xs">{meta.hint}</p>
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+});
+
+// =============================================================================
+// Main ChartTypePicker Component
+// =============================================================================
 
 export interface ChartTypePickerProps {
   /** DuckDB table name for chart preview */
@@ -319,7 +391,7 @@ export interface ChartTypePickerProps {
   existingFields: string[];
   /** Callback when a chart is created */
   onCreateChart: (suggestion: ChartSuggestion) => void;
-  /** Number of grid columns (default: 3) */
+  /** Number of grid columns for category cards (default: 4) */
   gridColumns?: number;
   /** Show loading state for all chart previews */
   isLoading?: boolean;
@@ -330,19 +402,21 @@ export interface ChartTypePickerProps {
 }
 
 /**
- * ChartTypePicker - Inline grid of chart types for creating visualizations.
+ * ChartTypePicker - Two-tier chart selection interface.
  *
- * Shows one card per chart type with:
- * - Live preview if a valid suggestion exists
- * - Placeholder icon if no suggestion
- * - Description of what the chart shows
+ * Top section: Category cards showing one suggested chart per analytical purpose
+ * (comparison, trend, correlation, distribution). Each card shows a live preview
+ * with the best chart type and encoding for that category.
  *
- * Clicking a card creates the visualization immediately.
+ * Bottom section: Compact grid of all 8 chart types as icons for direct selection.
+ * Power users can pick any chart type directly, getting auto-suggested encoding
+ * or empty encoding for manual configuration.
  *
- * This component is used both standalone (inline in VisualizationsSection)
- * and within ChartTypePickerModal.
- *
- * Memoized to prevent re-renders when parent components update unrelated state.
+ * Features:
+ * - Tag-based suggestions prioritize analytical intent over chart type
+ * - Live previews with actual data
+ * - Regenerate button for alternative suggestions
+ * - "Create custom" section for direct chart type selection
  */
 export const ChartTypePicker = memo(function ChartTypePicker({
   tableName,
@@ -352,112 +426,113 @@ export const ChartTypePicker = memo(function ChartTypePicker({
   fieldMap,
   existingFields,
   onCreateChart,
-  gridColumns = 3,
+  gridColumns = 4,
   isLoading = false,
   suggestionSeed = 0,
   onRegenerate,
 }: ChartTypePickerProps) {
-  // Generate suggestions for all chart types
-  const suggestionsByType = useMemo(() => {
+  // Generate tag-based suggestions
+  const tagSuggestions = useMemo(() => {
     if (columnAnalysis.length === 0 || rowCount === 0) {
-      return new Map<VisualizationType, ChartSuggestion | null>();
+      return [];
     }
 
-    return suggestForAllChartTypes(
+    return suggestByTag(insight, columnAnalysis, rowCount, fieldMap, {
+      seed: suggestionSeed,
+    });
+  }, [insight, columnAnalysis, rowCount, fieldMap, suggestionSeed]);
+
+  // Get suggestion for a specific chart type within a tag context (for variant switching in CategoryCard)
+  // The tag context affects encoding selection (e.g., "trend" uses temporal X even for barY)
+  const getSuggestionForType = useCallback(
+    (
+      chartType: VisualizationType,
+      tagContext: ChartTag,
+    ): ChartSuggestion | null => {
+      if (columnAnalysis.length === 0 || rowCount === 0) {
+        return null;
+      }
+      return suggestByChartType(
+        insight,
+        columnAnalysis,
+        rowCount,
+        fieldMap,
+        chartType,
+        { existingFields, seed: suggestionSeed, tagContext },
+      );
+    },
+    [
       insight,
       columnAnalysis,
       rowCount,
       fieldMap,
-      CHART_TYPES,
-      { existingFields, seed: suggestionSeed },
-    );
-  }, [
-    insight,
-    columnAnalysis,
-    rowCount,
-    fieldMap,
-    existingFields,
-    suggestionSeed,
-  ]);
-
-  // Track whether column analysis has completed (empty array means still loading)
-  const isAnalysisLoaded = columnAnalysis.length > 0;
-
-  // Convert chart types to internal item format with disabled state
-  const chartTypeItems: ChartTypeItem[] = useMemo(
-    () =>
-      CHART_TYPES.map((chartType) => {
-        const suggestion = suggestionsByType.get(chartType) ?? null;
-        // Only check unavailability after analysis is loaded
-        // When analysis is loading, all cards remain clickable for manual configuration
-        const unavailableReason = isAnalysisLoaded
-          ? getChartTypeUnavailableReason(chartType, columnAnalysis)
-          : null;
-
-        return {
-          chartType,
-          suggestion,
-          // Use string for reason, undefined when available
-          disabled: unavailableReason ?? undefined,
-        };
-      }),
-    [suggestionsByType, columnAnalysis, isAnalysisLoaded],
+      existingFields,
+      suggestionSeed,
+    ],
   );
 
-  // Handle "Use suggestion" button click - create visualization with suggested encoding
-  const handleUseSuggestion = useCallback(
-    (chartType: VisualizationType) => {
-      const suggestion = suggestionsByType.get(chartType);
-      if (suggestion) {
-        onCreateChart(suggestion);
-      }
-    },
-    [suggestionsByType, onCreateChart],
-  );
-
-  // Handle "Create custom" button click - create visualization with empty encoding
-  const handleCreateCustom = useCallback(
-    (chartType: VisualizationType) => {
-      const config = CHART_TYPE_CONFIG[chartType];
-      const customSuggestion: ChartSuggestion = {
-        id: `custom-${chartType}`,
-        title: `New ${config.label.toLowerCase()} chart`,
-        chartType,
-        encoding: {},
-      };
-      onCreateChart(customSuggestion);
+  // Handle category card selection (receives chart type and suggestion from card)
+  const handleCategorySelect = useCallback(
+    (_chartType: VisualizationType, suggestion: ChartSuggestion) => {
+      onCreateChart(suggestion);
     },
     [onCreateChart],
   );
 
   // Check if there are any suggestions to show regenerate button
-  const hasSuggestions = Array.from(suggestionsByType.values()).some(
-    (s) => s !== null,
-  );
+  const hasSuggestions = tagSuggestions.length > 0;
+
+  // Render category cards section based on state
+  const renderCategoryCards = () => {
+    if (hasSuggestions) {
+      return (
+        <div
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${Math.min(gridColumns, tagSuggestions.length)}, minmax(0, 1fr))`,
+          }}
+        >
+          {tagSuggestions.map((tagSuggestion) => (
+            <CategoryCard
+              key={tagSuggestion.tag}
+              tagSuggestion={tagSuggestion}
+              tableName={tableName}
+              rowCount={rowCount}
+              isLoading={isLoading}
+              onSelect={handleCategorySelect}
+              getSuggestionForType={getSuggestionForType}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    if (isLoading) {
+      // Show loading state while column analysis is pending
+      return (
+        <div className="text-muted-foreground flex flex-col items-center justify-center py-8 text-center">
+          <p className="text-sm">Loading suggestions...</p>
+        </div>
+      );
+    }
+
+    // No suggestions available
+    return (
+      <div className="text-muted-foreground flex flex-col items-center justify-center py-8 text-center">
+        <p className="text-sm">No chart suggestions available</p>
+        <p className="mt-1 text-xs">
+          Add fields to your insight to see suggestions
+        </p>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
-      {/* Chart type grid */}
-      <div
-        className="grid gap-4"
-        style={{
-          gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
-        }}
-      >
-        {chartTypeItems.map((item) => (
-          <ChartTypeCard
-            key={item.chartType}
-            chartType={item.chartType}
-            suggestion={item.suggestion}
-            tableName={tableName}
-            disabled={item.disabled}
-            isLoading={isLoading}
-            onUseSuggestion={() => handleUseSuggestion(item.chartType)}
-            onCreateCustom={() => handleCreateCustom(item.chartType)}
-          />
-        ))}
-      </div>
-      {/* Regenerate button - only show if there are suggestions and callback provided */}
+      {/* Category cards section */}
+      {renderCategoryCards()}
+
+      {/* Regenerate button */}
       {hasSuggestions && onRegenerate && !isLoading && (
         <div className="flex justify-center">
           <Button variant="ghost" size="sm" onClick={onRegenerate}>
@@ -466,6 +541,37 @@ export const ChartTypePicker = memo(function ChartTypePicker({
           </Button>
         </div>
       )}
+
+      {/* Create custom section - always visible */}
+      <div className="border-t pt-3">
+        <p className="text-muted-foreground mb-3 text-sm">Create custom</p>
+        <ChartTypeGrid
+          insight={insight}
+          columnAnalysis={columnAnalysis}
+          rowCount={rowCount}
+          fieldMap={fieldMap}
+          existingFields={existingFields}
+          onCreateChart={onCreateChart}
+          isLoading={isLoading}
+          suggestionSeed={suggestionSeed}
+        />
+      </div>
     </div>
   );
 });
+
+// =============================================================================
+// Exported Utilities (for backwards compatibility)
+// =============================================================================
+
+/**
+ * Configuration for each chart type including display info and usage hints.
+ * @deprecated Use CHART_TYPE_METADATA from @dashframe/types instead.
+ */
+export const CHART_TYPE_CONFIG = CHART_TYPE_METADATA;
+
+/**
+ * Ordered list of chart types for display.
+ * @deprecated Use ALL_CHART_TYPES or CHART_TYPE_METADATA keys.
+ */
+export const CHART_TYPES = ALL_CHART_TYPES;

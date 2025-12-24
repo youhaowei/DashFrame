@@ -11,7 +11,13 @@ import {
 import { AlertCircle, ArrowUpDown } from "@dashframe/ui/icons";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { metricToSqlExpression } from "@dashframe/engine";
-import type { VisualizationType, CompiledInsight } from "@dashframe/types";
+import type {
+  VisualizationType,
+  CompiledInsight,
+  UUID,
+} from "@dashframe/types";
+import { fieldEncoding, metricEncoding, parseEncoding } from "@dashframe/types";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import {
   getRankedColumnOptions,
   getColumnWarning,
@@ -79,23 +85,63 @@ export function AxisSelectField({
   onSwapAxes,
 }: AxisSelectFieldProps) {
   // Compute all available column options from compiled insight
+  // Values use encoding format (field:<uuid>, metric:<uuid>) for storage
   const allOptions = useMemo(() => {
     const options: Array<{ label: string; value: string }> = [];
 
     // Add dimensions (resolved Field objects)
+    // Use field:<uuid> encoding format for value
     compiledInsight.dimensions.forEach((field) => {
-      options.push({ label: field.name, value: field.name });
+      options.push({
+        label: field.name,
+        value: fieldEncoding(field.id as UUID),
+      });
     });
 
-    // Add metrics as SQL aggregation expressions
-    // vgplot expects "count(*)" or "sum(column)" format, not metric names
+    // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
-      const sqlExpr = metricToSqlExpression(metric);
-      options.push({ label: metric.name, value: sqlExpr });
+      options.push({
+        label: metric.name,
+        value: metricEncoding(metric.id as UUID),
+      });
     });
 
     return options;
   }, [compiledInsight]);
+
+  // Build mapping from storage encoding (field:<uuid>) to SQL alias (field_<uuid>)
+  // This allows us to work with columnAnalysis which uses SQL alias format
+  const encodingToSqlAlias = useMemo(() => {
+    const map = new Map<string, string>();
+    compiledInsight.dimensions.forEach((field) => {
+      const enc = fieldEncoding(field.id as UUID);
+      const alias = fieldIdToColumnAlias(field.id);
+      map.set(enc, alias);
+    });
+    compiledInsight.metrics.forEach((metric) => {
+      const enc = metricEncoding(metric.id as UUID);
+      const alias = metricIdToColumnAlias(metric.id);
+      map.set(enc, alias);
+    });
+    return map;
+  }, [compiledInsight]);
+
+  // Reverse mapping: SQL alias to storage encoding
+  const sqlAliasToEncoding = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [enc, alias] of encodingToSqlAlias.entries()) {
+      map.set(alias, enc);
+    }
+    return map;
+  }, [encodingToSqlAlias]);
+
+  // Helper to convert storage encoding to SQL alias
+  const toSqlAlias = (
+    encodingValue: string | undefined,
+  ): string | undefined => {
+    if (!encodingValue) return undefined;
+    return encodingToSqlAlias.get(encodingValue);
+  };
 
   // Build semantic label with hint (e.g., "X Axis (Category)")
   const semanticLabel = useMemo(() => {
@@ -103,57 +149,81 @@ export function AxisSelectField({
     return hint ? `${label} (${hint})` : label;
   }, [label, axis, chartType]);
 
-  // Build set of metric values (SQL expressions) for icon lookup
-  const metricValues = useMemo(() => {
+  // Build set of metric SQL aliases for icon lookup
+  // Metrics appear in columnAnalysis as metric_<uuid> aliases
+  const metricAliases = useMemo(() => {
     return new Set(
-      compiledInsight.metrics.map((m) => metricToSqlExpression(m)),
+      compiledInsight.metrics.map((m) => metricIdToColumnAlias(m.id)),
     );
   }, [compiledInsight.metrics]);
+
+  // Convert otherAxisColumn from storage encoding to SQL alias for comparison
+  const otherAxisAlias = useMemo(
+    () => toSqlAlias(otherAxisColumn),
+    [otherAxisColumn, toSqlAlias],
+  );
 
   // Get ranked options with warnings when analysis data is available
   // Also filters to only valid columns for this channel/chart type
   const rankedOptions = useMemo(() => {
     if (columnAnalysis.length === 0) {
       // No analysis available, return options as-is with icons
-      return allOptions.map((opt) => ({
-        label: opt.label,
-        value: opt.value,
-        description: undefined,
-        icon: getColumnIcon(opt.value, columnAnalysis, metricValues),
-      }));
+      return allOptions.map((opt) => {
+        const sqlAlias = toSqlAlias(opt.value);
+        return {
+          label: opt.label,
+          value: opt.value,
+          description: undefined,
+          icon: getColumnIcon(
+            sqlAlias ?? opt.value,
+            columnAnalysis,
+            metricAliases,
+          ),
+        };
+      });
     }
 
     // Get valid columns for this channel (hard enforcement)
     // Pass compiledInsight so enforcer knows which columns are metrics vs dimensions
-    const validColumnNames = getValidColumnsForChannel(
+    // Returns SQL alias format (field_<uuid> or metric_<uuid>)
+    const validColumnAliases = getValidColumnsForChannel(
       axis,
       chartType,
       columnAnalysis,
       compiledInsight,
     );
-    const validColumnSet = new Set(validColumnNames);
+    const validAliasSet = new Set(validColumnAliases);
 
-    // Filter options to only valid columns
-    // Note: We allow selecting the same column as the other axis - this can help fix broken configs
-    // The warning system will alert users if they select the same column on both axes
-    const validOptions = allOptions.filter((opt) =>
-      validColumnSet.has(opt.value),
-    );
-    const columnNames = validOptions.map((opt) => opt.value);
+    // Filter options by checking if their SQL alias is valid
+    const validOptions = allOptions.filter((opt) => {
+      const alias = toSqlAlias(opt.value);
+      return alias && validAliasSet.has(alias);
+    });
 
-    // Rank the valid options
+    // Get SQL aliases for ranking
+    const validAliases = validOptions
+      .map((opt) => toSqlAlias(opt.value))
+      .filter((a): a is string => !!a);
+
+    // Rank the valid options using SQL aliases
     const ranked = getRankedColumnOptions(
-      columnNames,
+      validAliases,
       axis,
       chartType,
       columnAnalysis,
-      otherAxisColumn,
+      otherAxisAlias,
     );
 
     // Transform to SelectField format with icons and warnings
+    // Map SQL alias back to storage encoding for the value
     const result = ranked.map((opt) => {
+      // Look up the original option with storage encoding
+      const storageEncoding = sqlAliasToEncoding.get(opt.value);
+      const originalOpt = allOptions.find((o) => o.value === storageEncoding);
+      const label = originalOpt?.label ?? opt.label;
+
       // Special case: if this option is the other axis's column, show swap hint
-      const isOtherAxisColumn = opt.value === otherAxisColumn;
+      const isOtherAxisColumn = opt.value === otherAxisAlias;
       let description: string | undefined;
       if (isOtherAxisColumn && onSwapAxes) {
         description = "↔️ Swap axes";
@@ -162,17 +232,18 @@ export function AxisSelectField({
       }
 
       return {
-        label: opt.label,
-        value: opt.value,
+        label,
+        value: storageEncoding ?? opt.value,
         description,
-        icon: getColumnIcon(opt.value, columnAnalysis, metricValues),
+        icon: getColumnIcon(opt.value, columnAnalysis, metricAliases),
       };
     });
 
     // If the current value is invalid but still selected, include it in the options
     // so the user can see what's selected and understand the error message.
     // This prevents the select from appearing blank when an invalid option is selected.
-    if (value && !validColumnSet.has(value)) {
+    const currentAlias = toSqlAlias(value);
+    if (value && currentAlias && !validAliasSet.has(currentAlias)) {
       const currentOption = allOptions.find((opt) => opt.value === value);
       if (currentOption) {
         result.unshift({
@@ -180,9 +251,9 @@ export function AxisSelectField({
           value: currentOption.value,
           description: "⛔ Invalid for this chart type",
           icon: getColumnIcon(
-            currentOption.value,
+            currentAlias ?? currentOption.value,
             columnAnalysis,
-            metricValues,
+            metricAliases,
           ),
         });
       }
@@ -195,13 +266,16 @@ export function AxisSelectField({
     chartType,
     columnAnalysis,
     compiledInsight,
-    metricValues,
+    metricAliases,
     onSwapAxes,
-    otherAxisColumn,
+    otherAxisAlias,
+    sqlAliasToEncoding,
+    toSqlAlias,
     value,
   ]);
 
   // Check if current selection is valid for this axis/chart type (hard error)
+  // Pass storage encoding (field:<uuid>) directly - isColumnValidForChannel expects this format
   const validationError = useMemo(() => {
     if (!value || columnAnalysis.length === 0) return null;
     const result = isColumnValidForChannel(
@@ -219,20 +293,26 @@ export function AxisSelectField({
     value && otherAxisColumn && value === otherAxisColumn;
 
   // Get warning for current selection (soft warning)
+  // Convert storage encodings to SQL aliases for column analysis comparison
   const currentWarning: AxisWarning | null = useMemo(() => {
     // Don't show warning if there's already a validation error
     if (validationError) return null;
     if (!columnAnalysis || !value) return null;
     // Don't show "same column" warning if we'll show swap action instead
     if (isSameAsOtherAxis && onSwapAxes) return null;
-    // Build otherColumns object: if we're configuring X, otherAxisColumn goes on Y, and vice versa
+
+    // Convert current value to SQL alias
+    const currentAlias = toSqlAlias(value);
+    if (!currentAlias) return null;
+
+    // Build otherColumns object using SQL aliases
     let otherColumns: { x?: string; y?: string } | undefined;
-    if (otherAxisColumn) {
+    if (otherAxisAlias) {
       otherColumns =
-        axis === "x" ? { y: otherAxisColumn } : { x: otherAxisColumn };
+        axis === "x" ? { y: otherAxisAlias } : { x: otherAxisAlias };
     }
     return getColumnWarning(
-      value,
+      currentAlias,
       axis,
       chartType,
       columnAnalysis,
@@ -243,10 +323,11 @@ export function AxisSelectField({
     axis,
     chartType,
     columnAnalysis,
-    otherAxisColumn,
+    otherAxisAlias,
     validationError,
     isSameAsOtherAxis,
     onSwapAxes,
+    toSqlAlias,
   ]);
 
   // Build label addon - either swap action or warning badge

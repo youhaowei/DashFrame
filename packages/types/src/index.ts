@@ -70,6 +70,17 @@ export type {
   VisualizationMutations,
   UseVisualizations,
   UseVisualizationMutations,
+  ChartTag,
+  ChartTypeMetadata,
+} from "./visualizations";
+
+export {
+  CHART_TYPE_METADATA,
+  CHART_TAG_METADATA,
+  getChartTypesForTag,
+  getTagsForChartType,
+  getAvailableTags,
+  SCATTER_MAX_POINTS,
 } from "./visualizations";
 
 // =============================================================================
@@ -108,3 +119,34 @@ export type {
   UseDashboards,
   UseDashboardMutations,
 } from "./dashboards";
+
+// =============================================================================
+// Column Analysis Types
+// =============================================================================
+
+export type {
+  ColumnAnalysisBase,
+  StringSemantic,
+  NumberSemantic,
+  DateSemantic,
+  BooleanSemantic,
+  ArraySemantic,
+  UnknownSemantic,
+  StringAnalysis,
+  NumberAnalysis,
+  DateAnalysis,
+  BooleanAnalysis,
+  ArrayAnalysis,
+  UnknownAnalysis,
+  ColumnAnalysis,
+  ColumnDataType,
+  ColumnSemantic,
+  DataFrameAnalysis,
+  ColumnCategory,
+} from "./column-analysis";
+
+export {
+  getLegacyCategory,
+  looksLikeIdentifier,
+  CARDINALITY_THRESHOLDS,
+} from "./column-analysis";
