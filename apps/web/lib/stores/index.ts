@@ -1,27 +1,12 @@
 import "./config";
 
 // ============================================================================
-// Active Stores - Used with Convex for client-side data caching
-// ============================================================================
-export { useDataFramesStore, type DataFrameEntry } from "./dataframes-store";
-
-// ============================================================================
 // UI Stores - Ephemeral UI state (not persisted)
 // ============================================================================
 export {
   useConfirmDialogStore,
   type ConfirmDialogConfig,
 } from "./confirm-dialog-store";
-
-// ============================================================================
-// Legacy Stores - Being migrated to Convex
-// These stores are kept for backward compatibility with components that
-// haven't been migrated yet (e.g., JoinFlowModal, legacy workbench components)
-// Note: Remove once all components are migrated to Convex
-// ============================================================================
-export { useDataSourcesStore } from "./data-sources-store";
-export { useVisualizationsStore } from "./visualizations-store";
-export { useInsightsStore } from "./insights-store";
 
 // ============================================================================
 // Type Exports

@@ -105,17 +105,22 @@ export default function DashboardsPage() {
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
                       <DashboardIcon className="h-5 w-5" />
                     </div>
-                    <Button
-                      variant="text"
-                      icon={DeleteIcon}
-                      iconOnly
-                      label="Delete dashboard"
-                      color="danger"
-                      className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
-                      onClick={() => {
-                        removeDashboard(dashboard.id);
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
                       }}
-                    />
+                    >
+                      <Button
+                        variant="text"
+                        icon={DeleteIcon}
+                        iconOnly
+                        label="Delete dashboard"
+                        color="danger"
+                        className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={() => removeDashboard(dashboard.id)}
+                      />
+                    </div>
                   </div>
                   <h3 className="text-foreground mb-1 font-semibold">
                     {dashboard.name}

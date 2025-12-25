@@ -559,13 +559,18 @@ export function VirtualTable({
     >
       {/* Loading indicator with animated spinner */}
       {isLoading && (
-        <div className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg">
+        <div
+          className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
+          role="status"
+          aria-live="polite"
+        >
           <div className="bg-background/95 text-muted-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm shadow-md">
             <svg
               className="h-4 w-4 animate-spin"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <circle
                 className="opacity-25"
@@ -607,29 +612,38 @@ export function VirtualTable({
             const highlightVariant =
               typeof highlight === "string" ? highlight : "primary";
             const isSorted = sortColumn === col.name;
+            const columnLabel = config?.label || col.name;
+            const sortDirectionLabel =
+              sortDirection === "asc" ? "ascending" : "descending";
+            const sortedSuffix = isSorted
+              ? `, currently sorted ${sortDirectionLabel}`
+              : "";
 
             return (
-              <div
+              <button
+                type="button"
                 key={col.name}
                 className={cn(
-                  "text-muted-foreground cursor-pointer select-none overflow-hidden font-medium",
+                  "text-muted-foreground cursor-pointer select-none overflow-hidden text-left font-medium",
+                  "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
                   !isHighlighted && "hover:bg-muted/80",
                 )}
-                title={col.name}
+                title={`Sort by ${columnLabel}`}
+                aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
                 onClick={() => handleSort(col.name)}
               >
                 <div className="flex items-center gap-1">
-                  <span className="truncate">{config?.label || col.name}</span>
+                  <span className="truncate">{columnLabel}</span>
                   {isSorted && (
-                    <span className="text-[10px]">
+                    <span className="text-[10px]" aria-hidden="true">
                       {sortDirection === "asc" ? "↑" : "↓"}
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -736,7 +750,11 @@ export function VirtualTable({
 
         {/* Empty state */}
         {virtualRowCount === 0 && !isLoading && (
-          <div className="flex h-32 items-center justify-center">
+          <div
+            className="flex h-32 items-center justify-center"
+            role="status"
+            aria-live="polite"
+          >
             <span className="text-muted-foreground text-sm">
               No data available
             </span>

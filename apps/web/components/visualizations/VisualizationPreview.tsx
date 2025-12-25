@@ -84,6 +84,7 @@ export function VisualizationPreview({
 
     let cancelled = false;
     let retryCount = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const maxRetries = 5; // Reduced from 10 - faster failure
     const retryDelay = 100; // Reduced from 200ms - faster polling
 
@@ -102,14 +103,14 @@ export function VisualizationPreview({
             setViewExists(true);
           } else if (retryCount < maxRetries) {
             retryCount++;
-            setTimeout(checkViewExists, retryDelay);
+            timeoutId = setTimeout(checkViewExists, retryDelay);
           }
         }
       } catch (err) {
         console.error("[VisualizationPreview] Error checking view:", err);
         if (!cancelled && retryCount < maxRetries) {
           retryCount++;
-          setTimeout(checkViewExists, retryDelay);
+          timeoutId = setTimeout(checkViewExists, retryDelay);
         }
       }
     };
@@ -118,6 +119,9 @@ export function VisualizationPreview({
 
     return () => {
       cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
   }, [connection, isInitialized, viewName, cachedViewName]);
 

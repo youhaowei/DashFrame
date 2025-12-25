@@ -41,6 +41,20 @@ const BLOCKED_AXIS_SEMANTICS = new Set([
   "uuid",
 ]);
 
+/** Check if field name pattern suggests a foreign/primary key identifier */
+function isIdFieldWithHighCardinality(
+  fieldName: string,
+  cardinality: number,
+  rowCount: number,
+): boolean {
+  const name = fieldName.toLowerCase();
+  const endsWithId = name.length > 2 && name.endsWith("id");
+  if (!endsWithId) return false;
+
+  const uniqueRatio = rowCount > 0 ? cardinality / rowCount : 0;
+  return uniqueRatio >= 0.98 || cardinality > 1000;
+}
+
 /**
  * Check if a column should be completely blocked from visualization axes.
  *
@@ -68,7 +82,7 @@ export function isBlockedColumn(
   }
 
   // Check field metadata for identifier/reference flags (fallback)
-  if (field && (field.isIdentifier || field.isReference)) {
+  if (field?.isIdentifier || field?.isReference) {
     return {
       good: false,
       reason:
@@ -80,25 +94,15 @@ export function isBlockedColumn(
   // Block if the name ends with "id" AND either:
   // 1. Near-unique values (≥98% unique) - primary keys
   // 2. High cardinality (>1000 unique values) - foreign keys with many distinct values
-  // This catches both primary keys and foreign keys that shouldn't be used for visualization.
-  if (field?.name) {
-    const name = field.name.toLowerCase();
-    const endsWithId = name.length > 2 && name.endsWith("id");
-
-    if (endsWithId) {
-      const uniqueRatio =
-        rowCount && rowCount > 0 ? col.cardinality / rowCount : 0;
-      const isNearUnique = uniqueRatio >= 0.98;
-      const isHighCardinality = col.cardinality > 1000;
-
-      if (isNearUnique || isHighCardinality) {
-        return {
-          good: false,
-          reason:
-            "This column appears to be an identifier (name ends with 'id' and has many unique values) and is not suitable for visualization axes.",
-        };
-      }
-    }
+  if (
+    field?.name &&
+    isIdFieldWithHighCardinality(field.name, col.cardinality, rowCount ?? 0)
+  ) {
+    return {
+      good: false,
+      reason:
+        "This column appears to be an identifier (name ends with 'id' and has many unique values) and is not suitable for visualization axes.",
+    };
   }
 
   // Check column name patterns
@@ -111,7 +115,8 @@ export function isBlockedColumn(
   }
 
   // Skip columns with high null rate (>50% missing data)
-  if (rowCount && rowCount > 0 && col.nullCount / rowCount > 0.5) {
+  const nullRatio = rowCount && rowCount > 0 ? col.nullCount / rowCount : 0;
+  if (nullRatio > 0.5) {
     return {
       good: false,
       reason:

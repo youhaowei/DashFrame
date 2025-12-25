@@ -67,9 +67,134 @@ function remapAnalysisColumnNames(
     return col;
   });
 }
+
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+
+/** Helper context for DataFrame analysis operations */
+interface AnalysisContext {
+  duckDBConnection: AsyncDuckDBConnection;
+  updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
+}
+
+/**
+ * Analyze a single DataFrame and cache the results.
+ * Returns the analysis for merging with other DataFrames.
+ */
+async function analyzeAndCacheDataFrame(
+  dataFrameId: UUID,
+  fields: Field[],
+  rowCount: number,
+  ctx: AnalysisContext,
+): Promise<DataFrameAnalysis | null> {
+  const dataFrame = await getDataFrame(dataFrameId);
+  if (!dataFrame) {
+    console.error("[InsightView] DataFrame entity not found:", dataFrameId);
+    return null;
+  }
+
+  const tableName = await ensureTableLoaded(dataFrame, ctx.duckDBConnection);
+  const results = await analyzeView(ctx.duckDBConnection, tableName);
+  const remappedResults = remapAnalysisColumnNames(results, fields);
+
+  const analysis: DataFrameAnalysis = {
+    columns: remappedResults,
+    rowCount,
+    analyzedAt: Date.now(),
+    fieldHash: fields
+      .map((f) => f.id)
+      .sort()
+      .join(","),
+  };
+
+  await ctx.updateAnalysis(dataFrameId, analysis);
+  console.log(
+    "[InsightView] DataFrame cached",
+    dataFrameId,
+    remappedResults.length,
+    "columns",
+  );
+
+  return analysis;
+}
+
+/** Entry with optional cached analysis */
+interface DataFrameEntry {
+  id: UUID;
+  rowCount?: number;
+  analysis?: DataFrameAnalysis;
+}
+
+/** Table entry with optional fields */
+interface DataTableEntry {
+  id: UUID;
+  dataFrameId?: string;
+  fields?: Field[];
+}
+
+/** Join specification */
+interface JoinSpec {
+  rightTableId: UUID;
+}
+
+/**
+ * Analyze joined DataFrames and merge results.
+ * Returns merged column analysis from all DataFrames.
+ */
+async function analyzeJoinedDataFrames(
+  baseDataFrameEntry: DataFrameEntry,
+  baseFields: Field[],
+  joins: JoinSpec[],
+  allDataTables: DataTableEntry[],
+  allDataFrameEntries: DataFrameEntry[],
+  ctx: AnalysisContext,
+): Promise<ColumnAnalysis[]> {
+  const analysesToMerge: DataFrameAnalysis[] = [];
+
+  // Analyze base DataFrame if not cached
+  if (baseDataFrameEntry.analysis) {
+    analysesToMerge.push(baseDataFrameEntry.analysis);
+  } else {
+    const baseAnalysis = await analyzeAndCacheDataFrame(
+      baseDataFrameEntry.id,
+      baseFields,
+      baseDataFrameEntry.rowCount ?? 0,
+      ctx,
+    );
+    if (!baseAnalysis) return [];
+    analysesToMerge.push(baseAnalysis);
+  }
+
+  // Analyze each joined DataFrame if not cached
+  for (const join of joins) {
+    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
+    if (!joinedTable?.dataFrameId) continue;
+
+    const joinedDfEntry = allDataFrameEntries.find(
+      (df) => df.id === joinedTable.dataFrameId,
+    );
+    if (!joinedDfEntry) continue;
+
+    if (joinedDfEntry.analysis) {
+      analysesToMerge.push(joinedDfEntry.analysis);
+    } else {
+      const joinFields = joinedTable.fields ?? [];
+      const joinAnalysis = await analyzeAndCacheDataFrame(
+        joinedDfEntry.id,
+        joinFields,
+        joinedDfEntry.rowCount ?? 0,
+        ctx,
+      );
+      if (joinAnalysis) {
+        analysesToMerge.push(joinAnalysis);
+      }
+    }
+  }
+
+  return mergeAnalyses(analysesToMerge);
+}
 
 interface InsightViewProps {
   insight: Insight;
@@ -310,7 +435,6 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Sync local name when insight prop changes from external source
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: syncing local state from prop changes
     setLocalName(insight.name);
   }, [insight.name]);
 
@@ -454,7 +578,6 @@ export function InsightView({ insight }: InsightViewProps) {
   useEffect(() => {
     if (!duckDBConnection || !isDuckDBReady) return;
     if (!chartTableName || !isChartViewReady) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: clearing state when view not ready
       setColumnAnalysis([]);
       return;
     }
@@ -572,6 +695,8 @@ export function InsightView({ insight }: InsightViewProps) {
     console.log("[InsightView] Cache miss - running DuckDB analysis...");
     const runAnalysis = async () => {
       setIsAnalyzing(true);
+      const ctx: AnalysisContext = { duckDBConnection, updateAnalysis };
+
       try {
         if (!hasJoins) {
           // Single DataFrame - analyze and cache
@@ -583,6 +708,7 @@ export function InsightView({ insight }: InsightViewProps) {
             "columns",
           );
           setColumnAnalysis(results);
+
           // Cache for this DataFrame
           const analysisToCache: DataFrameAnalysis = {
             columns: results,
@@ -597,123 +723,18 @@ export function InsightView({ insight }: InsightViewProps) {
           );
         } else {
           // Joined insight - analyze each DataFrame individually and cache
-          // Each DataFrame needs to be loaded into DuckDB as its own table first
           console.log(
             "[InsightView] Analyzing joined DataFrames individually...",
           );
-          const analysesToMerge: DataFrameAnalysis[] = [];
-
-          // Analyze base DataFrame if not cached
-          if (!baseDataFrameEntry.analysis) {
-            console.log(
-              "[InsightView] Analyzing base DataFrame",
-              baseDataFrameEntry.id,
-            );
-            // Fetch the full DataFrame entity to get storage info for ensureTableLoaded
-            const baseDataFrame = await getDataFrame(baseDataFrameEntry.id);
-            if (!baseDataFrame) {
-              console.error("[InsightView] Base DataFrame entity not found");
-              return;
-            }
-            // Ensure the table is loaded into DuckDB and get its actual table name
-            const baseTableName = await ensureTableLoaded(
-              baseDataFrame,
-              duckDBConnection,
-            );
-            const baseResults = await analyzeView(
-              duckDBConnection,
-              baseTableName,
-            );
-            // Remap column names from original names (e.g., "roomattend") to UUID aliases (e.g., "field_<uuid>")
-            const baseFields = dataTable?.fields ?? [];
-            const remappedBaseResults = remapAnalysisColumnNames(
-              baseResults,
-              baseFields,
-            );
-            const baseAnalysis: DataFrameAnalysis = {
-              columns: remappedBaseResults,
-              rowCount: baseDataFrameEntry.rowCount ?? 0,
-              analyzedAt: Date.now(),
-              fieldHash: baseFields
-                .map((f) => f.id)
-                .sort()
-                .join(","),
-            };
-            await updateAnalysis(baseDataFrameEntry.id, baseAnalysis);
-            analysesToMerge.push(baseAnalysis);
-            console.log(
-              "[InsightView] Base DataFrame cached",
-              remappedBaseResults.length,
-              "columns",
-            );
-          } else {
-            analysesToMerge.push(baseDataFrameEntry.analysis);
-          }
-
-          // Analyze each joined DataFrame if not cached
-          for (const join of insight.joins ?? []) {
-            const joinedTable = allDataTables.find(
-              (t) => t.id === join.rightTableId,
-            );
-            if (!joinedTable?.dataFrameId) continue;
-
-            const joinedDfEntry = allDataFrameEntries.find(
-              (df) => df.id === joinedTable.dataFrameId,
-            );
-            if (!joinedDfEntry) continue;
-
-            if (!joinedDfEntry.analysis) {
-              console.log(
-                "[InsightView] Analyzing joined DataFrame",
-                joinedDfEntry.id,
-              );
-              // Fetch the full DataFrame entity to get storage info for ensureTableLoaded
-              const joinedDataFrame = await getDataFrame(joinedDfEntry.id);
-              if (!joinedDataFrame) {
-                console.error(
-                  "[InsightView] Joined DataFrame entity not found:",
-                  joinedDfEntry.id,
-                );
-                continue;
-              }
-              // Ensure the table is loaded into DuckDB and get its actual table name
-              const joinTableName = await ensureTableLoaded(
-                joinedDataFrame,
-                duckDBConnection,
-              );
-              const joinResults = await analyzeView(
-                duckDBConnection,
-                joinTableName,
-              );
-              // Remap column names from original names (e.g., "roomattend") to UUID aliases (e.g., "field_<uuid>")
-              const joinFields = joinedTable.fields ?? [];
-              const remappedJoinResults = remapAnalysisColumnNames(
-                joinResults,
-                joinFields,
-              );
-              const joinAnalysis: DataFrameAnalysis = {
-                columns: remappedJoinResults,
-                rowCount: joinedDfEntry.rowCount ?? 0,
-                analyzedAt: Date.now(),
-                fieldHash: joinFields
-                  .map((f) => f.id)
-                  .sort()
-                  .join(","),
-              };
-              await updateAnalysis(joinedDfEntry.id, joinAnalysis);
-              analysesToMerge.push(joinAnalysis);
-              console.log(
-                "[InsightView] Joined DataFrame cached",
-                remappedJoinResults.length,
-                "columns",
-              );
-            } else {
-              analysesToMerge.push(joinedDfEntry.analysis);
-            }
-          }
-
-          // Merge all analyses
-          const merged = mergeAnalyses(analysesToMerge);
+          const baseFields = dataTable?.fields ?? [];
+          const merged = await analyzeJoinedDataFrames(
+            baseDataFrameEntry,
+            baseFields,
+            insight.joins ?? [],
+            allDataTables,
+            allDataFrameEntries,
+            ctx,
+          );
           console.log(
             "[InsightView] Merged analysis complete",
             merged.length,

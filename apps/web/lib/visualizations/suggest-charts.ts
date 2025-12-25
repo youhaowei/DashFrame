@@ -177,28 +177,6 @@ export { SCATTER_MAX_POINTS };
 function getMetricScore(displayName: string): number {
   const name = displayName.toLowerCase();
 
-  // #region agent log (debug)
-  // Hypothesis H3: callers are accidentally passing UUID aliases (e.g. "field_<uuid>") instead of display names,
-  // causing ID/metric detection to be ineffective.
-  if (name.startsWith("field_")) {
-    fetch("http://127.0.0.1:7242/ingest/cc37fc85-1844-4ca6-9198-e7ed611055b2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "debug-session",
-        runId: "pre-fix",
-        hypothesisId: "H3",
-        location:
-          "apps/web/lib/visualizations/suggest-charts.ts:getMetricScore",
-        message:
-          "getMetricScore called with UUID-like value (expected displayName)",
-        data: { value: displayName },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion agent log (debug)
-
   // Check if it looks like an ID first
   if (NON_METRIC_PATTERNS.some((pattern) => pattern.test(name))) {
     return 0;
@@ -475,86 +453,6 @@ export function suggestCharts(
     ),
     random,
   );
-
-  // #region agent log (debug)
-  // Hypothesis H1/H2/H4: ID-like columns (e.g. oppid) are not being blocked and end up in the first two numerical columns,
-  // which directly drives correlation (dot/hexbin) suggestions.
-  try {
-    const suspicious = enrichedAnalysis
-      .map((c) => {
-        const field = c.fieldId ? fields[c.fieldId] : undefined;
-        const fieldName = field?.name;
-        const display = (c as any).displayName ?? fieldName ?? c.columnName;
-        const lower = String(display).toLowerCase();
-        const isIdName = lower.includes("id") || lower.endsWith("id");
-        if (!isIdName) return null;
-        return {
-          uuid: c.columnName,
-          displayName: (c as any).displayName,
-          fieldName,
-          semantic: c.semantic,
-          cardinality: c.cardinality,
-          nullCount: c.nullCount,
-          isIdentifierFlag: field?.isIdentifier ?? false,
-        };
-      })
-      .filter(Boolean);
-
-    fetch("http://127.0.0.1:7242/ingest/cc37fc85-1844-4ca6-9198-e7ed611055b2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "debug-session",
-        runId: "pre-fix",
-        hypothesisId: "H1",
-        location: "apps/web/lib/visualizations/suggest-charts.ts:suggestCharts",
-        message:
-          "suggestCharts computed eligible columns (focus on ID-like names + first numerical picks)",
-        data: {
-          rowCount,
-          numericalTop: numerical.slice(0, 5).map((c) => ({
-            uuid: c.columnName,
-            displayName: (c as any).displayName,
-            semantic: c.semantic,
-            cardinality: c.cardinality,
-            nullCount: c.nullCount,
-          })),
-          suspiciousIdLike: suspicious,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  } catch {
-    // avoid breaking suggestions if logging fails
-  }
-  // #endregion agent log (debug)
-
-  // Debug logging to understand filtering
-  console.debug("[suggestCharts] Column filtering results", {
-    totalColumns: enrichedAnalysis.length,
-    numerical: numerical.length,
-    temporal: temporal.length,
-    categorical: categorical.length,
-    colorSuitable: colorSuitable.length,
-    numericalColumns: numerical.map((c) => ({
-      uuid: c.columnName,
-      display: c.displayName,
-    })),
-    temporalColumns: temporal.map((c) => ({
-      uuid: c.columnName,
-      display: c.displayName,
-    })),
-    categoricalColumns: categorical.map((c) => ({
-      uuid: c.columnName,
-      display: c.displayName,
-    })),
-    allCategories: enrichedAnalysis.map((a) => ({
-      uuid: a.columnName,
-      display: a.displayName,
-      semantic: a.semantic,
-      blocked: isBlocked(a),
-    })),
-  });
 
   const suggestions: ChartSuggestion[] = [];
   const usedSignatures = new Set<string>(); // Track signatures we've already added

@@ -228,8 +228,8 @@ export async function ensureTableLoaded(
         `SELECT 1 FROM information_schema.tables WHERE table_name = '${tableName}' LIMIT 1`,
       );
       tableExists = checkResult.toArray().length > 0;
-    } catch (err) {
-      // If check fails, assume table doesn't exist
+    } catch {
+      // If check fails (e.g., DuckDB not ready), assume table doesn't exist
       tableExists = false;
     }
 

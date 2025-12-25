@@ -10,13 +10,12 @@ import {
 } from "@dashframe/ui";
 import { AlertCircleIcon, ArrowUpDownIcon } from "@dashframe/ui/icons";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import { metricToSqlExpression } from "@dashframe/engine";
 import type {
   VisualizationType,
   CompiledInsight,
   UUID,
 } from "@dashframe/types";
-import { fieldEncoding, metricEncoding, parseEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import {
   getRankedColumnOptions,

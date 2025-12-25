@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect, useMemo, useCallback } from "react";
+import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -32,18 +32,13 @@ import {
   useInsights,
   useCompiledInsight,
   useDataTables,
-  useDataFrameMutations,
   getDataFrame as getDexieDataFrame,
 } from "@dashframe/core";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
-import {
-  metricToSqlExpression,
-  fieldIdToColumnAlias,
-  metricIdToColumnAlias,
-} from "@dashframe/engine";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import { parseEncoding } from "@dashframe/types";
 import type {
   UUID,
@@ -420,6 +415,15 @@ export default function VisualizationPage({ params }: PageProps) {
     await updateVisualization(visualizationId as UUID, { name: newName });
   };
 
+  // Infer axis type from column analysis semantic type
+  const inferAxisType = (
+    semantic: string,
+  ): "quantitative" | "nominal" | "ordinal" | "temporal" => {
+    if (semantic === "numerical") return "quantitative";
+    if (semantic === "temporal") return "temporal";
+    return "nominal";
+  };
+
   // Handle encoding change
   // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
   const handleEncodingChange = async (
@@ -437,26 +441,21 @@ export default function VisualizationPage({ params }: PageProps) {
     if (field === "x" || field === "y") {
       // Convert storage encoding to SQL alias to find in columnAnalysis
       const parsed = parseEncoding(value);
-      const sqlAlias = parsed
-        ? parsed.type === "field"
-          ? fieldIdToColumnAlias(parsed.id)
-          : metricIdToColumnAlias(parsed.id)
-        : undefined;
+      let sqlAlias: string | undefined;
+      if (parsed) {
+        sqlAlias =
+          parsed.type === "field"
+            ? fieldIdToColumnAlias(parsed.id)
+            : metricIdToColumnAlias(parsed.id);
+      }
 
       const colAnalysis = sqlAlias
         ? columnAnalysis.find((c) => c.columnName === sqlAlias)
         : undefined;
-      const typeField = field === "x" ? "xType" : "yType";
 
       if (colAnalysis) {
-        let axisType: "quantitative" | "nominal" | "ordinal" | "temporal" =
-          "nominal";
-        if (colAnalysis.semantic === "numerical") {
-          axisType = "quantitative";
-        } else if (colAnalysis.semantic === "temporal") {
-          axisType = "temporal";
-        }
-        newEncoding[typeField] = axisType;
+        const typeField = field === "x" ? "xType" : "yType";
+        newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
       }
     }
 

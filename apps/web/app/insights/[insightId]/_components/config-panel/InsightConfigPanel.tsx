@@ -24,7 +24,6 @@ import {
   findVisualizationsUsingField,
   findVisualizationsUsingMetric,
   removeFromEncoding,
-  type AffectedVisualization,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
 

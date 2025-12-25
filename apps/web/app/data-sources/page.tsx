@@ -101,6 +101,7 @@ export default function DataSourcesPage() {
     switch (type) {
       case "notion":
         return "Notion";
+      case "csv":
       case "local":
         return "Uploaded CSV";
       case "postgresql":

@@ -458,12 +458,7 @@ export function getEncodingWarning(
 // Column Scoring Helpers
 // ============================================================================
 
-interface ColumnTypeFlags {
-  isNumerical: boolean;
-  isTemporal: boolean;
-  isCategorical: boolean;
-  isIdentifier: boolean;
-}
+// Note: Reuses ColumnTypeFlags interface defined above (lines 81-89)
 
 /**
  * Score a column for vertical bar chart axis placement.
