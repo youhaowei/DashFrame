@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect, useMemo } from "react";
+import { use, useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -32,6 +32,7 @@ import {
   useInsights,
   useCompiledInsight,
   useDataTables,
+  useDataFrameMutations,
   getDataFrame as getDexieDataFrame,
 } from "@dashframe/core";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
