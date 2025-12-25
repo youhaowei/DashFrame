@@ -9,7 +9,7 @@ import {
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import {
-  PrimitiveButton,
+  Button,
   Card,
   CardContent,
   Input,
@@ -159,14 +159,15 @@ export default function DataSourcesPage() {
           {/* Actions */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <PrimitiveButton
+              <Button
                 variant="text"
+                icon={MoreHorizontal}
+                iconOnly
+                label="More options"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </PrimitiveButton>
+              />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -218,10 +219,11 @@ export default function DataSourcesPage() {
                 {allDataSources.length !== 1 ? "s" : ""} connected
               </p>
             </div>
-            <PrimitiveButton onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Source
-            </PrimitiveButton>
+            <Button
+              icon={Plus}
+              label="Add Source"
+              onClick={() => setIsCreateModalOpen(true)}
+            />
           </div>
           <div className="relative">
             <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
@@ -256,12 +258,11 @@ export default function DataSourcesPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     No data sources match &quot;{searchQuery}&quot;
                   </p>
-                  <PrimitiveButton
+                  <Button
                     variant="outlined"
+                    label="Clear search"
                     onClick={() => setSearchQuery("")}
-                  >
-                    Clear search
-                  </PrimitiveButton>
+                  />
                 </>
               ) : (
                 <>
@@ -271,10 +272,11 @@ export default function DataSourcesPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     Connect your first data source to start analyzing
                   </p>
-                  <PrimitiveButton onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Source
-                  </PrimitiveButton>
+                  <Button
+                    icon={Plus}
+                    label="Add Source"
+                    onClick={() => setIsCreateModalOpen(true)}
+                  />
                 </>
               )}
             </div>

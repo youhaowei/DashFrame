@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  PrimitiveButton,
+  Button,
   Input,
   Surface,
   Dialog,
@@ -62,10 +62,11 @@ export default function DashboardsPage() {
             </p>
           </div>
         </div>
-        <PrimitiveButton onClick={() => setIsCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Dashboard
-        </PrimitiveButton>
+        <Button
+          icon={Plus}
+          label="New Dashboard"
+          onClick={() => setIsCreateOpen(true)}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -81,13 +82,12 @@ export default function DashboardsPage() {
               Create your first dashboard to start organizing your
               visualizations.
             </p>
-            <PrimitiveButton
+            <Button
+              icon={Plus}
+              label="Create Dashboard"
               className="mt-6"
               onClick={() => setIsCreateOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Create Dashboard
-            </PrimitiveButton>
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -105,18 +105,19 @@ export default function DashboardsPage() {
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
                       <LayoutDashboard className="h-5 w-5" />
                     </div>
-                    <PrimitiveButton
+                    <Button
                       variant="text"
-                      size="icon"
+                      icon={Trash2}
+                      iconOnly
+                      label="Delete dashboard"
+                      color="danger"
                       className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         removeDashboard(dashboard.id);
                       }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </PrimitiveButton>
+                    />
                   </div>
                   <h3 className="text-foreground mb-1 font-semibold">
                     {dashboard.name}
@@ -155,18 +156,16 @@ export default function DashboardsPage() {
             />
           </div>
           <DialogFooter>
-            <PrimitiveButton
+            <Button
               variant="outlined"
+              label="Cancel"
               onClick={() => setIsCreateOpen(false)}
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton
+            />
+            <Button
+              label="Create"
               onClick={handleCreate}
               disabled={!newDashboardName.trim()}
-            >
-              Create
-            </PrimitiveButton>
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

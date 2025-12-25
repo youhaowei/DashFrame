@@ -19,7 +19,7 @@ import {
   X,
   Settings,
   Trash2,
-  PrimitiveButton,
+  Button,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -126,22 +126,15 @@ function SidebarContent({
             >
               {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
-                <PrimitiveButton
+                <Button
                   variant="text"
-                  size="icon"
+                  icon={isCollapsed ? ChevronRight : ChevronLeft}
+                  iconOnly
+                  label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={onToggleCollapse}
                   className="border-border/60 bg-background text-muted-foreground hover:bg-background h-7 w-7 rounded-full border shadow-sm transition-colors"
-                  aria-label={
-                    isCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                  }
-                  title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  )}
-                </PrimitiveButton>
+                  tooltip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                />
               )}
             </div>
           )}
@@ -339,14 +332,14 @@ export function Navigation() {
       </button>
 
       {/* Mobile Toggle Button */}
-      <PrimitiveButton
+      <Button
         variant="text"
-        size="icon"
+        icon={Menu}
+        iconOnly
+        label="Open menu"
         onClick={() => setIsOpen(true)}
         className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
-      >
-        <Menu className="h-5 w-5" />
-      </PrimitiveButton>
+      />
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -354,13 +347,13 @@ export function Navigation() {
           <div className="flex h-screen flex-col">
             <div className="border-border/60 flex items-center justify-between border-b p-4">
               <span className="text-sm font-semibold">Menu</span>
-              <PrimitiveButton
+              <Button
                 variant="text"
-                size="icon"
+                icon={X}
+                iconOnly
+                label="Close menu"
                 onClick={() => setIsOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </PrimitiveButton>
+              />
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent onClearData={() => setShowClearConfirm(true)} />
@@ -380,15 +373,16 @@ export function Navigation() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <PrimitiveButton
+            <Button
               variant="outlined"
+              label="Cancel"
               onClick={() => setShowClearConfirm(false)}
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton color="danger" onClick={handleClearAllData}>
-              Clear all data
-            </PrimitiveButton>
+            />
+            <Button
+              color="danger"
+              label="Clear all data"
+              onClick={handleClearAllData}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

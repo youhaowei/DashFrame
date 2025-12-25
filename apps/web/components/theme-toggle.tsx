@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Moon,
   Sun,
-  PrimitiveButton,
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -22,26 +22,24 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <PrimitiveButton
+      <Button
         variant="text"
-        size="icon"
-        aria-label="Toggle theme"
+        icon={Sun}
+        iconOnly
+        label="Toggle theme"
         disabled
-      >
-        <Sun className="h-[1.2rem] w-[1.2rem] opacity-50" />
-        <span className="sr-only">Toggle theme</span>
-      </PrimitiveButton>
+        className="opacity-50"
+      />
     );
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <PrimitiveButton variant="text" size="icon">
+        <Button variant="text" iconOnly label="Toggle theme">
           <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </PrimitiveButton>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setTheme("light")}>

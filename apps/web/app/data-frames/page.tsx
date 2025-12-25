@@ -9,7 +9,7 @@ import {
 import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  PrimitiveButton,
+  Button,
   ArrowUpDown,
   Input,
   Dialog,
@@ -35,15 +35,14 @@ export default function DataFramesPage() {
         accessorKey: "name",
         header: ({ column }) => {
           return (
-            <PrimitiveButton
+            <Button
               variant="text"
+              icon={ArrowUpDown}
+              label="Name"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
               }
-            >
-              Name
-              <ArrowUpDown className="ml-2 h-4 w-4" />
-            </PrimitiveButton>
+            />
           );
         },
         cell: ({ row }) => (
@@ -91,15 +90,14 @@ export default function DataFramesPage() {
         accessorKey: "createdAt",
         header: ({ column }) => {
           return (
-            <PrimitiveButton
+            <Button
               variant="text"
+              icon={ArrowUpDown}
+              label="Created"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
               }
-            >
-              Created
-              <ArrowUpDown className="ml-2 h-4 w-4" />
-            </PrimitiveButton>
+            />
           );
         },
         cell: ({ row }) => (
@@ -180,15 +178,12 @@ export default function DataFramesPage() {
             </div>
           </div>
           <DialogFooter>
-            <PrimitiveButton
+            <Button
               variant="outlined"
+              label="Cancel"
               onClick={() => setEditingFrame(null)}
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton onClick={handleSaveEdit}>
-              Save changes
-            </PrimitiveButton>
+            />
+            <Button label="Save changes" onClick={handleSaveEdit} />
           </DialogFooter>
         </DialogContent>
       </Dialog>

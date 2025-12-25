@@ -20,8 +20,6 @@ export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
 // Export Button component (primary button API)
 export { Button, type ButtonProps } from "./components/button";
-// Export primitive button for backwards compatibility and low-level use cases
-export { Button as PrimitiveButton } from "./primitives/button";
 export { buttonVariants } from "./primitives/button";
 export {
   Card,

@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  PrimitiveButton,
+  Button,
 } from "@dashframe/ui";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
@@ -99,25 +99,27 @@ export function CreateVisualizationModal({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 pt-4">
-            <PrimitiveButton
+            <Button
               onClick={handleEditInsight}
               variant="outlined"
+              label="Edit this insight"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>
               <span className="text-muted-foreground text-xs font-normal">
                 Open and modify the existing insight
               </span>
-            </PrimitiveButton>
-            <PrimitiveButton
+            </Button>
+            <Button
               onClick={handleCreateBasedOn}
+              label="Create new based on this"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Create new based on this</span>
               <span className="text-muted-foreground text-xs font-normal">
                 Chain a new insight from this data
               </span>
-            </PrimitiveButton>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -3,7 +3,7 @@
 import { useState, useEffect, use, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  PrimitiveButton,
+  Button,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -98,13 +98,13 @@ export default function DashboardDetailPage({
       {/* Header */}
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-4">
-          <PrimitiveButton
+          <Button
             variant="text"
-            size="icon"
+            icon={ArrowLeft}
+            iconOnly
+            label="Back to dashboards"
             onClick={() => router.push("/dashboards")}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </PrimitiveButton>
+          />
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight">
               {dashboard.name}
@@ -116,27 +116,26 @@ export default function DashboardDetailPage({
         </div>
         <div className="flex items-center gap-2">
           {isEditable ? (
-            <PrimitiveButton onClick={() => setIsEditable(false)}>
-              <Check className="mr-2 h-4 w-4" />
-              Done Editing
-            </PrimitiveButton>
+            <Button
+              icon={Check}
+              label="Done Editing"
+              onClick={() => setIsEditable(false)}
+            />
           ) : (
-            <PrimitiveButton
+            <Button
               variant="outlined"
+              icon={Edit3}
+              label="Edit Dashboard"
               onClick={() => setIsEditable(true)}
-            >
-              <Edit3 className="mr-2 h-4 w-4" />
-              Edit Dashboard
-            </PrimitiveButton>
+            />
           )}
           {isEditable && (
-            <PrimitiveButton
+            <Button
               color="secondary"
+              icon={Plus}
+              label="Add Widget"
               onClick={() => setIsAddOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Widget
-            </PrimitiveButton>
+            />
           )}
         </div>
       </div>
@@ -210,18 +209,16 @@ export default function DashboardDetailPage({
             )}
           </div>
           <div className="flex justify-end gap-2">
-            <PrimitiveButton
+            <Button
               variant="outlined"
+              label="Cancel"
               onClick={() => setIsAddOpen(false)}
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton
+            />
+            <Button
+              label="Add Widget"
               onClick={handleAddItem}
               disabled={addType === "visualization" && !selectedVizId}
-            >
-              Add Widget
-            </PrimitiveButton>
+            />
           </div>
         </DialogContent>
       </Dialog>

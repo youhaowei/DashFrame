@@ -7,7 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  PrimitiveButton,
+  Button,
   type ItemAction,
 } from "@dashframe/ui";
 import type { Visualization } from "@dashframe/types";
@@ -147,14 +147,14 @@ export function VisualizationItemCard({
             <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <PrimitiveButton
+                  <Button
                     variant="text"
-                    size="icon-sm"
+                    icon={MoreOptions}
+                    iconOnly
+                    label="Actions"
+                    size="sm"
                     className="text-muted-foreground hover:text-foreground"
-                  >
-                    <MoreOptions className="h-4 w-4" />
-                    <span className="sr-only">Actions</span>
-                  </PrimitiveButton>
+                  />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {actions.map((action, index) => (
