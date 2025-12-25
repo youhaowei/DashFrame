@@ -13,7 +13,6 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         person_profiles: "identified_only",
         capture_pageview: false, // We'll capture manually for better SPA support
         capture_pageleave: true,
-        enable_recording_console_log: false, // Disable console log recording to reduce noise
       });
     }
   }, []);
