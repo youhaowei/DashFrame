@@ -1,5 +1,9 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import type { DataFrameColumn, Field } from "@dashframe/engine";
+import {
+  type DataFrameColumn,
+  type Field,
+  extractUUIDFromColumnAlias,
+} from "@dashframe/engine";
 import type {
   ColumnAnalysis,
   StringAnalysis,
@@ -177,21 +181,24 @@ function analyzeBoolean(
 
 /**
  * Analyze numeric column
+ *
+ * @param displayName - The user-visible field name (for ID pattern detection).
+ *                      With UUID-based column aliases, we need the original field
+ *                      name to detect patterns like "oppid" ending with "id".
  */
 function analyzeNumeric(
   baseProps: BaseProps,
   stats: ColumnStats,
   isExplicitIdentifier: boolean,
+  displayName: string,
 ): NumberAnalysis {
   const minVal = stats.min_val ?? 0;
   const maxVal = stats.max_val ?? 0;
   const stdDev = stats.std_dev ?? undefined;
   const zeroCount = Number(stats.zero_count);
 
-  const isNumericId = isNumericIdPattern(
-    stats.column_name,
-    isExplicitIdentifier,
-  );
+  // Use displayName for pattern matching (not UUID alias)
+  const isNumericId = isNumericIdPattern(displayName, isExplicitIdentifier);
 
   return {
     ...baseProps,
@@ -222,14 +229,19 @@ function analyzeDate(baseProps: BaseProps, stats: ColumnStats): DateAnalysis {
 
 /**
  * Analyze string column with pattern and semantic detection
+ *
+ * @param displayName - The user-visible field name (for ID pattern detection).
+ *                      With UUID-based column aliases, we need the original field
+ *                      name to detect patterns like "oppid" ending with "id".
  */
 function analyzeString(
   baseProps: BaseProps,
-  stats: ColumnStats,
+  _stats: ColumnStats,
   stringValues: string[],
   isExplicitIdentifier: boolean,
   maxFrequencyRatio: number | undefined,
   rowCount: number,
+  displayName: string,
 ): StringAnalysis {
   if (stringValues.length === 0) {
     return {
@@ -261,10 +273,10 @@ function analyzeString(
     };
   }
 
-  // Check for identifier patterns
+  // Check for identifier patterns using displayName (not UUID alias)
   if (
     isStringIdentifier(
-      stats.column_name,
+      displayName,
       isExplicitIdentifier,
       baseProps.uniqueness,
       rowCount,
@@ -445,9 +457,14 @@ export async function analyzeDataFrame(
       };
 
       // Helper to check field metadata
-      const field = fields?.[columnName];
+      // Column names are UUID-based aliases (e.g., field_<uuid>), so we need to extract
+      // the UUID and look up the field to get the actual field name for pattern matching
+      const fieldId = extractUUIDFromColumnAlias(columnName);
+      const field = fieldId ? fields?.[fieldId] : undefined;
       const isExplicitIdentifier = field?.isIdentifier ?? false;
       const isExplicitReference = field?.isReference ?? false;
+      // Use the actual field name for ID pattern detection, not the UUID alias
+      const displayName = field?.name ?? columnName;
 
       // String values for pattern detection
       const stringValues = sampleValues
@@ -467,7 +484,12 @@ export async function analyzeDataFrame(
         duckDBType.includes("numeric") ||
         duckDBType.includes("bigint")
       ) {
-        return analyzeNumeric(baseProps, stats, isExplicitIdentifier);
+        return analyzeNumeric(
+          baseProps,
+          stats,
+          isExplicitIdentifier,
+          displayName,
+        );
       }
 
       if (
@@ -503,6 +525,7 @@ export async function analyzeDataFrame(
           isExplicitIdentifier,
           maxFrequencyRatio,
           rowCount,
+          displayName,
         );
       }
 

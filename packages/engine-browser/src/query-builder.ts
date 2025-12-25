@@ -228,32 +228,18 @@ export async function ensureTableLoaded(
         `SELECT 1 FROM information_schema.tables WHERE table_name = '${tableName}' LIMIT 1`,
       );
       tableExists = checkResult.toArray().length > 0;
-      console.log(
-        `[ensureTableLoaded] Table ${tableName} exists check:`,
-        tableExists,
-      );
     } catch (err) {
       // If check fails, assume table doesn't exist
-      console.warn(
-        `[ensureTableLoaded] Failed to check table existence for ${tableName}:`,
-        err,
-      );
       tableExists = false;
     }
 
     if (tableExists) {
       // Table already exists in DuckDB - return immediately
-      console.log(
-        `[ensureTableLoaded] Skipping load for existing table ${tableName}`,
-      );
       resolveLoad(tableName);
       return tableName;
     }
 
     // Table doesn't exist - create it
-    console.log(
-      `[ensureTableLoaded] Creating table ${tableName} (dropping first if exists)`,
-    );
     await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
 
     switch (dataFrame.storage.type) {

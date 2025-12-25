@@ -76,6 +76,31 @@ export function isBlockedColumn(
     };
   }
 
+  // Heuristic: Columns ending with "id" (like "oppid", "acctId") are typically identifiers.
+  // Block if the name ends with "id" AND either:
+  // 1. Near-unique values (≥98% unique) - primary keys
+  // 2. High cardinality (>1000 unique values) - foreign keys with many distinct values
+  // This catches both primary keys and foreign keys that shouldn't be used for visualization.
+  if (field?.name) {
+    const name = field.name.toLowerCase();
+    const endsWithId = name.length > 2 && name.endsWith("id");
+
+    if (endsWithId) {
+      const uniqueRatio =
+        rowCount && rowCount > 0 ? col.cardinality / rowCount : 0;
+      const isNearUnique = uniqueRatio >= 0.98;
+      const isHighCardinality = col.cardinality > 1000;
+
+      if (isNearUnique || isHighCardinality) {
+        return {
+          good: false,
+          reason:
+            "This column appears to be an identifier (name ends with 'id' and has many unique values) and is not suitable for visualization axes.",
+        };
+      }
+    }
+  }
+
   // Check column name patterns
   if (looksLikeIdentifier(col.columnName)) {
     return {
