@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  Trash2,
-  Database,
-  Plus,
-  RefreshCw,
-  Loader2,
-  ChevronDown,
+  DeleteIcon,
+  DatabaseIcon,
+  PlusIcon,
+  RefreshIcon,
+  LoaderIcon,
+  ChevronDownIcon,
   Button,
   Surface,
   Collapsible,
@@ -52,7 +52,7 @@ function CollapsibleSection({
     >
       <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
         <h3 className="text-foreground text-sm font-semibold">{title}</h3>
-        <ChevronDown
+        <ChevronDownIcon
           className={cn(
             "text-muted-foreground h-4 w-4 transition-transform duration-200",
             // Footer collapses upward, so flip the logic
@@ -224,7 +224,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
           color="danger"
           className="w-full"
           onClick={handleDelete}
-          icon={Trash2}
+          icon={DeleteIcon}
         />
       </div>
     </CollapsibleSection>
@@ -318,14 +318,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 title="Refresh databases list from Notion"
                 aria-label="Refresh databases list from Notion"
               >
-                <RefreshCw
+                <RefreshIcon
                   className={cn(
                     "h-3 w-3",
                     isLoadingDatabases && "animate-spin",
                   )}
                 />
               </div>
-              <ChevronDown
+              <ChevronDownIcon
                 className={cn(
                   "text-muted-foreground h-4 w-4 transition-transform duration-200",
                   isDataTablesOpen && "rotate-180",
@@ -382,7 +382,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                             "shadow-sm",
                           )}
                         >
-                          <Database className="text-primary h-3.5 w-3.5 shrink-0" />
+                          <DatabaseIcon className="text-primary h-3.5 w-3.5 shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p className="text-foreground truncate text-xs font-semibold">
                               {dt.name}

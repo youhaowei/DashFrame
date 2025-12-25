@@ -13,9 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
   Label,
-  Plus,
-  LayoutDashboard,
-  Trash2,
+  PlusIcon,
+  DashboardIcon,
+  DeleteIcon,
 } from "@dashframe/ui";
 import { useDashboards, useDashboardMutations } from "@dashframe/core";
 
@@ -51,7 +51,7 @@ export default function DashboardsPage() {
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-xl">
-            <LayoutDashboard className="h-5 w-5" />
+            <DashboardIcon className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight">
@@ -63,7 +63,7 @@ export default function DashboardsPage() {
           </div>
         </div>
         <Button
-          icon={Plus}
+          icon={PlusIcon}
           label="New Dashboard"
           onClick={() => setIsCreateOpen(true)}
         />
@@ -83,7 +83,7 @@ export default function DashboardsPage() {
               visualizations.
             </p>
             <Button
-              icon={Plus}
+              icon={PlusIcon}
               label="Create Dashboard"
               className="mt-6"
               onClick={() => setIsCreateOpen(true)}
@@ -103,11 +103,11 @@ export default function DashboardsPage() {
                 >
                   <div className="mb-4 flex items-start justify-between">
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
-                      <LayoutDashboard className="h-5 w-5" />
+                      <DashboardIcon className="h-5 w-5" />
                     </div>
                     <Button
                       variant="text"
-                      icon={Trash2}
+                      icon={DeleteIcon}
                       iconOnly
                       label="Delete dashboard"
                       color="danger"

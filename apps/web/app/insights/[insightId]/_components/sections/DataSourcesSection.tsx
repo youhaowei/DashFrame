@@ -8,7 +8,7 @@ import {
   type ListItem,
   type ItemAction,
 } from "@dashframe/ui";
-import { Plus, Database, X } from "@dashframe/ui/icons";
+import { PlusIcon, DatabaseIcon, CloseIcon } from "@dashframe/ui/icons";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
 import type { DataTable, Insight, Field } from "@dashframe/types";
@@ -61,7 +61,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
       title: dataTable.name,
       subtitle: `${baseRowCount.toLocaleString()} rows • ${baseFieldCount} fields`,
       badge: "base",
-      icon: <Database className="h-4 w-4" />,
+      icon: <DatabaseIcon className="h-4 w-4" />,
     };
 
     // Join items
@@ -74,7 +74,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
 
       const actions: ItemAction[] = [
         {
-          icon: X,
+          icon: CloseIcon,
           label: "Remove join",
           onClick: () => handleRemoveJoin(idx),
           color: "danger",
@@ -108,7 +108,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
         actions={[
           {
             label: "Add join",
-            icon: Plus,
+            icon: PlusIcon,
             onClick: () => setIsJoinFlowOpen(true),
             variant: "outlined",
           },
@@ -121,7 +121,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
           gap={12}
           itemWidth={260}
           emptyMessage="No data sources"
-          emptyIcon={<Database className="h-8 w-8" />}
+          emptyIcon={<DatabaseIcon className="h-8 w-8" />}
         />
       </Section>
 

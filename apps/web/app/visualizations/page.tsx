@@ -16,18 +16,21 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  LineChart,
+  ChartIcon,
   TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
+  PlusIcon,
+  DeleteIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuCircleDot } from "react-icons/lu";
+import {
+  SearchIcon,
+  ExternalLinkIcon,
+  DataPointIcon,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for visualization with joined details
@@ -117,12 +120,12 @@ export default function VisualizationsPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "bar":
-        return <BarChart3 className="h-5 w-5" />;
+        return <ChartIcon className="h-5 w-5" />;
       case "line":
       case "area":
-        return <LineChart className="h-5 w-5" />;
+        return <ChartIcon className="h-5 w-5" />;
       case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        return <DataPointIcon className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -210,7 +213,7 @@ export default function VisualizationsPage() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="text"
-                icon={MoreHorizontal}
+                icon={MoreIcon}
                 iconOnly
                 label="More options"
                 size="sm"
@@ -225,7 +228,7 @@ export default function VisualizationsPage() {
                   router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -237,7 +240,7 @@ export default function VisualizationsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -270,13 +273,13 @@ export default function VisualizationsPage() {
               </p>
             </div>
             <Button
-              icon={Plus}
+              icon={PlusIcon}
               label="New Visualization"
               onClick={() => setIsCreateModalOpen(true)}
             />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -298,7 +301,7 @@ export default function VisualizationsPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <BarChart3 className="text-muted-foreground h-8 w-8" />
+                <ChartIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -324,7 +327,7 @@ export default function VisualizationsPage() {
                     life
                   </p>
                   <Button
-                    icon={Plus}
+                    icon={PlusIcon}
                     label="New Visualization"
                     onClick={() => setIsCreateModalOpen(true)}
                   />

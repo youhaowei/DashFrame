@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 import {
-  Database,
-  Plus,
-  BarChart3,
-  Notion,
-  File,
+  DatabaseIcon,
+  PlusIcon,
+  ChartIcon,
+  NotionIcon,
+  FileIcon,
   Button,
   Surface,
   ItemSelector,
@@ -54,10 +54,10 @@ export function DataSourceSelector({
       let metadata = "";
 
       if (source.type === "notion") {
-        icon = Notion;
+        icon = NotionIcon;
         metadata = `${tableCount} ${tableCount === 1 ? "table" : "tables"}`;
       } else if (source.type === "csv") {
-        icon = File;
+        icon = FileIcon;
         metadata = `${tableCount} ${tableCount === 1 ? "file" : "files"}`;
       }
 
@@ -77,13 +77,13 @@ export function DataSourceSelector({
         label: "Visualizations",
         variant: "outlined",
         href: "/",
-        icon: BarChart3,
+        icon: ChartIcon,
         tooltip: "View visualizations",
       },
       {
         label: "New Data Source",
         onClick: onCreateClick,
-        icon: Plus,
+        icon: PlusIcon,
       },
     ],
     [onCreateClick],
@@ -101,7 +101,7 @@ export function DataSourceSelector({
     return (
       <Surface elevation="inset" className="p-8 text-center">
         <div className="bg-primary/15 text-primary mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
-          <Database className="h-12 w-12" />
+          <DatabaseIcon className="h-12 w-12" />
         </div>
         <h2 className="text-foreground text-lg font-semibold">
           Add your first data source
@@ -122,7 +122,7 @@ export function DataSourceSelector({
             label="Add Data Source"
             onClick={onCreateClick}
             size="sm"
-            icon={Plus}
+            icon={PlusIcon}
           />
         </div>
       </Surface>

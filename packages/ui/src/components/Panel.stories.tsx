@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Panel, PanelSection } from "./Panel";
 import { Button } from "../primitives/button";
-import { Database, Plus, Refresh, Trash2 } from "../lib/icons";
+import { DatabaseIcon, PlusIcon, RefreshIcon, DeleteIcon } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Panel",
@@ -57,7 +57,7 @@ export const HeaderOnly: Story = {
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">Data Sources</h2>
         <Button size="icon" variant="text">
-          <Plus className="h-4 w-4" />
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </div>
     ),
@@ -65,7 +65,7 @@ export const HeaderOnly: Story = {
       <div className="space-y-4">
         <div className="border-border/60 rounded-xl border p-4">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
+            <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Sales Database</span>
           </div>
           <p className="text-muted-foreground mt-2 text-xs">
@@ -74,7 +74,7 @@ export const HeaderOnly: Story = {
         </div>
         <div className="border-border/60 rounded-xl border p-4">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
+            <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Analytics DB</span>
           </div>
           <p className="text-muted-foreground mt-2 text-xs">
@@ -114,7 +114,7 @@ export const ScrollableContent: Story = {
     footer: (
       <div className="flex gap-2">
         <Button variant="outlined" size="sm">
-          <Refresh className="mr-2 h-4 w-4" />
+          <RefreshIcon className="mr-2 h-4 w-4" />
           Refresh
         </Button>
         <Button size="sm">
@@ -181,7 +181,7 @@ export const WithSections: Story = {
         <PanelSection title="Danger Zone">
           <div className="pb-6">
             <Button color="danger" size="sm">
-              <Trash2 className="mr-2 h-4 w-4" />
+              <DeleteIcon className="mr-2 h-4 w-4" />
               Delete Account
             </Button>
           </div>
@@ -286,7 +286,7 @@ export const DataSourceControls: Story = {
     footer: (
       <div className="flex gap-2">
         <Button variant="outlined" size="sm">
-          <Refresh className="mr-2 h-4 w-4" />
+          <RefreshIcon className="mr-2 h-4 w-4" />
           Test Connection
         </Button>
         <Button size="sm">Save</Button>

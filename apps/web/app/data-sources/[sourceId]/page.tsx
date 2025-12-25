@@ -11,10 +11,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Database,
+  DatabaseIcon,
   TableIcon,
-  Plus,
-  Trash2,
+  PlusIcon,
+  DeleteIcon,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -25,9 +25,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeft as LuArrowLeft,
-  File as LuFileSpreadsheet,
-  Cloud as LuCloud,
+  ChevronLeftIcon as LuArrowLeft,
+  FileIcon as LuFileSpreadsheet,
+  CloudIcon as LuCloud,
   MoreHorizontal as LuMoreHorizontal,
   Breadcrumb,
   ItemCard,
@@ -56,9 +56,9 @@ function getSourceTypeIcon(type: string) {
     case "local":
       return <LuFileSpreadsheet className="h-5 w-5" />;
     case "postgresql":
-      return <Database className="h-5 w-5" />;
+      return <DatabaseIcon className="h-5 w-5" />;
     default:
-      return <Database className="h-5 w-5" />;
+      return <DatabaseIcon className="h-5 w-5" />;
   }
 }
 
@@ -279,7 +279,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <Button
                   label="Create Insight"
                   onClick={() => handleCreateInsight(selectedTableId)}
-                  icon={Plus}
+                  icon={PlusIcon}
                 />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -296,7 +296,7 @@ export default function DataSourcePage({ params }: PageProps) {
                       onClick={handleDeleteTable}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <DeleteIcon className="mr-2 h-4 w-4" />
                       Delete Table
                     </DropdownMenuItem>
                   </DropdownMenuContent>

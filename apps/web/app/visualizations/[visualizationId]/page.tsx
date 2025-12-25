@@ -8,18 +8,17 @@ import {
   Badge,
   Card,
   CardContent,
-  BarChart3,
-  LineChart,
-  Trash2,
+  ChartIcon,
+  DeleteIcon,
   SelectField,
 } from "@dashframe/ui";
 import {
-  LuArrowLeft,
-  LuLoader,
-  LuCircleDot,
-  LuArrowLeftRight,
-  LuTriangleAlert,
-} from "react-icons/lu";
+  ArrowLeftIcon,
+  LoaderIcon,
+  DataPointIcon,
+  ArrowUpDownIcon,
+  AlertCircleIcon,
+} from "@dashframe/ui/icons";
 import {
   isSwapAllowed,
   getSwappedChartType,
@@ -71,17 +70,17 @@ function getVizIcon(type: string) {
   switch (type) {
     case "barY":
     case "barX":
-      return <BarChart3 className="h-5 w-5" />;
+      return <ChartIcon className="h-5 w-5" />;
     case "line":
     case "areaY":
-      return <LineChart className="h-5 w-5" />;
+      return <ChartIcon className="h-5 w-5" />;
     case "dot":
     case "hexbin":
     case "heatmap":
     case "raster":
-      return <LuCircleDot className="h-5 w-5" />;
+      return <DataPointIcon className="h-5 w-5" />;
     default:
-      return <BarChart3 className="h-5 w-5" />;
+      return <ChartIcon className="h-5 w-5" />;
   }
 }
 
@@ -511,7 +510,7 @@ export default function VisualizationPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <LoaderIcon className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">
             Loading visualization...
           </p>
@@ -551,7 +550,7 @@ export default function VisualizationPage({ params }: PageProps) {
                 variant="text"
                 size="sm"
                 onClick={() => router.back()}
-                icon={LuArrowLeft}
+                icon={ArrowLeftIcon}
               />
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
             </div>
@@ -731,7 +730,7 @@ export default function VisualizationPage({ params }: PageProps) {
               size="sm"
               color="danger"
               onClick={handleDelete}
-              icon={Trash2}
+              icon={DeleteIcon}
             />
           </div>
         </div>
@@ -767,7 +766,7 @@ export default function VisualizationPage({ params }: PageProps) {
                     onClick={handleSwapAxes}
                     className="text-muted-foreground hover:text-foreground"
                     tooltip="Swap X and Y axes"
-                    icon={LuArrowLeftRight}
+                    icon={ArrowUpDownIcon}
                   />
                 </div>
               )}
@@ -890,7 +889,7 @@ export default function VisualizationPage({ params }: PageProps) {
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-md rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900">
-                <LuTriangleAlert className="h-6 w-6 text-red-600 dark:text-red-400" />
+                <AlertCircleIcon className="h-6 w-6 text-red-600 dark:text-red-400" />
               </div>
               <h3 className="mb-2 text-lg font-semibold text-red-800 dark:text-red-200">
                 Invalid encoding configuration

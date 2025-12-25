@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 
-import { BarChart3 } from "@dashframe/ui";
+import { ChartIcon } from "@dashframe/ui";
 import { DashboardSection } from "./DashboardSection";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { useVisualizations } from "@dashframe/core";
@@ -36,7 +36,7 @@ export function RecentVisualizationsSection() {
   return (
     <DashboardSection
       title="Recent Visualizations"
-      icon={BarChart3}
+      icon={ChartIcon}
       viewAllHref="/visualizations"
       items={recentVisualizations}
       onItemSelect={(id) => router.push(`/visualizations/${id}`)}

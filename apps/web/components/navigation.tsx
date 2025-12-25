@@ -5,20 +5,20 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   type LucideIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  Github,
-  LayoutDashboard,
-  LayoutGrid,
-  LineChart,
-  Sparkles,
-  Menu,
-  X,
-  Settings,
-  Trash2,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+  DatabaseIcon,
+  GithubIcon,
+  DashboardIcon,
+  GridIcon,
+  ChartIcon,
+  SparklesIcon,
+  MenuIcon,
+  CloseIcon,
+  SettingsIcon,
+  DeleteIcon,
   Button,
   Dialog,
   DialogContent,
@@ -54,25 +54,25 @@ const navItems: NavItem[] = [
     name: "Dashboards",
     href: "/dashboards",
     description: "Build and view dashboards",
-    icon: LayoutGrid,
+    icon: GridIcon,
   },
   {
     name: "Visualizations",
     href: "/visualizations",
     description: "Create, edit, and view visualizations",
-    icon: LayoutDashboard,
+    icon: DashboardIcon,
   },
   {
     name: "Insights",
     href: "/insights",
     description: "Manage and configure insights",
-    icon: Sparkles,
+    icon: SparklesIcon,
   },
   {
     name: "Data Sources",
     href: "/data-sources",
     description: "Manage data sources",
-    icon: Database,
+    icon: DatabaseIcon,
   },
 ];
 
@@ -107,7 +107,7 @@ function SidebarContent({
             )}
           >
             <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
-              <LineChart className="h-5 w-5" />
+              <ChartIcon className="h-5 w-5" />
             </span>
             {!isCollapsed && (
               <div className="flex flex-col">
@@ -128,7 +128,7 @@ function SidebarContent({
               {onToggleCollapse && (
                 <Button
                   variant="text"
-                  icon={isCollapsed ? ChevronRight : ChevronLeft}
+                  icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon}
                   iconOnly
                   label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={onToggleCollapse}
@@ -209,7 +209,7 @@ function SidebarContent({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 text-xs transition-colors">
-                <Settings className="h-4 w-4" />
+                <SettingsIcon className="h-4 w-4" />
                 <span>Settings</span>
               </button>
             </DropdownMenuTrigger>
@@ -218,7 +218,7 @@ function SidebarContent({
                 onClick={onClearData}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Clear all data
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -229,7 +229,7 @@ function SidebarContent({
             rel="noopener noreferrer"
             className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs transition-colors"
           >
-            <Github className="h-4 w-4" />
+            <GithubIcon className="h-4 w-4" />
             <span>Open source</span>
           </a>
         </div>
@@ -325,16 +325,16 @@ export function Navigation() {
         title={isHidden ? "Show sidebar" : "Hide sidebar"}
       >
         {isHidden ? (
-          <ChevronsRight className="h-4 w-4" />
+          <ChevronsRightIcon className="h-4 w-4" />
         ) : (
-          <ChevronsLeft className="h-4 w-4" />
+          <ChevronsLeftIcon className="h-4 w-4" />
         )}
       </button>
 
       {/* Mobile Toggle Button */}
       <Button
         variant="text"
-        icon={Menu}
+        icon={MenuIcon}
         iconOnly
         label="Open menu"
         onClick={() => setIsOpen(true)}
@@ -349,7 +349,7 @@ export function Navigation() {
               <span className="text-sm font-semibold">Menu</span>
               <Button
                 variant="text"
-                icon={X}
+                icon={CloseIcon}
                 iconOnly
                 label="Close menu"
                 onClick={() => setIsOpen(false)}

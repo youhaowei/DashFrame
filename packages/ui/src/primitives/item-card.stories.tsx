@@ -1,12 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ItemCard } from "./item-card";
 import {
-  Database,
-  BarChart3,
-  LineChart,
+  DatabaseIcon,
+  ChartIcon,
   TableIcon,
-  Edit3,
-  Trash2,
+  EditIcon,
+  DeleteIcon,
 } from "../lib/icons";
 
 const meta = {
@@ -72,7 +71,7 @@ const MockPreview = ({ type }: { type: string }) => (
 // Basic compact mode
 export const Compact: Story = {
   args: {
-    icon: <Database className="h-4 w-4" />,
+    icon: <DatabaseIcon className="h-4 w-4" />,
     title: "Sales Data",
     subtitle: "150 rows × 8 columns",
     onClick: undefined,
@@ -81,7 +80,7 @@ export const Compact: Story = {
 
 export const CompactWithBadge: Story = {
   args: {
-    icon: <Database className="h-4 w-4" />,
+    icon: <DatabaseIcon className="h-4 w-4" />,
     title: "Customer Database",
     subtitle: "1,234 rows",
     badge: "CSV",
@@ -91,7 +90,7 @@ export const CompactWithBadge: Story = {
 
 export const CompactClickable: Story = {
   args: {
-    icon: <BarChart3 className="h-4 w-4" />,
+    icon: <ChartIcon className="h-4 w-4" />,
     title: "Revenue Chart",
     subtitle: "Created Jan 15",
     badge: "Bar Chart",
@@ -100,7 +99,7 @@ export const CompactClickable: Story = {
 
 export const CompactActive: Story = {
   args: {
-    icon: <Database className="h-4 w-4" />,
+    icon: <DatabaseIcon className="h-4 w-4" />,
     title: "Active Item",
     subtitle: "Currently selected",
     active: true,
@@ -113,10 +112,10 @@ export const CompactWithActions: Story = {
     title: "Data Table",
     subtitle: "500 rows",
     actions: [
-      { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
+      { label: "Edit", icon: EditIcon, onClick: () => alert("Edit") },
       {
         label: "Delete",
-        icon: Trash2,
+        icon: DeleteIcon,
         onClick: () => alert("Delete"),
         color: "danger",
       },
@@ -128,7 +127,7 @@ export const CompactWithActions: Story = {
 export const WithPreview: Story = {
   args: {
     preview: <MockPreview type="Bar Chart" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <ChartIcon className="h-8 w-8" />,
     title: "Sales by Region",
     subtitle: "Created Jan 15, 2025",
     badge: "Bar Chart",
@@ -138,7 +137,7 @@ export const WithPreview: Story = {
 export const WithPreviewActive: Story = {
   args: {
     preview: <MockPreview type="Line Chart" />,
-    icon: <LineChart className="h-8 w-8" />,
+    icon: <ChartIcon className="h-8 w-8" />,
     title: "Revenue Trends",
     subtitle: "Last 30 days",
     badge: "Line Chart",
@@ -149,15 +148,15 @@ export const WithPreviewActive: Story = {
 export const WithPreviewAndActions: Story = {
   args: {
     preview: <MockPreview type="Scatter Plot" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <ChartIcon className="h-8 w-8" />,
     title: "Correlation Analysis",
     subtitle: "Updated 2h ago",
     badge: "Scatter",
     actions: [
-      { label: "Open", icon: Edit3, onClick: () => alert("Open") },
+      { label: "Open", icon: EditIcon, onClick: () => alert("Open") },
       {
         label: "Delete",
-        icon: Trash2,
+        icon: DeleteIcon,
         onClick: () => alert("Delete"),
         color: "danger",
       },
@@ -168,7 +167,7 @@ export const WithPreviewAndActions: Story = {
 export const WithPreviewCustomHeight: Story = {
   args: {
     preview: <MockPreview type="Custom Height" />,
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <ChartIcon className="h-8 w-8" />,
     title: "Tall Preview",
     subtitle: "300px height",
     badge: "Custom",
@@ -179,7 +178,7 @@ export const WithPreviewCustomHeight: Story = {
 // Edge cases
 export const LongText: Story = {
   args: {
-    icon: <Database className="h-4 w-4" />,
+    icon: <DatabaseIcon className="h-4 w-4" />,
     title:
       "This is a very long title that should truncate with ellipsis when it exceeds the card width limits",
     subtitle:
@@ -190,7 +189,7 @@ export const LongText: Story = {
 
 export const NoSubtitle: Story = {
   args: {
-    icon: <BarChart3 className="h-4 w-4" />,
+    icon: <ChartIcon className="h-4 w-4" />,
     title: "Simple Card",
     badge: "Minimal",
   },
@@ -198,7 +197,7 @@ export const NoSubtitle: Story = {
 
 export const NoBadge: Story = {
   args: {
-    icon: <LineChart className="h-4 w-4" />,
+    icon: <ChartIcon className="h-4 w-4" />,
     title: "Card Without Badge",
     subtitle: "Just title and subtitle",
   },
@@ -207,7 +206,7 @@ export const NoBadge: Story = {
 // Grid layout
 export const GridCompact: Story = {
   args: {
-    icon: <Database className="h-4 w-4" />,
+    icon: <DatabaseIcon className="h-4 w-4" />,
     title: "Grid Example",
   },
   render: () => (
@@ -232,10 +231,10 @@ export const GridCompact: Story = {
         title="Trends"
         subtitle="Last 30 days"
         actions={[
-          { label: "Edit", icon: Edit3, onClick: () => alert("Edit") },
+          { label: "Edit", icon: EditIcon, onClick: () => alert("Edit") },
           {
             label: "Delete",
-            icon: Trash2,
+            icon: DeleteIcon,
             onClick: () => alert("Delete"),
             color: "danger",
           },
@@ -253,7 +252,7 @@ export const GridCompact: Story = {
 
 export const GridWithPreview: Story = {
   args: {
-    icon: <BarChart3 className="h-8 w-8" />,
+    icon: <ChartIcon className="h-8 w-8" />,
     title: "Grid with Preview Example",
   },
   render: () => (
@@ -282,10 +281,10 @@ export const GridWithPreview: Story = {
         subtitle="Last week"
         badge="Scatter"
         actions={[
-          { label: "Open", icon: Edit3, onClick: () => alert("Open") },
+          { label: "Open", icon: EditIcon, onClick: () => alert("Open") },
           {
             label: "Delete",
-            icon: Trash2,
+            icon: DeleteIcon,
             onClick: () => alert("Delete"),
             color: "danger",
           },

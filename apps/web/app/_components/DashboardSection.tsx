@@ -7,7 +7,7 @@ import {
   type ListItem,
   type LucideIcon,
 } from "@dashframe/ui";
-import { LuArrowRight } from "react-icons/lu";
+import { ArrowRightIcon } from "@dashframe/ui/icons";
 
 export interface DashboardSectionProps {
   /** Section title displayed in header */
@@ -55,7 +55,7 @@ export function DashboardSection({
         <Button
           variant="text"
           size="sm"
-          icon={LuArrowRight}
+          icon={ArrowRightIcon}
           label="View all"
           onClick={() => router.push(viewAllHref)}
         />

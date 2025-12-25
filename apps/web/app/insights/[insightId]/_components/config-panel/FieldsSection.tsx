@@ -12,14 +12,14 @@ import {
   cn,
 } from "@dashframe/ui";
 import {
-  ChevronRight,
-  X,
-  Plus,
-  Hash,
-  Edit3,
-  Calendar,
-  Toggle,
-  Type,
+  ChevronRightIcon,
+  CloseIcon,
+  PlusIcon,
+  NumberTypeIcon,
+  EditIcon,
+  DateTypeIcon,
+  BooleanTypeIcon,
+  TextTypeIcon,
 } from "@dashframe/ui/icons";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 
@@ -38,7 +38,7 @@ function FieldTypeIcon({ type }: { type: string }) {
       normalizedType,
     )
   ) {
-    return <Hash className={className} title={type} />;
+    return <NumberTypeIcon className={className} title={type} />;
   }
 
   // Date/time types
@@ -46,16 +46,16 @@ function FieldTypeIcon({ type }: { type: string }) {
     ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
     normalizedType.includes("date")
   ) {
-    return <Calendar className={className} title={type} />;
+    return <DateTypeIcon className={className} title={type} />;
   }
 
   // Boolean types
   if (["boolean", "bool"].includes(normalizedType)) {
-    return <Toggle className={className} title={type} />;
+    return <BooleanTypeIcon className={className} title={type} />;
   }
 
   // Default to text/string
-  return <Type className={className} title={type} />;
+  return <TextTypeIcon className={className} title={type} />;
 }
 
 /** Extended sortable item with field data */
@@ -109,13 +109,13 @@ export function FieldsSection({
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
             <button className="hover:bg-accent/50 -ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors">
-              <ChevronRight
+              <ChevronRightIcon
                 className={cn(
                   "text-muted-foreground h-4 w-4 transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <Hash className="text-muted-foreground h-4 w-4" />
+              <NumberTypeIcon className="text-muted-foreground h-4 w-4" />
               <span className="text-sm font-medium leading-none">Fields</span>
               <Badge
                 variant="secondary"
@@ -127,7 +127,7 @@ export function FieldsSection({
           </CollapsibleTrigger>
           <Button
             label="Add"
-            icon={Plus}
+            icon={PlusIcon}
             variant="text"
             size="sm"
             onClick={onAddClick}
@@ -193,7 +193,7 @@ function FieldItemContent({
         className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-full p-0.5"
         aria-label={`Rename ${field.displayName}`}
       >
-        <Edit3 className="h-3 w-3" />
+        <EditIcon className="h-3 w-3" />
       </button>
       <button
         onClick={(e) => {
@@ -203,7 +203,7 @@ function FieldItemContent({
         className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-full p-0.5"
         aria-label={`Remove ${field.displayName}`}
       >
-        <X className="h-3 w-3" />
+        <CloseIcon className="h-3 w-3" />
       </button>
     </div>
   );

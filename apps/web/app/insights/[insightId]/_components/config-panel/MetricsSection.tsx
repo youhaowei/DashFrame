@@ -11,7 +11,13 @@ import {
   CollapsibleTrigger,
   cn,
 } from "@dashframe/ui";
-import { Calculator, Plus, ChevronRight, X, Edit3 } from "@dashframe/ui/icons";
+import {
+  CalculatorIcon,
+  PlusIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  EditIcon,
+} from "@dashframe/ui/icons";
 import type { InsightMetric } from "@dashframe/types";
 
 /** Extended sortable item with metric data */
@@ -64,13 +70,13 @@ export function MetricsSection({
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
             <button className="hover:bg-accent/50 -ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors">
-              <ChevronRight
+              <ChevronRightIcon
                 className={cn(
                   "text-muted-foreground h-4 w-4 transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <Calculator className="text-muted-foreground h-4 w-4" />
+              <CalculatorIcon className="text-muted-foreground h-4 w-4" />
               <span className="text-sm font-medium leading-none">Metrics</span>
               <Badge
                 variant="secondary"
@@ -82,7 +88,7 @@ export function MetricsSection({
           </CollapsibleTrigger>
           <Button
             label="Add"
-            icon={Plus}
+            icon={PlusIcon}
             variant="text"
             size="sm"
             onClick={onAddClick}
@@ -129,7 +135,7 @@ function MetricItemContent({
 }: MetricItemContentProps) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <Calculator className="text-primary h-3 w-3 shrink-0" />
+      <CalculatorIcon className="text-primary h-3 w-3 shrink-0" />
       <span
         className="text-primary min-w-0 flex-1 cursor-pointer truncate text-sm hover:underline"
         onClick={(e) => {
@@ -151,7 +157,7 @@ function MetricItemContent({
         className="text-primary/60 hover:bg-primary/10 hover:text-primary shrink-0 rounded-full p-0.5"
         aria-label={`Edit ${metric.name}`}
       >
-        <Edit3 className="h-3 w-3" />
+        <EditIcon className="h-3 w-3" />
       </button>
       <button
         onClick={(e) => {
@@ -161,7 +167,7 @@ function MetricItemContent({
         className="text-primary/60 hover:bg-primary/10 hover:text-primary shrink-0 rounded-full p-0.5"
         aria-label={`Remove ${metric.name}`}
       >
-        <X className="h-3 w-3" />
+        <CloseIcon className="h-3 w-3" />
       </button>
     </div>
   );

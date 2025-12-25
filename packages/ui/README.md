@@ -34,7 +34,7 @@ packages/ui/
 
 ```typescript
 import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
-import { RefreshCw } from "@dashframe/ui/icons";
+import { RefreshIcon } from "@dashframe/ui/icons";
 ```
 
 **Storybook:** Run `pnpm storybook` to browse components at http://localhost:6006

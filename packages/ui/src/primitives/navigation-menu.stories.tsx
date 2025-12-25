@@ -8,12 +8,12 @@ import {
   NavigationMenuTrigger,
 } from "./navigation-menu";
 import {
-  Database,
-  BarChart3,
-  Settings,
-  FileText,
-  Users,
-  Shield,
+  DatabaseIcon,
+  ChartIcon,
+  SettingsIcon,
+  FileIcon,
+  UsersIcon,
+  ShieldIcon,
 } from "../lib/icons";
 
 const meta = {
@@ -96,28 +96,28 @@ export const WithIcons: Story = {
           <NavigationMenuContent>
             <div className="grid w-[500px] grid-cols-2 gap-3 p-4">
               <NavigationMenuLink href="#">
-                <Database className="mb-2" />
+                <DatabaseIcon className="mb-2" />
                 <div className="font-medium">Data sources</div>
                 <div className="text-muted-foreground text-xs">
                   Connect to CSV, Notion, and more
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <FileText className="mb-2" />
+                <FileIcon className="mb-2" />
                 <div className="font-medium">DataFrames</div>
                 <div className="text-muted-foreground text-xs">
                   Transform and prepare your data
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <BarChart3 className="mb-2" />
+                <ChartIcon className="mb-2" />
                 <div className="font-medium">Visualizations</div>
                 <div className="text-muted-foreground text-xs">
                   Create charts and dashboards
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <Settings className="mb-2" />
+                <SettingsIcon className="mb-2" />
                 <div className="font-medium">Configuration</div>
                 <div className="text-muted-foreground text-xs">
                   Manage settings and preferences
@@ -131,14 +131,14 @@ export const WithIcons: Story = {
           <NavigationMenuContent>
             <div className="grid w-[500px] grid-cols-2 gap-3 p-4">
               <NavigationMenuLink href="#">
-                <FileText className="mb-2" />
+                <FileIcon className="mb-2" />
                 <div className="font-medium">Documentation</div>
                 <div className="text-muted-foreground text-xs">
                   Complete guides and API reference
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
-                <Users className="mb-2" />
+                <UsersIcon className="mb-2" />
                 <div className="font-medium">Community</div>
                 <div className="text-muted-foreground text-xs">
                   Join our community forum
@@ -189,14 +189,14 @@ export const FullApplicationNav: Story = {
                 <NavigationMenuContent>
                   <div className="grid w-[600px] grid-cols-2 gap-3 p-4">
                     <NavigationMenuLink href="#">
-                      <Database className="mb-2" />
+                      <DatabaseIcon className="mb-2" />
                       <div className="font-medium">Data Studio</div>
                       <div className="text-muted-foreground text-xs">
                         Connect and transform your data sources
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
-                      <BarChart3 className="mb-2" />
+                      <ChartIcon className="mb-2" />
                       <div className="font-medium">Analytics</div>
                       <div className="text-muted-foreground text-xs">
                         Create beautiful visualizations
@@ -210,7 +210,7 @@ export const FullApplicationNav: Story = {
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
-                      <Users className="mb-2" />
+                      <UsersIcon className="mb-2" />
                       <div className="font-medium">Collaboration</div>
                       <div className="text-muted-foreground text-xs">
                         Work together with your team

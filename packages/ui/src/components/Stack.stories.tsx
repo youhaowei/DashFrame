@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Stack } from "./Stack";
 import { Button } from "../primitives/button";
-import { Database, BarChart3, FileText } from "../lib/icons";
+import { DatabaseIcon, ChartIcon, FileIcon } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Stack",
@@ -206,7 +206,7 @@ export const CenterAligned: Story = {
     align: "center",
     children: (
       <>
-        <Database className="h-4 w-4" />
+        <DatabaseIcon className="h-4 w-4" />
         <span className="text-sm">Database icon with text</span>
       </>
     ),
@@ -372,7 +372,7 @@ export const CardGrid: Story = {
     wrap: true,
     children: (
       <>
-        {[Database, BarChart3, FileText].map((Icon, i) => (
+        {[DatabaseIcon, ChartIcon, FileIcon].map((Icon, i) => (
           <div
             key={i}
             className="bg-card border-border/60 w-[200px] rounded-2xl border p-6"

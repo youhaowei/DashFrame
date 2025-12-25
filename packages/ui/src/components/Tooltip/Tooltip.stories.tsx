@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SharedTooltip } from "./Tooltip";
 import { Button } from "../../primitives/button";
-import { Database, Plus, Trash2, RefreshCw, BarChart3 } from "../../lib/icons";
+import {
+  DatabaseIcon,
+  PlusIcon,
+  DeleteIcon,
+  RefreshIcon,
+  ChartIcon,
+} from "../../lib/icons";
 
 const meta = {
   title: "Components/Feedback/Tooltip",
@@ -33,7 +39,7 @@ export const IconButton: Story = {
     content: "Add data source",
     children: (
       <Button size="icon" variant="outlined">
-        <Plus className="h-4 w-4" />
+        <PlusIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -47,7 +53,7 @@ export const DestructiveButton: Story = {
     content: "Delete permanently",
     children: (
       <Button size="icon" color="danger">
-        <Trash2 className="h-4 w-4" />
+        <DeleteIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -72,19 +78,19 @@ export const IconOnlyActions: Story = {
     <div className="flex gap-2">
       <SharedTooltip content="Add new item">
         <Button size="icon" variant="outlined">
-          <Plus className="h-4 w-4" />
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh data">
         <Button size="icon" variant="outlined">
-          <RefreshCw className="h-4 w-4" />
+          <RefreshIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Delete item">
         <Button size="icon" color="danger">
-          <Trash2 className="h-4 w-4" />
+          <DeleteIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>
@@ -137,7 +143,7 @@ export const DataSourceIcon: Story = {
     content: "PostgreSQL database",
     children: (
       <div className="bg-card border-border/60 hover:bg-muted/50 cursor-pointer rounded-xl border p-4 transition">
-        <Database className="h-5 w-5" />
+        <DatabaseIcon className="h-5 w-5" />
       </div>
     ),
   },
@@ -165,7 +171,7 @@ export const CompactStyle: Story = {
     content: "Compact",
     children: (
       <Button size="icon" variant="text">
-        <Database className="h-4 w-4" />
+        <DatabaseIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -241,13 +247,13 @@ export const CompactActionButtons: Story = {
 
       <SharedTooltip content="Add data source">
         <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
-          <Plus className="h-4 w-4" />
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh all">
         <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
-          <RefreshCw className="h-4 w-4" />
+          <RefreshIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>

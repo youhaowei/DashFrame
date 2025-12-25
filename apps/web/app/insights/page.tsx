@@ -44,18 +44,18 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  Plus,
-  Trash2,
-  Settings,
-  FileText,
-  MoreHorizontal,
+  ChartIcon,
+  PlusIcon,
+  DeleteIcon,
+  SettingsIcon,
+  FileIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink } from "react-icons/lu";
+import { SearchIcon, ExternalLinkIcon } from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
@@ -186,11 +186,11 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <BarChart3 className="text-primary h-5 w-5" />;
+        return <ChartIcon className="text-primary h-5 w-5" />;
       case "configured":
-        return <Settings className="text-muted-foreground h-5 w-5" />;
+        return <SettingsIcon className="text-muted-foreground h-5 w-5" />;
       case "draft":
-        return <FileText className="text-muted-foreground h-5 w-5" />;
+        return <FileIcon className="text-muted-foreground h-5 w-5" />;
     }
   };
 
@@ -247,7 +247,7 @@ export default function InsightsPage() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="text"
-                icon={MoreHorizontal}
+                icon={MoreIcon}
                 iconOnly
                 label="More options"
                 size="sm"
@@ -262,7 +262,7 @@ export default function InsightsPage() {
                   router.push(`/insights/${item.insight.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -274,7 +274,7 @@ export default function InsightsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -298,13 +298,13 @@ export default function InsightsPage() {
               </p>
             </div>
             <Button
-              icon={Plus}
+              icon={PlusIcon}
               label="New Insight"
               onClick={() => setIsCreateModalOpen(true)}
             />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -355,7 +355,7 @@ export default function InsightsPage() {
                 </h2>
                 <Button
                   variant="text"
-                  icon={Trash2}
+                  icon={DeleteIcon}
                   label="Delete all"
                   size="sm"
                   color="danger"
@@ -373,7 +373,7 @@ export default function InsightsPage() {
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <FileText className="text-muted-foreground h-8 w-8" />
+                <FileIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -398,7 +398,7 @@ export default function InsightsPage() {
                     Create your first insight to start analyzing data
                   </p>
                   <Button
-                    icon={Plus}
+                    icon={PlusIcon}
                     label="New Insight"
                     onClick={() => setIsCreateModalOpen(true)}
                   />

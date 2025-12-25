@@ -16,12 +16,12 @@ import {
   SelectItem,
 } from "@dashframe/ui";
 import {
-  ArrowLeft,
-  BarChart3,
-  Check,
-  Edit3,
-  FileText,
-  Plus,
+  ArrowLeftIcon,
+  ChartIcon,
+  CheckIcon,
+  EditIcon,
+  FileIcon,
+  PlusIcon,
 } from "@dashframe/ui/icons";
 import {
   useDashboards,
@@ -100,7 +100,7 @@ export default function DashboardDetailPage({
         <div className="flex items-center gap-4">
           <Button
             variant="text"
-            icon={ArrowLeft}
+            icon={ArrowLeftIcon}
             iconOnly
             label="Back to dashboards"
             onClick={() => router.push("/dashboards")}
@@ -117,14 +117,14 @@ export default function DashboardDetailPage({
         <div className="flex items-center gap-2">
           {isEditable ? (
             <Button
-              icon={Check}
+              icon={CheckIcon}
               label="Done Editing"
               onClick={() => setIsEditable(false)}
             />
           ) : (
             <Button
               variant="outlined"
-              icon={Edit3}
+              icon={EditIcon}
               label="Edit Dashboard"
               onClick={() => setIsEditable(true)}
             />
@@ -132,7 +132,7 @@ export default function DashboardDetailPage({
           {isEditable && (
             <Button
               color="secondary"
-              icon={Plus}
+              icon={PlusIcon}
               label="Add Widget"
               onClick={() => setIsAddOpen(true)}
             />
@@ -164,7 +164,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("visualization")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <BarChart3 className="h-4 w-4" />
+                    <ChartIcon className="h-4 w-4" />
                     Visualization
                   </div>
                   <p className="text-muted-foreground text-xs">
@@ -180,7 +180,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("markdown")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <FileText className="h-4 w-4" />
+                    <FileIcon className="h-4 w-4" />
                     Text / Markdown
                   </div>
                   <p className="text-muted-foreground text-xs">

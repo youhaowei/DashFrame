@@ -11,7 +11,7 @@ import {
   Input,
   cn,
 } from "@dashframe/ui";
-import { Hash, Database, Search } from "@dashframe/ui/icons";
+import { NumberTypeIcon, DatabaseIcon, SearchIcon } from "@dashframe/ui/icons";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 
 interface InsightFieldEditorModalProps {
@@ -90,7 +90,7 @@ export function InsightFieldEditorModal({
 
         {/* Search input */}
         <div className="relative">
-          <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+          <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
           <Input
             placeholder="Search fields..."
             value={searchQuery}
@@ -104,7 +104,7 @@ export function InsightFieldEditorModal({
         <div className="max-h-[300px] space-y-4 overflow-y-auto">
           {filteredFields.length === 0 ? (
             <div className="py-8 text-center">
-              <Hash className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
+              <NumberTypeIcon className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
               <p className="text-muted-foreground text-sm">
                 {availableFields.length === 0
                   ? "All fields have been added."
@@ -117,7 +117,7 @@ export function InsightFieldEditorModal({
               return (
                 <div key={groupKey}>
                   <div className="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-medium uppercase">
-                    <Database className="h-3 w-3" />
+                    <DatabaseIcon className="h-3 w-3" />
                     {isBase ? "Base table" : "Joined table"}
                   </div>
                   <div className="space-y-1">
@@ -155,7 +155,7 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
         "focus:ring-primary focus:outline-none focus:ring-2",
       )}
     >
-      <Hash className="text-muted-foreground h-4 w-4 shrink-0" />
+      <NumberTypeIcon className="text-muted-foreground h-4 w-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{field.displayName}</p>
         {field.columnName && field.columnName !== field.name && (

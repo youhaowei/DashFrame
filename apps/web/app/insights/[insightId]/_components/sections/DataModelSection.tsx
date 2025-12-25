@@ -10,12 +10,12 @@ import {
   type ItemAction,
 } from "@dashframe/ui";
 import {
-  Plus,
-  Database,
-  X,
-  ExternalLink,
-  Cloud,
-  File,
+  PlusIcon,
+  DatabaseIcon,
+  CloseIcon,
+  ExternalLinkIcon,
+  CloudIcon,
+  FileIcon,
   TableIcon,
 } from "@dashframe/ui/icons";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
@@ -51,11 +51,11 @@ interface DataModelSectionProps {
 function getSourceTypeIcon(type: string) {
   switch (type) {
     case "notion":
-      return <Cloud className="h-4 w-4" />;
+      return <CloudIcon className="h-4 w-4" />;
     case "local":
       return <TableIcon className="h-4 w-4" />;
     default:
-      return <Database className="h-4 w-4" />;
+      return <DatabaseIcon className="h-4 w-4" />;
   }
 }
 
@@ -65,11 +65,11 @@ function getSourceTypeIcon(type: string) {
 function getFileTypeIcon(type: string) {
   switch (type) {
     case "notion":
-      return <Cloud className="h-3 w-3" />;
+      return <CloudIcon className="h-3 w-3" />;
     case "local":
-      return <File className="h-3 w-3" />;
+      return <FileIcon className="h-3 w-3" />;
     default:
-      return <Database className="h-3 w-3" />;
+      return <DatabaseIcon className="h-3 w-3" />;
   }
 }
 
@@ -173,7 +173,7 @@ export const DataModelSection = memo(function DataModelSection({
     const baseActions: ItemAction[] = dataTable.dataSourceId
       ? [
           {
-            icon: ExternalLink,
+            icon: ExternalLinkIcon,
             label: "View source",
             onClick: () => handleOpenDataSource(dataTable.dataSourceId),
           },
@@ -187,7 +187,7 @@ export const DataModelSection = memo(function DataModelSection({
       icon: baseDataSource ? (
         getSourceTypeIcon(baseDataSource.type)
       ) : (
-        <Database className="h-4 w-4" />
+        <DatabaseIcon className="h-4 w-4" />
       ),
       badge: "primary",
       actions: baseActions,
@@ -228,14 +228,14 @@ export const DataModelSection = memo(function DataModelSection({
         ...(tableSourceId
           ? [
               {
-                icon: ExternalLink,
+                icon: ExternalLinkIcon,
                 label: "View source",
                 onClick: () => handleOpenDataSource(tableSourceId),
               },
             ]
           : []),
         {
-          icon: X,
+          icon: CloseIcon,
           label: "Remove",
           onClick: () => handleRemoveJoin(idx, tableName),
           color: "danger" as const,
@@ -290,7 +290,7 @@ export const DataModelSection = memo(function DataModelSection({
         actions={[
           {
             label: "Add join",
-            icon: Plus,
+            icon: PlusIcon,
             onClick: () => setIsJoinFlowOpen(true),
             variant: "outlined",
           },
@@ -302,7 +302,7 @@ export const DataModelSection = memo(function DataModelSection({
           gap={12}
           itemWidth={320}
           emptyMessage="No data sources"
-          emptyIcon={<Database className="h-8 w-8" />}
+          emptyIcon={<DatabaseIcon className="h-8 w-8" />}
         />
       </Section>
 

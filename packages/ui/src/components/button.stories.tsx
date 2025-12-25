@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Button } from "./button";
-import { Plus, Trash2, Refresh, Database, Edit3 } from "../lib/icons";
+import {
+  PlusIcon,
+  DeleteIcon,
+  RefreshIcon,
+  DatabaseIcon,
+  EditIcon,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Actions/Button",
@@ -36,7 +42,7 @@ export const Default: Story = {
   args: {
     label: "Save",
     onClick: () => alert("Save clicked"),
-    icon: Database,
+    icon: DatabaseIcon,
   },
 };
 
@@ -58,7 +64,7 @@ export const Variants: Story = {
           label="Danger"
           onClick={() => {}}
           color="danger"
-          icon={Trash2}
+          icon={DeleteIcon}
         />
       </div>
     </div>
@@ -71,15 +77,25 @@ export const Variants: Story = {
 export const WithIcons: Story = {
   render: () => (
     <div className="flex gap-2">
-      <Button label="Create" onClick={() => {}} icon={Plus} />
-      <Button label="Edit" onClick={() => {}} icon={Edit3} variant="outlined" />
+      <Button label="Create" onClick={() => {}} icon={PlusIcon} />
+      <Button
+        label="Edit"
+        onClick={() => {}}
+        icon={EditIcon}
+        variant="outlined"
+      />
       <Button
         label="Refresh"
         onClick={() => {}}
-        icon={Refresh}
+        icon={RefreshIcon}
         variant="text"
       />
-      <Button label="Delete" onClick={() => {}} icon={Trash2} color="danger" />
+      <Button
+        label="Delete"
+        onClick={() => {}}
+        icon={DeleteIcon}
+        color="danger"
+      />
     </div>
   ),
 };
@@ -93,14 +109,14 @@ export const IconOnlyMode: Story = {
       <Button
         label="Create"
         onClick={() => {}}
-        icon={Plus}
+        icon={PlusIcon}
         iconOnly
         tooltip="Create new item"
       />
       <Button
         label="Refresh"
         onClick={() => {}}
-        icon={Refresh}
+        icon={RefreshIcon}
         iconOnly
         tooltip="Refresh data"
       />
@@ -135,7 +151,7 @@ export const Sizes: Story = {
           label="Small Compact"
           onClick={() => {}}
           size="sm"
-          icon={Plus}
+          icon={PlusIcon}
           iconOnly
         />
       </div>
@@ -147,7 +163,7 @@ export const Sizes: Story = {
           label="Default Compact"
           onClick={() => {}}
           size="default"
-          icon={Plus}
+          icon={PlusIcon}
           iconOnly
         />
       </div>
@@ -159,7 +175,7 @@ export const Sizes: Story = {
           label="Large Compact"
           onClick={() => {}}
           size="lg"
-          icon={Plus}
+          icon={PlusIcon}
           iconOnly
         />
       </div>

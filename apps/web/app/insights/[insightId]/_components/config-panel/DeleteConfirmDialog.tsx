@@ -9,7 +9,7 @@ import {
   DialogTitle,
   Button,
 } from "@dashframe/ui";
-import { AlertCircle, Trash2, X } from "@dashframe/ui/icons";
+import { AlertCircleIcon, DeleteIcon, CloseIcon } from "@dashframe/ui/icons";
 import type { Visualization, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 
@@ -77,7 +77,7 @@ export function DeleteConfirmDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-amber-500" />
+            <AlertCircleIcon className="h-5 w-5 text-amber-500" />
             Delete {itemType}
           </DialogTitle>
           <DialogDescription>
@@ -111,7 +111,7 @@ export function DeleteConfirmDialog({
                     <div className="flex shrink-0 gap-1">
                       <Button
                         label="Remove"
-                        icon={X}
+                        icon={CloseIcon}
                         variant="outlined"
                         size="sm"
                         onClick={() =>
@@ -121,7 +121,7 @@ export function DeleteConfirmDialog({
                       />
                       <Button
                         label="Delete"
-                        icon={Trash2}
+                        icon={DeleteIcon}
                         color="danger"
                         size="sm"
                         onClick={() => onDeleteVisualization(visualization.id)}

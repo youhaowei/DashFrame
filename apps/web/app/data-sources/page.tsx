@@ -14,22 +14,22 @@ import {
   CardContent,
   Input,
   Badge,
-  Database,
+  DatabaseIcon,
   TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
+  PlusIcon,
+  DeleteIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
 import {
-  LuSearch,
-  LuExternalLink,
-  LuCloud,
-  LuFileSpreadsheet,
-} from "react-icons/lu";
+  SearchIcon,
+  ExternalLinkIcon,
+  CloudIcon,
+  SpreadsheetIcon,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for data source with table count
@@ -86,13 +86,13 @@ export default function DataSourcesPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "notion":
-        return <LuCloud className="h-5 w-5" />;
+        return <CloudIcon className="h-5 w-5" />;
       case "local":
-        return <LuFileSpreadsheet className="h-5 w-5" />;
+        return <SpreadsheetIcon className="h-5 w-5" />;
       case "postgresql":
-        return <Database className="h-5 w-5" />;
+        return <DatabaseIcon className="h-5 w-5" />;
       default:
-        return <Database className="h-5 w-5" />;
+        return <DatabaseIcon className="h-5 w-5" />;
     }
   };
 
@@ -161,7 +161,7 @@ export default function DataSourcesPage() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="text"
-                icon={MoreHorizontal}
+                icon={MoreIcon}
                 iconOnly
                 label="More options"
                 size="sm"
@@ -176,7 +176,7 @@ export default function DataSourcesPage() {
                   router.push(`/data-sources/${item.dataSource.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -188,7 +188,7 @@ export default function DataSourcesPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -220,13 +220,13 @@ export default function DataSourcesPage() {
               </p>
             </div>
             <Button
-              icon={Plus}
+              icon={PlusIcon}
               label="Add Source"
               onClick={() => setIsCreateModalOpen(true)}
             />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}
@@ -248,7 +248,7 @@ export default function DataSourcesPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <Database className="text-muted-foreground h-8 w-8" />
+                <DatabaseIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -273,7 +273,7 @@ export default function DataSourcesPage() {
                     Connect your first data source to start analyzing
                   </p>
                   <Button
-                    icon={Plus}
+                    icon={PlusIcon}
                     label="Add Source"
                     onClick={() => setIsCreateModalOpen(true)}
                   />

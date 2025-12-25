@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 import { Button } from "../components/button";
-import { MoreOptions } from "../lib/icons";
+import { MoreIcon } from "../lib/icons";
 
 export type { ItemAction };
 
@@ -68,7 +68,7 @@ function ActionsMenu({ actions }: { actions: ItemAction[] }) {
         <DropdownMenuTrigger asChild>
           <Button
             label="Actions"
-            icon={MoreOptions}
+            icon={MoreIcon}
             variant="text"
             size="sm"
             iconOnly

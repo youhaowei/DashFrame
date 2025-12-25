@@ -5,8 +5,14 @@
  * Used in field selectors, axis configuration, and data model displays.
  */
 
-import type { IconType } from "react-icons";
-import { Hash, Calendar, Toggle, Type, Calculator } from "@dashframe/ui/icons";
+import type { LucideIcon } from "@dashframe/ui/icons";
+import {
+  NumberTypeIcon,
+  DateTypeIcon,
+  BooleanTypeIcon,
+  TextTypeIcon,
+  CalculatorIcon,
+} from "@dashframe/ui/icons";
 import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
 
 /**
@@ -16,7 +22,7 @@ import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
  * @param type - Field type string (e.g., "number", "date", "string")
  * @returns Icon component for the field type
  */
-export function getFieldTypeIcon(type: string): IconType {
+export function getFieldTypeIcon(type: string): LucideIcon {
   const normalizedType = type.toLowerCase();
 
   // Numeric types
@@ -25,7 +31,7 @@ export function getFieldTypeIcon(type: string): IconType {
       normalizedType,
     )
   ) {
-    return Hash;
+    return NumberTypeIcon;
   }
 
   // Date/time types
@@ -33,16 +39,16 @@ export function getFieldTypeIcon(type: string): IconType {
     ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
     normalizedType.includes("date")
   ) {
-    return Calendar;
+    return DateTypeIcon;
   }
 
   // Boolean types
   if (["boolean", "bool"].includes(normalizedType)) {
-    return Toggle;
+    return BooleanTypeIcon;
   }
 
   // Default to text/string
-  return Type;
+  return TextTypeIcon;
 }
 
 /**
@@ -52,14 +58,14 @@ export function getFieldTypeIcon(type: string): IconType {
  * @param semantic - Column semantic from ColumnAnalysis
  * @returns Icon component for the column semantic
  */
-export function getColumnCategoryIcon(semantic: ColumnSemantic): IconType {
+export function getColumnCategoryIcon(semantic: ColumnSemantic): LucideIcon {
   switch (semantic) {
     case "numerical":
-      return Hash;
+      return NumberTypeIcon;
     case "temporal":
-      return Calendar;
+      return DateTypeIcon;
     case "boolean":
-      return Toggle;
+      return BooleanTypeIcon;
     case "categorical":
     case "identifier":
     case "reference":
@@ -69,7 +75,7 @@ export function getColumnCategoryIcon(semantic: ColumnSemantic): IconType {
     case "text":
     case "unknown":
     default:
-      return Type;
+      return TextTypeIcon;
   }
 }
 
@@ -86,15 +92,15 @@ export function getColumnIcon(
   columnName: string,
   columnAnalysis: ColumnAnalysis[],
   metricNames: Set<string>,
-): IconType {
+): LucideIcon {
   // Metrics (aggregations) get Calculator icon
   if (metricNames.has(columnName)) {
-    return Calculator;
+    return CalculatorIcon;
   }
 
   // Find column analysis for type icon
   const col = columnAnalysis.find((c) => c.columnName === columnName);
-  if (!col) return Type;
+  if (!col) return TextTypeIcon;
 
   return getColumnCategoryIcon(col.semantic);
 }

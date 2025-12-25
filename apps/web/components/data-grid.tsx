@@ -10,7 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
-  MoreHorizontal,
+  MoreIcon,
   Button,
   Surface,
   DropdownMenu,
@@ -62,7 +62,7 @@ export function DataGrid<TData>({
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="text"
-                        icon={MoreHorizontal}
+                        icon={MoreIcon}
                         iconOnly
                         label="Open menu"
                         className="h-8 w-8 p-0"

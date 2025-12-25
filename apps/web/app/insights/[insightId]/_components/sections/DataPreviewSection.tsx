@@ -7,7 +7,7 @@ import {
   VirtualTable,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
-import { GitMerge, Table2 } from "@dashframe/ui/icons";
+import { MergeIcon, TableIcon } from "@dashframe/ui/icons";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import type { Insight } from "@dashframe/types";
 
@@ -108,13 +108,13 @@ export const DataPreviewSection = memo(function DataPreviewSection({
     () => [
       {
         value: "join" as const,
-        icon: <GitMerge />,
+        icon: <MergeIcon />,
         label: "Join preview",
         tooltip: "Raw data from joined tables",
       },
       {
         value: "result" as const,
-        icon: <Table2 />,
+        icon: <TableIcon />,
         label: "Insight result",
         tooltip: "Aggregated data based on insight configuration",
         disabled: !hasConfiguration,

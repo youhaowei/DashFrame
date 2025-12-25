@@ -6,16 +6,16 @@ import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   Button,
-  Plus,
-  Edit3,
-  X,
-  Sparkles,
-  Layers,
+  PlusIcon,
+  EditIcon,
+  CloseIcon,
+  SparklesIcon,
+  LayersIcon,
   Panel,
   Toggle,
   EmptyState,
   VirtualTable,
-  Trash2,
+  DeleteIcon,
   ButtonGroup,
 } from "@dashframe/ui";
 
@@ -98,7 +98,7 @@ export function TableDetailPanel({
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState
-          icon={Layers}
+          icon={LayersIcon}
           title="Select a table to view details"
           description="Choose a table from the list to view and edit its fields, metrics, and data."
         />
@@ -126,7 +126,7 @@ export function TableDetailPanel({
                 {
                   label: "Delete Table",
                   onClick: onDeleteTable,
-                  icon: Trash2,
+                  icon: DeleteIcon,
                   variant: "text",
                   className:
                     "text-destructive hover:bg-destructive hover:text-destructive-foreground",
@@ -134,7 +134,7 @@ export function TableDetailPanel({
                 {
                   label: "Create Visualization",
                   onClick: onCreateVisualization,
-                  icon: Sparkles,
+                  icon: SparklesIcon,
                 },
               ]}
             />
@@ -176,7 +176,7 @@ export function TableDetailPanel({
               variant="outlined"
               size="sm"
               onClick={onAddField}
-              icon={Plus}
+              icon={PlusIcon}
             />
           </div>
 
@@ -209,7 +209,7 @@ export function TableDetailPanel({
                       iconOnly
                       onClick={() => onEditField(field.id)}
                       className="h-8 w-8"
-                      icon={Edit3}
+                      icon={EditIcon}
                     />
                     <Button
                       label="Delete field"
@@ -218,7 +218,7 @@ export function TableDetailPanel({
                       iconOnly
                       onClick={() => onDeleteField(field.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8"
-                      icon={X}
+                      icon={CloseIcon}
                     />
                   </div>
                 </div>
@@ -241,7 +241,7 @@ export function TableDetailPanel({
               variant="outlined"
               size="sm"
               onClick={onAddMetric}
-              icon={Plus}
+              icon={PlusIcon}
             />
           </div>
 
@@ -278,7 +278,7 @@ export function TableDetailPanel({
                       iconOnly
                       onClick={() => onDeleteMetric(metric.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8 shrink-0"
-                      icon={X}
+                      icon={CloseIcon}
                     />
                   </div>
                 );

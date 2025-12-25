@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, Sparkles, Database, ItemList } from "@dashframe/ui";
+import { ChartIcon, SparklesIcon, DatabaseIcon, ItemList } from "@dashframe/ui";
 
 import {
   useVisualizations,
@@ -28,19 +28,19 @@ export function QuickLinksSection() {
         id: "visualizations",
         title: "All Visualizations",
         subtitle: `${visualizations.length} total`,
-        icon: BarChart3,
+        icon: ChartIcon,
       },
       {
         id: "insights",
         title: "All Insights",
         subtitle: `${insights.length} total`,
-        icon: Sparkles,
+        icon: SparklesIcon,
       },
       {
         id: "data-sources",
         title: "Data Sources",
         subtitle: `${dataSources.length} connected`,
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ],
     [visualizations.length, insights.length, dataSources.length],

@@ -2,7 +2,14 @@
 
 import { useMemo } from "react";
 import { useDataSources, useDataTables, useDataFrames } from "@dashframe/core";
-import { File, Trash2, Panel, EmptyState, cn, Button } from "@dashframe/ui";
+import {
+  FileIcon,
+  DeleteIcon,
+  Panel,
+  EmptyState,
+  cn,
+  Button,
+} from "@dashframe/ui";
 
 interface DataSourceTreeProps {
   dataSourceId: string;
@@ -62,7 +69,7 @@ export function DataSourceTree({
 
             {/* Tables Header */}
             <div className="flex items-center gap-2">
-              <File className="text-muted-foreground h-4 w-4" />
+              <FileIcon className="text-muted-foreground h-4 w-4" />
               <h3 className="text-foreground text-sm font-semibold">Tables</h3>
               <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
                 {tables?.length ?? 0}
@@ -80,7 +87,7 @@ export function DataSourceTree({
               size="sm"
               onClick={() => onDeleteTable(selectedTableId)}
               className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
-              icon={Trash2}
+              icon={DeleteIcon}
             />
           </div>
         ) : undefined
@@ -90,7 +97,7 @@ export function DataSourceTree({
       <div className="space-y-2 p-4">
         {!tables || tables.length === 0 ? (
           <EmptyState
-            icon={File}
+            icon={FileIcon}
             title="No tables yet"
             description="Upload a CSV to get started"
             size="sm"

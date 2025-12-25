@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ButtonGroup } from "./ButtonGroup";
-import { Plus, Trash2, Refresh, Database, Edit3, X } from "../lib/icons";
+import {
+  PlusIcon,
+  DeleteIcon,
+  RefreshIcon,
+  DatabaseIcon,
+  EditIcon,
+  CloseIcon,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Actions/ButtonGroup",
@@ -24,7 +31,11 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     actions: [
-      { label: "Save", onClick: () => alert("Save clicked"), icon: Database },
+      {
+        label: "Save",
+        onClick: () => alert("Save clicked"),
+        icon: DatabaseIcon,
+      },
       {
         label: "Cancel",
         onClick: () => alert("Cancel clicked"),
@@ -44,19 +55,19 @@ export const Compact: Story = {
       {
         label: "Create",
         onClick: () => alert("Create"),
-        icon: Plus,
+        icon: PlusIcon,
         tooltip: "Create new item",
       },
       {
         label: "Refresh",
         onClick: () => alert("Refresh"),
-        icon: Refresh,
+        icon: RefreshIcon,
         tooltip: "Refresh data",
       },
       {
         label: "Delete",
         onClick: () => alert("Delete"),
-        icon: Trash2,
+        icon: DeleteIcon,
         color: "danger",
         tooltip: "Delete item",
       },
@@ -73,12 +84,12 @@ export const CreateDelete: Story = {
       {
         label: "Create Data Source",
         onClick: () => alert("Create"),
-        icon: Plus,
+        icon: PlusIcon,
       },
       {
         label: "Delete",
         onClick: () => alert("Delete"),
-        icon: Trash2,
+        icon: DeleteIcon,
         color: "danger",
       },
     ],
@@ -94,12 +105,12 @@ export const SaveCancel: Story = {
       {
         label: "Save Changes",
         onClick: () => alert("Save"),
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         label: "Cancel",
         onClick: () => alert("Cancel"),
-        icon: X,
+        icon: CloseIcon,
         variant: "outlined",
       },
     ],
@@ -116,13 +127,13 @@ export const RefreshSettings: Story = {
       {
         label: "Refresh",
         onClick: () => alert("Refresh"),
-        icon: Refresh,
+        icon: RefreshIcon,
         tooltip: "Refresh data sources",
       },
       {
         label: "Settings",
         onClick: () => alert("Settings"),
-        icon: Database,
+        icon: DatabaseIcon,
         variant: "outlined",
         tooltip: "Data source settings",
       },
@@ -143,7 +154,7 @@ export const MixedVariants: Story = {
         label: "Danger",
         onClick: () => {},
         color: "danger",
-        icon: Trash2,
+        icon: DeleteIcon,
       },
     ],
   },
@@ -159,27 +170,27 @@ export const CompactWithTooltips: Story = {
       {
         label: "Add Data Source",
         onClick: () => {},
-        icon: Database,
+        icon: DatabaseIcon,
         tooltip: "Add a new data source",
       },
       {
         label: "Edit Settings",
         onClick: () => {},
-        icon: Edit3,
+        icon: EditIcon,
         variant: "outlined",
         tooltip: "Edit data source settings",
       },
       {
         label: "Refresh All",
         onClick: () => {},
-        icon: Refresh,
+        icon: RefreshIcon,
         variant: "outlined",
         tooltip: "Refresh all data sources",
       },
       {
         label: "Delete Selected",
         onClick: () => {},
-        icon: Trash2,
+        icon: DeleteIcon,
         color: "danger",
         tooltip: "Delete selected data source",
       },
@@ -208,7 +219,7 @@ export const SingleAction: Story = {
       {
         label: "Create Visualization",
         onClick: () => alert("Create"),
-        icon: Plus,
+        icon: PlusIcon,
       },
     ],
   },
@@ -233,7 +244,7 @@ export const CompactMixedIcons: Story = {
       {
         label: "With Icon",
         onClick: () => {},
-        icon: Plus,
+        icon: PlusIcon,
         tooltip: "Has icon",
       },
       {
@@ -244,7 +255,7 @@ export const CompactMixedIcons: Story = {
       {
         label: "Another Icon",
         onClick: () => {},
-        icon: Refresh,
+        icon: RefreshIcon,
         tooltip: "Has icon",
       },
     ],

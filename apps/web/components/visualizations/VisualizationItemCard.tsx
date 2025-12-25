@@ -13,11 +13,10 @@ import {
 import type { Visualization } from "@dashframe/types";
 import { VisualizationPreview } from "./VisualizationPreview";
 import {
-  BarChart3,
-  CircleDot,
-  LineChart,
+  ChartIcon,
+  DataPointIcon,
   TableIcon,
-  MoreOptions,
+  MoreIcon,
 } from "@dashframe/ui/icons";
 
 interface VisualizationItemCardProps {
@@ -41,13 +40,13 @@ interface VisualizationItemCardProps {
 function getVizFallbackIcon(type: string) {
   switch (type) {
     case "bar":
-      return <BarChart3 className="text-muted-foreground/40 h-10 w-10" />;
+      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "line":
     case "area":
-      return <LineChart className="text-muted-foreground/40 h-10 w-10" />;
+      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "point":
     case "scatter":
-      return <CircleDot className="text-muted-foreground/40 h-10 w-10" />;
+      return <DataPointIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "table":
     default:
       return <TableIcon className="text-muted-foreground/40 h-10 w-10" />;
@@ -149,7 +148,7 @@ export function VisualizationItemCard({
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="text"
-                    icon={MoreOptions}
+                    icon={MoreIcon}
                     iconOnly
                     label="Actions"
                     size="sm"

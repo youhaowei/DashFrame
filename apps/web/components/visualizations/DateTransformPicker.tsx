@@ -9,7 +9,7 @@ import {
   SelectValue,
   Label,
 } from "@dashframe/ui";
-import { Calendar } from "@dashframe/ui/icons";
+import { DateTypeIcon } from "@dashframe/ui/icons";
 import type {
   TemporalAggregation,
   CategoricalDateGroup,
@@ -140,7 +140,7 @@ export function DateTransformPicker({
       <div className={className}>
         <Select value={currentValue} onValueChange={handleChange}>
           <SelectTrigger className="h-8 text-xs">
-            <Calendar className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
+            <DateTypeIcon className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
             <SelectValue placeholder="Date grouping" />
           </SelectTrigger>
           <SelectContent>

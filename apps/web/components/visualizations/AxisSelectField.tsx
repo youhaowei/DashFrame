@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   Badge,
 } from "@dashframe/ui";
-import { AlertCircle, ArrowUpDown } from "@dashframe/ui/icons";
+import { AlertCircleIcon, ArrowUpDownIcon } from "@dashframe/ui/icons";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { metricToSqlExpression } from "@dashframe/engine";
 import type {
@@ -346,7 +346,7 @@ export function AxisSelectField({
                 onSwapAxes();
               }}
             >
-              <ArrowUpDown className="mr-1 h-3 w-3" />
+              <ArrowUpDownIcon className="mr-1 h-3 w-3" />
               <span className="text-[10px]">Swap</span>
             </Badge>
           </TooltipTrigger>
@@ -366,7 +366,7 @@ export function AxisSelectField({
               variant="outline"
               className="border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
             >
-              <AlertCircle className="mr-1 h-3 w-3" />
+              <AlertCircleIcon className="mr-1 h-3 w-3" />
               <span className="text-[10px]">{currentWarning.message}</span>
             </Badge>
           </TooltipTrigger>

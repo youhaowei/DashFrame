@@ -10,7 +10,7 @@ import {
   CHART_ICONS,
 } from "@dashframe/ui";
 import { Button } from "@dashframe/ui/primitives/button";
-import { Sparkles, Info } from "@dashframe/ui/icons";
+import { SparklesIcon, InfoIcon } from "@dashframe/ui/icons";
 import {
   CHART_TYPE_METADATA,
   getChartTypesForTag,
@@ -172,7 +172,7 @@ const CategoryCard = memo(function CategoryCard({
               className="text-muted-foreground hover:text-foreground cursor-help"
               onClick={(e) => e.stopPropagation()}
             >
-              <Info className="h-3.5 w-3.5" />
+              <InfoIcon className="h-3.5 w-3.5" />
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[200px]">
@@ -536,7 +536,7 @@ export const ChartTypePicker = memo(function ChartTypePicker({
       {hasSuggestions && onRegenerate && !isLoading && (
         <div className="flex justify-center">
           <Button variant="text" size="sm" onClick={onRegenerate}>
-            <Sparkles className="mr-2 h-3 w-3" />
+            <SparklesIcon className="mr-2 h-3 w-3" />
             Regenerate suggestions
           </Button>
         </div>

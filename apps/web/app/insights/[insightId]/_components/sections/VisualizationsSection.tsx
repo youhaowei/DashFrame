@@ -8,7 +8,7 @@ import {
   type ListItem,
   type ItemAction,
 } from "@dashframe/ui";
-import { BarChart3, Plus, Copy, Trash2 } from "@dashframe/ui/icons";
+import { ChartIcon, PlusIcon, CopyIcon, DeleteIcon } from "@dashframe/ui/icons";
 import type { Visualization, Field } from "@dashframe/types";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
@@ -113,7 +113,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
 
         if (onDuplicateVisualization) {
           actions.push({
-            icon: Copy,
+            icon: CopyIcon,
             label: "Duplicate",
             onClick: () => onDuplicateVisualization(viz.id),
           });
@@ -121,7 +121,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
 
         if (onDeleteVisualization) {
           actions.push({
-            icon: Trash2,
+            icon: DeleteIcon,
             label: "Delete",
             onClick: () => onDeleteVisualization(viz.id, viz.name),
             color: "danger" as const,
@@ -189,7 +189,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
             ? [
                 {
                   label: "Create visualization",
-                  icon: Plus,
+                  icon: PlusIcon,
                   variant: "outlined",
                   onClick: handleCreateVisualization,
                 },
@@ -203,7 +203,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
           orientation="grid"
           gap={16}
           emptyMessage="Create a visualization to see your data come to life"
-          emptyIcon={<BarChart3 className="h-8 w-8" />}
+          emptyIcon={<ChartIcon className="h-8 w-8" />}
           renderItem={renderVisualizationCard}
         />
       </Section>

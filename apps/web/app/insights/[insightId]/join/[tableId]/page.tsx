@@ -19,10 +19,10 @@ import {
   VirtualTable,
   type VirtualTableColumnConfig,
   type VirtualTableColumn,
-  ArrowLeft,
-  Merge,
-  Loader2,
-  AlertCircle,
+  ArrowLeftIcon,
+  MergeIcon,
+  LoaderIcon,
+  AlertCircleIcon,
   Button,
 } from "@dashframe/ui";
 import {
@@ -668,7 +668,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+          <LoaderIcon className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">
             Loading join configuration...
           </p>
@@ -682,7 +682,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
+          <AlertCircleIcon className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Insight not found</h2>
           <p className="text-muted-foreground mt-2 text-sm">
             The insight you&apos;re looking for doesn&apos;t exist.
@@ -701,7 +701,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
+          <AlertCircleIcon className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Base table not found</h2>
           <p className="text-muted-foreground mt-2 text-sm">
             The data table for this insight no longer exists.
@@ -720,7 +720,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircle className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
+          <AlertCircleIcon className="text-muted-foreground mx-auto mb-4 h-10 w-10" />
           <h2 className="text-xl font-semibold">Join table not found</h2>
           <p className="text-muted-foreground mt-2 text-sm">
             The table you&apos;re trying to join with doesn&apos;t exist.
@@ -746,7 +746,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
             <div className="flex items-center gap-4">
               <Button
                 variant="text"
-                icon={ArrowLeft}
+                icon={ArrowLeftIcon}
                 label="Cancel"
                 size="sm"
                 onClick={() => router.push(`/insights/${insightId}`)}
@@ -761,7 +761,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
               </div>
             </div>
             <Button
-              icon={isSubmitting ? Loader2 : Merge}
+              icon={isSubmitting ? LoaderIcon : MergeIcon}
               label={isSubmitting ? "Joining..." : "Join Tables"}
               onClick={handleExecuteJoin}
               disabled={!canJoin || isSubmitting}
