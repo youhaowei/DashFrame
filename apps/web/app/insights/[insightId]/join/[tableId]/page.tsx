@@ -748,7 +748,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <PrimitiveButton
-                variant="ghost"
+                variant="text"
                 size="sm"
                 onClick={() => router.push(`/insights/${insightId}`)}
               >

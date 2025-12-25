@@ -112,7 +112,7 @@ export function DeleteConfirmDialog({
                       <Button
                         label="Remove"
                         icon={X}
-                        variant="outline"
+                        variant="outlined"
                         size="sm"
                         onClick={() =>
                           onRemoveFromVisualization(visualization.id)
@@ -122,7 +122,7 @@ export function DeleteConfirmDialog({
                       <Button
                         label="Delete"
                         icon={Trash2}
-                        variant="destructive"
+                        color="danger"
                         size="sm"
                         onClick={() => onDeleteVisualization(visualization.id)}
                         disabled={processingVizId !== null}
@@ -136,10 +136,10 @@ export function DeleteConfirmDialog({
         )}
 
         <DialogFooter>
-          <Button label="Cancel" variant="outline" onClick={onClose} />
+          <Button label="Cancel" variant="outlined" onClick={onClose} />
           <Button
             label={`Delete ${itemType}`}
-            variant="destructive"
+            color="danger"
             onClick={handleDelete}
             disabled={hasAffectedVisualizations}
           />

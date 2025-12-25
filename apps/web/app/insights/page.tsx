@@ -246,7 +246,7 @@ export default function InsightsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <PrimitiveButton
-                variant="ghost"
+                variant="text"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
@@ -352,7 +352,7 @@ export default function InsightsPage() {
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
                 <PrimitiveButton
-                  variant="ghost"
+                  variant="text"
                   size="sm"
                   className="text-destructive hover:text-destructive"
                   onClick={handleDeleteAllDrafts}
@@ -382,7 +382,7 @@ export default function InsightsPage() {
                     No insights match &quot;{searchQuery}&quot;
                   </p>
                   <PrimitiveButton
-                    variant="outline"
+                    variant="outlined"
                     onClick={() => setSearchQuery("")}
                   >
                     Clear search

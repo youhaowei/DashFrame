@@ -223,7 +223,7 @@ export const CenterJustified: Story = {
     justify: "center",
     children: (
       <>
-        <Button variant="outline">Cancel</Button>
+        <Button variant="outlined">Cancel</Button>
         <Button>Save</Button>
       </>
     ),
@@ -272,19 +272,19 @@ export const WrappingStack: Story = {
     children: (
       <>
         <Button size="sm">Option 1</Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 2
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 3
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 4
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 5
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 6
         </Button>
       </>
@@ -424,10 +424,10 @@ export const NestedStacks: Story = {
         <h3 className="mb-4 text-sm font-semibold">Horizontal nested stack</h3>
         <Stack direction="horizontal" spacing="sm">
           <Button size="sm">Button 1</Button>
-          <Button size="sm" variant="outline">
+          <Button size="sm" variant="outlined">
             Button 2
           </Button>
-          <Button size="sm" variant="outline">
+          <Button size="sm" variant="outlined">
             Button 3
           </Button>
         </Stack>
@@ -455,13 +455,13 @@ export const SemanticNav: Story = {
     spacing: "md",
     children: (
       <>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           Home
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           About
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           Contact
         </Button>
       </>

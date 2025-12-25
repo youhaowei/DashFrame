@@ -2,8 +2,7 @@
 
 import { useMemo } from "react";
 import { useDataSources, useDataTables, useDataFrames } from "@dashframe/core";
-import { File, Trash2, Panel, EmptyState, cn } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
+import { File, Trash2, Panel, EmptyState, cn, Button } from "@dashframe/ui";
 
 interface DataSourceTreeProps {
   dataSourceId: string;
@@ -76,14 +75,13 @@ export function DataSourceTree({
         !isLocal && selectedTableId ? (
           <div className="px-4 py-4">
             <Button
-              variant="outline"
+              label="Delete Table"
+              variant="outlined"
               size="sm"
               onClick={() => onDeleteTable(selectedTableId)}
               className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete Table
-            </Button>
+              icon={Trash2}
+            />
           </div>
         ) : undefined
       }

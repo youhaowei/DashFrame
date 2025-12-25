@@ -36,7 +36,7 @@ export default function DataFramesPage() {
         header: ({ column }) => {
           return (
             <PrimitiveButton
-              variant="ghost"
+              variant="text"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
               }
@@ -92,7 +92,7 @@ export default function DataFramesPage() {
         header: ({ column }) => {
           return (
             <PrimitiveButton
-              variant="ghost"
+              variant="text"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
               }
@@ -181,7 +181,7 @@ export default function DataFramesPage() {
           </div>
           <DialogFooter>
             <PrimitiveButton
-              variant="outline"
+              variant="outlined"
               onClick={() => setEditingFrame(null)}
             >
               Cancel

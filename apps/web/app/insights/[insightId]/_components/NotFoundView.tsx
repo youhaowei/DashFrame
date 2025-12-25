@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Button } from "@dashframe/ui/primitives/button";
+import { Button } from "@dashframe/ui";
 
 interface NotFoundViewProps {
   type: "insight" | "dataTable";

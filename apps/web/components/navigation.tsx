@@ -127,7 +127,7 @@ function SidebarContent({
               {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
                 <PrimitiveButton
-                  variant="ghost"
+                  variant="text"
                   size="icon"
                   onClick={onToggleCollapse}
                   className="border-border/60 bg-background text-muted-foreground hover:bg-background h-7 w-7 rounded-full border shadow-sm transition-colors"
@@ -340,7 +340,7 @@ export function Navigation() {
 
       {/* Mobile Toggle Button */}
       <PrimitiveButton
-        variant="ghost"
+        variant="text"
         size="icon"
         onClick={() => setIsOpen(true)}
         className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
@@ -355,7 +355,7 @@ export function Navigation() {
             <div className="border-border/60 flex items-center justify-between border-b p-4">
               <span className="text-sm font-semibold">Menu</span>
               <PrimitiveButton
-                variant="ghost"
+                variant="text"
                 size="icon"
                 onClick={() => setIsOpen(false)}
               >
@@ -381,12 +381,12 @@ export function Navigation() {
           </DialogHeader>
           <DialogFooter>
             <PrimitiveButton
-              variant="outline"
+              variant="outlined"
               onClick={() => setShowClearConfirm(false)}
             >
               Cancel
             </PrimitiveButton>
-            <PrimitiveButton variant="destructive" onClick={handleClearAllData}>
+            <PrimitiveButton color="danger" onClick={handleClearAllData}>
               Clear all data
             </PrimitiveButton>
           </DialogFooter>

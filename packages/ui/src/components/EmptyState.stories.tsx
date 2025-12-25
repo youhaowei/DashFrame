@@ -88,7 +88,7 @@ export const NoDataSources: Story = {
       label: "Add Data Source",
       onClick: () => alert("Add clicked"),
       icon: Plus,
-      variant: "default",
+      variant: "filled",
     },
   },
 };
@@ -158,7 +158,7 @@ export const SecondaryAction: Story = {
     action: {
       label: "Browse All",
       onClick: () => alert("Browse clicked"),
-      variant: "secondary",
+      color: "secondary",
     },
   },
 };
@@ -174,7 +174,7 @@ export const OutlineAction: Story = {
     action: {
       label: "View Archive",
       onClick: () => alert("Archive clicked"),
-      variant: "outline",
+      variant: "outlined",
     },
   },
 };

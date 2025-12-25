@@ -7,7 +7,7 @@ import {
   CardContent,
   CardFooter,
 } from "./card";
-import { Button } from "./button";
+import { Button } from "../components/button";
 
 const meta = {
   title: "Primitives/Layout/Card",
@@ -32,8 +32,8 @@ export const Default: Story = {
         <p className="text-sm">This is the card content area.</p>
       </CardContent>
       <CardFooter className="flex justify-between">
-        <Button variant="outline">Cancel</Button>
-        <Button>Save</Button>
+        <Button label="Cancel" variant="outlined" />
+        <Button label="Save" />
       </CardFooter>
     </Card>
   ),
@@ -59,7 +59,7 @@ export const WithFooter: Story = {
         <p className="text-sm">Card with content and footer only.</p>
       </CardContent>
       <CardFooter>
-        <Button className="w-full">Action</Button>
+        <Button label="Action" className="w-full" />
       </CardFooter>
     </Card>
   ),

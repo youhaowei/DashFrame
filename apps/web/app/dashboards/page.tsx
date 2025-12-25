@@ -106,7 +106,7 @@ export default function DashboardsPage() {
                       <LayoutDashboard className="h-5 w-5" />
                     </div>
                     <PrimitiveButton
-                      variant="ghost"
+                      variant="text"
                       size="icon"
                       className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
                       onClick={(e) => {
@@ -156,7 +156,7 @@ export default function DashboardsPage() {
           </div>
           <DialogFooter>
             <PrimitiveButton
-              variant="outline"
+              variant="outlined"
               onClick={() => setIsCreateOpen(false)}
             >
               Cancel

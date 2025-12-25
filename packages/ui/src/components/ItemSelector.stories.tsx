@@ -67,7 +67,7 @@ export const Default: Story = {
           {
             label: "Manage Data",
             onClick: () => alert("Manage"),
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "New",
@@ -183,7 +183,7 @@ export const CompactView: Story = {
           {
             label: "Export",
             onClick: () => alert("Export"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />
@@ -229,7 +229,7 @@ export const Insights: Story = {
             label: "Refresh",
             onClick: () => alert("Refresh"),
             icon: Refresh,
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "New Insight",
@@ -289,7 +289,7 @@ export const SingleItem: Story = {
           {
             label: "Settings",
             onClick: () => alert("Settings"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />
@@ -327,7 +327,7 @@ export const ManyItems: Story = {
           {
             label: "Manage",
             onClick: () => alert("Manage"),
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "New",
@@ -411,13 +411,13 @@ export const MultipleActions: Story = {
             label: "Refresh",
             onClick: () => alert("Refresh"),
             icon: Refresh,
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "Delete",
             onClick: () => alert("Delete"),
             icon: Trash2,
-            variant: "destructive",
+            color: "danger",
           },
           {
             label: "New",
@@ -472,7 +472,7 @@ export const WithoutIcons: Story = {
           {
             label: "Compare",
             onClick: () => alert("Compare"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />

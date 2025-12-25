@@ -3,7 +3,7 @@
 import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  PrimitiveButton,
+  Button,
   Input,
   Badge,
   Card,
@@ -529,12 +529,11 @@ export default function VisualizationPage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
-          <PrimitiveButton
+          <Button
+            label="Go to Insights"
             onClick={() => router.push("/insights")}
             className="mt-4"
-          >
-            Go to Insights
-          </PrimitiveButton>
+          />
         </div>
       </div>
     );
@@ -547,14 +546,13 @@ export default function VisualizationPage({ params }: PageProps) {
         headerContent={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
-              <PrimitiveButton
-                variant="ghost"
+              <Button
+                label="Back"
+                variant="text"
                 size="sm"
                 onClick={() => router.back()}
-              >
-                <LuArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </PrimitiveButton>
+                icon={LuArrowLeft}
+              />
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
             </div>
           </div>
@@ -572,13 +570,12 @@ export default function VisualizationPage({ params }: PageProps) {
                 from the source insight.
               </p>
               {visualization.insightId && (
-                <PrimitiveButton
+                <Button
+                  label="Go to Source Insight"
                   onClick={() =>
                     router.push(`/insights/${visualization.insightId}`)
                   }
-                >
-                  Go to Source Insight
-                </PrimitiveButton>
+                />
               )}
             </CardContent>
           </Card>
@@ -687,14 +684,13 @@ export default function VisualizationPage({ params }: PageProps) {
       headerContent={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <PrimitiveButton
-              variant="ghost"
+            <Button
+              label="Back"
+              variant="text"
               size="sm"
               onClick={() => router.back()}
-            >
-              <LuArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </PrimitiveButton>
+              icon={LuArrowLeft}
+            />
             <div className="min-w-[220px] flex-1">
               <Input
                 value={vizName}
@@ -729,15 +725,14 @@ export default function VisualizationPage({ params }: PageProps) {
 
           {/* Delete button */}
           <div className="mt-3 flex items-center justify-end">
-            <PrimitiveButton
-              variant="ghost"
+            <Button
+              label="Delete"
+              variant="text"
               size="sm"
-              className="text-destructive hover:text-destructive"
+              color="danger"
               onClick={handleDelete}
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Delete
-            </PrimitiveButton>
+              icon={Trash2}
+            />
           </div>
         </div>
       }
@@ -765,16 +760,15 @@ export default function VisualizationPage({ params }: PageProps) {
               {/* Swap button - swaps axes and toggles bar orientation */}
               {canSwap && (
                 <div className="flex justify-center">
-                  <PrimitiveButton
-                    variant="ghost"
+                  <Button
+                    label="Swap"
+                    variant="text"
                     size="sm"
                     onClick={handleSwapAxes}
                     className="text-muted-foreground hover:text-foreground"
-                    title="Swap X and Y axes"
-                  >
-                    <LuArrowLeftRight className="mr-1.5 h-4 w-4" />
-                    Swap
-                  </PrimitiveButton>
+                    tooltip="Swap X and Y axes"
+                    icon={LuArrowLeftRight}
+                  />
                 </div>
               )}
 
@@ -852,16 +846,15 @@ export default function VisualizationPage({ params }: PageProps) {
                     {alternatives.map((altType) => {
                       const meta = CHART_TYPE_METADATA[altType];
                       return (
-                        <PrimitiveButton
+                        <Button
                           key={altType}
-                          variant="outline"
+                          label={meta.displayName}
+                          variant="outlined"
                           size="sm"
                           onClick={() => handleTypeChange(altType)}
                           className="text-xs"
-                          title={meta.hint}
-                        >
-                          {meta.displayName}
-                        </PrimitiveButton>
+                          tooltip={meta.hint}
+                        />
                       );
                     })}
                   </div>

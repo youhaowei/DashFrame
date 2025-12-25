@@ -99,7 +99,7 @@ export default function DashboardDetailPage({
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-4">
           <PrimitiveButton
-            variant="ghost"
+            variant="text"
             size="icon"
             onClick={() => router.push("/dashboards")}
           >
@@ -122,7 +122,7 @@ export default function DashboardDetailPage({
             </PrimitiveButton>
           ) : (
             <PrimitiveButton
-              variant="outline"
+              variant="outlined"
               onClick={() => setIsEditable(true)}
             >
               <Edit3 className="mr-2 h-4 w-4" />
@@ -131,7 +131,7 @@ export default function DashboardDetailPage({
           )}
           {isEditable && (
             <PrimitiveButton
-              variant="secondary"
+              color="secondary"
               onClick={() => setIsAddOpen(true)}
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -211,7 +211,7 @@ export default function DashboardDetailPage({
           </div>
           <div className="flex justify-end gap-2">
             <PrimitiveButton
-              variant="outline"
+              variant="outlined"
               onClick={() => setIsAddOpen(false)}
             >
               Cancel

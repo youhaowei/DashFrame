@@ -100,7 +100,7 @@ function FieldRenameForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
+        <Button label="Cancel" variant="outlined" onClick={onClose} />
         <Button
           label="Save"
           onClick={handleSave}

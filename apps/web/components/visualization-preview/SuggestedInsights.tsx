@@ -92,7 +92,7 @@ export function SuggestedInsights({
           Suggested insights
         </h3>
         {onRegenerate && suggestions.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={onRegenerate}>
+          <Button variant="text" size="sm" onClick={onRegenerate}>
             <Sparkles className="mr-2 h-3 w-3" />
             Regenerate
           </Button>
@@ -166,7 +166,7 @@ export function SuggestedInsights({
 
               <Button
                 size="sm"
-                variant={secondaryActions ? "outline" : "default"}
+                variant={secondaryActions ? "outlined" : "filled"}
                 className="mt-auto w-full"
                 onClick={() => onCreateChart(suggestion)}
               >

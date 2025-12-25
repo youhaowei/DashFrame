@@ -118,7 +118,7 @@ export const CompactWithActions: Story = {
         label: "Delete",
         icon: Trash2,
         onClick: () => alert("Delete"),
-        variant: "destructive",
+        color: "danger",
       },
     ],
   },
@@ -159,7 +159,7 @@ export const WithPreviewAndActions: Story = {
         label: "Delete",
         icon: Trash2,
         onClick: () => alert("Delete"),
-        variant: "destructive",
+        color: "danger",
       },
     ],
   },
@@ -237,7 +237,7 @@ export const GridCompact: Story = {
             label: "Delete",
             icon: Trash2,
             onClick: () => alert("Delete"),
-            variant: "destructive",
+            color: "danger",
           },
         ]}
       />
@@ -287,7 +287,7 @@ export const GridWithPreview: Story = {
             label: "Delete",
             icon: Trash2,
             onClick: () => alert("Delete"),
-            variant: "destructive",
+            color: "danger",
           },
         ]}
       />

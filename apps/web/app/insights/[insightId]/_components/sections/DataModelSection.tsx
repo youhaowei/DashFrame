@@ -238,7 +238,7 @@ export const DataModelSection = memo(function DataModelSection({
           icon: X,
           label: "Remove",
           onClick: () => handleRemoveJoin(idx, tableName),
-          variant: "destructive" as const,
+          color: "danger" as const,
         },
       ];
 
@@ -292,7 +292,7 @@ export const DataModelSection = memo(function DataModelSection({
             label: "Add join",
             icon: Plus,
             onClick: () => setIsJoinFlowOpen(true),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       >

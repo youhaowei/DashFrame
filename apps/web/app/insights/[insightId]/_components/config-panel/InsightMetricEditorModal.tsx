@@ -241,7 +241,7 @@ export function InsightMetricEditorModal({
         </div>
 
         <DialogFooter>
-          <Button label="Cancel" variant="outline" onClick={handleClose} />
+          <Button label="Cancel" variant="outlined" onClick={handleClose} />
           <Button
             label="Add metric"
             onClick={handleSave}

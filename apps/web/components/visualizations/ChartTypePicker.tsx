@@ -535,7 +535,7 @@ export const ChartTypePicker = memo(function ChartTypePicker({
       {/* Regenerate button */}
       {hasSuggestions && onRegenerate && !isLoading && (
         <div className="flex justify-center">
-          <Button variant="ghost" size="sm" onClick={onRegenerate}>
+          <Button variant="text" size="sm" onClick={onRegenerate}>
             <Sparkles className="mr-2 h-3 w-3" />
             Regenerate suggestions
           </Button>

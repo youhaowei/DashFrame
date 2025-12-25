@@ -128,7 +128,7 @@ export function FieldsSection({
           <Button
             label="Add"
             icon={Plus}
-            variant="ghost"
+            variant="text"
             size="sm"
             onClick={onAddClick}
           />

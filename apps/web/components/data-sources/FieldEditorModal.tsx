@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  PrimitiveButton,
+  Button,
   Input,
   Label,
   Select,
@@ -114,12 +114,12 @@ function FieldEditorForm({
       </div>
 
       <DialogFooter>
-        <PrimitiveButton variant="outline" onClick={onClose}>
-          Cancel
-        </PrimitiveButton>
-        <PrimitiveButton onClick={handleSave} disabled={!name.trim()}>
-          Save Changes
-        </PrimitiveButton>
+        <Button label="Cancel" variant="outlined" onClick={onClose} />
+        <Button
+          label="Save Changes"
+          onClick={handleSave}
+          disabled={!name.trim()}
+        />
       </DialogFooter>
     </>
   );

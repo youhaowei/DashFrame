@@ -124,7 +124,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
             icon: Trash2,
             label: "Delete",
             onClick: () => onDeleteVisualization(viz.id, viz.name),
-            variant: "destructive" as const,
+            color: "danger" as const,
           });
         }
 
@@ -190,7 +190,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
                 {
                   label: "Create visualization",
                   icon: Plus,
-                  variant: "outline",
+                  variant: "outlined",
                   onClick: handleCreateVisualization,
                 },
               ]

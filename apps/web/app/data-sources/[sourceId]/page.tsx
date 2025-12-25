@@ -4,7 +4,7 @@ import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  PrimitiveButton,
+  Button,
   Input,
   Badge,
   Card,
@@ -184,12 +184,11 @@ export default function DataSourcePage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The data source you&apos;re looking for doesn&apos;t exist.
           </p>
-          <PrimitiveButton
+          <Button
+            label="Go to Data Sources"
             onClick={() => router.push("/data-sources")}
             className="mt-4"
-          >
-            Go to Data Sources
-          </PrimitiveButton>
+          />
         </div>
       </div>
     );
@@ -277,17 +276,20 @@ export default function DataSourcePage({ params }: PageProps) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <PrimitiveButton
+                <Button
+                  label="Create Insight"
                   onClick={() => handleCreateInsight(selectedTableId)}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Insight
-                </PrimitiveButton>
+                  icon={Plus}
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <PrimitiveButton variant="ghost" size="icon">
-                      <LuMoreHorizontal className="h-4 w-4" />
-                    </PrimitiveButton>
+                    <Button
+                      label="More options"
+                      variant="text"
+                      size="sm"
+                      iconOnly
+                      icon={LuMoreHorizontal}
+                    />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
@@ -446,8 +448,9 @@ export default function DataSourcePage({ params }: PageProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <PrimitiveButton
-              variant="outline"
+            <Button
+              label="Cancel"
+              variant="outlined"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,
@@ -455,15 +458,12 @@ export default function DataSourcePage({ params }: PageProps) {
                   tableName: null,
                 })
               }
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton
-              variant="destructive"
+            />
+            <Button
+              label="Delete Table"
+              color="danger"
               onClick={handleConfirmDelete}
-            >
-              Delete Table
-            </PrimitiveButton>
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./dropdown-menu";
-import { Button as PrimitiveButton } from "./button";
+import { Button } from "../components/button";
 import { MoreOptions } from "../lib/icons";
 
 export type { ItemAction };
@@ -66,14 +66,14 @@ function ActionsMenu({ actions }: { actions: ItemAction[] }) {
     <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <PrimitiveButton
-            variant="ghost"
-            size="icon-sm"
+          <Button
+            label="Actions"
+            icon={MoreOptions}
+            variant="text"
+            size="sm"
+            iconOnly
             className="text-muted-foreground hover:text-foreground"
-          >
-            <MoreOptions className="h-4 w-4" />
-            <span className="sr-only">Actions</span>
-          </PrimitiveButton>
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {actions.map((action, index) => (
@@ -81,7 +81,7 @@ function ActionsMenu({ actions }: { actions: ItemAction[] }) {
               key={index}
               onClick={action.onClick}
               className={cn(
-                action.variant === "destructive" &&
+                action.color === "danger" &&
                   "text-destructive focus:text-destructive",
               )}
             >

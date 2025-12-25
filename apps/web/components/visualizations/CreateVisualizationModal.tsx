@@ -101,7 +101,7 @@ export function CreateVisualizationModal({
           <div className="flex flex-col gap-3 pt-4">
             <PrimitiveButton
               onClick={handleEditInsight}
-              variant="outline"
+              variant="outlined"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>

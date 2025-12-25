@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  PrimitiveButton,
+  Button,
   Input,
   Label,
   Select,
@@ -207,15 +207,12 @@ export function MetricEditorModal({
         </div>
 
         <DialogFooter>
-          <PrimitiveButton variant="outline" onClick={handleCancel}>
-            Cancel
-          </PrimitiveButton>
-          <PrimitiveButton
+          <Button label="Cancel" variant="outlined" onClick={handleCancel} />
+          <Button
+            label="Add Metric"
             onClick={handleSave}
             disabled={!name.trim() || (needsField && !fieldColumnName)}
-          >
-            Add Metric
-          </PrimitiveButton>
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

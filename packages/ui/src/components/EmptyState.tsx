@@ -5,7 +5,8 @@ import { cn } from "../lib/utils";
 export interface EmptyStateAction {
   label: string;
   onClick: () => void;
-  variant?: "default" | "outline" | "secondary";
+  variant?: "filled" | "outlined" | "text";
+  color?: "primary" | "secondary" | "danger";
   icon?: LucideIcon;
 }
 
@@ -114,7 +115,8 @@ export function EmptyState({
       {action && (
         <Button
           onClick={action.onClick}
-          variant={action.variant || "default"}
+          variant={action.variant}
+          color={action.color}
           size="sm"
         >
           {action.icon && <action.icon className="mr-2 h-4 w-4" />}

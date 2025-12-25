@@ -39,12 +39,12 @@ export function ConfirmDialog() {
         <DialogFooter>
           <Button
             label={config.cancelLabel || "Cancel"}
-            variant="outline"
+            variant="outlined"
             onClick={handleCancel}
           />
           <Button
             label={config.confirmLabel || "Confirm"}
-            variant={config.variant || "default"}
+            color={config.variant === "destructive" ? "danger" : undefined}
             onClick={handleConfirm}
           />
         </DialogFooter>

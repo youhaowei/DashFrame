@@ -21,7 +21,7 @@ type Story = Omit<StoryObj<typeof meta>, "args"> & {
 export const Default: Story = {
   args: {
     content: "This is a tooltip",
-    children: <Button variant="outline">Hover me</Button>,
+    children: <Button variant="outlined">Hover me</Button>,
   },
 };
 
@@ -32,7 +32,7 @@ export const IconButton: Story = {
   args: {
     content: "Add data source",
     children: (
-      <Button size="icon" variant="outline">
+      <Button size="icon" variant="outlined">
         <Plus className="h-4 w-4" />
       </Button>
     ),
@@ -46,7 +46,7 @@ export const DestructiveButton: Story = {
   args: {
     content: "Delete permanently",
     children: (
-      <Button size="icon" variant="destructive">
+      <Button size="icon" color="danger">
         <Trash2 className="h-4 w-4" />
       </Button>
     ),
@@ -60,7 +60,7 @@ export const LongContent: Story = {
   args: {
     content:
       "This tooltip has longer content to demonstrate text wrapping behavior",
-    children: <Button variant="outline">Hover for long text</Button>,
+    children: <Button variant="outlined">Hover for long text</Button>,
   },
 };
 
@@ -71,19 +71,19 @@ export const IconOnlyActions: Story = {
   render: () => (
     <div className="flex gap-2">
       <SharedTooltip content="Add new item">
-        <Button size="icon" variant="outline">
+        <Button size="icon" variant="outlined">
           <Plus className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh data">
-        <Button size="icon" variant="outline">
+        <Button size="icon" variant="outlined">
           <RefreshCw className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Delete item">
-        <Button size="icon" variant="destructive">
+        <Button size="icon" color="danger">
           <Trash2 className="h-4 w-4" />
         </Button>
       </SharedTooltip>
@@ -112,7 +112,7 @@ export const DisabledContext: Story = {
   args: {
     content: "This feature is not available in the current plan",
     children: (
-      <Button variant="outline" disabled>
+      <Button variant="outlined" disabled>
         Premium Feature
       </Button>
     ),
@@ -164,7 +164,7 @@ export const CompactStyle: Story = {
   args: {
     content: "Compact",
     children: (
-      <Button size="icon" variant="ghost">
+      <Button size="icon" variant="text">
         <Database className="h-4 w-4" />
       </Button>
     ),
@@ -240,13 +240,13 @@ export const CompactActionButtons: Story = {
       </SharedTooltip>
 
       <SharedTooltip content="Add data source">
-        <Button size="icon" variant="outline" className="h-9 w-9 rounded-full">
+        <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
           <Plus className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh all">
-        <Button size="icon" variant="outline" className="h-9 w-9 rounded-full">
+        <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
           <RefreshCw className="h-4 w-4" />
         </Button>
       </SharedTooltip>
@@ -265,6 +265,6 @@ export const CustomContent: Story = {
         <div className="text-[9px]">Multiple lines of tooltip content</div>
       </div>
     ),
-    children: <Button variant="outline">Complex tooltip</Button>,
+    children: <Button variant="outlined">Complex tooltip</Button>,
   },
 };

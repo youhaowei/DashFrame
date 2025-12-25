@@ -59,7 +59,7 @@ export function DashboardItem({
           >
             {item.type === "markdown" && (
               <Button
-                variant="ghost"
+                variant="text"
                 size="icon"
                 className="hover:bg-background/80 h-6 w-6"
                 onClick={() => setIsEditingContent(true)}
@@ -68,7 +68,7 @@ export function DashboardItem({
               </Button>
             )}
             <Button
-              variant="ghost"
+              variant="text"
               size="icon"
               className="text-destructive hover:bg-destructive/10 hover:text-destructive h-6 w-6"
               onClick={() => removeItem(dashboardId, item.id)}

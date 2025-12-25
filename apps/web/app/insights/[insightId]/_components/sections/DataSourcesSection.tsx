@@ -77,7 +77,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
           icon: X,
           label: "Remove join",
           onClick: () => handleRemoveJoin(idx),
-          variant: "destructive",
+          color: "danger",
         },
       ];
 
@@ -110,7 +110,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
             label: "Add join",
             icon: Plus,
             onClick: () => setIsJoinFlowOpen(true),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       >

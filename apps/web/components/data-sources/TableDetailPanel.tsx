@@ -5,7 +5,7 @@ import type { DataTable } from "@dashframe/types";
 import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  PrimitiveButton,
+  Button,
   Plus,
   Edit3,
   X,
@@ -127,7 +127,7 @@ export function TableDetailPanel({
                   label: "Delete Table",
                   onClick: onDeleteTable,
                   icon: Trash2,
-                  variant: "ghost",
+                  variant: "text",
                   className:
                     "text-destructive hover:bg-destructive hover:text-destructive-foreground",
                 },
@@ -135,7 +135,6 @@ export function TableDetailPanel({
                   label: "Create Visualization",
                   onClick: onCreateVisualization,
                   icon: Sparkles,
-                  variant: "default",
                 },
               ]}
             />
@@ -172,10 +171,13 @@ export function TableDetailPanel({
               {dataTable.fields.length} field
               {dataTable.fields.length !== 1 ? "s" : ""}
             </p>
-            <PrimitiveButton variant="outline" size="sm" onClick={onAddField}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Field
-            </PrimitiveButton>
+            <Button
+              label="Add Field"
+              variant="outlined"
+              size="sm"
+              onClick={onAddField}
+              icon={Plus}
+            />
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -200,22 +202,24 @@ export function TableDetailPanel({
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <PrimitiveButton
-                      variant="ghost"
-                      size="icon-sm"
+                    <Button
+                      label="Edit field"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onEditField(field.id)}
                       className="h-8 w-8"
-                    >
-                      <Edit3 className="h-4 w-4" />
-                    </PrimitiveButton>
-                    <PrimitiveButton
-                      variant="ghost"
-                      size="icon-sm"
+                      icon={Edit3}
+                    />
+                    <Button
+                      label="Delete field"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onDeleteField(field.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8"
-                    >
-                      <X className="h-4 w-4" />
-                    </PrimitiveButton>
+                      icon={X}
+                    />
                   </div>
                 </div>
               ))
@@ -232,10 +236,13 @@ export function TableDetailPanel({
               {dataTable.metrics.length} metric
               {dataTable.metrics.length !== 1 ? "s" : ""}
             </p>
-            <PrimitiveButton variant="outline" size="sm" onClick={onAddMetric}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Metric
-            </PrimitiveButton>
+            <Button
+              label="Add Metric"
+              variant="outlined"
+              size="sm"
+              onClick={onAddMetric}
+              icon={Plus}
+            />
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -264,14 +271,15 @@ export function TableDetailPanel({
                         {formula}
                       </span>
                     </div>
-                    <PrimitiveButton
-                      variant="ghost"
-                      size="icon-sm"
+                    <Button
+                      label="Delete metric"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onDeleteMetric(metric.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8 shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </PrimitiveButton>
+                      icon={X}
+                    />
                   </div>
                 );
               })

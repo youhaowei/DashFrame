@@ -148,7 +148,7 @@ export function VisualizationItemCard({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <PrimitiveButton
-                    variant="ghost"
+                    variant="text"
                     size="icon-sm"
                     className="text-muted-foreground hover:text-foreground"
                   >
@@ -162,7 +162,7 @@ export function VisualizationItemCard({
                       key={index}
                       onClick={action.onClick}
                       className={cn(
-                        action.variant === "destructive" &&
+                        action.color === "danger" &&
                           "text-destructive focus:text-destructive",
                       )}
                     >

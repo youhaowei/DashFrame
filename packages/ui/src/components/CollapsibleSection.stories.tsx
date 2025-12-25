@@ -183,13 +183,13 @@ export const SettingsPanel: Story = {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Enable notifications</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Auto-save</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
@@ -203,13 +203,13 @@ export const SettingsPanel: Story = {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Debug mode</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Performance monitoring</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>

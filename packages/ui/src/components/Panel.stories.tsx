@@ -34,7 +34,7 @@ export const Default: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline">Cancel</Button>
+        <Button variant="outlined">Cancel</Button>
         <Button>Apply</Button>
       </div>
     ),
@@ -56,7 +56,7 @@ export const HeaderOnly: Story = {
     header: (
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">Data Sources</h2>
-        <Button size="icon" variant="ghost">
+        <Button size="icon" variant="text">
           <Plus className="h-4 w-4" />
         </Button>
       </div>
@@ -113,7 +113,7 @@ export const ScrollableContent: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline" size="sm">
+        <Button variant="outlined" size="sm">
           <Refresh className="mr-2 h-4 w-4" />
           Refresh
         </Button>
@@ -145,13 +145,13 @@ export const WithSections: Story = {
           <div className="space-y-3 pb-6">
             <div className="flex items-center justify-between">
               <span className="text-sm">Enable notifications</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm">Auto-save</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
@@ -165,13 +165,13 @@ export const WithSections: Story = {
           <div className="space-y-3 pb-6">
             <div className="flex items-center justify-between">
               <span className="text-sm">Debug mode</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm">Performance monitoring</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
@@ -180,7 +180,7 @@ export const WithSections: Story = {
 
         <PanelSection title="Danger Zone">
           <div className="pb-6">
-            <Button variant="destructive" size="sm">
+            <Button color="danger" size="sm">
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Account
             </Button>
@@ -190,7 +190,7 @@ export const WithSections: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline">Reset</Button>
+        <Button variant="outlined">Reset</Button>
         <Button>Save Changes</Button>
       </div>
     ),
@@ -250,7 +250,7 @@ export const DataSourceControls: Story = {
           <label className="mb-2 block text-sm font-medium">
             Connection Type
           </label>
-          <Button variant="outline" className="w-full justify-start">
+          <Button variant="outlined" className="w-full justify-start">
             <Database className="mr-2 h-4 w-4" />
             PostgreSQL
           </Button>
@@ -285,7 +285,7 @@ export const DataSourceControls: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline" size="sm">
+        <Button variant="outlined" size="sm">
           <Refresh className="mr-2 h-4 w-4" />
           Test Connection
         </Button>

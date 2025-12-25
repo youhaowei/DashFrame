@@ -160,7 +160,7 @@ export default function DataSourcesPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <PrimitiveButton
-                variant="ghost"
+                variant="text"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
@@ -257,7 +257,7 @@ export default function DataSourcesPage() {
                     No data sources match &quot;{searchQuery}&quot;
                   </p>
                   <PrimitiveButton
-                    variant="outline"
+                    variant="outlined"
                     onClick={() => setSearchQuery("")}
                   >
                     Clear search

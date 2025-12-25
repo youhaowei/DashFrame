@@ -39,7 +39,7 @@ export function MarkdownWidget({
         />
         <div className="flex justify-end gap-2">
           <Button
-            variant="ghost"
+            variant="text"
             size="sm"
             onClick={() => {
               setValue(content);

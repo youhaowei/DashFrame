@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  PrimitiveButton,
+  Button,
 } from "@dashframe/ui";
 import { toast } from "sonner";
 import type { Field, Metric } from "@dashframe/types";
@@ -373,8 +373,9 @@ export function DataSourcesWorkbench() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <PrimitiveButton
-              variant="outline"
+            <Button
+              label="Cancel"
+              variant="outlined"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,
@@ -382,15 +383,12 @@ export function DataSourcesWorkbench() {
                   tableName: null,
                 })
               }
-            >
-              Cancel
-            </PrimitiveButton>
-            <PrimitiveButton
-              variant="destructive"
+            />
+            <Button
+              label="Delete Table"
+              color="danger"
               onClick={handleConfirmDelete}
-            >
-              Delete Table
-            </PrimitiveButton>
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

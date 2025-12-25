@@ -15,14 +15,7 @@ const meta = {
     },
     variant: {
       control: "select",
-      options: [
-        "default",
-        "outline",
-        "destructive",
-        "secondary",
-        "ghost",
-        "link",
-      ],
+      options: ["filled", "outlined", "text", "link"],
     },
     size: {
       control: "select",
@@ -44,7 +37,6 @@ export const Default: Story = {
     label: "Save",
     onClick: () => alert("Save clicked"),
     icon: Database,
-    variant: "default",
   },
 };
 
@@ -55,17 +47,17 @@ export const Variants: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
       <div className="flex gap-2">
-        <Button label="Default" onClick={() => {}} variant="default" />
-        <Button label="Outline" onClick={() => {}} variant="outline" />
-        <Button label="Secondary" onClick={() => {}} variant="secondary" />
-        <Button label="Ghost" onClick={() => {}} variant="ghost" />
+        <Button label="Filled" onClick={() => {}} variant="filled" />
+        <Button label="Outlined" onClick={() => {}} variant="outlined" />
+        <Button label="Secondary" onClick={() => {}} color="secondary" />
+        <Button label="Text" onClick={() => {}} variant="text" />
         <Button label="Link" onClick={() => {}} variant="link" />
       </div>
       <div className="flex gap-2">
         <Button
-          label="Destructive"
+          label="Danger"
           onClick={() => {}}
-          variant="destructive"
+          color="danger"
           icon={Trash2}
         />
       </div>
@@ -79,20 +71,15 @@ export const Variants: Story = {
 export const WithIcons: Story = {
   render: () => (
     <div className="flex gap-2">
-      <Button label="Create" onClick={() => {}} icon={Plus} variant="default" />
-      <Button label="Edit" onClick={() => {}} icon={Edit3} variant="outline" />
+      <Button label="Create" onClick={() => {}} icon={Plus} />
+      <Button label="Edit" onClick={() => {}} icon={Edit3} variant="outlined" />
       <Button
         label="Refresh"
         onClick={() => {}}
         icon={Refresh}
-        variant="ghost"
+        variant="text"
       />
-      <Button
-        label="Delete"
-        onClick={() => {}}
-        icon={Trash2}
-        variant="destructive"
-      />
+      <Button label="Delete" onClick={() => {}} icon={Trash2} color="danger" />
     </div>
   ),
 };
@@ -121,7 +108,7 @@ export const IconOnlyMode: Story = {
         label="Delete"
         onClick={() => {}}
         icon={Trash2}
-        variant="destructive"
+        color="danger"
         iconOnly
         tooltip="Delete item"
       />

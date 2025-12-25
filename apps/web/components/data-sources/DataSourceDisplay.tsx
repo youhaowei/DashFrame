@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
   Surface,
-  PrimitiveButton,
+  Button,
   ChevronDown,
   ChevronUp,
   Database,
@@ -114,9 +114,12 @@ function PreviewContent({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <p className="text-muted-foreground text-sm">Preview collapsed</p>
-        <PrimitiveButton variant="outline" size="sm" onClick={onExpandPreview}>
-          Expand preview
-        </PrimitiveButton>
+        <Button
+          label="Expand preview"
+          variant="outlined"
+          size="sm"
+          onClick={onExpandPreview}
+        />
       </div>
     );
   }
@@ -556,7 +559,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                     </div>
                   )}
                   {/* Sync Button */}
-                  <PrimitiveButton
+                  <Button
+                    label={isRefreshing ? "Syncing..." : "Sync Data"}
                     onClick={handleSyncData}
                     disabled={
                       isRefreshing ||
@@ -564,15 +568,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                       selectedPropertyIds.length === 0
                     }
                     size="sm"
-                  >
-                    <Refresh
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        isRefreshing && "animate-spin",
-                      )}
-                    />
-                    {isRefreshing ? "Syncing..." : "Sync Data"}
-                  </PrimitiveButton>
+                    icon={Refresh}
+                    className={cn(isRefreshing && "[&_svg]:animate-spin")}
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -654,21 +652,18 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {selectedDataTable &&
                   notionPreviewData &&
                   dataSource.type === "notion" && (
-                    <PrimitiveButton
-                      variant="ghost"
+                    <Button
+                      label={isRefreshing ? "Refreshing..." : "Refresh"}
+                      variant="text"
                       size="sm"
                       onClick={handleRefreshDataTable}
                       disabled={isRefreshing}
-                      className="h-7"
-                    >
-                      <Refresh
-                        className={cn(
-                          "mr-1.5 h-3.5 w-3.5",
-                          isRefreshing && "animate-spin",
-                        )}
-                      />
-                      {isRefreshing ? "Refreshing..." : "Refresh"}
-                    </PrimitiveButton>
+                      className={cn(
+                        "h-7",
+                        isRefreshing && "[&_svg]:animate-spin",
+                      )}
+                      icon={Refresh}
+                    />
                   )}
               </div>
               <CardDescription>
@@ -680,21 +675,17 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               </CardDescription>
             </div>
             {selectedDataTable && notionPreviewData && (
-              <PrimitiveButton
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
-                aria-label={
+              <Button
+                label={
                   isPreviewCollapsed ? "Expand preview" : "Collapse preview"
                 }
+                variant="text"
+                size="sm"
+                iconOnly
+                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
                 className="shrink-0"
-              >
-                {isPreviewCollapsed ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronUp className="h-4 w-4" />
-                )}
-              </PrimitiveButton>
+                icon={isPreviewCollapsed ? ChevronDown : ChevronUp}
+              />
             )}
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">

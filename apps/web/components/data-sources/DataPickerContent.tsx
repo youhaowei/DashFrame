@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { SectionList, ArrowLeft } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
+import { SectionList, ArrowLeft, Button } from "@dashframe/ui";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
@@ -246,13 +245,12 @@ export function DataPickerContent({
         {selectedSourceId && (
           <>
             <Button
-              variant="ghost"
+              label="Back"
+              variant="text"
               size="sm"
               onClick={() => setSelectedSourceId(null)}
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
+              icon={ArrowLeft}
+            />
             <SectionList title="Select Table">
               <DataTableList
                 tables={filteredTables}
@@ -278,9 +276,7 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
+          <Button label="Cancel" variant="outlined" onClick={onCancel} />
         </div>
       )}
     </div>
