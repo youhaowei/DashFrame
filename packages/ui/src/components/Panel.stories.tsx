@@ -118,7 +118,7 @@ export const ScrollableContent: Story = {
           Refresh
         </Button>
         <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
+          <PlusIcon className="mr-2 h-4 w-4" />
           Add New
         </Button>
       </div>
@@ -251,7 +251,7 @@ export const DataSourceControls: Story = {
             Connection Type
           </label>
           <Button variant="outlined" className="w-full justify-start">
-            <Database className="mr-2 h-4 w-4" />
+            <DatabaseIcon className="mr-2 h-4 w-4" />
             PostgreSQL
           </Button>
         </div>

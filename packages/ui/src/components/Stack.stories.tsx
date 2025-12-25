@@ -309,7 +309,7 @@ export const IconAndText: Story = {
     align: "center",
     children: (
       <>
-        <Database className="text-primary h-4 w-4" />
+        <DatabaseIcon className="text-primary h-4 w-4" />
         <span className="text-sm font-medium">Sales Database</span>
         <span className="text-muted-foreground text-xs">12 tables</span>
       </>

@@ -1,4 +1,4 @@
-import { ItemCard, Lightbulb } from "@dashframe/ui";
+import { ItemCard, LightbulbIcon } from "@dashframe/ui";
 
 /**
  * Display info for an insight in the list.
@@ -33,7 +33,7 @@ export function InsightList({ insights, onInsightClick }: InsightListProps) {
       {insights.map((insight) => (
         <ItemCard
           key={insight.id}
-          icon={<Lightbulb className="h-4 w-4" />}
+          icon={<LightbulbIcon className="h-4 w-4" />}
           title={insight.name}
           subtitle={`${insight.rowCount ?? "?"} rows • ${insight.metricCount} metrics`}
           badge="Insight"

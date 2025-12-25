@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutGrid, List } from "../lib/icons";
+import { GridIcon, ListIcon } from "../lib/icons";
 import type { LucideIcon } from "../lib/icons";
 import { ButtonGroup, type ItemAction } from "./ButtonGroup";
 import { Toggle } from "./Toggle";
@@ -87,13 +87,13 @@ export function ItemSelector({
                   options={[
                     {
                       value: "compact",
-                      icon: <List className="h-4 w-4" />,
+                      icon: <ListIcon className="h-4 w-4" />,
                       tooltip: "Compact view",
                       ariaLabel: "Compact view",
                     },
                     {
                       value: "expanded",
-                      icon: <LayoutGrid className="h-4 w-4" />,
+                      icon: <GridIcon className="h-4 w-4" />,
                       tooltip: "Expanded view",
                       ariaLabel: "Expanded view",
                     },

@@ -5,7 +5,7 @@ import {
   CollapsibleTrigger,
 } from "./collapsible";
 import { Button } from "../components/button";
-import { ChevronDown } from "../lib/icons";
+import { ChevronDownIcon } from "../lib/icons";
 import { useState } from "react";
 
 const meta = {
@@ -27,7 +27,7 @@ export const Default: Story = {
         <Button
           label="Show more details"
           variant="outlined"
-          icon={ChevronDown}
+          icon={ChevronDownIcon}
           className="w-full justify-between"
           asChild
         />
@@ -51,7 +51,7 @@ export const Controlled: Story = {
             <Button
               label={`${isOpen ? "Hide" : "Show"} settings`}
               variant="outlined"
-              icon={ChevronDown}
+              icon={ChevronDownIcon}
               className="w-full justify-between"
               asChild
             />
@@ -117,7 +117,7 @@ export const FAQStyle: Story = {
             <CollapsibleTrigger asChild>
               <button className="bg-card hover:bg-accent flex w-full items-center justify-between rounded-md border p-4 text-left">
                 <span className="font-medium">{faq.question}</span>
-                <ChevronDown
+                <ChevronDownIcon
                   className={`h-4 w-4 transition-transform ${openItem === faq.id ? "rotate-180" : ""}`}
                 />
               </button>
@@ -139,7 +139,7 @@ export const DefaultOpen: Story = {
         <Button
           label="Advanced options"
           variant="outlined"
-          icon={ChevronDown}
+          icon={ChevronDownIcon}
           className="w-full justify-between"
           asChild
         />

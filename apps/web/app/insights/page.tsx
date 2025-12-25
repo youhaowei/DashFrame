@@ -252,7 +252,7 @@ export default function InsightsPage() {
                 label="More options"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
+                onClick={() => {}}
               />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">

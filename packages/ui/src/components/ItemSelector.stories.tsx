@@ -50,7 +50,7 @@ export const Default: Story = {
         active: false,
         badge: "CSV",
         metadata: "5,420 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
     ]);
 
@@ -203,7 +203,7 @@ export const Insights: Story = {
         active: true,
         badge: "DataFrame",
         metadata: "2,500 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
       {
         id: "2",
@@ -211,7 +211,7 @@ export const Insights: Story = {
         active: false,
         badge: "DataFrame",
         metadata: "1,820 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
     ]);
 
@@ -228,7 +228,7 @@ export const Insights: Story = {
           {
             label: "Refresh",
             onClick: () => alert("Refresh"),
-            icon: Refresh,
+            icon: RefreshIcon,
             variant: "outlined",
           },
           {
@@ -410,13 +410,13 @@ export const MultipleActions: Story = {
           {
             label: "Refresh",
             onClick: () => alert("Refresh"),
-            icon: Refresh,
+            icon: RefreshIcon,
             variant: "outlined",
           },
           {
             label: "Delete",
             onClick: () => alert("Delete"),
-            icon: Trash2,
+            icon: DeleteIcon,
             color: "danger",
           },
           {

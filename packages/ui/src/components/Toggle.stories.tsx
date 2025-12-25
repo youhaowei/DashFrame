@@ -204,12 +204,12 @@ export const SmallSize: Story = {
         options={[
           {
             value: "compact",
-            icon: <List className="h-3 w-3" />,
+            icon: <ListIcon className="h-3 w-3" />,
             tooltip: "Compact view",
           },
           {
             value: "expanded",
-            icon: <LayoutGrid className="h-3 w-3" />,
+            icon: <GridIcon className="h-3 w-3" />,
             tooltip: "Expanded view",
           },
         ]}
@@ -267,17 +267,17 @@ export const DataTypeSelection: Story = {
         options={[
           {
             value: "text",
-            icon: <Type className="h-4 w-4" />,
+            icon: <TextTypeIcon className="h-4 w-4" />,
             label: "Text",
           },
           {
             value: "number",
-            icon: <Hash className="h-4 w-4" />,
+            icon: <NumberTypeIcon className="h-4 w-4" />,
             label: "Number",
           },
           {
             value: "date",
-            icon: <Calendar className="h-4 w-4" />,
+            icon: <DateTypeIcon className="h-4 w-4" />,
             label: "Date",
           },
         ]}
@@ -394,12 +394,12 @@ export const SmallOutlineCompact: Story = {
         options={[
           {
             value: "compact",
-            icon: <List className="h-3 w-3" />,
+            icon: <ListIcon className="h-3 w-3" />,
             tooltip: "Compact",
           },
           {
             value: "expanded",
-            icon: <LayoutGrid className="h-3 w-3" />,
+            icon: <GridIcon className="h-3 w-3" />,
             tooltip: "Expanded",
           },
         ]}

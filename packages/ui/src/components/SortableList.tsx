@@ -27,7 +27,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
 import { ItemCard, type ItemAction } from "../primitives/item-card";
 import { cn } from "../lib/utils";
-import { GripVertical, type LucideIcon } from "../lib/icons";
+import { DragHandleVerticalIcon, type LucideIcon } from "../lib/icons";
 import type { ListItem, ItemListProps } from "./ItemList";
 
 /**
@@ -149,7 +149,7 @@ function renderDragOverlayContent<T extends SortableListItem>(
           itemClassName,
         )}
       >
-        <GripVertical className="text-muted-foreground h-4 w-4 shrink-0" />
+        <DragHandleVerticalIcon className="text-muted-foreground h-4 w-4 shrink-0" />
         {renderItem(activeItem, items.indexOf(activeItem))}
       </div>
     );
@@ -438,7 +438,7 @@ function SortableItem<T extends SortableListItem>({
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-4 w-4" />
+          <DragHandleVerticalIcon className="h-4 w-4" />
         </button>
 
         {/* Custom content */}
@@ -465,7 +465,7 @@ function SortableItem<T extends SortableListItem>({
         {...attributes}
         {...listeners}
       >
-        <GripVertical className="h-4 w-4" />
+        <DragHandleVerticalIcon className="h-4 w-4" />
       </div>
 
       {/* ItemCard with padding for drag handle */}

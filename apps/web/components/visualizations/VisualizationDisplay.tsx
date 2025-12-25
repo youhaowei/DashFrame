@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import {
-  BarChart3,
+  ChartIcon,
   TableIcon,
-  Layers,
+  LayersIcon,
   Surface,
   Toggle,
   VirtualTable,
@@ -266,7 +266,7 @@ export function VisualizationDisplay({
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
           <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
-            <BarChart3 className="h-6 w-6" />
+            <ChartIcon className="h-6 w-6" />
           </div>
           <p className="text-foreground text-lg font-semibold">
             No visualization yet
@@ -310,7 +310,7 @@ export function VisualizationDisplay({
               options={[
                 {
                   value: "chart",
-                  icon: <BarChart3 className="h-3.5 w-3.5" />,
+                  icon: <ChartIcon className="h-3.5 w-3.5" />,
                   label: "Chart",
                 },
                 {
@@ -320,7 +320,7 @@ export function VisualizationDisplay({
                 },
                 {
                   value: "both",
-                  icon: <Layers className="h-3.5 w-3.5" />,
+                  icon: <LayersIcon className="h-3.5 w-3.5" />,
                   label: "Both",
                   disabled: !canShowBoth,
                   tooltip: bothTooltip,

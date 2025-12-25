@@ -184,7 +184,7 @@ export const MultipleTooltips: Story = {
   render: () => (
     <div className="flex items-center gap-3">
       <SharedTooltip content="Database connection">
-        <Database className="h-4 w-4 cursor-help" />
+        <DatabaseIcon className="h-4 w-4 cursor-help" />
       </SharedTooltip>
 
       <span className="text-sm font-medium">Sales Database</span>
@@ -241,7 +241,7 @@ export const CompactActionButtons: Story = {
     <div className="flex gap-2">
       <SharedTooltip content="Create visualization">
         <Button size="icon" className="h-9 w-9 rounded-full">
-          <BarChart3 className="h-4 w-4" />
+          <ChartIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 

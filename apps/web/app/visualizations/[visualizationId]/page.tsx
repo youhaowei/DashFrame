@@ -688,7 +688,7 @@ export default function VisualizationPage({ params }: PageProps) {
               variant="text"
               size="sm"
               onClick={() => router.back()}
-              icon={LuArrowLeft}
+              icon={ArrowLeftIcon}
             />
             <div className="min-w-[220px] flex-1">
               <Input

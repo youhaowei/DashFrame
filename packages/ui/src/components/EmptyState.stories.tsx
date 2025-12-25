@@ -41,7 +41,7 @@ export const Default: Story = {
  */
 export const WithAction: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No insights yet",
     description: "Create an insight to start exploring your data",
     action: {
@@ -104,7 +104,7 @@ export const NoDataSources: Story = {
  */
 export const NoInsights: Story = {
   args: {
-    icon: Layers,
+    icon: LayersIcon,
     title: "No insights yet",
     description: "Create your first insight to start analyzing your data",
     action: {
@@ -136,7 +136,7 @@ export const NoVisualizations: Story = {
  */
 export const EmptySearchResults: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No results found",
     description: "Try different keywords or check your filters",
     size: "sm",
@@ -174,7 +174,7 @@ export const SecondaryAction: Story = {
  */
 export const OutlineAction: Story = {
   args: {
-    icon: Layers,
+    icon: LayersIcon,
     title: "No active insights",
     description: "All insights are currently archived",
     action: {
@@ -190,7 +190,7 @@ export const OutlineAction: Story = {
  */
 export const NoDataTables: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No tables found",
     description:
       "This data source doesn't contain any tables or they couldn't be loaded",
@@ -203,7 +203,7 @@ export const NoDataTables: Story = {
  */
 export const EmptyDataFrame: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No data",
     description: "This DataFrame is empty or hasn't been loaded yet",
     size: "md",

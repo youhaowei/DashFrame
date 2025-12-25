@@ -399,7 +399,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               {/* Available Notion Databases */}
               {isLoadingDatabases ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+                  <LoaderIcon className="text-muted-foreground h-4 w-4 animate-spin" />
                 </div>
               ) : (
                 (() => {
@@ -417,7 +417,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                               key={db.id}
                               className="border-border/50 bg-muted/20 flex items-center gap-2 rounded-md border border-dashed p-2"
                             >
-                              <Database className="text-muted-foreground h-3 w-3 shrink-0" />
+                              <DatabaseIcon className="text-muted-foreground h-3 w-3 shrink-0" />
                               <div className="min-w-0 flex-1">
                                 <p className="text-foreground truncate text-xs font-medium">
                                   {db.title}
@@ -429,7 +429,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                                 variant="text"
                                 onClick={() => handleAddDatabase(db)}
                                 className="h-6 px-2"
-                                icon={Plus}
+                                icon={PlusIcon}
                               />
                             </div>
                           ))}

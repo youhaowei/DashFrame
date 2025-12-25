@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import {
-  BarChart3,
+  ChartIcon,
   TableIcon,
-  List,
-  LayoutGrid,
-  Sun,
-  Moon,
+  ListIcon,
+  GridIcon,
+  LightModeIcon,
+  DarkModeIcon,
   Toggle,
   Card,
 } from "@dashframe/ui";
@@ -38,7 +38,7 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-4 w-4" />,
+                icon: <ChartIcon className="h-4 w-4" />,
                 label: "Chart",
               },
               {
@@ -49,7 +49,7 @@ export default function ToggleTestPage() {
               },
               {
                 value: "both",
-                icon: <List className="h-4 w-4" />,
+                icon: <ListIcon className="h-4 w-4" />,
                 label: "Both",
               },
             ]}
@@ -74,7 +74,7 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "chart",
-                icon: <BarChart3 className="h-3 w-3" />,
+                icon: <ChartIcon className="h-3 w-3" />,
                 label: "Chart",
               },
               {
@@ -85,7 +85,7 @@ export default function ToggleTestPage() {
               },
               {
                 value: "both",
-                icon: <List className="h-3 w-3" />,
+                icon: <ListIcon className="h-3 w-3" />,
                 label: "Both",
               },
             ]}
@@ -112,13 +112,13 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "compact",
-                icon: <List className="h-4 w-4" />,
+                icon: <ListIcon className="h-4 w-4" />,
                 tooltip: "Compact view",
                 ariaLabel: "Compact view",
               },
               {
                 value: "expanded",
-                icon: <LayoutGrid className="h-4 w-4" />,
+                icon: <GridIcon className="h-4 w-4" />,
                 tooltip: "Expanded view",
                 ariaLabel: "Expanded view",
               },
@@ -144,13 +144,13 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "compact",
-                icon: <List className="h-3 w-3" />,
+                icon: <ListIcon className="h-3 w-3" />,
                 tooltip: "Compact view",
                 ariaLabel: "Compact view",
               },
               {
                 value: "expanded",
-                icon: <LayoutGrid className="h-3 w-3" />,
+                icon: <GridIcon className="h-3 w-3" />,
                 tooltip: "Expanded view",
                 ariaLabel: "Expanded view",
               },
@@ -176,13 +176,13 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "light",
-                icon: <Sun className="h-3 w-3" />,
+                icon: <LightModeIcon className="h-3 w-3" />,
                 tooltip: "Light mode",
                 ariaLabel: "Switch to light mode",
               },
               {
                 value: "dark",
-                icon: <Moon className="h-3 w-3" />,
+                icon: <DarkModeIcon className="h-3 w-3" />,
                 tooltip: "Dark mode",
                 ariaLabel: "Switch to dark mode",
               },
@@ -205,12 +205,12 @@ export default function ToggleTestPage() {
             options={[
               {
                 value: "option1",
-                icon: <Sun className="h-3 w-3" />,
+                icon: <LightModeIcon className="h-3 w-3" />,
                 label: "Enabled",
               },
               {
                 value: "option2",
-                icon: <Moon className="h-3 w-3" />,
+                icon: <DarkModeIcon className="h-3 w-3" />,
                 label: "Disabled",
                 disabled: true,
               },

@@ -16,11 +16,11 @@ import {
   CardTitle,
   Surface,
   Button,
-  ChevronDown,
-  ChevronUp,
-  Database,
-  Layers,
-  Refresh,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DatabaseIcon,
+  LayersIcon,
+  RefreshIcon,
   cn,
   InputField,
   MultiSelectField,
@@ -490,7 +490,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
         <Surface elevation="inset" className="w-full p-8 text-center">
-          <Database className="text-muted-foreground/50 mx-auto h-12 w-12" />
+          <DatabaseIcon className="text-muted-foreground/50 mx-auto h-12 w-12" />
           <p className="text-foreground mt-4 text-base font-medium">
             No data source selected
           </p>
@@ -524,7 +524,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <Database className="text-muted-foreground h-5 w-5" />
+                    <DatabaseIcon className="text-muted-foreground h-5 w-5" />
                     <CardTitle className="text-lg">
                       {selectedDataTable.name}
                     </CardTitle>
@@ -568,7 +568,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                       selectedPropertyIds.length === 0
                     }
                     size="sm"
-                    icon={Refresh}
+                    icon={RefreshIcon}
                     className={cn(isRefreshing && "[&_svg]:animate-spin")}
                   />
                 </div>
@@ -580,7 +580,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {isFetchingSchema ? (
                   <div className="space-y-2">
                     <div className="border-input bg-background flex h-9 items-center gap-2 rounded-md border px-3">
-                      <Refresh className="h-3 w-3 animate-spin" />
+                      <RefreshIcon className="h-3 w-3 animate-spin" />
                       <span className="text-muted-foreground text-xs">
                         Loading...
                       </span>
@@ -631,7 +631,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
           <Card>
             <CardContent className="py-12">
               <div className="flex flex-col items-center gap-2 text-center">
-                <Database className="text-muted-foreground/70 h-8 w-8" />
+                <DatabaseIcon className="text-muted-foreground/70 h-8 w-8" />
                 <p className="text-foreground text-sm font-medium">
                   No tables configured
                 </p>
@@ -662,7 +662,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                         "h-7",
                         isRefreshing && "[&_svg]:animate-spin",
                       )}
-                      icon={Refresh}
+                      icon={RefreshIcon}
                     />
                   )}
               </div>
@@ -684,7 +684,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 iconOnly
                 onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
                 className="shrink-0"
-                icon={isPreviewCollapsed ? ChevronDown : ChevronUp}
+                icon={isPreviewCollapsed ? ChevronDownIcon : ChevronUpIcon}
               />
             )}
           </CardHeader>
@@ -716,7 +716,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm">
-      <Layers className="text-muted-foreground/70 h-6 w-6" />
+      <LayersIcon className="text-muted-foreground/70 h-6 w-6" />
       <p>{message}</p>
     </div>
   );

@@ -203,7 +203,7 @@ export const FullApplicationNav: Story = {
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
-                      <Shield className="mb-2" />
+                      <ShieldIcon className="mb-2" />
                       <div className="font-medium">Enterprise</div>
                       <div className="text-muted-foreground text-xs">
                         Advanced security and compliance

@@ -123,7 +123,7 @@ export const IconOnlyMode: Story = {
       <Button
         label="Delete"
         onClick={() => {}}
-        icon={Trash2}
+        icon={DeleteIcon}
         color="danger"
         iconOnly
         tooltip="Delete item"
@@ -146,7 +146,7 @@ export const Sizes: Story = {
     <div className="flex flex-col gap-6">
       {/* Small size group */}
       <div className="flex items-center gap-2">
-        <Button label="Small" onClick={() => {}} size="sm" icon={Plus} />
+        <Button label="Small" onClick={() => {}} size="sm" icon={PlusIcon} />
         <Button
           label="Small Compact"
           onClick={() => {}}
@@ -158,7 +158,12 @@ export const Sizes: Story = {
 
       {/* Default size group */}
       <div className="flex items-center gap-2">
-        <Button label="Default" onClick={() => {}} size="default" icon={Plus} />
+        <Button
+          label="Default"
+          onClick={() => {}}
+          size="default"
+          icon={PlusIcon}
+        />
         <Button
           label="Default Compact"
           onClick={() => {}}
@@ -170,7 +175,7 @@ export const Sizes: Story = {
 
       {/* Large size group */}
       <div className="flex items-center gap-2">
-        <Button label="Large" onClick={() => {}} size="lg" icon={Plus} />
+        <Button label="Large" onClick={() => {}} size="lg" icon={PlusIcon} />
         <Button
           label="Large Compact"
           onClick={() => {}}

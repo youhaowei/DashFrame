@@ -73,7 +73,7 @@ export default function DashboardsPage() {
         {dashboards.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="bg-muted text-muted-foreground mb-4 flex h-20 w-20 items-center justify-center rounded-full">
-              <LayoutDashboard className="h-10 w-10" />
+              <DashboardIcon className="h-10 w-10" />
             </div>
             <h3 className="text-foreground text-lg font-semibold">
               No dashboards yet
@@ -112,9 +112,7 @@ export default function DashboardsPage() {
                       label="Delete dashboard"
                       color="danger"
                       className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
+                      onClick={() => {
                         removeDashboard(dashboard.id);
                       }}
                     />

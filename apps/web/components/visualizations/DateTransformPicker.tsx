@@ -182,7 +182,7 @@ export function DateTransformPicker({
       {/* Time Series Section */}
       <div className="space-y-1.5">
         <Label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <Calendar className="h-3.5 w-3.5" />
+          <DateTypeIcon className="h-3.5 w-3.5" />
           Time series granularity
         </Label>
         <Select value={temporalSelectValue} onValueChange={handleChange}>
@@ -214,7 +214,7 @@ export function DateTransformPicker({
       {/* Seasonal Analysis Section */}
       <div className="space-y-1.5">
         <Label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <Calendar className="h-3.5 w-3.5" />
+          <DateTypeIcon className="h-3.5 w-3.5" />
           Or group by season
         </Label>
         <Select

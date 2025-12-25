@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "@dashframe/ui";
+import { SparklesIcon } from "@dashframe/ui";
 
 import { DashboardSection } from "./DashboardSection";
 import { useInsights } from "@dashframe/core";
@@ -34,7 +34,7 @@ export function RecentInsightsSection() {
   return (
     <DashboardSection
       title="Recent Insights"
-      icon={Sparkles}
+      icon={SparklesIcon}
       viewAllHref="/insights"
       items={recentInsights}
       onItemSelect={(id) => router.push(`/insights/${id}`)}

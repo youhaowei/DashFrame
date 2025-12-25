@@ -25,9 +25,11 @@ export function NotFoundView({ type }: NotFoundViewProps) {
       <div className="text-center">
         <h2 className="text-xl font-semibold">{title}</h2>
         <p className="text-muted-foreground mt-2 text-sm">{description}</p>
-        <Button onClick={() => router.push("/insights")} className="mt-4">
-          Go to Insights
-        </Button>
+        <Button
+          onClick={() => router.push("/insights")}
+          className="mt-4"
+          label="Go to Insights"
+        />
       </div>
     </div>
   );

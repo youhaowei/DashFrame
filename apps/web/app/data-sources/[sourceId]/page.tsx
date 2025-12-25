@@ -28,7 +28,7 @@ import {
   ChevronLeftIcon as LuArrowLeft,
   FileIcon as LuFileSpreadsheet,
   CloudIcon as LuCloud,
-  MoreHorizontal as LuMoreHorizontal,
+  MoreIcon as LuMoreHorizontal,
   Breadcrumb,
   ItemCard,
 } from "@dashframe/ui";

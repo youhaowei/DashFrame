@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { SectionList, ArrowLeft, Button } from "@dashframe/ui";
+import { SectionList, ArrowLeftIcon, Button } from "@dashframe/ui";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
@@ -249,7 +249,7 @@ export function DataPickerContent({
               variant="text"
               size="sm"
               onClick={() => setSelectedSourceId(null)}
-              icon={ArrowLeft}
+              icon={ArrowLeftIcon}
             />
             <SectionList title="Select Table">
               <DataTableList

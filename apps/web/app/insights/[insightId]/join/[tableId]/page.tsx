@@ -1089,7 +1089,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 <h2 className="text-lg font-semibold">Preview Result</h2>
                 {isComputingPreview && (
                   <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <LoaderIcon className="h-4 w-4 animate-spin" />
                     Computing preview...
                   </div>
                 )}

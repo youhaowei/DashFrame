@@ -212,14 +212,14 @@ export const GridCompact: Story = {
   render: () => (
     <div className="grid w-[600px] grid-cols-2 gap-3">
       <ItemCard
-        icon={<Database className="h-4 w-4" />}
+        icon={<DatabaseIcon className="h-4 w-4" />}
         title="Sales Data"
         subtitle="150 rows"
         badge="CSV"
         onClick={() => alert("Sales")}
       />
       <ItemCard
-        icon={<BarChart3 className="h-4 w-4" />}
+        icon={<ChartIcon className="h-4 w-4" />}
         title="Revenue Chart"
         subtitle="Created today"
         badge="Bar"
@@ -227,7 +227,7 @@ export const GridCompact: Story = {
         active
       />
       <ItemCard
-        icon={<LineChart className="h-4 w-4" />}
+        icon={<ChartIcon className="h-4 w-4" />}
         title="Trends"
         subtitle="Last 30 days"
         actions={[
@@ -259,7 +259,7 @@ export const GridWithPreview: Story = {
     <div className="grid w-[900px] grid-cols-3 gap-4">
       <ItemCard
         preview={<MockPreview type="Bar" />}
-        icon={<BarChart3 className="h-8 w-8" />}
+        icon={<ChartIcon className="h-8 w-8" />}
         title="Sales Analysis"
         subtitle="Created today"
         badge="Bar Chart"
@@ -267,7 +267,7 @@ export const GridWithPreview: Story = {
       />
       <ItemCard
         preview={<MockPreview type="Line" />}
-        icon={<LineChart className="h-8 w-8" />}
+        icon={<ChartIcon className="h-8 w-8" />}
         title="Revenue Trends"
         subtitle="Updated 1h ago"
         badge="Line Chart"
@@ -276,7 +276,7 @@ export const GridWithPreview: Story = {
       />
       <ItemCard
         preview={<MockPreview type="Scatter" />}
-        icon={<BarChart3 className="h-8 w-8" />}
+        icon={<ChartIcon className="h-8 w-8" />}
         title="Correlation"
         subtitle="Last week"
         badge="Scatter"

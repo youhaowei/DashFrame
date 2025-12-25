@@ -132,7 +132,7 @@ export function DataSourceTree({
                         : "bg-muted text-muted-foreground",
                     )}
                   >
-                    <File className="h-4 w-4" />
+                    <FileIcon className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p

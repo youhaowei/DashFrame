@@ -10,7 +10,7 @@ import { DataGrid } from "@/components/data-grid";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Button,
-  ArrowUpDown,
+  ArrowUpDownIcon,
   Input,
   Dialog,
   DialogContent,
@@ -37,7 +37,7 @@ export default function DataFramesPage() {
           return (
             <Button
               variant="text"
-              icon={ArrowUpDown}
+              icon={ArrowUpDownIcon}
               label="Name"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")
@@ -92,7 +92,7 @@ export default function DataFramesPage() {
           return (
             <Button
               variant="text"
-              icon={ArrowUpDown}
+              icon={ArrowUpDownIcon}
               label="Created"
               onClick={() =>
                 column.toggleSorting(column.getIsSorted() === "asc")

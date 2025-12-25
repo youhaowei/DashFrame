@@ -1,4 +1,4 @@
-import { ItemCard, Database } from "@dashframe/ui";
+import { ItemCard, DatabaseIcon } from "@dashframe/ui";
 
 /**
  * Display info for a data table in lists.
@@ -46,7 +46,7 @@ export function DataTableList({ tables, onTableClick }: DataTableListProps) {
       {tables.map((table) => (
         <ItemCard
           key={`${table.sourceId}-${table.tableId}`}
-          icon={<Database className="h-4 w-4" />}
+          icon={<DatabaseIcon className="h-4 w-4" />}
           title={table.tableName}
           subtitle={`${table.sourceName} • ${table.fieldCount} fields${table.isLocal ? " • Local" : ""}`}
           onClick={() => onTableClick(table.tableId, table.tableName)}

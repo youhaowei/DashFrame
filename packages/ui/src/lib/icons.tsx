@@ -25,6 +25,7 @@ import {
   LuFileSpreadsheet,
   LuEye,
   LuGripHorizontal,
+  LuGripVertical,
   LuInfo,
   LuLightbulb,
   LuMerge,
@@ -86,6 +87,7 @@ export { LuChevronsDown as ChevronsDownIcon };
 export { LuChevronsUpDown as ChevronsUpDownIcon };
 export { LuMenu as MenuIcon };
 export { LuGripHorizontal as DragHandleIcon };
+export { LuGripVertical as DragHandleVerticalIcon };
 
 // Pages & Views
 export { LuLayoutDashboard as DashboardIcon };
