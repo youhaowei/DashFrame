@@ -753,6 +753,10 @@ export function InsightView({ insight }: InsightViewProps) {
     // Defer to allow React to paint first
     const timeoutId = setTimeout(runAnalysis, 100);
     return () => clearTimeout(timeoutId);
+    // Note: dataTable?.fields is intentionally excluded from dependencies.
+    // The computeFieldHash callback already captures field changes via its
+    // dependency on dataTable?.fields, and we use fieldHash for cache invalidation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     duckDBConnection,
     isDuckDBReady,

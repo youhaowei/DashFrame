@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import {
   SelectField,
   Tooltip,
@@ -135,12 +135,14 @@ export function AxisSelectField({
   }, [encodingToSqlAlias]);
 
   // Helper to convert storage encoding to SQL alias
-  const toSqlAlias = (
-    encodingValue: string | undefined,
-  ): string | undefined => {
-    if (!encodingValue) return undefined;
-    return encodingToSqlAlias.get(encodingValue);
-  };
+  // Wrapped in useCallback to maintain stable reference for useMemo dependencies
+  const toSqlAlias = useCallback(
+    (encodingValue: string | undefined): string | undefined => {
+      if (!encodingValue) return undefined;
+      return encodingToSqlAlias.get(encodingValue);
+    },
+    [encodingToSqlAlias],
+  );
 
   // Build semantic label with hint (e.g., "X Axis (Category)")
   const semanticLabel = useMemo(() => {
