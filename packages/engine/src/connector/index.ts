@@ -1,6 +1,7 @@
 // Connector types
 export type {
   SourceType,
+  FormFieldType,
   FormField,
   ValidationResult,
   FileParseResult,
@@ -10,6 +11,12 @@ export type {
 } from "./types";
 
 // Connector base classes
-export { BaseConnector, FileSourceConnector, RemoteApiConnector } from "./base";
+export {
+  BaseConnector,
+  FileSourceConnector,
+  RemoteApiConnector,
+  isFileConnector,
+  isRemoteApiConnector,
+} from "./base";
 
 export type { AnyConnector } from "./base";

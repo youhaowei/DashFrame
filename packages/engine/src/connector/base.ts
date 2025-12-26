@@ -125,3 +125,37 @@ export abstract class RemoteApiConnector extends BaseConnector {
  * Union type for any connector.
  */
 export type AnyConnector = FileSourceConnector | RemoteApiConnector;
+
+/**
+ * Type guard to check if a connector is a file source connector.
+ *
+ * @example
+ * ```typescript
+ * if (isFileConnector(connector)) {
+ *   // TypeScript knows connector is FileSourceConnector
+ *   connector.parse(file, tableId);
+ * }
+ * ```
+ */
+export function isFileConnector(
+  connector: AnyConnector,
+): connector is FileSourceConnector {
+  return connector.sourceType === "file";
+}
+
+/**
+ * Type guard to check if a connector is a remote API connector.
+ *
+ * @example
+ * ```typescript
+ * if (isRemoteApiConnector(connector)) {
+ *   // TypeScript knows connector is RemoteApiConnector
+ *   await connector.connect(formData);
+ * }
+ * ```
+ */
+export function isRemoteApiConnector(
+  connector: AnyConnector,
+): connector is RemoteApiConnector {
+  return connector.sourceType === "remote-api";
+}

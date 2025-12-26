@@ -83,7 +83,7 @@
     "format:write": "prettier --write .",
     "lint": "pnpm exec eslint .",
     "start": "next start",
-    "test": "vitest",
+    "test": "vitest run",
     "typecheck": "pnpm exec tsc --noEmit"
   },
   "version": "0.1.0"

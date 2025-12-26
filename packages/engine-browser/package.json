@@ -12,7 +12,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "eslint src",
-    "test": "vitest",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

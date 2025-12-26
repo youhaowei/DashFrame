@@ -51,10 +51,13 @@ export {
   BaseConnector,
   FileSourceConnector,
   RemoteApiConnector,
+  isFileConnector,
+  isRemoteApiConnector,
 } from "./connector";
 
 export type {
   SourceType,
+  FormFieldType,
   FormField,
   ValidationResult,
   FileParseResult,

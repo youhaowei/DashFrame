@@ -50,8 +50,22 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Get form fields from connector (use id as dependency for stable reference)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- connector.id is intentional: avoids re-compute when object ref changes but identity is same
+  /**
+   * Memoize form fields by connector.id (not connector object reference).
+   *
+   * Trade-off explanation:
+   * - Using connector.id as the dependency ensures stable memoization when the
+   *   same connector is passed with a new object reference (e.g., after re-render)
+   * - This assumes connectors are immutable singletons: a connector with the same
+   *   id will always return the same form fields from getFormFields()
+   * - If a connector's getFormFields() implementation changes dynamically without
+   *   changing its id, this memoization would return stale data
+   *
+   * This is acceptable because connectors are defined as stateless singletons
+   * (see BaseConnector in @dashframe/engine). If dynamic form fields become
+   * needed, consider adding a version/hash property to BaseConnector.
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
   const formFields = useMemo(() => connector.getFormFields(), [connector.id]);
 
   // Build default values from form field definitions

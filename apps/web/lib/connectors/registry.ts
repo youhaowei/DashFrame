@@ -20,10 +20,12 @@
 
 import { csvConnector } from "@dashframe/connector-csv";
 import { notionConnector } from "@dashframe/connector-notion";
-import type {
-  AnyConnector,
-  FileSourceConnector,
-  RemoteApiConnector,
+import {
+  isFileConnector,
+  isRemoteApiConnector,
+  type AnyConnector,
+  type FileSourceConnector,
+  type RemoteApiConnector,
 } from "@dashframe/engine";
 
 /**
@@ -76,26 +78,26 @@ export function getConnectorById(id: string): AnyConnector | undefined {
 
 /**
  * Get all file source connectors.
+ * Uses type guard filter for type-safe narrowing.
  */
 export function getFileConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
 ): FileSourceConnector[] {
-  return getConnectors({
-    ...options,
-    sourceType: "file",
-  }) as FileSourceConnector[];
+  return getConnectors({ ...options, sourceType: "file" }).filter(
+    isFileConnector,
+  );
 }
 
 /**
  * Get all remote API connectors.
+ * Uses type guard filter for type-safe narrowing.
  */
 export function getRemoteConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
 ): RemoteApiConnector[] {
-  return getConnectors({
-    ...options,
-    sourceType: "remote-api",
-  }) as RemoteApiConnector[];
+  return getConnectors({ ...options, sourceType: "remote-api" }).filter(
+    isRemoteApiConnector,
+  );
 }
 
 /**

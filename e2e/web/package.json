@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "build": "bddgen",
-    "test": "E2E_MODE=dev playwright test --project=chromium",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:dev": "E2E_MODE=dev playwright test --project=chromium",
     "test:e2e:ci": "playwright test",

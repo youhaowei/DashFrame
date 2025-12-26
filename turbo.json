@@ -40,12 +40,15 @@
       "outputs": []
     },
     "lint": {},
-    "test": {},
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
     "check": {
-      "dependsOn": ["lint", "typecheck", "format"],
+      "dependsOn": ["lint", "typecheck", "format", "test"],
       "outputs": []
     },
     "clean": {

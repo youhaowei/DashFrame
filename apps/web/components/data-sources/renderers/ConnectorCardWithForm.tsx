@@ -1,10 +1,12 @@
 "use client";
 
-import type {
-  AnyConnector,
-  FileSourceConnector,
-  RemoteApiConnector,
-  RemoteDatabase,
+import {
+  isFileConnector,
+  isRemoteApiConnector,
+  type AnyConnector,
+  type FileSourceConnector,
+  type RemoteApiConnector,
+  type RemoteDatabase,
 } from "@dashframe/engine";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
 import { ConnectorCard } from "./ConnectorCard";
@@ -49,27 +51,31 @@ export function ConnectorCardWithForm({
     useConnectorForm(connector);
 
   const handleFileSelect = (file: File) => {
-    // Runtime guard: verify this is actually a file connector
-    if (connector.sourceType !== "file") {
-      throw new Error(
-        `[ConnectorCardWithForm] handleFileSelect called on non-file connector: expected "file", got "${connector.sourceType}"`,
+    // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
+    // from storage), log error and return instead of crashing the UI
+    if (!isFileConnector(connector)) {
+      console.error(
+        "[ConnectorCardWithForm] handleFileSelect called on non-file connector:",
+        { expected: "file", actual: connector.sourceType, connector },
       );
+      return;
     }
-    onFileSelect(connector as FileSourceConnector, file);
+    onFileSelect(connector, file);
   };
 
   const handleConnect = async () => {
-    // Runtime guard: verify this is actually a remote-api connector
-    if (connector.sourceType !== "remote-api") {
-      throw new Error(
-        `[ConnectorCardWithForm] handleConnect called on non-remote-api connector: expected "remote-api", got "${connector.sourceType}"`,
+    // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
+    // from storage), log error and return instead of crashing the UI
+    if (!isRemoteApiConnector(connector)) {
+      console.error(
+        "[ConnectorCardWithForm] handleConnect called on non-remote-api connector:",
+        { expected: "remote-api", actual: connector.sourceType, connector },
       );
+      return;
     }
-    const databases = await execute((data) =>
-      (connector as RemoteApiConnector).connect(data),
-    );
+    const databases = await execute((data) => connector.connect(data));
     if (databases) {
-      onConnect(connector as RemoteApiConnector, databases);
+      onConnect(connector, databases);
     }
   };
 
