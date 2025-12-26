@@ -5,20 +5,20 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   type LucideIcon,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Database,
-  Github,
-  LayoutDashboard,
-  LayoutGrid,
-  LineChart,
-  Sparkles,
-  Menu,
-  X,
-  Settings,
-  Trash2,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+  DatabaseIcon,
+  GithubIcon,
+  DashboardIcon,
+  GridIcon,
+  ChartIcon,
+  SparklesIcon,
+  MenuIcon,
+  CloseIcon,
+  SettingsIcon,
+  DeleteIcon,
   Button,
   Dialog,
   DialogContent,
@@ -35,11 +35,12 @@ import {
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
-  useDataSourcesStore,
-  useInsightsStore,
-  useDataFramesStore,
-  useVisualizationsStore,
-} from "@/lib/stores";
+  useDataSourceMutations,
+  useInsightMutations,
+  useDataFrameMutations,
+  useVisualizationMutations,
+  useDashboardMutations,
+} from "@dashframe/core";
 
 type NavItem = {
   name: string;
@@ -53,25 +54,25 @@ const navItems: NavItem[] = [
     name: "Dashboards",
     href: "/dashboards",
     description: "Build and view dashboards",
-    icon: LayoutGrid,
+    icon: GridIcon,
   },
   {
     name: "Visualizations",
     href: "/visualizations",
     description: "Create, edit, and view visualizations",
-    icon: LayoutDashboard,
+    icon: DashboardIcon,
   },
   {
     name: "Insights",
     href: "/insights",
     description: "Manage and configure insights",
-    icon: Sparkles,
+    icon: SparklesIcon,
   },
   {
     name: "Data Sources",
     href: "/data-sources",
     description: "Manage data sources",
-    icon: Database,
+    icon: DatabaseIcon,
   },
 ];
 
@@ -106,7 +107,7 @@ function SidebarContent({
             )}
           >
             <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
-              <LineChart className="h-5 w-5" />
+              <ChartIcon className="h-5 w-5" />
             </span>
             {!isCollapsed && (
               <div className="flex flex-col">
@@ -126,21 +127,14 @@ function SidebarContent({
               {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="text"
+                  icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon}
+                  iconOnly
+                  label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={onToggleCollapse}
                   className="border-border/60 bg-background text-muted-foreground hover:bg-background h-7 w-7 rounded-full border shadow-sm transition-colors"
-                  aria-label={
-                    isCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                  }
-                  title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  )}
-                </Button>
+                  tooltip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                />
               )}
             </div>
           )}
@@ -215,7 +209,7 @@ function SidebarContent({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 text-xs transition-colors">
-                <Settings className="h-4 w-4" />
+                <SettingsIcon className="h-4 w-4" />
                 <span>Settings</span>
               </button>
             </DropdownMenuTrigger>
@@ -224,7 +218,7 @@ function SidebarContent({
                 onClick={onClearData}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Clear all data
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -235,7 +229,7 @@ function SidebarContent({
             rel="noopener noreferrer"
             className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs transition-colors"
           >
-            <Github className="h-4 w-4" />
+            <GithubIcon className="h-4 w-4" />
             <span>Open source</span>
           </a>
         </div>
@@ -251,11 +245,43 @@ export function Navigation() {
   const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  const handleClearAllData = () => {
-    useDataSourcesStore.getState().clear();
-    useInsightsStore.getState().clear();
-    useDataFramesStore.getState().clear();
-    useVisualizationsStore.getState().clear();
+  const { remove: removeDataSource } = useDataSourceMutations();
+  const { remove: removeInsight } = useInsightMutations();
+  const { clear: clearDataFrames } = useDataFrameMutations();
+  const { remove: removeVisualization } = useVisualizationMutations();
+  const { remove: removeDashboard } = useDashboardMutations();
+
+  const handleClearAllData = async () => {
+    // Get all items first
+    const { db } = await import("@dashframe/core-dexie");
+    const allDataSources = await db.dataSources.toArray();
+    const allInsights = await db.insights.toArray();
+    const allVisualizations = await db.visualizations.toArray();
+    const allDashboards = await db.dashboards.toArray();
+
+    // Remove all data sources (this will cascade delete data tables)
+    for (const source of allDataSources) {
+      await removeDataSource(source.id);
+    }
+
+    // Remove all insights
+    for (const insight of allInsights) {
+      await removeInsight(insight.id);
+    }
+
+    // Remove all visualizations
+    for (const viz of allVisualizations) {
+      await removeVisualization(viz.id);
+    }
+
+    // Remove all dashboards
+    for (const dashboard of allDashboards) {
+      await removeDashboard(dashboard.id);
+    }
+
+    // Clear data frames
+    await clearDataFrames();
+
     setShowClearConfirm(false);
     toast.success("All data cleared");
     router.push("/");
@@ -299,21 +325,21 @@ export function Navigation() {
         title={isHidden ? "Show sidebar" : "Hide sidebar"}
       >
         {isHidden ? (
-          <ChevronsRight className="h-4 w-4" />
+          <ChevronsRightIcon className="h-4 w-4" />
         ) : (
-          <ChevronsLeft className="h-4 w-4" />
+          <ChevronsLeftIcon className="h-4 w-4" />
         )}
       </button>
 
       {/* Mobile Toggle Button */}
       <Button
-        variant="ghost"
-        size="icon"
+        variant="text"
+        icon={MenuIcon}
+        iconOnly
+        label="Open menu"
         onClick={() => setIsOpen(true)}
         className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
-      >
-        <Menu className="h-5 w-5" />
-      </Button>
+      />
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -322,12 +348,12 @@ export function Navigation() {
             <div className="border-border/60 flex items-center justify-between border-b p-4">
               <span className="text-sm font-semibold">Menu</span>
               <Button
-                variant="ghost"
-                size="icon"
+                variant="text"
+                icon={CloseIcon}
+                iconOnly
+                label="Close menu"
                 onClick={() => setIsOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              />
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent onClearData={() => setShowClearConfirm(true)} />
@@ -348,14 +374,15 @@ export function Navigation() {
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="outline"
+              variant="outlined"
+              label="Cancel"
               onClick={() => setShowClearConfirm(false)}
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleClearAllData}>
-              Clear all data
-            </Button>
+            />
+            <Button
+              color="danger"
+              label="Clear all data"
+              onClick={handleClearAllData}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from "./dropdown-menu";
-import { Button } from "./button";
+import { Button } from "../components/button";
 
 const meta = {
   title: "Primitives/Actions/DropdownMenu",
@@ -32,7 +32,7 @@ export const Default: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open menu</Button>
+        <Button label="Open menu" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuItem>Profile</DropdownMenuItem>
@@ -49,7 +49,7 @@ export const WithLabels: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">Options</Button>
+        <Button label="Options" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>My Account</DropdownMenuLabel>
@@ -70,7 +70,7 @@ export const WithIcons: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button>Actions</Button>
+        <Button label="Actions" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuItem>
@@ -136,7 +136,7 @@ export const WithCheckboxes: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">View options</Button>
+        <Button label="View options" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>Display settings</DropdownMenuLabel>
@@ -158,7 +158,7 @@ export const WithRadioGroup: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">Select theme</Button>
+        <Button label="Select theme" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>Appearance</DropdownMenuLabel>
@@ -177,7 +177,7 @@ export const WithSubmenu: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">File menu</Button>
+        <Button label="File menu" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuItem>New file</DropdownMenuItem>
@@ -205,7 +205,7 @@ export const WithShortcuts: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">Edit</Button>
+        <Button label="Edit" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuItem>
@@ -238,7 +238,7 @@ export const DestructiveItem: Story = {
   render: () => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline">User menu</Button>
+        <Button label="User menu" variant="outlined" asChild />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>My Account</DropdownMenuLabel>

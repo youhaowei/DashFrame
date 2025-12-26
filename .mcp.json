@@ -11,6 +11,13 @@
     "shadcn": {
       "args": ["shadcn@latest", "mcp"],
       "command": "npx"
+    },
+    "storybook": {
+      "url": "http://localhost:6006/mcp",
+      "type": "http",
+      "headers": {
+        "X-MCP-Toolsets": "docs,dev"
+      }
     }
   }
 }

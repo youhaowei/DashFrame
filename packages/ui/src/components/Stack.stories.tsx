@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Stack } from "./Stack";
 import { Button } from "../primitives/button";
-import { Database, BarChart3, FileText } from "../lib/icons";
+import { DatabaseIcon, ChartIcon, FileIcon } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Stack",
@@ -206,7 +206,7 @@ export const CenterAligned: Story = {
     align: "center",
     children: (
       <>
-        <Database className="h-4 w-4" />
+        <DatabaseIcon className="h-4 w-4" />
         <span className="text-sm">Database icon with text</span>
       </>
     ),
@@ -223,7 +223,7 @@ export const CenterJustified: Story = {
     justify: "center",
     children: (
       <>
-        <Button variant="outline">Cancel</Button>
+        <Button variant="outlined">Cancel</Button>
         <Button>Save</Button>
       </>
     ),
@@ -272,19 +272,19 @@ export const WrappingStack: Story = {
     children: (
       <>
         <Button size="sm">Option 1</Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 2
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 3
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 4
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 5
         </Button>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outlined">
           Option 6
         </Button>
       </>
@@ -309,7 +309,7 @@ export const IconAndText: Story = {
     align: "center",
     children: (
       <>
-        <Database className="text-primary h-4 w-4" />
+        <DatabaseIcon className="text-primary h-4 w-4" />
         <span className="text-sm font-medium">Sales Database</span>
         <span className="text-muted-foreground text-xs">12 tables</span>
       </>
@@ -372,7 +372,7 @@ export const CardGrid: Story = {
     wrap: true,
     children: (
       <>
-        {[Database, BarChart3, FileText].map((Icon, i) => (
+        {[DatabaseIcon, ChartIcon, FileIcon].map((Icon, i) => (
           <div
             key={i}
             className="bg-card border-border/60 w-[200px] rounded-2xl border p-6"
@@ -424,10 +424,10 @@ export const NestedStacks: Story = {
         <h3 className="mb-4 text-sm font-semibold">Horizontal nested stack</h3>
         <Stack direction="horizontal" spacing="sm">
           <Button size="sm">Button 1</Button>
-          <Button size="sm" variant="outline">
+          <Button size="sm" variant="outlined">
             Button 2
           </Button>
-          <Button size="sm" variant="outline">
+          <Button size="sm" variant="outlined">
             Button 3
           </Button>
         </Stack>
@@ -455,13 +455,13 @@ export const SemanticNav: Story = {
     spacing: "md",
     children: (
       <>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           Home
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           About
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="text" size="sm">
           Contact
         </Button>
       </>

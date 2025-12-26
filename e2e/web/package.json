@@ -1,0 +1,36 @@
+{
+  "name": "@dashframe/web-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "bddgen",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:dev": "E2E_MODE=dev playwright test --project=chromium",
+    "test:e2e:ci": "playwright test",
+    "test:ui": "E2E_MODE=dev playwright test --ui",
+    "test:headed": "E2E_MODE=dev playwright test --project=chromium --headed",
+    "test:debug": "E2E_MODE=dev playwright test --debug",
+    "test:smoke": "playwright test --grep @smoke --project=chromium",
+    "test:html": "E2E_REPORT=html playwright test --project=chromium && playwright show-report",
+    "codegen": "playwright codegen http://localhost:3000",
+    "report": "playwright show-report",
+    "bddgen": "bddgen",
+    "bddgen:watch": "bddgen --watch"
+  },
+  "dependencies": {
+    "@dashframe/connector-csv": "workspace:*",
+    "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/core": "workspace:*",
+    "@dashframe/engine": "workspace:*",
+    "@dashframe/engine-browser": "workspace:*",
+    "@dashframe/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^11.0.0",
+    "@playwright/test": "^1.48.0",
+    "playwright-bdd": "^8.4.2",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "5.7.2"
+  }
+}

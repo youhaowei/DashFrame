@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Panel, PanelSection } from "./Panel";
 import { Button } from "../primitives/button";
-import { Database, Plus, Refresh, Trash2 } from "../lib/icons";
+import { DatabaseIcon, PlusIcon, RefreshIcon, DeleteIcon } from "../lib/icons";
 
 const meta = {
   title: "Components/Layout/Panel",
@@ -34,7 +34,7 @@ export const Default: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline">Cancel</Button>
+        <Button variant="outlined">Cancel</Button>
         <Button>Apply</Button>
       </div>
     ),
@@ -56,8 +56,8 @@ export const HeaderOnly: Story = {
     header: (
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">Data Sources</h2>
-        <Button size="icon" variant="ghost">
-          <Plus className="h-4 w-4" />
+        <Button size="icon" variant="text">
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </div>
     ),
@@ -65,7 +65,7 @@ export const HeaderOnly: Story = {
       <div className="space-y-4">
         <div className="border-border/60 rounded-xl border p-4">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
+            <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Sales Database</span>
           </div>
           <p className="text-muted-foreground mt-2 text-xs">
@@ -74,7 +74,7 @@ export const HeaderOnly: Story = {
         </div>
         <div className="border-border/60 rounded-xl border p-4">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
+            <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Analytics DB</span>
           </div>
           <p className="text-muted-foreground mt-2 text-xs">
@@ -113,12 +113,12 @@ export const ScrollableContent: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline" size="sm">
-          <Refresh className="mr-2 h-4 w-4" />
+        <Button variant="outlined" size="sm">
+          <RefreshIcon className="mr-2 h-4 w-4" />
           Refresh
         </Button>
         <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
+          <PlusIcon className="mr-2 h-4 w-4" />
           Add New
         </Button>
       </div>
@@ -145,13 +145,13 @@ export const WithSections: Story = {
           <div className="space-y-3 pb-6">
             <div className="flex items-center justify-between">
               <span className="text-sm">Enable notifications</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm">Auto-save</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
@@ -165,13 +165,13 @@ export const WithSections: Story = {
           <div className="space-y-3 pb-6">
             <div className="flex items-center justify-between">
               <span className="text-sm">Debug mode</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm">Performance monitoring</span>
-              <Button variant="outline" size="sm">
+              <Button variant="outlined" size="sm">
                 Toggle
               </Button>
             </div>
@@ -180,8 +180,8 @@ export const WithSections: Story = {
 
         <PanelSection title="Danger Zone">
           <div className="pb-6">
-            <Button variant="destructive" size="sm">
-              <Trash2 className="mr-2 h-4 w-4" />
+            <Button color="danger" size="sm">
+              <DeleteIcon className="mr-2 h-4 w-4" />
               Delete Account
             </Button>
           </div>
@@ -190,7 +190,7 @@ export const WithSections: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline">Reset</Button>
+        <Button variant="outlined">Reset</Button>
         <Button>Save Changes</Button>
       </div>
     ),
@@ -250,8 +250,8 @@ export const DataSourceControls: Story = {
           <label className="mb-2 block text-sm font-medium">
             Connection Type
           </label>
-          <Button variant="outline" className="w-full justify-start">
-            <Database className="mr-2 h-4 w-4" />
+          <Button variant="outlined" className="w-full justify-start">
+            <DatabaseIcon className="mr-2 h-4 w-4" />
             PostgreSQL
           </Button>
         </div>
@@ -285,8 +285,8 @@ export const DataSourceControls: Story = {
     ),
     footer: (
       <div className="flex gap-2">
-        <Button variant="outline" size="sm">
-          <Refresh className="mr-2 h-4 w-4" />
+        <Button variant="outlined" size="sm">
+          <RefreshIcon className="mr-2 h-4 w-4" />
           Test Connection
         </Button>
         <Button size="sm">Save</Button>

@@ -1,4 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, within } from "storybook/test";
 import { Checkbox } from "./checkbox";
 import { Label } from "./label";
 
@@ -192,4 +193,38 @@ export const NestedCheckboxes: Story = {
       </div>
     </div>
   ),
+};
+
+/**
+ * Interactive test: Verifies checkbox can be toggled by clicking
+ */
+export const InteractiveToggle: Story = {
+  render: () => (
+    <div className="flex items-center gap-2">
+      <Checkbox id="interactive-checkbox" aria-label="Toggle me" />
+      <Label htmlFor="interactive-checkbox">Click to toggle</Label>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // Find the checkbox by its role
+    const checkbox = canvas.getByRole("checkbox", { name: /toggle me/i });
+
+    // Initially should be unchecked
+    await expect(checkbox).not.toBeChecked();
+
+    // Click to check
+    await userEvent.click(checkbox);
+    await expect(checkbox).toBeChecked();
+
+    // Click again to uncheck
+    await userEvent.click(checkbox);
+    await expect(checkbox).not.toBeChecked();
+
+    // Test keyboard interaction (Space to toggle)
+    checkbox.focus();
+    await userEvent.keyboard(" ");
+    await expect(checkbox).toBeChecked();
+  },
 };

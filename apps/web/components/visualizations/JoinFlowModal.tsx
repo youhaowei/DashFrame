@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
-import type { Insight, DataTable } from "@/lib/stores/types";
+import type { Insight, DataTable } from "@dashframe/types";
 
 interface JoinFlowModalProps {
   insight: Insight;
@@ -59,7 +59,6 @@ export function JoinFlowModal({
       excludeInsightIds={[insight.id]} // Can't join with self
       excludeTableIds={[dataTable.id]} // Can't join with own base table
       showInsights={true}
-      showNotion={false}
     />
   );
 }

@@ -1,21 +1,22 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { SectionList, ArrowLeftIcon, Button } from "@dashframe/ui";
+import type {
+  FileSourceConnector,
+  RemoteApiConnector,
+  RemoteDatabase,
+} from "@dashframe/engine";
 import {
-  Button,
-  Alert,
-  AlertDescription,
-  SectionList,
-  Database,
-} from "@dashframe/ui";
-import { LuArrowLeft } from "react-icons/lu";
-import { useLocalStoreHydration } from "@/hooks/useLocalStoreHydration";
-import { useDataTables } from "@/hooks/useDataTables";
-import { useCSVUpload } from "@/hooks/useCSVUpload";
-import { useInsights } from "@/hooks/useInsights";
+  useDataSources,
+  useDataTables,
+  useInsights,
+  useDataFrames,
+} from "@dashframe/core";
+import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
-import { InsightList } from "./InsightList";
+import { InsightList, type InsightDisplayInfo } from "./InsightList";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 
 export interface DataPickerContentProps {
@@ -58,27 +59,9 @@ export interface DataPickerContentProps {
  * Supports three selection modes:
  * 1. Existing Insights - insights with computed DataFrames for chaining
  * 2. Raw Tables - from data sources (two-level hierarchy)
- * 3. New CSV upload - creates table and triggers selection
+ * 3. New data upload - via connector pattern (CSV, Notion, etc.)
  *
  * Used by both CreateVisualizationModal and JoinFlowModal.
- *
- * @example Basic usage (tables only)
- * ```tsx
- * <DataPickerContent
- *   onTableSelect={(tableId, tableName) => {
- *     createInsightFromTable(tableId, tableName);
- *   }}
- * />
- * ```
- *
- * @example With insights (for chaining)
- * ```tsx
- * <DataPickerContent
- *   onInsightSelect={(insightId, name) => handleInsightSelect(insightId)}
- *   onTableSelect={handleTableSelect}
- *   excludeInsightIds={[currentInsightId]}
- * />
- * ```
  */
 export function DataPickerContent({
   onInsightSelect,
@@ -89,33 +72,80 @@ export function DataPickerContent({
   showNotion = false,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { isHydrated, localSources } = useLocalStoreHydration();
+  // Dexie hooks
+  const { data: dataSources = [] } = useDataSources();
+  const { data: allDataTables = [] } = useDataTables();
+  const { data: allInsights = [] } = useInsights();
+  const { data: dataFrames = [] } = useDataFrames();
+
+  // Local state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const { allDataTables } = useDataTables(localSources, selectedSourceId);
-  const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
-  const { insights } = useInsights({
-    excludeIds: excludeInsightIds,
-    withComputedDataOnly: true,
-  });
+  const [error, setError] = useState<string | null>(null);
 
   // Transform sources for DataSourceList
-  const dataSourcesInfo: DataSourceInfo[] = useMemo(
-    () =>
-      localSources.map((source) => ({
+  const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
+    return dataSources.map((source) => {
+      const tableCount = allDataTables.filter(
+        (t) => t.dataSourceId === source.id,
+      ).length;
+      return {
         id: source.id,
         name: source.name,
         type: source.type,
-        tableCount: source.dataTables?.size || 0,
-      })),
-    [localSources],
-  );
+        tableCount,
+      };
+    });
+  }, [dataSources, allDataTables]);
 
-  // Filter out excluded tables
-  const filteredTables = useMemo(
-    () =>
-      allDataTables.filter((table) => !excludeTableIds.includes(table.tableId)),
-    [allDataTables, excludeTableIds],
-  );
+  // Filter tables by selected source and exclusions
+  const filteredTables = useMemo(() => {
+    let tables = allDataTables;
+
+    // Filter by selected source
+    if (selectedSourceId) {
+      tables = tables.filter((t) => t.dataSourceId === selectedSourceId);
+    }
+
+    // Filter out excluded
+    tables = tables.filter((t) => !excludeTableIds.includes(t.id));
+
+    // Transform to expected format for DataTableList
+    return tables.map((t) => {
+      const source = dataSources.find((ds) => ds.id === t.dataSourceId);
+      return {
+        sourceId: t.dataSourceId,
+        sourceName: source?.name || "Unknown",
+        tableId: t.id,
+        tableName: t.name,
+        fieldCount: t.fields?.length || 0,
+        isLocal: source?.type === "csv",
+      };
+    });
+  }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
+
+  // Build DataFrame lookup by insight ID
+  const dataFrameByInsightId = useMemo(() => {
+    return new Map(
+      dataFrames.filter((df) => df.insightId).map((df) => [df.insightId!, df]),
+    );
+  }, [dataFrames]);
+
+  // Filter and transform insights for display
+  const insightsForDisplay: InsightDisplayInfo[] = useMemo(() => {
+    return allInsights
+      .filter((insight) => {
+        // Exclude specified IDs
+        if (excludeInsightIds.includes(insight.id)) return false;
+        // Only show insights with computed data (have a DataFrame)
+        return dataFrameByInsightId.has(insight.id);
+      })
+      .map((insight) => ({
+        id: insight.id,
+        name: insight.name,
+        metricCount: insight.metrics?.length || 0,
+        rowCount: dataFrameByInsightId.get(insight.id)?.rowCount,
+      }));
+  }, [allInsights, excludeInsightIds, dataFrameByInsightId]);
 
   // Handle insight click
   const handleInsightClick = useCallback(
@@ -133,27 +163,66 @@ export function DataPickerContent({
     [onTableSelect],
   );
 
-  // Handle CSV upload
-  const handleCSVSelect = useCallback(
-    (file: File) => {
-      clearError();
-      handleCSVUpload(file, (dataTableId) => {
-        const tableName = file.name.replace(/\.csv$/i, "");
+  // Handle file selection from connectors (CSV, Excel, etc.)
+  const handleFileSelect = useCallback(
+    async (connector: FileSourceConnector, file: File) => {
+      setError(null);
+      try {
+        if (
+          connector.maxSizeMB &&
+          file.size > connector.maxSizeMB * 1024 * 1024
+        ) {
+          throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
+        }
+
+        // Check for duplicate table
+        const existingTable = allDataTables.find(
+          (table) =>
+            table.name === file.name ||
+            table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""),
+        );
+
+        if (existingTable) {
+          const shouldOverride = window.confirm(
+            `"${file.name}" already exists. Replace the existing table with this file?`,
+          );
+          if (!shouldOverride) {
+            return;
+          }
+        }
+
+        // Use the connector's parse method
+        const tableId = existingTable?.id ?? crypto.randomUUID();
+        const result = await connector.parse(file, tableId);
+
+        // Store the data using the connector result handler
+        const { dataTableId } = await handleFileConnectorResult(
+          file.name,
+          result,
+          existingTable ? { overrideTableId: existingTable.id } : undefined,
+        );
+
+        const tableName = file.name.replace(/\.(csv|xlsx?)$/i, "");
         onTableSelect(dataTableId, tableName);
-      });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to process file");
+      }
     },
-    [handleCSVUpload, clearError, onTableSelect],
+    [onTableSelect, allDataTables],
   );
 
-  if (!isHydrated) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-muted-foreground text-sm">Loading...</p>
-      </div>
-    );
-  }
+  // Handle remote connector connection (Notion, Airtable, etc.)
+  const handleConnect = useCallback(
+    (connector: RemoteApiConnector, databases: RemoteDatabase[]) => {
+      // For now, just log - full implementation requires database selection UI
+      console.log(`Connected to ${connector.name}:`, databases);
+      // NOTE: Show database selection UI, then call onTableSelect
+    },
+    [],
+  );
 
-  const hasInsights = showInsights && insights.length > 0 && onInsightSelect;
+  const hasInsights =
+    showInsights && insightsForDisplay.length > 0 && onInsightSelect;
   const hasDataSources = dataSourcesInfo.length > 0;
 
   return (
@@ -163,7 +232,7 @@ export function DataPickerContent({
         {hasInsights && !selectedSourceId && (
           <SectionList title="Use Existing Insight">
             <InsightList
-              insights={insights}
+              insights={insightsForDisplay}
               onInsightClick={handleInsightClick}
             />
           </SectionList>
@@ -183,13 +252,12 @@ export function DataPickerContent({
         {selectedSourceId && (
           <>
             <Button
-              variant="ghost"
+              label="Back"
+              variant="text"
               size="sm"
               onClick={() => setSelectedSourceId(null)}
-            >
-              <LuArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
+              icon={ArrowLeftIcon}
+            />
             <SectionList title="Select Table">
               <DataTableList
                 tables={filteredTables}
@@ -199,55 +267,23 @@ export function DataPickerContent({
           </>
         )}
 
-        {/* Empty state when nothing exists */}
-        {!selectedSourceId && !hasDataSources && !hasInsights && (
-          <div className="rounded-xl border border-dashed py-8 text-center">
-            <Database className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
-            <p className="text-muted-foreground text-sm">No data yet</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Upload a CSV file below to get started
-            </p>
-          </div>
-        )}
-
         {/* Section: Add New Source */}
         {!selectedSourceId && (
           <SectionList title="Add New Data">
             <AddConnectionPanel
-              onCsvSelect={handleCSVSelect}
-              csvDescription="Upload a CSV file with headers in the first row."
-              csvHelperText="Supports .csv files up to 5MB"
-              notion={
-                showNotion
-                  ? {
-                      apiKey: "",
-                      showApiKey: false,
-                      onApiKeyChange: () => {},
-                      onToggleShowApiKey: () => {},
-                      onConnectNotion: () => {},
-                      connectDisabled: true,
-                      connectButtonLabel: "Coming soon",
-                    }
-                  : undefined
-              }
+              error={error}
+              onFileSelect={handleFileSelect}
+              onConnect={handleConnect}
+              showNotion={showNotion}
             />
           </SectionList>
         )}
       </div>
 
-      {/* Error */}
-      {csvError && (
-        <Alert variant="destructive">
-          <AlertDescription>{csvError}</AlertDescription>
-        </Alert>
-      )}
-
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
+          <Button label="Cancel" variant="outlined" onClick={onCancel} />
         </div>
       )}
     </div>

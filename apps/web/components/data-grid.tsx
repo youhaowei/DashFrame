@@ -10,7 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
-  MoreHorizontal,
+  MoreIcon,
   Button,
   Surface,
   DropdownMenu,
@@ -60,10 +60,13 @@ export function DataGrid<TData>({
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
+                      <Button
+                        variant="text"
+                        icon={MoreIcon}
+                        iconOnly
+                        label="Open menu"
+                        className="h-8 w-8 p-0"
+                      />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
@@ -96,6 +99,7 @@ export function DataGrid<TData>({
     [columns, onEdit, onDelete],
   );
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns unstable references by design; this is expected behavior
   const table = useReactTable({
     data,
     columns: columnsWithActions,
@@ -117,9 +121,7 @@ export function DataGrid<TData>({
         <p className="text-foreground text-base font-medium">{emptyMessage}</p>
         <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (
-          <Button onClick={onCreate} className="mt-4">
-            Create New
-          </Button>
+          <Button label="Create New" onClick={onCreate} className="mt-4" />
         )}
       </Surface>
     );

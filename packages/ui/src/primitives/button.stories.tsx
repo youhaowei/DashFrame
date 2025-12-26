@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Button } from "./button";
 
 const meta = {
@@ -11,14 +11,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: [
-        "default",
-        "destructive",
-        "outline",
-        "secondary",
-        "ghost",
-        "link",
-      ],
+      options: ["filled", "outlined", "text", "link"],
     },
     size: {
       control: "select",
@@ -43,11 +36,11 @@ export const Variants: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
       <div className="flex gap-2">
-        <Button variant="default">Default</Button>
-        <Button variant="destructive">Destructive</Button>
-        <Button variant="outline">Outline</Button>
-        <Button variant="secondary">Secondary</Button>
-        <Button variant="ghost">Ghost</Button>
+        <Button variant="filled">Filled</Button>
+        <Button color="danger">Danger</Button>
+        <Button variant="outlined">Outlined</Button>
+        <Button color="secondary">Secondary</Button>
+        <Button variant="text">Text</Button>
         <Button variant="link">Link</Button>
       </div>
     </div>

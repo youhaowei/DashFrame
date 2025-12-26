@@ -1,8 +1,180 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
-import { ActionGroup, type ItemAction } from "../components/ActionGroup";
+import { type ItemAction } from "../components/ButtonGroup";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./dropdown-menu";
+import { Button } from "../components/button";
+import { MoreIcon } from "../lib/icons";
 
 export type { ItemAction };
+
+// ============================================================================
+// Helper: Build wrapper props based on interaction mode
+// ============================================================================
+
+interface WrapperPropsParams {
+  isDisabled: boolean;
+  useButtonWrapper: boolean;
+  onClick?: () => void;
+  active: boolean;
+}
+
+function buildWrapperProps({
+  isDisabled,
+  useButtonWrapper,
+  onClick,
+  active,
+}: WrapperPropsParams) {
+  if (isDisabled) {
+    return { "aria-disabled": true };
+  }
+  if (useButtonWrapper) {
+    return {
+      type: "button" as const,
+      onClick,
+      "aria-selected": active,
+      role: "option",
+    };
+  }
+  if (onClick) {
+    return {
+      role: "button" as const,
+      tabIndex: 0,
+      "aria-selected": active,
+      onClick,
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      },
+    };
+  }
+  return {};
+}
+
+// ============================================================================
+// Helper: Actions dropdown menu
+// ============================================================================
+
+function ActionsMenu({ actions }: { actions: ItemAction[] }) {
+  return (
+    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            label="Actions"
+            icon={MoreIcon}
+            variant="text"
+            size="sm"
+            iconOnly
+            className="text-muted-foreground hover:text-foreground"
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {actions.map((action, index) => (
+            <DropdownMenuItem
+              key={index}
+              onClick={action.onClick}
+              className={cn(
+                action.color === "danger" &&
+                  "text-destructive focus:text-destructive",
+              )}
+            >
+              {action.icon && <action.icon className="h-4 w-4" />}
+              {action.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// ============================================================================
+// Helper: Content section (header row + content + disabled reason)
+// ============================================================================
+
+interface ContentSectionProps {
+  icon?: React.ReactNode;
+  title?: string;
+  subtitle?: string;
+  content?: React.ReactNode;
+  badge?: string;
+  actions?: ItemAction[];
+  active: boolean;
+  isDisabled: boolean;
+  isActiveAndEnabled: boolean;
+  disabledReason: string | null;
+  hasPreview: boolean;
+}
+
+function ContentSection({
+  icon,
+  title,
+  subtitle,
+  content,
+  badge,
+  actions,
+  active,
+  isDisabled,
+  isActiveAndEnabled,
+  disabledReason,
+  hasPreview,
+}: ContentSectionProps) {
+  const hasActions = actions && actions.length > 0;
+
+  return (
+    <div className={cn(hasPreview ? "p-4" : "px-3.5 py-3")}>
+      <div className="flex items-center gap-2">
+        {icon && (
+          <div
+            className={cn(
+              "shrink-0 rounded p-1.5 transition-colors",
+              active
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {icon}
+          </div>
+        )}
+        {title && (
+          <p
+            className={cn(
+              "min-w-0 truncate text-sm font-medium transition-colors",
+              isDisabled && "text-muted-foreground",
+              isActiveAndEnabled && "text-primary",
+              !isDisabled && !active && "text-foreground",
+            )}
+          >
+            {title}
+          </p>
+        )}
+        {subtitle && (
+          <span className="text-muted-foreground shrink-0 text-xs">
+            {subtitle}
+          </span>
+        )}
+        {badge && (
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs">
+            {badge}
+          </span>
+        )}
+        <div className="flex-1" />
+        {hasActions && !isDisabled && <ActionsMenu actions={actions} />}
+      </div>
+      {content && <div className="mt-2">{content}</div>}
+      {disabledReason && (
+        <p className="text-muted-foreground mt-1 text-xs">{disabledReason}</p>
+      )}
+    </div>
+  );
+}
 
 export interface ItemCardProps {
   /**
@@ -11,13 +183,18 @@ export interface ItemCardProps {
    */
   icon?: React.ReactNode;
   /**
-   * Primary title text
+   * Primary title text. Optional when using card for non-text content.
    */
-  title: string;
+  title?: string;
   /**
-   * Optional subtitle or metadata text
+   * Optional subtitle or metadata text (single line, truncated)
    */
   subtitle?: string;
+  /**
+   * Optional rich content section below subtitle.
+   * Can contain any React content for flexible formatting.
+   */
+  content?: React.ReactNode;
   /**
    * Optional badge text to display
    */
@@ -49,6 +226,12 @@ export interface ItemCardProps {
    * Uses ActionGroup component internally.
    */
   actions?: ItemAction[];
+  /**
+   * Whether the card is disabled. When a string is provided,
+   * it's used as the reason/explanation displayed to the user.
+   * Disabled cards are grayed out and not clickable.
+   */
+  disabled?: boolean | string;
 }
 
 /**
@@ -99,6 +282,7 @@ export function ItemCard({
   icon,
   title,
   subtitle,
+  content,
   badge,
   onClick,
   active = false,
@@ -106,97 +290,38 @@ export function ItemCard({
   preview,
   previewHeight = 200,
   actions,
+  disabled,
 }: ItemCardProps) {
   const hasActions = actions && actions.length > 0;
+  const isDisabled = Boolean(disabled);
+  const disabledReason = typeof disabled === "string" ? disabled : null;
+  const isClickable = Boolean(onClick) && !isDisabled;
+  const isActiveAndEnabled = active && !isDisabled;
 
-  // Determine the wrapper element
-  // IMPORTANT: When we have actions, we must NOT use a <button> wrapper
-  // because ActionGroup renders buttons, and nested buttons are invalid HTML.
-  // Instead, we use a <div> with role="button" for accessibility.
-  const useButtonWrapper = onClick && !hasActions;
+  // Determine wrapper element and props
+  // When we have actions, use div with button role (nested buttons are invalid HTML)
+  const useButtonWrapper = Boolean(onClick) && !hasActions && !isDisabled;
   const Wrapper = useButtonWrapper ? "button" : "div";
+  const wrapperProps = buildWrapperProps({
+    isDisabled,
+    useButtonWrapper,
+    onClick,
+    active,
+  });
 
-  // Build wrapper props based on interaction mode
-  function getWrapperProps() {
-    if (useButtonWrapper) {
-      return {
-        type: "button" as const,
-        onClick,
-        "aria-selected": active,
-        role: "option",
-      };
-    }
-    if (onClick) {
-      // When we have actions, use div with button role for accessibility
-      return {
-        role: "button" as const,
-        tabIndex: 0,
-        "aria-selected": active,
-        onClick,
-        onKeyDown: (e: React.KeyboardEvent) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onClick();
-          }
-        },
-      };
-    }
-    return {};
-  }
-  const wrapperProps = getWrapperProps();
-
-  // Content section (icon + title + subtitle + badge + actions)
-  const contentSection = (
-    <div className={cn("flex items-start gap-3", preview ? "p-4" : "p-3")}>
-      {/* Icon with background (optional) */}
-      {icon && (
-        <div
-          className={cn(
-            "mt-0.5 shrink-0 rounded p-1.5 transition-all",
-            active
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {icon}
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p
-            className={cn(
-              "truncate text-sm font-medium transition-all",
-              active ? "text-primary" : "text-foreground",
-            )}
-          >
-            {title}
-          </p>
-          {badge && (
-            <span className="text-muted-foreground shrink-0 text-xs">
-              {badge}
-            </span>
-          )}
-        </div>
-        {subtitle && (
-          <p className="text-muted-foreground mt-1 truncate text-xs">
-            {subtitle}
-          </p>
-        )}
-      </div>
-
-      {/* Actions (hover-visible) */}
-      {hasActions && (
-        <div
-          className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ActionGroup actions={actions} compact />
-        </div>
-      )}
-    </div>
-  );
+  const contentSectionProps = {
+    icon,
+    title,
+    subtitle,
+    content,
+    badge,
+    actions,
+    active,
+    isDisabled,
+    isActiveAndEnabled,
+    disabledReason,
+    hasPreview: Boolean(preview),
+  };
 
   // Preview mode: vertical layout with preview at top
   if (preview) {
@@ -204,11 +329,11 @@ export function ItemCard({
       <Wrapper
         {...wrapperProps}
         className={cn(
-          "group w-full overflow-hidden rounded-xl border text-left transition-all",
-          onClick && "cursor-pointer hover:shadow-md",
-          active
-            ? "border-primary ring-primary ring-2"
-            : "border-border/60 hover:border-border",
+          "group w-full overflow-hidden rounded-lg border text-left transition-colors transition-shadow",
+          isDisabled && "border-border/40 cursor-not-allowed opacity-50",
+          isClickable && "hover:bg-accent/50 cursor-pointer",
+          isActiveAndEnabled && "border-primary ring-primary ring-2",
+          !isDisabled && !active && "border-border/60 hover:border-border",
           className,
         )}
       >
@@ -220,26 +345,28 @@ export function ItemCard({
           {preview}
         </div>
 
-        {/* Content Section */}
-        {contentSection}
+        <ContentSection {...contentSectionProps} />
       </Wrapper>
     );
   }
 
   // Compact mode: horizontal layout (original behavior)
+  // Uses subtle bg-card/50 to visually distinguish from Input fields
   return (
     <Wrapper
       {...wrapperProps}
       className={cn(
-        "group w-full rounded-xl border text-left transition-all",
-        onClick && "cursor-pointer hover:shadow-md",
-        active
-          ? "border-primary bg-primary/5"
-          : "border-border/60 hover:border-border",
+        "group w-full rounded-lg border text-left transition-colors transition-shadow",
+        isDisabled && "border-border/40 cursor-not-allowed opacity-50",
+        isClickable && "hover:bg-accent/50 cursor-pointer",
+        isActiveAndEnabled && "border-primary bg-primary/5",
+        !isDisabled &&
+          !active &&
+          "border-border/60 bg-card/50 hover:border-border hover:bg-accent/30",
         className,
       )}
     >
-      {contentSection}
+      <ContentSection {...contentSectionProps} />
     </Wrapper>
   );
 }

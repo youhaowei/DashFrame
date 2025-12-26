@@ -1,6 +1,16 @@
 // Utilities
 export { cn } from "./lib/utils";
 
+// Hooks
+export {
+  useContainerDimensions,
+  type ContainerDimensions,
+  type UseContainerDimensionsOptions,
+} from "./hooks/useContainerDimensions";
+
+// Fonts
+export { GeistSans, GeistMono } from "./lib/fonts";
+
 // Icons
 export * from "./lib/icons";
 export type { LucideIcon } from "./lib/icons";
@@ -8,7 +18,9 @@ export type { LucideIcon } from "./lib/icons";
 // UI Primitives (shadcn/ui components)
 export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
-export { Button, buttonVariants } from "./primitives/button";
+// Export Button component (primary button API)
+export { Button, type ButtonProps } from "./components/button";
+export { buttonVariants } from "./primitives/button";
 export {
   Card,
   CardHeader,
@@ -59,15 +71,11 @@ export {
   DropdownMenuRadioGroup,
 } from "./primitives/dropdown-menu";
 export {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-  BreadcrumbEllipsis,
-} from "./primitives/breadcrumb";
-export { Field, FieldLabel, FieldDescription } from "./primitives/field";
+  Field,
+  FieldLabel,
+  FieldDescription,
+  FieldError,
+} from "./primitives/field";
 export { Input } from "./primitives/input";
 export { Label } from "./primitives/label";
 export { MultiSelect } from "./primitives/multi-select";
@@ -96,6 +104,7 @@ export {
   SelectScrollDownButton,
 } from "./primitives/select";
 export { Separator } from "./primitives/separator";
+export { Skeleton } from "./primitives/skeleton";
 export { Surface } from "./primitives/surface";
 export { Switch } from "./primitives/switch";
 export {
@@ -117,14 +126,24 @@ export {
 } from "./primitives/tooltip";
 
 // Shared Components (custom reusable components)
+export { type ItemAction } from "./components/button";
+export { ButtonGroup, type ButtonGroupProps } from "./components/ButtonGroup";
+/**
+ * @deprecated Use ButtonGroup instead. ActionGroup will be removed in a future version.
+ */
+export { ButtonGroup as ActionGroup } from "./components/ButtonGroup";
+/**
+ * @deprecated Use ButtonGroupProps instead. ActionGroupProps will be removed in a future version.
+ */
+export type { ButtonGroupProps as ActionGroupProps } from "./components/ButtonGroup";
 export {
-  ActionButton,
-  type ActionButtonProps,
-  type ItemAction,
-} from "./components/ActionButton";
-export { ActionGroup, type ActionGroupProps } from "./components/ActionGroup";
+  Breadcrumb,
+  type BreadcrumbItem,
+  type BreadcrumbProps,
+} from "./components/Breadcrumb";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";
+export { Section, type SectionProps } from "./components/Section";
 export { Container } from "./components/Container";
 export { EmptyState } from "./components/EmptyState";
 export {
@@ -151,12 +170,31 @@ export {
   type ListItem,
 } from "./components/ItemList";
 export {
+  SortableList,
+  type SortableListProps,
+  type SortableListItem,
+} from "./components/SortableList";
+export {
   JoinTypeIcon,
   getJoinTypeLabel,
   getJoinTypeDescription,
   type JoinTypeIconProps,
   type JoinType,
 } from "./components/JoinTypeIcon";
+
+// Chart Icons (static SVG representations of chart types)
+export {
+  BarYIcon,
+  BarXIcon,
+  LineIcon,
+  AreaYIcon,
+  DotIcon,
+  HexbinIcon,
+  HeatmapIcon,
+  RasterIcon,
+  CHART_ICONS,
+  getChartIcon,
+} from "./components/chart-icons";
 
 // Field Wrappers (primitives + Field component)
 export { Input as InputField } from "./fields/input";

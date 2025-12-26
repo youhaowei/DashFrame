@@ -2,13 +2,19 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import * as duckdb from "@duckdb/duckdb-wasm";
-import { clearAllTableCaches } from "@dashframe/dataframe";
+import { clearAllTableCaches } from "@dashframe/engine-browser";
+import { clearInsightViewCache } from "@/hooks/useInsightView";
 
 /**
  * Custom DuckDB logger with cleaner console output.
- * Formats log entries as readable strings instead of raw objects.
+ * Only logs warnings and errors by default to reduce console noise.
+ * Set localStorage['dashframe:duckdb-verbose'] = 'true' for all logs.
  */
 class DuckDBLogger implements duckdb.Logger {
+  private verbose =
+    typeof window !== "undefined" &&
+    localStorage.getItem("dashframe:duckdb-verbose") === "true";
+
   log(entry: duckdb.LogEntryVariant): void {
     const level = duckdb.getLogLevelLabel(entry.level);
     const topic = duckdb.getLogTopicLabel(entry.topic);
@@ -25,10 +31,9 @@ class DuckDBLogger implements duckdb.Logger {
         console.warn(message);
         break;
       case duckdb.LogLevel.DEBUG:
-        console.debug(message);
-        break;
       default:
-        console.log(message);
+        if (this.verbose) console.debug(message);
+        break;
     }
   }
 }
@@ -122,6 +127,7 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
         // Clear table caches since this is a fresh DuckDB instance
         // Any previously cached tables no longer exist
         clearAllTableCaches();
+        clearInsightViewCache();
 
         if (cancelled) return;
 
@@ -156,6 +162,9 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
       // Cleanup on unmount using refs to get live values
       connectionRef.current?.close();
       dbRef.current?.terminate();
+      // Clear table caches since DuckDB instance is being destroyed
+      clearAllTableCaches();
+      clearInsightViewCache();
     };
   }, []);
 

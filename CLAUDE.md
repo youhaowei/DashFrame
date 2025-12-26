@@ -24,26 +24,57 @@ pnpm format     # Prettier check
 pnpm format:write  # Prettier write
 ```
 
+Use `check` for comprehensive validation.
+
 ### Targeting Specific Packages
 
 ```bash
-pnpm --filter @dashframe/web dev      # Run only web app
-pnpm --filter @dashframe/notion build # Build only notion package
-turbo build --force                     # Force rebuild ignoring cache
+pnpm --filter @dashframe/web check
 ```
 
 ## Core Architecture
 
 **See `docs/architecture.md` for complete architecture details.**
+**See `docs/backend-architecture.md` for backend plugin system.**
 
 ### Key Concepts
 
 - **DataFrame as central abstraction**: `CSV/Notion → DataFrame → Vega-Lite → Chart`
+- **Pluggable backend architecture**: Env-based backend selection
 - **Functional utilities**: For data conversion and transformation or utilities, prefer pure functions over classes for simplicity and testability.
 - **OOP Design**: Use classes and inheritance when make sense for entities with behavior, for encapsulation and code organization.
-- **Zustand + Immer**: State management with automatic localStorage persistence
 - **Entity hierarchy**: DataSource → Insight → DataFrame → Visualization
 - **tRPC for APIs**: Server-side proxy to avoid CORS issues
+
+### Backend Plugin System
+
+DashFrame uses **build-time alias resolution** for backend selection:
+
+```bash
+# IndexDB backend with Dexie (default)
+NEXT_PUBLIC_STORAGE_IMPL=dexie
+
+# Custom backend implementations
+NEXT_PUBLIC_STORAGE_IMPL=custom
+```
+
+**How it works**:
+
+1. `@dashframe/core/backend.ts` exports from stub package `@dashframe/core-store`
+2. Webpack aliases `@dashframe/core-store` → `@dashframe/core-${NEXT_PUBLIC_STORAGE_IMPL}`
+3. TypeScript resolves `@dashframe/core-store` as a normal workspace package (no path aliases needed)
+4. Only the selected backend is bundled; unused backends are tree-shaken away
+
+**Package structure**:
+
+- `@dashframe/types` - Pure type contracts (repository interfaces)
+- `@dashframe/core-dexie` - Dexie/IndexedDB implementation (default)
+- `@dashframe/core-store` - Stub package (re-exports default backend for type resolution)
+- `@dashframe/core` - Re-exports from aliased backend (no direct dependencies)
+
+**Components import from `@dashframe/core` and remain backend-agnostic**. Switching backends requires only env var + rebuild.
+
+See `docs/backend-architecture.md` for full details on creating custom backends.
 
 ### Adding New Data Sources
 
@@ -65,27 +96,40 @@ turbo build --force                     # Force rebuild ignoring cache
 ## Monorepo Structure
 
 ```
-apps/web/         # Next.js 16 (App Router)
+apps/web/                  # Next.js 16 (App Router)
 packages/
-  dataframe/      # Core types
-  csv/            # csvToDataFrame converter
-  notion/         # notionToDataFrame + tRPC integration
-  ui/             # Shared UI components (shadcn/ui primitives + custom components)
-                  # Includes Storybook for component development
-  eslint-config/  # Shared ESLint 9 flat config
+  types/                   # Pure type contracts (zero deps)
+  core/                    # Backend selector (env-based)
+  core-dexie/              # Dexie/IndexedDB backend
+  engine/                  # Abstract engine interfaces
+  engine-browser/          # DuckDB-WASM + IndexedDB
+  connector-csv/           # CSV file connector
+  connector-notion/        # Notion API connector
+  visualization/           # Vega-Lite chart rendering
+  ui/                      # Shared UI components (shadcn/ui primitives + custom)
+                           # Includes Storybook for component development
+  eslint-config/           # Shared ESLint 9 flat config
 ```
 
 **Critical**: Packages export TypeScript source directly (`main: "src/index.ts"`), not compiled JS. Web app uses TypeScript path mappings for hot reload. See `tsconfig.json` files.
 
 ## State Management & Persistence
 
-**Zustand + Immer** with automatic localStorage persistence. See `docs/architecture.md` for details.
+**Backend-agnostic data layer**. Currently uses **Dexie (IndexedDB)** for local-first deployment. Data model uses flat entities:
 
-**localStorage keys**: All use the lowercase `dashframe:` prefix:
+- **DataSource** - Connector type (e.g., "csv", "notion") + connection config
+- **DataTable** - Schema, fields, metrics. Links to DataSource
+- **Insight** - Analytics definition with selected fields, metrics, filters
+- **Visualization** - Vega-Lite spec. Links to Insight
+- **Dashboard** - Layout of visualization panels
 
-- `dashframe:data-sources` - DataSources with nested Insights
-- `dashframe:dataframes` - EnhancedDataFrames with metadata
-- `dashframe:visualizations` - Vega-Lite specs + active tracking
+**Import pattern**: Always import hooks from `@dashframe/core` (not `@dashframe/core-dexie` directly):
+
+```typescript
+import { useDataSources, useDataSourceMutations } from "@dashframe/core";
+```
+
+This keeps components backend-agnostic. The backend implementation is selected via `NEXT_PUBLIC_DATA_BACKEND` env var.
 
 ## Critical Gotchas
 
@@ -169,7 +213,7 @@ Before implementing any UI changes, follow this component-first approach:
    - **Create feature-specific components** for one-off, domain-specific UI
    - **Extract to shared/** when patterns emerge across multiple features
 
-3. **Design token enforcement** (from `docs/architecture.md`):
+3. **Design token enforcement** (from `docs/ui-components.md`):
    - **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
    - **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
    - **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)

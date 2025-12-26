@@ -1,8 +1,8 @@
 import {
-  ChevronsLeft,
-  ChevronsRight,
-  ChevronsUp,
-  ChevronsDown,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
+  ChevronsUpIcon,
+  ChevronsDownIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 
@@ -40,29 +40,29 @@ export function CollapseHandle({
     left: {
       rounded: "rounded-l-xl",
       border: "border-r-0",
-      openIcon: ChevronsLeft,
-      closedIcon: ChevronsRight,
+      openIcon: ChevronsLeftIcon,
+      closedIcon: ChevronsRightIcon,
       size: "h-12 w-6",
     },
     right: {
       rounded: "rounded-r-xl",
       border: "border-l-0",
-      openIcon: ChevronsRight,
-      closedIcon: ChevronsLeft,
+      openIcon: ChevronsRightIcon,
+      closedIcon: ChevronsLeftIcon,
       size: "h-12 w-6",
     },
     up: {
       rounded: "rounded-t-xl",
       border: "border-b-0",
-      openIcon: ChevronsUp,
-      closedIcon: ChevronsDown,
+      openIcon: ChevronsUpIcon,
+      closedIcon: ChevronsDownIcon,
       size: "h-6 w-12",
     },
     down: {
       rounded: "rounded-b-xl",
       border: "border-t-0",
-      openIcon: ChevronsUp,
-      closedIcon: ChevronsDown,
+      openIcon: ChevronsUpIcon,
+      closedIcon: ChevronsDownIcon,
       size: "h-6 w-12",
     },
   }[direction];

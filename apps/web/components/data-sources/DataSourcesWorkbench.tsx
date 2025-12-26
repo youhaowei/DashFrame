@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, useMemo, useSyncExternalStore } from "react";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { useState, useMemo, useCallback } from "react";
+import {
+  useDataSources,
+  useDataTables,
+  useDataTableMutations,
+  useDataFrames,
+} from "@dashframe/core";
+import { handleFileConnectorResult } from "@/lib/local-csv-handler";
+import { AppLayout } from "@/components/layouts/AppLayout";
 import { DataSourceSelector } from "./DataSourceSelector";
 import { DataSourceTree } from "./DataSourceTree";
 import { TableDetailPanel } from "./TableDetailPanel";
 import { FieldEditorModal } from "./FieldEditorModal";
 import { MetricEditorModal } from "./MetricEditorModal";
 import { AddConnectionPanel } from "./AddConnectionPanel";
-import { useCSVUpload } from "@/hooks/useCSVUpload";
 import {
   Dialog,
   DialogContent,
@@ -21,39 +25,55 @@ import {
   Button,
 } from "@dashframe/ui";
 import { toast } from "sonner";
-import type { Field, Metric } from "@dashframe/dataframe";
-
-// Hydration detection using useSyncExternalStore (no setState in effect)
-const emptySubscribe = () => () => {};
-const getClientSnapshot = () => true;
-const getServerSnapshot = () => false;
+import type { Field, Metric } from "@dashframe/types";
+import type {
+  FileSourceConnector,
+  RemoteApiConnector,
+  RemoteDatabase,
+} from "@dashframe/engine";
 
 export function DataSourcesWorkbench() {
-  // Use useSyncExternalStore for SSR-safe hydration detection
-  const isHydrated = useSyncExternalStore(
-    emptySubscribe,
-    getClientSnapshot,
-    getServerSnapshot,
-  );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const { handleCSVUpload, error: csvError, clearError } = useCSVUpload();
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Store hooks
-  const dataSourcesMap = useDataSourcesStore((state) => state.dataSources);
-  const removeDataTable = useDataSourcesStore((state) => state.removeDataTable);
-  const updateField = useDataSourcesStore((state) => state.updateField);
-  const deleteField = useDataSourcesStore((state) => state.deleteField);
-  const addMetric = useDataSourcesStore((state) => state.addMetric);
-  const deleteMetric = useDataSourcesStore((state) => state.deleteMetric);
-  const getEntry = useDataFramesStore((state) => state.getEntry);
+  // Dexie hooks for reading data
+  const { data: dataSources, isLoading } = useDataSources();
+  const { data: allTables } = useDataTables();
+  const { data: allDataFrames } = useDataFrames();
 
-  const dataSources = useMemo(
-    () =>
-      Array.from(dataSourcesMap.values()).sort(
-        (a, b) => b.createdAt - a.createdAt,
-      ),
-    [dataSourcesMap],
+  // Dexie mutations
+  const tableMutations = useDataTableMutations();
+
+  // Sort data sources by creation time (newest first)
+  const sortedSources = useMemo(
+    () => [...(dataSources ?? [])].sort((a, b) => b.createdAt - a.createdAt),
+    [dataSources],
   );
+
+  // Create lookup maps for quick access
+  const dataSourcesMap = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof dataSources>[number]>();
+    for (const source of dataSources ?? []) {
+      map.set(source.id, source);
+    }
+    return map;
+  }, [dataSources]);
+
+  const tablesMap = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof allTables>[number]>();
+    for (const table of allTables ?? []) {
+      map.set(table.id, table);
+    }
+    return map;
+  }, [allTables]);
+
+  const dataFramesMap = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof allDataFrames>[number]>();
+    for (const df of allDataFrames ?? []) {
+      map.set(df.id, df);
+    }
+    return map;
+  }, [allDataFrames]);
 
   // Selection state - user's explicit choice
   const [userSelectedDataSourceId, setUserSelectedDataSourceId] = useState<
@@ -75,6 +95,13 @@ export function DataSourcesWorkbench() {
     tableName: string | null;
   }>({ isOpen: false, tableId: null, tableName: null });
 
+  // Get tables for a specific source
+  const getTablesForSource = useCallback(
+    (sourceId: string) =>
+      (allTables ?? []).filter((t) => t.dataSourceId === sourceId),
+    [allTables],
+  );
+
   // Derive effective selectedDataSourceId using useMemo (no setState in effect)
   // Falls back to first source if user selection is null or invalid
   const selectedDataSourceId = useMemo(() => {
@@ -86,26 +113,32 @@ export function DataSourcesWorkbench() {
       return userSelectedDataSourceId;
     }
     // Otherwise, auto-select first source if available
-    return dataSources.length > 0 ? dataSources[0].id : null;
-  }, [userSelectedDataSourceId, dataSourcesMap, dataSources]);
+    return sortedSources.length > 0 ? sortedSources[0].id : null;
+  }, [userSelectedDataSourceId, dataSourcesMap, sortedSources]);
 
   // Derive effective selectedTableId using useMemo
   // Falls back to first table if user selection is null or invalid
   const selectedTableId = useMemo(() => {
     if (!selectedDataSourceId) return null;
-    const dataSource = dataSourcesMap.get(selectedDataSourceId);
-    if (!dataSource) return null;
 
-    const tables = Array.from(dataSource.dataTables.values());
+    const tables = getTablesForSource(selectedDataSourceId);
     if (tables.length === 0) return null;
 
     // If user selected a valid table in this source, use it
-    if (userSelectedTableId && dataSource.dataTables.has(userSelectedTableId)) {
-      return userSelectedTableId;
+    if (userSelectedTableId && tablesMap.has(userSelectedTableId)) {
+      const table = tablesMap.get(userSelectedTableId);
+      if (table?.dataSourceId === selectedDataSourceId) {
+        return userSelectedTableId;
+      }
     }
     // Otherwise auto-select first table
     return tables[0].id;
-  }, [selectedDataSourceId, userSelectedTableId, dataSourcesMap]);
+  }, [
+    selectedDataSourceId,
+    userSelectedTableId,
+    getTablesForSource,
+    tablesMap,
+  ]);
 
   // Handler to update both source and reset table selection
   const handleDataSourceSelect = (sourceId: string | null) => {
@@ -120,20 +153,18 @@ export function DataSourcesWorkbench() {
 
   // Get selected data table and data frame
   const selectedDataTable = useMemo(() => {
-    if (!selectedDataSourceId || !selectedTableId) return null;
-    const dataSource = dataSourcesMap.get(selectedDataSourceId);
-    if (!dataSource) return null;
-    return dataSource.dataTables.get(selectedTableId) || null;
-  }, [selectedDataSourceId, selectedTableId, dataSourcesMap]);
+    if (!selectedTableId) return null;
+    return tablesMap.get(selectedTableId) ?? null;
+  }, [selectedTableId, tablesMap]);
 
   const selectedDataFrameEntry = useMemo(() => {
     if (!selectedDataTable?.dataFrameId) return null;
-    return getEntry(selectedDataTable.dataFrameId) || null;
-  }, [selectedDataTable, getEntry]);
+    return dataFramesMap.get(selectedDataTable.dataFrameId) ?? null;
+  }, [selectedDataTable, dataFramesMap]);
 
   // Event Handlers
   const handleDeleteTable = (tableId: string) => {
-    const dataTable = selectedDataTable;
+    const dataTable = tablesMap.get(tableId);
     if (!dataTable) return;
 
     setDeleteConfirmState({
@@ -143,31 +174,31 @@ export function DataSourcesWorkbench() {
     });
   };
 
-  const handleConfirmDelete = () => {
-    if (!selectedDataSourceId || !deleteConfirmState.tableId) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmState.tableId) return;
 
-    removeDataTable(selectedDataSourceId, deleteConfirmState.tableId);
+    await tableMutations.remove(deleteConfirmState.tableId);
     toast.success("Table deleted successfully");
     setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null });
   };
 
   const handleEditField = (fieldId: string) => {
     if (!selectedDataTable) return;
-    const field = selectedDataTable.fields.find((f) => f.id === fieldId);
+    const field = selectedDataTable.fields.find((f: Field) => f.id === fieldId);
     if (field) {
       setFieldEditorState({ isOpen: true, field });
     }
   };
 
-  const handleSaveField = (fieldId: string, updates: Partial<Field>) => {
-    if (!selectedDataSourceId || !selectedTableId) return;
-    updateField(selectedDataSourceId, selectedTableId, fieldId, updates);
+  const handleSaveField = async (fieldId: string, updates: Partial<Field>) => {
+    if (!selectedTableId) return;
+    await tableMutations.updateField(selectedTableId, fieldId, updates);
     toast.success("Field updated successfully");
   };
 
-  const handleDeleteField = (fieldId: string) => {
-    if (!selectedDataSourceId || !selectedTableId) return;
-    deleteField(selectedDataSourceId, selectedTableId, fieldId);
+  const handleDeleteField = async (fieldId: string) => {
+    if (!selectedTableId) return;
+    await tableMutations.deleteField(selectedTableId, fieldId);
     toast.success("Field deleted successfully");
   };
 
@@ -175,21 +206,65 @@ export function DataSourcesWorkbench() {
     toast.info("Custom field creation coming soon");
   };
 
-  const handleSaveMetric = (metric: Omit<Metric, "id">) => {
-    if (!selectedDataSourceId || !selectedTableId) return;
+  const handleSaveMetric = async (metric: Omit<Metric, "id">) => {
+    if (!selectedTableId) return;
     const metricWithId: Metric = {
       ...metric,
       id: crypto.randomUUID(),
     };
-    addMetric(selectedDataSourceId, selectedTableId, metricWithId);
+    await tableMutations.addMetric(selectedTableId, metricWithId);
     toast.success("Metric added successfully");
   };
 
-  const handleDeleteMetric = (metricId: string) => {
-    if (!selectedDataSourceId || !selectedTableId) return;
-    deleteMetric(selectedDataSourceId, selectedTableId, metricId);
+  const handleDeleteMetric = async (metricId: string) => {
+    if (!selectedTableId) return;
+    await tableMutations.deleteMetric(selectedTableId, metricId);
     toast.success("Metric deleted successfully");
   };
+
+  // Handle file selection from connectors (CSV, Excel, etc.)
+  const handleFileSelect = useCallback(
+    async (connector: FileSourceConnector, file: File) => {
+      setUploadError(null);
+      try {
+        if (
+          connector.maxSizeMB &&
+          file.size > connector.maxSizeMB * 1024 * 1024
+        ) {
+          throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
+        }
+
+        const tableId = crypto.randomUUID();
+        const result = await connector.parse(file, tableId);
+
+        const { dataTableId, dataSourceId } = await handleFileConnectorResult(
+          file.name,
+          result,
+        );
+
+        setIsCreateDialogOpen(false);
+        setUserSelectedDataSourceId(dataSourceId);
+        setUserSelectedTableId(dataTableId);
+        toast.success(`Uploaded ${file.name}`);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Failed to process file",
+        );
+      }
+    },
+    [],
+  );
+
+  // Handle remote connector connection (Notion, Airtable, etc.)
+  const handleRemoteConnect = useCallback(
+    (connector: RemoteApiConnector, databases: RemoteDatabase[]) => {
+      // For now, just log - full implementation requires database selection UI
+      console.log(`Connected to ${connector.name}:`, databases);
+      toast.info(`Found ${databases.length} databases in ${connector.name}`);
+      // NOTE: Show database selection UI, then proceed with data import
+    },
+    [],
+  );
 
   const handleCreateVisualization = () => {
     if (!selectedDataSourceId || !selectedTableId) return;
@@ -198,7 +273,7 @@ export function DataSourcesWorkbench() {
     toast.info("Create visualization flow coming soon");
   };
 
-  if (!isHydrated) {
+  if (isLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <p className="text-muted-foreground text-sm">Loading workspace…</p>
@@ -208,8 +283,8 @@ export function DataSourcesWorkbench() {
 
   return (
     <>
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="p-4">
             <DataSourceSelector
               selectedId={selectedDataSourceId}
@@ -244,14 +319,14 @@ export function DataSourcesWorkbench() {
             }
           />
         </div>
-      </WorkbenchLayout>
+      </AppLayout>
 
       {/* New Data Source Dialog */}
       <Dialog
         open={isCreateDialogOpen}
         onOpenChange={(open) => {
           setIsCreateDialogOpen(open);
-          if (!open) clearError();
+          if (!open) setUploadError(null);
         }}
       >
         <DialogContent className="max-w-2xl overflow-hidden">
@@ -259,17 +334,9 @@ export function DataSourcesWorkbench() {
             <DialogTitle>Add data source</DialogTitle>
           </DialogHeader>
           <AddConnectionPanel
-            error={csvError}
-            onCsvSelect={(file) => {
-              handleCSVUpload(file, (tableId, sourceId) => {
-                setIsCreateDialogOpen(false);
-                setUserSelectedDataSourceId(sourceId);
-                setUserSelectedTableId(tableId);
-                toast.success(`Uploaded ${file.name}`);
-              });
-            }}
-            csvDescription="Upload a CSV file with headers in the first row."
-            csvHelperText="Supports .csv files up to 5MB"
+            error={uploadError}
+            onFileSelect={handleFileSelect}
+            onConnect={handleRemoteConnect}
           />
         </DialogContent>
       </Dialog>
@@ -314,7 +381,8 @@ export function DataSourcesWorkbench() {
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="outline"
+              label="Cancel"
+              variant="outlined"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,
@@ -322,12 +390,12 @@ export function DataSourcesWorkbench() {
                   tableName: null,
                 })
               }
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleConfirmDelete}>
-              Delete Table
-            </Button>
+            />
+            <Button
+              label="Delete Table"
+              color="danger"
+              onClick={handleConfirmDelete}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

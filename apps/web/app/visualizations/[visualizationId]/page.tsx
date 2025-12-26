@@ -1,217 +1,82 @@
 "use client";
 
-import { use, useState, useEffect, useMemo, useRef } from "react";
+import { use, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import type { TopLevelSpec } from "vega-lite";
 import {
   Button,
   Input,
   Badge,
   Card,
   CardContent,
-  Toggle,
-  Surface,
-  BarChart3,
-  LineChart,
-  TableIcon,
-  Layers,
-  Trash2,
+  ChartIcon,
+  DeleteIcon,
   SelectField,
 } from "@dashframe/ui";
-import { LuArrowLeft, LuLoader, LuCircleDot } from "react-icons/lu";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import { VegaChart } from "@/components/visualizations/VegaChart";
-import { VirtualTable } from "@dashframe/ui";
-import { analyzeDataFrame, type ColumnAnalysis } from "@dashframe/dataframe";
-import type { UUID, DataFrameColumn, DataFrameRow } from "@dashframe/dataframe";
+import {
+  ArrowLeftIcon,
+  LoaderIcon,
+  DataPointIcon,
+  ArrowUpDownIcon,
+  AlertCircleIcon,
+} from "@dashframe/ui/icons";
+import {
+  isSwapAllowed,
+  getSwappedChartType,
+  validateEncoding,
+} from "@/lib/visualizations/encoding-enforcer";
+import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
+import { CHART_TYPE_METADATA } from "@dashframe/types";
+import {
+  useVisualizations,
+  useVisualizationMutations,
+  useInsights,
+  useCompiledInsight,
+  useDataTables,
+  getDataFrame as getDexieDataFrame,
+} from "@dashframe/core";
+import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { getColumnIcon } from "@/lib/utils/field-icons";
+import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { parseEncoding } from "@dashframe/types";
+import type {
+  UUID,
+  DataFrameColumn,
+  DataFrameRow,
+  VisualizationType,
+  VisualizationEncoding,
+} from "@dashframe/types";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { Visualization, VisualizationType } from "@/lib/stores/types";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import { AppLayout } from "@/components/layouts/AppLayout";
 import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-
-// StandardType is not exported from vega-lite's main module
-type StandardType = "quantitative" | "ordinal" | "temporal" | "nominal";
+import { useInsightView } from "@/hooks/useInsightView";
+import type { Insight as InsightType } from "@dashframe/types";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
 }
 
-// Minimum visible rows needed to enable "Show Both" mode
-const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
-
-// Helper to get CSS variable color value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-  return value || "#000000";
-}
-
-// Get theme-aware Vega-Lite config
-function getVegaThemeConfig() {
-  return {
-    background: getCSSColor("--color-card"),
-    view: {
-      stroke: getCSSColor("--color-border"),
-      strokeWidth: 1,
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-    title: {
-      color: getCSSColor("--color-foreground"),
-      font: "inherit",
-    },
-  };
-}
-
-// Build Vega-Lite spec from visualization and dataframe
-// NOTE: The dataframe should already contain pre-computed/aggregated data.
-// The visualization just renders what's in the dataframe.
-function buildVegaSpec(
-  viz: Visualization,
-  data: { rows: DataFrameRow[]; columns: DataFrameColumn[] },
-): TopLevelSpec {
-  const { visualizationType, encoding } = viz;
-
-  // Common spec properties
-  const commonSpec = {
-    $schema: "https://vega.github.io/schema/vega-lite/v6.json" as const,
-    data: { values: data.rows },
-    width: "container" as const,
-    height: 400,
-    config: getVegaThemeConfig(),
-  };
-
-  // Get field names from encoding or fall back to dataframe columns
-  const x = encoding?.x || data.columns?.[0]?.name || "x";
-  const y =
-    encoding?.y ||
-    data.columns?.find((col: DataFrameColumn) => col.type === "number")?.name ||
-    data.columns?.[1]?.name ||
-    "y";
-
-  switch (visualizationType) {
-    case "bar":
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "line":
-      return {
-        ...commonSpec,
-        mark: "line" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    case "scatter":
-      return {
-        ...commonSpec,
-        mark: "point" as const,
-        encoding: {
-          x: {
-            field: x,
-            type: (encoding?.xType || "quantitative") as StandardType,
-          },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-          ...(encoding?.size && {
-            size: { field: encoding.size, type: "quantitative" as const },
-          }),
-        },
-      };
-
-    case "area":
-      return {
-        ...commonSpec,
-        mark: "area" as const,
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "ordinal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-          ...(encoding?.color && {
-            color: { field: encoding.color, type: "nominal" as const },
-          }),
-        },
-      };
-
-    default:
-      // Fallback to bar chart
-      return {
-        ...commonSpec,
-        mark: { type: "bar" as const, stroke: null },
-        encoding: {
-          x: { field: x, type: (encoding?.xType || "nominal") as StandardType },
-          y: {
-            field: y,
-            type: (encoding?.yType || "quantitative") as StandardType,
-          },
-        },
-      };
-  }
-}
-
 // Get icon for visualization type
 function getVizIcon(type: string) {
   switch (type) {
-    case "bar":
-      return <BarChart3 className="h-5 w-5" />;
+    case "barY":
+    case "barX":
+      return <ChartIcon className="h-5 w-5" />;
     case "line":
-    case "area":
-      return <LineChart className="h-5 w-5" />;
-    case "scatter":
-      return <LuCircleDot className="h-5 w-5" />;
-    case "table":
+    case "areaY":
+      return <ChartIcon className="h-5 w-5" />;
+    case "dot":
+    case "hexbin":
+    case "heatmap":
+    case "raster":
+      return <DataPointIcon className="h-5 w-5" />;
     default:
-      return <TableIcon className="h-5 w-5" />;
+      return <ChartIcon className="h-5 w-5" />;
   }
 }
 
@@ -228,52 +93,74 @@ export default function VisualizationPage({ params }: PageProps) {
   const { visualizationId } = use(params);
   const router = useRouter();
 
-  // Local stores with hydration awareness
-  const { data: visualization, isLoading: isVizLoading } = useStoreQuery(
-    useVisualizationsStore,
-    (s) => s.get(visualizationId as UUID),
+  // Dexie hooks for data
+  const { data: visualizations = [], isLoading: isVizLoading } =
+    useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
+  const {
+    update: updateVisualization,
+    updateEncoding,
+    remove: removeVisualization,
+  } = useVisualizationMutations();
+
+  // Find the visualization
+  const visualization = useMemo(
+    () => visualizations.find((v) => v.id === visualizationId),
+    [visualizations, visualizationId],
   );
-  const updateVisualizationLocal = useVisualizationsStore(
-    (state) => state.update,
+
+  // Find the insight
+  const insight = useMemo(
+    () =>
+      visualization?.insightId
+        ? insights.find((i) => i.id === visualization.insightId)
+        : undefined,
+    [insights, visualization?.insightId],
   );
-  const updateEncodingLocal = useVisualizationsStore(
-    (state) => state.updateEncoding,
+
+  // Get compiled insight with resolved dimensions (for AxisSelectField)
+  const { data: compiledInsight } = useCompiledInsight(
+    visualization?.insightId,
   );
-  const removeVisualizationLocal = useVisualizationsStore(
-    (state) => state.remove,
+
+  // Find the data table
+  const dataTable = useMemo(
+    () =>
+      insight?.baseTableId
+        ? dataTables.find((t) => t.id === insight.baseTableId)
+        : undefined,
+    [dataTables, insight?.baseTableId],
   );
+
+  // Get the dataFrameId from the dataTable
+  const dataFrameId = dataTable?.dataFrameId;
 
   // Load source DataFrame data async
   const {
     data: sourceDataFrame,
     isLoading: isDataLoading,
     entry: dataFrameEntry,
-  } = useDataFrameData(visualization?.source.dataFrameId);
-
-  // Load insight if visualization has one (for aggregation config)
-  const { data: insight, isLoading: isInsightLoading } = useStoreQuery(
-    useInsightsStore,
-    (s) =>
-      visualization?.source.insightId
-        ? s.getInsight(visualization.source.insightId)
-        : undefined,
-  );
+  } = useDataFrameData(dataFrameId);
 
   // DuckDB connection for join computation
   const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
     useDuckDB();
-  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
 
-  // Load data source and data table for field information
-  const dataSources = useDataSourcesStore((s) => s.dataSources);
-  const dataTable = useMemo(() => {
-    if (!insight?.baseTable?.tableId) return null;
-    for (const ds of dataSources.values()) {
-      const table = ds.dataTables.get(insight.baseTable.tableId);
-      if (table) return table;
-    }
-    return null;
-  }, [insight?.baseTable?.tableId, dataSources]);
+  // Build Insight object for useInsightView (needs baseTableId and joins)
+  const insightForView: InsightType | null = useMemo(() => {
+    if (!insight) return null;
+    return {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      joins: insight.joins,
+    } as InsightType;
+  }, [insight]);
+
+  // Get DuckDB view name for analysis (uses UUID-based column names)
+  const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
+    useInsightView(insightForView);
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -304,44 +191,35 @@ export default function VisualizationPage({ params }: PageProps) {
       setIsLoadingJoinedData(true);
 
       try {
-        // Get resolved Insight with DataTable objects embedded
-        const getResolvedInsight =
-          useInsightsStore.getState().getResolvedInsight;
-        const insightInstance = getResolvedInsight(insight.id, dataSources);
-        if (!insightInstance) {
-          throw new Error(`Could not resolve insight: ${insight.id}`);
-        }
-
-        // Generate SQL - no store access needed, all data is embedded
-        const sql = insightInstance.toSQL();
-        console.log("[VisualizationPage] Generated join SQL:", sql);
-
-        // First, ensure base table is loaded into DuckDB
-        const baseDataFrame = getDataFrame(dataTable.dataFrameId!);
+        // Get the base DataFrame
+        const baseDataFrame = await getDexieDataFrame(dataTable.dataFrameId!);
         if (!baseDataFrame) {
           throw new Error("Base DataFrame not found");
         }
+
+        // Load base table into DuckDB
         const baseQueryBuilder = await baseDataFrame.load(duckDBConnection);
         await baseQueryBuilder.sql(); // Triggers table creation
 
-        // Ensure join tables are loaded into DuckDB
+        // Load join tables into DuckDB
         for (const join of insight.joins ?? []) {
-          // Find the join table
-          for (const ds of dataSources.values()) {
-            const joinTable = ds.dataTables.get(join.tableId);
-            if (joinTable?.dataFrameId) {
-              const joinDataFrame = getDataFrame(joinTable.dataFrameId);
-              if (joinDataFrame) {
-                const joinQueryBuilder =
-                  await joinDataFrame.load(duckDBConnection);
-                await joinQueryBuilder.sql(); // Triggers table creation
-              }
-              break;
+          const joinTable = dataTables.find((t) => t.id === join.rightTableId);
+          if (joinTable?.dataFrameId) {
+            const joinDataFrame = await getDexieDataFrame(
+              joinTable.dataFrameId,
+            );
+            if (joinDataFrame) {
+              const joinQueryBuilder =
+                await joinDataFrame.load(duckDBConnection);
+              await joinQueryBuilder.sql(); // Triggers table creation
             }
           }
         }
 
-        // Execute the generated SQL
+        // Build and execute join SQL
+        // [Future] Generate proper SQL from insight joins configuration
+        // For now, just use the base table data
+        const sql = await baseQueryBuilder.sql();
         const result = await duckDBConnection.query(sql);
         const rows = result.toArray() as DataFrameRow[];
 
@@ -349,14 +227,14 @@ export default function VisualizationPage({ params }: PageProps) {
         const columns: DataFrameColumn[] =
           rows.length > 0
             ? Object.keys(rows[0])
-              .filter((key) => !key.startsWith("_"))
-              .map((name) => ({
-                name,
-                type:
-                  typeof rows[0][name] === "number"
-                    ? ("number" as const)
-                    : ("string" as const),
-              }))
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({
+                  name,
+                  type:
+                    typeof rows[0][name] === "number"
+                      ? ("number" as const)
+                      : ("string" as const),
+                }))
             : [];
 
         setJoinedData({ rows, columns });
@@ -375,14 +253,10 @@ export default function VisualizationPage({ params }: PageProps) {
   }, [
     insight?.joins,
     insight?.id,
-    insight?.name,
-    insight?.baseTable,
-    insight?.metrics,
     duckDBConnection,
     isDuckDBReady,
     dataTable,
-    dataSources,
-    getDataFrame,
+    dataTables,
   ]);
 
   // Compute aggregated data if we have an insight with metrics/dimensions (non-join case)
@@ -393,22 +267,31 @@ export default function VisualizationPage({ params }: PageProps) {
     if (!sourceDataFrame || !insight || !dataTable) return null;
 
     // Check if insight has dimensions or metrics configured
-    const selectedFields = insight.baseTable?.selectedFields ?? [];
+    const selectedFields = insight.selectedFields ?? [];
     const metrics = insight.metrics ?? [];
 
     // If no aggregation config, return null (use raw data)
     if (selectedFields.length === 0 && metrics.length === 0) return null;
 
-    // Convert LoadedDataFrameData to DataFrameData format for computeInsightPreview
+    // Use source data directly (DataFrameData format)
     const sourceDataFrameData = {
-      fieldIds: [] as string[],
       columns: sourceDataFrame.columns,
       rows: sourceDataFrame.rows,
     };
 
-    // Compute aggregated preview using insight config
+    // Build insight object for computation
+    const insightForCompute = {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      selectedFields: selectedFields,
+      metrics: metrics,
+      createdAt: insight.createdAt,
+      updatedAt: insight.updatedAt,
+    };
+
     return computeInsightPreview(
-      insight,
+      insightForCompute,
       dataTable,
       sourceDataFrameData,
       1000, // Allow more rows for visualization
@@ -432,18 +315,15 @@ export default function VisualizationPage({ params }: PageProps) {
     return sourceDataFrame;
   }, [joinedData, aggregatedPreview, sourceDataFrame]);
 
-  // Include dataFrame check to prevent "Data not available" flash during derived state computation
+  // Include dataFrame check to prevent "Data not available" flash
   const isLoading =
-    isVizLoading || isDataLoading || isInsightLoading || isLoadingJoinedData ||
+    isVizLoading ||
+    isDataLoading ||
+    isLoadingJoinedData ||
     (visualization && !dataFrame);
 
   // Local state
   const [vizName, setVizName] = useState("");
-  const [activeTab, setActiveTab] = useState<string>("both");
-  const [visibleRows, setVisibleRows] = useState<number>(10);
-
-  // Refs for layout calculation
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync visualization name when data loads
   useEffect(() => {
@@ -452,126 +332,185 @@ export default function VisualizationPage({ params }: PageProps) {
     }
   }, [visualization?.name]);
 
-  // Watch container size for "Show Both" mode availability
+  // State for DuckDB-computed column analysis
+  const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
+
+  // Run DuckDB analysis on the insight view (has UUID-based column names)
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!duckDBConnection || !isDuckDBReady) return;
+    if (!analysisViewName || !isAnalysisViewReady) {
+      setColumnAnalysis([]);
+      return;
+    }
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const containerHeight = entry.contentRect.height;
-        // No header height needed as we are measuring the content area directly
-        const chartHeight = 400;
-        const spacing = 60;
-
-        const availableForTable = containerHeight - chartHeight - spacing;
-        const rowHeight = 30;
-        const calculatedVisibleRows = Math.floor(availableForTable / rowHeight);
-
-        setVisibleRows(calculatedVisibleRows);
+    const runAnalysis = async () => {
+      try {
+        const results = await analyzeView(duckDBConnection, analysisViewName);
+        setColumnAnalysis(results);
+      } catch (e) {
+        console.error("[VisualizationPage] Analysis failed:", e);
+        setColumnAnalysis([]);
       }
+    };
+    runAnalysis();
+  }, [duckDBConnection, isDuckDBReady, analysisViewName, isAnalysisViewReady]);
+
+  // Get column options for Color/Size selects (derived from compiledInsight)
+  // Uses storage encoding format (field:<uuid>, metric:<uuid>) for values
+  // Includes icons to show column types
+  const columnOptions = useMemo(() => {
+    if (!compiledInsight) return [];
+
+    // Build set of metric SQL aliases for icon lookup
+    const metricAliases = new Set(
+      compiledInsight.metrics.map((m) => metricIdToColumnAlias(m.id)),
+    );
+    const options: Array<{
+      label: string;
+      value: string;
+      icon: React.ComponentType<{ className?: string }>;
+    }> = [];
+
+    // Add dimensions (resolved Field objects from compiledInsight)
+    // Use field:<uuid> encoding format for value
+    compiledInsight.dimensions.forEach((field) => {
+      const sqlAlias = fieldIdToColumnAlias(field.id);
+      options.push({
+        label: field.name,
+        value: `field:${field.id}`,
+        icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
+      });
     });
 
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [visualization?.id]);
+    // Add metrics using metric:<uuid> encoding format
+    compiledInsight.metrics.forEach((metric) => {
+      const sqlAlias = metricIdToColumnAlias(metric.id);
+      options.push({
+        label: metric.name,
+        value: `metric:${metric.id}`,
+        icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
+      });
+    });
 
-  // Build Vega spec (dataFrame is loaded via useDataFrameData hook above)
-  const vegaSpec = useMemo(() => {
-    if (!visualization || !dataFrame) return null;
-    if (visualization.visualizationType === "table") return null;
-    return buildVegaSpec(visualization, dataFrame);
-  }, [visualization, dataFrame]);
+    return options;
+  }, [compiledInsight, columnAnalysis]);
 
-  // Analyze columns for encoding suggestions
-  const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
-    if (!dataFrame) return [];
-    return analyzeDataFrame(dataFrame.rows, dataFrame.columns);
-  }, [dataFrame]);
+  // Validate encoding configuration - returns errors for X/Y if invalid
+  const encodingErrors = useMemo(() => {
+    if (!visualization || columnAnalysis.length === 0) return {};
+    return validateEncoding(
+      visualization.encoding ?? {},
+      visualization.visualizationType,
+      columnAnalysis,
+      compiledInsight ?? undefined,
+    );
+  }, [visualization, columnAnalysis, compiledInsight]);
 
-  // Get column options for selects
-  const columnOptions = useMemo(() => {
-    if (!dataFrame) return [];
-    return (dataFrame.columns || []).map((col: DataFrameColumn) => ({
-      label: col.name,
-      value: col.name,
-    }));
-  }, [dataFrame]);
+  // Check if there are any encoding errors
+  const hasEncodingErrors = !!(encodingErrors.x || encodingErrors.y);
 
-  // Check if enough space for "Both" view
-  const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
-
-  // Auto-switch tabs based on space availability
-  const previousStateRef = useRef({ canShowBoth, activeTab });
-  useEffect(() => {
-    const prev = previousStateRef.current;
-    const canShowBothChanged = prev.canShowBoth !== canShowBoth;
-
-    if (canShowBothChanged) {
-      if (canShowBoth && activeTab !== "both") {
-        setActiveTab("both");
-      } else if (!canShowBoth && activeTab === "both") {
-        setActiveTab("chart");
-      }
-    }
-    previousStateRef.current = { canShowBoth, activeTab };
-  }, [canShowBoth, activeTab]);
-
-  // Handle name change (LOCAL ONLY)
-  const handleNameChange = (newName: string) => {
+  // Handle name change
+  const handleNameChange = async (newName: string) => {
     setVizName(newName);
-    updateVisualizationLocal(visualizationId as UUID, { name: newName });
+    await updateVisualization(visualizationId as UUID, { name: newName });
   };
 
-  // Handle encoding change (LOCAL ONLY)
-  const handleEncodingChange = (
+  // Infer axis type from column analysis semantic type
+  const inferAxisType = (
+    semantic: string,
+  ): "quantitative" | "nominal" | "ordinal" | "temporal" => {
+    if (semantic === "numerical") return "quantitative";
+    if (semantic === "temporal") return "temporal";
+    return "nominal";
+  };
+
+  // Handle encoding change
+  // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
+  const handleEncodingChange = async (
     field: "x" | "y" | "color" | "size",
     value: string,
   ) => {
     if (!visualization) return;
 
-    const newEncoding = { ...visualization.encoding, [field]: value };
+    const newEncoding: VisualizationEncoding = {
+      ...visualization.encoding,
+      [field]: value,
+    };
 
     // Auto-detect type if changing x or y
     if (field === "x" || field === "y") {
-      const colAnalysis = columnAnalysis.find((c) => c.columnName === value);
-      const typeField = field === "x" ? "xType" : "yType";
+      // Convert storage encoding to SQL alias to find in columnAnalysis
+      const parsed = parseEncoding(value);
+      let sqlAlias: string | undefined;
+      if (parsed) {
+        sqlAlias =
+          parsed.type === "field"
+            ? fieldIdToColumnAlias(parsed.id)
+            : metricIdToColumnAlias(parsed.id);
+      }
+
+      const colAnalysis = sqlAlias
+        ? columnAnalysis.find((c) => c.columnName === sqlAlias)
+        : undefined;
 
       if (colAnalysis) {
-        let axisType: "quantitative" | "nominal" | "ordinal" | "temporal" =
-          "nominal";
-        if (colAnalysis.category === "numerical") {
-          axisType = "quantitative";
-        } else if (colAnalysis.category === "temporal") {
-          axisType = "temporal";
-        }
-        newEncoding[typeField] = axisType;
+        const typeField = field === "x" ? "xType" : "yType";
+        newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
       }
     }
 
-    updateEncodingLocal(visualizationId as UUID, newEncoding);
+    await updateEncoding(visualizationId as UUID, newEncoding);
   };
 
-  // Handle visualization type change (LOCAL ONLY)
-  const handleTypeChange = (type: string) => {
-    updateVisualizationLocal(visualizationId as UUID, {
-      visualizationType: type as VisualizationType,
-    });
-  };
+  // Handle visualization type change
+  // Auto-swaps axes when switching between barY and barX
+  const handleTypeChange = async (type: string) => {
+    const newType = type as VisualizationType;
+    const currentType = visualization?.visualizationType;
 
-  // Handle delete (LOCAL ONLY)
-  const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      removeVisualizationLocal(visualizationId as UUID);
-      router.push("/insights"); // Navigate back after delete
+    // Check if switching between bar orientations - auto-swap axes
+    const isBarSwitch =
+      (currentType === "barY" && newType === "barX") ||
+      (currentType === "barX" && newType === "barY");
+
+    if (isBarSwitch && visualization?.encoding) {
+      // Swap X and Y when changing bar orientation
+      const currentEncoding = visualization.encoding;
+      const newEncoding = {
+        ...currentEncoding,
+        x: currentEncoding.y,
+        y: currentEncoding.x,
+        xType: currentEncoding.yType,
+        yType: currentEncoding.xType,
+      };
+
+      // Update both type and encoding together
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newType,
+      });
+      await updateEncoding(visualizationId as UUID, newEncoding);
+    } else {
+      // Just update the type
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newType,
+      });
     }
   };
 
-  // Loading state - wait for all stores to hydrate before rendering
+  // Handle delete
+  const handleDelete = async () => {
+    if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
+      await removeVisualization(visualizationId as UUID);
+      router.push("/insights");
+    }
+  };
+
+  // Loading state
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LuLoader className="text-muted-foreground h-8 w-8 animate-spin" />
+          <LoaderIcon className="text-muted-foreground h-8 w-8 animate-spin" />
           <p className="text-muted-foreground text-sm">
             Loading visualization...
           </p>
@@ -580,7 +519,7 @@ export default function VisualizationPage({ params }: PageProps) {
     );
   }
 
-  // Not found state (local store returns undefined if not found)
+  // Not found state
   if (!visualization) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -589,25 +528,30 @@ export default function VisualizationPage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
-          <Button onClick={() => router.push("/insights")} className="mt-4">
-            Go to Insights
-          </Button>
+          <Button
+            label="Go to Insights"
+            onClick={() => router.push("/insights")}
+            className="mt-4"
+          />
         </div>
       </div>
     );
   }
 
-  // No DataFrame state (data not cached locally)
+  // No DataFrame state
   if (!dataFrame) {
     return (
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" onClick={() => router.back()}>
-                <LuArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
+              <Button
+                label="Back"
+                variant="text"
+                size="sm"
+                onClick={() => router.back()}
+                icon={ArrowLeftIcon}
+              />
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
             </div>
           </div>
@@ -621,48 +565,131 @@ export default function VisualizationPage({ params }: PageProps) {
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
               <p className="text-muted-foreground mb-4 text-sm">
-                The data for this visualization is not cached locally. Please
-                refresh from the source insight.
+                The data for this visualization is not available. Please refresh
+                from the source insight.
               </p>
-              {visualization.source.insightId && (
+              {visualization.insightId && (
                 <Button
+                  label="Go to Source Insight"
                   onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
+                    router.push(`/insights/${visualization.insightId}`)
                   }
-                >
-                  Go to Source Insight
-                </Button>
+                />
               )}
             </CardContent>
           </Card>
         </div>
-      </WorkbenchLayout>
+      </AppLayout>
     );
   }
 
-  // Visualization type options
+  // Visualization type options - condensed (bar orientations combined, scatter as umbrella)
   const hasNumericColumns = dataFrame?.columns?.some(
     (col) => col.type === "number",
   );
   const vizTypeOptions = hasNumericColumns
     ? [
-      { label: "Table", value: "table" },
-      { label: "Bar Chart", value: "bar" },
-      { label: "Line Chart", value: "line" },
-      { label: "Scatter Plot", value: "scatter" },
-      { label: "Area Chart", value: "area" },
-    ]
-    : [{ label: "Table", value: "table" }];
+        { label: "Bar", value: "barY" },
+        { label: "Line", value: "line" },
+        { label: "Scatter", value: "dot" },
+        { label: "Area", value: "areaY" },
+      ]
+    : [];
+
+  // Check if current chart is a scatter-type (dot, hexbin, heatmap, raster)
+  const isScatterType = ["dot", "hexbin", "heatmap", "raster"].includes(
+    visualization?.visualizationType ?? "",
+  );
+
+  // Scatter render mode options - disable Dots for large datasets
+  const rowCount = dataFrameEntry?.rowCount ?? 0;
+  const isLargeDataset = rowCount > 10000;
+  const scatterRenderModeOptions = [
+    {
+      label: "Dots",
+      value: "dot",
+      description: isLargeDataset
+        ? `Disabled for large datasets (${rowCount.toLocaleString()} rows)`
+        : "Raw dots - best for small datasets",
+      disabled: isLargeDataset,
+    },
+    {
+      label: "Hexbin",
+      value: "hexbin",
+      description: "Hexagonal binning - shows density patterns",
+    },
+    {
+      label: "Heatmap",
+      value: "heatmap",
+      description: "Smooth density visualization",
+    },
+    {
+      label: "Raster",
+      value: "raster",
+      description: "Pixel aggregation - fastest for huge datasets",
+    },
+  ];
+
+  // Get the display chart type (maps scatter variants back to "dot" for UI)
+  const displayChartType = isScatterType
+    ? "dot"
+    : (visualization?.visualizationType ?? "barY");
+
+  // Handle chart type change with scatter umbrella logic
+  const handleDisplayTypeChange = async (type: string) => {
+    if (type === "dot" && !isScatterType) {
+      // Switching to scatter - default to appropriate render mode based on data size
+      const newType = isLargeDataset ? "hexbin" : "dot";
+      await handleTypeChange(newType);
+    } else if (type !== "dot") {
+      await handleTypeChange(type);
+    }
+    // If already scatter-type and selecting dot, keep current render mode
+  };
+
+  // Handle swap button click - swaps X/Y axes and toggles bar orientation
+  const handleSwapAxes = async () => {
+    if (!visualization) return;
+
+    const currentEncoding = visualization.encoding || {};
+    const newEncoding = {
+      ...currentEncoding,
+      x: currentEncoding.y,
+      y: currentEncoding.x,
+      xType: currentEncoding.yType,
+      yType: currentEncoding.xType,
+    };
+
+    // For bar charts, also toggle the chart type
+    const newChartType = getSwappedChartType(visualization.visualizationType);
+
+    if (newChartType !== visualization.visualizationType) {
+      // Update both encoding and chart type
+      await updateVisualization(visualizationId as UUID, {
+        visualizationType: newChartType,
+        encoding: newEncoding,
+      });
+    } else {
+      // Just update encoding
+      await updateEncoding(visualizationId as UUID, newEncoding);
+    }
+  };
+
+  // Check if swap is allowed for current chart type
+  const canSwap = isSwapAllowed(visualization.visualizationType);
 
   return (
-    <WorkbenchLayout
-      header={
+    <AppLayout
+      headerContent={
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => router.back()}>
-              <LuArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
+            <Button
+              label="Back"
+              variant="text"
+              size="sm"
+              onClick={() => router.back()}
+              icon={ArrowLeftIcon}
+            />
             <div className="min-w-[220px] flex-1">
               <Input
                 value={vizName}
@@ -680,12 +707,12 @@ export default function VisualizationPage({ params }: PageProps) {
               {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
               {dataFrameEntry?.columnCount ?? "?"} columns
             </span>
-            {visualization.source.insightId && (
+            {visualization.insightId && (
               <>
                 <span>•</span>
                 <button
                   onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
+                    router.push(`/insights/${visualization.insightId}`)
                   }
                   className="text-primary hover:underline"
                 >
@@ -695,196 +722,199 @@ export default function VisualizationPage({ params }: PageProps) {
             )}
           </div>
 
-          {/* View toggle (only for chart types) */}
-          {visualization.visualizationType !== "table" && (
-            <div className="mt-3 flex items-center justify-between">
-              <Toggle
-                variant="default"
-                value={activeTab}
-                onValueChange={setActiveTab}
-                options={[
-                  {
-                    value: "chart",
-                    icon: <BarChart3 className="h-4 w-4" />,
-                    label: "Chart",
-                  },
-                  {
-                    value: "table",
-                    icon: <TableIcon className="h-4 w-4" />,
-                    label: "Data",
-                  },
-                  {
-                    value: "both",
-                    icon: <Layers className="h-4 w-4" />,
-                    label: "Both",
-                    disabled: !canShowBoth,
-                    tooltip: canShowBoth
-                      ? "Show chart and table"
-                      : "Not enough space",
-                  },
-                ]}
+          {/* Delete button */}
+          <div className="mt-3 flex items-center justify-end">
+            <Button
+              label="Delete"
+              variant="text"
+              size="sm"
+              color="danger"
+              onClick={handleDelete}
+              icon={DeleteIcon}
+            />
+          </div>
+        </div>
+      }
+      rightPanel={
+        <div className="space-y-4 p-4">
+          <div>
+            <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
+
+            <div className="space-y-3">
+              {compiledInsight && (
+                <AxisSelectField
+                  label="X Axis"
+                  value={visualization.encoding?.x || ""}
+                  onChange={(value) => handleEncodingChange("x", value)}
+                  placeholder="Select column..."
+                  axis="x"
+                  chartType={visualization.visualizationType}
+                  columnAnalysis={columnAnalysis}
+                  compiledInsight={compiledInsight}
+                  otherAxisColumn={visualization.encoding?.y}
+                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
+                />
+              )}
+
+              {/* Swap button - swaps axes and toggles bar orientation */}
+              {canSwap && (
+                <div className="flex justify-center">
+                  <Button
+                    label="Swap"
+                    variant="text"
+                    size="sm"
+                    onClick={handleSwapAxes}
+                    className="text-muted-foreground hover:text-foreground"
+                    tooltip="Swap X and Y axes"
+                    icon={ArrowUpDownIcon}
+                  />
+                </div>
+              )}
+
+              {compiledInsight && (
+                <AxisSelectField
+                  label="Y Axis"
+                  value={visualization.encoding?.y || ""}
+                  onChange={(value) => handleEncodingChange("y", value)}
+                  placeholder="Select column..."
+                  axis="y"
+                  chartType={visualization.visualizationType}
+                  columnAnalysis={columnAnalysis}
+                  compiledInsight={compiledInsight}
+                  otherAxisColumn={visualization.encoding?.x}
+                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
+                />
+              )}
+
+              <SelectField
+                label="Color (optional)"
+                value={visualization.encoding?.color || ""}
+                onChange={(value) => handleEncodingChange("color", value)}
+                onClear={() => handleEncodingChange("color", "")}
+                options={columnOptions}
+                placeholder="None"
               />
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={handleDelete}
+              {visualization.visualizationType === "dot" && (
+                <SelectField
+                  label="Size (optional)"
+                  value={visualization.encoding?.size || ""}
+                  onChange={(value) => handleEncodingChange("size", value)}
+                  onClear={() => handleEncodingChange("size", "")}
+                  options={columnOptions}
+                  placeholder="None"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
+            <SelectField
+              label=""
+              value={displayChartType}
+              onChange={handleDisplayTypeChange}
+              options={vizTypeOptions}
+            />
+
+            {/* Render mode selector for scatter-type charts */}
+            {isScatterType && (
+              <div className="mt-3">
+                <SelectField
+                  label="Render mode"
+                  value={visualization.visualizationType}
+                  onChange={handleTypeChange}
+                  options={scatterRenderModeOptions}
+                />
+              </div>
+            )}
+
+            {/* Alternative chart types - show related charts from same tags */}
+            {(() => {
+              const alternatives = getAlternativeChartTypes(
+                visualization.visualizationType,
+              );
+              if (alternatives.length === 0) return null;
+
+              return (
+                <div className="mt-3">
+                  <p className="text-muted-foreground mb-2 text-xs">
+                    Similar charts
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {alternatives.map((altType) => {
+                      const meta = CHART_TYPE_METADATA[altType];
+                      return (
+                        <Button
+                          key={altType}
+                          label={meta.displayName}
+                          variant="outlined"
+                          size="sm"
+                          onClick={() => handleTypeChange(altType)}
+                          className="text-xs"
+                          tooltip={meta.hint}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Source insight link */}
+          {visualization.insightId && (
+            <div className="border-t pt-4">
+              <h3 className="mb-2 text-sm font-semibold">Source</h3>
+              <Card
+                className="hover:bg-muted/50 cursor-pointer transition-colors"
+                onClick={() =>
+                  router.push(`/insights/${visualization.insightId}`)
+                }
               >
-                <Trash2 className="mr-1 h-4 w-4" />
-                Delete
-              </Button>
+                <CardContent className="p-3">
+                  <p className="truncate text-sm font-medium">Source Insight</p>
+                  <p className="text-muted-foreground text-xs">
+                    Click to view insight details
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>
       }
-      rightPanel={
-        visualization.visualizationType !== "table" ? (
-          <div className="space-y-4 p-4">
-            <div>
-              <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
-
-              <div className="space-y-3">
-                <SelectField
-                  label="X Axis"
-                  value={visualization.encoding?.x || ""}
-                  onChange={(value) => handleEncodingChange("x", value)}
-                  options={columnOptions}
-                  placeholder="Select column..."
-                />
-
-                <SelectField
-                  label="Y Axis"
-                  value={visualization.encoding?.y || ""}
-                  onChange={(value) => handleEncodingChange("y", value)}
-                  options={columnOptions}
-                  placeholder="Select column..."
-                />
-
-                <SelectField
-                  label="Color (optional)"
-                  value={visualization.encoding?.color || ""}
-                  onChange={(value) => handleEncodingChange("color", value)}
-                  onClear={() => handleEncodingChange("color", "")}
-                  options={columnOptions}
-                  placeholder="None"
-                />
-
-                {visualization.visualizationType === "scatter" && (
-                  <SelectField
-                    label="Size (optional)"
-                    value={visualization.encoding?.size || ""}
-                    onChange={(value) => handleEncodingChange("size", value)}
-                    onClear={() => handleEncodingChange("size", "")}
-                    options={columnOptions}
-                    placeholder="None"
-                  />
+    >
+      <div className="h-full overflow-hidden">
+        {hasEncodingErrors ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="max-w-md rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900">
+                <AlertCircleIcon className="h-6 w-6 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="mb-2 text-lg font-semibold text-red-800 dark:text-red-200">
+                Invalid encoding configuration
+              </h3>
+              <div className="space-y-2 text-sm text-red-700 dark:text-red-300">
+                {encodingErrors.x && (
+                  <p>
+                    <strong>X Axis:</strong> {encodingErrors.x}
+                  </p>
+                )}
+                {encodingErrors.y && (
+                  <p>
+                    <strong>Y Axis:</strong> {encodingErrors.y}
+                  </p>
                 )}
               </div>
+              <p className="mt-4 text-xs text-red-600 dark:text-red-400">
+                Please update the axis configuration in the panel on the right.
+              </p>
             </div>
-
-            <div className="border-t pt-4">
-              <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
-              <SelectField
-                label=""
-                value={visualization.visualizationType}
-                onChange={handleTypeChange}
-                options={vizTypeOptions}
-              />
-            </div>
-
-            {/* Source insight link */}
-            {visualization.source.insightId && (
-              <div className="border-t pt-4">
-                <h3 className="mb-2 text-sm font-semibold">Source</h3>
-                <Card
-                  className="hover:bg-muted/50 cursor-pointer transition-colors"
-                  onClick={() =>
-                    router.push(`/insights/${visualization.source.insightId}`)
-                  }
-                >
-                  <CardContent className="p-3">
-                    <p className="truncate text-sm font-medium">
-                      Source Insight
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      Click to view insight details
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
           </div>
-        ) : undefined
-      }
-    >
-      <div ref={containerRef} className="h-full overflow-hidden">
-        {/* Table-only visualization */}
-        {visualization.visualizationType === "table" && (
-          <div className="flex h-full flex-col p-6">
-            <Surface
-              elevation="inset"
-              className="flex min-h-0 flex-1 flex-col p-4"
-            >
-              <VirtualTable
-                rows={dataFrame.rows}
-                columns={dataFrame.columns}
-                height="100%"
-                className="flex-1"
-              />
-            </Surface>
-          </div>
+        ) : (
+          <VisualizationDisplay visualizationId={visualizationId} />
         )}
-
-        {/* Chart visualization - chart tab */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "chart" && (
-            <div className="h-full p-6">
-              <VegaChart spec={vegaSpec!} />
-            </div>
-          )}
-
-        {/* Chart visualization - table tab */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "table" && (
-            <div className="flex h-full flex-col p-6">
-              <Surface
-                elevation="inset"
-                className="flex min-h-0 flex-1 flex-col p-4"
-              >
-                <VirtualTable
-                  rows={dataFrame.rows}
-                  columns={dataFrame.columns}
-                  height="100%"
-                  className="flex-1"
-                />
-              </Surface>
-            </div>
-          )}
-
-        {/* Chart visualization - both view */}
-        {visualization.visualizationType !== "table" &&
-          activeTab === "both" && (
-            <div className="flex h-full flex-col">
-              <div className="shrink-0">
-                <VegaChart spec={vegaSpec!} />
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col">
-                <Surface
-                  elevation="inset"
-                  className="flex min-h-0 flex-1 flex-col"
-                >
-                  <VirtualTable
-                    rows={dataFrame.rows}
-                    columns={dataFrame.columns}
-                    height="100%"
-                    className="flex-1"
-                  />
-                </Surface>
-              </div>
-            </div>
-          )}
       </div>
-    </WorkbenchLayout>
+    </AppLayout>
   );
 }

@@ -71,7 +71,7 @@ export const Panel = forwardRef<HTMLDivElement, PanelProps>(function Panel(
       )}
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">{children}</div>
+      <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
 
       {/* Fixed footer */}
       {footer && (

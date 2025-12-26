@@ -1,15 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": "./",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@dashframe/dataframe": ["../../packages/dataframe/src"],
-      "@dashframe/csv": ["../../packages/csv/src"],
-      "@dashframe/ui/icons": ["../../packages/ui/src/lib/icons"],
-      "@dashframe/ui": ["../../packages/ui/src"],
-      "@dashframe/convex": ["../../convex/_generated/api"],
-      "@dashframe/convex/*": ["../../convex/_generated/*"]
+      "@/*": ["./*"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,

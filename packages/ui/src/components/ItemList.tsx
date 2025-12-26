@@ -16,9 +16,14 @@ export interface ListItem {
    */
   title: string;
   /**
-   * Optional subtitle or metadata text
+   * Optional subtitle or metadata text (single line, truncated)
    */
   subtitle?: string;
+  /**
+   * Optional rich content section below subtitle.
+   * Can contain any React content for flexible formatting.
+   */
+  content?: React.ReactNode;
   /**
    * Optional badge text to display
    */
@@ -35,22 +40,36 @@ export interface ListItem {
    * Optional actions for this item (shown on hover)
    */
   actions?: ItemAction[];
+  /**
+   * Optional preview element to display above the card content
+   */
+  preview?: React.ReactNode;
+  /**
+   * Height of the preview section in pixels
+   */
+  previewHeight?: number;
+  /**
+   * Whether the item is disabled. When a string is provided,
+   * it's used as the reason/explanation shown to the user.
+   */
+  disabled?: boolean | string;
 }
 
-export interface ItemListProps {
+export interface ItemListProps<T extends ListItem = ListItem> {
   /**
    * Array of items to display
    */
-  items: ListItem[];
+  items: T[];
   /**
-   * Callback when an item is selected
+   * Callback when an item is selected.
+   * If not provided, items will not be clickable (no pointer cursor).
    */
-  onSelect: (id: string) => void;
+  onSelect?: (id: string) => void;
   /**
    * Layout orientation
    * @default "vertical"
    */
-  orientation?: "vertical" | "horizontal";
+  orientation?: "vertical" | "horizontal" | "grid";
   /**
    * Maximum size constraint (height for vertical, width for horizontal)
    * Can be a number (pixels) or CSS string value
@@ -67,6 +86,11 @@ export interface ItemListProps {
    */
   itemWidth?: number;
   /**
+   * Number of columns for grid orientation.
+   * When not specified, uses responsive defaults (1 on mobile, 2 on md, 3 on lg).
+   */
+  gridColumns?: number;
+  /**
    * Additional CSS classes for the container
    */
   className?: string;
@@ -78,6 +102,12 @@ export interface ItemListProps {
    * Icon to display in empty state
    */
   emptyIcon?: React.ReactNode;
+  /**
+   * Custom render function for items.
+   * When provided, replaces the default ItemCard rendering.
+   * Receives the item and a click handler.
+   */
+  renderItem?: (item: T, onClick: () => void) => React.ReactNode;
 }
 
 /**
@@ -118,18 +148,32 @@ export interface ItemListProps {
  *   emptyIcon={<Database className="h-8 w-8" />}
  * />
  * ```
+ *
+ * @example With custom render function
+ * ```tsx
+ * <ItemList
+ *   items={visualizations}
+ *   onSelect={handleSelect}
+ *   orientation="grid"
+ *   renderItem={(item, onClick) => (
+ *     <CustomCard key={item.id} data={item} onClick={onClick} />
+ *   )}
+ * />
+ * ```
  */
-export function ItemList({
+export function ItemList<T extends ListItem>({
   items,
   onSelect,
   orientation = "vertical",
   maxSize,
   gap = 8,
   itemWidth = 220,
+  gridColumns,
   className,
   emptyMessage = "No items",
   emptyIcon,
-}: ItemListProps) {
+  renderItem,
+}: ItemListProps<T>) {
   // Show empty state when no items
   if (items.length === 0) {
     return (
@@ -164,6 +208,32 @@ export function ItemList({
     return icon;
   };
 
+  // Render a single item - uses custom renderItem if provided, otherwise default ItemCard
+  const renderListItem = (item: T) => {
+    // Only create onClick handler if onSelect is provided
+    const onClick = onSelect ? () => onSelect(item.id) : undefined;
+
+    if (renderItem) {
+      return renderItem(item, onClick || (() => {}));
+    }
+
+    return (
+      <ItemCard
+        icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
+        title={item.title}
+        subtitle={item.subtitle}
+        content={item.content}
+        badge={item.badge}
+        active={item.active}
+        actions={item.actions}
+        preview={item.preview}
+        previewHeight={item.previewHeight}
+        disabled={item.disabled}
+        onClick={onClick}
+      />
+    );
+  };
+
   const itemElements = items.map((item) => (
     <div
       key={item.id}
@@ -172,15 +242,7 @@ export function ItemList({
         orientation === "horizontal" ? { width: `${itemWidth}px` } : undefined
       }
     >
-      <ItemCard
-        icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
-        title={item.title}
-        subtitle={item.subtitle}
-        badge={item.badge}
-        active={item.active}
-        actions={item.actions}
-        onClick={() => onSelect(item.id)}
-      />
+      {renderListItem(item)}
     </div>
   ));
 
@@ -195,6 +257,30 @@ export function ItemList({
           {itemElements}
         </div>
       </ScrollArea>
+    );
+  }
+
+  // Grid orientation
+  if (orientation === "grid") {
+    // Use custom gridColumns if provided, otherwise use responsive defaults
+    const gridStyle = gridColumns
+      ? { gap: `${gap}px`, gridTemplateColumns: `repeat(${gridColumns}, 1fr)` }
+      : { gap: `${gap}px` };
+
+    return (
+      <div
+        className={cn(
+          "grid",
+          // Only apply responsive defaults when gridColumns is not specified
+          !gridColumns && "grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
+          className,
+        )}
+        style={gridStyle}
+      >
+        {items.map((item) => (
+          <div key={item.id}>{renderListItem(item)}</div>
+        ))}
+      </div>
     );
   }
 

@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 import { Panel } from "./Panel";
 import { Button } from "../primitives/button";
-import { Database, Plus } from "../lib/icons";
+import { DatabaseIcon, PlusIcon } from "../lib/icons";
 import { useState } from "react";
 
 const meta = {
@@ -71,7 +71,7 @@ export const WithItemSelector: Story = {
         active: true,
         badge: "PostgreSQL",
         metadata: "12 tables",
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         id: "2",
@@ -79,7 +79,7 @@ export const WithItemSelector: Story = {
         active: false,
         badge: "MongoDB",
         metadata: "8 collections",
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ]);
 
@@ -98,7 +98,7 @@ export const WithItemSelector: Story = {
             {
               label: "New",
               onClick: () => alert("New"),
-              icon: Plus,
+              icon: PlusIcon,
             },
           ]}
         />
@@ -123,18 +123,18 @@ export const WithRichContent: Story = {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="border-border/60 rounded-xl border p-4">
-            <Database className="mb-2 h-5 w-5" />
+            <DatabaseIcon className="mb-2 h-5 w-5" />
             <p className="text-sm font-medium">PostgreSQL</p>
             <p className="text-muted-foreground text-xs">12 tables</p>
           </div>
           <div className="border-border/60 rounded-xl border p-4">
-            <Database className="mb-2 h-5 w-5" />
+            <DatabaseIcon className="mb-2 h-5 w-5" />
             <p className="text-sm font-medium">MongoDB</p>
             <p className="text-muted-foreground text-xs">8 collections</p>
           </div>
         </div>
         <Button className="w-full">
-          <Plus className="mr-2 h-4 w-4" />
+          <PlusIcon className="mr-2 h-4 w-4" />
           Add Data Source
         </Button>
       </div>
@@ -183,13 +183,13 @@ export const SettingsPanel: Story = {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Enable notifications</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Auto-save</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
@@ -203,13 +203,13 @@ export const SettingsPanel: Story = {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Debug mode</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Performance monitoring</span>
-                <Button variant="outline" size="sm">
+                <Button variant="outlined" size="sm">
                   Toggle
                 </Button>
               </div>

@@ -1,22 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import type { DataTable } from "@/lib/stores/types";
-import type { DataFrameEntry } from "@/lib/stores/dataframes-store";
+import type { DataTable } from "@dashframe/types";
+import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   Button,
-  Plus,
-  Edit3,
-  X,
-  Sparkles,
-  Layers,
+  PlusIcon,
+  EditIcon,
+  CloseIcon,
+  SparklesIcon,
+  LayersIcon,
   Panel,
   Toggle,
   EmptyState,
   VirtualTable,
-  Trash2,
-  ActionGroup,
+  DeleteIcon,
+  ButtonGroup,
 } from "@dashframe/ui";
 
 interface TableDetailPanelProps {
@@ -50,12 +50,55 @@ export function TableDetailPanel({
     { limit: 50, skip: activeTab !== "preview" },
   );
 
+  let previewStatus = "No data available";
+  if (isLoadingPreview) {
+    previewStatus = "Loading preview...";
+  } else if (previewData) {
+    const rowCount = Math.min(
+      50,
+      dataFrameEntry?.rowCount ?? previewData.rows.length,
+    );
+    previewStatus = `Showing first ${rowCount} rows`;
+  }
+
+  const renderPreviewContent = () => {
+    if (isLoadingPreview) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <p className="text-muted-foreground text-sm">Loading data...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (previewData) {
+      return (
+        <VirtualTable
+          rows={previewData.rows}
+          columns={previewData.columns}
+          height="100%"
+          className="flex-1"
+        />
+      );
+    }
+
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">
+          No data preview available
+        </p>
+      </div>
+    );
+  };
+
   // Empty state when no table selected
   if (!dataTable) {
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState
-          icon={Layers}
+          icon={LayersIcon}
           title="Select a table to view details"
           description="Choose a table from the list to view and edit its fields, metrics, and data."
         />
@@ -78,21 +121,20 @@ export function TableDetailPanel({
                   : "No data available"}
               </p>
             </div>
-            <ActionGroup
+            <ButtonGroup
               actions={[
                 {
                   label: "Delete Table",
                   onClick: onDeleteTable,
-                  icon: Trash2,
-                  variant: "ghost",
+                  icon: DeleteIcon,
+                  variant: "text",
                   className:
                     "text-destructive hover:bg-destructive hover:text-destructive-foreground",
                 },
                 {
                   label: "Create Visualization",
                   onClick: onCreateVisualization,
-                  icon: Sparkles,
-                  variant: "default",
+                  icon: SparklesIcon,
                 },
               ]}
             />
@@ -129,10 +171,13 @@ export function TableDetailPanel({
               {dataTable.fields.length} field
               {dataTable.fields.length !== 1 ? "s" : ""}
             </p>
-            <Button variant="outline" size="sm" onClick={onAddField}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Field
-            </Button>
+            <Button
+              label="Add Field"
+              variant="outlined"
+              size="sm"
+              onClick={onAddField}
+              icon={PlusIcon}
+            />
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -158,21 +203,23 @@ export function TableDetailPanel({
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      label="Edit field"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onEditField(field.id)}
                       className="h-8 w-8"
-                    >
-                      <Edit3 className="h-4 w-4" />
-                    </Button>
+                      icon={EditIcon}
+                    />
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      label="Delete field"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onDeleteField(field.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                      icon={CloseIcon}
+                    />
                   </div>
                 </div>
               ))
@@ -189,10 +236,13 @@ export function TableDetailPanel({
               {dataTable.metrics.length} metric
               {dataTable.metrics.length !== 1 ? "s" : ""}
             </p>
-            <Button variant="outline" size="sm" onClick={onAddMetric}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Metric
-            </Button>
+            <Button
+              label="Add Metric"
+              variant="outlined"
+              size="sm"
+              onClick={onAddMetric}
+              icon={PlusIcon}
+            />
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -222,13 +272,14 @@ export function TableDetailPanel({
                       </span>
                     </div>
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      label="Delete metric"
+                      variant="text"
+                      size="sm"
+                      iconOnly
                       onClick={() => onDeleteMetric(metric.id)}
                       className="text-destructive hover:bg-destructive hover:text-destructive-foreground h-8 w-8 shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                      icon={CloseIcon}
+                    />
                   </div>
                 );
               })
@@ -240,38 +291,10 @@ export function TableDetailPanel({
       {/* Preview Content */}
       {activeTab === "preview" && (
         <div className="flex h-full flex-col gap-4 p-4">
-          <p className="text-muted-foreground text-sm">
-            {isLoadingPreview
-              ? "Loading preview..."
-              : previewData
-                ? `Showing first ${Math.min(50, dataFrameEntry?.rowCount ?? previewData.rows.length)} rows`
-                : "No data available"}
-          </p>
+          <p className="text-muted-foreground text-sm">{previewStatus}</p>
 
           <div className="border-border/60 min-h-0 flex-1 overflow-hidden rounded-xl border">
-            {isLoadingPreview ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="bg-muted h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  <p className="text-muted-foreground text-sm">
-                    Loading data...
-                  </p>
-                </div>
-              </div>
-            ) : previewData ? (
-              <VirtualTable
-                rows={previewData.rows}
-                columns={previewData.columns}
-                height="100%"
-                className="flex-1"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground text-sm">
-                  No data preview available
-                </p>
-              </div>
-            )}
+            {renderPreviewContent()}
           </div>
         </div>
       )}

@@ -1,14 +1,16 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import { TRPCProvider } from "@/lib/trpc/Provider";
-import { TooltipProvider } from "@dashframe/ui";
+import { TooltipProvider, GeistSans, GeistMono } from "@dashframe/ui";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navigation } from "@/components/navigation";
-import { StoreHydration } from "@/components/providers/StoreHydration";
+import { DatabaseProvider } from "@dashframe/core";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
+import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export const metadata: Metadata = {
   title: "DashFrame",
@@ -22,7 +24,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="bg-background text-foreground" suppressHydrationWarning>
+      <body
+        className={`${GeistSans.variable} ${GeistMono.variable} bg-background text-foreground font-sans`}
+        suppressHydrationWarning
+      >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -33,38 +38,41 @@ export default function RootLayout({
             <PostHogPageView />
             <TooltipProvider>
               <TRPCProvider>
-                <DuckDBProvider>
-                  <StoreHydration>
-                    <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-                      <div
-                        className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(147,197,253,0.55),transparent_60%)] opacity-80 blur-3xl dark:opacity-60"
-                        style={{ height: "42rem", width: "42rem" }}
-                      />
-                      <div
-                        className="absolute left-[-10%] top-1/4 rounded-full bg-[radial-gradient(circle,rgba(209,128,255,0.38),transparent_65%)] opacity-70 mix-blend-screen blur-3xl dark:opacity-45"
-                        style={{ height: "36rem", width: "36rem" }}
-                      />
-                      <div
-                        className="absolute bottom-[-25%] right-[-5%] rounded-full bg-[radial-gradient(circle,rgba(52,211,153,0.35),transparent_60%)] opacity-60 mix-blend-color-dodge blur-3xl dark:opacity-40"
-                        style={{ height: "32rem", width: "32rem" }}
-                      />
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,rgba(14,165,233,0.22),transparent_55%)] opacity-70 dark:opacity-45" />
-                      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.12),transparent,rgba(255,255,255,0.02))] dark:bg-[linear-gradient(120deg,rgba(0,0,0,0.05),transparent,rgba(0,0,0,0.25))]" />
-                      <div className="bg-background/40 dark:bg-background/70 absolute inset-0 backdrop-blur-[2px]" />
-                    </div>
+                <DatabaseProvider>
+                  <DuckDBProvider>
+                    <VisualizationSetup>
+                      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+                        <div
+                          className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(163,163,163,0.35),transparent_60%)] opacity-70 blur-3xl dark:opacity-50"
+                          style={{ height: "42rem", width: "42rem" }}
+                        />
+                        <div
+                          className="absolute left-[-10%] top-1/4 rounded-full bg-[radial-gradient(circle,rgba(115,115,115,0.28),transparent_65%)] opacity-60 mix-blend-screen blur-3xl dark:opacity-40"
+                          style={{ height: "36rem", width: "36rem" }}
+                        />
+                        <div
+                          className="absolute bottom-[-25%] right-[-5%] rounded-full bg-[radial-gradient(circle,rgba(82,82,82,0.22),transparent_60%)] opacity-50 mix-blend-color-dodge blur-3xl dark:opacity-35"
+                          style={{ height: "32rem", width: "32rem" }}
+                        />
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,rgba(64,64,64,0.16),transparent_55%)] opacity-60 dark:opacity-40" />
+                        <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.1),transparent,rgba(255,255,255,0.02))] dark:bg-[linear-gradient(120deg,rgba(0,0,0,0.05),transparent,rgba(0,0,0,0.2))]" />
+                        <div className="bg-background/50 dark:bg-background/75 absolute inset-0 backdrop-blur-[2px]" />
+                      </div>
 
-                    <div className="bg-background text-foreground relative isolate flex min-h-screen flex-row">
-                      <Navigation />
+                      <div className="bg-background text-foreground relative isolate flex min-h-screen flex-row">
+                        <Navigation />
 
-                      <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
-                        <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-                          {children}
-                        </div>
-                      </main>
-                    </div>
-                    <Toaster />
-                  </StoreHydration>
-                </DuckDBProvider>
+                        <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
+                          <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
+                            {children}
+                          </div>
+                        </main>
+                      </div>
+                      <Toaster />
+                      <ConfirmDialog />
+                    </VisualizationSetup>
+                  </DuckDBProvider>
+                </DatabaseProvider>
               </TRPCProvider>
             </TooltipProvider>
           </PostHogProvider>

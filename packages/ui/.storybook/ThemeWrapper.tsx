@@ -2,7 +2,9 @@ import React, { useEffect, type ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
 
 interface ThemeWrapperProps {
-  children: ReactNode;
+  /** Child elements to wrap with theme - optional when using createElement's third argument */
+  children?: ReactNode;
+  /** Theme name: "light", "dark", or "system" */
   theme: string;
 }
 

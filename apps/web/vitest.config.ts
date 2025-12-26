@@ -3,7 +3,9 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  plugins: [react()],
+  // Cast to any due to Vite version mismatch between @vitejs/plugin-react and vitest
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  plugins: [react() as any],
   test: {
     environment: "jsdom",
     globals: true,
@@ -14,9 +16,19 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./"),
       "@dashframe/ui": path.resolve(__dirname, "../../packages/ui/src"),
-      "@dashframe/dataframe": path.resolve(
+      "@dashframe/core": path.resolve(__dirname, "../../packages/core/src"),
+      "@dashframe/engine": path.resolve(__dirname, "../../packages/engine/src"),
+      "@dashframe/engine-browser": path.resolve(
         __dirname,
-        "../../packages/dataframe/src",
+        "../../packages/engine-browser/src",
+      ),
+      "@dashframe/connector-csv": path.resolve(
+        __dirname,
+        "../../packages/connector-csv/src",
+      ),
+      "@dashframe/connector-notion": path.resolve(
+        __dirname,
+        "../../packages/connector-notion/src",
       ),
     },
   },

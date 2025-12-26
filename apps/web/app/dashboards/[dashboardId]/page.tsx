@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -14,22 +14,22 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
-  ArrowLeft,
-  Plus,
-  Edit3,
-  Check,
-  LayoutDashboard,
-  FileText,
-  BarChart3,
-  Toggle,
 } from "@dashframe/ui";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useShallow } from "zustand/react/shallow";
+import {
+  ArrowLeftIcon,
+  ChartIcon,
+  CheckIcon,
+  EditIcon,
+  FileIcon,
+  PlusIcon,
+} from "@dashframe/ui/icons";
+import {
+  useDashboards,
+  useDashboardMutations,
+  useVisualizations,
+} from "@dashframe/core";
+import type { DashboardItemType } from "@dashframe/types";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import type { DashboardItemType } from "@/lib/types/dashboard";
-import { useStoreHydrated } from "@/components/providers/StoreHydration";
-import { generateUUID } from "@/lib/utils";
 
 export default function DashboardDetailPage({
   params,
@@ -38,49 +38,56 @@ export default function DashboardDetailPage({
 }) {
   const { dashboardId } = use(params);
   const router = useRouter();
-  const isHydrated = useStoreHydrated();
-  const dashboard = useDashboardsStore((state) =>
-    state.dashboards.get(dashboardId),
-  );
-  const addItem = useDashboardsStore((state) => state.addItem);
-  const updateDashboard = useDashboardsStore((state) => state.updateDashboard);
-  const visualizations = useVisualizationsStore(
-    useShallow((state) => Array.from(state.visualizations.values())),
+
+  // Dexie hooks
+  const { data: dashboards = [], isLoading } = useDashboards();
+  const { data: visualizations = [] } = useVisualizations();
+  const { addItem } = useDashboardMutations();
+
+  // Find the dashboard
+  const dashboard = useMemo(
+    () => dashboards.find((d) => d.id === dashboardId),
+    [dashboards, dashboardId],
   );
 
+  // Local state
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
-  // Redirect if not found - only after stores are hydrated from localStorage
+  // Redirect if not found after loading completes
   useEffect(() => {
-    if (isHydrated && !dashboard) {
+    if (!isLoading && !dashboard) {
       router.push("/dashboards");
     }
-  }, [isHydrated, dashboard, router]);
+  }, [isLoading, dashboard, router]);
 
-  // Show nothing until hydration completes to avoid flash
-  if (!isHydrated || !dashboard) return null;
+  // Show loading state until we have the dashboard
+  if (isLoading || !dashboard) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading dashboard...</p>
+      </div>
+    );
+  }
 
-  const handleAddItem = () => {
-    const newItem = {
-      id: generateUUID(),
+  const handleAddItem = async () => {
+    await addItem(dashboardId, {
       type: addType,
-      layout: {
+      position: {
         x: 0,
         y: Infinity, // Put at bottom
-        w: addType === "visualization" ? 6 : 4,
-        h: addType === "visualization" ? 6 : 4,
+        width: addType === "visualization" ? 6 : 4,
+        height: addType === "visualization" ? 6 : 4,
       },
       visualizationId: addType === "visualization" ? selectedVizId : undefined,
       content:
         addType === "markdown"
           ? "## New Text Widget\n\nEdit this text..."
           : undefined,
-    };
+    });
 
-    addItem(dashboard.id, newItem);
     setIsAddOpen(false);
     setAddType("visualization");
     setSelectedVizId("");
@@ -92,12 +99,12 @@ export default function DashboardDetailPage({
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-4">
           <Button
-            variant="ghost"
-            size="icon"
+            variant="text"
+            icon={ArrowLeftIcon}
+            iconOnly
+            label="Back to dashboards"
             onClick={() => router.push("/dashboards")}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+          />
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight">
               {dashboard.name}
@@ -109,21 +116,26 @@ export default function DashboardDetailPage({
         </div>
         <div className="flex items-center gap-2">
           {isEditable ? (
-            <Button onClick={() => setIsEditable(false)}>
-              <Check className="mr-2 h-4 w-4" />
-              Done Editing
-            </Button>
+            <Button
+              icon={CheckIcon}
+              label="Done Editing"
+              onClick={() => setIsEditable(false)}
+            />
           ) : (
-            <Button variant="outline" onClick={() => setIsEditable(true)}>
-              <Edit3 className="mr-2 h-4 w-4" />
-              Edit Dashboard
-            </Button>
+            <Button
+              variant="outlined"
+              icon={EditIcon}
+              label="Edit Dashboard"
+              onClick={() => setIsEditable(true)}
+            />
           )}
           {isEditable && (
-            <Button variant="secondary" onClick={() => setIsAddOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Widget
-            </Button>
+            <Button
+              color="secondary"
+              icon={PlusIcon}
+              label="Add Widget"
+              onClick={() => setIsAddOpen(true)}
+            />
           )}
         </div>
       </div>
@@ -152,7 +164,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("visualization")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <BarChart3 className="h-4 w-4" />
+                    <ChartIcon className="h-4 w-4" />
                     Visualization
                   </div>
                   <p className="text-muted-foreground text-xs">
@@ -168,7 +180,7 @@ export default function DashboardDetailPage({
                   onClick={() => setAddType("markdown")}
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
-                    <FileText className="h-4 w-4" />
+                    <FileIcon className="h-4 w-4" />
                     Text / Markdown
                   </div>
                   <p className="text-muted-foreground text-xs">
@@ -197,15 +209,16 @@ export default function DashboardDetailPage({
             )}
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsAddOpen(false)}>
-              Cancel
-            </Button>
             <Button
+              variant="outlined"
+              label="Cancel"
+              onClick={() => setIsAddOpen(false)}
+            />
+            <Button
+              label="Add Widget"
               onClick={handleAddItem}
               disabled={addType === "visualization" && !selectedVizId}
-            >
-              Add Widget
-            </Button>
+            />
           </div>
         </DialogContent>
       </Dialog>

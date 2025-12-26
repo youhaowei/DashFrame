@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useState, useEffect, useMemo } from "react";
+import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Button,
   Input,
@@ -10,10 +11,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Database,
+  DatabaseIcon,
   TableIcon,
-  Plus,
-  Trash2,
+  PlusIcon,
+  DeleteIcon,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,25 +25,24 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeft as LuArrowLeft,
-  File as LuFileSpreadsheet,
-  Cloud as LuCloud,
-  MoreHorizontal as LuMoreHorizontal,
+  ChevronLeftIcon as LuArrowLeft,
+  FileIcon as LuFileSpreadsheet,
+  CloudIcon as LuCloud,
+  MoreIcon as LuMoreHorizontal,
   Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
   ItemCard,
 } from "@dashframe/ui";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+  useDataTableMutations,
+  useDataFrames,
+} from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
 import { VirtualTable } from "@dashframe/ui";
-import type { UUID } from "@dashframe/dataframe";
-import { WorkbenchLayout } from "@/components/layouts/WorkbenchLayout";
+import type { UUID } from "@dashframe/types";
+import { AppLayout } from "@/components/layouts/AppLayout";
 
 interface PageProps {
   params: Promise<{ sourceId: string }>;
@@ -56,9 +56,9 @@ function getSourceTypeIcon(type: string) {
     case "local":
       return <LuFileSpreadsheet className="h-5 w-5" />;
     case "postgresql":
-      return <Database className="h-5 w-5" />;
+      return <DatabaseIcon className="h-5 w-5" />;
     default:
-      return <Database className="h-5 w-5" />;
+      return <DatabaseIcon className="h-5 w-5" />;
   }
 }
 
@@ -75,59 +75,50 @@ export default function DataSourcePage({ params }: PageProps) {
   const { sourceId } = use(params);
   const router = useRouter();
 
-  // Local stores
-  const { data: dataSource, isLoading } = useStoreQuery(
-    useDataSourcesStore,
-    (s) => s.get(sourceId),
-  );
-  const updateDataSource = useDataSourcesStore((s) => s.update);
-  const removeDataTable = useDataSourcesStore((s) => s.removeDataTable);
-  const getEntry = useDataFramesStore((state) => state.getEntry);
+  // Dexie hooks
+  const { data: allDataSources = [] } = useDataSources();
+  const { update: updateDataSource } = useDataSourceMutations();
+  const { remove: removeDataTable } = useDataTableMutations();
+  const { data: allDataFrames = [] } = useDataFrames();
 
-  // Get tables from data source
-  const dataTables = useMemo(() => {
-    return dataSource ? Array.from(dataSource.dataTables.values()) : [];
-  }, [dataSource]);
+  // Find the data source
+  const dataSource = allDataSources.find((s) => s.id === sourceId);
+  const isLoading = false; // DataSources hook handles loading
 
-  // Local state for selected table
+  // Get tables for this data source (flat in Dexie)
+  const { data: dataTables = [] } = useDataTables(sourceId);
+
+  // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
+
+  // Effective selected table ID - either user selection or first table as default
+  const effectiveSelectedTableId = selectedTableId ?? dataTables[0]?.id ?? null;
 
   // Get selected table details
   const tableDetails = useMemo(() => {
-    if (!selectedTableId || !dataSource) return null;
-    const table = dataSource.dataTables.get(selectedTableId);
+    if (!effectiveSelectedTableId) return null;
+    const table = dataTables.find((t) => t.id === effectiveSelectedTableId);
     return table
       ? { dataTable: table, fields: table.fields, metrics: table.metrics }
       : null;
-  }, [selectedTableId, dataSource]);
+  }, [effectiveSelectedTableId, dataTables]);
 
-  // Local state
-  const [sourceName, setSourceName] = useState("");
+  // Use source name directly - mutations update database which triggers re-render
+  const sourceName = dataSource?.name ?? "";
+
+  // Local state for delete confirmation
   const [deleteConfirmState, setDeleteConfirmState] = useState<{
     isOpen: boolean;
     tableId: UUID | null;
     tableName: string | null;
   }>({ isOpen: false, tableId: null, tableName: null });
 
-  // Auto-select first table when data loads
-  useEffect(() => {
-    if (dataTables.length > 0 && !selectedTableId) {
-      setSelectedTableId(dataTables[0].id);
-    }
-  }, [dataTables, selectedTableId]);
-
-  // Sync source name when data loads
-  useEffect(() => {
-    if (dataSource?.name) {
-      setSourceName(dataSource.name);
-    }
-  }, [dataSource?.name]);
-
   // Get DataFrame entry for metadata (row/column counts)
   const dataFrameEntry = useMemo(() => {
-    if (!tableDetails?.dataTable?.dataFrameId) return null;
-    return getEntry(tableDetails.dataTable.dataFrameId);
-  }, [tableDetails?.dataTable?.dataFrameId, getEntry]);
+    const dataFrameId = tableDetails?.dataTable?.dataFrameId;
+    if (!dataFrameId) return null;
+    return allDataFrames.find((e) => e.id === dataFrameId);
+  }, [tableDetails, allDataFrames]);
 
   // Load actual data for preview (async from IndexedDB)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -135,10 +126,9 @@ export default function DataSourcePage({ params }: PageProps) {
     { limit: 50 },
   );
 
-  // Handle name change
-  const handleNameChange = (newName: string) => {
-    setSourceName(newName);
-    updateDataSource(sourceId, { name: newName });
+  // Handle name change - directly update database, triggers re-render via hook
+  const handleNameChange = async (newName: string) => {
+    await updateDataSource(sourceId, { name: newName });
   };
 
   // Handle create insight from table
@@ -160,12 +150,12 @@ export default function DataSourcePage({ params }: PageProps) {
   };
 
   // Handle confirm delete
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteConfirmState.tableId) return;
 
     try {
       // Delete from local store
-      removeDataTable(sourceId, deleteConfirmState.tableId);
+      await removeDataTable(deleteConfirmState.tableId);
 
       // Clear selection and close dialog
       setSelectedTableId(null);
@@ -194,9 +184,11 @@ export default function DataSourcePage({ params }: PageProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             The data source you&apos;re looking for doesn&apos;t exist.
           </p>
-          <Button onClick={() => router.push("/data-sources")} className="mt-4">
-            Go to Data Sources
-          </Button>
+          <Button
+            label="Go to Data Sources"
+            onClick={() => router.push("/data-sources")}
+            className="mt-4"
+          />
         </div>
       </div>
     );
@@ -204,34 +196,27 @@ export default function DataSourcePage({ params }: PageProps) {
 
   return (
     <>
-      <WorkbenchLayout
-        header={
+      <AppLayout
+        headerContent={
           <div className="container mx-auto px-6 py-4">
-            <Breadcrumb className="mb-4">
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink
-                    onClick={() => router.push("/data-sources")}
-                    className="hover:text-foreground flex cursor-pointer items-center gap-1"
-                  >
-                    <LuArrowLeft className="h-4 w-4" />
-                    Back
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/data-sources">
-                    Data Sources
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>
-                    {sourceName || "Untitled Source"}
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+            <div className="mb-4">
+              <Breadcrumb
+                LinkComponent={Link}
+                items={[
+                  {
+                    label: (
+                      <span className="flex items-center gap-1">
+                        <LuArrowLeft className="h-4 w-4" />
+                        Back
+                      </span>
+                    ),
+                    href: "/data-sources",
+                  },
+                  { label: "Data Sources", href: "/data-sources" },
+                  { label: sourceName || "Untitled Source" },
+                ]}
+              />
+            </div>
           </div>
         }
         leftPanel={
@@ -291,22 +276,27 @@ export default function DataSourcePage({ params }: PageProps) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Button onClick={() => handleCreateInsight(selectedTableId)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Insight
-                </Button>
+                <Button
+                  label="Create Insight"
+                  onClick={() => handleCreateInsight(selectedTableId)}
+                  icon={PlusIcon}
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <LuMoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    <Button
+                      label="More options"
+                      variant="text"
+                      size="sm"
+                      iconOnly
+                      icon={LuMoreHorizontal}
+                    />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={handleDeleteTable}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <DeleteIcon className="mr-2 h-4 w-4" />
                       Delete Table
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -386,28 +376,38 @@ export default function DataSourcePage({ params }: PageProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="max-h-96 overflow-auto">
-                    {isLoadingPreview ? (
-                      <div className="flex h-40 items-center justify-center">
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    {(() => {
+                      if (isLoadingPreview) {
+                        return (
+                          <div className="flex h-40 items-center justify-center">
+                            <div className="flex flex-col items-center gap-2">
+                              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                              <p className="text-muted-foreground text-sm">
+                                Loading data...
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (previewData) {
+                        return (
+                          <VirtualTable
+                            rows={previewData.rows}
+                            columns={previewData.columns}
+                            height={300}
+                          />
+                        );
+                      }
+
+                      return (
+                        <div className="flex h-40 items-center justify-center">
                           <p className="text-muted-foreground text-sm">
-                            Loading data...
+                            No data available
                           </p>
                         </div>
-                      </div>
-                    ) : previewData ? (
-                      <VirtualTable
-                        rows={previewData.rows}
-                        columns={previewData.columns}
-                        height={300}
-                      />
-                    ) : (
-                      <div className="flex h-40 items-center justify-center">
-                        <p className="text-muted-foreground text-sm">
-                          No data available
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -424,7 +424,7 @@ export default function DataSourcePage({ params }: PageProps) {
             </div>
           </div>
         )}
-      </WorkbenchLayout>
+      </AppLayout>
 
       {/* Delete Confirmation Dialog */}
       <Dialog
@@ -449,7 +449,8 @@ export default function DataSourcePage({ params }: PageProps) {
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="outline"
+              label="Cancel"
+              variant="outlined"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,
@@ -457,12 +458,12 @@ export default function DataSourcePage({ params }: PageProps) {
                   tableName: null,
                 })
               }
-            >
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleConfirmDelete}>
-              Delete Table
-            </Button>
+            />
+            <Button
+              label="Delete Table"
+              color="danger"
+              onClick={handleConfirmDelete}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,33 +1,27 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type {
   UUID,
   DataFrameRow,
   DataFrameColumn,
+  DataFrameData,
   ColumnType,
-} from "@dashframe/dataframe";
+} from "@dashframe/types";
 import {
-  useDataFramesStore,
+  useDataFrames,
+  getDataFrame,
   type DataFrameEntry,
-} from "@/lib/stores/dataframes-store";
+} from "@dashframe/core";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
 const loadingPromises = new Map<string, Promise<void>>();
 
 /**
- * Loaded DataFrame data structure
- */
-export interface LoadedDataFrameData {
-  rows: DataFrameRow[];
-  columns: DataFrameColumn[];
-}
-
-/**
  * Return type for useDataFrameData hook
  */
 export interface UseDataFrameDataResult {
   /** Loaded row and column data (null while loading or on error) */
-  data: LoadedDataFrameData | null;
+  data: DataFrameData | null;
   /** Whether data is currently being loaded */
   isLoading: boolean;
   /** Error message if loading failed */
@@ -103,12 +97,15 @@ export function useDataFrameData(
   },
 ): UseDataFrameDataResult {
   const { connection, isInitialized } = useDuckDB();
-  const entry = useDataFramesStore((s) =>
-    dataFrameId ? s.getEntry(dataFrameId) : undefined,
-  );
-  const getDataFrame = useDataFramesStore((s) => s.getDataFrame);
+  const { data: allDataFrames } = useDataFrames();
 
-  const [data, setData] = useState<LoadedDataFrameData | null>(null);
+  // Find the entry from the reactive data
+  const entry = useMemo(
+    () => allDataFrames?.find((df) => df.id === dataFrameId),
+    [allDataFrames, dataFrameId],
+  );
+
+  const [data, setData] = useState<DataFrameData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,7 +121,8 @@ export function useDataFrameData(
       return;
     }
 
-    const dataFrame = getDataFrame(dataFrameId);
+    // Get the DataFrame instance from Dexie (async)
+    const dataFrame = await getDataFrame(dataFrameId);
     if (!dataFrame) {
       setError(`DataFrame not found: ${dataFrameId}`);
       setData(null);
@@ -188,7 +186,7 @@ export function useDataFrameData(
         setIsLoading(false);
       }
     }
-  }, [dataFrameId, connection, isInitialized, getDataFrame, limit, skip, entry]);
+  }, [dataFrameId, connection, isInitialized, limit, skip]);
 
   // Load data when dataFrameId changes or connection becomes available
   useEffect(() => {
@@ -232,8 +230,12 @@ export function useDataFrameDataByInsight(
     skip?: boolean;
   },
 ): UseDataFrameDataResult {
-  const entry = useDataFramesStore((s) =>
-    insightId ? s.getByInsight(insightId) : undefined,
+  const { data: allDataFrames } = useDataFrames();
+
+  // Find entry by insightId
+  const entry = useMemo(
+    () => allDataFrames?.find((df) => df.insightId === insightId),
+    [allDataFrames, insightId],
   );
 
   return useDataFrameData(entry?.id, options);

@@ -1,12 +1,121 @@
-import type { TopLevelSpec } from "vega-lite";
-import type { VisualizationType, VisualizationEncoding } from "../stores/types";
+/* eslint-disable sonarjs/cognitive-complexity */
+import type { VisualizationType } from "../stores/types";
 import type { Insight } from "../stores/types";
+import type {
+  Field,
+  ChartEncoding,
+  ChannelTransform,
+  ChartTag,
+  ColumnAnalysis,
+  DateAnalysis,
+} from "@dashframe/types";
 import {
-  analyzeDataFrame,
-  type DataFrameData,
-  type Field,
-  type ColumnAnalysis,
-} from "@dashframe/dataframe";
+  selectTemporalAggregation,
+  applyDateTransformToSql,
+  getAxisTypeForTransform,
+  temporalTransform,
+  extractUUIDFromColumnAlias,
+} from "@dashframe/engine";
+
+/**
+ * Re-export ChartEncoding as SuggestionEncoding for backwards compatibility.
+ *
+ * With UUID-based column naming, encoding values are now `field_<uuid>` format.
+ * This format is used directly in SQL queries without transformation.
+ * Display names are looked up from field definitions when rendering UI.
+ */
+export type SuggestionEncoding = ChartEncoding;
+
+/**
+ * Extended column analysis that includes display name from field metadata.
+ * The columnName is the UUID alias (field_<uuid>), displayName is the user-visible name.
+ */
+type ExtendedColumnAnalysis = ColumnAnalysis & {
+  /** User-visible display name from field metadata */
+  displayName: string;
+};
+import {
+  isBlockedColumn,
+  hasNumericalVariance,
+  isSuitableCategoricalXAxis,
+  isSuitableColorColumn,
+} from "./encoding-criteria";
+
+/**
+ * Enrich column analysis with display names from field metadata.
+ *
+ * With UUID-based column naming, column names in analysis are like `field_<uuid>`.
+ * This function looks up the original field display name for use in suggestion titles.
+ *
+ * @param analysis - Raw column analysis with UUID column names
+ * @param fields - Field metadata keyed by field ID
+ * @returns Enriched analysis with displayName and fieldId
+ */
+function enrichColumnAnalysis(
+  analysis: ColumnAnalysis[],
+  fields: Record<string, Field>,
+): ExtendedColumnAnalysis[] {
+  return analysis.map((col) => {
+    // Extract field ID from column alias (field_<uuid> → uuid)
+    const extractedFieldId = extractUUIDFromColumnAlias(col.columnName);
+    // Convert null to undefined to match ColumnAnalysisBase.fieldId type
+    const fieldId = extractedFieldId ?? undefined;
+
+    // Look up field by ID for display name
+    const field = fieldId ? fields[fieldId] : undefined;
+    const displayName = field?.name ?? col.columnName;
+
+    return {
+      ...col,
+      displayName,
+      fieldId,
+    };
+  });
+}
+
+/**
+ * Extract raw field names from a visualization encoding.
+ * Strips aggregation and date-binning wrappers to get the underlying column names.
+ *
+ * Handles both legacy vgplot functions (dateMonth, etc.) and new DuckDB functions (date_trunc).
+ *
+ * @example
+ * // Returns ["revenue", "date", "category"]
+ * extractRawFieldsFromEncoding({ x: "dateMonth(date)", y: "sum(revenue)", color: "category" })
+ * extractRawFieldsFromEncoding({ x: "date_trunc('month', \"date\")", y: "sum(revenue)" })
+ *
+ * @param encoding - Visualization encoding with x, y, color, size channels
+ * @returns Array of raw field names (without aggregation wrappers)
+ */
+function extractRawFieldsFromEncoding(encoding: SuggestionEncoding): string[] {
+  const fields: string[] = [];
+  const addField = (value?: string) => {
+    if (!value) return;
+    // Pattern 1: Simple aggregation functions - sum(col), avg(col), etc.
+    const simpleMatch = value.match(
+      /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
+    );
+    if (simpleMatch) {
+      // Remove quotes from column name if present
+      fields.push(simpleMatch[1].replace(/(?:^["'])|(?:["']$)/g, ""));
+      return;
+    }
+    // Pattern 2: date_trunc('period', "column") - DuckDB date functions
+    // Use possessive-like pattern to avoid backtracking
+    const dateTruncMatch = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
+    if (dateTruncMatch) {
+      fields.push(dateTruncMatch[1]);
+      return;
+    }
+    // No wrapper, use as-is (remove quotes if present)
+    fields.push(value.replace(/(?:^["'])|(?:["']$)/g, ""));
+  };
+  addField(encoding.x);
+  addField(encoding.y);
+  addField(encoding.color);
+  addField(encoding.size);
+  return fields;
+}
 
 /**
  * Patterns that indicate a column is a meaningful metric for Y-axis.
@@ -54,13 +163,19 @@ const NON_METRIC_PATTERNS: RegExp[] = [
   /^_/, // Starts with underscore (internal)
 ];
 
+// SCATTER_MAX_POINTS is imported from @dashframe/types and re-exported for convenience
+import { SCATTER_MAX_POINTS } from "@dashframe/types";
+export { SCATTER_MAX_POINTS };
+
 /**
  * Scores a column for how likely it is to be a meaningful metric.
  * Higher score = better candidate for Y-axis aggregation.
  * Returns 0 for columns that look like IDs.
+ *
+ * @param displayName - The user-visible display name (not UUID alias)
  */
-function getMetricScore(columnName: string): number {
-  const name = columnName.toLowerCase();
+function getMetricScore(displayName: string): number {
+  const name = displayName.toLowerCase();
 
   // Check if it looks like an ID first
   if (NON_METRIC_PATTERNS.some((pattern) => pattern.test(name))) {
@@ -78,53 +193,25 @@ function getMetricScore(columnName: string): number {
   return 1;
 }
 
-// Helper to get CSS variable color value
-function getCSSColor(variable: string): string {
-  if (typeof window === "undefined") return "#000000";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
-  return value || "#000000";
-}
-
-// Get theme-aware Vega-Lite config for mini charts
-function getVegaThemeConfig() {
-  return {
-    background: "transparent",
-    view: {
-      stroke: "transparent",
-    },
-    axis: {
-      domainColor: getCSSColor("--color-border"),
-      gridColor: getCSSColor("--color-border"),
-      tickColor: getCSSColor("--color-border"),
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-      domain: false,
-      ticks: false,
-      grid: false,
-    },
-    legend: {
-      labelColor: getCSSColor("--color-foreground"),
-      titleColor: getCSSColor("--color-foreground"),
-      labelFont: "inherit",
-      titleFont: "inherit",
-    },
-  };
-}
-
 /**
- * Chart suggestion with visualization spec and metadata
+ * Chart suggestion with encoding configuration.
+ * Note: No spec included - suggestions are temporary insight configurations,
+ * not full visualization specs. Chart renders directly from encoding.
  */
 export interface ChartSuggestion {
   id: string;
   title: string; // e.g., "Revenue by Region"
   chartType: VisualizationType;
-  encoding: VisualizationEncoding;
-  spec: TopLevelSpec; // Mini spec for preview
+  encoding: SuggestionEncoding;
   rationale?: string; // Why this chart was suggested
+  /** Fields that would be newly added (not currently in insight) */
+  newFields?: string[];
+  /** Whether this suggestion uses only existing fields (no new additions) */
+  usesExistingFieldsOnly?: boolean;
+  /** Date transform for X-axis (when applicable) - for persistence */
+  xTransform?: ChannelTransform;
+  /** Date transform for Y-axis (when applicable) - for persistence */
+  yTransform?: ChannelTransform;
 }
 
 /**
@@ -153,357 +240,446 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
 }
 
 /**
+ * Extended date analysis with display name.
+ */
+type ExtendedDateAnalysis = DateAnalysis & {
+  displayName: string;
+};
+
+/**
+ * Type guard to check if ExtendedColumnAnalysis is specifically a date analysis.
+ */
+function isDateAnalysis(
+  col: ExtendedColumnAnalysis,
+): col is ExtendedDateAnalysis {
+  return col.dataType === "date";
+}
+
+/**
+ * Build a temporal encoding for a date column using auto-selected aggregation.
+ *
+ * Uses the column's minDate/maxDate to select optimal granularity:
+ * - < 14 days: none (raw dates)
+ * - 14 days - 6 months: yearWeek (weekly)
+ * - 6 months - 5 years: yearMonth (monthly)
+ * - > 5 years: year (yearly)
+ *
+ * @param col - Temporal column analysis (with minDate/maxDate)
+ * @returns Object with x expression, axis type, and transform config
+ */
+function buildTemporalEncoding(col: ExtendedDateAnalysis): {
+  xExpr: string;
+  xType: "temporal" | "ordinal";
+  xTransform: ChannelTransform;
+  aggregationLabel: string;
+  /** X-axis label including the aggregation (e.g., "Year of arrival") */
+  xAxisLabel: string;
+} {
+  // Auto-select aggregation based on date range
+  const aggregation = selectTemporalAggregation(col.minDate, col.maxDate);
+  const transform = temporalTransform(aggregation);
+
+  // Generate SQL expression using DuckDB date_trunc
+  // Use UUID column name for SQL, not display name
+  const xExpr = applyDateTransformToSql(col.columnName, transform);
+
+  // Get appropriate axis type based on data
+  const xType = getAxisTypeForTransform(transform) as "temporal" | "ordinal";
+
+  // Human-readable labels
+  const aggregationLabels: Record<string, string> = {
+    none: "",
+    yearWeek: "by week",
+    yearMonth: "by month",
+    year: "by year",
+  };
+  const aggregationLabel = aggregationLabels[aggregation] || "by month";
+
+  // X-axis label showing the aggregation applied (e.g., "Year of arrival", "Month of created_date")
+  const axisLabelPrefixes: Record<string, string> = {
+    none: "",
+    yearWeek: "Week of",
+    yearMonth: "Month of",
+    year: "Year of",
+  };
+  const prefix = axisLabelPrefixes[aggregation] || "";
+  const xAxisLabel = prefix ? `${prefix} ${col.displayName}` : col.displayName;
+
+  return {
+    xExpr,
+    xType,
+    xTransform: { type: "date", transform },
+    aggregationLabel,
+    xAxisLabel,
+  };
+}
+
+/**
+ * Options for chart suggestion generation
+ */
+export interface SuggestChartsOptions {
+  /** Maximum number of suggestions (default: 3) */
+  limit?: number;
+  /** Optional mapping of columns to tables */
+  columnTableMap?: Record<string, string[]>;
+  /** Optional seed for randomness (default: 0 for deterministic behavior) */
+  seed?: number;
+  /** Chart types to exclude (e.g., types already created as visualizations) */
+  excludeChartTypes?: VisualizationType[];
+  /** Field names currently selected in the insight (for highlighting new fields) */
+  existingFields?: string[];
+  /** Encoding signatures to exclude (e.g., "x|y|color" strings from existing visualizations) */
+  excludeEncodings?: Set<string>;
+  /**
+   * Tag context for the suggestion. When provided, the suggestion logic adapts
+   * to the tag's analytical purpose. For example, "trend" tag requires
+   * temporal or continuous X-axis even for bar charts.
+   */
+  tagContext?: ChartTag;
+}
+
+/**
  * Suggests up to 3 chart visualizations based on the insight's data structure.
  * Uses heuristics to match chart types to field categories.
  *
  * @param insight - The insight to generate suggestions for
- * @param preview - Preview DataFrame with sample data
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
  * @param fields - Field definitions for analysis
- * @param limit - Maximum number of suggestions (default: 3)
- * @param columnTableMap - Optional mapping of columns to tables
- * @param seed - Optional seed for randomness (default: 0 for deterministic behavior)
+ * @param options - Configuration options for suggestion generation
  * @returns Array of chart suggestions
  */
 export function suggestCharts(
   insight: Insight,
-  preview: DataFrameData,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
   fields: Record<string, Field>,
-  limit = 3,
-  columnTableMap?: Record<string, string[]>,
-  seed = 0,
+  options: SuggestChartsOptions = {},
 ): ChartSuggestion[] {
+  const {
+    limit = 3,
+    columnTableMap,
+    seed = 0,
+    excludeChartTypes = [],
+    existingFields = [],
+    excludeEncodings,
+  } = options;
+
+  // Enrich analysis with display names from field metadata
+  // This allows us to use UUID column names for SQL while showing readable names in UI
+  const enrichedAnalysis = enrichColumnAnalysis(analysis, fields);
+
+  // Convert existing fields to a Set for O(1) lookup
+  const existingFieldSet = new Set(existingFields);
+
+  // Convert excluded chart types to a Set for O(1) lookup
+  const excludedChartTypeSet = new Set(excludeChartTypes);
+
+  // Helper to create encoding signature for deduplication
+  const getEncodingSignature = (encoding: SuggestionEncoding): string => {
+    return [encoding.x ?? "", encoding.y ?? "", encoding.color ?? ""].join("|");
+  };
+
+  // Helper to check if a suggestion should be excluded (matches existing visualization)
+  const isExcludedEncoding = (encoding: SuggestionEncoding): boolean => {
+    if (!excludeEncodings || excludeEncodings.size === 0) return false;
+    return excludeEncodings.has(getEncodingSignature(encoding));
+  };
+
+  // Helper to annotate a suggestion with new field info
+  const annotateSuggestion = (suggestion: ChartSuggestion): ChartSuggestion => {
+    const usedFields = extractRawFieldsFromEncoding(suggestion.encoding);
+    const newFields = usedFields.filter((f) => !existingFieldSet.has(f));
+    return {
+      ...suggestion,
+      newFields: newFields.length > 0 ? newFields : undefined,
+      usesExistingFieldsOnly: newFields.length === 0,
+    };
+  };
+
   // Create seeded random for reproducible variety
   const random = createSeededRandom(seed);
-  // Analyze columns to categorize them
-  const analysis = analyzeDataFrame(preview.rows, preview.columns, fields);
 
-  // Categories to avoid for chart encodings (identifiers/references should not be axes)
-  const blockedAxisCategories = new Set([
-    "identifier",
-    "reference",
-    "email",
-    "url",
-    "uuid",
-  ]);
-
-  // Calculate total row count for null rate calculation
-  const rowCount = preview.rows.length;
-
-  // Helper to check if a column should be blocked from axis usage
-  const isBlocked = (col: ColumnAnalysis): boolean => {
-    // Check category (analyzeDataFrame handles ID detection via patterns and uniqueness)
-    if (blockedAxisCategories.has(col.category)) {
-      return true;
-    }
-    // Also check field metadata for identifier/reference flags (as a fallback)
-    const field = fields[col.columnName];
-    if (field && (field.isIdentifier || field.isReference)) {
-      return true;
-    }
-    // Skip columns with high null rate (>50% missing data)
-    // These are not useful for chart axes
-    if (rowCount > 0 && col.nullCount / rowCount > 0.5) {
-      return true;
-    }
-    return false;
+  // Helper wrappers that use unified encoding criteria
+  // Note: Use fieldId to look up field metadata since columnName is now UUID-based
+  const isBlocked = (col: ExtendedColumnAnalysis): boolean => {
+    const field = col.fieldId ? fields[col.fieldId] : undefined;
+    return !isBlockedColumn(col, field, rowCount).good;
   };
 
-  // Helper to check if a categorical column is good for X-axis
-  // Good categorical X-axis columns should have:
-  // - More than 1 unique value (has variance)
-  // - Not too many unique values (readable chart, typically < 50)
-  const isGoodCategoricalXAxis = (col: ColumnAnalysis): boolean => {
-    // Must have variance (more than 1 unique value)
-    if (col.cardinality <= 1) {
-      return false;
-    }
-    // Should not have too many unique values for a readable chart
-    // A bar chart with 100+ categories is usually not useful
-    if (col.cardinality > 50) {
-      return false;
-    }
-    return true;
-  };
-
-  // Helper to check if a categorical column is good for color encoding
-  // Color legends should have few unique values (2-15 is ideal)
-  const isGoodColorColumn = (col: ColumnAnalysis): boolean => {
-    // Need at least 2 values to show color differentiation
-    if (col.cardinality < 2) {
-      return false;
-    }
-    // Too many colors makes the legend unreadable
-    if (col.cardinality > 15) {
-      return false;
-    }
-    return true;
-  };
-
-  // Helper to check if a numerical column has meaningful variance
-  // Skip columns that are mostly zeros or have the same value
-  const hasNumericalVariance = (col: ColumnAnalysis): boolean => {
-    // Get actual values from preview data for this column
-    const values = preview.rows
-      .map((row) => row[col.columnName])
-      .filter((v) => v !== null && v !== undefined) as number[];
-
-    if (values.length === 0) return false;
-
-    // Check if most values are zeros (>80% zeros is bad)
-    const zeroCount = values.filter((v) => v === 0).length;
-    if (zeroCount / values.length > 0.8) {
-      return false;
-    }
-
-    // Check if there's actual variance (not all same value)
-    const uniqueValues = new Set(values);
-    if (uniqueValues.size <= 1) {
-      return false;
-    }
-
-    // Check if there's meaningful range (not all clustered)
-    // Use reduce instead of spread to avoid stack overflow on large arrays
-    let min = Infinity;
-    let max = -Infinity;
-    for (const v of values) {
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (min === max) {
-      return false;
-    }
-
-    return true;
+  const hasVariance = (col: ExtendedColumnAnalysis): boolean => {
+    return hasNumericalVariance(col, rowCount).good;
   };
 
   // Find columns by category, excluding blocked ones
   // Shuffle with seed to introduce variety when regenerating
   // For numerical columns, also check for meaningful variance (not all zeros)
   const numerical = shuffleWithSeed(
-    analysis.filter(
-      (a) =>
-        a.category === "numerical" && !isBlocked(a) && hasNumericalVariance(a),
+    enrichedAnalysis.filter(
+      (a) => a.semantic === "numerical" && !isBlocked(a) && hasVariance(a),
     ),
     random,
   );
+  // Use type guard to narrow temporal columns to ExtendedDateAnalysis
   const temporal = shuffleWithSeed(
-    analysis.filter((a) => a.category === "temporal" && !isBlocked(a)),
+    enrichedAnalysis.filter(
+      (a): a is ExtendedDateAnalysis => isDateAnalysis(a) && !isBlocked(a),
+    ),
     random,
   );
   // For categorical columns, also filter for good X-axis candidates
   // (proper variance - not too few or too many unique values)
   const categorical = shuffleWithSeed(
-    analysis.filter(
+    enrichedAnalysis.filter(
       (a) =>
-        (a.category === "categorical" ||
-          a.category === "text" ||
-          a.category === "boolean") &&
+        (a.semantic === "categorical" ||
+          a.semantic === "text" ||
+          a.semantic === "boolean") &&
         !isBlocked(a) &&
-        isGoodCategoricalXAxis(a),
+        isSuitableCategoricalXAxis(a),
     ),
     random,
   );
 
   // Separate list for color-suitable columns (lower cardinality for readable legends)
   const colorSuitable = shuffleWithSeed(
-    analysis.filter(
+    enrichedAnalysis.filter(
       (a) =>
-        (a.category === "categorical" ||
-          a.category === "text" ||
-          a.category === "boolean") &&
+        (a.semantic === "categorical" ||
+          a.semantic === "text" ||
+          a.semantic === "boolean") &&
         !isBlocked(a) &&
-        isGoodColorColumn(a),
+        isSuitableColorColumn(a),
     ),
     random,
   );
 
   const suggestions: ChartSuggestion[] = [];
+  const usedSignatures = new Set<string>(); // Track signatures we've already added
+
+  // Helper to add suggestion if not excluded and not duplicate
+  const addSuggestion = (suggestion: ChartSuggestion): boolean => {
+    const sig = getEncodingSignature(suggestion.encoding);
+    if (isExcludedEncoding(suggestion.encoding)) return false;
+    if (usedSignatures.has(sig)) return false;
+    usedSignatures.add(sig);
+    suggestions.push(suggestion);
+    return true;
+  };
 
   // Heuristic 1: Bar Chart (categorical/temporal X + numerical Y)
+  // Try multiple combinations if first choice is excluded
+  // Note: Use columnName (UUID) for encoding, displayName for titles
   if (categorical.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(categorical, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? categorical[0];
-    const yCol = pair?.[1] ?? numerical[0];
-    const xAxisType = getAxisType(xCol);
-
-    suggestions.push({
-      id: `bar-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} by ${xCol.columnName}`,
-      chartType: "bar",
-      encoding: {
-        x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: xAxisType,
-        yType: "quantitative",
-      },
-      spec: createMiniSpec(
-        "bar",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        xAxisType,
-      ),
-      rationale: "Categorical dimension with numeric measure",
-    });
+    for (const xCol of categorical) {
+      for (const yCol of numerical) {
+        const xAxisType = getAxisType(xCol);
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: `sum(${yCol.columnName})`,
+          xType: xAxisType,
+          yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: `sum of ${yCol.displayName}`,
+        };
+        if (
+          addSuggestion({
+            id: `barY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} by ${xCol.displayName}`,
+            chartType: "barY",
+            encoding,
+            rationale: "Categorical dimension with numeric measure",
+          })
+        )
+          break; // Found a valid one, stop trying
+      }
+      if (suggestions.some((s) => s.chartType === "barY" && !s.encoding.color))
+        break;
+    }
   }
 
   // Heuristic 2: Line Chart (temporal X + numerical Y)
+  // Use auto-selected temporal aggregation based on date range
+  // Line charts require temporal data - no fallback to categorical
   if (temporal.length > 0 && numerical.length > 0) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? temporal[0];
-    const yCol = pair?.[1] ?? numerical[numerical.length > 1 ? 1 : 0];
-
-    suggestions.push({
-      id: `line-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} over time`,
-      chartType: "line",
-      encoding: {
-        x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: "temporal",
-        yType: "quantitative",
-      },
-      spec: createMiniSpec(
-        "line",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        "temporal",
-      ),
-      rationale: "Time series data",
-    });
+    for (const xCol of temporal) {
+      for (const yCol of numerical) {
+        const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
+          buildTemporalEncoding(xCol);
+        const encoding: SuggestionEncoding = {
+          x: xExpr,
+          y: `sum(${yCol.columnName})`,
+          xType,
+          yType: "quantitative",
+          xLabel: xAxisLabel,
+          yLabel: `sum of ${yCol.displayName}`,
+          xTransform, // Include transform for consistency
+        };
+        const title = aggregationLabel
+          ? `${yCol.displayName} ${aggregationLabel}`
+          : `${yCol.displayName} over time`;
+        if (
+          addSuggestion({
+            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title,
+            chartType: "line",
+            encoding,
+            rationale: `Time series data ${aggregationLabel || ""}`.trim(),
+            xTransform,
+          })
+        )
+          break;
+      }
+      if (suggestions.some((s) => s.chartType === "line")) break;
+    }
   }
 
   // Heuristic 3: Scatter Plot (2 numerical columns)
   if (numerical.length >= 2) {
-    const pair = pickBestPair(numerical, numerical, columnTableMap, {
-      disallowSame: true,
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? numerical[0];
-    const yCol = pair?.[1] ?? numerical[1];
-
-    suggestions.push({
-      id: `scatter-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} vs ${xCol.columnName}`,
-      chartType: "scatter",
-      encoding: {
-        x: xCol.columnName,
-        y: yCol.columnName,
-        xType: "quantitative",
-        yType: "quantitative",
-      },
-      spec: createMiniSpec(
-        "scatter",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-      ),
-      rationale: "Two numeric dimensions for correlation",
-    });
+    let scatterAdded = false;
+    for (let i = 0; i < numerical.length && !scatterAdded; i++) {
+      for (let j = 0; j < numerical.length && !scatterAdded; j++) {
+        if (i === j) continue;
+        const xCol = numerical[i];
+        const yCol = numerical[j];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
+        };
+        scatterAdded = addSuggestion({
+          id: `dot-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+          title: `${yCol.displayName} vs ${xCol.displayName}`,
+          chartType: "dot",
+          encoding,
+          rationale: "Two numeric dimensions for correlation",
+        });
+      }
+    }
   }
 
   // Heuristic 4: Area Chart (alternative to line for temporal data)
-  if (
-    temporal.length > 0 &&
-    numerical.length > 0 &&
-    !suggestions.some((s) => s.chartType === "line")
-  ) {
-    const pair = pickBestPair(temporal, numerical, columnTableMap, {
-      preferMetricY: true,
-      random,
-    });
-    const xCol = pair?.[0] ?? temporal[0];
-    const yCol = pair?.[1] ?? numerical[0];
-
-    suggestions.push({
-      id: `area-${xCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} trend`,
-      chartType: "area",
-      encoding: {
-        x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
-        xType: "temporal",
-        yType: "quantitative",
-      },
-      spec: createMiniSpec(
-        "area",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        undefined,
-        "temporal",
-      ),
-      rationale: "Cumulative trend visualization",
-    });
+  // Use auto-selected temporal aggregation based on date range
+  // Area charts require temporal data - no fallback to categorical
+  if (temporal.length > 0 && numerical.length > 0) {
+    for (const xCol of temporal) {
+      for (const yCol of numerical) {
+        const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
+          buildTemporalEncoding(xCol);
+        const encoding: SuggestionEncoding = {
+          x: xExpr,
+          y: `sum(${yCol.columnName})`,
+          xType,
+          yType: "quantitative",
+          xLabel: xAxisLabel,
+          yLabel: `sum of ${yCol.displayName}`,
+          xTransform, // Include transform for consistency
+        };
+        if (
+          addSuggestion({
+            id: `areaY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} trend`,
+            chartType: "areaY",
+            encoding,
+            rationale:
+              `Cumulative trend visualization ${aggregationLabel || ""}`.trim(),
+            xTransform,
+          })
+        )
+          break;
+      }
+      if (suggestions.some((s) => s.chartType === "areaY")) break;
+    }
   }
 
   // Heuristic 5: Grouped Bar (categorical X + color + numerical Y)
-  // Use colorSuitable for color encoding (lower cardinality for readable legends)
+  // Only suggest when color adds meaningful segmentation without creating unreadable thin bars
+  // Skip entirely if conditions aren't ideal - the basic bar chart already covers this case
+  //
+  // Key insight: Color is only useful if it creates visible variation in the chart.
+  // Use maxFrequencyRatio to detect dominated distributions (e.g., 95% "Yes" / 5% "No")
   if (
     categorical.length >= 1 &&
     colorSuitable.length >= 1 &&
     numerical.length > 0
   ) {
-    const triple = pickBestTriple(
-      categorical,
-      colorSuitable,
-      numerical,
-      columnTableMap,
-      random,
-    ) ?? [categorical[0], colorSuitable[0], numerical[0]];
-    const xCol = triple[0];
-    const colorCol = triple[1];
-    const yCol = triple[2];
-    const xAxisType = getAxisType(xCol);
+    // Find the best X column (lowest cardinality for readable bars)
+    const xCol = categorical.reduce((best, col) =>
+      col.cardinality < best.cardinality ? col : best,
+    );
 
-    suggestions.push({
-      id: `bar-grouped-${xCol.columnName}-${colorCol.columnName}-${yCol.columnName}`,
-      title: `${yCol.columnName} by ${xCol.columnName} and ${colorCol.columnName}`,
-      chartType: "bar",
-      encoding: {
+    // Find a suitable color column with requirements:
+    // - Different from X axis
+    // - 2-6 categories (need at least 2 for color to make sense)
+    // - Distribution not dominated by one value (maxFrequencyRatio < 0.8)
+    // - Combined cardinality reasonable for readability
+    const colorCol = colorSuitable.find((col) => {
+      if (col.columnName === xCol.columnName) return false;
+      if (col.cardinality < 2 || col.cardinality > 6) return false;
+      if (xCol.cardinality * col.cardinality > 18) return false;
+
+      // Check distribution uniformity - reject if one category dominates
+      // maxFrequencyRatio of 0.8 means 80%+ of rows have the same value
+      // Only StringAnalysis has maxFrequencyRatio - default to 1 (pass check) for other types
+      const maxFreqRatio =
+        col.dataType === "string" ? (col.maxFrequencyRatio ?? 1) : 1;
+      if (maxFreqRatio > 0.7) return false; // Dominated distribution, not useful
+
+      return true;
+    });
+
+    // Only add grouped bar if we found a genuinely useful color dimension
+    if (colorCol && numerical.length > 0) {
+      const yCol = numerical[0];
+      const xAxisType = getAxisType(xCol);
+      const encoding: SuggestionEncoding = {
         x: xCol.columnName,
-        y: `sum(${yCol.columnName})`, // Use aggregated format for encoding
+        y: `sum(${yCol.columnName})`,
         xType: xAxisType,
         yType: "quantitative",
         color: colorCol.columnName,
-      },
-      spec: createMiniSpec(
-        "bar",
-        xCol.columnName,
-        yCol.columnName,
-        preview.rows,
-        colorCol.columnName,
-        xAxisType,
-      ),
-      rationale: "Multi-dimensional categorical comparison",
-    });
+        xLabel: xCol.displayName,
+        yLabel: `sum of ${yCol.displayName}`,
+        colorLabel: colorCol.displayName,
+      };
+      addSuggestion({
+        id: `barY-grouped-${xCol.fieldId ?? xCol.columnName}-${colorCol.fieldId ?? colorCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+        title: `${yCol.displayName} by ${xCol.displayName} and ${colorCol.displayName}`,
+        chartType: "barY",
+        encoding,
+        rationale: "Multi-dimensional categorical comparison",
+      });
+    }
   }
 
-  // Rank by preference and return top N
-  return rankSuggestions(
-    suggestions,
+  // Filter out excluded chart types and encodings that match existing visualizations
+  const filteredSuggestions = suggestions.filter(
+    (s) =>
+      !excludedChartTypeSet.has(s.chartType) && !isExcludedEncoding(s.encoding),
+  );
+
+  // Rank by preference
+  const rankedSuggestions = rankSuggestions(
+    filteredSuggestions,
     columnTableMap,
     1 + (insight.joins?.length ?? 0),
-  ).slice(0, limit);
+    existingFieldSet,
+  );
+
+  // Annotate with new field info and return top N
+  return rankedSuggestions.slice(0, limit).map(annotateSuggestion);
 }
 
 /**
- * Converts column analysis category to Vega-Lite axis type
+ * Converts column analysis semantic to encoding axis type
  */
 function getAxisType(
   column: ColumnAnalysis,
 ): "quantitative" | "nominal" | "temporal" {
-  switch (column.category) {
+  switch (column.semantic) {
     case "numerical":
       return "quantitative";
     case "temporal":
@@ -511,75 +687,6 @@ function getAxisType(
     default:
       return "nominal";
   }
-}
-
-/**
- * Creates a mini Vega-Lite spec for chart preview (200x150px).
- * This is a simplified spec optimized for small preview cards.
- * Includes automatic aggregation for bar/line/area charts.
- */
-function createMiniSpec(
-  type: VisualizationType,
-  xField: string,
-  yField: string,
-  data: Array<Record<string, unknown>>,
-  colorField?: string,
-  xType: "nominal" | "temporal" | "quantitative" = "nominal",
-): TopLevelSpec {
-  // Map chart type to Vega-Lite mark type
-  const getMarkType = (
-    chartType: VisualizationType,
-  ): "bar" | "line" | "area" | "point" => {
-    switch (chartType) {
-      case "bar":
-        return "bar";
-      case "line":
-        return "line";
-      case "area":
-        return "area";
-      default:
-        return "point";
-    }
-  };
-  const mark = getMarkType(type);
-
-  // For bar/line/area charts, we want to aggregate the Y values by X groups
-  const shouldAggregate = type === "bar" || type === "line" || type === "area";
-
-  // Using a record type here as Vega-Lite encoding types are complex generics
-  const encoding: Record<string, unknown> = {
-    x: {
-      field: xField,
-      type: xType,
-      axis: {
-        title: null,
-        labels: false,
-        format: xType === "temporal" ? "%b %Y" : undefined, // Format dates as "Jan 2024"
-      },
-      sort: type === "line" || type === "area" ? null : "-y", // Sort bars by value, keep order for time series
-    },
-    y: {
-      field: yField,
-      type: "quantitative",
-      aggregate: shouldAggregate ? "sum" : undefined, // Aggregate for bar/line/area
-      axis: { title: null, grid: false, labels: false },
-    },
-  };
-
-  if (colorField) {
-    encoding.color = { field: colorField, type: "nominal", legend: null };
-  }
-
-  return {
-    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-    width: "container",
-    height: 120,
-    autosize: { type: "fit", contains: "padding" },
-    data: { values: data },
-    mark: { type: mark, tooltip: false },
-    encoding,
-    config: getVegaThemeConfig(),
-  };
 }
 
 function normalizeColumnReference(value?: string): string | null {
@@ -605,7 +712,7 @@ function coverageScore(
   return tables.size;
 }
 
-function pickBestPair(
+function _pickBestPair(
   first: ColumnAnalysis[],
   second: ColumnAnalysis[],
   columnTableMap?: Record<string, string[]>,
@@ -689,7 +796,7 @@ function pickBestPair(
   return validPairs[0].pair;
 }
 
-function pickBestTriple(
+function _pickBestTriple(
   xCategories: ColumnAnalysis[],
   colorCategories: ColumnAnalysis[],
   numericalCols: ColumnAnalysis[],
@@ -782,27 +889,494 @@ function tablesUsedBySuggestion(
 }
 
 /**
- * Ranks suggestions by preference.
- * Priority:
- * 1. Line/Area (temporal data is highly valuable)
- * 2. Bar (most common/understandable)
- * 3. Scatter (more specialized)
- * 4. Grouped charts (more complex)
+ * Extract field names from a suggestion's encoding.
+ * Wrapper for extractRawFieldsFromEncoding that takes a suggestion.
  */
+function getFieldsFromSuggestion(suggestion: ChartSuggestion): string[] {
+  return extractRawFieldsFromEncoding(suggestion.encoding);
+}
+
+/**
+ * Ranks suggestions by preference.
+ * Priority (highest to lowest):
+ * 1. Uses only existing fields (no new additions needed)
+ * 2. Uses more tables (for multi-table insights)
+ * 3. Chart type priority: Line/Area > Bar > Scatter > Table
+ * 4. Simpler encodings (no color) over complex ones
+ */
+/**
+ * Generates a single chart suggestion for a specific chart type.
+ * Uses targeted heuristics for each chart type to ensure viable suggestions.
+ *
+ * @param insight - The insight to generate suggestion for
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
+ * @param fields - Field definitions for analysis
+ * @param chartType - The specific chart type to generate a suggestion for
+ * @param options - Configuration options
+ * @returns A single chart suggestion or null if no valid suggestion
+ */
+export function suggestByChartType(
+  _insight: Insight,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
+  fields: Record<string, Field>,
+  chartType: VisualizationType,
+  options: Omit<SuggestChartsOptions, "limit" | "excludeChartTypes"> = {},
+): ChartSuggestion | null {
+  const {
+    existingFields = [],
+    excludeEncodings,
+    seed = 0,
+    tagContext,
+  } = options;
+  const existingFieldSet = new Set(existingFields);
+
+  // Create seeded random for reproducible variety when regenerating
+  const random = createSeededRandom(seed);
+
+  // Enrich analysis with display names from field metadata
+  const enrichedAnalysis = enrichColumnAnalysis(analysis, fields);
+
+  // Helper wrappers for column filtering
+  const isBlocked = (col: ExtendedColumnAnalysis): boolean => {
+    const field = col.fieldId ? fields[col.fieldId] : undefined;
+    return !isBlockedColumn(col, field, rowCount).good;
+  };
+
+  const hasVariance = (col: ExtendedColumnAnalysis): boolean => {
+    return hasNumericalVariance(col, rowCount).good;
+  };
+
+  // Categorize columns and shuffle with seed to vary suggestions on regenerate
+  const numerical = shuffleWithSeed(
+    enrichedAnalysis.filter(
+      (a) => a.semantic === "numerical" && !isBlocked(a) && hasVariance(a),
+    ),
+    random,
+  );
+  // Use type guard to narrow temporal columns to ExtendedDateAnalysis
+  const temporal = shuffleWithSeed(
+    enrichedAnalysis.filter(
+      (a): a is ExtendedDateAnalysis => isDateAnalysis(a) && !isBlocked(a),
+    ),
+    random,
+  );
+  const categorical = shuffleWithSeed(
+    enrichedAnalysis.filter(
+      (a) =>
+        (a.semantic === "categorical" ||
+          a.semantic === "text" ||
+          a.semantic === "boolean") &&
+        !isBlocked(a) &&
+        isSuitableCategoricalXAxis(a),
+    ),
+    random,
+  );
+
+  // Helper to check if encoding is excluded
+  const isExcludedEncoding = (encoding: SuggestionEncoding): boolean => {
+    if (!excludeEncodings || excludeEncodings.size === 0) return false;
+    const sig = [encoding.x ?? "", encoding.y ?? "", encoding.color ?? ""].join(
+      "|",
+    );
+    return excludeEncodings.has(sig);
+  };
+
+  // Helper to annotate suggestion with new field info
+  const annotateSuggestion = (suggestion: ChartSuggestion): ChartSuggestion => {
+    const extractField = (value?: string): string | null => {
+      if (!value) return null;
+      const match = value.match(
+        /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
+      );
+      return match ? match[1] : value;
+    };
+    const usedFields = [
+      extractField(suggestion.encoding.x),
+      extractField(suggestion.encoding.y),
+      extractField(suggestion.encoding.color),
+    ].filter((f): f is string => f !== null);
+    const newFields = usedFields.filter((f) => !existingFieldSet.has(f));
+    return {
+      ...suggestion,
+      newFields: newFields.length > 0 ? newFields : undefined,
+      usesExistingFieldsOnly: newFields.length === 0,
+    };
+  };
+
+  let suggestion: ChartSuggestion | null = null;
+
+  switch (chartType) {
+    case "barY":
+      // Bar Chart: behavior varies by tag context
+      // - "trend" tag: Use temporal X-axis (show change over time)
+      // - Other tags: Use categorical X-axis (compare categories)
+      if (tagContext === "trend") {
+        // Trend context: bar chart needs temporal X for showing change over time
+        if (temporal.length > 0 && numerical.length > 0) {
+          const xCol = temporal[0];
+          const yCol = numerical[0];
+          const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
+            buildTemporalEncoding(xCol);
+          const encoding: SuggestionEncoding = {
+            x: xExpr,
+            y: `sum(${yCol.columnName})`,
+            xType,
+            yType: "quantitative",
+            xLabel: xAxisLabel,
+            yLabel: `sum of ${yCol.displayName}`,
+            xTransform, // Include transform for renderer to use rectY with interval
+          };
+          if (!isExcludedEncoding(encoding)) {
+            const title = aggregationLabel
+              ? `${yCol.displayName} ${aggregationLabel}`
+              : `${yCol.displayName} over time`;
+            suggestion = {
+              id: `barY-trend-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+              title,
+              chartType: "barY",
+              encoding,
+              rationale:
+                `Time series bar chart ${aggregationLabel || ""}`.trim(),
+              xTransform,
+            };
+          }
+        }
+      } else {
+        // Default: categorical X-axis for comparing values across categories
+        if (categorical.length > 0 && numerical.length > 0) {
+          const xCol = categorical[0];
+          const yCol = numerical[0];
+          const encoding: SuggestionEncoding = {
+            x: xCol.columnName,
+            y: `sum(${yCol.columnName})`,
+            xType: getAxisType(xCol),
+            yType: "quantitative",
+            xLabel: xCol.displayName,
+            yLabel: `sum of ${yCol.displayName}`,
+          };
+          if (!isExcludedEncoding(encoding)) {
+            suggestion = {
+              id: `barY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+              title: `${yCol.displayName} by ${xCol.displayName}`,
+              chartType: "barY",
+              encoding,
+              rationale: "Categorical dimension with numeric measure",
+            };
+          }
+        }
+      }
+      break;
+
+    case "barX":
+      // Horizontal Bar: numerical X + categorical Y
+      if (categorical.length > 0 && numerical.length > 0) {
+        const yCol = categorical[0];
+        const xCol = numerical[0];
+        const encoding: SuggestionEncoding = {
+          x: `sum(${xCol.columnName})`,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: getAxisType(yCol),
+          xLabel: `sum of ${xCol.displayName}`,
+          yLabel: yCol.displayName,
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `barX-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${xCol.displayName} by ${yCol.displayName}`,
+            chartType: "barX",
+            encoding,
+            rationale: "Horizontal categorical comparison",
+          };
+        }
+      }
+      break;
+
+    case "line":
+      // Line Chart: temporal X + numerical Y
+      // Line charts require temporal data for meaningful visualization
+      if (temporal.length > 0 && numerical.length > 0) {
+        const xCol = temporal[0];
+        const yCol = numerical[0];
+        const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
+          buildTemporalEncoding(xCol);
+        const encoding: SuggestionEncoding = {
+          x: xExpr,
+          y: `sum(${yCol.columnName})`,
+          xType,
+          yType: "quantitative",
+          xLabel: xAxisLabel,
+          yLabel: `sum of ${yCol.displayName}`,
+          xTransform, // Include transform for consistency
+        };
+        if (!isExcludedEncoding(encoding)) {
+          const title = aggregationLabel
+            ? `${yCol.displayName} ${aggregationLabel}`
+            : `${yCol.displayName} over time`;
+          suggestion = {
+            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title,
+            chartType: "line",
+            encoding,
+            rationale: `Time series data ${aggregationLabel || ""}`.trim(),
+            xTransform,
+          };
+        }
+      }
+      // No fallback for line charts - they require temporal data
+      break;
+
+    case "areaY":
+      // Area Chart: temporal X + numerical Y
+      // Area charts require temporal data for meaningful visualization
+      if (temporal.length > 0 && numerical.length > 0) {
+        const xCol = temporal[0];
+        const yCol = numerical[0];
+        const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
+          buildTemporalEncoding(xCol);
+        const encoding: SuggestionEncoding = {
+          x: xExpr,
+          y: `sum(${yCol.columnName})`,
+          xType,
+          yType: "quantitative",
+          xLabel: xAxisLabel,
+          yLabel: `sum of ${yCol.displayName}`,
+          xTransform, // Include transform for consistency
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `areaY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} trend`,
+            chartType: "areaY",
+            encoding,
+            rationale:
+              `Cumulative trend visualization ${aggregationLabel || ""}`.trim(),
+            xTransform,
+          };
+        }
+      }
+      // No fallback for area charts - they require temporal data
+      break;
+
+    case "dot":
+      // Scatter Plot: 2 numerical columns
+      // Only suggest scatter for small datasets - hexbin handles large ones
+      if (numerical.length >= 2 && rowCount <= SCATTER_MAX_POINTS) {
+        const xCol = numerical[0];
+        const yCol = numerical[1];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
+        };
+        if (!isExcludedEncoding(encoding)) {
+          suggestion = {
+            id: `dot-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} vs ${xCol.displayName}`,
+            chartType: "dot",
+            encoding,
+            rationale: "Two numeric dimensions for correlation",
+          };
+        }
+      }
+      // No suggestion for scatter with large datasets - use hexbin instead
+      break;
+
+    case "hexbin":
+      // Hexbin: density visualization for 2 numerical columns
+      // Always available, but especially useful for large datasets
+      if (numerical.length >= 2) {
+        const xCol = numerical[0];
+        const yCol = numerical[1];
+        const encoding: SuggestionEncoding = {
+          x: xCol.columnName,
+          y: yCol.columnName,
+          xType: "quantitative",
+          yType: "quantitative",
+          xLabel: xCol.displayName,
+          yLabel: yCol.displayName,
+        };
+        if (!isExcludedEncoding(encoding)) {
+          const isLargeDataset = rowCount > SCATTER_MAX_POINTS;
+          suggestion = {
+            id: `hexbin-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            title: `${yCol.displayName} vs ${xCol.displayName}${isLargeDataset ? "" : " (density)"}`,
+            chartType: "hexbin",
+            encoding,
+            rationale: isLargeDataset
+              ? `Density plot for ${rowCount.toLocaleString()} points`
+              : "Hexagonal binning shows point density distribution",
+          };
+        }
+      }
+      break;
+  }
+
+  return suggestion ? annotateSuggestion(suggestion) : null;
+}
+
+/**
+ * Generates suggestions for all chart types at once.
+ * Calls suggestByChartType for each type to ensure all viable suggestions are found.
+ *
+ * @param insight - The insight to generate suggestions for
+ * @param analysis - Column analysis results from DuckDB
+ * @param rowCount - Total number of rows in the dataset
+ * @param fields - Field definitions for analysis
+ * @param chartTypes - Array of chart types to generate suggestions for
+ * @param options - Configuration options
+ * @returns Map of chart type to suggestion (or null)
+ */
+export function suggestForAllChartTypes(
+  insight: Insight,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
+  fields: Record<string, Field>,
+  chartTypes: VisualizationType[],
+  options: Omit<SuggestChartsOptions, "limit" | "excludeChartTypes"> = {},
+): Map<VisualizationType, ChartSuggestion | null> {
+  const result = new Map<VisualizationType, ChartSuggestion | null>();
+
+  // Generate suggestion for each chart type independently
+  for (const chartType of chartTypes) {
+    const suggestion = suggestByChartType(
+      insight,
+      analysis,
+      rowCount,
+      fields,
+      chartType,
+      options,
+    );
+    result.set(chartType, suggestion);
+  }
+
+  return result;
+}
+
+/**
+ * Date-related column name patterns.
+ * Fallback heuristic for edge cases where dates aren't properly typed.
+ * Note: CSV connector now uses TimestampMillisecond for date columns,
+ * so this is mainly for data from other sources or legacy imports.
+ */
+const DATE_COLUMN_PATTERNS = [
+  /date$/i, // leaddate, bookdate, etc.
+  /^date/i, // date, dateCreated, etc.
+  /_date$/i, // created_date, etc.
+  /arrival/i,
+  /departure/i,
+  /timestamp/i,
+  /created/i,
+  /updated/i,
+  /modified/i,
+  /time$/i,
+];
+
+/**
+ * Returns a human-readable reason why a chart type isn't available for the data.
+ * Used to display explanations when graying out chart types in the picker.
+ *
+ * @param chartType - The chart type to check
+ * @param analysis - Column analysis from DuckDB
+ * @returns Explanation string, or null if chart type should be available
+ */
+export function getChartTypeUnavailableReason(
+  chartType: VisualizationType,
+  analysis: ColumnAnalysis[],
+): string | null {
+  // Check for temporal columns (native DATE/TIMESTAMP types)
+  const hasTemporal = analysis.some((c) => c.semantic === "temporal");
+
+  // Also check for date-like column names (for string dates like "Feb 22, 2026")
+  const hasDateLikeColumn = analysis.some((c) =>
+    DATE_COLUMN_PATTERNS.some((pattern) => pattern.test(c.columnName)),
+  );
+
+  const hasTemporalOrDateLike = hasTemporal || hasDateLikeColumn;
+
+  const hasNumerical = analysis.some((c) => c.semantic === "numerical");
+  const hasCategorical = analysis.some(
+    (c) =>
+      c.semantic === "categorical" ||
+      c.semantic === "text" ||
+      c.semantic === "boolean",
+  );
+  const numericalCount = analysis.filter(
+    (c) => c.semantic === "numerical",
+  ).length;
+
+  switch (chartType) {
+    case "line":
+    case "areaY":
+      // Line and area charts require temporal + numerical data
+      if (!hasTemporalOrDateLike) {
+        return "Requires date column";
+      }
+      if (!hasNumerical) {
+        return "Requires numeric column";
+      }
+      return null;
+
+    case "dot":
+      // Scatter plots need at least 2 numerical columns
+      if (numericalCount < 2) {
+        return "Requires 2+ numeric columns";
+      }
+      return null;
+
+    case "barY":
+    case "barX":
+      // Bar charts need categorical + numerical
+      if (!hasCategorical && !hasTemporalOrDateLike) {
+        return "Requires category column";
+      }
+      if (!hasNumerical) {
+        return "Requires numeric column";
+      }
+      return null;
+
+    default:
+      return null;
+  }
+}
+
 function rankSuggestions(
   suggestions: ChartSuggestion[],
   columnTableMap?: Record<string, string[]>,
   totalTables = 1,
+  existingFieldSet?: Set<string>,
 ): ChartSuggestion[] {
   const priority: Record<VisualizationType, number> = {
     line: 1,
-    area: 1,
-    bar: 2,
-    scatter: 3,
-    table: 4,
+    areaY: 1,
+    barY: 2,
+    barX: 2,
+    dot: 3,
+    hexbin: 3,
+    heatmap: 3,
+    raster: 3,
+  };
+
+  // Helper to count new fields (fields not in existingFieldSet)
+  const countNewFields = (suggestion: ChartSuggestion): number => {
+    if (!existingFieldSet || existingFieldSet.size === 0) return 0;
+    const fields = getFieldsFromSuggestion(suggestion);
+    return fields.filter((f) => !existingFieldSet.has(f)).length;
   };
 
   return suggestions.sort((a, b) => {
+    // HIGHEST PRIORITY: Prefer suggestions that use existing fields only
+    const aNewFields = countNewFields(a);
+    const bNewFields = countNewFields(b);
+    if (aNewFields !== bNewFields) {
+      return aNewFields - bNewFields; // Fewer new fields = higher rank
+    }
+
     const aTables = tablesUsedBySuggestion(a, columnTableMap);
     const bTables = tablesUsedBySuggestion(b, columnTableMap);
     const aTableCount = aTables.size;
@@ -831,4 +1405,214 @@ function rankSuggestions(
     const bComplexity = b.encoding.color ? 1 : 0;
     return aComplexity - bComplexity;
   });
+}
+
+// ============================================================================
+// Tag-Based Suggestion System
+// ============================================================================
+
+import {
+  getChartTypesForTag,
+  CHART_TYPE_METADATA,
+  CHART_TAG_METADATA,
+} from "@dashframe/types";
+
+/**
+ * Suggestion for a specific tag/category with the best chart type.
+ */
+export interface TagSuggestion {
+  /** The tag this suggestion is for */
+  tag: ChartTag;
+  /** Tag display name */
+  tagDisplayName: string;
+  /** Tag description */
+  tagDescription: string;
+  /** The best chart type for this tag given the data */
+  chartType: VisualizationType;
+  /** Chart display name */
+  chartDisplayName: string;
+  /** The full suggestion details */
+  suggestion: ChartSuggestion;
+}
+
+/**
+ * Select the best chart type for a tag based on data characteristics.
+ *
+ * This function applies heuristics to pick the most appropriate chart type
+ * within a tag category based on the data size and characteristics.
+ *
+ * @param tag - The chart tag
+ * @param rowCount - Number of rows in the dataset
+ * @param analysis - Column analysis data
+ * @returns The best chart type for this tag
+ */
+function selectBestChartTypeForTag(
+  tag: ChartTag,
+  rowCount: number,
+  analysis: ColumnAnalysis[],
+): VisualizationType | null {
+  const chartTypes = getChartTypesForTag(tag);
+
+  // Check data characteristics
+  const hasTemporalColumn = analysis.some((c) => c.semantic === "temporal");
+  const hasCategoricalColumn = analysis.some(
+    (c) => c.semantic === "categorical" || c.semantic === "boolean",
+  );
+  const numericalCount = analysis.filter(
+    (c) => c.semantic === "numerical",
+  ).length;
+
+  switch (tag) {
+    case "comparison":
+      // Prefer barY for comparison, barX for many categories
+      if (hasCategoricalColumn) {
+        const maxCardinality = Math.max(
+          ...analysis
+            .filter(
+              (c) => c.semantic === "categorical" || c.semantic === "boolean",
+            )
+            .map((c) => c.cardinality),
+        );
+        // Use horizontal bar for more than 10 categories (better readability)
+        return maxCardinality > 10 ? "barX" : "barY";
+      }
+      return chartTypes[0] ?? null;
+
+    case "trend":
+      // Trend charts need temporal or continuous numeric X-axis
+      if (hasTemporalColumn) {
+        // Default to line chart for time series trends
+        return "line";
+      }
+      // Without temporal data, need at least one numeric column for continuous X
+      // (categorical data like "status" doesn't make sense for trends)
+      if (numericalCount >= 2) {
+        // Can show trend with numeric X and Y
+        return "line";
+      }
+      return null; // Can't show trend without temporal or continuous data
+
+    case "correlation":
+      // Select based on data size: dot (<5K) → hexbin (5K+)
+      // Note: raster is defined but not yet implemented in suggestByChartType,
+      // so we use hexbin for all large datasets until raster support is added
+      if (numericalCount < 2) {
+        return null; // Need at least 2 numerical columns
+      }
+      if (rowCount <= SCATTER_MAX_POINTS) {
+        return "dot";
+      } else {
+        return "hexbin";
+      }
+
+    case "distribution":
+      // Use hexbin or heatmap for distribution visualization
+      if (numericalCount >= 2) {
+        return rowCount > 10000 ? "heatmap" : "hexbin";
+      }
+      return null; // Need numerical data
+
+    default:
+      return chartTypes[0] ?? null;
+  }
+}
+
+/**
+ * Generate suggestions organized by tag/category.
+ *
+ * For each valid tag, returns the best chart suggestion based on the data.
+ * This is used for the category-based picker UI.
+ *
+ * @param insight - The insight providing context
+ * @param analysis - Column analysis from DuckDB
+ * @param rowCount - Number of rows in the dataset
+ * @param fields - Field metadata keyed by field ID
+ * @param options - Additional options (excludeEncodings, seed)
+ * @returns Array of tag suggestions, one per valid tag
+ */
+export function suggestByTag(
+  insight: Insight,
+  analysis: ColumnAnalysis[],
+  rowCount: number,
+  fields: Record<string, Field>,
+  options?: {
+    /** Encoding signatures to exclude (e.g., "x|y|color" strings from existing visualizations) */
+    excludeEncodings?: Set<string>;
+    /** Seed for reproducible randomization (default: 0) */
+    seed?: number;
+  },
+): TagSuggestion[] {
+  const results: TagSuggestion[] = [];
+
+  // Available tags to check
+  const tags: ChartTag[] = [
+    "comparison",
+    "trend",
+    "correlation",
+    "distribution",
+  ];
+
+  for (const tag of tags) {
+    // Select the best chart type for this tag
+    const chartType = selectBestChartTypeForTag(tag, rowCount, analysis);
+    if (!chartType) continue;
+
+    // Get suggestion for this chart type with tag context
+    // Tag context affects encoding selection (e.g., "trend" uses temporal X even for barY)
+    const suggestion = suggestByChartType(
+      insight,
+      analysis,
+      rowCount,
+      fields,
+      chartType,
+      {
+        excludeEncodings: options?.excludeEncodings,
+        seed: options?.seed ?? 0,
+        tagContext: tag,
+      },
+    );
+
+    if (suggestion) {
+      const tagMeta = CHART_TAG_METADATA[tag];
+      const chartMeta = CHART_TYPE_METADATA[chartType];
+
+      results.push({
+        tag,
+        tagDisplayName: tagMeta.displayName,
+        tagDescription: tagMeta.description,
+        chartType,
+        chartDisplayName: chartMeta.displayName,
+        suggestion,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get alternative chart types within the same tag as the current chart type.
+ *
+ * Used to show "Alternative charts" dropdown in the settings panel.
+ *
+ * @param currentType - The current chart type
+ * @returns Array of alternative chart types (excluding current)
+ */
+export function getAlternativeChartTypes(
+  currentType: VisualizationType,
+): VisualizationType[] {
+  // Get all tags for the current type
+  const tags = CHART_TYPE_METADATA[currentType].tags;
+
+  // Collect all chart types from those tags
+  const alternatives = new Set<VisualizationType>();
+  for (const tag of tags) {
+    for (const type of getChartTypesForTag(tag)) {
+      if (type !== currentType) {
+        alternatives.add(type);
+      }
+    }
+  }
+
+  return Array.from(alternatives);
 }

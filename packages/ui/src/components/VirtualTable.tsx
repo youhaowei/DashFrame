@@ -392,12 +392,32 @@ export function VirtualTable({
     [onFetchData, pageSize, inferredColumns.length],
   );
 
-  // Initial fetch for async mode
+  // Track if initial fetch has been done to prevent re-fetching on callback changes
+  const initialFetchDoneRef = useRef(false);
+
+  // Reset state when onFetchData changes (e.g., switching data sources)
+  const onFetchDataRef = useRef(onFetchData);
   useEffect(() => {
-    if (isAsyncMode) {
+    if (onFetchDataRef.current !== onFetchData) {
+      // Data source changed - reset all state
+      setInferredColumns([]);
+      setData([]);
+      setTotalCount(0);
+      loadedPagesRef.current.clear();
+      fetchQueueRef.current = [];
+      onFetchDataRef.current = onFetchData;
+      // Allow new initial fetch for the new data source
+      initialFetchDoneRef.current = false;
+    }
+  }, [onFetchData]);
+
+  // Initial fetch for async mode - only runs once per data source
+  useEffect(() => {
+    if (isAsyncMode && !initialFetchDoneRef.current) {
+      initialFetchDoneRef.current = true;
       fetchWithReset();
     }
-  }, [isAsyncMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAsyncMode, fetchWithReset]);
 
   // Handle column header click for sorting
   const handleSort = useCallback(
@@ -537,11 +557,36 @@ export function VirtualTable({
       className={cn("relative flex flex-col", className)}
       style={{ height, maxHeight: height }}
     >
-      {/* Loading indicator */}
+      {/* Loading indicator with animated spinner */}
       {isLoading && (
-        <div className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg">
-          <div className="bg-background/80 text-muted-foreground rounded-md px-3 py-1.5 text-sm shadow-sm">
-            Loading...
+        <div
+          className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="bg-background/95 text-muted-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm shadow-md">
+            <svg
+              className="h-4 w-4 animate-spin"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+            <span>Loading data...</span>
           </div>
         </div>
       )}
@@ -567,29 +612,38 @@ export function VirtualTable({
             const highlightVariant =
               typeof highlight === "string" ? highlight : "primary";
             const isSorted = sortColumn === col.name;
+            const columnLabel = config?.label || col.name;
+            const sortDirectionLabel =
+              sortDirection === "asc" ? "ascending" : "descending";
+            const sortedSuffix = isSorted
+              ? `, currently sorted ${sortDirectionLabel}`
+              : "";
 
             return (
-              <div
+              <button
+                type="button"
                 key={col.name}
                 className={cn(
-                  "text-muted-foreground cursor-pointer select-none overflow-hidden font-medium",
+                  "text-muted-foreground cursor-pointer select-none overflow-hidden text-left font-medium",
+                  "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
                   !isHighlighted && "hover:bg-muted/80",
                 )}
-                title={col.name}
+                title={`Sort by ${columnLabel}`}
+                aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
                 onClick={() => handleSort(col.name)}
               >
                 <div className="flex items-center gap-1">
-                  <span className="truncate">{config?.label || col.name}</span>
+                  <span className="truncate">{columnLabel}</span>
                   {isSorted && (
-                    <span className="text-[10px]">
+                    <span className="text-[10px]" aria-hidden="true">
                       {sortDirection === "asc" ? "↑" : "↓"}
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -696,7 +750,11 @@ export function VirtualTable({
 
         {/* Empty state */}
         {virtualRowCount === 0 && !isLoading && (
-          <div className="flex h-32 items-center justify-center">
+          <div
+            className="flex h-32 items-center justify-center"
+            role="status"
+            aria-live="polite"
+          >
             <span className="text-muted-foreground text-sm">
               No data available
             </span>

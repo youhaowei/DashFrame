@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Toaster } from "./sonner";
 import { toast } from "sonner";
-import { Button } from "./button";
+import { Button } from "../components/button";
 
 const meta = {
   title: "Primitives/Notifications/Toast",
@@ -19,9 +19,10 @@ export const Default: Story = {
   render: () => (
     <>
       <Toaster />
-      <Button onClick={() => toast("Event has been created")}>
-        Show toast
-      </Button>
+      <Button
+        label="Show toast"
+        onClick={() => toast("Event has been created")}
+      />
     </>
   ),
 };
@@ -31,14 +32,13 @@ export const WithDescription: Story = {
     <>
       <Toaster />
       <Button
+        label="Show toast"
         onClick={() =>
           toast("Event has been created", {
             description: "Sunday, December 03, 2023 at 9:00 AM",
           })
         }
-      >
-        Show toast
-      </Button>
+      />
     </>
   ),
 };
@@ -48,14 +48,13 @@ export const Success: Story = {
     <>
       <Toaster />
       <Button
+        label="Show success"
         onClick={() =>
           toast.success("Successfully saved", {
             description: "Your changes have been saved to the database.",
           })
         }
-      >
-        Show success
-      </Button>
+      />
     </>
   ),
 };
@@ -65,15 +64,14 @@ export const ErrorToast: Story = {
     <>
       <Toaster />
       <Button
+        label="Show error"
         onClick={() =>
           toast.error("Error occurred", {
             description:
               "Failed to connect to the data source. Please try again.",
           })
         }
-      >
-        Show error
-      </Button>
+      />
     </>
   ),
 };
@@ -83,14 +81,13 @@ export const Warning: Story = {
     <>
       <Toaster />
       <Button
+        label="Show warning"
         onClick={() =>
           toast.warning("Warning", {
             description: "Your session will expire in 5 minutes.",
           })
         }
-      >
-        Show warning
-      </Button>
+      />
     </>
   ),
 };
@@ -100,14 +97,13 @@ export const Info: Story = {
     <>
       <Toaster />
       <Button
+        label="Show info"
         onClick={() =>
           toast.info("Information", {
             description: "A new update is available for download.",
           })
         }
-      >
-        Show info
-      </Button>
+      />
     </>
   ),
 };
@@ -117,6 +113,7 @@ export const Loading: Story = {
     <>
       <Toaster />
       <Button
+        label="Show loading"
         onClick={() => {
           const promise = new Promise((resolve) => setTimeout(resolve, 3000));
           toast.promise(promise, {
@@ -125,9 +122,7 @@ export const Loading: Story = {
             error: "Failed to load data",
           });
         }}
-      >
-        Show loading
-      </Button>
+      />
     </>
   ),
 };
@@ -137,6 +132,7 @@ export const WithAction: Story = {
     <>
       <Toaster />
       <Button
+        label="Show toast with action"
         onClick={() =>
           toast("Event has been created", {
             action: {
@@ -145,9 +141,7 @@ export const WithAction: Story = {
             },
           })
         }
-      >
-        Show toast with action
-      </Button>
+      />
     </>
   ),
 };
@@ -157,6 +151,7 @@ export const WithCancel: Story = {
     <>
       <Toaster />
       <Button
+        label="Show confirmation"
         onClick={() =>
           toast("Are you sure?", {
             description: "This action cannot be undone.",
@@ -170,9 +165,7 @@ export const WithCancel: Story = {
             },
           })
         }
-      >
-        Show confirmation
-      </Button>
+      />
     </>
   ),
 };
@@ -182,28 +175,34 @@ export const AllVariants: Story = {
     <>
       <Toaster />
       <div className="flex flex-col gap-2">
-        <Button onClick={() => toast("Default toast message")}>Default</Button>
         <Button
+          label="Default"
+          onClick={() => toast("Default toast message")}
+        />
+        <Button
+          label="Success"
           onClick={() => toast.success("Operation completed successfully")}
-        >
-          Success
-        </Button>
-        <Button onClick={() => toast.error("An error occurred")}>Error</Button>
-        <Button onClick={() => toast.warning("Warning message")}>
-          Warning
-        </Button>
-        <Button onClick={() => toast.info("Informational message")}>
-          Info
-        </Button>
+        />
         <Button
+          label="Error"
+          onClick={() => toast.error("An error occurred")}
+        />
+        <Button
+          label="Warning"
+          onClick={() => toast.warning("Warning message")}
+        />
+        <Button
+          label="Info"
+          onClick={() => toast.info("Informational message")}
+        />
+        <Button
+          label="With action"
           onClick={() =>
             toast("With action", {
               action: { label: "Action", onClick: () => {} },
             })
           }
-        >
-          With action
-        </Button>
+        />
       </div>
     </>
   ),
@@ -214,18 +213,22 @@ export const CustomDuration: Story = {
     <>
       <Toaster />
       <div className="flex flex-col gap-2">
-        <Button onClick={() => toast("Quick message", { duration: 1000 })}>
-          1 second
-        </Button>
-        <Button onClick={() => toast("Normal message", { duration: 3000 })}>
-          3 seconds
-        </Button>
-        <Button onClick={() => toast("Long message", { duration: 10000 })}>
-          10 seconds
-        </Button>
-        <Button onClick={() => toast("Infinite", { duration: Infinity })}>
-          Stays until dismissed
-        </Button>
+        <Button
+          label="1 second"
+          onClick={() => toast("Quick message", { duration: 1000 })}
+        />
+        <Button
+          label="3 seconds"
+          onClick={() => toast("Normal message", { duration: 3000 })}
+        />
+        <Button
+          label="10 seconds"
+          onClick={() => toast("Long message", { duration: 10000 })}
+        />
+        <Button
+          label="Stays until dismissed"
+          onClick={() => toast("Infinite", { duration: Infinity })}
+        />
       </div>
     </>
   ),

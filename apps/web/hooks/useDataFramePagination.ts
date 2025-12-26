@@ -1,8 +1,8 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useDataFramesStore } from "@/lib/stores/dataframes-store";
+import { useDataFrames, getDataFrame } from "@dashframe/core";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import type { UUID } from "@dashframe/dataframe";
+import type { UUID } from "@dashframe/types";
 
 /**
  * Hook for paginated DataFrame queries via DuckDB
@@ -23,10 +23,12 @@ import type { UUID } from "@dashframe/dataframe";
  */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const { connection, isInitialized } = useDuckDB();
-  const getDataFrame = useDataFramesStore((state) => state.getDataFrame);
-  // Subscribe to entry changes to re-run init after store hydration
-  const entry = useDataFramesStore((s) =>
-    dataFrameId ? s.getEntry(dataFrameId) : undefined,
+  const { data: allDataFrames } = useDataFrames();
+
+  // Find the entry from reactive Dexie data (replaces Zustand subscription)
+  const entry = useMemo(
+    () => allDataFrames?.find((df) => df.id === dataFrameId),
+    [allDataFrames, dataFrameId],
   );
 
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -37,19 +39,20 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   // Fetch total count and column info on mount
   useEffect(() => {
     if (!dataFrameId || !connection || !isInitialized) {
-      setIsReady(false);
-      return;
-    }
-
-    const dataFrame = getDataFrame(dataFrameId);
-    if (!dataFrame) {
-      setError(`DataFrame not found: ${dataFrameId}`);
-      setIsReady(false);
+      requestAnimationFrame(() => setIsReady(false));
       return;
     }
 
     const init = async () => {
       try {
+        // Get DataFrame from Dexie (async)
+        const dataFrame = await getDataFrame(dataFrameId);
+        if (!dataFrame) {
+          setError(`DataFrame not found: ${dataFrameId}`);
+          setIsReady(false);
+          return;
+        }
+
         // Load table into DuckDB and get count
         const queryBuilder = await dataFrame.load(connection);
 
@@ -68,20 +71,24 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
           const cols = Object.keys(rows[0])
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
-          setColumns(cols);
+          requestAnimationFrame(() => setColumns(cols));
         }
 
-        setIsReady(true);
-        setError(null);
+        requestAnimationFrame(() => {
+          setIsReady(true);
+          setError(null);
+        });
       } catch (err) {
         console.error("Failed to initialize DataFrame pagination:", err);
-        setError(err instanceof Error ? err.message : "Failed to initialize");
-        setIsReady(false);
+        requestAnimationFrame(() => {
+          setError(err instanceof Error ? err.message : "Failed to initialize");
+          setIsReady(false);
+        });
       }
     };
 
     init();
-  }, [dataFrameId, connection, isInitialized, getDataFrame, entry]);
+  }, [dataFrameId, connection, isInitialized, entry]);
 
   // Fetch callback for VirtualTable
   const fetchData = useCallback(
@@ -90,7 +97,8 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
 
-      const dataFrame = getDataFrame(dataFrameId);
+      // Get DataFrame from Dexie (async)
+      const dataFrame = await getDataFrame(dataFrameId);
       if (!dataFrame) {
         return { rows: [], totalCount: 0 };
       }
@@ -118,7 +126,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
     },
-    [dataFrameId, connection, isInitialized, getDataFrame, totalCount, entry],
+    [dataFrameId, connection, isInitialized, totalCount],
   );
 
   return {

@@ -1,6 +1,12 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { EmptyState } from "./EmptyState";
-import { Database, FileText, BarChart3, Layers, Plus } from "../lib/icons";
+import {
+  DatabaseIcon,
+  FileIcon,
+  ChartIcon,
+  LayersIcon,
+  PlusIcon,
+} from "../lib/icons";
 
 const meta = {
   title: "Components/Feedback/EmptyState",
@@ -24,7 +30,7 @@ type Story = StoryObj<typeof meta>;
  */
 export const Default: Story = {
   args: {
-    icon: Database,
+    icon: DatabaseIcon,
     title: "No data sources",
     description: "Get started by adding your first data source",
   },
@@ -35,13 +41,13 @@ export const Default: Story = {
  */
 export const WithAction: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No insights yet",
     description: "Create an insight to start exploring your data",
     action: {
       label: "Create insight",
       onClick: () => alert("Create insight clicked"),
-      icon: Plus,
+      icon: PlusIcon,
     },
   },
 };
@@ -51,7 +57,7 @@ export const WithAction: Story = {
  */
 export const SmallSize: Story = {
   args: {
-    icon: BarChart3,
+    icon: ChartIcon,
     title: "No results",
     description: "Try adjusting your search",
     size: "sm",
@@ -63,7 +69,7 @@ export const SmallSize: Story = {
  */
 export const LargeSize: Story = {
   args: {
-    icon: Database,
+    icon: DatabaseIcon,
     title: "No data sources connected",
     description:
       "Connect a data source to start building visualizations and insights",
@@ -71,7 +77,7 @@ export const LargeSize: Story = {
     action: {
       label: "Add Data Source",
       onClick: () => alert("Add data source"),
-      icon: Plus,
+      icon: PlusIcon,
     },
   },
 };
@@ -81,14 +87,14 @@ export const LargeSize: Story = {
  */
 export const NoDataSources: Story = {
   args: {
-    icon: Database,
+    icon: DatabaseIcon,
     title: "No data sources",
     description: "Connect to a database or upload a CSV file to get started",
     action: {
       label: "Add Data Source",
       onClick: () => alert("Add clicked"),
-      icon: Plus,
-      variant: "default",
+      icon: PlusIcon,
+      variant: "filled",
     },
   },
 };
@@ -98,13 +104,13 @@ export const NoDataSources: Story = {
  */
 export const NoInsights: Story = {
   args: {
-    icon: Layers,
+    icon: LayersIcon,
     title: "No insights yet",
     description: "Create your first insight to start analyzing your data",
     action: {
       label: "Create Insight",
       onClick: () => alert("Create clicked"),
-      icon: Plus,
+      icon: PlusIcon,
     },
   },
 };
@@ -114,13 +120,13 @@ export const NoInsights: Story = {
  */
 export const NoVisualizations: Story = {
   args: {
-    icon: BarChart3,
+    icon: ChartIcon,
     title: "No visualizations",
     description: "Select an insight and create your first chart",
     action: {
       label: "Create Visualization",
       onClick: () => alert("Create clicked"),
-      icon: Plus,
+      icon: PlusIcon,
     },
   },
 };
@@ -130,7 +136,7 @@ export const NoVisualizations: Story = {
  */
 export const EmptySearchResults: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No results found",
     description: "Try different keywords or check your filters",
     size: "sm",
@@ -142,7 +148,7 @@ export const EmptySearchResults: Story = {
  */
 export const TitleOnly: Story = {
   args: {
-    icon: Database,
+    icon: DatabaseIcon,
     title: "No items",
   },
 };
@@ -152,13 +158,13 @@ export const TitleOnly: Story = {
  */
 export const SecondaryAction: Story = {
   args: {
-    icon: Database,
+    icon: DatabaseIcon,
     title: "No recent data sources",
     description: "You haven't used any data sources recently",
     action: {
       label: "Browse All",
       onClick: () => alert("Browse clicked"),
-      variant: "secondary",
+      color: "secondary",
     },
   },
 };
@@ -168,13 +174,13 @@ export const SecondaryAction: Story = {
  */
 export const OutlineAction: Story = {
   args: {
-    icon: Layers,
+    icon: LayersIcon,
     title: "No active insights",
     description: "All insights are currently archived",
     action: {
       label: "View Archive",
       onClick: () => alert("Archive clicked"),
-      variant: "outline",
+      variant: "outlined",
     },
   },
 };
@@ -184,7 +190,7 @@ export const OutlineAction: Story = {
  */
 export const NoDataTables: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No tables found",
     description:
       "This data source doesn't contain any tables or they couldn't be loaded",
@@ -197,14 +203,14 @@ export const NoDataTables: Story = {
  */
 export const EmptyDataFrame: Story = {
   args: {
-    icon: FileText,
+    icon: FileIcon,
     title: "No data",
     description: "This DataFrame is empty or hasn't been loaded yet",
     size: "md",
     action: {
       label: "Reload Data",
       onClick: () => alert("Reload clicked"),
-      icon: Plus,
+      icon: PlusIcon,
     },
   },
 };

@@ -21,6 +21,16 @@ const nextConfig = {
       };
     }
 
+    // Storage backend selection via build-time alias
+    // Maps stub package to actual storage implementation based on env var
+    const storageImpl = process.env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
+    const backendPackage = `@dashframe/core-${storageImpl}`;
+
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@dashframe/core-store": backendPackage,
+    };
+
     return config;
   },
 

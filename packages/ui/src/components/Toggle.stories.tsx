@@ -1,14 +1,14 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { Toggle } from "./Toggle";
 import {
-  BarChart3,
+  ChartIcon,
   TableIcon,
-  List,
-  LayoutGrid,
-  Hash,
-  Type,
-  Calendar,
+  ListIcon,
+  GridIcon,
+  NumberTypeIcon,
+  TextTypeIcon,
+  DateTypeIcon,
 } from "../lib/icons";
 
 const meta = {
@@ -50,7 +50,7 @@ export const Default: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Chart",
           },
           {
@@ -80,12 +80,12 @@ export const OutlineIconsOnly: Story = {
         options={[
           {
             value: "compact",
-            icon: <List className="h-4 w-4" />,
+            icon: <ListIcon className="h-4 w-4" />,
             tooltip: "Compact view",
           },
           {
             value: "expanded",
-            icon: <LayoutGrid className="h-4 w-4" />,
+            icon: <GridIcon className="h-4 w-4" />,
             tooltip: "Expanded view",
           },
         ]}
@@ -109,7 +109,7 @@ export const IconsAndLabels: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Chart",
           },
           {
@@ -139,7 +139,7 @@ export const OutlineIconsAndLabels: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Chart",
           },
           {
@@ -168,7 +168,7 @@ export const WithBadges: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Chart",
           },
           {
@@ -204,12 +204,12 @@ export const SmallSize: Story = {
         options={[
           {
             value: "compact",
-            icon: <List className="h-3 w-3" />,
+            icon: <ListIcon className="h-3 w-3" />,
             tooltip: "Compact view",
           },
           {
             value: "expanded",
-            icon: <LayoutGrid className="h-3 w-3" />,
+            icon: <GridIcon className="h-3 w-3" />,
             tooltip: "Expanded view",
           },
         ]}
@@ -233,17 +233,17 @@ export const ChartTypeSelection: Story = {
         options={[
           {
             value: "bar",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Bar",
           },
           {
             value: "line",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Line",
           },
           {
             value: "area",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Area",
           },
         ]}
@@ -267,17 +267,17 @@ export const DataTypeSelection: Story = {
         options={[
           {
             value: "text",
-            icon: <Type className="h-4 w-4" />,
+            icon: <TextTypeIcon className="h-4 w-4" />,
             label: "Text",
           },
           {
             value: "number",
-            icon: <Hash className="h-4 w-4" />,
+            icon: <NumberTypeIcon className="h-4 w-4" />,
             label: "Number",
           },
           {
             value: "date",
-            icon: <Calendar className="h-4 w-4" />,
+            icon: <DateTypeIcon className="h-4 w-4" />,
             label: "Date",
           },
         ]}
@@ -327,13 +327,13 @@ export const ViewStyleToggle: Story = {
         options={[
           {
             value: "list",
-            icon: <List className="h-4 w-4" />,
+            icon: <ListIcon className="h-4 w-4" />,
             tooltip: "List view",
             ariaLabel: "Switch to list view",
           },
           {
             value: "grid",
-            icon: <LayoutGrid className="h-4 w-4" />,
+            icon: <GridIcon className="h-4 w-4" />,
             tooltip: "Grid view",
             ariaLabel: "Switch to grid view",
           },
@@ -358,7 +358,7 @@ export const WithDisabledOption: Story = {
         options={[
           {
             value: "chart",
-            icon: <BarChart3 className="h-4 w-4" />,
+            icon: <ChartIcon className="h-4 w-4" />,
             label: "Chart",
           },
           {
@@ -394,12 +394,12 @@ export const SmallOutlineCompact: Story = {
         options={[
           {
             value: "compact",
-            icon: <List className="h-3 w-3" />,
+            icon: <ListIcon className="h-3 w-3" />,
             tooltip: "Compact",
           },
           {
             value: "expanded",
-            icon: <LayoutGrid className="h-3 w-3" />,
+            icon: <GridIcon className="h-3 w-3" />,
             tooltip: "Expanded",
           },
         ]}

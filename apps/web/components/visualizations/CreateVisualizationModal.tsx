@@ -101,7 +101,8 @@ export function CreateVisualizationModal({
           <div className="flex flex-col gap-3 pt-4">
             <Button
               onClick={handleEditInsight}
-              variant="outline"
+              variant="outlined"
+              label="Edit this insight"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>
@@ -111,6 +112,7 @@ export function CreateVisualizationModal({
             </Button>
             <Button
               onClick={handleCreateBasedOn}
+              label="Create new based on this"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Create new based on this</span>

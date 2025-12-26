@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
 
-export type JoinType = "inner" | "left" | "right" | "outer";
+export type JoinType = "inner" | "left" | "right" | "outer" | "full";
 
 export interface JoinTypeIconProps {
   /**
@@ -57,8 +57,10 @@ export function JoinTypeIcon({
   const radius = 6;
 
   // Determine fill states based on join type
-  const leftFilled = type === "left" || type === "outer";
-  const rightFilled = type === "right" || type === "outer";
+  // "full" and "outer" are equivalent (full outer join)
+  const isOuter = type === "outer" || type === "full";
+  const leftFilled = type === "left" || isOuter;
+  const rightFilled = type === "right" || isOuter;
   // Intersection is always filled (it's the point of a join)
   const intersectionFilled = true;
 
@@ -156,7 +158,8 @@ export function getJoinTypeLabel(type: JoinType): string {
     case "right":
       return "Right join";
     case "outer":
-      return "Outer join";
+    case "full":
+      return "Full join";
   }
 }
 
@@ -172,6 +175,7 @@ export function getJoinTypeDescription(type: JoinType): string {
     case "right":
       return "Matching from base, all from joined";
     case "outer":
+    case "full":
       return "All rows from both tables";
   }
 }

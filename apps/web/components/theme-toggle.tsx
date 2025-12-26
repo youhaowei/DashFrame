@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import {
-  Moon,
-  Sun,
+  LightModeIcon,
+  DarkModeIcon,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -22,20 +22,23 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled>
-        <Sun className="h-[1.2rem] w-[1.2rem] opacity-50" />
-        <span className="sr-only">Toggle theme</span>
-      </Button>
+      <Button
+        variant="text"
+        icon={LightModeIcon}
+        iconOnly
+        label="Toggle theme"
+        disabled
+        className="opacity-50"
+      />
     );
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
+        <Button variant="text" iconOnly label="Toggle theme">
+          <LightModeIcon className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+          <DarkModeIcon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

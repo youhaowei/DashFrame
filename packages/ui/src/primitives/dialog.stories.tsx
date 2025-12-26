@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog";
-import { Button } from "./button";
+import { Button } from "../components/button";
 import { Input } from "./input";
 import { Label } from "./label";
 
@@ -28,7 +28,7 @@ export const Default: Story = {
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline">Open dialog</Button>
+        <Button label="Open dialog" variant="outlined" asChild />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -52,7 +52,7 @@ export const WithFooter: Story = {
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>Open dialog with footer</Button>
+        <Button label="Open dialog with footer" asChild />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -62,8 +62,8 @@ export const WithFooter: Story = {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline">Cancel</Button>
-          <Button>Confirm</Button>
+          <Button label="Cancel" variant="outlined" />
+          <Button label="Confirm" />
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -74,7 +74,7 @@ export const FormDialog: Story = {
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="default">Edit profile</Button>
+        <Button label="Edit profile" asChild />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -103,8 +103,8 @@ export const FormDialog: Story = {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline">Cancel</Button>
-          <Button type="submit">Save changes</Button>
+          <Button label="Cancel" variant="outlined" />
+          <Button label="Save changes" />
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -115,7 +115,7 @@ export const DestructiveDialog: Story = {
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="destructive">Delete account</Button>
+        <Button label="Delete account" color="danger" asChild />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -126,8 +126,8 @@ export const DestructiveDialog: Story = {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline">Cancel</Button>
-          <Button variant="destructive">Yes, delete account</Button>
+          <Button label="Cancel" variant="outlined" />
+          <Button label="Yes, delete account" color="danger" />
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -138,7 +138,7 @@ export const WithoutCloseButton: Story = {
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline">Open (no close button)</Button>
+        <Button label="Open (no close button)" variant="outlined" asChild />
       </DialogTrigger>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
@@ -149,8 +149,8 @@ export const WithoutCloseButton: Story = {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline">Cancel</Button>
-          <Button>Continue</Button>
+          <Button label="Cancel" variant="outlined" />
+          <Button label="Continue" />
         </DialogFooter>
       </DialogContent>
     </Dialog>

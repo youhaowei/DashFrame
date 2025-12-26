@@ -22,10 +22,12 @@ out
 corepack-home/
 .corepack/
 .pnpm-store/
+.pnpm-home/
 
 # Build artifacts
 dist
 *.tsbuildinfo
+next-env.d.ts
 
 # Convex
 convex/_generated

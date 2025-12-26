@@ -1,5 +1,12 @@
-import type { UUID, Field, Metric, SourceSchema } from "@dashframe/dataframe";
-import type { TopLevelSpec } from "vega-lite";
+import type {
+  UUID,
+  Field,
+  Metric,
+  SourceSchema,
+  VisualizationType,
+  AxisType,
+  VisualizationEncoding,
+} from "@dashframe/types";
 
 // ============================================================================
 // DataTables (raw table data from sources)
@@ -158,29 +165,27 @@ export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
 // Visualizations
 // ============================================================================
 
-export type VisualizationType = "table" | "bar" | "line" | "scatter" | "area";
-
-export type AxisType = "quantitative" | "nominal" | "ordinal" | "temporal";
-
-export interface VisualizationEncoding {
-  x?: string;
-  y?: string;
-  xType?: AxisType;
-  yType?: AxisType;
-  color?: string;
-  size?: string;
-}
+// Re-export visualization types from @dashframe/types
+export type { VisualizationType, AxisType, VisualizationEncoding };
 
 export interface VisualizationSource {
   dataFrameId: UUID; // The DataFrame being visualized
   insightId?: UUID; // The Insight that produced it (for refresh/provenance tracking)
 }
 
+/**
+ * Simplified chart spec - actual rendering is now encoding-driven via Chart.
+ * This type replaces the previous Vega-Lite TopLevelSpec.
+ * @deprecated Rendering uses encoding directly, spec is kept for backwards compatibility
+ */
+export type ChartSpec = Record<string, unknown>;
+
 export interface Visualization {
   id: UUID;
   name: string;
   source: VisualizationSource;
-  spec: Omit<TopLevelSpec, "data">; // Vega-Lite spec (data comes from DataFrame)
+  /** @deprecated Rendering now uses encoding directly via Chart */
+  spec: ChartSpec;
   visualizationType: VisualizationType; // Display type (table/chart)
   encoding?: VisualizationEncoding; // Column mappings for chart types
   createdAt: number;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Field, ColumnType } from "@dashframe/dataframe";
+import type { Field, ColumnType } from "@dashframe/types";
 import {
   Dialog,
   DialogContent,
@@ -114,12 +114,12 @@ function FieldEditorForm({
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button onClick={handleSave} disabled={!name.trim()}>
-          Save Changes
-        </Button>
+        <Button label="Cancel" variant="outlined" onClick={onClose} />
+        <Button
+          label="Save Changes"
+          onClick={handleSave}
+          disabled={!name.trim()}
+        />
       </DialogFooter>
     </>
   );

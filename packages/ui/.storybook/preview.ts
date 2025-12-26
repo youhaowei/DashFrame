@@ -1,4 +1,4 @@
-import type { Preview } from "@storybook/react";
+import type { Preview } from "@storybook/nextjs-vite";
 import { createElement } from "react";
 import { ThemeWrapper } from "./ThemeWrapper";
 import { TooltipProvider } from "../src/primitives/tooltip";
@@ -12,7 +12,10 @@ const preview: Preview = {
         date: /Date$/i,
       },
     },
+    // Disable Chromatic snapshots by default - enable per-story with chromatic: { disableSnapshot: false }
+    chromatic: { disableSnapshot: true },
   },
+  tags: ["autodocs"],
   globalTypes: {
     theme: {
       description: "Global theme for components",

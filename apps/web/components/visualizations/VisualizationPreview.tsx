@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
-import dynamic from "next/dynamic";
-import type { TopLevelSpec } from "vega-lite";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { Visualization } from "@/lib/stores/types";
-import type { LoadedDataFrameData } from "@/hooks/useDataFrameData";
+import { useMemo, useState, useEffect } from "react";
+import type { Visualization, ChartEncoding } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { getCachedViewName } from "@/hooks/useInsightView";
+import { Chart } from "@dashframe/visualization";
 
 function PreviewLoading() {
   return (
@@ -13,63 +14,6 @@ function PreviewLoading() {
       <div className="bg-muted-foreground/20 h-3/4 w-3/4 animate-pulse rounded-lg" />
     </div>
   );
-}
-
-// Dynamically import VegaChart to avoid SSR issues with Vega-Lite's Set objects
-const VegaChart = dynamic(
-  () => import("./VegaChart").then((mod) => ({ default: mod.VegaChart })),
-  {
-    ssr: false,
-    loading: () => <PreviewLoading />,
-  },
-);
-
-/**
- * Build a preview-optimized Vega-Lite spec by using the visualization's
- * existing spec and modifying it for preview display.
- */
-function buildPreviewSpec(
-  viz: Visualization,
-  data: LoadedDataFrameData,
-  height: number,
-): TopLevelSpec {
-  // Use the visualization's existing spec as the base
-  const baseSpec = viz.spec as TopLevelSpec;
-
-  // Preview-optimized config: minimal chrome, transparent background
-  const previewConfig = {
-    background: "transparent",
-    view: { stroke: "transparent" },
-    axis: {
-      domain: false,
-      grid: false,
-      ticks: false,
-      labels: false,
-      titleFontSize: 0,
-    },
-    legend: { disable: true },
-    title: { fontSize: 0 },
-  };
-
-  // Merge with any existing config from the spec
-  const existingConfig = (baseSpec as unknown as { config?: object }).config;
-  const mergedConfig = {
-    ...(existingConfig || {}),
-    ...previewConfig,
-  };
-
-  // Return the spec with inline data and preview adjustments
-  return {
-    ...baseSpec,
-    data: { values: data.rows },
-    width: "container",
-    height: height - 16,
-    autosize: { type: "fit", contains: "padding" },
-    config: mergedConfig,
-    padding: { left: 4, right: 4, top: 8, bottom: 8 },
-    // Remove title for cleaner preview
-    title: undefined,
-  } as TopLevelSpec;
 }
 
 interface VisualizationPreviewProps {
@@ -82,46 +26,155 @@ interface VisualizationPreviewProps {
 }
 
 /**
+ * Convert encoding value from storage format (field:<uuid>) to SQL column alias (field_<uuid>).
+ */
+function resolveEncodingChannel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = parseEncoding(value);
+  if (!parsed) return undefined;
+  return parsed.type === "field"
+    ? fieldIdToColumnAlias(parsed.id)
+    : metricIdToColumnAlias(parsed.id);
+}
+
+/**
  * Renders a small preview of a visualization for use in cards and lists.
  *
- * Loads the FULL dataset to ensure accurate chart rendering (aggregations,
- * distributions, trends). For very large datasets, consider using vgplot
- * which pushes aggregation to DuckDB.
+ * Uses Chart with preview mode enabled for minimal chrome
+ * (no axes, legends, or padding).
+ *
+ * The view name is deterministic: `insight_view_<insightId>`.
+ * This component assumes the parent page (InsightView) has already created the view.
+ * It polls DuckDB to check if the view exists before rendering.
  */
 export function VisualizationPreview({
   visualization,
   height = 160,
   fallback,
 }: VisualizationPreviewProps) {
-  const dataFrameId = visualization.source.dataFrameId;
+  const { connection, isInitialized } = useDuckDB();
 
-  // Load full data for accurate preview (no limit)
-  const { data, isLoading, error } = useDataFrameData(dataFrameId);
+  // Check cache first for instant rendering (set by useInsightView)
+  const cachedViewName = visualization.insightId
+    ? getCachedViewName(visualization.insightId)
+    : null;
 
-  // Build preview spec with inline data
-  const previewSpec = useMemo<TopLevelSpec | null>(() => {
-    if (!data || data.rows.length === 0) return null;
-    if (visualization.visualizationType === "table") return null;
-    return buildPreviewSpec(visualization, data, height);
-  }, [data, visualization, height]);
+  // Use cached view name if available, otherwise compute it
+  const viewName = useMemo(() => {
+    if (cachedViewName) return cachedViewName;
+    if (!visualization.insightId) return null;
+    return `insight_view_${visualization.insightId.replace(/-/g, "_")}`;
+  }, [visualization.insightId, cachedViewName]);
 
-  // Loading state
-  if (isLoading) {
+  // If we have a cached view name, we know it exists - skip polling
+  const [viewExists, setViewExists] = useState(!!cachedViewName);
+
+  // Only poll DuckDB if view isn't in cache
+  useEffect(() => {
+    // If cache hit, view already exists - no need to poll
+    if (cachedViewName) {
+      setViewExists(true);
+      return;
+    }
+
+    if (!connection || !isInitialized || !viewName) {
+      setViewExists(false);
+      return;
+    }
+
+    let cancelled = false;
+    let retryCount = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const maxRetries = 5; // Reduced from 10 - faster failure
+    const retryDelay = 100; // Reduced from 200ms - faster polling
+
+    const checkViewExists = async () => {
+      try {
+        // Query information_schema to check if view exists
+        const result = await connection.query(`
+          SELECT 1 FROM information_schema.tables
+          WHERE table_name = '${viewName}'
+          LIMIT 1
+        `);
+        const exists = result.toArray().length > 0;
+
+        if (!cancelled) {
+          if (exists) {
+            setViewExists(true);
+          } else if (retryCount < maxRetries) {
+            retryCount++;
+            timeoutId = setTimeout(checkViewExists, retryDelay);
+          }
+        }
+      } catch (err) {
+        console.error("[VisualizationPreview] Error checking view:", err);
+        if (!cancelled && retryCount < maxRetries) {
+          retryCount++;
+          timeoutId = setTimeout(checkViewExists, retryDelay);
+        }
+      }
+    };
+
+    checkViewExists();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [connection, isInitialized, viewName, cachedViewName]);
+
+  // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
+  const resolvedEncoding = useMemo((): ChartEncoding => {
+    if (!visualization.encoding) {
+      return {};
+    }
+
+    return {
+      x: resolveEncodingChannel(visualization.encoding.x),
+      y: resolveEncodingChannel(visualization.encoding.y),
+      color: resolveEncodingChannel(visualization.encoding.color),
+      size: resolveEncodingChannel(visualization.encoding.size),
+      xType: visualization.encoding.xType,
+      yType: visualization.encoding.yType,
+      // Pass through date transforms for temporal bar charts
+      xTransform: visualization.encoding.xTransform,
+      yTransform: visualization.encoding.yTransform,
+    };
+  }, [visualization.encoding]);
+
+  // Loading state - waiting for DuckDB or view to be created
+  if (!isInitialized || !viewName || !viewExists) {
     return <PreviewLoading />;
   }
 
-  // Error, no data, or table type - show fallback
-  if (error || !previewSpec) {
+  // Check if encoding has required data channels (x or y)
+  // Visualizations created before the encoding fix may be missing these
+  const hasValidEncoding = resolvedEncoding.x || resolvedEncoding.y;
+
+  // Show fallback for visualizations with missing encoding (legacy data)
+  if (!hasValidEncoding) {
     return (
-      <div className="bg-muted flex h-full w-full items-center justify-center">
-        {fallback}
-      </div>
+      fallback ?? (
+        <div className="bg-muted/50 text-muted-foreground flex h-full w-full items-center justify-center text-xs">
+          <span>Encoding missing</span>
+        </div>
+      )
     );
   }
 
   return (
-    <div className="h-full w-full overflow-hidden">
-      <VegaChart spec={previewSpec} className="h-full w-full" />
+    <div className="h-full w-full overflow-hidden" style={{ height }}>
+      <Chart
+        tableName={viewName}
+        visualizationType={visualization.visualizationType}
+        encoding={resolvedEncoding}
+        width="container"
+        height={height}
+        preview
+        className="h-full w-full"
+      />
     </div>
   );
 }

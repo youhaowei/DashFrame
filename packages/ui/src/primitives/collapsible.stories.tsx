@@ -1,11 +1,11 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "./collapsible";
-import { Button } from "./button";
-import { ChevronDown } from "../lib/icons";
+import { Button } from "../components/button";
+import { ChevronDownIcon } from "../lib/icons";
 import { useState } from "react";
 
 const meta = {
@@ -24,10 +24,13 @@ export const Default: Story = {
   render: () => (
     <Collapsible className="w-80">
       <CollapsibleTrigger asChild>
-        <Button variant="outline" className="w-full justify-between">
-          Show more details
-          <ChevronDown className="h-4 w-4" />
-        </Button>
+        <Button
+          label="Show more details"
+          variant="outlined"
+          icon={ChevronDownIcon}
+          className="w-full justify-between"
+          asChild
+        />
       </CollapsibleTrigger>
       <CollapsibleContent className="bg-card mt-2 rounded-md border p-4">
         <p className="text-muted-foreground text-sm">
@@ -45,12 +48,13 @@ export const Controlled: Story = {
       <div className="w-80">
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
           <CollapsibleTrigger asChild>
-            <Button variant="outline" className="w-full justify-between">
-              {isOpen ? "Hide" : "Show"} settings
-              <ChevronDown
-                className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-              />
-            </Button>
+            <Button
+              label={`${isOpen ? "Hide" : "Show"} settings`}
+              variant="outlined"
+              icon={ChevronDownIcon}
+              className="w-full justify-between"
+              asChild
+            />
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 space-y-2">
             <div className="bg-card rounded-md border p-3">
@@ -113,7 +117,7 @@ export const FAQStyle: Story = {
             <CollapsibleTrigger asChild>
               <button className="bg-card hover:bg-accent flex w-full items-center justify-between rounded-md border p-4 text-left">
                 <span className="font-medium">{faq.question}</span>
-                <ChevronDown
+                <ChevronDownIcon
                   className={`h-4 w-4 transition-transform ${openItem === faq.id ? "rotate-180" : ""}`}
                 />
               </button>
@@ -132,10 +136,13 @@ export const DefaultOpen: Story = {
   render: () => (
     <Collapsible defaultOpen className="w-80">
       <CollapsibleTrigger asChild>
-        <Button variant="outline" className="w-full justify-between">
-          Advanced options
-          <ChevronDown className="h-4 w-4" />
-        </Button>
+        <Button
+          label="Advanced options"
+          variant="outlined"
+          icon={ChevronDownIcon}
+          className="w-full justify-between"
+          asChild
+        />
       </CollapsibleTrigger>
       <CollapsibleContent className="bg-card mt-2 rounded-md border p-4">
         <div className="space-y-2 text-sm">

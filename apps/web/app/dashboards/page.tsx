@@ -13,48 +13,45 @@ import {
   DialogTitle,
   DialogFooter,
   Label,
-  Plus,
-  LayoutDashboard,
-  Trash2,
+  PlusIcon,
+  DashboardIcon,
+  DeleteIcon,
 } from "@dashframe/ui";
-import { useDashboardsStore } from "@/lib/stores/dashboards-store";
-
-import { useShallow } from "zustand/react/shallow";
+import { useDashboards, useDashboardMutations } from "@dashframe/core";
 
 export default function DashboardsPage() {
   const router = useRouter();
-  const dashboards = useDashboardsStore(
-    useShallow((state) => Array.from(state.dashboards.values())),
-  );
-  const addDashboard = useDashboardsStore((state) => state.addDashboard);
-  const removeDashboard = useDashboardsStore((state) => state.removeDashboard);
+  const { data: dashboards = [], isLoading } = useDashboards();
+  const { create: createDashboard, remove: removeDashboard } =
+    useDashboardMutations();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newDashboardName.trim()) return;
 
-    const id = crypto.randomUUID();
-    addDashboard({
-      id,
-      name: newDashboardName,
-      items: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const id = await createDashboard(newDashboardName);
 
     setIsCreateOpen(false);
     setNewDashboardName("");
     router.push(`/dashboards/${id}`);
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground text-sm">Loading dashboards...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="border-border/60 flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-xl">
-            <LayoutDashboard className="h-5 w-5" />
+            <DashboardIcon className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight">
@@ -65,17 +62,18 @@ export default function DashboardsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Dashboard
-        </Button>
+        <Button
+          icon={PlusIcon}
+          label="New Dashboard"
+          onClick={() => setIsCreateOpen(true)}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
         {dashboards.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="bg-muted text-muted-foreground mb-4 flex h-20 w-20 items-center justify-center rounded-full">
-              <LayoutDashboard className="h-10 w-10" />
+              <DashboardIcon className="h-10 w-10" />
             </div>
             <h3 className="text-foreground text-lg font-semibold">
               No dashboards yet
@@ -84,10 +82,12 @@ export default function DashboardsPage() {
               Create your first dashboard to start organizing your
               visualizations.
             </p>
-            <Button className="mt-6" onClick={() => setIsCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Dashboard
-            </Button>
+            <Button
+              icon={PlusIcon}
+              label="Create Dashboard"
+              className="mt-6"
+              onClick={() => setIsCreateOpen(true)}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -103,27 +103,33 @@ export default function DashboardsPage() {
                 >
                   <div className="mb-4 flex items-start justify-between">
                     <div className="bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-lg">
-                      <LayoutDashboard className="h-5 w-5" />
+                      <DashboardIcon className="h-5 w-5" />
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
+                    <div
                       onClick={(e) => {
-                        e.preventDefault();
                         e.stopPropagation();
-                        removeDashboard(dashboard.id);
+                        e.preventDefault();
                       }}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        variant="text"
+                        icon={DeleteIcon}
+                        iconOnly
+                        label="Delete dashboard"
+                        color="danger"
+                        className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={() => removeDashboard(dashboard.id)}
+                      />
+                    </div>
                   </div>
                   <h3 className="text-foreground mb-1 font-semibold">
                     {dashboard.name}
                   </h3>
                   <p className="text-muted-foreground text-sm">
                     {dashboard.items.length} items · Updated{" "}
-                    {new Date(dashboard.updatedAt).toLocaleDateString()}
+                    {dashboard.updatedAt
+                      ? new Date(dashboard.updatedAt).toLocaleDateString()
+                      : new Date(dashboard.createdAt).toLocaleDateString()}
                   </p>
                 </Surface>
               </Link>
@@ -153,12 +159,16 @@ export default function DashboardsPage() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} disabled={!newDashboardName.trim()}>
-              Create
-            </Button>
+            <Button
+              variant="outlined"
+              label="Cancel"
+              onClick={() => setIsCreateOpen(false)}
+            />
+            <Button
+              label="Create"
+              onClick={handleCreate}
+              disabled={!newDashboardName.trim()}
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

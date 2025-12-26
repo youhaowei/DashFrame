@@ -2,30 +2,35 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { Visualization, Insight } from "@/lib/stores/types";
-import type { UUID } from "@dashframe/dataframe";
+import {
+  useVisualizations,
+  useVisualizationMutations,
+  useInsights,
+  useDataSources,
+  useDataTables,
+} from "@dashframe/core";
+import type { Visualization, Insight, UUID } from "@dashframe/types";
 import {
   Button,
   Card,
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  LineChart,
+  ChartIcon,
   TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
+  PlusIcon,
+  DeleteIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink, LuCircleDot } from "react-icons/lu";
+import {
+  SearchIcon,
+  ExternalLinkIcon,
+  DataPointIcon,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for visualization with joined details
@@ -34,14 +39,6 @@ type VisualizationWithDetails = {
   insight: Insight | null;
   sourceType: string | null;
 };
-
-// Helper to check if a data source contains a specific table
-function dataSourceContainsTable(
-  ds: { dataTables: Map<string, { id: UUID }> },
-  tableId: UUID,
-): boolean {
-  return Array.from(ds.dataTables.values()).some((dt) => dt.id === tableId);
-}
 
 /**
  * Visualizations Management Page
@@ -52,38 +49,50 @@ function dataSourceContainsTable(
 export default function VisualizationsPage() {
   const router = useRouter();
 
-  // Local stores with useStoreQuery to prevent infinite loops
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
-  const removeVisualizationLocal = useVisualizationsStore(
-    (state) => state.remove,
-  );
-  const getInsight = useInsightsStore((state) => state.getInsight);
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-    state.getAll(),
-  );
+  // Dexie hooks for data
+  const { data: visualizations = [], isLoading: isLoadingViz } =
+    useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataSources = [] } = useDataSources();
+  const { data: dataTables = [] } = useDataTables();
+  const { remove: removeVisualization } = useVisualizationMutations();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // Create lookup maps for efficient joins
+  const insightsMap = useMemo(
+    () => new Map(insights.map((i) => [i.id, i])),
+    [insights],
+  );
+
+  const dataTablesMap = useMemo(
+    () => new Map(dataTables.map((t) => [t.id, t])),
+    [dataTables],
+  );
+
+  const dataSourcesMap = useMemo(
+    () => new Map(dataSources.map((s) => [s.id, s])),
+    [dataSources],
+  );
 
   // Join visualizations with insights and determine source type
   const visualizationsData = useMemo((): VisualizationWithDetails[] => {
     return visualizations.map((viz) => {
-      const insight = viz.source.insightId
-        ? (getInsight(viz.source.insightId) ?? null)
+      const insight = viz.insightId
+        ? (insightsMap.get(viz.insightId) ?? null)
         : null;
 
       // Try to determine source type from insight -> dataTable -> dataSource
       let sourceType: string | null = null;
-      const dataTableId = insight?.baseTable?.tableId;
+      const dataTableId = insight?.baseTableId;
       if (dataTableId) {
-        // Find which data source contains this table
-        const dataSource = dataSources.find((ds) =>
-          dataSourceContainsTable(ds, dataTableId),
-        );
-        sourceType = dataSource?.type ?? null;
+        const dataTable = dataTablesMap.get(dataTableId);
+        if (dataTable) {
+          const dataSource = dataSourcesMap.get(dataTable.dataSourceId);
+          sourceType = dataSource?.type ?? null;
+        }
       }
 
       return {
@@ -92,8 +101,7 @@ export default function VisualizationsPage() {
         sourceType,
       };
     });
-  }, [visualizations, getInsight, dataSources]);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  }, [visualizations, insightsMap, dataTablesMap, dataSourcesMap]);
 
   // Filter visualizations by search query
   const filteredVisualizations = useMemo((): VisualizationWithDetails[] => {
@@ -112,12 +120,12 @@ export default function VisualizationsPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "bar":
-        return <BarChart3 className="h-5 w-5" />;
+        return <ChartIcon className="h-5 w-5" />;
       case "line":
       case "area":
-        return <LineChart className="h-5 w-5" />;
+        return <ChartIcon className="h-5 w-5" />;
       case "scatter":
-        return <LuCircleDot className="h-5 w-5" />;
+        return <DataPointIcon className="h-5 w-5" />;
       case "table":
       default:
         return <TableIcon className="h-5 w-5" />;
@@ -136,14 +144,14 @@ export default function VisualizationsPage() {
     return labels[type] || "Chart";
   };
 
-  // Handle delete visualization (LOCAL ONLY)
-  const handleDeleteVisualization = (
+  // Handle delete visualization
+  const handleDeleteVisualization = async (
     visualizationId: UUID,
     e: React.MouseEvent,
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    removeVisualizationLocal(visualizationId);
+    await removeVisualization(visualizationId);
   };
 
   // Render visualization card
@@ -204,13 +212,14 @@ export default function VisualizationsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="ghost"
+                variant="text"
+                icon={MoreIcon}
+                iconOnly
+                label="More options"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+                onClick={() => {}}
+              />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -219,7 +228,7 @@ export default function VisualizationsPage() {
                   router.push(`/visualizations/${item.visualization.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -231,7 +240,7 @@ export default function VisualizationsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -240,6 +249,15 @@ export default function VisualizationsPage() {
       </CardContent>
     </Card>
   );
+
+  // Show loading state
+  if (isLoadingViz) {
+    return (
+      <div className="bg-background flex h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading visualizations...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background flex h-screen flex-col">
@@ -254,13 +272,14 @@ export default function VisualizationsPage() {
                 {visualizationsData.length !== 1 ? "s" : ""} created
               </p>
             </div>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Visualization
-            </Button>
+            <Button
+              icon={PlusIcon}
+              label="New Visualization"
+              onClick={() => setIsCreateModalOpen(true)}
+            />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -282,7 +301,7 @@ export default function VisualizationsPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <BarChart3 className="text-muted-foreground h-8 w-8" />
+                <ChartIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -292,9 +311,11 @@ export default function VisualizationsPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     No visualizations match &quot;{searchQuery}&quot;
                   </p>
-                  <Button variant="outline" onClick={() => setSearchQuery("")}>
-                    Clear search
-                  </Button>
+                  <Button
+                    variant="outlined"
+                    label="Clear search"
+                    onClick={() => setSearchQuery("")}
+                  />
                 </>
               ) : (
                 <>
@@ -305,10 +326,11 @@ export default function VisualizationsPage() {
                     Create your first visualization to see your data come to
                     life
                   </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    New Visualization
-                  </Button>
+                  <Button
+                    icon={PlusIcon}
+                    label="New Visualization"
+                    onClick={() => setIsCreateModalOpen(true)}
+                  />
                 </>
               )}
             </div>

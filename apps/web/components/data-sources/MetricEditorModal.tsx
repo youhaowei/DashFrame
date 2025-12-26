@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Field, Metric } from "@dashframe/dataframe";
+import type { Field, Metric } from "@dashframe/types";
 import {
   Dialog,
   DialogContent,
@@ -207,15 +207,12 @@ export function MetricEditorModal({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
+          <Button label="Cancel" variant="outlined" onClick={handleCancel} />
           <Button
+            label="Add Metric"
             onClick={handleSave}
             disabled={!name.trim() || (needsField && !fieldColumnName)}
-          >
-            Add Metric
-          </Button>
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

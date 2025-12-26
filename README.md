@@ -5,10 +5,11 @@ DashFrame is a business intelligence playground focused on the DataFrame → cha
 ## Stack
 
 - **Next.js 16** (App Router) + React 19
-- **Convex** for backend persistence and real-time sync
+- **Dexie (IndexedDB)** for client-side data persistence
+- **DuckDB-WASM** for in-browser data processing
 - **Tailwind CSS v4** (via PostCSS) — shadcn components
 - **Turborepo** for workspace orchestration
-- **Vega-Lite + Vega Embed** for chart rendering
+- **Vega-Lite** for declarative chart rendering
 - **Papaparse** for CSV ingest, **@notionhq/client** for Notion
 - **pnpm** for dependency management
 
@@ -18,11 +19,15 @@ DashFrame is a business intelligence playground focused on the DataFrame → cha
 apps/
   web/              # Next.js app (App Router)
 packages/
-  dataframe/        # DataFrame types and utilities
-  csv/              # CSV ingest helpers → DataFrame
-  notion/           # Notion database integration → DataFrame
+  types/            # Pure type contracts
+  core/             # Backend selector
+  core-dexie/       # Dexie/IndexedDB backend
+  engine/           # Abstract engine interfaces
+  engine-browser/   # DuckDB-WASM implementation
+  connector-csv/    # CSV file connector
+  connector-notion/ # Notion API connector
+  visualization/    # Chart rendering system
   ui/               # Shared UI primitives/components
-convex/             # Backend (Convex functions + schema)
 docs/
   architecture.md   # Architecture overview
 ```
@@ -66,10 +71,9 @@ Package responsibilities:
    ```
 
    This single command starts:
-   - **Convex backend** at `http://127.0.0.1:3210`
    - **Next.js web app** at `http://localhost:3000`
-   - Auto-generates TypeScript types in `convex/_generated/`
-   - Hot-reload for both frontend and backend
+   - TypeScript watch mode for all packages
+   - Hot-reload with instant feedback
 
    Need a single package? Target explicitly: `pnpm --filter @dashframe/web dev`
 
@@ -113,12 +117,13 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Current Status
 
-- ✅ **Convex backend** with full entity persistence (DataSources, Insights, Visualizations)
+- ✅ **Client-side persistence** with Dexie (IndexedDB)
+- ✅ **In-browser query engine** with DuckDB-WASM
 - ✅ **Route-based architecture** - `/data-sources`, `/insights`, `/visualizations` pages
-- ✅ CSV upload → DataFrame → Vega-Lite preview
+- ✅ CSV upload → DataFrame → Vega-Lite charts
 - ✅ Notion database integration with property selection
-- ✅ Shared packages (`@dashframe/dataframe`, `@dashframe/csv`, `@dashframe/notion`, `@dashframe/ui`)
-- ✅ Real-time sync across tabs via Convex
+- ✅ Pluggable backend architecture for custom implementations
+- ✅ Real-time reactive updates with useLiveQuery
 
 ## Roadmap
 

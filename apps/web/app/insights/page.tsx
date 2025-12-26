@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useInsightsStore } from "@/lib/stores/insights-store";
-import { useVisualizationsStore } from "@/lib/stores/visualizations-store";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
-import type { Insight, DataTable } from "@/lib/stores/types";
-import type { UUID } from "@dashframe/dataframe";
+import {
+  useInsights,
+  useInsightMutations,
+  useVisualizations,
+  useDataSources,
+  useDataTables,
+} from "@dashframe/core";
+import type { Insight, DataTable, UUID } from "@dashframe/types";
 
 // Type for insight with joined details
 type InsightWithDetails = {
@@ -42,18 +44,18 @@ import {
   CardContent,
   Input,
   Badge,
-  BarChart3,
-  Plus,
-  Trash2,
-  Settings,
-  FileText,
-  MoreHorizontal,
+  ChartIcon,
+  PlusIcon,
+  DeleteIcon,
+  SettingsIcon,
+  FileIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
-import { LuSearch, LuExternalLink } from "react-icons/lu";
+import { SearchIcon, ExternalLinkIcon } from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
@@ -67,18 +69,12 @@ import { CreateVisualizationModal } from "@/components/visualizations/CreateVisu
 export default function InsightsPage() {
   const router = useRouter();
 
-  // Local stores with useStoreQuery to prevent infinite loops
-  const { data: allInsights } = useStoreQuery(useInsightsStore, (state) =>
-    state.getAll(),
-  );
-  const removeInsightLocal = useInsightsStore((state) => state.removeInsight);
-  const { data: visualizations } = useStoreQuery(
-    useVisualizationsStore,
-    (state) => state.getAll(),
-  );
-  const { data: dataSources } = useStoreQuery(useDataSourcesStore, (state) =>
-    state.getAll(),
-  );
+  // Dexie hooks
+  const { data: allInsights = [] } = useInsights();
+  const { remove: removeInsightLocal } = useInsightMutations();
+  const { data: visualizations = [] } = useVisualizations();
+  const { data: dataSources = [] } = useDataSources();
+  const { data: allDataTables = [] } = useDataTables();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,22 +87,23 @@ export default function InsightsPage() {
       let dataTable: DataTable | null = null;
       let sourceType: string | null = null;
 
-      const dataTableId = insight.baseTable?.tableId;
+      const dataTableId = insight.baseTableId;
       if (dataTableId) {
-        // Find which data source contains this table
-        for (const ds of dataSources) {
-          const table = ds.dataTables.get(dataTableId);
-          if (table) {
-            dataTable = table;
+        // Find the data table (flat in Dexie)
+        const table = allDataTables.find((t) => t.id === dataTableId);
+        if (table) {
+          dataTable = table;
+          // Find the data source for this table
+          const ds = dataSources.find((s) => s.id === table.dataSourceId);
+          if (ds) {
             sourceType = ds.type;
-            break;
           }
         }
       }
 
       // Count visualizations for this insight
       const visualizationCount = visualizations.filter(
-        (viz) => viz.source.insightId === insight.id,
+        (viz) => viz.insightId === insight.id,
       ).length;
 
       return {
@@ -116,14 +113,13 @@ export default function InsightsPage() {
         visualizationCount,
       };
     });
-  }, [allInsights, dataSources, visualizations]);
+  }, [allInsights, allDataTables, dataSources, visualizations]);
 
   // Process insights data
   const insights = useMemo((): InsightItem[] => {
     return insightsData.map((item): InsightItem => {
       // Determine state
-      const isConfigured =
-        (item.insight.baseTable?.selectedFields?.length ?? 0) > 0;
+      const isConfigured = (item.insight.selectedFields?.length ?? 0) > 0;
       const hasVisualizations = item.visualizationCount > 0;
 
       return {
@@ -190,25 +186,25 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <BarChart3 className="text-primary h-5 w-5" />;
+        return <ChartIcon className="text-primary h-5 w-5" />;
       case "configured":
-        return <Settings className="text-muted-foreground h-5 w-5" />;
+        return <SettingsIcon className="text-muted-foreground h-5 w-5" />;
       case "draft":
-        return <FileText className="text-muted-foreground h-5 w-5" />;
+        return <FileIcon className="text-muted-foreground h-5 w-5" />;
     }
   };
 
-  // Handle delete insight (LOCAL ONLY)
-  const handleDeleteInsight = (insightId: UUID, e: React.MouseEvent) => {
+  // Handle delete insight
+  const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    removeInsightLocal(insightId);
+    await removeInsightLocal(insightId);
   };
 
-  // Handle delete all drafts (LOCAL ONLY)
-  const handleDeleteAllDrafts = () => {
+  // Handle delete all drafts
+  const handleDeleteAllDrafts = async () => {
     for (const item of groupedInsights.drafts) {
-      removeInsightLocal(item.insight.id);
+      await removeInsightLocal(item.insight.id);
     }
   };
 
@@ -250,13 +246,14 @@ export default function InsightsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="ghost"
+                variant="text"
+                icon={MoreIcon}
+                iconOnly
+                label="More options"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+                onClick={() => {}}
+              />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -265,7 +262,7 @@ export default function InsightsPage() {
                   router.push(`/insights/${item.insight.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -277,7 +274,7 @@ export default function InsightsPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -300,13 +297,14 @@ export default function InsightsPage() {
                 total
               </p>
             </div>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Insight
-            </Button>
+            <Button
+              icon={PlusIcon}
+              label="New Insight"
+              onClick={() => setIsCreateModalOpen(true)}
+            />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -356,14 +354,14 @@ export default function InsightsPage() {
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
                 <Button
-                  variant="ghost"
+                  variant="text"
+                  icon={DeleteIcon}
+                  label="Delete all"
                   size="sm"
+                  color="danger"
                   className="text-destructive hover:text-destructive"
                   onClick={handleDeleteAllDrafts}
-                >
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  Delete all
-                </Button>
+                />
               </div>
               <div className="grid gap-3">
                 {groupedInsights.drafts.map(renderInsightCard)}
@@ -375,7 +373,7 @@ export default function InsightsPage() {
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <FileText className="text-muted-foreground h-8 w-8" />
+                <FileIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -385,9 +383,11 @@ export default function InsightsPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     No insights match &quot;{searchQuery}&quot;
                   </p>
-                  <Button variant="outline" onClick={() => setSearchQuery("")}>
-                    Clear search
-                  </Button>
+                  <Button
+                    variant="outlined"
+                    label="Clear search"
+                    onClick={() => setSearchQuery("")}
+                  />
                 </>
               ) : (
                 <>
@@ -397,10 +397,11 @@ export default function InsightsPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     Create your first insight to start analyzing data
                   </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    New Insight
-                  </Button>
+                  <Button
+                    icon={PlusIcon}
+                    label="New Insight"
+                    onClick={() => setIsCreateModalOpen(true)}
+                  />
                 </>
               )}
             </div>

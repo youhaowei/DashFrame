@@ -1,13 +1,13 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 import {
-  Database,
-  FileText,
-  BarChart3,
-  Plus,
-  Trash2,
-  Refresh,
+  DatabaseIcon,
+  FileIcon,
+  ChartIcon,
+  PlusIcon,
+  DeleteIcon,
+  RefreshIcon,
 } from "../lib/icons";
 
 const meta = {
@@ -34,7 +34,7 @@ export const Default: Story = {
         active: true,
         badge: "PostgreSQL",
         metadata: "12 tables",
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         id: "2",
@@ -42,7 +42,7 @@ export const Default: Story = {
         active: false,
         badge: "MongoDB",
         metadata: "8 collections",
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         id: "3",
@@ -50,7 +50,7 @@ export const Default: Story = {
         active: false,
         badge: "CSV",
         metadata: "5,420 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
     ]);
 
@@ -67,12 +67,12 @@ export const Default: Story = {
           {
             label: "Manage Data",
             onClick: () => alert("Manage"),
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "New",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -92,7 +92,7 @@ export const Visualizations: Story = {
         active: true,
         badge: "Bar",
         metadata: "1,250 rows",
-        icon: BarChart3,
+        icon: ChartIcon,
       },
       {
         id: "2",
@@ -100,7 +100,7 @@ export const Visualizations: Story = {
         active: false,
         badge: "Line",
         metadata: "365 rows",
-        icon: BarChart3,
+        icon: ChartIcon,
       },
       {
         id: "3",
@@ -108,7 +108,7 @@ export const Visualizations: Story = {
         active: false,
         badge: "Pie",
         metadata: "8 categories",
-        icon: BarChart3,
+        icon: ChartIcon,
       },
     ]);
 
@@ -125,7 +125,7 @@ export const Visualizations: Story = {
           {
             label: "Create",
             onClick: () => alert("Create"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -183,7 +183,7 @@ export const CompactView: Story = {
           {
             label: "Export",
             onClick: () => alert("Export"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />
@@ -203,7 +203,7 @@ export const Insights: Story = {
         active: true,
         badge: "DataFrame",
         metadata: "2,500 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
       {
         id: "2",
@@ -211,7 +211,7 @@ export const Insights: Story = {
         active: false,
         badge: "DataFrame",
         metadata: "1,820 rows",
-        icon: FileText,
+        icon: FileIcon,
       },
     ]);
 
@@ -228,13 +228,13 @@ export const Insights: Story = {
           {
             label: "Refresh",
             onClick: () => alert("Refresh"),
-            icon: Refresh,
-            variant: "outline",
+            icon: RefreshIcon,
+            variant: "outlined",
           },
           {
             label: "New Insight",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -255,7 +255,7 @@ export const EmptyState: Story = {
       {
         label: "Add Data Source",
         onClick: () => alert("Add"),
-        icon: Plus,
+        icon: PlusIcon,
       },
     ],
   },
@@ -273,7 +273,7 @@ export const SingleItem: Story = {
         active: true,
         badge: "PostgreSQL",
         metadata: "12 tables",
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ]);
 
@@ -289,7 +289,7 @@ export const SingleItem: Story = {
           {
             label: "Settings",
             onClick: () => alert("Settings"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />
@@ -310,7 +310,7 @@ export const ManyItems: Story = {
         badge: i % 2 === 0 ? "PostgreSQL" : "MySQL",
         // eslint-disable-next-line sonarjs/pseudo-random
         metadata: `${Math.floor(Math.random() * 50) + 1} tables`,
-        icon: Database,
+        icon: DatabaseIcon,
       })),
     );
 
@@ -327,12 +327,12 @@ export const ManyItems: Story = {
           {
             label: "Manage",
             onClick: () => alert("Manage"),
-            variant: "outline",
+            variant: "outlined",
           },
           {
             label: "New",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -351,14 +351,14 @@ export const WithoutDescription: Story = {
         label: "Sales Database",
         active: true,
         badge: "PostgreSQL",
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         id: "2",
         label: "Analytics DB",
         active: false,
         badge: "MongoDB",
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ]);
 
@@ -374,7 +374,7 @@ export const WithoutDescription: Story = {
           {
             label: "New",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -394,7 +394,7 @@ export const MultipleActions: Story = {
         active: true,
         badge: "PostgreSQL",
         metadata: "12 tables",
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ]);
 
@@ -410,19 +410,19 @@ export const MultipleActions: Story = {
           {
             label: "Refresh",
             onClick: () => alert("Refresh"),
-            icon: Refresh,
-            variant: "outline",
+            icon: RefreshIcon,
+            variant: "outlined",
           },
           {
             label: "Delete",
             onClick: () => alert("Delete"),
-            icon: Trash2,
-            variant: "destructive",
+            icon: DeleteIcon,
+            color: "danger",
           },
           {
             label: "New",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />
@@ -472,7 +472,7 @@ export const WithoutIcons: Story = {
           {
             label: "Compare",
             onClick: () => alert("Compare"),
-            variant: "outline",
+            variant: "outlined",
           },
         ]}
       />
@@ -491,14 +491,14 @@ export const WithoutBadges: Story = {
         label: "Sales Database",
         active: true,
         metadata: "12 tables",
-        icon: Database,
+        icon: DatabaseIcon,
       },
       {
         id: "2",
         label: "Analytics DB",
         active: false,
         metadata: "8 collections",
-        icon: Database,
+        icon: DatabaseIcon,
       },
     ]);
 
@@ -514,7 +514,7 @@ export const WithoutBadges: Story = {
           {
             label: "New",
             onClick: () => alert("New"),
-            icon: Plus,
+            icon: PlusIcon,
           },
         ]}
       />

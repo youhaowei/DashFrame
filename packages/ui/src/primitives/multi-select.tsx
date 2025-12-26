@@ -1,15 +1,15 @@
 "use client";
 
 import * as React from "react";
-import type { ColumnType } from "@dashframe/dataframe";
+import type { ColumnType } from "@dashframe/types";
 import {
-  ChevronDown,
-  X,
-  Type,
-  Hash,
-  Calendar,
-  Toggle,
-  Dot,
+  ChevronDownIcon,
+  CloseIcon,
+  TextTypeIcon,
+  NumberTypeIcon,
+  DateTypeIcon,
+  BooleanTypeIcon,
+  DotIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { Badge } from "./badge";
@@ -33,17 +33,17 @@ export interface MultiSelectOption {
 function getTypeIcon(type?: MultiSelectColumnType) {
   switch (type) {
     case "string":
-      return Type;
+      return TextTypeIcon;
     case "number":
-      return Hash;
+      return NumberTypeIcon;
     case "date":
-      return Calendar;
+      return DateTypeIcon;
     case "boolean":
-      return Toggle;
+      return BooleanTypeIcon;
     case "object":
     case "array":
     default:
-      return Dot;
+      return DotIcon;
   }
 }
 
@@ -161,7 +161,7 @@ export function MultiSelect({
                           <TypeIcon className="text-muted-foreground h-3 w-3 shrink-0" />
                         )}
                         <span className="truncate">{opt.label}</span>
-                        <X
+                        <CloseIcon
                           className="hover:text-foreground h-3 w-3 shrink-0 cursor-pointer"
                           onClick={(e) => handleRemove(e, opt.value)}
                         />
@@ -181,7 +181,7 @@ export function MultiSelect({
               </span>
             )}
           </div>
-          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+          <ChevronDownIcon className="h-4 w-4 shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

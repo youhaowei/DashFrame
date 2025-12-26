@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  isNotionDataSource,
-  isCSVDataSource,
-  type DataSource,
-} from "@/lib/stores/types";
-import type { Field } from "@dashframe/dataframe";
+  useDataSources,
+  useDataTables,
+  useDataTableMutations,
+} from "@dashframe/core";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import type { DataTable, Field } from "@dashframe/types";
 import {
   Card,
   CardContent,
@@ -17,11 +16,11 @@ import {
   CardTitle,
   Surface,
   Button,
-  ChevronDown,
-  ChevronUp,
-  Database,
-  Layers,
-  Refresh,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DatabaseIcon,
+  LayersIcon,
+  RefreshIcon,
   cn,
   InputField,
   MultiSelectField,
@@ -30,8 +29,8 @@ import {
 } from "@dashframe/ui";
 import { trpc } from "@/lib/trpc/Provider";
 import { toast } from "sonner";
-import type { NotionProperty } from "@dashframe/notion";
-import { mapNotionTypeToColumnType } from "@dashframe/notion";
+import type { NotionProperty } from "@dashframe/connector-notion";
+import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
@@ -115,9 +114,12 @@ function PreviewContent({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <p className="text-muted-foreground text-sm">Preview collapsed</p>
-        <Button variant="outline" size="sm" onClick={onExpandPreview}>
-          Expand preview
-        </Button>
+        <Button
+          label="Expand preview"
+          variant="outlined"
+          size="sm"
+          onClick={onExpandPreview}
+        />
       </div>
     );
   }
@@ -146,8 +148,13 @@ function PreviewContent({
 }
 
 // Helper component for local data source display with async data loading
-function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
-  const dataTables = Array.from(dataSource.dataTables?.values() ?? []);
+function LocalDataSourceView({
+  dataSource,
+  dataTables,
+}: {
+  dataSource: { id: string; name: string; type: string };
+  dataTables: DataTable[];
+}) {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(
     dataTables[0]?.id ?? null,
   );
@@ -158,6 +165,46 @@ function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
   const { data, isLoading, error, entry } = useDataFrameData(
     selectedDataTable?.dataFrameId,
   );
+
+  const previewDescription = useMemo(() => {
+    if (isLoading) return "Loading...";
+    if (error) return `Error: ${error}`;
+    if (data && selectedDataTable) return `Showing ${selectedDataTable.name}`;
+    return "Select a file to preview";
+  }, [data, error, isLoading, selectedDataTable]);
+
+  const renderPreviewContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="bg-muted h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        </div>
+      );
+    }
+
+    if (error) {
+      return <EmptyState message={`Failed to load data: ${error}`} />;
+    }
+
+    if (data && selectedDataTable) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <VirtualTable
+            rows={data.rows}
+            columns={selectedDataTable.fields
+              .filter((f: Field) => !f.name.startsWith("_"))
+              .map((f: Field) => ({
+                name: f.columnName ?? f.name,
+                type: f.type,
+              }))}
+            height="100%"
+          />
+        </div>
+      );
+    }
+
+    return <EmptyState message="Select a file to preview its data." />;
+  };
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -224,39 +271,10 @@ function LocalDataSourceView({ dataSource }: { dataSource: DataSource }) {
       <Card className="flex min-h-0 flex-1 flex-col">
         <CardHeader>
           <CardTitle className="text-lg">Data Preview</CardTitle>
-          <CardDescription>
-            {isLoading
-              ? "Loading..."
-              : error
-                ? `Error: ${error}`
-                : data && selectedDataTable
-                  ? `Showing ${selectedDataTable.name}`
-                  : "Select a file to preview"}
-          </CardDescription>
+          <CardDescription>{previewDescription}</CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {isLoading ? (
-            <div className="flex flex-1 items-center justify-center">
-              <div className="bg-muted h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            </div>
-          ) : error ? (
-            <EmptyState message={`Failed to load data: ${error}`} />
-          ) : data && selectedDataTable ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <VirtualTable
-                rows={data.rows}
-                columns={selectedDataTable.fields
-                  .filter((f: Field) => !f.name.startsWith("_"))
-                  .map((f: Field) => ({
-                    name: f.columnName ?? f.name,
-                    type: f.type,
-                  }))}
-                height="100%"
-              />
-            </div>
-          ) : (
-            <EmptyState message="Select a file to preview its data." />
-          )}
+          {renderPreviewContent()}
         </CardContent>
       </Card>
     </div>
@@ -277,27 +295,25 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [notionPreviewData, setNotionPreviewData] =
     useState<PreviewData | null>(null);
 
-  // Get data source from store
-  const dataSource = useDataSourcesStore((state) =>
-    dataSourceId ? state.get(dataSourceId) : null,
-  );
+  // Get data source from Dexie
+  const { data: dataSources } = useDataSources();
+  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const tableMutations = useDataTableMutations();
 
-  const refreshDataTable = useDataSourcesStore(
-    (state) => state.refreshDataTable,
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
+    [dataSources, dataSourceId],
   );
 
   // tRPC mutations for Notion
   const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
   const getSchemaMutation = trpc.notion.getDatabaseSchema.useMutation();
 
-  // Get DataTables for the selected source
+  // Get DataTables for the selected source (already filtered by dataSourceId)
   const dataTables = useMemo(() => {
     if (!dataSource) return [];
-    if (isNotionDataSource(dataSource)) {
-      return Array.from(dataSource.dataTables?.values() ?? []);
-    }
-    return [];
-  }, [dataSource]);
+    return allTables ?? [];
+  }, [dataSource, allTables]);
 
   // Auto-select first DataTable if none selected
   useEffect(() => {
@@ -318,7 +334,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       if (
         !selectedDataTable ||
         !dataSource ||
-        !isNotionDataSource(dataSource)
+        dataSource.type !== "notion" ||
+        !dataSource.apiKey
       ) {
         return;
       }
@@ -363,7 +380,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   // Handle syncing data with selected properties
   const handleSyncData = async () => {
-    if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+    if (
+      !selectedDataTable ||
+      !dataSource ||
+      dataSource.type !== "notion" ||
+      !dataSource.apiKey
+    ) {
       return;
     }
 
@@ -395,8 +417,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       });
 
       // Update DataTable timestamp
-      refreshDataTable(
-        dataSource.id,
+      await tableMutations.refresh(
         selectedDataTable.id,
         selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
@@ -413,7 +434,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
   // Handle refreshing Notion data (uses existing property selection)
   const handleRefreshDataTable = async () => {
-    if (!selectedDataTable || !dataSource || !isNotionDataSource(dataSource)) {
+    if (
+      !selectedDataTable ||
+      !dataSource ||
+      dataSource.type !== "notion" ||
+      !dataSource.apiKey
+    ) {
       return;
     }
 
@@ -445,8 +471,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       });
 
       // Update DataTable with new lastFetchedAt
-      refreshDataTable(
-        dataSource.id,
+      await tableMutations.refresh(
         selectedDataTable.id,
         selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
@@ -465,7 +490,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
         <Surface elevation="inset" className="w-full p-8 text-center">
-          <Database className="text-muted-foreground/50 mx-auto h-12 w-12" />
+          <DatabaseIcon className="text-muted-foreground/50 mx-auto h-12 w-12" />
           <p className="text-foreground mt-4 text-base font-medium">
             No data source selected
           </p>
@@ -477,15 +502,17 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  const isLocal = isCSVDataSource(dataSource);
+  const isLocal = dataSource.type === "csv";
 
-  // For local sources, show DataTables with async data loading
+  // For CSV sources, show DataTables with async data loading
   if (isLocal) {
-    return <LocalDataSourceView dataSource={dataSource} />;
+    return (
+      <LocalDataSourceView dataSource={dataSource} dataTables={dataTables} />
+    );
   }
 
   // For Notion sources, show DataTables
-  if (isNotionDataSource(dataSource)) {
+  if (dataSource.type === "notion") {
     const hasDataTables = dataTables.length > 0;
 
     return (
@@ -497,7 +524,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <Database className="text-muted-foreground h-5 w-5" />
+                    <DatabaseIcon className="text-muted-foreground h-5 w-5" />
                     <CardTitle className="text-lg">
                       {selectedDataTable.name}
                     </CardTitle>
@@ -533,6 +560,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                   )}
                   {/* Sync Button */}
                   <Button
+                    label={isRefreshing ? "Syncing..." : "Sync Data"}
                     onClick={handleSyncData}
                     disabled={
                       isRefreshing ||
@@ -540,15 +568,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                       selectedPropertyIds.length === 0
                     }
                     size="sm"
-                  >
-                    <Refresh
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        isRefreshing && "animate-spin",
-                      )}
-                    />
-                    {isRefreshing ? "Syncing..." : "Sync Data"}
-                  </Button>
+                    icon={RefreshIcon}
+                    className={cn(isRefreshing && "[&_svg]:animate-spin")}
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -558,7 +580,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {isFetchingSchema ? (
                   <div className="space-y-2">
                     <div className="border-input bg-background flex h-9 items-center gap-2 rounded-md border px-3">
-                      <Refresh className="h-3 w-3 animate-spin" />
+                      <RefreshIcon className="h-3 w-3 animate-spin" />
                       <span className="text-muted-foreground text-xs">
                         Loading...
                       </span>
@@ -609,7 +631,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
           <Card>
             <CardContent className="py-12">
               <div className="flex flex-col items-center gap-2 text-center">
-                <Database className="text-muted-foreground/70 h-8 w-8" />
+                <DatabaseIcon className="text-muted-foreground/70 h-8 w-8" />
                 <p className="text-foreground text-sm font-medium">
                   No tables configured
                 </p>
@@ -629,22 +651,19 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 <CardTitle className="text-lg">Data Preview</CardTitle>
                 {selectedDataTable &&
                   notionPreviewData &&
-                  isNotionDataSource(dataSource) && (
+                  dataSource.type === "notion" && (
                     <Button
-                      variant="ghost"
+                      label={isRefreshing ? "Refreshing..." : "Refresh"}
+                      variant="text"
                       size="sm"
                       onClick={handleRefreshDataTable}
                       disabled={isRefreshing}
-                      className="h-7"
-                    >
-                      <Refresh
-                        className={cn(
-                          "mr-1.5 h-3.5 w-3.5",
-                          isRefreshing && "animate-spin",
-                        )}
-                      />
-                      {isRefreshing ? "Refreshing..." : "Refresh"}
-                    </Button>
+                      className={cn(
+                        "h-7",
+                        isRefreshing && "[&_svg]:animate-spin",
+                      )}
+                      icon={RefreshIcon}
+                    />
                   )}
               </div>
               <CardDescription>
@@ -657,20 +676,16 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
             </div>
             {selectedDataTable && notionPreviewData && (
               <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
-                aria-label={
+                label={
                   isPreviewCollapsed ? "Expand preview" : "Collapse preview"
                 }
+                variant="text"
+                size="sm"
+                iconOnly
+                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
                 className="shrink-0"
-              >
-                {isPreviewCollapsed ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronUp className="h-4 w-4" />
-                )}
-              </Button>
+                icon={isPreviewCollapsed ? ChevronDownIcon : ChevronUpIcon}
+              />
             )}
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -701,7 +716,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm">
-      <Layers className="text-muted-foreground/70 h-6 w-6" />
+      <LayersIcon className="text-muted-foreground/70 h-6 w-6" />
       <p>{message}</p>
     </div>
   );

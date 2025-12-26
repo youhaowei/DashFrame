@@ -1,11 +1,11 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./tooltip";
-import { Button } from "./button";
+import { Button } from "../components/button";
 
 const meta: Meta<typeof Tooltip> = {
   title: "Primitives/Feedback/Tooltip",
@@ -30,7 +30,7 @@ export const Default: Story = {
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline">Hover me</Button>
+        <Button label="Hover me" variant="outlined" asChild />
       </TooltipTrigger>
       <TooltipContent>
         <p>This is a tooltip</p>
@@ -44,7 +44,7 @@ export const OnButton: Story = {
     <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button>Primary action</Button>
+          <Button label="Primary action" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <p>Click to perform the primary action</p>
@@ -52,7 +52,7 @@ export const OnButton: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="destructive">Delete</Button>
+          <Button label="Delete" color="danger" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <p>This action cannot be undone</p>
@@ -60,7 +60,7 @@ export const OnButton: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Cancel</Button>
+          <Button label="Cancel" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <p>Discard changes and close</p>
@@ -155,7 +155,7 @@ export const Positions: Story = {
       <div />
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Top</Button>
+          <Button label="Top" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent side="top">
           <p>Tooltip on top</p>
@@ -164,7 +164,7 @@ export const Positions: Story = {
       <div />
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Left</Button>
+          <Button label="Left" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent side="left">
           <p>Tooltip on left</p>
@@ -173,7 +173,7 @@ export const Positions: Story = {
       <div className="rounded-md border p-4">Center</div>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Right</Button>
+          <Button label="Right" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent side="right">
           <p>Tooltip on right</p>
@@ -182,7 +182,7 @@ export const Positions: Story = {
       <div />
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Bottom</Button>
+          <Button label="Bottom" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent side="bottom">
           <p>Tooltip on bottom</p>
@@ -197,7 +197,7 @@ export const WithRichContent: Story = {
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline">View details</Button>
+        <Button label="View details" variant="outlined" asChild />
       </TooltipTrigger>
       <TooltipContent className="max-w-[300px]">
         <div className="space-y-2">
@@ -217,7 +217,7 @@ export const OnDisabledButton: Story = {
     <Tooltip>
       <TooltipTrigger asChild>
         <span tabIndex={0}>
-          <Button disabled>Disabled action</Button>
+          <Button label="Disabled action" disabled asChild />
         </span>
       </TooltipTrigger>
       <TooltipContent>
@@ -232,7 +232,7 @@ export const KeyboardShortcut: Story = {
     <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Save</Button>
+          <Button label="Save" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <div className="flex items-center gap-2">
@@ -243,7 +243,7 @@ export const KeyboardShortcut: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Copy</Button>
+          <Button label="Copy" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <div className="flex items-center gap-2">
@@ -254,7 +254,7 @@ export const KeyboardShortcut: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline">Paste</Button>
+          <Button label="Paste" variant="outlined" asChild />
         </TooltipTrigger>
         <TooltipContent>
           <div className="flex items-center gap-2">

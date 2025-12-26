@@ -2,19 +2,9 @@
 
 Shared UI component library for DashFrame, built with React, TypeScript, Tailwind CSS v4, and Radix UI.
 
-## Overview
-
-This package provides a comprehensive set of UI components used across the DashFrame application:
-
-- **23 shadcn/ui primitives** - Standard UI components built on Radix UI (Button, Card, Dialog, Select, etc.)
-- **11 custom shared components** - DashFrame-specific patterns (ActionGroup, ItemSelector, Panel, Toggle, etc.)
-- **Icon library** - Curated exports from react-icons (Lucide, Feather, Simple Icons)
-- **Utilities** - `cn()` for className merging with tailwind-merge
-- **Design tokens** - Tailwind CSS v4 configuration with consistent spacing, colors, and typography
-
 ## Installation
 
-This package is part of the DashFrame monorepo and uses workspace dependencies:
+This package is part of the DashFrame monorepo:
 
 ```json
 {
@@ -24,217 +14,247 @@ This package is part of the DashFrame monorepo and uses workspace dependencies:
 }
 ```
 
-## Usage
+## Overview
 
-Import components from the package root:
-
-```typescript
-import {
-  Button,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  Input,
-  Label,
-  Panel,
-  ActionGroup,
-  Toggle,
-  cn,
-  RefreshCw,
-  CheckIcon,
-} from "@dashframe/ui";
+```
+packages/ui/
+├── src/
+│   ├── primitives/       # shadcn/ui components (23 components)
+│   ├── components/       # Custom shared components (11 components)
+│   ├── lib/
+│   │   ├── utils.ts     # cn() utility for className merging
+│   │   └── icons.tsx    # Icon exports from react-icons
+│   ├── globals.css      # Tailwind CSS v4 design tokens
+│   └── index.ts         # Barrel exports
+├── .storybook/          # Storybook v10 configuration
+└── package.json
 ```
 
-### Examples
-
-#### Using primitives
+**Importing components:**
 
 ```typescript
-import { Button, Input, Label } from "@dashframe/ui";
-
-export function LoginForm() {
-  return (
-    <form className="space-y-4">
-      <div>
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" type="email" />
-      </div>
-      <Button type="submit">Sign in</Button>
-    </form>
-  );
-}
+import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
+import { RefreshIcon } from "@dashframe/ui/icons";
 ```
 
-#### Using shared components
+**Storybook:** Run `pnpm storybook` to browse components at http://localhost:6006
 
-```typescript
-import { Panel, ActionGroup } from "@dashframe/ui";
-import type { ItemAction } from "@dashframe/ui";
+## Component Philosophy
 
-export function DataPanel() {
-  const actions: ItemAction[] = [
-    { label: "Refresh", icon: "refresh", onClick: handleRefresh },
-    { label: "Delete", icon: "trash", variant: "destructive", onClick: handleDelete },
-  ];
+1. **shadcn/ui First** - Use shadcn/ui for standard UI patterns before custom components
+2. **Composition Over Customization** - Combine existing components rather than creating variants
+3. **Extract When Patterns Emerge** - If you write similar JSX 3+ times, extract a shared component
+4. **Semantic Naming** - Name by purpose (what it does) not appearance (how it looks)
+5. **Accessibility-First** - Include semantic HTML, aria-labels, keyboard navigation
 
-  return (
-    <Panel footer={<ActionGroup actions={actions} />}>
-      <p>Panel content here</p>
-    </Panel>
-  );
-}
+## Component Inventory
+
+### shadcn/ui Primitives (`src/primitives/`)
+
+Standard UI components built on Radix UI:
+
+| Category         | Components                                                                |
+| ---------------- | ------------------------------------------------------------------------- |
+| **Actions**      | `button`, `dropdown-menu`                                                 |
+| **Forms**        | `checkbox`, `field`, `input`, `label`, `select`, `switch`, `multi-select` |
+| **Data Display** | `badge`, `table`, `tabs`, `separator`, `scroll-area`                      |
+| **Feedback**     | `alert`, `sonner` (toasts), `tooltip`                                     |
+| **Layout**       | `dialog`, `collapsible`, `navigation-menu`, `surface`                     |
+
+#### Surface Component
+
+Primitive for standardized elevation and visual depth:
+
+```tsx
+// Elevation variants: plain, raised (default), floating, inset
+<Surface elevation="raised" className="p-6">Content</Surface>
+<Surface elevation="inset" className="p-8 text-center">Empty state</Surface>
+<Surface elevation="floating" interactive className="p-4">Clickable card</Surface>
 ```
 
-#### Using icons
-
-```typescript
-import { RefreshCw, CheckIcon, XIcon } from "@dashframe/ui";
-
-export function StatusIndicator({ status }: { status: "loading" | "success" | "error" }) {
-  if (status === "loading") return <RefreshCw className="h-4 w-4 animate-spin" />;
-  if (status === "success") return <CheckIcon className="h-4 w-4 text-green-500" />;
-  return <XIcon className="h-4 w-4 text-red-500" />;
-}
-```
-
-## Component Categories
-
-### Primitives (`src/primitives/`)
-
-Standard UI components based on shadcn/ui and Radix UI:
-
-- **Actions**: Button, DropdownMenu
-- **Forms**: Checkbox, Field, Input, Label, Select, Switch, MultiSelect
-- **Data Display**: Badge, Table, Tabs, Separator, ScrollArea
-- **Feedback**: Alert, Tooltip
-- **Layout**: Card, Dialog, Collapsible, NavigationMenu, Surface
-
-### Shared Components (`src/components/`)
+### Custom Shared Components (`src/components/`)
 
 DashFrame-specific reusable patterns:
 
-- **ActionGroup** - Universal button group renderer with icons and variants
-- **ItemSelector** - Universal item selection pattern with tabs and metadata
-- **Panel** - Container component with optional header and footer
-- **Toggle** - Multi-option toggle/segmented control
-- **CollapsibleSection** - Wrapper for collapsible content areas
-- **CollapseHandle** - Visual affordance for collapsible areas
-- **Container**, **Stack**, **EmptyState**, **Card**, **Tooltip**
+| Component              | Purpose                                                          |
+| ---------------------- | ---------------------------------------------------------------- |
+| **Card**               | Enhanced content grouping with headers/footers (uses Surface)    |
+| **Panel**              | Full-height layouts with fixed header/footer, scrollable content |
+| **ActionGroup**        | Universal button group with icons, variants, compact mode        |
+| **ItemSelector**       | Item selection with tabs, metadata, badges                       |
+| **CollapsibleSection** | Wrapper for collapsible content                                  |
+| **CollapseHandle**     | Visual affordance for collapsible areas                          |
+| **Toggle**             | View/mode switching                                              |
+| **Stack**              | Flexible vertical/horizontal layout                              |
+| **EmptyState**         | Standardized empty state pattern                                 |
+| **Container**          | Max-width content container                                      |
+| **Tooltip**            | Custom tooltip wrapper                                           |
 
-### Icons (`src/lib/icons.tsx`)
+## Usage Examples
 
-Curated icon exports from react-icons with semantic names:
+### ActionGroup
 
-- **Navigation**: ChevronDown, ChevronUp, ArrowUpDown, Menu
-- **Actions**: Plus, Edit3, Delete, Refresh, Close
-- **Data**: Table, Chart, Database, File
-- **UI**: Check, X, Circle, Hash, Calendar, Type
-- **Integrations**: Notion
+```tsx
+<ActionGroup
+  actions={[
+    { label: "Create", icon: Plus, onClick: handleCreate, variant: "default" },
+    {
+      label: "Delete",
+      icon: Trash2,
+      onClick: handleDelete,
+      variant: "destructive",
+    },
+  ]}
+  compact={false}
+/>
+```
 
-All icons export both specific names (e.g., `RefreshCw`) and generic aliases (e.g., `Refresh`).
+### ItemSelector
+
+```tsx
+<ItemSelector
+  items={dataSources}
+  selectedId={selectedId}
+  onSelect={setSelectedId}
+  getItemKey={(ds) => ds.id}
+  getItemLabel={(ds) => ds.name}
+  getItemMetadata={(ds) => ds.type}
+  getItemIcon={(ds) => getIcon(ds.type)}
+/>
+```
+
+### Panel with Sections
+
+```tsx
+<Panel header={<h2>Settings</h2>} footer={<Button>Save</Button>}>
+  <PanelSection title="General" description="Basic options">
+    <div>Settings content</div>
+  </PanelSection>
+  <PanelSection title="Advanced">
+    <div>Advanced options</div>
+  </PanelSection>
+</Panel>
+```
+
+### EmptyState
+
+```tsx
+<EmptyState
+  icon={Database}
+  title="No data sources"
+  description="Get started by adding your first data source"
+  action={{ label: "Add data source", onClick: handleCreate }}
+/>
+```
+
+### Stack Layout
+
+```tsx
+<Stack direction="vertical" spacing="lg">
+  <h1>Page Title</h1>
+  <Stack direction="horizontal" spacing="sm" align="center">
+    <Icon className="h-4 w-4" />
+    <span>Metadata</span>
+  </Stack>
+  <Card>Content</Card>
+</Stack>
+```
+
+## Design Tokens
+
+### Spacing
+
+| Level    | Classes        | Usage                     |
+| -------- | -------------- | ------------------------- |
+| Compact  | `p-4`, `gap-2` | Dense UIs (tables, lists) |
+| Standard | `p-6`, `gap-4` | Most content              |
+| Spacious | `p-8`, `gap-6` | Landing pages             |
+
+### Border Radius
+
+| Element         | Class          |
+| --------------- | -------------- |
+| Main cards      | `rounded-2xl`  |
+| Nested elements | `rounded-xl`   |
+| Badges/pills    | `rounded-full` |
+| Inputs          | `rounded-lg`   |
+
+### Icon Sizing
+
+| Context          | Size        |
+| ---------------- | ----------- |
+| Inline with text | `h-4 w-4`   |
+| Standalone       | `h-5 w-5`   |
+| Section headers  | `h-6 w-6`   |
+| Empty states     | `h-12 w-12` |
+
+### Typography
+
+- **No UPPERCASE** - Use sentence case (except acronyms)
+- Page titles: `text-2xl font-semibold`
+- Section headers: `text-lg font-medium`
+- Body text: `text-sm`
+- Metadata: `text-xs text-muted-foreground`
+
+### Colors
+
+Use semantic tokens, not hardcoded colors:
+
+```tsx
+// Good
+<p className="text-muted-foreground">...</p>
+
+// Avoid
+<p className="text-gray-500">...</p>
+```
+
+## Decision Framework
+
+### When to Use What
+
+| Situation                                        | Use                         |
+| ------------------------------------------------ | --------------------------- |
+| Standard UI (buttons, inputs, modals)            | shadcn/ui primitives        |
+| DashFrame-specific patterns used across features | Custom shared components    |
+| One-off domain-specific UI                       | Feature-specific components |
+
+### When to Extract to Shared
+
+Extract when:
+
+- Pattern is used 3+ times across features
+- Component encapsulates meaningful UI logic
+- Component has clear, semantic purpose
+
+## Accessibility
+
+- Icon-only buttons require `aria-label`
+- Form inputs need proper `<label>` elements
+- Loading states use `aria-busy`, `aria-live` regions
+- All interactive elements accessible via keyboard
+- Follow WCAG AA color contrast
 
 ## Development
 
-### Storybook
+### Adding Components
 
-Browse all components interactively with Storybook v10:
+1. Create in `src/primitives/` (shadcn/ui) or `src/components/` (custom)
+2. Export from `src/index.ts`
+3. Add story with `.stories.tsx` suffix
+4. Document with JSDoc
 
-```bash
-pnpm storybook
-```
-
-This launches Storybook at http://localhost:6006 with:
-
-- Interactive component examples
-- Props documentation
-- Multiple variants and states
-- Dark mode toggle
-
-### Adding New Components
-
-1. **Create the component** in `src/primitives/` (for shadcn/ui) or `src/components/` (for custom)
-2. **Add exports** to `src/index.ts`
-3. **Create a story** in the same directory with `.stories.tsx` suffix
-4. **Document with JSDoc** including usage examples
-
-Example story structure:
-
-```typescript
-import type { Meta, StoryObj } from "@storybook/react";
-import { MyComponent } from "./my-component";
-
-const meta = {
-  title: "Components/MyComponent",
-  component: MyComponent,
-  parameters: { layout: "centered" },
-  tags: ["autodocs"],
-} satisfies Meta<typeof MyComponent>;
-
-export default meta;
-type Story = StoryObj<typeof meta>;
-
-export const Default: Story = {
-  args: {
-    // component props
-  },
-};
-```
-
-### TypeScript
-
-All components are written in TypeScript with strict mode enabled. The package exports TypeScript source directly (no build step) for optimal hot reload in the Next.js app.
-
-### Styling
-
-Components use Tailwind CSS v4 with PostCSS processing. Design tokens are defined in `src/globals.css`:
-
-- **Colors**: CSS variables with light/dark mode support
-- **Spacing**: Consistent scale (p-4, p-6, p-8)
-- **Border radius**: rounded-2xl (main cards), rounded-xl (nested), rounded-full (badges)
-- **Typography**: Defined font families and sizes
-
-## Scripts
+### Scripts
 
 ```bash
-pnpm storybook        # Launch Storybook dev server
+pnpm storybook        # Launch Storybook
 pnpm build-storybook  # Build static Storybook
-pnpm typecheck        # Run TypeScript checks
-pnpm lint             # Run ESLint
-pnpm format           # Check code formatting
+pnpm typecheck        # TypeScript checks
+pnpm lint             # ESLint
+pnpm format           # Prettier check
 ```
 
 ## Dependencies
 
-### Production
+**Production:** React 19, Radix UI (12 packages), react-icons, class-variance-authority, clsx, tailwind-merge, next-themes, sonner
 
-- **React 19** - UI library
-- **Radix UI** - Headless component primitives (12 packages)
-- **react-icons** - Icon library (Lucide, Feather, Simple Icons)
-- **class-variance-authority** - Component variant management
-- **clsx** + **tailwind-merge** - ClassName utilities
-- **next-themes** - Dark mode support
-- **sonner** - Toast notifications
-
-### Development
-
-- **Storybook v10** - Component development environment
-- **TypeScript 5.7** - Type checking
-- **Tailwind CSS v4** - Utility-first CSS framework
-- **PostCSS** - CSS processing
-
-## Architecture
-
-This package follows DashFrame's component philosophy:
-
-1. **shadcn/ui first** - Use standard primitives for common UI patterns
-2. **Composition over customization** - Combine components rather than creating variants
-3. **Extract when patterns emerge** - Share components used 3+ times
-4. **Semantic naming** - Name by purpose, not appearance
-5. **Accessibility-first** - Include aria-labels and keyboard navigation
-
-See `docs/ui-components.md` for comprehensive component documentation.
-
-## License
-
-Private package - part of the DashFrame monorepo.
+**Development:** Storybook v10, TypeScript 5.7, Tailwind CSS v4, PostCSS

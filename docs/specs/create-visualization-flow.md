@@ -485,7 +485,7 @@ The visualization creation flow is built using a composable component architectu
 | Parse failure  | "CSV parsing failed. Please check file format." | Show error below upload button |
 | Empty file     | "CSV file is empty or contains no valid data."  | Show error below upload button |
 | No headers     | "CSV must contain headers in the first row."    | Show error below upload button |
-| File too large | "File size exceeds 5MB limit."                  | Show error below upload button |
+| File too large | "File size exceeds 100MB limit."                | Show error below upload button |
 | No columns     | "CSV did not contain any columns."              | Show error below upload button |
 
 ### Notion Connection Errors

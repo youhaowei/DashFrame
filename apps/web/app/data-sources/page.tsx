@@ -2,32 +2,34 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import type { DataSource } from "@/lib/stores/types";
-import type { UUID } from "@dashframe/dataframe";
-import { useStoreQuery } from "@/hooks/useStoreQuery";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+} from "@dashframe/core";
+import type { DataSource, UUID } from "@dashframe/types";
 import {
   Button,
   Card,
   CardContent,
   Input,
   Badge,
-  Database,
+  DatabaseIcon,
   TableIcon,
-  Plus,
-  Trash2,
-  MoreHorizontal,
+  PlusIcon,
+  DeleteIcon,
+  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@dashframe/ui";
 import {
-  LuSearch,
-  LuExternalLink,
-  LuCloud,
-  LuFileSpreadsheet,
-} from "react-icons/lu";
+  SearchIcon,
+  ExternalLinkIcon,
+  CloudIcon,
+  SpreadsheetIcon,
+} from "@dashframe/ui/icons";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 // Type for data source with table count
@@ -45,12 +47,12 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const router = useRouter();
 
-  // Local stores
-  const { data: dataSources, isLoading } = useStoreQuery(
-    useDataSourcesStore,
-    (state) => state.getAll(),
-  );
-  const removeDataSourceLocal = useDataSourcesStore((state) => state.remove);
+  // Dexie hooks
+  const { data: dataSources = [], isLoading } = useDataSources();
+  const { remove: removeDataSourceLocal } = useDataSourceMutations();
+
+  // Get all data tables to count them per source
+  const { data: allDataTables = [] } = useDataTables();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -58,11 +60,16 @@ export default function DataSourcesPage() {
 
   // Transform data sources for display
   const allDataSources = useMemo((): DataSourceWithTables[] => {
-    return dataSources.map((source) => ({
-      dataSource: source,
-      tableCount: source.dataTables.size,
-    }));
-  }, [dataSources]);
+    return dataSources.map((source) => {
+      const tableCount = allDataTables.filter(
+        (table) => table.dataSourceId === source.id,
+      ).length;
+      return {
+        dataSource: source,
+        tableCount,
+      };
+    });
+  }, [dataSources, allDataTables]);
 
   // Filter data sources by search query
   const filteredDataSources = useMemo(() => {
@@ -79,13 +86,13 @@ export default function DataSourcesPage() {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "notion":
-        return <LuCloud className="h-5 w-5" />;
+        return <CloudIcon className="h-5 w-5" />;
       case "local":
-        return <LuFileSpreadsheet className="h-5 w-5" />;
+        return <SpreadsheetIcon className="h-5 w-5" />;
       case "postgresql":
-        return <Database className="h-5 w-5" />;
+        return <DatabaseIcon className="h-5 w-5" />;
       default:
-        return <Database className="h-5 w-5" />;
+        return <DatabaseIcon className="h-5 w-5" />;
     }
   };
 
@@ -94,6 +101,7 @@ export default function DataSourcesPage() {
     switch (type) {
       case "notion":
         return "Notion";
+      case "csv":
       case "local":
         return "Uploaded CSV";
       case "postgresql":
@@ -103,11 +111,14 @@ export default function DataSourcesPage() {
     }
   };
 
-  // Handle delete data source (LOCAL ONLY)
-  const handleDeleteDataSource = (dataSourceId: UUID, e: React.MouseEvent) => {
+  // Handle delete data source
+  const handleDeleteDataSource = async (
+    dataSourceId: UUID,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    removeDataSourceLocal(dataSourceId);
+    await removeDataSourceLocal(dataSourceId);
   };
 
   // Render data source card
@@ -150,13 +161,14 @@ export default function DataSourcesPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="ghost"
+                variant="text"
+                icon={MoreIcon}
+                iconOnly
+                label="More options"
                 size="sm"
                 className="opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+                onClick={() => {}}
+              />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -165,7 +177,7 @@ export default function DataSourcesPage() {
                   router.push(`/data-sources/${item.dataSource.id}`);
                 }}
               >
-                <LuExternalLink className="mr-2 h-4 w-4" />
+                <ExternalLinkIcon className="mr-2 h-4 w-4" />
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -177,7 +189,7 @@ export default function DataSourcesPage() {
                   )
                 }
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <DeleteIcon className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -208,13 +220,14 @@ export default function DataSourcesPage() {
                 {allDataSources.length !== 1 ? "s" : ""} connected
               </p>
             </div>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Source
-            </Button>
+            <Button
+              icon={PlusIcon}
+              label="Add Source"
+              onClick={() => setIsCreateModalOpen(true)}
+            />
           </div>
           <div className="relative">
-            <LuSearch className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}
@@ -236,7 +249,7 @@ export default function DataSourcesPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <Database className="text-muted-foreground h-8 w-8" />
+                <DatabaseIcon className="text-muted-foreground h-8 w-8" />
               </div>
               {searchQuery ? (
                 <>
@@ -246,9 +259,11 @@ export default function DataSourcesPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     No data sources match &quot;{searchQuery}&quot;
                   </p>
-                  <Button variant="outline" onClick={() => setSearchQuery("")}>
-                    Clear search
-                  </Button>
+                  <Button
+                    variant="outlined"
+                    label="Clear search"
+                    onClick={() => setSearchQuery("")}
+                  />
                 </>
               ) : (
                 <>
@@ -258,10 +273,11 @@ export default function DataSourcesPage() {
                   <p className="text-muted-foreground mb-4 text-sm">
                     Connect your first data source to start analyzing
                   </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Source
-                  </Button>
+                  <Button
+                    icon={PlusIcon}
+                    label="Add Source"
+                    onClick={() => setIsCreateModalOpen(true)}
+                  />
                 </>
               )}
             </div>

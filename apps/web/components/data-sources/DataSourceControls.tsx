@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  Trash2,
-  Database,
-  Plus,
-  RefreshCw,
-  Loader2,
-  ChevronDown,
+  DeleteIcon,
+  DatabaseIcon,
+  PlusIcon,
+  RefreshIcon,
+  LoaderIcon,
+  ChevronDownIcon,
   Button,
   Surface,
   Collapsible,
@@ -18,10 +18,14 @@ import {
   InputField,
 } from "@dashframe/ui";
 import { toast } from "sonner";
-import { useDataSourcesStore } from "@/lib/stores/data-sources-store";
-import { isNotionDataSource } from "@/lib/stores/types";
+import {
+  useDataSources,
+  useDataSourceMutations,
+  useDataTables,
+  useDataTableMutations,
+} from "@dashframe/core";
 import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase } from "@dashframe/notion";
+import type { NotionDatabase } from "@dashframe/connector-notion";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -48,7 +52,7 @@ function CollapsibleSection({
     >
       <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
         <h3 className="text-foreground text-sm font-semibold">{title}</h3>
-        <ChevronDown
+        <ChevronDownIcon
           className={cn(
             "text-muted-foreground h-4 w-4 transition-transform duration-200",
             // Footer collapses upward, so flip the logic
@@ -92,33 +96,37 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     }
   }, [dataSourceId]);
 
-  // Get data source from store
-  const dataSource = useDataSourcesStore((state) =>
-    dataSourceId ? state.get(dataSourceId) : null,
+  // Get data source from Dexie
+  const { data: dataSources } = useDataSources();
+  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const dataSourceMutations = useDataSourceMutations();
+  const tableMutations = useDataTableMutations();
+
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
+    [dataSources, dataSourceId],
   );
-  const update = useDataSourcesStore((state) => state.update);
-  const remove = useDataSourcesStore((state) => state.remove);
-  const addDataTable = useDataSourcesStore((state) => state.addDataTable);
 
   // tRPC mutation for fetching databases
   const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
 
   // Get configured DataTables
   const dataTables = useMemo(() => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return [];
-    return Array.from(dataSource.dataTables?.values() ?? []);
-  }, [dataSource]);
+    if (!dataSource || dataSource.type !== "notion") return [];
+    return allTables ?? [];
+  }, [dataSource, allTables]);
 
   // Filter unconfigured databases
   const unconfiguredDatabases = useMemo(() => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return [];
+    if (!dataSource || dataSource.type !== "notion") return [];
     const configuredIds = new Set(dataTables.map((dt) => dt.table));
     return availableDatabases.filter((db) => !configuredIds.has(db.id));
   }, [dataSource, dataTables, availableDatabases]);
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return;
+    if (!dataSource || dataSource.type !== "notion" || !dataSource.apiKey)
+      return;
 
     // Use cached data unless explicitly forced to refresh
     if (!force && lastFetchTime) {
@@ -160,11 +168,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   // Users must manually click the refresh button to sync from Notion.
 
   // Handler to add a database as DataTable
-  const handleAddDatabase = (database: NotionDatabase) => {
-    if (!dataSource || !isNotionDataSource(dataSource)) return;
+  const handleAddDatabase = async (database: NotionDatabase) => {
+    if (!dataSource || dataSource.type !== "notion") return;
 
     try {
-      addDataTable(dataSource.id, database.title, database.id);
+      await tableMutations.add(dataSource.id, database.title, database.id);
       toast.success(`Added "${database.title}"`);
     } catch (error) {
       console.error("Failed to add database:", error);
@@ -187,34 +195,37 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     );
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (
       confirm(
         `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
       )
     ) {
-      remove(dataSource.id);
+      await dataSourceMutations.remove(dataSource.id);
       toast.success("Data source deleted");
     }
   };
 
-  const handleNameChange = (newName: string) => {
-    update(dataSource.id, { name: newName });
+  const handleNameChange = async (newName: string) => {
+    await dataSourceMutations.update(dataSource.id, { name: newName });
   };
 
-  const handleApiKeyChange = (newApiKey: string) => {
-    if (isNotionDataSource(dataSource)) {
-      update(dataSource.id, { apiKey: newApiKey });
+  const handleApiKeyChange = async (newApiKey: string) => {
+    if (dataSource.type === "notion") {
+      await dataSourceMutations.update(dataSource.id, { apiKey: newApiKey });
     }
   };
 
   const actionsFooter = (
     <CollapsibleSection title="Actions" defaultOpen={false} isFooter={true}>
       <div className="space-y-2">
-        <Button variant="destructive" className="w-full" onClick={handleDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete Data Source
-        </Button>
+        <Button
+          label="Delete Data Source"
+          color="danger"
+          className="w-full"
+          onClick={handleDelete}
+          icon={DeleteIcon}
+        />
       </div>
     </CollapsibleSection>
   );
@@ -231,12 +242,12 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       </div>
 
       {/* API Key for Notion */}
-      {isNotionDataSource(dataSource) && (
+      {dataSource.type === "notion" && (
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
             <InputField
               type="password"
-              value={dataSource.apiKey}
+              value={dataSource.apiKey ?? ""}
               onChange={handleApiKeyChange}
               className="font-mono text-xs"
               placeholder="secret_..."
@@ -249,7 +260,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       )}
 
       {/* Data Tables section for Notion */}
-      {isNotionDataSource(dataSource) && (
+      {dataSource.type === "notion" && (
         <Collapsible
           open={isDataTablesOpen}
           onOpenChange={setIsDataTablesOpen}
@@ -307,14 +318,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 title="Refresh databases list from Notion"
                 aria-label="Refresh databases list from Notion"
               >
-                <RefreshCw
+                <RefreshIcon
                   className={cn(
                     "h-3 w-3",
                     isLoadingDatabases && "animate-spin",
                   )}
                 />
               </div>
-              <ChevronDown
+              <ChevronDownIcon
                 className={cn(
                   "text-muted-foreground h-4 w-4 transition-transform duration-200",
                   isDataTablesOpen && "rotate-180",
@@ -371,7 +382,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                             "shadow-sm",
                           )}
                         >
-                          <Database className="text-primary h-3.5 w-3.5 shrink-0" />
+                          <DatabaseIcon className="text-primary h-3.5 w-3.5 shrink-0" />
                           <div className="min-w-0 flex-1">
                             <p className="text-foreground truncate text-xs font-semibold">
                               {dt.name}
@@ -388,7 +399,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               {/* Available Notion Databases */}
               {isLoadingDatabases ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+                  <LoaderIcon className="text-muted-foreground h-4 w-4 animate-spin" />
                 </div>
               ) : (
                 (() => {
@@ -406,20 +417,20 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                               key={db.id}
                               className="border-border/50 bg-muted/20 flex items-center gap-2 rounded-md border border-dashed p-2"
                             >
-                              <Database className="text-muted-foreground h-3 w-3 shrink-0" />
+                              <DatabaseIcon className="text-muted-foreground h-3 w-3 shrink-0" />
                               <div className="min-w-0 flex-1">
                                 <p className="text-foreground truncate text-xs font-medium">
                                   {db.title}
                                 </p>
                               </div>
                               <Button
+                                label="Add database"
                                 size="sm"
-                                variant="ghost"
+                                variant="text"
                                 onClick={() => handleAddDatabase(db)}
                                 className="h-6 px-2"
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
+                                icon={PlusIcon}
+                              />
                             </div>
                           ))}
                         </div>
@@ -448,13 +459,13 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         </Collapsible>
       )}
 
-      {/* Files count for Local */}
-      {dataSource.type === "local" && (
+      {/* Files count for CSV */}
+      {dataSource.type === "csv" && (
         <div className="border-border/40 border-b px-4 py-3">
           <p className="text-muted-foreground text-xs font-medium">Files</p>
           <p className="text-foreground mt-1 text-sm font-medium">
-            {dataSource.dataTables?.size ?? 0}{" "}
-            {(dataSource.dataTables?.size ?? 0) === 1 ? "file" : "files"}
+            {allTables?.length ?? 0}{" "}
+            {(allTables?.length ?? 0) === 1 ? "file" : "files"}
           </p>
         </div>
       )}

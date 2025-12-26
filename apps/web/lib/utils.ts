@@ -5,7 +5,7 @@ import type {
   DataFrameColumn,
   Field,
   UUID,
-} from "@dashframe/dataframe";
+} from "@dashframe/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

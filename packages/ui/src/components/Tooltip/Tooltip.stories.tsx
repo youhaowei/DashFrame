@@ -1,7 +1,13 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SharedTooltip } from "./Tooltip";
 import { Button } from "../../primitives/button";
-import { Database, Plus, Trash2, RefreshCw, BarChart3 } from "../../lib/icons";
+import {
+  DatabaseIcon,
+  PlusIcon,
+  DeleteIcon,
+  RefreshIcon,
+  ChartIcon,
+} from "../../lib/icons";
 
 const meta = {
   title: "Components/Feedback/Tooltip",
@@ -21,7 +27,7 @@ type Story = Omit<StoryObj<typeof meta>, "args"> & {
 export const Default: Story = {
   args: {
     content: "This is a tooltip",
-    children: <Button variant="outline">Hover me</Button>,
+    children: <Button variant="outlined">Hover me</Button>,
   },
 };
 
@@ -32,8 +38,8 @@ export const IconButton: Story = {
   args: {
     content: "Add data source",
     children: (
-      <Button size="icon" variant="outline">
-        <Plus className="h-4 w-4" />
+      <Button size="icon" variant="outlined">
+        <PlusIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -46,8 +52,8 @@ export const DestructiveButton: Story = {
   args: {
     content: "Delete permanently",
     children: (
-      <Button size="icon" variant="destructive">
-        <Trash2 className="h-4 w-4" />
+      <Button size="icon" color="danger">
+        <DeleteIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -60,7 +66,7 @@ export const LongContent: Story = {
   args: {
     content:
       "This tooltip has longer content to demonstrate text wrapping behavior",
-    children: <Button variant="outline">Hover for long text</Button>,
+    children: <Button variant="outlined">Hover for long text</Button>,
   },
 };
 
@@ -71,20 +77,20 @@ export const IconOnlyActions: Story = {
   render: () => (
     <div className="flex gap-2">
       <SharedTooltip content="Add new item">
-        <Button size="icon" variant="outline">
-          <Plus className="h-4 w-4" />
+        <Button size="icon" variant="outlined">
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh data">
-        <Button size="icon" variant="outline">
-          <RefreshCw className="h-4 w-4" />
+        <Button size="icon" variant="outlined">
+          <RefreshIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Delete item">
-        <Button size="icon" variant="destructive">
-          <Trash2 className="h-4 w-4" />
+        <Button size="icon" color="danger">
+          <DeleteIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>
@@ -112,7 +118,7 @@ export const DisabledContext: Story = {
   args: {
     content: "This feature is not available in the current plan",
     children: (
-      <Button variant="outline" disabled>
+      <Button variant="outlined" disabled>
         Premium Feature
       </Button>
     ),
@@ -137,7 +143,7 @@ export const DataSourceIcon: Story = {
     content: "PostgreSQL database",
     children: (
       <div className="bg-card border-border/60 hover:bg-muted/50 cursor-pointer rounded-xl border p-4 transition">
-        <Database className="h-5 w-5" />
+        <DatabaseIcon className="h-5 w-5" />
       </div>
     ),
   },
@@ -164,8 +170,8 @@ export const CompactStyle: Story = {
   args: {
     content: "Compact",
     children: (
-      <Button size="icon" variant="ghost">
-        <Database className="h-4 w-4" />
+      <Button size="icon" variant="text">
+        <DatabaseIcon className="h-4 w-4" />
       </Button>
     ),
   },
@@ -178,7 +184,7 @@ export const MultipleTooltips: Story = {
   render: () => (
     <div className="flex items-center gap-3">
       <SharedTooltip content="Database connection">
-        <Database className="h-4 w-4 cursor-help" />
+        <DatabaseIcon className="h-4 w-4 cursor-help" />
       </SharedTooltip>
 
       <span className="text-sm font-medium">Sales Database</span>
@@ -235,19 +241,19 @@ export const CompactActionButtons: Story = {
     <div className="flex gap-2">
       <SharedTooltip content="Create visualization">
         <Button size="icon" className="h-9 w-9 rounded-full">
-          <BarChart3 className="h-4 w-4" />
+          <ChartIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Add data source">
-        <Button size="icon" variant="outline" className="h-9 w-9 rounded-full">
-          <Plus className="h-4 w-4" />
+        <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
+          <PlusIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
 
       <SharedTooltip content="Refresh all">
-        <Button size="icon" variant="outline" className="h-9 w-9 rounded-full">
-          <RefreshCw className="h-4 w-4" />
+        <Button size="icon" variant="outlined" className="h-9 w-9 rounded-full">
+          <RefreshIcon className="h-4 w-4" />
         </Button>
       </SharedTooltip>
     </div>
@@ -265,6 +271,6 @@ export const CustomContent: Story = {
         <div className="text-[9px]">Multiple lines of tooltip content</div>
       </div>
     ),
-    children: <Button variant="outline">Complex tooltip</Button>,
+    children: <Button variant="outlined">Complex tooltip</Button>,
   },
 };

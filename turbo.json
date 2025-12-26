@@ -40,16 +40,29 @@
       "outputs": []
     },
     "lint": {},
-    "test": {},
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
     "check": {
-      "dependsOn": ["lint", "typecheck", "format"],
+      "dependsOn": ["lint", "typecheck", "format", "test"],
       "outputs": []
     },
     "clean": {
       "cache": false
+    },
+    "test:e2e": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "passThroughEnv": ["CI", "E2E_MODE", "E2E_PORT"]
+    },
+    "test:e2e:ci": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "passThroughEnv": ["CI", "E2E_PORT"]
     }
   }
 }
