@@ -1,9 +1,9 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import { sanitizeSvg } from "@/lib/connectors/svg-sanitization";
 
 interface ConnectorIconProps {
-  /** SVG string to render */
+  /** SVG string to render (will be sanitized) */
   svg: string;
   /** CSS class name for sizing/styling */
   className?: string;
@@ -11,7 +11,10 @@ interface ConnectorIconProps {
 
 /**
  * Renders a connector icon safely by sanitizing the SVG with DOMPurify.
- * No icon registry needed - connectors define their own SVG strings.
+ *
+ * Note: Connector icons are defined in code by developers, so sanitization
+ * is defense-in-depth rather than a critical security boundary. The shared
+ * config in svg-sanitization.ts ensures consistent sanitization rules.
  *
  * @example
  * ```tsx
@@ -22,52 +25,7 @@ export function ConnectorIcon({
   svg,
   className = "h-5 w-5",
 }: ConnectorIconProps) {
-  const sanitizedSvg = DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ALLOWED_TAGS: [
-      "svg",
-      "path",
-      "circle",
-      "rect",
-      "line",
-      "polyline",
-      "polygon",
-      "g",
-      "defs",
-      "use",
-      "ellipse",
-      "text",
-      "tspan",
-    ],
-    ALLOWED_ATTR: [
-      "viewBox",
-      "d",
-      "fill",
-      "stroke",
-      "stroke-width",
-      "stroke-linecap",
-      "stroke-linejoin",
-      "cx",
-      "cy",
-      "r",
-      "rx",
-      "ry",
-      "x",
-      "y",
-      "x1",
-      "y1",
-      "x2",
-      "y2",
-      "width",
-      "height",
-      "points",
-      "transform",
-      "class",
-      "xmlns",
-      "fill-rule",
-      "clip-rule",
-    ],
-  });
+  const sanitizedSvg = sanitizeSvg(svg);
 
   return (
     <span
