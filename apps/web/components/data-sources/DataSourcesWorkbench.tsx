@@ -227,6 +227,13 @@ export function DataSourcesWorkbench() {
     async (connector: FileSourceConnector, file: File) => {
       setUploadError(null);
       try {
+        if (
+          connector.maxSizeMB &&
+          file.size > connector.maxSizeMB * 1024 * 1024
+        ) {
+          throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
+        }
+
         const tableId = crypto.randomUUID();
         const result = await connector.parse(file, tableId);
 

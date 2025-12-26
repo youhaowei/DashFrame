@@ -168,6 +168,13 @@ export function DataPickerContent({
     async (connector: FileSourceConnector, file: File) => {
       setError(null);
       try {
+        if (
+          connector.maxSizeMB &&
+          file.size > connector.maxSizeMB * 1024 * 1024
+        ) {
+          throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
+        }
+
         // Check for duplicate table
         const existingTable = allDataTables.find(
           (table) =>
