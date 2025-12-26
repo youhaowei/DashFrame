@@ -177,8 +177,7 @@ export async function csvToDataFrame(
     ...userColumns,
   ];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const arrowColumns: Record<string, Vector<DataType<any, any>>> = {};
+  const arrowColumns: Record<string, Vector<DataType>> = {};
   for (const col of allColumns) {
     const values = rows.map((row) => row[col.name]);
 

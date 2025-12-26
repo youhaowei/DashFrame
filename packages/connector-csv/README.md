@@ -72,8 +72,7 @@ import { csvConnector } from "@dashframe/connector-csv";
 console.log(csvConnector.id); // "csv"
 console.log(csvConnector.name); // "CSV File"
 console.log(csvConnector.accept); // ".csv,text/csv"
-console.log(csvConnector.maxSizeMB); // 5
-console.log(csvConnector.helperText); // "Supports .csv files up to 5MB"
+console.log(csvConnector.helperText); // "Data is stored locally in your browser"
 ```
 
 ## Type Inference

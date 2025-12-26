@@ -51,11 +51,9 @@ export function ConnectorCardWithForm({
   const handleFileSelect = (file: File) => {
     // Runtime guard: verify this is actually a file connector
     if (connector.sourceType !== "file") {
-      console.error(
-        "[ConnectorCardWithForm] handleFileSelect called on non-file connector:",
-        connector.sourceType,
+      throw new Error(
+        `[ConnectorCardWithForm] handleFileSelect called on non-file connector: expected "file", got "${connector.sourceType}"`,
       );
-      return;
     }
     onFileSelect(connector as FileSourceConnector, file);
   };
@@ -63,11 +61,9 @@ export function ConnectorCardWithForm({
   const handleConnect = async () => {
     // Runtime guard: verify this is actually a remote-api connector
     if (connector.sourceType !== "remote-api") {
-      console.error(
-        "[ConnectorCardWithForm] handleConnect called on non-remote-api connector:",
-        connector.sourceType,
+      throw new Error(
+        `[ConnectorCardWithForm] handleConnect called on non-remote-api connector: expected "remote-api", got "${connector.sourceType}"`,
       );
-      return;
     }
     const databases = await execute((data) =>
       (connector as RemoteApiConnector).connect(data),

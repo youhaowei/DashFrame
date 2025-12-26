@@ -105,10 +105,9 @@ Spec for refreshing `/data-sources` so it behaves like a focused tool for inspec
 
 | Scenario                                  | Behavior                                                                                           |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| No DataFrame for CSV (upload interrupted) | Sidebar flags status “Needs data” with CTA to re-upload. Preview shows skeleton with retry button. |
+| No DataFrame for CSV (upload interrupted) | Sidebar flags status "Needs data" with CTA to re-upload. Preview shows skeleton with retry button. |
 | Insight creation fails                    | Keep drawer open, show inline error from TRPC mutation.                                            |
-| Large CSV (>5MB)                          | Provide warning chip on source card; preview still limited to first N rows.                        |
-| API key missing (Notion)                  | Card shows “Disconnected” badge and disables insight list until reconnected.                       |
+| API key missing (Notion)                  | Card shows "Disconnected" badge and disables insight list until reconnected.                       |
 
 ## Implementation Notes
 
