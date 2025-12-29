@@ -26,7 +26,7 @@
     "changeset": "changeset",
     "changeset:ai": "node scripts/ai-changeset.mjs",
     "changeset:status": "changeset status",
-    "version": "changeset version && node scripts/version-web-app.mjs",
+    "version": "changeset version && node scripts/annotate-web-changelog.mjs",
     "release": "changeset publish"
   },
   "devDependencies": {

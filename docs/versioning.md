@@ -365,15 +365,17 @@ Key settings:
 }
 ```
 
-### Custom Versioning Script
+### Custom Changelog Annotation Script
 
-Location: `scripts/version-web-app.mjs`
+Location: `scripts/annotate-web-changelog.mjs`
 
-Runs after `changeset version` to apply custom web app versioning logic:
+Runs after `changeset version` to annotate Changesets-generated changelogs:
 
 - Detects "MAJOR:" markers
 - Enhances changelogs with versioning notes
-- Validates version bumps
+- Adds explanatory context about marketing-driven versioning strategy
+
+Note: Version bumps are performed by `changeset version`. This script only appends explanatory notes to the changelog.
 
 ## Resources
 

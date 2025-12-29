@@ -193,7 +193,16 @@ ${diff.slice(0, 15000)}${diff.length > 15000 ? "\n... (truncated)" : ""}
 5. Suggest the appropriate version bump type for each package:
    - patch: bug fixes, docs, refactoring
    - minor: new features, non-breaking enhancements
-   - major: breaking changes (for v1.0+ packages)
+   - minor: breaking changes (for v0.x packages only - relaxed semver allows breaking changes in minor versions before 1.0)
+   - major: breaking changes (for v1.0+ packages only)
+
+Note: All DashFrame packages are currently v0.x (pre-stable), so breaking changes should use "minor", not "major". Reserve "major" only for the eventual 1.0 stable release.
+
+## Examples
+- Bug fix in @dashframe/ui (v0.1.0) → patch
+- New feature in @dashframe/core (v0.2.0) → minor
+- Breaking API change in @dashframe/types (v0.1.5) → minor (v0.x allows breaking in minor)
+- Breaking change in hypothetical @dashframe/ui (v1.2.0) → major (v1.0+ requires major for breaking)
 
 ## Response Format
 Respond with ONLY a JSON object in this exact format:
@@ -215,13 +224,61 @@ Respond with ONLY a JSON object in this exact format:
 
     const content = response.content[0].text;
 
-    // Extract JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // Extract JSON from response using a parser that tracks nested braces
+    function extractBalancedJson(text) {
+      const startIdx = text.indexOf("{");
+      if (startIdx === -1) {
+        return null;
+      }
+
+      let depth = 0;
+      let inString = false;
+      let escapeNext = false;
+
+      for (let i = startIdx; i < text.length; i++) {
+        const char = text[i];
+
+        // Handle escape sequences
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (char === "\\") {
+          escapeNext = true;
+          continue;
+        }
+
+        // Track string boundaries
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        // Only process braces when not inside a string
+        if (inString) {
+          continue;
+        }
+
+        // Track brace depth
+        if (char === "{") {
+          depth++;
+        } else if (char === "}") {
+          depth--;
+          if (depth === 0) {
+            return text.substring(startIdx, i + 1);
+          }
+        }
+      }
+
+      return null;
+    }
+
+    const jsonStr = extractBalancedJson(content);
+    if (!jsonStr) {
       throw new Error("Could not parse JSON from response");
     }
 
-    return JSON.parse(jsonMatch[0]);
+    return JSON.parse(jsonStr);
   } catch (error) {
     console.error("❌ Error calling Claude API:", error.message);
     process.exit(1);

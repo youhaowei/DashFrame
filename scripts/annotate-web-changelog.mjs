@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Custom versioning script for @dashframe/web
+ * Post-processing script for Changesets-generated changelogs
  *
- * This script implements marketing-driven versioning for the web app:
- * - Major: Manual decision for marketing milestones (triggered by "MAJOR:" in changeset summary)
- * - Minor: Features + breaking changes allowed (relaxed from standard semver)
- * - Patch: Bug fixes only
+ * This script annotates the web app changelog with explanatory notes about
+ * versioning strategy. It runs after `changeset version` to enhance changelog
+ * entries with context about marketing-driven versioning.
  *
- * Runs after `changeset version` to post-process web app versioning.
+ * Note: Version bumps are performed by `changeset version`. This script only
+ * appends explanatory notes to the changelog.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -156,3 +156,4 @@ function main() {
 
 // Run the script
 main();
+
