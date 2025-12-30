@@ -14,10 +14,10 @@
  * @example
  * ```bash
  * # Use Dexie backend (default)
- * NEXT_PUBLIC_DATA_BACKEND=dexie pnpm dev
+ * NEXT_PUBLIC_DATA_BACKEND=dexie bun dev
  *
  * # Use custom backend
- * NEXT_PUBLIC_DATA_BACKEND=custom pnpm dev
+ * NEXT_PUBLIC_DATA_BACKEND=custom bun dev
  * ```
  */
 

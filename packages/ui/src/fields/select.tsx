@@ -67,7 +67,7 @@ export function Select({
               value={option.value}
               disabled={option.disabled}
               className={cn(
-                "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
               )}
             >
               <span className="absolute right-2 flex size-3.5 items-center justify-center">

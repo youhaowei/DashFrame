@@ -2,6 +2,7 @@
   "name": "@dashframe/visualization",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Pluggable visualization rendering system for DashFrame",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -19,7 +20,7 @@
     "@dashframe/core": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
-    "@duckdb/duckdb-wasm": "^1.30.0",
+    "@duckdb/duckdb-wasm": "1.32.0",
     "@uwdata/vgplot": "^0.21.1",
     "react": "^19.0.0"
   },

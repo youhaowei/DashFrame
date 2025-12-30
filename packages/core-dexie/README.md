@@ -5,7 +5,7 @@ Dexie (IndexedDB) persistence implementation for DashFrame. This package provide
 ## Installation
 
 ```bash
-pnpm add @dashframe/core-dexie
+bun add @dashframe/core-dexie
 ```
 
 ## Overview

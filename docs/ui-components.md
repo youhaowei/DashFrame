@@ -289,7 +289,7 @@ For elements that need fluid width within bounds:
 Browse all UI components interactively:
 
 ```bash
-pnpm storybook
+bun storybook
 ```
 
 Opens at http://localhost:6006

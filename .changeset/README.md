@@ -13,7 +13,7 @@ Changesets are markdown files that describe changes you've made to packages. The
 When you make changes to any package:
 
 ```bash
-pnpm changeset
+bun changeset
 ```
 
 The CLI will prompt you:
@@ -57,7 +57,7 @@ git push
 ### Example 1: Bug Fix in Library
 
 ```bash
-pnpm changeset
+bun changeset
 # Select: @dashframe/connector-csv
 # Type: patch
 # Summary: "Fix edge case in quoted field parsing"
@@ -76,7 +76,7 @@ Fix edge case in quoted field parsing
 ### Example 2: Web App Feature
 
 ```bash
-pnpm changeset
+bun changeset
 # Select: @dashframe/web
 # Type: minor
 # Summary: "Add dashboard grid layout"
@@ -85,7 +85,7 @@ pnpm changeset
 ### Example 3: Breaking Change in Library
 
 ```bash
-pnpm changeset
+bun changeset
 # Select: @dashframe/types
 # Type: major
 # Summary: "BREAKING: Change DataFrame constructor signature"
@@ -94,7 +94,7 @@ pnpm changeset
 ### Example 4: Web App Major Marketing Release
 
 ```bash
-pnpm changeset
+bun changeset
 # Select: @dashframe/web
 # Type: major
 # Summary: "MAJOR: DashFrame 1.0 - Production Ready"
@@ -120,13 +120,13 @@ See [docs/versioning.md](../docs/versioning.md) for comprehensive guide.
 
 ```bash
 # Create changeset
-pnpm changeset
+bun changeset
 
 # Check what versions would be bumped
-pnpm changeset:status
+bun changeset:status
 
 # Apply versions locally (usually done by GitHub Action)
-pnpm run version
+bun run version
 ```
 
 ## Need Help?

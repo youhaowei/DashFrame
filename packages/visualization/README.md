@@ -5,7 +5,7 @@ Pluggable chart rendering system for DashFrame. Provides a unified interface for
 ## Installation
 
 ```bash
-pnpm add @dashframe/visualization
+bun add @dashframe/visualization
 ```
 
 ## Quick Start

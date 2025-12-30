@@ -233,7 +233,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   return (
     <Panel footer={actionsFooter}>
       {/* Name field at top */}
-      <div className="border-border/40 border-b px-4 pb-3 pt-4">
+      <div className="border-border/40 border-b px-4 pt-4 pb-3">
         <InputField
           label="Name"
           value={dataSource.name}
@@ -310,7 +310,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 className={cn(
                   "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors",
                   "hover:bg-accent hover:text-accent-foreground",
-                  "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2",
+                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
                   isLoadingDatabases
                     ? "cursor-not-allowed opacity-50"
                     : "cursor-pointer",

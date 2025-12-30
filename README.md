@@ -1,17 +1,19 @@
 # DashFrame
 
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
+
 DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, as described in the [Data Engine architecture overview](docs/architecture.md), and provides a Next.js builder shell to iterate on visuals.
 
 ## Stack
 
 - **Next.js 16** (App Router) + React 19
+- **Bun** for package management and runtime
 - **Dexie (IndexedDB)** for client-side data persistence
 - **DuckDB-WASM** for in-browser data processing
 - **Tailwind CSS v4** (via PostCSS) — shadcn components
 - **Turborepo** for workspace orchestration
 - **Vega-Lite** for declarative chart rendering
 - **Papaparse** for CSV ingest, **@notionhq/client** for Notion
-- **pnpm** for dependency management
 
 ## Project Layout
 
@@ -42,12 +44,12 @@ docs/
 
 Each package is a TypeScript-first workspace member that exposes its source through `src/` and ships declarations from `dist/`. Every package follows the same `package.json` script contract:
 
-- `build`: `pnpm exec tsc`
-- `dev`: `pnpm exec tsc --watch`
-- `lint`: `pnpm exec eslint src`
-- `typecheck`: `pnpm exec tsc --noEmit`
+- `build`: `tsc`
+- `dev`: `tsc --watch`
+- `lint`: `eslint src`
+- `typecheck`: `tsc --noEmit`
 
-Turbo treats these as common tasks (`pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm dev`). When you run `pnpm dev`, it launches `next dev` for the app and puts all library packages into TypeScript watch mode so changes flow through immediately.
+Turbo treats these as common tasks (`bun build`, `bun lint`, `bun typecheck`, `bun dev`). When you run `bun dev`, it launches `next dev` for the app and puts all library packages into TypeScript watch mode so changes flow through immediately.
 
 Package responsibilities:
 
@@ -58,16 +60,16 @@ Package responsibilities:
 
 ## Getting Started
 
-1. Install dependencies (requires Node 18+ and pnpm 9):
+1. Install dependencies (requires Bun 1.x):
 
    ```bash
-   pnpm install
+   bun install
    ```
 
 2. Start the workspace in development mode:
 
    ```bash
-   pnpm dev
+   bun dev
    ```
 
    This single command starts:
@@ -75,18 +77,18 @@ Package responsibilities:
    - TypeScript watch mode for all packages
    - Hot-reload with instant feedback
 
-   Need a single package? Target explicitly: `pnpm --filter @dashframe/web dev`
+   Need a single package? Target explicitly: `bun dev --filter @dashframe/web`
 
 3. Optional scripts:
    ```bash
-   pnpm dev        # turbo dev (runs all dev targets)
-   pnpm build      # turbo build
-   pnpm format     # prettier --check with shared config
-   pnpm format:write  # prettier --write with shared config
-   pnpm check      # lint + typecheck + prettier check
-   pnpm lint       # workspace linting (eslint 9)
-   pnpm typecheck  # TypeScript checks for all packages
-   pnpm test       # placeholder (no tests yet)
+   bun dev           # turbo dev (runs all dev targets)
+   bun build         # turbo build
+   bun format        # prettier --check with shared config
+   bun format:write  # prettier --write with shared config
+   bun check         # lint + typecheck + prettier check
+   bun lint          # workspace linting (eslint 9)
+   bun typecheck     # TypeScript checks for all packages
+   bun test          # run all tests
    ```
 
 ## Using Notion Integration
@@ -134,7 +136,8 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Contributing
 
-- Follow the shared ESLint + Prettier configs (`pnpm lint` / `pnpm format` when added)
+- Run `bun check` before committing to validate lint + typecheck + format
+- Follow the shared ESLint + Prettier configs (`bun lint` / `bun format`)
 - Keep architecture notes in `docs/`
 - Prefer incremental commits per module (app, docs, packages)
 

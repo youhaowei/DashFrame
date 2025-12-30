@@ -283,7 +283,7 @@ export function SortableList<T extends SortableListItem>({
             style={{ maxHeight: maxSizeValue }}
           >
             <div
-              className="flex min-w-0 max-w-full flex-col"
+              className="flex max-w-full min-w-0 flex-col"
               style={{ gap: `${gap}px` }}
             >
               {items.map((item, index) => (
@@ -457,7 +457,7 @@ function SortableItem<T extends SortableListItem>({
       {/* Drag handle overlay - positioned on left side */}
       <div
         className={cn(
-          "absolute left-0 top-0 z-10 flex h-full cursor-grab items-center pl-2 pr-1 active:cursor-grabbing",
+          "absolute top-0 left-0 z-10 flex h-full cursor-grab items-center pr-1 pl-2 active:cursor-grabbing",
           "text-muted-foreground hover:text-foreground",
           "rounded-l-xl transition-colors",
           isDragging && "cursor-grabbing",

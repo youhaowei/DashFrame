@@ -67,8 +67,8 @@ export default defineConfig({
     // Production mode: Build to .next-e2e (separate from dev .next)
     // Dev mode: Use regular dev server (faster iteration)
     command: isProduction
-      ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e pnpm build && pnpm start -p ${TEST_PORT}`
-      : `cd ../../apps/web && PORT=${TEST_PORT} pnpm dev`,
+      ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun build && bun start -p ${TEST_PORT}`
+      : `cd ../../apps/web && PORT=${TEST_PORT} bun dev`,
 
     url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,

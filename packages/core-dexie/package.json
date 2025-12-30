@@ -2,6 +2,7 @@
   "name": "@dashframe/core-dexie",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Dexie (IndexedDB) persistence implementation for DashFrame",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -149,7 +149,7 @@ export function ItemSelector({
                       onClick={() => onItemSelect(item.id)}
                       aria-pressed={item.active}
                       className={cn(
-                        "focus-visible:ring-ring min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2",
+                        "focus-visible:ring-ring min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:ring-2 focus-visible:outline-none",
                         item.active
                           ? "border-primary/70 bg-primary/5"
                           : "border-border/70 bg-card/70",
@@ -168,7 +168,7 @@ export function ItemSelector({
                           </span>
                         )}
                         {item.badge && (
-                          <span className="bg-muted text-muted-foreground rounded-full px-1 text-[10px] font-semibold leading-4 tracking-wide">
+                          <span className="bg-muted text-muted-foreground rounded-full px-1 text-[10px] leading-4 font-semibold tracking-wide">
                             {item.badge}
                           </span>
                         )}

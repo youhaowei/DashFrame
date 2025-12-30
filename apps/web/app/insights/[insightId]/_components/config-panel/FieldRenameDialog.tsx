@@ -70,7 +70,7 @@ function FieldRenameForm({
               <span className="text-muted-foreground shrink-0 text-sm">
                 Table
               </span>
-              <span className="text-foreground min-w-0 break-all text-right text-sm">
+              <span className="text-foreground min-w-0 text-right text-sm break-all">
                 {tableName}
               </span>
             </div>
@@ -79,7 +79,7 @@ function FieldRenameForm({
             <span className="text-muted-foreground shrink-0 text-sm">
               Column
             </span>
-            <code className="text-foreground min-w-0 break-all text-right font-mono text-sm">
+            <code className="text-foreground min-w-0 text-right font-mono text-sm break-all">
               {columnName}
             </code>
           </div>

@@ -90,7 +90,7 @@ export function InsightFieldEditorModal({
 
         {/* Search input */}
         <div className="relative">
-          <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+          <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             placeholder="Search fields..."
             value={searchQuery}
@@ -152,7 +152,7 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
       onClick={onClick}
       className={cn(
         "hover:bg-accent flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-        "focus:ring-primary focus:outline-none focus:ring-2",
+        "focus:ring-primary focus:ring-2 focus:outline-none",
       )}
     >
       <NumberTypeIcon className="text-muted-foreground h-4 w-4 shrink-0" />

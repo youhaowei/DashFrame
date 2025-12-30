@@ -39,10 +39,10 @@ These tests focus on the specifics of a single domain or feature set.
 
 ### Development
 
-Run tests in development mode (fast iteration, uses `pnpm dev`):
+Run tests in development mode (fast iteration, uses `bun dev`):
 
 ```bash
-E2E_MODE=dev pnpm test
+E2E_MODE=dev bun test
 ```
 
 ### Production
@@ -50,7 +50,7 @@ E2E_MODE=dev pnpm test
 Run tests against a production build (replicates exact user environment):
 
 ```bash
-pnpm test
+bun test
 ```
 
 ### Filtering Tests
@@ -58,5 +58,5 @@ pnpm test
 Run only core workflows:
 
 ```bash
-E2E_MODE=dev pnpm test --grep "@core"
+E2E_MODE=dev bun test --grep "@core"
 ```

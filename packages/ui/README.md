@@ -37,7 +37,7 @@ import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
 import { RefreshIcon } from "@dashframe/ui/icons";
 ```
 
-**Storybook:** Run `pnpm storybook` to browse components at http://localhost:6006
+**Storybook:** Run `bun storybook` to browse components at http://localhost:6006
 
 ## Component Philosophy
 
@@ -246,11 +246,11 @@ Extract when:
 ### Scripts
 
 ```bash
-pnpm storybook        # Launch Storybook
-pnpm build-storybook  # Build static Storybook
-pnpm typecheck        # TypeScript checks
-pnpm lint             # ESLint
-pnpm format           # Prettier check
+bun storybook        # Launch Storybook
+bun build-storybook  # Build static Storybook
+bun typecheck        # TypeScript checks
+bun lint             # ESLint
+bun format           # Prettier check
 ```
 
 ## Dependencies

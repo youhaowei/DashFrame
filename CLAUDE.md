@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Important: DO NOT Run Build or Dev Commands
 
-**⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested by the user.**
+**⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested by the user.**
 
 For planning, prefer concise style, don't include full code example, only core changes. Name it according to the feature being added.
 
@@ -12,16 +12,16 @@ The user manages their own development environment. Only run these commands if t
 
 ## Essential Commands
 
-### Workspace Commands (via Turborepo)
+### Workspace Commands (via Turborepo + Bun)
 
 ```bash
-pnpm dev        # Run Next.js dev + TypeScript watch mode for all packages
-pnpm build      # Build all packages and apps (dependencies first)
-pnpm check      # Run lint + typecheck + format check
-pnpm typecheck  # TypeScript checks across workspace
-pnpm lint       # ESLint 9 (flat config)
-pnpm format     # Prettier check
-pnpm format:write  # Prettier write
+bun dev           # Run Next.js dev + TypeScript watch mode for all packages
+bun build         # Build all packages and apps (dependencies first)
+bun check         # Run lint + typecheck + format check
+bun typecheck     # TypeScript checks across workspace
+bun lint          # ESLint 9 (flat config)
+bun format        # Prettier check
+bun format:write  # Prettier write
 ```
 
 Use `check` for comprehensive validation.
@@ -29,7 +29,7 @@ Use `check` for comprehensive validation.
 ### Targeting Specific Packages
 
 ```bash
-pnpm --filter @dashframe/web check
+bun check --filter @dashframe/web
 ```
 
 ## Core Architecture
@@ -154,7 +154,6 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 ### Other Gotchas
 
 - **Notion API Keys**: Stored in localStorage (use OAuth in production)
-- **No Tests Yet**: Test scripts exist but no actual test files
 - **Turborepo Cache**: Run `turbo build --force` if seeing stale builds
 
 ## Development Best Practices
@@ -162,7 +161,7 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 ### When Modifying Packages
 
 1. Make changes in `packages/*/src/`
-2. TypeScript watch mode auto-compiles (if `pnpm dev` running)
+2. TypeScript watch mode auto-compiles (if `bun dev` running)
 3. Next.js hot reload picks up changes immediately
 4. No manual rebuild needed
 
@@ -171,7 +170,7 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 Run the check meta-command:
 
 ```bash
-pnpm check  # Runs lint + typecheck + format
+bun check  # Runs lint + typecheck + format
 ```
 
 ### When Adding Features
@@ -204,7 +203,7 @@ Before implementing any UI changes, follow this component-first approach:
    - shadcn/ui primitives (23 components) - Button, Card, Input, Select, Dialog, etc.
    - Custom shared components (11 components) - ActionGroup, ItemSelector, Panel, Toggle, etc.
    - Icons from react-icons (Lucide, Feather, Simple Icons)
-   - See `docs/ui-components.md` for full inventory and `pnpm storybook` to browse components
+   - See `docs/ui-components.md` for full inventory and `bun storybook` to browse components
    - **IMPORTANT**: All UI elements on pages MUST use components from `@dashframe/ui`. If a needed component doesn't exist, add it to the UI package first before using it in pages.
 
 2. **Component decision principles**:
@@ -237,7 +236,7 @@ Before implementing any UI changes, follow this component-first approach:
 
 **Storybook for UI Development**:
 
-- Run `pnpm storybook` to launch Storybook at http://localhost:6006
+- Run `bun storybook` to launch Storybook at <http://localhost:6006>
 - Browse all UI components with interactive examples
 - Located in `packages/ui/` with stories in `src/**/*.stories.tsx`
 - Configured with Storybook v10 using Next.js framework and Tailwind CSS v4

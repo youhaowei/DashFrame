@@ -46,7 +46,7 @@ export function DashboardItem({
     >
       {/* Action header - tucked under the container's rounded corners, visible on hover */}
       {isEditable && (
-        <div className="grid-drag-handle bg-muted hover:bg-muted/80 absolute -top-8 left-0 right-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg px-2 pb-8 pt-4 opacity-0 transition-all group-hover:opacity-100">
+        <div className="grid-drag-handle bg-muted hover:bg-muted/80 absolute -top-8 right-0 left-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg px-2 pt-4 pb-8 opacity-0 transition-all group-hover:opacity-100">
           {/* Drag Handle Indicator */}
           <div className="text-muted-foreground/60 flex items-center gap-2">
             <DragHandleIcon className="h-4 w-4" />

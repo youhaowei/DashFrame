@@ -131,7 +131,7 @@ export function MultiSelect({
           className={cn(
             // Base styles matching SelectTrigger
             "border-input text-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 shadow-xs",
-            "flex w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm outline-none transition-[color,box-shadow]",
+            "flex w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm transition-[color,box-shadow] outline-none",
             "focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
             // Multi-select specific: allow wrapping for tags
             "h-auto min-h-9",
@@ -185,7 +185,7 @@ export function MultiSelect({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="w-(--radix-dropdown-menu-trigger-width) max-h-80 overflow-y-auto"
+        className="max-h-80 w-(--radix-dropdown-menu-trigger-width) overflow-y-auto"
         align="start"
       >
         {options.map((option) => {
