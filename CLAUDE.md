@@ -236,7 +236,7 @@ Before implementing any UI changes, follow this component-first approach:
 
 **Storybook for UI Development**:
 
-- Run `bun run storybook` to launch Storybook at http://localhost:6006
+- Run `bun run storybook` to launch Storybook at <http://localhost:6006>
 - Browse all UI components with interactive examples
 - Located in `packages/ui/` with stories in `src/**/*.stories.tsx`
 - Configured with Storybook v10 using Next.js framework and Tailwind CSS v4

@@ -134,6 +134,7 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Contributing
 
+- Run `bun run check` before committing to validate lint + typecheck + format
 - Follow the shared ESLint + Prettier configs (`bun run lint` / `bun run format`)
 - Keep architecture notes in `docs/`
 - Prefer incremental commits per module (app, docs, packages)
