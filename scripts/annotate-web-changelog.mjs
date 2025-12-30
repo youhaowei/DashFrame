@@ -100,15 +100,33 @@ function main() {
 
   // Enhance changelog with web app versioning notes
   if (hasBreaking && !hasMajorMarker) {
-    // Add note about breaking changes in minor version
-    const enhancedChangelog = changelog.replace(
-      /^(## \d+\.\d+\.\d+)/m,
-      `$1\n\n> **Note**: This is a minor version that includes breaking changes. For @dashframe/web, breaking changes are allowed in minor versions as part of our marketing-driven versioning strategy.`,
-    );
-
-    if (enhancedChangelog !== changelog) {
-      writeFileSync(WEB_APP_CHANGELOG, enhancedChangelog, "utf-8");
-      console.log("📝 Enhanced changelog with versioning notes");
+    // Check if note already exists for the first version heading
+    const versionHeadingRegex = /^(## \d+\.\d+\.\d+)/m;
+    const versionMatch = changelog.match(versionHeadingRegex);
+    
+    if (versionMatch) {
+      const noteText = "> **Note**: This is a minor version that includes breaking changes. For @dashframe/web, breaking changes are allowed in minor versions as part of our marketing-driven versioning strategy.";
+      
+      // Check if note already exists immediately after the version heading
+      // Look for the note text within the next 500 characters after the heading
+      const sectionAfterHeading = changelog.slice(
+        versionMatch.index,
+        versionMatch.index + 500,
+      );
+      const noteExists = sectionAfterHeading.includes(noteText);
+      
+      if (!noteExists) {
+        // Add note about breaking changes in minor version
+        const enhancedChangelog = changelog.replace(
+          versionHeadingRegex,
+          `$1\n\n${noteText}`,
+        );
+        
+        writeFileSync(WEB_APP_CHANGELOG, enhancedChangelog, "utf-8");
+        console.log("📝 Enhanced changelog with versioning notes");
+      } else {
+        console.log("ℹ️  Versioning note already exists - skipping");
+      }
     }
   }
 

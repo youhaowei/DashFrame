@@ -1,5 +1,7 @@
 # DashFrame
 
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
+
 DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, as described in the [Data Engine architecture overview](docs/architecture.md), and provides a Next.js builder shell to iterate on visuals.
 
 ## Stack
