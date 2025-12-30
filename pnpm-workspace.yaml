@@ -1,9 +1,0 @@
-packages:
-  - apps/*
-  - packages/*
-  - convex
-  - e2e/*
-
-ignoredBuiltDependencies:
-  - esbuild
-  - msw

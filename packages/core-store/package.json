@@ -2,6 +2,7 @@
   "name": "@dashframe/core-store",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Virtual storage module - runtime implementation provided by webpack alias",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -2,6 +2,7 @@
   "name": "@dashframe/web-e2e",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "bddgen",
     "test:e2e": "playwright test --project=chromium",

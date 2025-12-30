@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "@dashframe/engine-browser": "workspace:*",
     "@dashframe/types": "workspace:*",

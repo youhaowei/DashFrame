@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "@dashframe/connector-csv": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
@@ -9,7 +10,7 @@
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
     "@dashframe/visualization": "workspace:*",
-    "@duckdb/duckdb-wasm": "^1.30.0",
+    "@duckdb/duckdb-wasm": "1.32.0",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -76,15 +77,15 @@
   "name": "@dashframe/web",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "bun --bun next build",
     "clean": "rm -rf .next *.tsbuildinfo",
-    "dev": "FORCE_COLOR=1 next dev",
+    "dev": "FORCE_COLOR=1 bun --bun next dev",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "lint": "pnpm exec eslint .",
-    "start": "next start",
+    "lint": "bunx eslint .",
+    "start": "bun --bun next start",
     "test": "vitest run",
-    "typecheck": "pnpm exec tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit"
   },
   "version": "0.1.0"
 }

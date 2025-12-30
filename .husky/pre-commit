@@ -1,1 +1,1 @@
-pnpm exec lint-staged
+COREPACK_ENABLE_AUTO_PIN=0 bunx lint-staged
