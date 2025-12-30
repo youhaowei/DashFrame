@@ -30,7 +30,7 @@ jobs:
       - name: Create Version PR
         uses: changesets/action@v1
         with:
-          version: bun version
+          version: bun run version
           commit: "chore: version packages"
           title: "chore: version packages"
         env:

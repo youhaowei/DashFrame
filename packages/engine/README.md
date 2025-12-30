@@ -5,7 +5,7 @@ Abstract engine interfaces for DashFrame computation. This package defines contr
 ## Installation
 
 ```bash
-pnpm add @dashframe/engine
+bun add @dashframe/engine
 ```
 
 ## Overview

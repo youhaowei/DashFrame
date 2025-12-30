@@ -5,7 +5,7 @@ CSV file connector for DashFrame. Parses CSV files and converts them to DataFram
 ## Installation
 
 ```bash
-pnpm add @dashframe/connector-csv
+bun add @dashframe/connector-csv
 ```
 
 ## Overview

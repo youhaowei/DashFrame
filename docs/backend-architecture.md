@@ -138,7 +138,7 @@ The backend is selected at build time via webpack alias resolution. To switch:
 
 2. Rebuild the application:
    ```bash
-   pnpm build
+   bun build
    ```
 
 **How it works**:
@@ -159,7 +159,7 @@ Anyone can create a backend package by implementing the type contracts:
 ```bash
 mkdir packages/core-mybackend
 cd packages/core-mybackend
-pnpm init
+bun init
 ```
 
 ### Step 2: Implement Interfaces
@@ -201,10 +201,10 @@ No code changes needed in `@dashframe/core` - the build-time alias automatically
 
 ```bash
 # Development
-NEXT_PUBLIC_STORAGE_IMPL=mybackend pnpm dev
+NEXT_PUBLIC_STORAGE_IMPL=mybackend bun dev
 
 # Production build
-NEXT_PUBLIC_STORAGE_IMPL=mybackend pnpm build
+NEXT_PUBLIC_STORAGE_IMPL=mybackend bun build
 ```
 
 **How it works**:
@@ -334,7 +334,7 @@ export function useDataSources(): UseQueryResult<DataSource[]> {
 ```
 
 ```bash
-NEXT_PUBLIC_STORAGE_IMPL=mock pnpm test
+NEXT_PUBLIC_STORAGE_IMPL=mock bun test
 ```
 
 ## Migration Path

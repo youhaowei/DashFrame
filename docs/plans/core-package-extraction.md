@@ -103,7 +103,7 @@ apps/
 - [ ] Delete `apps/web/lib/stores/` directory
 - [ ] Delete `apps/web/lib/stores/storage.ts` (superjson)
 - [ ] Delete StoreHydration provider (replaced by DatabaseProvider)
-- [ ] Update pnpm-workspace.yaml if needed
+- [ ] Update workspace config if needed
 - [ ] Update turbo.json if needed
 
 ### Phase 6: Testing & Docs

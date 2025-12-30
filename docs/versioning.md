@@ -85,7 +85,7 @@ DashFrame includes an AI-powered changeset generator that uses Claude to analyze
 git add .
 
 # Generate changeset with AI
-pnpm changeset:ai
+bun changeset:ai
 ```
 
 The AI will:
@@ -100,7 +100,7 @@ The AI will:
 You can also create changesets manually:
 
 ```bash
-pnpm changeset
+bun changeset
 ```
 
 The CLI will prompt you:
@@ -136,7 +136,7 @@ The CLI will prompt you:
 git checkout -b fix/csv-parsing
 # ... make changes ...
 
-pnpm changeset:ai  # or pnpm changeset for manual
+bun changeset:ai  # or bun changeset for manual
 # Review and edit if needed
 
 git add .
@@ -151,7 +151,7 @@ git push
 git checkout -b feat/dashboard-grid
 # ... make changes ...
 
-pnpm changeset:ai
+bun changeset:ai
 # AI generates: "Add dashboard grid layout with drag-drop support"
 
 git add .
@@ -166,7 +166,7 @@ git push
 git checkout -b release/v1.0.0
 # ... finalize features, docs, etc. ...
 
-pnpm changeset
+bun changeset
 # Select: @dashframe/web
 # Type: major
 # Summary: "MAJOR: DashFrame 1.0 - Production Ready"
@@ -319,7 +319,7 @@ Example:
 
 ### "No changesets found" error
 
-- Make sure you ran `pnpm changeset` or `pnpm changeset:ai` before pushing
+- Make sure you ran `bun changeset` or `bun changeset:ai` before pushing
 - Check that `.changeset/*.md` files exist in your branch
 
 ### Version bump seems wrong

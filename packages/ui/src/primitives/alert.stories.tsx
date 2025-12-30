@@ -99,7 +99,7 @@ export const DescriptionOnly: Story = {
     <Alert className="w-96">
       <TerminalIcon className="h-4 w-4" />
       <AlertDescription>
-        Run `pnpm install` to install all dependencies.
+        Run `bun install` to install all dependencies.
       </AlertDescription>
     </Alert>
   ),

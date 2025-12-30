@@ -14,7 +14,7 @@
  * 3. Uses Claude to generate a meaningful changelog description
  * 4. Creates a changeset file with the suggested bump type
  *
- * Usage: pnpm changeset:ai
+ * Usage: bun changeset:ai
  *
  * Requires ANTHROPIC_API_KEY environment variable
  */

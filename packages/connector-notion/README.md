@@ -5,7 +5,7 @@ Notion API connector for DashFrame. Connects to Notion workspaces, fetches datab
 ## Installation
 
 ```bash
-pnpm add @dashframe/connector-notion
+bun add @dashframe/connector-notion
 ```
 
 ## Overview

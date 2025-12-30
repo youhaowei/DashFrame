@@ -28,7 +28,7 @@ This file serves as a brief entry point for automated agents and AI assistants w
 
 ### Core Technologies
 
-- **Monorepo**: pnpm + Turborepo (`apps/*`, `packages/*`)
+- **Monorepo**: Bun + Turborepo (`apps/*`, `packages/*`)
 - **Framework**: Next.js 16 (App Router) + React 19
 - **Styling**: Tailwind CSS v4 + shadcn/ui components
 - **State**: Zustand + Immer with localStorage persistence
@@ -37,12 +37,12 @@ This file serves as a brief entry point for automated agents and AI assistants w
 ### Key Commands
 
 ```bash
-pnpm check      # Run lint + typecheck + format (before committing)
-pnpm dev        # Run dev server + TypeScript watch mode
-pnpm build      # Build all packages and apps
+bun check      # Run lint + typecheck + format (before committing)
+bun dev        # Run dev server + TypeScript watch mode
+bun build      # Build all packages and apps
 ```
 
-**⚠️ NEVER run `pnpm build` or `pnpm dev` unless explicitly requested.**
+**⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested.**
 
 ### Naming Conventions
 
@@ -54,7 +54,7 @@ pnpm build      # Build all packages and apps
 
 1. **Spec-first**: Create `docs/specs/<feature>.md` before implementing
 2. **Component-first**: Check `components/ui/` and `components/shared/` before writing custom JSX
-3. **Check before committing**: Run `pnpm check`
+3. **Check before committing**: Run `bun check`
 
 ## UI Component Quick Decision Tree
 

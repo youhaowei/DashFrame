@@ -5,7 +5,7 @@ Pure types and repository interfaces for DashFrame. This package has **zero runt
 ## Installation
 
 ```bash
-pnpm add @dashframe/core
+bun add @dashframe/core
 ```
 
 ## Usage

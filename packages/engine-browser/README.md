@@ -5,7 +5,7 @@ Browser implementation of DashFrame engine using DuckDB-WASM. This package provi
 ## Installation
 
 ```bash
-pnpm add @dashframe/engine-browser
+bun add @dashframe/engine-browser
 ```
 
 ## Overview
