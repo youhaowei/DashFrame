@@ -1,1 +1,1 @@
-COREPACK_ENABLE_AUTO_PIN=0 bunx lint-staged
+bunx lint-staged
