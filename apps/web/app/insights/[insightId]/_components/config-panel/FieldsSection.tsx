@@ -116,10 +116,10 @@ export function FieldsSection({
                 )}
               />
               <NumberTypeIcon className="text-muted-foreground h-4 w-4" />
-              <span className="text-sm font-medium leading-none">Fields</span>
+              <span className="text-sm leading-none font-medium">Fields</span>
               <Badge
                 variant="secondary"
-                className="h-5 px-1.5 text-xs tabular-nums leading-none"
+                className="h-5 px-1.5 text-xs leading-none tabular-nums"
               >
                 {selectedFields.length}
               </Badge>

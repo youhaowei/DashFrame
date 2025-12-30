@@ -279,7 +279,7 @@ export default function VisualizationsPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}

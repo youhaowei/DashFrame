@@ -117,7 +117,7 @@ export default function DashboardsPage() {
                         iconOnly
                         label="Delete dashboard"
                         color="danger"
-                        className="text-muted-foreground hover:text-destructive -mr-2 -mt-2 opacity-0 transition-opacity group-hover:opacity-100"
+                        className="text-muted-foreground hover:text-destructive -mt-2 -mr-2 opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={() => removeDashboard(dashboard.id)}
                       />
                     </div>

@@ -157,7 +157,7 @@ const CategoryCard = memo(function CategoryCard({
         "group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border",
         "bg-card text-left transition-all duration-150",
         "hover:border-primary/40 hover:shadow-sm",
-        "focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-2",
+        "focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none",
         isLoading && "cursor-not-allowed opacity-50",
       )}
     >
@@ -232,7 +232,7 @@ const CategoryCard = memo(function CategoryCard({
       </div>
 
       {/* Content: Chart title and encoding */}
-      <div className="flex flex-1 flex-col px-3 pb-3 pt-2">
+      <div className="flex flex-1 flex-col px-3 pt-2 pb-3">
         {/* Chart type with icon */}
         <div className="flex items-center gap-1.5">
           <ChartIcon size={14} className="text-muted-foreground" />
@@ -242,7 +242,7 @@ const CategoryCard = memo(function CategoryCard({
         </div>
 
         {/* Suggestion title */}
-        <p className="text-foreground mt-1 text-sm font-medium leading-tight">
+        <p className="text-foreground mt-1 text-sm leading-tight font-medium">
           {currentSuggestion.title}
         </p>
 
@@ -349,7 +349,7 @@ const ChartTypeGrid = memo(function ChartTypeGrid({
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
                   "transition-colors duration-100",
-                  "hover:bg-muted focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-2",
+                  "hover:bg-muted focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none",
                   isLoading && "cursor-not-allowed opacity-50",
                   hasSuggestion && "text-foreground",
                   !hasSuggestion && "text-muted-foreground",

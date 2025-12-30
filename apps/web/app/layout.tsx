@@ -47,11 +47,11 @@ export default function RootLayout({
                           style={{ height: "42rem", width: "42rem" }}
                         />
                         <div
-                          className="absolute left-[-10%] top-1/4 rounded-full bg-[radial-gradient(circle,rgba(115,115,115,0.28),transparent_65%)] opacity-60 mix-blend-screen blur-3xl dark:opacity-40"
+                          className="absolute top-1/4 left-[-10%] rounded-full bg-[radial-gradient(circle,rgba(115,115,115,0.28),transparent_65%)] opacity-60 mix-blend-screen blur-3xl dark:opacity-40"
                           style={{ height: "36rem", width: "36rem" }}
                         />
                         <div
-                          className="absolute bottom-[-25%] right-[-5%] rounded-full bg-[radial-gradient(circle,rgba(82,82,82,0.22),transparent_60%)] opacity-50 mix-blend-color-dodge blur-3xl dark:opacity-35"
+                          className="absolute right-[-5%] bottom-[-25%] rounded-full bg-[radial-gradient(circle,rgba(82,82,82,0.22),transparent_60%)] opacity-50 mix-blend-color-dodge blur-3xl dark:opacity-35"
                           style={{ height: "32rem", width: "32rem" }}
                         />
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,rgba(64,64,64,0.16),transparent_55%)] opacity-60 dark:opacity-40" />

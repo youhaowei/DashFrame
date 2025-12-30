@@ -25,7 +25,7 @@
     "test": "turbo test",
     "test:e2e": "turbo test:e2e",
     "test:e2e:ci": "turbo test:e2e:ci",
-    "test:e2e:ui": "bun run --filter @dashframe/web-e2e test:ui",
+    "test:e2e:ui": "bun test:ui --filter @dashframe/web-e2e",
     "typecheck": "turbo typecheck",
     "check": "turbo check",
     "clean": "turbo clean",

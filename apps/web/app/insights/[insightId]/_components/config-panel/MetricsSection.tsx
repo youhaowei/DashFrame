@@ -77,10 +77,10 @@ export function MetricsSection({
                 )}
               />
               <CalculatorIcon className="text-muted-foreground h-4 w-4" />
-              <span className="text-sm font-medium leading-none">Metrics</span>
+              <span className="text-sm leading-none font-medium">Metrics</span>
               <Badge
                 variant="secondary"
-                className="h-5 px-1.5 text-xs tabular-nums leading-none"
+                className="h-5 px-1.5 text-xs leading-none tabular-nums"
               >
                 {metrics.length}
               </Badge>
