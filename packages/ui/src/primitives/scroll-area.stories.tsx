@@ -32,7 +32,7 @@ export const VerticalScroll: Story = {
 
 export const HorizontalScroll: Story = {
   render: () => (
-    <ScrollArea className="bg-card w-96 whitespace-nowrap rounded-md border">
+    <ScrollArea className="bg-card w-96 rounded-md border whitespace-nowrap">
       <div className="flex w-max gap-4 p-4">
         {Array.from({ length: 20 }, (_, i) => (
           <div
@@ -51,7 +51,7 @@ export const WithSeparators: Story = {
   render: () => (
     <ScrollArea className="bg-card h-72 w-80 rounded-md border">
       <div className="p-4">
-        <h4 className="mb-4 text-sm font-medium leading-none">Tags</h4>
+        <h4 className="mb-4 text-sm leading-none font-medium">Tags</h4>
         {Array.from({ length: 30 }, (_, i) => (
           <div key={i}>
             <div className="py-2 text-sm">Tag {i + 1}</div>

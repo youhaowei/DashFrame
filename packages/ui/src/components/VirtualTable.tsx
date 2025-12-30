@@ -624,8 +624,8 @@ export function VirtualTable({
                 type="button"
                 key={col.name}
                 className={cn(
-                  "text-muted-foreground cursor-pointer select-none overflow-hidden text-left font-medium",
-                  "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
+                  "text-muted-foreground cursor-pointer overflow-hidden text-left font-medium select-none",
+                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
