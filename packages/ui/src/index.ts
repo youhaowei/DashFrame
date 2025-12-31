@@ -171,6 +171,10 @@ export {
   type JoinType,
   type JoinTypeIconProps,
 } from "./components/JoinTypeIcon";
+export {
+  LoadingState,
+  type LoadingStateProps,
+} from "./components/LoadingState";
 export { Panel, PanelSection } from "./components/Panel";
 export { Section, type SectionProps } from "./components/Section";
 export { SectionList, type SectionListProps } from "./components/SectionList";
