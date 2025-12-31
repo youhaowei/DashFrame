@@ -155,6 +155,11 @@ export { CollapsibleSection } from "./components/CollapsibleSection";
 export { Container } from "./components/Container";
 export { EmptyState } from "./components/EmptyState";
 export {
+  ErrorState,
+  type ErrorStateAction,
+  type ErrorStateProps,
+} from "./components/ErrorState";
+export {
   ItemList,
   type ItemListProps,
   type ListItem,
