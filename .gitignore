@@ -17,6 +17,7 @@ out
 .DS_Store
 .idea
 .vscode
+.claude_settings.json
 
 # Local caches
 corepack-home/
@@ -37,3 +38,9 @@ convex/.env.local
 .env*.local
 .worktrees/
 .claude/plans
+
+# generated or sensitive data that should not be committed
+.data
+
+# Auto Claude data directory
+.auto-claude/

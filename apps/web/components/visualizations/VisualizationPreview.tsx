@@ -1,17 +1,18 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import type { Visualization, ChartEncoding } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getCachedViewName } from "@/hooks/useInsightView";
+import { useInsight } from "@dashframe/core";
+import { Spinner } from "@dashframe/ui";
+import { useInsightView } from "@/hooks/useInsightView";
 import { Chart } from "@dashframe/visualization";
 
 function PreviewLoading() {
   return (
-    <div className="bg-muted flex h-full w-full items-center justify-center">
-      <div className="bg-muted-foreground/20 h-3/4 w-3/4 animate-pulse rounded-lg" />
+    <div className="bg-muted/30 flex h-full w-full items-center justify-center">
+      <Spinner size="lg" className="text-muted-foreground" />
     </div>
   );
 }
@@ -43,87 +44,23 @@ function resolveEncodingChannel(value: string | undefined): string | undefined {
  * Uses Chart with preview mode enabled for minimal chrome
  * (no axes, legends, or padding).
  *
- * The view name is deterministic: `insight_view_<insightId>`.
- * This component assumes the parent page (InsightView) has already created the view.
- * It polls DuckDB to check if the view exists before rendering.
+ * This component is self-contained: it fetches the insight and creates
+ * the DuckDB view if needed using useInsightView. This unifies the approach
+ * with insight detail pages - same hook, same caching, same view creation.
  */
 export function VisualizationPreview({
   visualization,
   height = 160,
   fallback,
 }: VisualizationPreviewProps) {
-  const { connection, isInitialized } = useDuckDB();
+  // Fetch the insight for this visualization
+  const { data: insight, isLoading: isLoadingInsight } = useInsight(
+    visualization.insightId,
+  );
 
-  // Check cache first for instant rendering (set by useInsightView)
-  const cachedViewName = visualization.insightId
-    ? getCachedViewName(visualization.insightId)
-    : null;
-
-  // Use cached view name if available, otherwise compute it
-  const viewName = useMemo(() => {
-    if (cachedViewName) return cachedViewName;
-    if (!visualization.insightId) return null;
-    return `insight_view_${visualization.insightId.replace(/-/g, "_")}`;
-  }, [visualization.insightId, cachedViewName]);
-
-  // If we have a cached view name, we know it exists - skip polling
-  const [viewExists, setViewExists] = useState(!!cachedViewName);
-
-  // Only poll DuckDB if view isn't in cache
-  useEffect(() => {
-    // If cache hit, view already exists - no need to poll
-    if (cachedViewName) {
-      setViewExists(true);
-      return;
-    }
-
-    if (!connection || !isInitialized || !viewName) {
-      setViewExists(false);
-      return;
-    }
-
-    let cancelled = false;
-    let retryCount = 0;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const maxRetries = 5; // Reduced from 10 - faster failure
-    const retryDelay = 100; // Reduced from 200ms - faster polling
-
-    const checkViewExists = async () => {
-      try {
-        // Query information_schema to check if view exists
-        const result = await connection.query(`
-          SELECT 1 FROM information_schema.tables
-          WHERE table_name = '${viewName}'
-          LIMIT 1
-        `);
-        const exists = result.toArray().length > 0;
-
-        if (!cancelled) {
-          if (exists) {
-            setViewExists(true);
-          } else if (retryCount < maxRetries) {
-            retryCount++;
-            timeoutId = setTimeout(checkViewExists, retryDelay);
-          }
-        }
-      } catch (err) {
-        console.error("[VisualizationPreview] Error checking view:", err);
-        if (!cancelled && retryCount < maxRetries) {
-          retryCount++;
-          timeoutId = setTimeout(checkViewExists, retryDelay);
-        }
-      }
-    };
-
-    checkViewExists();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [connection, isInitialized, viewName, cachedViewName]);
+  // Create/get the DuckDB view using the same hook as insight pages
+  // This ensures views are created on-demand and properly cached
+  const { viewName, isReady, error } = useInsightView(insight);
 
   // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
   const resolvedEncoding = useMemo((): ChartEncoding => {
@@ -144,9 +81,20 @@ export function VisualizationPreview({
     };
   }, [visualization.encoding]);
 
-  // Loading state - waiting for DuckDB or view to be created
-  if (!isInitialized || !viewName || !viewExists) {
+  // Loading state - waiting for insight data or view creation
+  if (isLoadingInsight || !isReady || !viewName) {
     return <PreviewLoading />;
+  }
+
+  // Error state - show fallback if view creation failed
+  if (error) {
+    return (
+      fallback ?? (
+        <div className="bg-muted/50 text-muted-foreground flex h-full w-full items-center justify-center text-xs">
+          <span>Failed to load</span>
+        </div>
+      )
+    );
   }
 
   // Check if encoding has required data channels (x or y)
@@ -171,7 +119,7 @@ export function VisualizationPreview({
         visualizationType={visualization.visualizationType}
         encoding={resolvedEncoding}
         width="container"
-        height={height}
+        height="container"
         preview
         className="h-full w-full"
       />

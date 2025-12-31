@@ -4,7 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
-import { useContainerDimensions } from "@dashframe/ui";
+import { useContainerDimensions, Spinner, cn } from "@dashframe/ui";
 
 // ============================================================================
 // Theme Detection
@@ -184,7 +184,6 @@ export function Chart({
   theme,
   fallback,
 }: ChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
   // Track chart colors to detect theme changes
@@ -198,8 +197,9 @@ export function Chart({
     width === "container" || height === "container";
 
   // Track container dimensions when needed
+  // The hook returns its own ref which we use for dimension tracking
   const {
-    ref: dimensionRef,
+    ref: containerRef,
     width: containerWidth,
     height: containerHeight,
     isReady: areDimensionsReady,
@@ -207,15 +207,6 @@ export function Chart({
     minSize: 10, // Require at least 10x10px
     debounce: 50, // Debounce to prevent multiple re-renders during layout stabilization
   });
-
-  // Merge refs if we need dimension tracking
-  useEffect(() => {
-    if (needsContainerDimensions && containerRef.current) {
-      // Assign containerRef element to dimensionRef for measurement
-      (dimensionRef as React.MutableRefObject<HTMLDivElement | null>).current =
-        containerRef.current;
-    }
-  }, [needsContainerDimensions, dimensionRef]);
 
   // Resolve final dimensions
   const resolvedWidth = width === "container" ? containerWidth : width;
@@ -289,8 +280,32 @@ export function Chart({
     registryVersion, // Re-render when renderer is updated (hot reload)
   ]);
 
+  // Shared loading state component with spinner
+  const renderLoading = () => (
+    <div
+      ref={containerRef}
+      className={cn(
+        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
+        className,
+      )}
+      style={{
+        ...(width !== "container" && { width }),
+        ...(height !== "container" && { height }),
+      }}
+    >
+      <Spinner size="lg" className="text-muted-foreground" />
+    </div>
+  );
+
   // Handle unregistered type
+  // If registryVersion is 0, renderers haven't been registered yet - show loading
+  // This handles the race condition where Chart renders before RendererRegistration effect runs
   if (!hasRenderer(visualizationType)) {
+    // Still waiting for renderers to be registered - show loading
+    if (registryVersion === 0) {
+      return renderLoading();
+    }
+    // Renderers are registered but this type isn't supported - show fallback
     return (
       fallback ?? (
         <div className={className} style={{ padding: 16, textAlign: "center" }}>
@@ -305,25 +320,7 @@ export function Chart({
 
   // Show loading placeholder while waiting for dimensions
   if (!canRender) {
-    return (
-      <div
-        ref={containerRef}
-        className={className}
-        style={{
-          width: width === "container" ? "100%" : width,
-          height: height === "container" ? "100%" : height,
-          minHeight: 0,
-          overflow: "hidden",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div style={{ fontSize: "0.75rem", opacity: 0.5 }}>
-          Loading chart...
-        </div>
-      </div>
-    );
+    return renderLoading();
   }
 
   // Container for chart rendering

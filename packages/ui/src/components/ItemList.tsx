@@ -219,7 +219,7 @@ export function ItemList<T extends ListItem>({
 
     return (
       <ItemCard
-        icon={renderIcon(item.icon) || <div className="h-4 w-4" />}
+        icon={renderIcon(item.icon)}
         title={item.title}
         subtitle={item.subtitle}
         content={item.content}

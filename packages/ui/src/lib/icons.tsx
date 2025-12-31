@@ -36,7 +36,7 @@ import {
   LuLayoutGrid,
   LuLifeBuoy,
   LuList,
-  LuLoader,
+  LuLoaderPinwheel,
   LuMenu,
   LuMoon,
   LuSettings,
@@ -136,7 +136,7 @@ export { LuCircleCheck as CheckCircleIcon };
 export { LuSquareCheck as CheckSquareIcon };
 export { LuCircleAlert as AlertCircleIcon };
 export { LuInfo as InfoIcon };
-export { LuLoader as LoaderIcon };
+export { LuLoaderPinwheel as LoaderIcon };
 export { LuCircleDot as PendingIcon };
 
 // Data Types

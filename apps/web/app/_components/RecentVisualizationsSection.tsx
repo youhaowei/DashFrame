@@ -19,6 +19,7 @@ export function RecentVisualizationsSection() {
   const { data: visualizations = [] } = useVisualizations();
 
   const recentVisualizations = useMemo(() => {
+    const previewHeight = 180;
     return [...visualizations]
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 3)
@@ -29,7 +30,10 @@ export function RecentVisualizationsSection() {
           "en-US",
           { month: "short", day: "numeric" },
         )}`,
-        preview: <VisualizationPreview visualization={viz} height={180} />,
+        preview: (
+          <VisualizationPreview visualization={viz} height={previewHeight} />
+        ),
+        previewHeight,
       }));
   }, [visualizations]);
 
