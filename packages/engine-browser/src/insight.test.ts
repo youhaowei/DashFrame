@@ -1402,4 +1402,744 @@ describe("Insight", () => {
       });
     });
   });
+
+  // ==========================================================================
+  // Test Suite: Immutable Update Methods
+  // ==========================================================================
+
+  describe("immutable update methods", () => {
+    let baseTable: DataTableInfo;
+    let fields: DataTableField[];
+    let insight: Insight;
+
+    beforeEach(() => {
+      fields = [
+        createField("Name"),
+        createField("Age", { type: "number" }),
+        createField("City"),
+      ];
+      baseTable = createDataTableInfo("users", fields);
+      insight = new Insight({
+        name: "Original Insight",
+        baseTable,
+      });
+    });
+
+    describe("with", () => {
+      it("should create a new Insight with updated properties", () => {
+        const newInsight = insight.with({ name: "Updated Insight" });
+
+        expect(newInsight).toBeInstanceOf(Insight);
+        expect(newInsight.name).toBe("Updated Insight");
+        expect(insight.name).toBe("Original Insight"); // Original unchanged
+      });
+
+      it("should preserve original ID when not updating ID", () => {
+        const originalId = insight.id;
+        const newInsight = insight.with({ name: "Updated Insight" });
+
+        expect(newInsight.id).toBe(originalId);
+      });
+
+      it("should allow updating ID explicitly", () => {
+        const newId = "new-custom-id" as UUID;
+        const newInsight = insight.with({ id: newId });
+
+        expect(newInsight.id).toBe(newId);
+        expect(insight.id).not.toBe(newId); // Original unchanged
+      });
+
+      it("should preserve all other properties when updating one", () => {
+        const insightWithConfig = new Insight({
+          name: "Test",
+          baseTable,
+          selectedFields: [fields[0].id],
+          limit: 50,
+        });
+
+        const newInsight = insightWithConfig.with({ name: "New Name" });
+
+        expect(newInsight.selectedFields).toEqual([fields[0].id]);
+        expect(newInsight.limit).toBe(50);
+        expect(newInsight.baseTable).toBe(baseTable);
+      });
+
+      it("should allow multiple property updates at once", () => {
+        const newInsight = insight.with({
+          name: "New Name",
+          limit: 100,
+          groupBy: ["city"],
+        });
+
+        expect(newInsight.name).toBe("New Name");
+        expect(newInsight.limit).toBe(100);
+        expect(newInsight.groupBy).toEqual(["city"]);
+      });
+
+      it("should not modify the original insight", () => {
+        const originalConfig = insight.config;
+        insight.with({
+          name: "Modified",
+          limit: 999,
+          groupBy: ["age"],
+        });
+
+        expect(insight.name).toBe("Original Insight");
+        expect(insight.limit).toBeUndefined();
+        expect(insight.groupBy).toEqual([]);
+        expect(insight.config).toEqual(originalConfig);
+      });
+    });
+
+    describe("withSelectedFields", () => {
+      it("should create new Insight with updated selectedFields", () => {
+        const newFieldIds = [fields[0].id, fields[1].id];
+        const newInsight = insight.withSelectedFields(newFieldIds);
+
+        expect(newInsight.selectedFields).toEqual(newFieldIds);
+        expect(insight.selectedFields).toEqual([]); // Original unchanged
+      });
+
+      it("should replace existing selectedFields", () => {
+        const insightWithFields = insight.withSelectedFields([fields[0].id]);
+        const newerInsight = insightWithFields.withSelectedFields([fields[2].id]);
+
+        expect(newerInsight.selectedFields).toEqual([fields[2].id]);
+      });
+
+      it("should allow empty array", () => {
+        const insightWithFields = insight.withSelectedFields([fields[0].id]);
+        const clearedInsight = insightWithFields.withSelectedFields([]);
+
+        expect(clearedInsight.selectedFields).toEqual([]);
+      });
+    });
+
+    describe("withMetrics", () => {
+      it("should create new Insight with updated metrics", () => {
+        const metrics = [
+          {
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          },
+        ];
+        const newInsight = insight.withMetrics(metrics);
+
+        expect(newInsight.metrics).toEqual(metrics);
+        expect(insight.metrics).toEqual([]); // Original unchanged
+      });
+
+      it("should replace existing metrics", () => {
+        const metric1 = {
+          id: crypto.randomUUID() as UUID,
+          name: "Count",
+          sourceTable: baseTable.id,
+          aggregation: "count",
+        };
+        const metric2 = {
+          id: crypto.randomUUID() as UUID,
+          name: "Sum",
+          sourceTable: baseTable.id,
+          aggregation: "sum",
+          columnName: "age",
+        };
+
+        const insightWithMetric = insight.withMetrics([metric1]);
+        const newerInsight = insightWithMetric.withMetrics([metric2]);
+
+        expect(newerInsight.metrics).toEqual([metric2]);
+        expect(newerInsight.metrics).not.toContainEqual(metric1);
+      });
+    });
+
+    describe("withFilters", () => {
+      it("should create new Insight with updated filters", () => {
+        const filters = [{ columnName: "age", operator: ">", value: 18 }];
+        const newInsight = insight.withFilters(filters);
+
+        expect(newInsight.filters).toEqual(filters);
+        expect(insight.filters).toEqual([]); // Original unchanged
+      });
+
+      it("should replace existing filters", () => {
+        const filter1 = { columnName: "age", operator: ">", value: 18 };
+        const filter2 = { columnName: "city", operator: "=", value: "NYC" };
+
+        const insightWithFilter = insight.withFilters([filter1]);
+        const newerInsight = insightWithFilter.withFilters([filter2]);
+
+        expect(newerInsight.filters).toEqual([filter2]);
+      });
+
+      it("should handle multiple filters", () => {
+        const filters = [
+          { columnName: "age", operator: ">", value: 18 },
+          { columnName: "city", operator: "=", value: "NYC" },
+          { columnName: "name", operator: "IS NOT NULL" },
+        ];
+        const newInsight = insight.withFilters(filters);
+
+        expect(newInsight.filters).toHaveLength(3);
+        expect(newInsight.filters).toEqual(filters);
+      });
+    });
+
+    describe("withGroupBy", () => {
+      it("should create new Insight with updated groupBy", () => {
+        const groupBy = ["city", "age"];
+        const newInsight = insight.withGroupBy(groupBy);
+
+        expect(newInsight.groupBy).toEqual(groupBy);
+        expect(insight.groupBy).toEqual([]); // Original unchanged
+      });
+
+      it("should replace existing groupBy", () => {
+        const insightWithGroup = insight.withGroupBy(["city"]);
+        const newerInsight = insightWithGroup.withGroupBy(["name"]);
+
+        expect(newerInsight.groupBy).toEqual(["name"]);
+      });
+    });
+
+    describe("withOrderBy", () => {
+      it("should create new Insight with updated orderBy", () => {
+        const orderBy = [{ columnName: "age", direction: "desc" as const }];
+        const newInsight = insight.withOrderBy(orderBy);
+
+        expect(newInsight.orderBy).toEqual(orderBy);
+        expect(insight.orderBy).toEqual([]); // Original unchanged
+      });
+
+      it("should replace existing orderBy", () => {
+        const order1 = [{ columnName: "age", direction: "asc" as const }];
+        const order2 = [{ columnName: "name", direction: "desc" as const }];
+
+        const insightWithOrder = insight.withOrderBy(order1);
+        const newerInsight = insightWithOrder.withOrderBy(order2);
+
+        expect(newerInsight.orderBy).toEqual(order2);
+      });
+
+      it("should handle multiple order columns", () => {
+        const orderBy = [
+          { columnName: "city", direction: "asc" as const },
+          { columnName: "age", direction: "desc" as const },
+        ];
+        const newInsight = insight.withOrderBy(orderBy);
+
+        expect(newInsight.orderBy).toHaveLength(2);
+        expect(newInsight.orderBy).toEqual(orderBy);
+      });
+    });
+
+    describe("withLimit", () => {
+      it("should create new Insight with updated limit", () => {
+        const newInsight = insight.withLimit(100);
+
+        expect(newInsight.limit).toBe(100);
+        expect(insight.limit).toBeUndefined(); // Original unchanged
+      });
+
+      it("should allow setting limit to undefined", () => {
+        const insightWithLimit = insight.withLimit(50);
+        const newerInsight = insightWithLimit.withLimit(undefined);
+
+        expect(newerInsight.limit).toBeUndefined();
+      });
+
+      it("should replace existing limit", () => {
+        const insightWithLimit = insight.withLimit(50);
+        const newerInsight = insightWithLimit.withLimit(200);
+
+        expect(newerInsight.limit).toBe(200);
+      });
+    });
+
+    describe("withName", () => {
+      it("should create new Insight with updated name", () => {
+        const newInsight = insight.withName("Renamed Insight");
+
+        expect(newInsight.name).toBe("Renamed Insight");
+        expect(insight.name).toBe("Original Insight"); // Original unchanged
+      });
+
+      it("should preserve ID when renaming", () => {
+        const originalId = insight.id;
+        const newInsight = insight.withName("New Name");
+
+        expect(newInsight.id).toBe(originalId);
+      });
+    });
+
+    describe("immutability chain", () => {
+      it("should support chaining multiple immutable updates", () => {
+        const metric = {
+          id: crypto.randomUUID() as UUID,
+          name: "Total",
+          sourceTable: baseTable.id,
+          aggregation: "count",
+        };
+
+        const newInsight = insight
+          .withName("Chained Insight")
+          .withSelectedFields([fields[0].id])
+          .withMetrics([metric])
+          .withFilters([{ columnName: "age", operator: ">", value: 21 }])
+          .withGroupBy(["city"])
+          .withOrderBy([{ columnName: "city", direction: "asc" }])
+          .withLimit(50);
+
+        expect(newInsight.name).toBe("Chained Insight");
+        expect(newInsight.selectedFields).toEqual([fields[0].id]);
+        expect(newInsight.metrics).toEqual([metric]);
+        expect(newInsight.filters).toEqual([{ columnName: "age", operator: ">", value: 21 }]);
+        expect(newInsight.groupBy).toEqual(["city"]);
+        expect(newInsight.orderBy).toEqual([{ columnName: "city", direction: "asc" }]);
+        expect(newInsight.limit).toBe(50);
+
+        // Original should be unchanged
+        expect(insight.name).toBe("Original Insight");
+        expect(insight.selectedFields).toEqual([]);
+        expect(insight.metrics).toEqual([]);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Test Suite: Utility Methods
+  // ==========================================================================
+
+  describe("utility methods", () => {
+    let baseTable: DataTableInfo;
+    let fields: DataTableField[];
+
+    beforeEach(() => {
+      fields = [
+        createField("Name"),
+        createField("Age", { type: "number" }),
+        createField("City"),
+      ];
+      baseTable = createDataTableInfo("users", fields);
+    });
+
+    describe("toJSON", () => {
+      it("should return a copy of the configuration", () => {
+        const insight = new Insight({
+          name: "Test Insight",
+          baseTable,
+          selectedFields: [fields[0].id],
+          limit: 100,
+        });
+
+        const json = insight.toJSON();
+
+        expect(json.name).toBe("Test Insight");
+        expect(json.baseTable).toBe(baseTable);
+        expect(json.selectedFields).toEqual([fields[0].id]);
+        expect(json.limit).toBe(100);
+      });
+
+      it("should return a new object each time", () => {
+        const insight = new Insight({
+          name: "Test Insight",
+          baseTable,
+        });
+
+        const json1 = insight.toJSON();
+        const json2 = insight.toJSON();
+
+        expect(json1).not.toBe(json2);
+        expect(json1).toEqual(json2);
+      });
+
+      it("should include all configuration properties", () => {
+        const metric = {
+          id: crypto.randomUUID() as UUID,
+          name: "Count",
+          sourceTable: baseTable.id,
+          aggregation: "count",
+        };
+        const insight = new Insight({
+          name: "Full Insight",
+          baseTable,
+          selectedFields: [fields[0].id, fields[1].id],
+          metrics: [metric],
+          filters: [{ columnName: "age", operator: ">", value: 18 }],
+          groupBy: ["city"],
+          orderBy: [{ columnName: "age", direction: "desc" }],
+          limit: 50,
+        });
+
+        const json = insight.toJSON();
+
+        expect(json.id).toBeDefined();
+        expect(json.name).toBe("Full Insight");
+        expect(json.baseTable).toBe(baseTable);
+        expect(json.selectedFields).toEqual([fields[0].id, fields[1].id]);
+        expect(json.metrics).toEqual([metric]);
+        expect(json.filters).toEqual([{ columnName: "age", operator: ">", value: 18 }]);
+        expect(json.groupBy).toEqual(["city"]);
+        expect(json.orderBy).toEqual([{ columnName: "age", direction: "desc" }]);
+        expect(json.limit).toBe(50);
+      });
+    });
+
+    describe("fromJSON", () => {
+      it("should create an Insight from configuration object", () => {
+        const config = {
+          name: "From JSON Insight",
+          baseTable,
+        };
+
+        const insight = Insight.fromJSON(config);
+
+        expect(insight).toBeInstanceOf(Insight);
+        expect(insight.name).toBe("From JSON Insight");
+        expect(insight.baseTable).toBe(baseTable);
+      });
+
+      it("should preserve ID from config", () => {
+        const customId = "preserved-id-123" as UUID;
+        const config = {
+          id: customId,
+          name: "With ID",
+          baseTable,
+        };
+
+        const insight = Insight.fromJSON(config);
+
+        expect(insight.id).toBe(customId);
+      });
+
+      it("should round-trip correctly with toJSON", () => {
+        const original = new Insight({
+          name: "Round Trip",
+          baseTable,
+          selectedFields: [fields[0].id],
+          metrics: [{
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          }],
+          filters: [{ columnName: "age", operator: ">", value: 21 }],
+          groupBy: ["city"],
+          orderBy: [{ columnName: "name", direction: "asc" }],
+          limit: 100,
+        });
+
+        const json = original.toJSON();
+        const restored = Insight.fromJSON(json);
+
+        expect(restored.id).toBe(original.id);
+        expect(restored.name).toBe(original.name);
+        expect(restored.baseTable).toBe(original.baseTable);
+        expect(restored.selectedFields).toEqual(original.selectedFields);
+        expect(restored.metrics).toEqual(original.metrics);
+        expect(restored.filters).toEqual(original.filters);
+        expect(restored.groupBy).toEqual(original.groupBy);
+        expect(restored.orderBy).toEqual(original.orderBy);
+        expect(restored.limit).toBe(original.limit);
+      });
+
+      it("should throw error for invalid config", () => {
+        expect(() => Insight.fromJSON({ name: "", baseTable })).toThrow(
+          "Insight must have a name",
+        );
+        // @ts-expect-error - Testing runtime validation
+        expect(() => Insight.fromJSON({ name: "Test" })).toThrow(
+          "Insight must have a baseTable",
+        );
+      });
+    });
+
+    describe("hasAnalytics", () => {
+      it("should return false for empty insight", () => {
+        const insight = new Insight({
+          name: "Empty Insight",
+          baseTable,
+        });
+
+        expect(insight.hasAnalytics()).toBe(false);
+      });
+
+      it("should return true when metrics are present", () => {
+        const insight = new Insight({
+          name: "With Metrics",
+          baseTable,
+          metrics: [{
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          }],
+        });
+
+        expect(insight.hasAnalytics()).toBe(true);
+      });
+
+      it("should return true when groupBy is present", () => {
+        const insight = new Insight({
+          name: "With GroupBy",
+          baseTable,
+          groupBy: ["city"],
+        });
+
+        expect(insight.hasAnalytics()).toBe(true);
+      });
+
+      it("should return true when filters are present", () => {
+        const insight = new Insight({
+          name: "With Filters",
+          baseTable,
+          filters: [{ columnName: "age", operator: ">", value: 18 }],
+        });
+
+        expect(insight.hasAnalytics()).toBe(true);
+      });
+
+      it("should return true when multiple analytics features are present", () => {
+        const insight = new Insight({
+          name: "Full Analytics",
+          baseTable,
+          metrics: [{
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          }],
+          groupBy: ["city"],
+          filters: [{ columnName: "age", operator: ">", value: 18 }],
+        });
+
+        expect(insight.hasAnalytics()).toBe(true);
+      });
+
+      it("should return false with only selectedFields", () => {
+        const insight = new Insight({
+          name: "Only Fields",
+          baseTable,
+          selectedFields: [fields[0].id],
+        });
+
+        expect(insight.hasAnalytics()).toBe(false);
+      });
+
+      it("should return false with only orderBy and limit", () => {
+        const insight = new Insight({
+          name: "Only Ordering",
+          baseTable,
+          orderBy: [{ columnName: "name", direction: "asc" }],
+          limit: 100,
+        });
+
+        expect(insight.hasAnalytics()).toBe(false);
+      });
+    });
+
+    describe("isReady", () => {
+      it("should return false for empty insight", () => {
+        const insight = new Insight({
+          name: "Empty Insight",
+          baseTable,
+        });
+
+        expect(insight.isReady()).toBe(false);
+      });
+
+      it("should return true when selectedFields are present", () => {
+        const insight = new Insight({
+          name: "With Fields",
+          baseTable,
+          selectedFields: [fields[0].id],
+        });
+
+        expect(insight.isReady()).toBe(true);
+      });
+
+      it("should return true when hasAnalytics is true", () => {
+        const insight = new Insight({
+          name: "With Filters",
+          baseTable,
+          filters: [{ columnName: "age", operator: ">", value: 18 }],
+        });
+
+        expect(insight.isReady()).toBe(true);
+      });
+
+      it("should return true with metrics only", () => {
+        const insight = new Insight({
+          name: "With Metrics",
+          baseTable,
+          metrics: [{
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          }],
+        });
+
+        expect(insight.isReady()).toBe(true);
+      });
+
+      it("should return true with groupBy only", () => {
+        const insight = new Insight({
+          name: "With GroupBy",
+          baseTable,
+          groupBy: ["city"],
+        });
+
+        expect(insight.isReady()).toBe(true);
+      });
+
+      it("should return false with only orderBy", () => {
+        const insight = new Insight({
+          name: "Only Order",
+          baseTable,
+          orderBy: [{ columnName: "name", direction: "asc" }],
+        });
+
+        expect(insight.isReady()).toBe(false);
+      });
+
+      it("should return false with only limit", () => {
+        const insight = new Insight({
+          name: "Only Limit",
+          baseTable,
+          limit: 100,
+        });
+
+        expect(insight.isReady()).toBe(false);
+      });
+    });
+
+    describe("getDescription", () => {
+      it("should return default description for empty insight", () => {
+        const insight = new Insight({
+          name: "Empty Insight",
+          baseTable,
+        });
+
+        expect(insight.getDescription()).toBe("show all data");
+      });
+
+      it("should describe selectedFields count", () => {
+        const insight = new Insight({
+          name: "With Fields",
+          baseTable,
+          selectedFields: [fields[0].id, fields[1].id],
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("show 2 fields");
+      });
+
+      it("should describe groupBy columns", () => {
+        const insight = new Insight({
+          name: "With GroupBy",
+          baseTable,
+          groupBy: ["city", "age"],
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("grouped by city, age");
+      });
+
+      it("should describe metrics by name", () => {
+        const insight = new Insight({
+          name: "With Metrics",
+          baseTable,
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Total Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Average Age",
+              sourceTable: baseTable.id,
+              aggregation: "avg",
+              columnName: "age",
+            },
+          ],
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("with metrics: Total Count, Average Age");
+      });
+
+      it("should describe filter count", () => {
+        const insight = new Insight({
+          name: "With Filters",
+          baseTable,
+          filters: [
+            { columnName: "age", operator: ">", value: 18 },
+            { columnName: "city", operator: "=", value: "NYC" },
+            { columnName: "name", operator: "IS NOT NULL" },
+          ],
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("filtered by 3 conditions");
+      });
+
+      it("should describe limit", () => {
+        const insight = new Insight({
+          name: "With Limit",
+          baseTable,
+          limit: 100,
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("limited to 100 rows");
+      });
+
+      it("should combine multiple description parts", () => {
+        const insight = new Insight({
+          name: "Full Insight",
+          baseTable,
+          selectedFields: [fields[0].id],
+          groupBy: ["city"],
+          metrics: [{
+            id: crypto.randomUUID() as UUID,
+            name: "Count",
+            sourceTable: baseTable.id,
+            aggregation: "count",
+          }],
+          filters: [{ columnName: "age", operator: ">", value: 18 }],
+          limit: 50,
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).toContain("show 1 fields");
+        expect(description).toContain("grouped by city");
+        expect(description).toContain("with metrics: Count");
+        expect(description).toContain("filtered by 1 conditions");
+        expect(description).toContain("limited to 50 rows");
+      });
+
+      it("should not include limit of 0 in description", () => {
+        const insight = new Insight({
+          name: "Zero Limit",
+          baseTable,
+          limit: 0,
+        });
+
+        const description = insight.getDescription();
+
+        expect(description).not.toContain("limited");
+        expect(description).toBe("show all data");
+      });
+    });
+  });
 });
