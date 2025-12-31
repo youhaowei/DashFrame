@@ -74,7 +74,6 @@ export interface ItemAction extends ButtonProps {
    *       { label: 'Delete', onClick: handleDelete }
    *     ]
    *   }
-   *   }
    * ]}
    * ```
    */
