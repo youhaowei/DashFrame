@@ -300,7 +300,7 @@ export async function jsonToDataFrame(
 }
 
 // ============================================================================
-// Exports - Flatten utilities and Connector (to be added in 2.3)
+// Exports - Flatten utilities and Connector
 // ============================================================================
 
 export {
@@ -313,3 +313,5 @@ export {
   type FlattenedObject,
   type FlattenOptions,
 } from "./flatten";
+
+export { JSONConnector, jsonConnector } from "./connector";
