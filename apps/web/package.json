@@ -2,6 +2,7 @@
   "type": "module",
   "dependencies": {
     "@dashframe/connector-csv": "workspace:*",
+    "@dashframe/connector-json": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
     "@dashframe/core": "workspace:*",
     "@dashframe/core-dexie": "workspace:*",
