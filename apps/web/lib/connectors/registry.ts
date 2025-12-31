@@ -19,6 +19,7 @@
  */
 
 import { csvConnector } from "@dashframe/connector-csv";
+import { jsonConnector } from "@dashframe/connector-json";
 import { notionConnector } from "@dashframe/connector-notion";
 import {
   isFileConnector,
@@ -32,7 +33,7 @@ import {
  * All registered connectors (singletons - stateless).
  * Order determines display order in the UI.
  */
-const allConnectors: AnyConnector[] = [csvConnector, notionConnector];
+const allConnectors: AnyConnector[] = [csvConnector, jsonConnector, notionConnector];
 
 /**
  * Options for filtering connectors
