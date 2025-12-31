@@ -17,6 +17,7 @@ out
 .DS_Store
 .idea
 .vscode
+.claude_settings.json
 
 # Local caches
 corepack-home/
