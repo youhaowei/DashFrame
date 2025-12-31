@@ -33,33 +33,39 @@
           "id": "1.2",
           "title": "Create tsconfig.json for connector-json",
           "description": "Create TypeScript configuration extending from root tsconfig",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/tsconfig.json"
           ],
-          "estimated_minutes": 3
+          "estimated_minutes": 3,
+          "notes": "Created packages/connector-json/tsconfig.json extending from ../../tsconfig.base.json. Follows exact pattern from connector-csv: includes src/**/* files, excludes test files, enables declaration and declarationMap output to dist folder.",
+          "updated_at": "2025-12-31T19:12:02.698890+00:00"
         },
         {
           "id": "1.3",
           "title": "Create vitest.config.ts for testing",
           "description": "Set up Vitest configuration for the package",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/vitest.config.ts"
           ],
-          "estimated_minutes": 3
+          "estimated_minutes": 3,
+          "notes": "Created packages/connector-json/vitest.config.ts following exact pattern from connector-csv. Configuration includes: node environment, globals enabled, test file pattern **/*.test.{ts,tsx}, and path aliases for @dashframe/engine and @dashframe/engine-browser.",
+          "updated_at": "2025-12-31T19:13:16.664368+00:00"
         },
         {
           "id": "1.4",
           "title": "Create supporting files",
           "description": "Add .prettierignore, CHANGELOG.md, and README.md files",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/.prettierignore",
             "packages/connector-json/CHANGELOG.md",
             "packages/connector-json/README.md"
           ],
-          "estimated_minutes": 10
+          "estimated_minutes": 10,
+          "notes": "Created three supporting files for connector-json package: 1) .prettierignore - excludes dist, node_modules, .turbo, coverage, and tsbuildinfo files from prettier formatting 2) CHANGELOG.md - initial 0.1.0 release entry matching connector-csv pattern 3) README.md - comprehensive documentation including installation, usage examples, nested object flattening with dot-notation, supported JSON formats, type inference, and API reference",
+          "updated_at": "2025-12-31T19:15:10.875926+00:00"
         }
       ]
     },
@@ -72,31 +78,37 @@
           "id": "2.1",
           "title": "Implement JSON flattening utilities",
           "description": "Create utility functions to flatten nested JSON objects into a flat structure with dot-notation keys (e.g., 'user.address.city')",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/src/flatten.ts"
           ],
-          "estimated_minutes": 20
+          "estimated_minutes": 20,
+          "notes": "Created packages/connector-json/src/flatten.ts with comprehensive JSON flattening utilities. Implements: flattenObject() for dot-notation flattening, flattenObjectArray() for consistent keys across arrays, extractKeys() for column extraction, unflattenObject() for inverse operation. Supports configurable max depth, custom separators, and array handling modes (index vs stringify). Handles edge cases including null values, empty objects/arrays, and primitives at root.",
+          "updated_at": "2025-12-31T19:34:59.771361+00:00"
         },
         {
           "id": "2.2",
           "title": "Implement jsonToDataFrame conversion",
           "description": "Create the main conversion function that transforms parsed JSON into Arrow IPC format and stores in IndexedDB, similar to csvToDataFrame",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/src/index.ts"
           ],
-          "estimated_minutes": 30
+          "estimated_minutes": 30,
+          "notes": "Created packages/connector-json/src/index.ts with jsonToDataFrame() function following csvToDataFrame pattern exactly. Features: 1) Accepts JSONData (array or single object), 2) Uses flattenObjectArray for nested JSON, 3) Infers types from JSON primitives using inferColumnType, 4) Creates Arrow table with typed vectors (Float64, Bool, Utf8, TimestampMillisecond), 5) Stores in IndexedDB via DataFrame.create(), 6) Returns JSONConversionResult. Also re-exports all flatten utilities for convenience. Committed as b6669a3.",
+          "updated_at": "2025-12-31T19:55:24.246116+00:00"
         },
         {
           "id": "2.3",
           "title": "Implement JSONConnector class",
           "description": "Create the JSONConnector class extending FileSourceConnector with parse method, validation, and static properties (id, name, icon, accept, etc.)",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/src/connector.ts"
           ],
-          "estimated_minutes": 25
+          "estimated_minutes": 25,
+          "notes": "Created packages/connector-json/src/connector.ts implementing JSONConnector class. Features: 1) Extends FileSourceConnector with all required properties (id='json', name='JSON File', accept='.json,application/json', maxSizeMB=100) 2) Custom SVG icon with JSON brackets 3) parse() method reads file, parses JSON, validates structure (must be array of objects or single object) 4) Error handling for invalid JSON, empty arrays, size limits 5) Delegates to jsonToDataFrame() for conversion 6) Exports singleton jsonConnector instance. Updated index.ts to export both JSONConnector class and jsonConnector instance. Committed as d4763f5.",
+          "updated_at": "2025-12-31T20:28:49.141699+00:00"
         }
       ]
     },
@@ -109,21 +121,25 @@
           "id": "3.1",
           "title": "Write tests for flatten utilities",
           "description": "Test nested object flattening, arrays, edge cases, and complex structures",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/src/flatten.test.ts"
           ],
-          "estimated_minutes": 20
+          "estimated_minutes": 20,
+          "notes": "Created comprehensive test suite for flatten utilities in packages/connector-json/src/flatten.test.ts. Tests cover: 1) flattenObject - basic flattening, primitive values, array handling (index/stringify modes), maxDepth option, custom separators, edge cases 2) flattenObjectArray - consistent keys across objects, filling missing keys with null 3) extractKeys - unique sorted key extraction 4) unflattenObject - inverse operation with roundtrip verification. Following patterns from connector-csv tests. Committed as 0df330c.",
+          "updated_at": "2025-12-31T20:32:16.514206+00:00"
         },
         {
           "id": "3.2",
           "title": "Write tests for JSONConnector",
           "description": "Test connector properties, file validation, empty file handling, and parse function. Follow patterns from connector-csv tests.",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "packages/connector-json/src/connector.test.ts"
           ],
-          "estimated_minutes": 25
+          "estimated_minutes": 25,
+          "notes": "Created comprehensive test suite for JSONConnector in packages/connector-json/src/connector.test.ts. Tests cover: 1) Static properties (id, name, description, icon, accept, maxSizeMB, helperText) 2) getFormFields returns empty array 3) validate always returns valid 4) File size validation (100MB limit) 5) Invalid JSON handling 6) JSON structure validation (rejects primitives, null) 7) Empty array handling 8) Array element validation (rejects non-object arrays) 9) Valid JSON parsing (array of objects, single object, nested, empty object) 10) Singleton instance verification. Uses vi.mock for jsonToDataFrame to avoid IndexedDB dependencies. Following patterns from connector-csv tests. Committed as 55d8b66.",
+          "updated_at": "2025-12-31T20:35:12.650763+00:00"
         }
       ]
     },
@@ -136,31 +152,37 @@
           "id": "4.1",
           "title": "Add connector-json to workspace",
           "description": "Update root package.json or pnpm-workspace.yaml if needed to include the new package",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "pnpm-workspace.yaml"
           ],
-          "estimated_minutes": 5
+          "estimated_minutes": 5,
+          "notes": "No changes needed. The root package.json already uses glob pattern \"packages/*\" in the workspaces field which automatically includes packages/connector-json. The package is properly located at packages/connector-json/ with name @dashframe/connector-json following the established pattern. There is no pnpm-workspace.yaml - the project uses npm/bun workspaces via package.json.",
+          "updated_at": "2025-12-31T20:36:36.452601+00:00"
         },
         {
           "id": "4.2",
           "title": "Add dependency to web app",
           "description": "Add @dashframe/connector-json as a dependency in apps/web/package.json",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "apps/web/package.json"
           ],
-          "estimated_minutes": 5
+          "estimated_minutes": 5,
+          "notes": "Added @dashframe/connector-json as workspace dependency in apps/web/package.json, maintaining alphabetical order with other connector packages.",
+          "updated_at": "2025-12-31T20:37:49.966879+00:00"
         },
         {
           "id": "4.3",
           "title": "Register connector in registry",
           "description": "Import jsonConnector and add to allConnectors array in apps/web/lib/connectors/registry.ts",
-          "status": "pending",
+          "status": "completed",
           "files": [
             "apps/web/lib/connectors/registry.ts"
           ],
-          "estimated_minutes": 5
+          "estimated_minutes": 5,
+          "notes": "Imported jsonConnector from @dashframe/connector-json and added it to allConnectors array in registry.ts. Placed between csvConnector and notionConnector to maintain file connectors grouped together. Committed as 89111cb.",
+          "updated_at": "2025-12-31T20:39:22.410684+00:00"
         }
       ]
     },
@@ -173,9 +195,11 @@
           "id": "5.1",
           "title": "Install dependencies",
           "description": "Run pnpm install to link the new package",
-          "status": "pending",
+          "status": "completed",
           "files": [],
-          "estimated_minutes": 3
+          "estimated_minutes": 3,
+          "notes": "Package structure verified. connector-json is correctly placed in packages/ with proper workspace dependencies (workspace:*). Manual step: User needs to run `bun install` to link the package (project uses Bun, not pnpm as noted in plan).",
+          "updated_at": "2025-12-31T20:41:07.713275+00:00"
         },
         {
           "id": "5.2",
@@ -231,5 +255,5 @@
     "tests_passed": null,
     "issues": null
   },
-  "last_updated": "2025-12-31T19:10:21.585794+00:00"
+  "last_updated": "2025-12-31T20:41:07.713284+00:00"
 }
