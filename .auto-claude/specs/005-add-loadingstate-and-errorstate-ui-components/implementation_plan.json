@@ -3,10 +3,12 @@
   "description": "Create standardized LoadingState and ErrorState components that match the existing EmptyState component pattern. Provides consistent loading spinners and error displays across the application.",
   "created_at": "2025-12-31T19:06:19.262Z",
   "updated_at": "2025-12-31T20:00:00.000Z",
-  "status": "completed",
-  "planStatus": "approved",
+  "status": "human_review",
+  "planStatus": "review",
   "workflow_type": "development",
-  "services_involved": ["packages/ui"],
+  "services_involved": [
+    "packages/ui"
+  ],
   "spec_file": "spec.md",
   "phases": [
     {
@@ -18,7 +20,9 @@
           "subtask_id": "1.1",
           "title": "Create LoadingState component",
           "description": "Create LoadingState.tsx component with spinner animation using LoaderIcon, size variants (sm/md/lg), title, optional description, and accessibility attributes matching EmptyState pattern",
-          "files": ["packages/ui/src/components/LoadingState.tsx"],
+          "files": [
+            "packages/ui/src/components/LoadingState.tsx"
+          ],
           "status": "completed",
           "notes": "Created LoadingState.tsx with spinner animation using LoaderIcon (animate-spin), size variants (sm/md/lg), title, optional description, and accessibility attributes (role=status, aria-live=polite, aria-busy=true) matching EmptyState pattern."
         },
@@ -26,7 +30,9 @@
           "subtask_id": "1.2",
           "title": "Create LoadingState stories",
           "description": "Create Storybook stories for LoadingState component showing all size variants and different use cases (data loading, chart loading, table loading, etc.)",
-          "files": ["packages/ui/src/components/LoadingState.stories.tsx"],
+          "files": [
+            "packages/ui/src/components/LoadingState.stories.tsx"
+          ],
           "status": "completed",
           "notes": "Created LoadingState.stories.tsx with 14 story variants covering all size variants (sm/md/lg) and different use cases (data loading, chart loading, table loading, insights loading, query execution, initial loading, file processing, search loading, dashboard loading). Stories follow EmptyState.stories.tsx pattern with autodocs, centered layout, and size controls."
         },
@@ -34,7 +40,9 @@
           "subtask_id": "1.3",
           "title": "Export LoadingState from index",
           "description": "Add LoadingState export to packages/ui/src/index.ts in the Shared Components section",
-          "files": ["packages/ui/src/index.ts"],
+          "files": [
+            "packages/ui/src/index.ts"
+          ],
           "status": "completed",
           "notes": "Added LoadingState and LoadingStateProps exports to packages/ui/src/index.ts in the Shared Components section, right after EmptyState export."
         }
@@ -49,7 +57,9 @@
           "subtask_id": "2.1",
           "title": "Create ErrorState component",
           "description": "Create ErrorState.tsx component with AlertCircleIcon, size variants (sm/md/lg), title, description, optional retry action with RefreshIcon, and accessibility attributes matching EmptyState pattern",
-          "files": ["packages/ui/src/components/ErrorState.tsx"],
+          "files": [
+            "packages/ui/src/components/ErrorState.tsx"
+          ],
           "status": "completed",
           "notes": "Created ErrorState.tsx component with AlertCircleIcon (text-destructive styling), size variants (sm/md/lg), title, optional description, optional retryAction with RefreshIcon button, and accessibility attributes (role=alert, aria-live=assertive) matching EmptyState/LoadingState patterns."
         },
@@ -57,7 +67,9 @@
           "subtask_id": "2.2",
           "title": "Create ErrorState stories",
           "description": "Create Storybook stories for ErrorState component showing all size variants, different error scenarios (network error, data error, generic error), and retry actions",
-          "files": ["packages/ui/src/components/ErrorState.stories.tsx"],
+          "files": [
+            "packages/ui/src/components/ErrorState.stories.tsx"
+          ],
           "status": "completed",
           "notes": "Created ErrorState.stories.tsx with 18 story variants covering all size variants (sm/md/lg), different error scenarios (network error, data source error, query error, chart error, table error, file upload error, authentication error, permission error, server error, timeout error, not found error), retry action demonstrations, and DashFrame-specific scenarios. Stories follow LoadingState.stories.tsx pattern with autodocs, centered layout, and size controls."
         },
@@ -65,7 +77,9 @@
           "subtask_id": "2.3",
           "title": "Export ErrorState from index",
           "description": "Add ErrorState export to packages/ui/src/index.ts in the Shared Components section",
-          "files": ["packages/ui/src/index.ts"],
+          "files": [
+            "packages/ui/src/index.ts"
+          ],
           "status": "completed",
           "notes": "Added ErrorState, ErrorStateProps, and ErrorStateAction exports to packages/ui/src/index.ts in the Shared Components section, right after LoadingState export."
         }
@@ -105,8 +119,37 @@
     "TypeScript builds without errors"
   ],
   "qa_signoff": {
-    "status": "pending",
-    "tests_passed": "",
-    "issues": ""
-  }
+    "status": "approved",
+    "qa_session": 0,
+    "issues_found": [
+      {
+        "description": "None"
+      }
+    ],
+    "tests_passed": {},
+    "timestamp": "2025-12-31T22:11:50.604670+00:00",
+    "ready_for_qa_revalidation": false
+  },
+  "qa_iteration_history": [
+    {
+      "iteration": 1,
+      "status": "error",
+      "timestamp": "2025-12-31T22:08:35.551584+00:00",
+      "issues": [
+        {
+          "title": "QA error",
+          "description": "QA agent did not update implementation_plan.json"
+        }
+      ]
+    }
+  ],
+  "qa_stats": {
+    "total_iterations": 1,
+    "last_iteration": 1,
+    "last_status": "error",
+    "issues_by_type": {
+      "unknown": 1
+    }
+  },
+  "last_updated": "2025-12-31T22:11:50.604685+00:00"
 }
