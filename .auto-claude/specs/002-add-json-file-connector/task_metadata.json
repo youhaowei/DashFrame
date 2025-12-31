@@ -1,0 +1,31 @@
+{
+  "sourceType": "ideation",
+  "ideationType": "code_improvements",
+  "ideaId": "ci-001",
+  "rationale": "The connector architecture is well-established with BaseConnector, FileSourceConnector, and RemoteApiConnector abstract classes. The CSV connector provides a clear template for implementation. The registry pattern in apps/web/lib/connectors/registry.ts makes adding new connectors trivial - just implement the class and add to allConnectors array.",
+  "category": "feature",
+  "estimatedEffort": "small",
+  "complexity": "medium",
+  "affectedFiles": [
+    "packages/connector-json/src/connector.ts",
+    "packages/connector-json/src/index.ts",
+    "packages/connector-json/package.json",
+    "apps/web/lib/connectors/registry.ts"
+  ],
+  "model": "opus",
+  "thinkingLevel": "high",
+  "isAutoProfile": true,
+  "phaseModels": {
+    "spec": "opus",
+    "planning": "opus",
+    "coding": "sonnet",
+    "qa": "opus"
+  },
+  "phaseThinking": {
+    "spec": "ultrathink",
+    "planning": "high",
+    "coding": "low",
+    "qa": "low"
+  },
+  "requireReviewBeforeCoding": false
+}
