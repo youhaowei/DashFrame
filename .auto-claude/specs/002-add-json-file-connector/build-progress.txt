@@ -1,0 +1,34 @@
+# Build Progress: JSON File Connector
+
+## Overview
+Adding a JSON file connector that extends FileSourceConnector, supporting:
+- Array-of-objects JSON format
+- Nested JSON with automatic flattening (dot-notation keys)
+
+## Implementation Plan Created
+Date: 2025-12-31
+
+### Phases
+1. **Package Setup** (4 subtasks) - Create connector-json package structure
+2. **Core Implementation** (3 subtasks) - JSON parsing, flattening, DataFrame conversion
+3. **Testing** (2 subtasks) - Unit tests for flatten utilities and connector
+4. **Integration** (3 subtasks) - Register connector in web app
+5. **Validation** (4 subtasks) - Install deps, typecheck, lint, run tests
+
+### Key Technical Decisions
+- Follow connector-csv pattern exactly (extends FileSourceConnector)
+- Flatten nested JSON using dot-notation (e.g., "user.address.city")
+- Use Apache Arrow for IPC serialization (same as CSV)
+- Max file size: 100MB
+- Accept types: .json, application/json
+
+## Progress Log
+
+### Session 1 - Plan Creation
+- [x] Read spec.md
+- [x] Explored existing connector architecture (base.ts, types.ts)
+- [x] Analyzed CSV connector implementation as template
+- [x] Reviewed registry pattern
+- [x] Created detailed implementation_plan.json with 5 phases, 16 subtasks
+
+Ready to begin implementation.

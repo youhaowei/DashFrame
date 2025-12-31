@@ -1,0 +1,15 @@
+{
+  "discovered_files": {
+    ".auto-claude/specs/002-add-json-file-connector/implementation_plan.json": {
+      "description": "Implementation plan for JSON connector with 5 phases: Package Setup, Core Implementation, Testing, Integration, Validation. Includes 16 subtasks with estimated times. Key pattern: extend FileSourceConnector like CSV connector, flatten nested JSON using dot-notation.",
+      "category": "architecture",
+      "discovered_at": "2025-12-31T19:08:59.633259+00:00"
+    },
+    "packages/connector-json/package.json": {
+      "description": "Created connector-json package with standard DashFrame connector structure. Dependencies: @dashframe/core, @dashframe/engine, @dashframe/engine-browser, apache-arrow. Follows exact pattern from connector-csv.",
+      "category": "package-structure",
+      "discovered_at": "2025-12-31T19:10:29.157159+00:00"
+    }
+  },
+  "last_updated": "2025-12-31T19:10:29.157177+00:00"
+}
