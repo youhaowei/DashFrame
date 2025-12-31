@@ -6,7 +6,7 @@ import {
   DatabaseIcon,
   PlusIcon,
   RefreshIcon,
-  LoaderIcon,
+  Spinner,
   ChevronDownIcon,
   Button,
   Surface,
@@ -399,7 +399,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               {/* Available Notion Databases */}
               {isLoadingDatabases ? (
                 <div className="flex items-center justify-center py-6">
-                  <LoaderIcon className="text-muted-foreground h-4 w-4 animate-spin" />
+                  <Spinner size="sm" className="text-muted-foreground" />
                 </div>
               ) : (
                 (() => {

@@ -11,10 +11,10 @@ import {
   ChartIcon,
   DeleteIcon,
   SelectField,
+  Spinner,
 } from "@dashframe/ui";
 import {
   ArrowLeftIcon,
-  LoaderIcon,
   DataPointIcon,
   ArrowUpDownIcon,
   AlertCircleIcon,
@@ -510,7 +510,7 @@ export default function VisualizationPage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LoaderIcon className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Spinner size="lg" className="text-muted-foreground" />
           <p className="text-muted-foreground text-sm">
             Loading visualization...
           </p>

@@ -5,7 +5,7 @@ import { useVisualizations, useInsights, useDataTables } from "@dashframe/core";
 import { Chart } from "@dashframe/visualization";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import { LoaderIcon } from "@dashframe/ui/icons";
+import { Spinner } from "@dashframe/ui";
 import type { UUID, ChartEncoding } from "@dashframe/types";
 
 interface VisualizationRendererProps {
@@ -127,7 +127,7 @@ export function VisualizationRenderer({
       <div className={className} style={{ width, height }}>
         <div className="flex h-full items-center justify-center">
           <div className="text-muted-foreground flex items-center gap-2">
-            <LoaderIcon className="h-4 w-4 animate-spin" />
+            <Spinner size="sm" />
             <span className="text-sm">Loading visualization...</span>
           </div>
         </div>
