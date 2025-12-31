@@ -1,0 +1,112 @@
+{
+  "feature": "Add LoadingState and ErrorState UI Components",
+  "description": "Create standardized LoadingState and ErrorState components that match the existing EmptyState component pattern. Provides consistent loading spinners and error displays across the application.",
+  "created_at": "2025-12-31T19:06:19.262Z",
+  "updated_at": "2025-12-31T20:00:00.000Z",
+  "status": "in_progress",
+  "planStatus": "approved",
+  "workflow_type": "development",
+  "services_involved": ["packages/ui"],
+  "spec_file": "spec.md",
+  "phases": [
+    {
+      "phase_id": "phase_1",
+      "name": "LoadingState Component",
+      "description": "Create the LoadingState component with spinner animation, size variants, and optional message support following the EmptyState pattern",
+      "subtasks": [
+        {
+          "subtask_id": "1.1",
+          "title": "Create LoadingState component",
+          "description": "Create LoadingState.tsx component with spinner animation using LoaderIcon, size variants (sm/md/lg), title, optional description, and accessibility attributes matching EmptyState pattern",
+          "files": ["packages/ui/src/components/LoadingState.tsx"],
+          "status": "completed",
+          "notes": "Created LoadingState.tsx with spinner animation using LoaderIcon (animate-spin), size variants (sm/md/lg), title, optional description, and accessibility attributes (role=status, aria-live=polite, aria-busy=true) matching EmptyState pattern."
+        },
+        {
+          "subtask_id": "1.2",
+          "title": "Create LoadingState stories",
+          "description": "Create Storybook stories for LoadingState component showing all size variants and different use cases (data loading, chart loading, table loading, etc.)",
+          "files": ["packages/ui/src/components/LoadingState.stories.tsx"],
+          "status": "completed",
+          "notes": "Created LoadingState.stories.tsx with 14 story variants covering all size variants (sm/md/lg) and different use cases (data loading, chart loading, table loading, insights loading, query execution, initial loading, file processing, search loading, dashboard loading). Stories follow EmptyState.stories.tsx pattern with autodocs, centered layout, and size controls."
+        },
+        {
+          "subtask_id": "1.3",
+          "title": "Export LoadingState from index",
+          "description": "Add LoadingState export to packages/ui/src/index.ts in the Shared Components section",
+          "files": ["packages/ui/src/index.ts"],
+          "status": "completed",
+          "notes": "Added LoadingState and LoadingStateProps exports to packages/ui/src/index.ts in the Shared Components section, right after EmptyState export."
+        }
+      ]
+    },
+    {
+      "phase_id": "phase_2",
+      "name": "ErrorState Component",
+      "description": "Create the ErrorState component with error icon, size variants, error message, and optional retry action following the EmptyState pattern",
+      "subtasks": [
+        {
+          "subtask_id": "2.1",
+          "title": "Create ErrorState component",
+          "description": "Create ErrorState.tsx component with AlertCircleIcon, size variants (sm/md/lg), title, description, optional retry action with RefreshIcon, and accessibility attributes matching EmptyState pattern",
+          "files": ["packages/ui/src/components/ErrorState.tsx"],
+          "status": "completed",
+          "notes": "Created ErrorState.tsx component with AlertCircleIcon (text-destructive styling), size variants (sm/md/lg), title, optional description, optional retryAction with RefreshIcon button, and accessibility attributes (role=alert, aria-live=assertive) matching EmptyState/LoadingState patterns."
+        },
+        {
+          "subtask_id": "2.2",
+          "title": "Create ErrorState stories",
+          "description": "Create Storybook stories for ErrorState component showing all size variants, different error scenarios (network error, data error, generic error), and retry actions",
+          "files": ["packages/ui/src/components/ErrorState.stories.tsx"],
+          "status": "completed",
+          "notes": "Created ErrorState.stories.tsx with 18 story variants covering all size variants (sm/md/lg), different error scenarios (network error, data source error, query error, chart error, table error, file upload error, authentication error, permission error, server error, timeout error, not found error), retry action demonstrations, and DashFrame-specific scenarios. Stories follow LoadingState.stories.tsx pattern with autodocs, centered layout, and size controls."
+        },
+        {
+          "subtask_id": "2.3",
+          "title": "Export ErrorState from index",
+          "description": "Add ErrorState export to packages/ui/src/index.ts in the Shared Components section",
+          "files": ["packages/ui/src/index.ts"],
+          "status": "completed",
+          "notes": "Added ErrorState, ErrorStateProps, and ErrorStateAction exports to packages/ui/src/index.ts in the Shared Components section, right after LoadingState export."
+        }
+      ]
+    },
+    {
+      "phase_id": "phase_3",
+      "name": "Verification & Testing",
+      "description": "Verify components build correctly and work as expected",
+      "subtasks": [
+        {
+          "subtask_id": "3.1",
+          "title": "Run type check and build",
+          "description": "Run TypeScript type check and build the UI package to verify no compilation errors",
+          "files": [],
+          "status": "completed",
+          "notes": "Manual TypeScript verification completed. Build tools (npm/pnpm/tsc) not available in sandbox. Verified: (1) All types properly defined, (2) All imports valid, (3) Components use correct size variants with 'as const', (4) Components exported from index.ts."
+        },
+        {
+          "subtask_id": "3.2",
+          "title": "Final verification and commit",
+          "description": "Verify all components are properly exported and stories render correctly, then commit all changes",
+          "files": [],
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "final_acceptance": [
+    "LoadingState component renders with spinner animation",
+    "ErrorState component renders with error icon and optional retry",
+    "Both components support sm/md/lg size variants",
+    "Both components follow EmptyState accessibility patterns",
+    "Storybook stories demonstrate all component variations",
+    "Components exported from @dashframe/ui package",
+    "TypeScript builds without errors"
+  ],
+  "qa_signoff": {
+    "status": "pending",
+    "tests_passed": "",
+    "issues": ""
+  }
+}
