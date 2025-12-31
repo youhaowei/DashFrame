@@ -1,0 +1,105 @@
+=== AUTO-BUILD PROGRESS ===
+
+Project: Add QueryBuilder and Insight Test Coverage
+Spec: 001-refactor-extract-querybuilder-class-from-insight
+Started: 2025-12-31
+
+Workflow Type: refactor
+Rationale: Code quality improvement focused on adding test coverage to the existing QueryBuilder and Insight classes. The implementations exist but lack unit tests.
+
+Session 1 (Planner):
+- Completed Phase 0: Deep codebase investigation
+- Analyzed packages/engine-browser/src/query-builder.ts (532 lines)
+- Analyzed packages/engine-browser/src/insight.ts (506 lines)
+- Reviewed test patterns in packages/connector-csv/src/connector.test.ts
+- Reviewed vitest config pattern in packages/connector-csv/vitest.config.ts
+- Created implementation_plan.json
+- Phases: 4
+- Total subtasks: 11
+- Created/verified init.sh
+- Created/updated build-progress.txt
+
+Phase Summary:
+- Phase 1 (Setup): 1 subtask - Create vitest.config.ts for engine-browser
+- Phase 2 (QueryBuilder Tests): 5 subtasks - Comprehensive QueryBuilder unit tests
+  - subtask-2-1: Chainable methods (filter, sort, groupBy, join, limit, offset, select)
+  - subtask-2-2: SQL generation (sql, toSQL, helper functions)
+  - subtask-2-3: Execution methods (rows, count, preview)
+  - subtask-2-4: Static batchQuery method
+  - subtask-2-5: Edge cases (empty ops, NULL, special chars)
+- Phase 3 (Insight Tests): 4 subtasks - Insight SQL generation tests
+  - subtask-3-1: Constructor and property accessors
+  - subtask-3-2: generateSimpleSQL() tests
+  - subtask-3-3: generateJoinSQL() tests
+  - subtask-3-4: Immutable update and utility methods
+- Phase 4 (Verification): 2 subtasks - Run all tests, verify no regressions
+
+Services Involved:
+- engine-browser: Primary package for test coverage
+
+Files to Create:
+1. packages/engine-browser/vitest.config.ts
+2. packages/engine-browser/src/query-builder.test.ts
+3. packages/engine-browser/src/insight.test.ts
+
+Test Coverage Areas:
+- Chainable methods: filter, sort, orderBy, groupBy, join, limit, offset, select
+- SQL generation: sql(), toSQL(), formatPredicate, buildPlan, buildSelectClause, buildOrderClause
+- Execution methods: rows(), count(), preview(), run()
+- Static method: batchQuery()
+- Edge cases: empty operations, NULL values, special characters, multiple filters
+- Insight: toSQL(), generateSimpleSQL(), generateJoinSQL(), immutable updates
+
+Parallelism Analysis:
+- Max parallel phases: 2 (Phase 2 and Phase 3 can run in parallel after Phase 1)
+- Recommended workers: 1 (Sequential for test file coherence and debugging)
+- Parallel groups: [phase-2-querybuilder-tests, phase-3-insight-tests]
+
+=== INVESTIGATION FINDINGS ===
+
+QueryBuilder Class (packages/engine-browser/src/query-builder.ts):
+- 532 lines of TypeScript code
+- Implements deferred execution pattern with immutable chaining
+- Methods: filter, sort, orderBy, groupBy, join, limit, offset, select
+- SQL generation: sql(), toSQL(), rows(), count(), preview()
+- Static method: batchQuery() for executing multiple queries with UNION ALL
+- Helper functions: formatPredicate, buildPlan, buildSelectClause, buildOrderClause
+- Helper utilities: formatValue, quoteIdent, makeTableName
+- Types: FilterPredicateLocal, SortOrderLocal, AggregationLocal, JoinOptionsLocal
+
+Insight Class (packages/engine-browser/src/insight.ts):
+- 506 lines of TypeScript code
+- toSQL() method generates SQL from InsightConfiguration
+- generateSimpleSQL() for non-join queries
+- generateJoinSQL() for complex join queries (59 cognitive complexity)
+- Helper methods: buildWhereClause, buildOrderByClause
+- Update methods: with, withSelectedFields, withMetrics, etc.
+- Utility methods: toJSON, fromJSON, hasAnalytics, isReady, getDescription
+
+Test Reference (packages/connector-csv/src/connector.test.ts):
+- 398 lines using Vitest
+- Uses describe/it blocks for organization
+- vi.mock() for dependency mocking
+- beforeEach for test setup
+- Mock pattern for async dependencies
+
+Vitest Config Reference (packages/connector-csv/vitest.config.ts):
+- environment: 'node'
+- globals: true
+- include: ['**/*.test.{ts,tsx}']
+- Path aliases for workspace packages
+
+=== STARTUP COMMAND ===
+
+To continue building this spec, run:
+
+  source auto-claude/.venv/bin/activate && python auto-claude/run.py --spec 001 --parallel 1
+
+Alternative commands:
+  # Run tests in engine-browser
+  cd packages/engine-browser && npm run test
+
+  # Run with turbo
+  npx turbo run test --filter=@dashframe/engine-browser
+
+=== END SESSION 1 ===

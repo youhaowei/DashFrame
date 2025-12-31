@@ -1,0 +1,389 @@
+{
+  "feature": "Add QueryBuilder and Insight Test Coverage",
+  "workflow_type": "refactor",
+  "workflow_rationale": "This is a code quality improvement task focused on adding test coverage to existing implementations. The QueryBuilder class exists with full functionality (532 lines) but lacks unit tests. The Insight class also needs test coverage for its SQL generation methods. This is a refactoring workflow because we are improving code quality and verifiability without changing functionality.",
+  "phases": [
+    {
+      "id": "phase-1-setup",
+      "name": "Test Infrastructure Setup",
+      "type": "setup",
+      "description": "Set up Vitest configuration for engine-browser package to enable test execution",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create vitest.config.ts for engine-browser package following the pattern from connector-csv",
+          "service": "engine-browser",
+          "files_to_modify": [],
+          "files_to_create": ["packages/engine-browser/vitest.config.ts"],
+          "patterns_from": ["packages/connector-csv/vitest.config.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && cat vitest.config.ts | head -15",
+            "expected": "vitest config file exists with test configuration"
+          },
+          "status": "pending",
+          "notes": "Config should include: environment: 'node', globals: true, include: ['**/*.test.{ts,tsx}'], and path aliases for workspace packages"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-querybuilder-tests",
+      "name": "QueryBuilder Unit Tests",
+      "type": "implementation",
+      "description": "Create comprehensive unit tests for QueryBuilder class (query-builder.ts lines 292-523) covering all chainable methods, SQL generation, and helper functions",
+      "depends_on": ["phase-1-setup"],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Create test file with mock setup and tests for chainable query methods (filter, sort, orderBy, groupBy, join, limit, offset, select) - verify immutability and operation accumulation",
+          "service": "engine-browser",
+          "files_to_modify": [],
+          "files_to_create": ["packages/engine-browser/src/query-builder.test.ts"],
+          "patterns_from": ["packages/connector-csv/src/connector.test.ts", "packages/engine-browser/src/query-builder.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run query-builder.test.ts --reporter=verbose 2>&1 | tail -30",
+            "expected": "Tests for chainable methods pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "filter(predicates) - adds FilterPredicateLocal[] to operations",
+            "sort(orders) - adds SortOrderLocal[] to operations",
+            "orderBy(orders) - alias for sort()",
+            "groupBy(columns, aggregations?) - adds group columns and AggregationLocal[]",
+            "join(other, options) - adds JoinOptionsLocal with DataFrame reference",
+            "limit(count) - adds numeric limit constraint",
+            "offset(count) - adds numeric offset constraint",
+            "select(columns) - specifies column names to select",
+            "Immutability - each method returns NEW QueryBuilder instance"
+          ],
+          "mock_structure": "Mock AsyncDuckDBConnection with query() returning { toArray: () => mockData }"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Add SQL generation tests for sql(), toSQL() and helper functions (formatPredicate, buildPlan, buildSelectClause, buildOrderClause) - lines 110-195",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/query-builder.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/connector-csv/src/connector.test.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run query-builder.test.ts --reporter=verbose 2>&1 | grep -E '(PASS|FAIL|✓|✗|sql|SQL)' | tail -30",
+            "expected": "SQL generation tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "formatPredicate() - standard operators (=, <, >, <=, >=, !=)",
+            "formatPredicate() - IS NULL, IS NOT NULL operators",
+            "formatPredicate() - IN, NOT IN with values array",
+            "buildPlan() - accumulates filters, sorts, joins, group, limit, offset, select from operations",
+            "buildSelectClause() - handles selectColumns, groupColumns, aggregations",
+            "buildOrderClause() - formats ORDER BY with direction",
+            "sql()/toSQL() - generates complete SELECT...FROM...WHERE...GROUP BY...ORDER BY...LIMIT...OFFSET query"
+          ]
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add tests for execution methods (rows, count, preview, run) with mocked query results",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/query-builder.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/connector-csv/src/connector.test.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run query-builder.test.ts --reporter=verbose 2>&1 | grep -E '(rows|count|preview|run)' | tail -20",
+            "expected": "Execution method tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "rows() - calls conn.query() and returns toArray() result",
+            "count() - wraps query in COUNT(*) subquery",
+            "preview(limit=10) - calls limit(10).rows()",
+            "ensureLoaded() - returns tableName if already set"
+          ]
+        },
+        {
+          "id": "subtask-2-4",
+          "description": "Add tests for static batchQuery() method (lines 495-522) - test empty array, single query, multiple queries",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/query-builder.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/engine-browser/src/query-builder.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run query-builder.test.ts --reporter=verbose 2>&1 | grep -E '(batch|Batch)' | tail -10",
+            "expected": "batchQuery tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "batchQuery([]) - returns empty array",
+            "batchQuery([q1]) - returns [[result1]] for single query",
+            "batchQuery([q1, q2, q3]) - uses UNION ALL with _batch_idx, partitions results correctly"
+          ]
+        },
+        {
+          "id": "subtask-2-5",
+          "description": "Add edge case tests: empty operations, NULL values, special characters in identifiers, multiple filters combination",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/query-builder.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/connector-csv/src/connector.test.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run query-builder.test.ts --reporter=verbose 2>&1 | grep -E '(edge|NULL|special|empty|quote)' | head -20",
+            "expected": "Edge case tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "Empty operations - generates SELECT * FROM table_name",
+            "NULL values - formatValue returns 'NULL', IS NULL handled by operator",
+            "Special characters - quoteIdent escapes double quotes by doubling them",
+            "Multiple filter operations - combines all predicates with AND",
+            "Date values - formatValue returns ISO string in quotes",
+            "Boolean values - formatValue returns TRUE/FALSE uppercase"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3-insight-tests",
+      "name": "Insight SQL Generation Tests",
+      "type": "implementation",
+      "description": "Create unit tests for Insight class (insight.ts) SQL generation methods including toSQL(), generateSimpleSQL(), generateJoinSQL() and helper methods",
+      "depends_on": ["phase-1-setup"],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create Insight test file with DataTableInfo and InsightConfiguration fixtures, test constructor and property accessors",
+          "service": "engine-browser",
+          "files_to_modify": [],
+          "files_to_create": ["packages/engine-browser/src/insight.test.ts"],
+          "patterns_from": ["packages/connector-csv/src/connector.test.ts", "packages/engine-browser/src/insight.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run insight.test.ts --reporter=verbose 2>&1 | tail -30",
+            "expected": "Insight constructor and accessor tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "Constructor - throws error without name",
+            "Constructor - throws error without baseTable",
+            "Constructor - generates id if not provided",
+            "Property accessors - id, name, baseTable, selectedFields, metrics, filters, groupBy, orderBy, limit, joins, config"
+          ],
+          "fixture_structure": "DataTableInfo with id, name, dataFrameId, fields array (DataTableField[])"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Add tests for generateSimpleSQL() - basic SELECT, WHERE, ORDER BY, LIMIT without aggregation",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/insight.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/engine-browser/src/insight.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run insight.test.ts --reporter=verbose 2>&1 | grep -E '(simple|Simple|SELECT)' | tail -20",
+            "expected": "Simple SQL generation tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "toSQL() - generates SELECT col1, col2 FROM df_tablename",
+            "toSQL() with filters - adds WHERE clause using buildWhereClause",
+            "toSQL() with orderBy - adds ORDER BY clause",
+            "toSQL() with limit - adds LIMIT clause",
+            "toSQL() with aggregation - adds GROUP BY and metric functions"
+          ]
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Add tests for generateJoinSQL() - JOIN query generation with field aliasing, duplicate column handling",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/insight.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/engine-browser/src/insight.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run insight.test.ts --reporter=verbose 2>&1 | grep -E '(join|JOIN|alias)' | tail -20",
+            "expected": "JOIN SQL generation tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "toSQL() with single join - generates INNER/LEFT/RIGHT/OUTER JOIN",
+            "Duplicate column handling - aliases with tableName.columnName format",
+            "Join key fields - proper ON clause generation",
+            "Error handling - throws when dataFrameId missing",
+            "Error handling - throws when join key fields not found"
+          ]
+        },
+        {
+          "id": "subtask-3-4",
+          "description": "Add tests for immutable update methods (with, withSelectedFields, withMetrics, etc.) and utility methods (toJSON, fromJSON, hasAnalytics, isReady, getDescription)",
+          "service": "engine-browser",
+          "files_to_modify": ["packages/engine-browser/src/insight.test.ts"],
+          "files_to_create": [],
+          "patterns_from": ["packages/engine-browser/src/insight.ts"],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npx vitest run insight.test.ts --reporter=verbose 2>&1 | grep -E '(with|immutable|utility)' | tail -20",
+            "expected": "Immutable update and utility method tests pass"
+          },
+          "status": "pending",
+          "test_coverage": [
+            "with(updates) - returns new Insight with merged config",
+            "withSelectedFields, withMetrics, withFilters, withGroupBy, withOrderBy, withLimit, withName - convenience methods",
+            "toJSON() - returns plain InsightConfiguration object",
+            "fromJSON() - creates Insight from config",
+            "hasAnalytics() - returns true if metrics, groupBy, or filters exist",
+            "isReady() - returns true if selectedFields exist or hasAnalytics",
+            "getDescription() - returns human-readable description"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-4-verification",
+      "name": "Test Verification and Cleanup",
+      "type": "integration",
+      "description": "Run all tests, verify coverage, and ensure no regressions across the monorepo",
+      "depends_on": ["phase-2-querybuilder-tests", "phase-3-insight-tests"],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Run full test suite for engine-browser package and verify all tests pass without errors",
+          "all_services": false,
+          "service": "engine-browser",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "cd packages/engine-browser && npm run test 2>&1",
+            "expected": "All tests pass with no errors"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Run monorepo test suite to ensure no regressions in other packages (especially connector-csv which depends on engine-browser)",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "npx turbo run test --filter=@dashframe/engine-browser --filter=@dashframe/connector-csv 2>&1 | tail -30",
+            "expected": "All package tests pass"
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 4,
+    "total_subtasks": 11,
+    "services_involved": ["engine-browser"],
+    "files_to_create": [
+      "packages/engine-browser/vitest.config.ts",
+      "packages/engine-browser/src/query-builder.test.ts",
+      "packages/engine-browser/src/insight.test.ts"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 2,
+      "parallel_groups": [
+        {
+          "phases": ["phase-2-querybuilder-tests", "phase-3-insight-tests"],
+          "reason": "Both depend only on phase-1-setup, work on different test files, no file conflicts"
+        }
+      ],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential recommended for test file coherence and debugging simplicity"
+    },
+    "startup_command": "source auto-claude/.venv/bin/activate && python auto-claude/run.py --spec 001 --parallel 1"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "during_implementation",
+    "test_types_required": ["unit"],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All QueryBuilder public methods have unit tests",
+      "All Insight SQL generation methods have unit tests",
+      "SQL generation produces correct output for all clause types",
+      "Edge cases tested (empty operations, null values, special characters)",
+      "Immutability verified (chainable methods return new instances)",
+      "All tests pass with npm run test",
+      "Test files follow existing project patterns from connector-csv"
+    ],
+    "verification_steps": [
+      {
+        "name": "QueryBuilder Unit Tests",
+        "command": "cd packages/engine-browser && npm run test -- query-builder.test.ts",
+        "expected_outcome": "All QueryBuilder tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Insight Unit Tests",
+        "command": "cd packages/engine-browser && npm run test -- insight.test.ts",
+        "expected_outcome": "All Insight tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Full Package Tests",
+        "command": "cd packages/engine-browser && npm run test",
+        "expected_outcome": "All package tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Package Integration",
+        "command": "npx turbo run test --filter=@dashframe/engine-browser",
+        "expected_outcome": "Package tests pass in turbo context",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Medium risk code quality improvement requires unit tests for all public methods. No security-sensitive changes involved. Tests are the primary deliverable."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": ["cd packages/engine-browser && npm run test"],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null,
+  "created_at": "2025-12-31T11:18:00.000Z",
+  "updated_at": "2025-12-31T12:00:00.000Z"
+}

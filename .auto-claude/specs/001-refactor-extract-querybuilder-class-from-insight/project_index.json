@@ -1,0 +1,397 @@
+{
+  "project_root": "/Users/youhaowei/Projects/DashFrame",
+  "project_type": "monorepo",
+  "services": {
+    "visualization": {
+      "name": "visualization",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/visualization",
+      "language": "TypeScript",
+      "framework": "React",
+      "type": "frontend",
+      "package_manager": "npm",
+      "default_port": 3000,
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/core",
+        "@dashframe/types",
+        "@dashframe/ui",
+        "@duckdb/duckdb-wasm",
+        "@uwdata/vgplot",
+        "react"
+      ],
+      "dev_dependencies": [
+        "@types/react",
+        "typescript",
+        "vitest"
+      ],
+      "testing": "Vitest"
+    },
+    "ui": {
+      "name": "ui",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/ui",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "frontend",
+      "package_manager": "npm",
+      "build_tool": "Vite",
+      "default_port": 6006,
+      "styling": "Tailwind CSS",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/engine-browser",
+        "@dashframe/types",
+        "@dnd-kit/core",
+        "@dnd-kit/sortable",
+        "@dnd-kit/utilities",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-collapsible",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-label",
+        "@radix-ui/react-navigation-menu",
+        "@radix-ui/react-scroll-area",
+        "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-switch",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-tooltip",
+        "@tanstack/react-virtual",
+        "class-variance-authority"
+      ],
+      "dev_dependencies": [
+        "@chromatic-com/storybook",
+        "@dashframe/eslint-config",
+        "@storybook/addon-a11y",
+        "@storybook/addon-docs",
+        "@storybook/addon-mcp",
+        "@storybook/addon-vitest",
+        "@storybook/nextjs-vite",
+        "@tailwindcss/postcss",
+        "@types/node",
+        "@types/react"
+      ],
+      "testing": "Vitest"
+    },
+    "core-store": {
+      "name": "core-store",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/core-store",
+      "language": "JavaScript",
+      "framework": null,
+      "type": "library",
+      "package_manager": "npm",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/types",
+        "@dashframe/core-dexie"
+      ],
+      "dev_dependencies": []
+    },
+    "types": {
+      "name": "types",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/types",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [],
+      "dev_dependencies": [
+        "typescript"
+      ]
+    },
+    "core": {
+      "name": "core",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/core",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "library",
+      "package_manager": "npm",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/types",
+        "@dashframe/core-store"
+      ],
+      "dev_dependencies": [
+        "typescript"
+      ]
+    },
+    "connector-csv": {
+      "name": "connector-csv",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/connector-csv",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/core",
+        "@dashframe/engine",
+        "@dashframe/engine-browser",
+        "apache-arrow"
+      ],
+      "dev_dependencies": [
+        "typescript",
+        "vitest"
+      ],
+      "testing": "Vitest"
+    },
+    "core-dexie": {
+      "name": "core-dexie",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/core-dexie",
+      "language": "TypeScript",
+      "framework": "React",
+      "type": "frontend",
+      "package_manager": "npm",
+      "default_port": 3000,
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/types",
+        "@dashframe/engine",
+        "@dashframe/engine-browser",
+        "dexie",
+        "dexie-react-hooks",
+        "react",
+        "superjson"
+      ],
+      "dev_dependencies": [
+        "@types/react",
+        "typescript"
+      ]
+    },
+    "eslint-config": {
+      "name": "eslint-config",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/eslint-config",
+      "language": "JavaScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "dependencies": [],
+      "dev_dependencies": []
+    },
+    "connector-notion": {
+      "name": "connector-notion",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/connector-notion",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/core",
+        "@dashframe/engine",
+        "@dashframe/engine-browser",
+        "@notionhq/client",
+        "apache-arrow"
+      ],
+      "dev_dependencies": [
+        "typescript",
+        "vitest"
+      ],
+      "testing": "Vitest"
+    },
+    "engine": {
+      "name": "engine",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/engine",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/types"
+      ],
+      "dev_dependencies": [
+        "typescript"
+      ]
+    },
+    "engine-browser": {
+      "name": "engine-browser",
+      "path": "/Users/youhaowei/Projects/DashFrame/packages/engine-browser",
+      "language": "TypeScript",
+      "framework": null,
+      "type": "unknown",
+      "package_manager": "npm",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "src": {
+          "path": "src",
+          "purpose": "Source code"
+        }
+      },
+      "entry_point": "src/index.ts",
+      "dependencies": [
+        "@dashframe/engine",
+        "@dashframe/types",
+        "@duckdb/duckdb-wasm",
+        "apache-arrow",
+        "idb-keyval"
+      ],
+      "dev_dependencies": [
+        "typescript",
+        "vitest"
+      ],
+      "testing": "Vitest"
+    },
+    "web": {
+      "name": "web",
+      "path": "/Users/youhaowei/Projects/DashFrame/apps/web",
+      "language": "TypeScript",
+      "framework": "Next.js",
+      "type": "frontend",
+      "package_manager": "npm",
+      "default_port": 3000,
+      "styling": "Tailwind CSS",
+      "state_management": "Zustand",
+      "dev_command": "npm run dev",
+      "key_directories": {
+        "lib": {
+          "path": "lib",
+          "purpose": "Library code"
+        },
+        "app": {
+          "path": "app",
+          "purpose": "Application code"
+        },
+        "components": {
+          "path": "components",
+          "purpose": "UI components"
+        },
+        "hooks": {
+          "path": "hooks",
+          "purpose": "Custom hooks"
+        }
+      },
+      "dependencies": [
+        "@dashframe/connector-csv",
+        "@dashframe/connector-notion",
+        "@dashframe/core",
+        "@dashframe/core-dexie",
+        "@dashframe/engine",
+        "@dashframe/engine-browser",
+        "@dashframe/types",
+        "@dashframe/ui",
+        "@dashframe/visualization",
+        "@duckdb/duckdb-wasm",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-collapsible",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-label",
+        "@radix-ui/react-navigation-menu",
+        "@radix-ui/react-scroll-area",
+        "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slot"
+      ],
+      "dev_dependencies": [
+        "@dashframe/eslint-config",
+        "@tailwindcss/postcss",
+        "@testing-library/react",
+        "@types/node",
+        "@types/papaparse",
+        "@types/react",
+        "@types/react-dom",
+        "@types/react-grid-layout",
+        "@vitejs/plugin-react",
+        "baseline-browser-mapping"
+      ],
+      "testing": "Vitest",
+      "environment": {
+        "variables": {
+          "NEXT_PUBLIC_POSTHOG_KEY": {
+            "value": "<REDACTED>",
+            "source": ".env.local",
+            "type": "string",
+            "sensitive": true,
+            "required": false
+          },
+          "NEXT_PUBLIC_POSTHOG_HOST": {
+            "value": "https://us.i.posthog.com",
+            "source": ".env.local",
+            "type": "url",
+            "sensitive": false,
+            "required": false
+          }
+        },
+        "required_count": 0,
+        "optional_count": 0,
+        "detected_count": 2
+      }
+    }
+  },
+  "infrastructure": {
+    "ci": "GitHub Actions",
+    "ci_workflows": [
+      "version-packages.yml",
+      "claude.yml",
+      "ci.yml"
+    ]
+  },
+  "conventions": {
+    "formatting": "Prettier",
+    "git_hooks": "Husky"
+  },
+  "monorepo_tool": "turbo"
+}
