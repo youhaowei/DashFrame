@@ -9,6 +9,8 @@ import { Spinner } from "@dashframe/ui";
 import { useInsightView } from "@/hooks/useInsightView";
 import { Chart } from "@dashframe/visualization";
 
+const PREVIEW_HEIGHT = 200; // px
+
 function PreviewLoading() {
   return (
     <div className="bg-muted/30 flex h-full w-full items-center justify-center">
@@ -20,7 +22,7 @@ function PreviewLoading() {
 interface VisualizationPreviewProps {
   /** The visualization to preview */
   visualization: Visualization;
-  /** Height of the preview in pixels (default: 160) */
+  /** Height of the preview in pixels (default: 200) */
   height?: number;
   /** Fallback element to show when data can't be loaded */
   fallback?: React.ReactNode;
@@ -50,8 +52,8 @@ function resolveEncodingChannel(value: string | undefined): string | undefined {
  */
 export function VisualizationPreview({
   visualization,
-  height = 160,
-  fallback,
+  height = PREVIEW_HEIGHT,
+  fallback = <PreviewLoading />,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = useInsight(
