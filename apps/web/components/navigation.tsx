@@ -32,8 +32,8 @@ import {
   DropdownMenuItem,
   cn,
 } from "@dashframe/ui";
-import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useToastStore } from "@/lib/stores";
 import {
   useDataSourceMutations,
   useInsightMutations,
@@ -245,6 +245,7 @@ export function Navigation() {
   const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  const { showSuccess } = useToastStore();
   const { remove: removeDataSource } = useDataSourceMutations();
   const { remove: removeInsight } = useInsightMutations();
   const { clear: clearDataFrames } = useDataFrameMutations();
@@ -283,7 +284,7 @@ export function Navigation() {
     await clearDataFrames();
 
     setShowClearConfirm(false);
-    toast.success("All data cleared");
+    showSuccess("All data cleared");
     router.push("/");
   };
 
