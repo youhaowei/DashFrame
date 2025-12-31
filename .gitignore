@@ -38,4 +38,5 @@ convex/.env.local
 .worktrees/
 .claude/plans
 
+# generated or sensitive data that should not be committed
 .data

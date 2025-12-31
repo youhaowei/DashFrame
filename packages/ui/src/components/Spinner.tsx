@@ -7,9 +7,9 @@ export interface SpinnerProps extends React.ComponentProps<"svg"> {
 }
 
 const sizeClasses = {
-  sm: "size-3",
-  md: "size-4",
-  lg: "size-6",
+  sm: "size-4",
+  md: "size-5",
+  lg: "size-8",
 };
 
 /**

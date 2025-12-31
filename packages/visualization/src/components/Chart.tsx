@@ -4,7 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
-import { useContainerDimensions, Spinner } from "@dashframe/ui";
+import { useContainerDimensions, Spinner, cn } from "@dashframe/ui";
 
 // ============================================================================
 // Theme Detection
@@ -284,19 +284,16 @@ export function Chart({
   const renderLoading = () => (
     <div
       ref={containerRef}
-      className={className}
+      className={cn(
+        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
+        className,
+      )}
       style={{
-        width: width === "container" ? "100%" : width,
-        height: height === "container" ? "100%" : height,
-        minHeight: 0,
-        overflow: "hidden",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "hsl(var(--muted) / 0.3)",
+        ...(width !== "container" && { width }),
+        ...(height !== "container" && { height }),
       }}
     >
-      <Spinner size="lg" style={{ color: "hsl(var(--muted-foreground))" }} />
+      <Spinner size="lg" className="text-muted-foreground" />
     </div>
   );
 
