@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "../lib/utils";
+import { colorVariants } from "../lib/variants";
 
 const spinnerVariants = cva("animate-spin", {
   variants: {
@@ -7,16 +7,8 @@ const spinnerVariants = cva("animate-spin", {
       sm: "size-4",
       md: "size-5",
       lg: "size-8",
-      xl: "size-12",
     },
-    color: {
-      current: "text-current",
-      primary: "text-primary",
-      secondary: "text-muted-foreground",
-      warn: "text-amber-600 dark:text-amber-500",
-      danger: "text-destructive",
-      success: "text-emerald-600 dark:text-emerald-500",
-    },
+    color: colorVariants,
   },
   defaultVariants: {
     size: "md",
@@ -46,18 +38,26 @@ export interface SpinnerProps
  * <Spinner color="danger" size="sm" />
  * ```
  */
-export function Spinner({ className, size, color, ...props }: SpinnerProps) {
+export function Spinner({
+  className,
+  size = "md",
+  color = "current",
+  ...props
+}: SpinnerProps) {
   return (
     <svg
       role="status"
       aria-label="Loading"
+      data-slot="spinner"
+      data-size={size}
+      data-color={color}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth="3"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn(spinnerVariants({ size, color }), className)}
+      className={spinnerVariants({ size, color, className })}
       {...props}
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" />

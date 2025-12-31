@@ -234,6 +234,79 @@ Extract when:
 - All interactive elements accessible via keyboard
 - Follow WCAG AA color contrast
 
+## Button Component
+
+High-level button with icon, loading, and iconOnly support:
+
+```tsx
+import { Button } from "@dashframe/ui";
+
+// With icon and label
+<Button label="Save" icon={SaveIcon} onClick={handleSave} />
+
+// Icon-only mode (square button, sr-only label)
+<Button label="Delete" icon={TrashIcon} iconOnly color="danger" />
+
+// Loading state
+<Button label="Saving..." loading />
+
+// Size variants: sm, md (default), lg
+<Button label="Small" size="sm" />
+
+// Styling non-button elements as buttons (links, etc.)
+import { buttonVariants } from "@dashframe/ui";
+<a className={buttonVariants({ variant: "link" })}>Styled link</a>
+```
+
+## CVA Variant Patterns
+
+Components using `class-variance-authority` follow a standardized structure.
+
+### Structure
+
+```typescript
+const componentVariants = cva(
+  "base-classes",           // Always-applied styles
+  {
+    variants: { ... },       // Independent variant axes
+    compoundVariants: [...], // Cross-variant combinations (optional)
+    defaultVariants: { ... } // Required defaults
+  }
+);
+```
+
+### className Handling
+
+Pass `className` into the CVA call for proper class merging:
+
+```typescript
+className={componentVariants({ variant, size, className })}
+```
+
+### Data Attributes
+
+Components emit data-\* attributes for each variant axis:
+
+```tsx
+<Component
+  data-slot="component-name"
+  data-variant={variant}
+  data-color={color}
+  data-size={size}
+/>
+```
+
+### Shared Tokens
+
+Import from `@dashframe/ui` for consistent colors/sizes:
+
+```typescript
+import { colorVariants, sizeScale } from "@dashframe/ui";
+
+// colorVariants: current, primary, secondary, warn, danger, success
+// sizeScale: ["sm", "md", "lg"]
+```
+
 ## Development
 
 ### Adding Components

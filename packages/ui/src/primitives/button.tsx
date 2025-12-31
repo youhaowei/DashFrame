@@ -1,3 +1,20 @@
+/**
+ * Button Primitive - Low-level button with CVA variants
+ *
+ * @internal This is a low-level primitive. For most use cases, import Button
+ * from "@dashframe/ui" which provides a higher-level API with icon, loading,
+ * and iconOnly support.
+ *
+ * @example
+ * ```tsx
+ * // Preferred: Use the component Button
+ * import { Button } from "@dashframe/ui";
+ * <Button label="Save" icon={SaveIcon} loading={isLoading} />
+ *
+ * // Only use primitive when you need direct CVA control
+ * import { Button } from "@dashframe/ui/primitives/button";
+ * ```
+ */
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -5,7 +22,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px]",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px]",
   {
     variants: {
       variant: {
@@ -22,12 +39,12 @@ const buttonVariants = cva(
         success: "",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
+        md: "h-9 px-4 py-2 has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-4",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4 [&_svg:not([class*='size-'])]:size-5",
+        icon: "size-9 [&_svg:not([class*='size-'])]:size-4",
+        "icon-sm": "size-8 [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-lg": "size-10 [&_svg:not([class*='size-'])]:size-5",
       },
     },
     compoundVariants: [
@@ -147,7 +164,7 @@ const buttonVariants = cva(
     defaultVariants: {
       variant: "filled",
       color: "primary",
-      size: "default",
+      size: "md",
     },
   },
 );
@@ -156,7 +173,7 @@ function Button({
   className,
   variant = "filled",
   color = "primary",
-  size = "default",
+  size = "md",
   asChild = false,
   ...props
 }: React.ComponentProps<"button"> &

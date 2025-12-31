@@ -16,7 +16,7 @@ export interface ButtonProps {
    */
   color?: "primary" | "secondary" | "warn" | "danger" | "success";
   icon?: LucideIcon;
-  size?: "default" | "sm" | "lg";
+  size?: "sm" | "md" | "lg";
   asChild?: boolean;
   children?: ReactNode;
   className?: string;
@@ -80,7 +80,7 @@ export interface ItemAction extends ButtonProps {
   actions?: ItemAction[];
 }
 
-type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
+type ButtonSize = "sm" | "md" | "lg" | "icon" | "icon-sm" | "icon-lg";
 
 /**
  * Button - Enhanced button component with icon and icon-only mode support
@@ -139,10 +139,13 @@ export function Button({
 }: ButtonProps) {
   const shouldShowLabel = !iconOnly || !Icon;
 
+  // Map button size to spinner size (default to "md")
+  const spinnerSize = size || "md";
+
   const buttonContent = children || (
     <>
       {loading ? (
-        <Spinner size="sm" color="current" aria-hidden />
+        <Spinner size={spinnerSize} color="current" aria-hidden />
       ) : (
         Icon && <Icon aria-hidden />
       )}
@@ -157,8 +160,8 @@ export function Button({
       if (size === "lg") return "icon-lg";
       return "icon";
     }
-    // Otherwise use standard size variants
-    return size || "default";
+    // Map to primitive size (default to "md")
+    return size || "md";
   };
 
   const buttonSize = getButtonSize();

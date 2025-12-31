@@ -51,7 +51,7 @@ export const Sizes: Story = {
   render: () => (
     <div className="flex items-center gap-2">
       <Button size="sm">Small</Button>
-      <Button size="default">Default</Button>
+      <Button size="md">Medium</Button>
       <Button size="lg">Large</Button>
     </div>
   ),

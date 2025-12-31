@@ -25,7 +25,7 @@ const meta = {
     },
     size: {
       control: "select",
-      options: ["default", "sm", "lg"],
+      options: ["sm", "md", "lg"],
     },
     loading: {
       control: "boolean",
@@ -195,18 +195,13 @@ export const Sizes: Story = {
         />
       </div>
 
-      {/* Default size group */}
+      {/* Medium size group (default) */}
       <div className="flex items-center gap-2">
+        <Button label="Medium" onClick={() => {}} size="md" icon={PlusIcon} />
         <Button
-          label="Default"
+          label="Medium Compact"
           onClick={() => {}}
-          size="default"
-          icon={PlusIcon}
-        />
-        <Button
-          label="Default Compact"
-          onClick={() => {}}
-          size="default"
+          size="md"
           icon={PlusIcon}
           iconOnly
         />
