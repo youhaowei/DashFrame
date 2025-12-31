@@ -339,7 +339,7 @@ export function ItemCard({
       >
         {/* Preview Section */}
         <div
-          className="bg-card w-full border-b"
+          className="bg-muted/30 w-full"
           style={{ height: `${previewHeight}px` }}
         >
           {preview}

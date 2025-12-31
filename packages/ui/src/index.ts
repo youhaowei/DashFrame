@@ -154,6 +154,7 @@ export {
 export { Panel, PanelSection } from "./components/Panel";
 export { Stack } from "./components/Stack";
 export { Toggle } from "./components/Toggle";
+export { Spinner, type SpinnerProps } from "./components/Spinner";
 export { Tooltip as CustomTooltip } from "./components/Tooltip";
 export {
   VirtualTable,

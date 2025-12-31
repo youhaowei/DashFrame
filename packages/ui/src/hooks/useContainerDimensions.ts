@@ -93,6 +93,9 @@ export function useContainerDimensions(
   // Debounce timer ref
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Track the currently observed element to detect changes
+  const observedElementRef = useRef<HTMLDivElement | null>(null);
+
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -135,6 +138,7 @@ export function useContainerDimensions(
 
     const observer = new ResizeObserver(updateDimensions);
     observer.observe(element);
+    observedElementRef.current = element;
 
     // Trigger initial measurement
     // This ensures we get dimensions even if the element doesn't resize
@@ -148,6 +152,7 @@ export function useContainerDimensions(
 
     return () => {
       observer.disconnect();
+      observedElementRef.current = null;
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }

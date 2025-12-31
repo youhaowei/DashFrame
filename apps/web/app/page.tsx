@@ -1,6 +1,7 @@
 "use client";
 
 import { useVisualizations } from "@dashframe/core";
+import { Spinner } from "@dashframe/ui";
 import { OnboardingView } from "./_components/OnboardingView";
 import { HomeView } from "./_components/HomeView";
 
@@ -18,7 +19,7 @@ export default function HomePage() {
   if (isLoading) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
+        <Spinner size="lg" className="text-muted-foreground" />
       </div>
     );
   }
