@@ -40,3 +40,6 @@ convex/.env.local
 
 # generated or sensitive data that should not be committed
 .data
+
+# Auto Claude data directory
+.auto-claude/
