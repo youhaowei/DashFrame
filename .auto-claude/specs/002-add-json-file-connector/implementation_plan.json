@@ -1,0 +1,235 @@
+{
+  "feature": "Add JSON File Connector",
+  "description": "Create a new connector for JSON file uploads that extends the FileSourceConnector base class. Supports both array-of-objects JSON format and nested JSON structures with automatic flattening.",
+  "created_at": "2025-12-31T19:03:42.151Z",
+  "updated_at": "2025-12-31T19:10:00.000Z",
+  "status": "in_progress",
+  "planStatus": "approved",
+  "workflow_type": "development",
+  "services_involved": [
+    "packages/connector-json",
+    "apps/web"
+  ],
+  "spec_file": "spec.md",
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Package Setup",
+      "description": "Create the connector-json package with proper structure following connector-csv pattern",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create package.json for connector-json",
+          "description": "Create packages/connector-json/package.json with dependencies on @dashframe/engine, @dashframe/engine-browser, @dashframe/core, and apache-arrow",
+          "status": "completed",
+          "files": [
+            "packages/connector-json/package.json"
+          ],
+          "estimated_minutes": 5,
+          "notes": "Created packages/connector-json/package.json with dependencies on @dashframe/engine, @dashframe/engine-browser, @dashframe/core, and apache-arrow. Follows exact same pattern as connector-csv package.",
+          "updated_at": "2025-12-31T19:10:21.585775+00:00"
+        },
+        {
+          "id": "1.2",
+          "title": "Create tsconfig.json for connector-json",
+          "description": "Create TypeScript configuration extending from root tsconfig",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/tsconfig.json"
+          ],
+          "estimated_minutes": 3
+        },
+        {
+          "id": "1.3",
+          "title": "Create vitest.config.ts for testing",
+          "description": "Set up Vitest configuration for the package",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/vitest.config.ts"
+          ],
+          "estimated_minutes": 3
+        },
+        {
+          "id": "1.4",
+          "title": "Create supporting files",
+          "description": "Add .prettierignore, CHANGELOG.md, and README.md files",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/.prettierignore",
+            "packages/connector-json/CHANGELOG.md",
+            "packages/connector-json/README.md"
+          ],
+          "estimated_minutes": 10
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Core Implementation",
+      "description": "Implement the JSON parsing logic and DataFrame conversion",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Implement JSON flattening utilities",
+          "description": "Create utility functions to flatten nested JSON objects into a flat structure with dot-notation keys (e.g., 'user.address.city')",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/src/flatten.ts"
+          ],
+          "estimated_minutes": 20
+        },
+        {
+          "id": "2.2",
+          "title": "Implement jsonToDataFrame conversion",
+          "description": "Create the main conversion function that transforms parsed JSON into Arrow IPC format and stores in IndexedDB, similar to csvToDataFrame",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/src/index.ts"
+          ],
+          "estimated_minutes": 30
+        },
+        {
+          "id": "2.3",
+          "title": "Implement JSONConnector class",
+          "description": "Create the JSONConnector class extending FileSourceConnector with parse method, validation, and static properties (id, name, icon, accept, etc.)",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/src/connector.ts"
+          ],
+          "estimated_minutes": 25
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Testing",
+      "description": "Write comprehensive unit tests for all functionality",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for flatten utilities",
+          "description": "Test nested object flattening, arrays, edge cases, and complex structures",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/src/flatten.test.ts"
+          ],
+          "estimated_minutes": 20
+        },
+        {
+          "id": "3.2",
+          "title": "Write tests for JSONConnector",
+          "description": "Test connector properties, file validation, empty file handling, and parse function. Follow patterns from connector-csv tests.",
+          "status": "pending",
+          "files": [
+            "packages/connector-json/src/connector.test.ts"
+          ],
+          "estimated_minutes": 25
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Integration",
+      "description": "Register the connector in the web app",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Add connector-json to workspace",
+          "description": "Update root package.json or pnpm-workspace.yaml if needed to include the new package",
+          "status": "pending",
+          "files": [
+            "pnpm-workspace.yaml"
+          ],
+          "estimated_minutes": 5
+        },
+        {
+          "id": "4.2",
+          "title": "Add dependency to web app",
+          "description": "Add @dashframe/connector-json as a dependency in apps/web/package.json",
+          "status": "pending",
+          "files": [
+            "apps/web/package.json"
+          ],
+          "estimated_minutes": 5
+        },
+        {
+          "id": "4.3",
+          "title": "Register connector in registry",
+          "description": "Import jsonConnector and add to allConnectors array in apps/web/lib/connectors/registry.ts",
+          "status": "pending",
+          "files": [
+            "apps/web/lib/connectors/registry.ts"
+          ],
+          "estimated_minutes": 5
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "Validation",
+      "description": "Run tests and verify the implementation",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Install dependencies",
+          "description": "Run pnpm install to link the new package",
+          "status": "pending",
+          "files": [],
+          "estimated_minutes": 3
+        },
+        {
+          "id": "5.2",
+          "title": "Run type checking",
+          "description": "Run pnpm typecheck to verify TypeScript types",
+          "status": "pending",
+          "files": [],
+          "estimated_minutes": 5
+        },
+        {
+          "id": "5.3",
+          "title": "Run linting",
+          "description": "Run pnpm lint to check code quality",
+          "status": "pending",
+          "files": [],
+          "estimated_minutes": 5
+        },
+        {
+          "id": "5.4",
+          "title": "Run tests",
+          "description": "Run pnpm test on the connector-json package",
+          "status": "pending",
+          "files": [],
+          "estimated_minutes": 5
+        }
+      ]
+    }
+  ],
+  "technical_notes": {
+    "architecture": "The JSON connector follows the same patterns as CSV connector - extends FileSourceConnector abstract class, implements parse() method, exports singleton instance",
+    "json_formats_supported": [
+      "Array of objects: [{\"name\": \"Alice\", \"age\": 30}, ...]",
+      "Nested objects with automatic dot-notation flattening: {\"user\": {\"name\": \"Alice\"}} \u2192 user.name"
+    ],
+    "key_dependencies": [
+      "@dashframe/engine-browser - For FileSourceConnector base class and types",
+      "@dashframe/core - For core types",
+      "apache-arrow - For IPC serialization"
+    ],
+    "file_accept_types": ".json,application/json",
+    "max_file_size_mb": 100
+  },
+  "final_acceptance": [
+    "JSON connector class properly extends FileSourceConnector",
+    "Supports array-of-objects JSON format",
+    "Supports nested JSON with automatic flattening",
+    "All tests pass",
+    "TypeScript types are correct",
+    "Connector is registered in the web app registry"
+  ],
+  "qa_sign_off": {
+    "status": "pending",
+    "tests_passed": null,
+    "issues": null
+  },
+  "last_updated": "2025-12-31T19:10:21.585794+00:00"
+}
