@@ -119,16 +119,19 @@
     "TypeScript builds without errors"
   ],
   "qa_signoff": {
-    "status": "approved",
-    "qa_session": 0,
-    "issues_found": [
+    "status": "fixes_applied",
+    "qa_session": 1,
+    "fix_session": 1,
+    "issues_found": [],
+    "issues_fixed": [
       {
-        "description": "None"
+        "title": "Branch not up to date with main",
+        "fix": "Rebased branch on origin/main (7d7b0db), resolved .gitignore merge conflict"
       }
     ],
     "tests_passed": {},
-    "timestamp": "2025-12-31T22:11:50.604670+00:00",
-    "ready_for_qa_revalidation": false
+    "timestamp": "2026-01-01T05:30:00.000Z",
+    "ready_for_qa_revalidation": true
   },
   "qa_iteration_history": [
     {
@@ -141,15 +144,33 @@
           "description": "QA agent did not update implementation_plan.json"
         }
       ]
+    },
+    {
+      "iteration": 2,
+      "status": "approved",
+      "timestamp": "2025-12-31T22:12:21.314730+00:00",
+      "issues": [],
+      "duration_seconds": 225.76
+    },
+    {
+      "iteration": 3,
+      "status": "rejected",
+      "timestamp": "2026-01-01T05:23:54.352Z",
+      "issues": [
+        {
+          "title": "Branch not up to date",
+          "description": "Branch needed to be rebased on latest main"
+        }
+      ]
     }
   ],
   "qa_stats": {
-    "total_iterations": 1,
-    "last_iteration": 1,
-    "last_status": "error",
+    "total_iterations": 3,
+    "last_iteration": 3,
+    "last_status": "fixes_applied",
     "issues_by_type": {
-      "unknown": 1
+      "branch_sync": 1
     }
   },
-  "last_updated": "2025-12-31T22:11:50.604685+00:00"
+  "last_updated": "2026-01-01T05:30:00.000Z"
 }
