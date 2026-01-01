@@ -198,9 +198,10 @@ describe("QueryBuilder", () => {
           leftColumn: "id",
           rightColumn: "user_id",
         })
-        .groupBy(["category"], [
-          { columnName: "amount", function: "sum", alias: "total" },
-        ])
+        .groupBy(
+          ["category"],
+          [{ columnName: "amount", function: "sum", alias: "total" }],
+        )
         .sort([{ columnName: "total", direction: "desc" }])
         .limit(100)
         .offset(10);
@@ -321,22 +322,28 @@ describe("QueryBuilder", () => {
     });
 
     it("should accept aggregations", () => {
-      const result = queryBuilder.groupBy(["category"], [
-        { columnName: "amount", function: "sum", alias: "total_amount" },
-        { columnName: "id", function: "count", alias: "count" },
-      ]);
+      const result = queryBuilder.groupBy(
+        ["category"],
+        [
+          { columnName: "amount", function: "sum", alias: "total_amount" },
+          { columnName: "id", function: "count", alias: "count" },
+        ],
+      );
 
       expect(result).toBeInstanceOf(QueryBuilder);
     });
 
     it("should accept aggregations with various functions", () => {
-      const result = queryBuilder.groupBy(["category"], [
-        { columnName: "amount", function: "sum", alias: "sum_amount" },
-        { columnName: "amount", function: "avg", alias: "avg_amount" },
-        { columnName: "amount", function: "min", alias: "min_amount" },
-        { columnName: "amount", function: "max", alias: "max_amount" },
-        { columnName: "id", function: "count", alias: "total_count" },
-      ]);
+      const result = queryBuilder.groupBy(
+        ["category"],
+        [
+          { columnName: "amount", function: "sum", alias: "sum_amount" },
+          { columnName: "amount", function: "avg", alias: "avg_amount" },
+          { columnName: "amount", function: "min", alias: "min_amount" },
+          { columnName: "amount", function: "max", alias: "max_amount" },
+          { columnName: "id", function: "count", alias: "total_count" },
+        ],
+      );
 
       expect(result).toBeInstanceOf(QueryBuilder);
     });
@@ -608,7 +615,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"status\" = 'active'",
+          'SELECT * FROM "df_test_df_id" WHERE "status" = \'active\'',
         );
       });
 
@@ -692,9 +699,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" WHERE "active" = TRUE',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "active" = TRUE');
       });
 
       it("should format NULL values", async () => {
@@ -703,9 +708,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" WHERE "value" = NULL',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "value" = NULL');
       });
 
       it("should join multiple predicates with AND", async () => {
@@ -716,7 +719,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"age\" > 18 AND \"status\" = 'active'",
+          'SELECT * FROM "df_test_df_id" WHERE "age" > 18 AND "status" = \'active\'',
         );
       });
 
@@ -727,7 +730,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"age\" > 18 AND \"country\" = 'US'",
+          'SELECT * FROM "df_test_df_id" WHERE "age" > 18 AND "country" = \'US\'',
         );
       });
     });
@@ -739,9 +742,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" ORDER BY "name" ASC',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" ORDER BY "name" ASC');
       });
 
       it("should generate ORDER BY with DESC", async () => {
@@ -773,9 +774,7 @@ describe("QueryBuilder", () => {
           .sort([{ columnName: "age", direction: "desc" }]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" ORDER BY "age" DESC',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" ORDER BY "age" DESC');
       });
     });
 
@@ -844,9 +843,10 @@ describe("QueryBuilder", () => {
 
       it("should use explicit select columns with groupBy when specified", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn)
-          .groupBy(["category"], [
-            { columnName: "amount", function: "sum", alias: "total" },
-          ])
+          .groupBy(
+            ["category"],
+            [{ columnName: "amount", function: "sum", alias: "total" }],
+          )
           .select(["category", "total"]);
         const sql = await qb.sql();
 
@@ -927,9 +927,10 @@ describe("QueryBuilder", () => {
       it("should generate query with groupBy, aggregations, and filter", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn)
           .filter([{ columnName: "status", operator: "=", value: "completed" }])
-          .groupBy(["category"], [
-            { columnName: "amount", function: "sum", alias: "total_amount" },
-          ])
+          .groupBy(
+            ["category"],
+            [{ columnName: "amount", function: "sum", alias: "total_amount" }],
+          )
           .sort([{ columnName: "total_amount", direction: "desc" }])
           .limit(10);
         const sql = await qb.sql();
@@ -957,9 +958,10 @@ describe("QueryBuilder", () => {
           .select(["category", "total"])
           .filter([{ columnName: "year", operator: ">=", value: 2020 }])
           .filter([{ columnName: "region", operator: "=", value: "US" }])
-          .groupBy(["category"], [
-            { columnName: "amount", function: "sum", alias: "total" },
-          ])
+          .groupBy(
+            ["category"],
+            [{ columnName: "amount", function: "sum", alias: "total" }],
+          )
           .sort([{ columnName: "total", direction: "desc" }])
           .limit(5)
           .offset(0);
@@ -1046,7 +1048,11 @@ describe("QueryBuilder", () => {
 
       it("should handle bigint values", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "id", operator: "=", value: BigInt(9007199254740993) },
+          {
+            columnName: "id",
+            operator: "=",
+            value: BigInt("9007199254740993"),
+          },
         ]);
         const sql = await qb.sql();
 
@@ -1072,8 +1078,8 @@ describe("QueryBuilder", () => {
 
   describe("execution methods", () => {
     // Helper to create a mock connection with configurable query results
-    const createMockConnectionWithResults = (
-      queryResults: Record<string, unknown>[],
+    const createMockConnectionWithResults = <T = Record<string, unknown>>(
+      queryResults: T[],
     ): AsyncDuckDBConnection => {
       const mockQuery = vi.fn().mockResolvedValue({
         toArray: () => queryResults,
@@ -1083,6 +1089,13 @@ describe("QueryBuilder", () => {
         query: mockQuery,
         insertArrowFromIPCStream: vi.fn().mockResolvedValue(undefined),
       } as unknown as AsyncDuckDBConnection;
+    };
+
+    // Helper to create mock connection for run() tests (returns Uint8Array)
+    const createMockConnectionForRun = (
+      arrowBuffer: Uint8Array,
+    ): AsyncDuckDBConnection => {
+      return createMockConnectionWithResults([arrowBuffer]);
     };
 
     // Create a test QueryBuilder with pre-set table name (avoids async table loading)
@@ -1260,7 +1273,7 @@ describe("QueryBuilder", () => {
 
         // Count should not include SELECT columns or ORDER BY
         expect(mockQuery).toHaveBeenCalledWith(
-          "SELECT COUNT(*) as count FROM (SELECT * FROM \"df_test_df_id\" WHERE \"status\" = 'active')",
+          'SELECT COUNT(*) as count FROM (SELECT * FROM "df_test_df_id" WHERE "status" = \'active\')',
         );
       });
 
@@ -1275,7 +1288,7 @@ describe("QueryBuilder", () => {
         await qb.count();
 
         expect(mockQuery).toHaveBeenCalledWith(
-          "SELECT COUNT(*) as count FROM (SELECT * FROM \"df_test_df_id\" WHERE \"age\" > 18 AND \"country\" = 'US')",
+          'SELECT COUNT(*) as count FROM (SELECT * FROM "df_test_df_id" WHERE "age" > 18 AND "country" = \'US\')',
         );
       });
 
@@ -1302,12 +1315,16 @@ describe("QueryBuilder", () => {
       });
     });
 
+    // Helper to create mock results array to reduce nesting depth
+    const createMockUserResults = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: i + 1,
+        name: `User ${i + 1}`,
+      }));
+
     describe("preview()", () => {
       it("should return first 10 rows by default", async () => {
-        const mockResults = Array.from({ length: 10 }, (_, i) => ({
-          id: i + 1,
-          name: `User ${i + 1}`,
-        }));
+        const mockResults = createMockUserResults(10);
         const conn = createMockConnectionWithResults(mockResults);
         const mockQuery = conn.query as ReturnType<typeof vi.fn>;
         const qb = createTestQueryBuilder(mockDataFrame, conn);
@@ -1397,8 +1414,7 @@ describe("QueryBuilder", () => {
     describe("run()", () => {
       it("should execute query and return a BrowserDataFrame", async () => {
         const mockArrowBuffer = new Uint8Array([1, 2, 3, 4]);
-        const mockExportResult = [mockArrowBuffer];
-        const conn = createMockConnectionWithResults(mockExportResult);
+        const conn = createMockConnectionForRun(mockArrowBuffer);
         const qb = createTestQueryBuilder(mockDataFrame, conn);
 
         const result = await qb.run();
@@ -1409,8 +1425,7 @@ describe("QueryBuilder", () => {
 
       it("should use COPY TO with ARROW format", async () => {
         const mockArrowBuffer = new Uint8Array([1, 2, 3, 4]);
-        const mockExportResult = [mockArrowBuffer];
-        const conn = createMockConnectionWithResults(mockExportResult);
+        const conn = createMockConnectionForRun(mockArrowBuffer);
         const mockQuery = conn.query as ReturnType<typeof vi.fn>;
         const qb = createTestQueryBuilder(mockDataFrame, conn);
 
@@ -1425,8 +1440,7 @@ describe("QueryBuilder", () => {
 
       it("should include all operations in the exported query", async () => {
         const mockArrowBuffer = new Uint8Array([1, 2, 3, 4]);
-        const mockExportResult = [mockArrowBuffer];
-        const conn = createMockConnectionWithResults(mockExportResult);
+        const conn = createMockConnectionForRun(mockArrowBuffer);
         const mockQuery = conn.query as ReturnType<typeof vi.fn>;
         const qb = createTestQueryBuilder(mockDataFrame, conn)
           .select(["name", "age"])
@@ -1444,8 +1458,7 @@ describe("QueryBuilder", () => {
 
       it("should call BrowserDataFrame.create with arrow buffer", async () => {
         const mockArrowBuffer = new Uint8Array([1, 2, 3, 4]);
-        const mockExportResult = [mockArrowBuffer];
-        const conn = createMockConnectionWithResults(mockExportResult);
+        const conn = createMockConnectionForRun(mockArrowBuffer);
         const qb = createTestQueryBuilder(mockDataFrame, conn);
 
         // Import the mocked module to verify calls
@@ -1461,8 +1474,7 @@ describe("QueryBuilder", () => {
 
       it("should preserve immutability - original builder unchanged", async () => {
         const mockArrowBuffer = new Uint8Array([1, 2, 3, 4]);
-        const mockExportResult = [mockArrowBuffer];
-        const conn = createMockConnectionWithResults(mockExportResult);
+        const conn = createMockConnectionForRun(mockArrowBuffer);
         const original = createTestQueryBuilder(mockDataFrame, conn);
 
         // Create a modified builder and run
@@ -1525,6 +1537,25 @@ describe("QueryBuilder", () => {
   // Static Method Tests
   // ============================================================================
 
+  // Helper functions to reduce nesting depth in batchQuery tests
+  const createMockConnectionWithArrayResults = (
+    results: Record<string, unknown>[],
+  ): AsyncDuckDBConnection => {
+    return {
+      query: vi.fn().mockResolvedValue({
+        toArray: () => results,
+      }),
+    } as unknown as AsyncDuckDBConnection;
+  };
+
+  const createMockConnectionWithError = (
+    error: Error,
+  ): AsyncDuckDBConnection => {
+    return {
+      query: vi.fn().mockRejectedValue(error),
+    } as unknown as AsyncDuckDBConnection;
+  };
+
   describe("static batchQuery()", () => {
     describe("empty array", () => {
       it("should return empty array when given empty queries array", async () => {
@@ -1552,11 +1583,7 @@ describe("QueryBuilder", () => {
           { id: 1, name: "Alice" },
           { id: 2, name: "Bob" },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT * FROM users",
@@ -1567,11 +1594,7 @@ describe("QueryBuilder", () => {
       });
 
       it("should execute the query directly without UNION ALL wrapping", async () => {
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => [],
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults([]);
         const mockQuery = conn.query as ReturnType<typeof vi.fn>;
 
         await QueryBuilder.batchQuery(conn, ["SELECT COUNT(*) FROM users"]);
@@ -1581,11 +1604,7 @@ describe("QueryBuilder", () => {
       });
 
       it("should return empty array result for single query with no rows", async () => {
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => [],
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults([]);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT * FROM empty_table",
@@ -1602,11 +1621,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 0, count: 10 },
           { _batch_idx: 1, value: "sample" },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
         const mockQuery = conn.query as ReturnType<typeof vi.fn>;
 
         await QueryBuilder.batchQuery(conn, [
@@ -1629,11 +1644,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 1, category: "B", total: 200 },
           { _batch_idx: 1, category: "C", total: 300 },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT id, name FROM users",
@@ -1659,11 +1670,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 0, value: 42 },
           { _batch_idx: 1, name: "test" },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT value FROM t1",
@@ -1683,11 +1690,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 1, b: 2 },
           { _batch_idx: 2, c: 3 },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT a FROM t1",
@@ -1706,11 +1709,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 0, value: "exists" },
           // No results for query 1
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT value FROM existing",
@@ -1723,11 +1722,7 @@ describe("QueryBuilder", () => {
       });
 
       it("should handle all queries returning empty results", async () => {
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => [],
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults([]);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT * FROM empty1",
@@ -1746,11 +1741,7 @@ describe("QueryBuilder", () => {
           { _batch_idx: 0, order: "first" },
           { _batch_idx: 1, order: "second" },
         ];
-        const conn = {
-          query: vi.fn().mockResolvedValue({
-            toArray: () => mockCombinedResults,
-          }),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithArrayResults(mockCombinedResults);
 
         const results = await QueryBuilder.batchQuery(conn, [
           "SELECT 'first' as order",
@@ -1767,9 +1758,9 @@ describe("QueryBuilder", () => {
 
     describe("error handling", () => {
       it("should propagate query errors", async () => {
-        const conn = {
-          query: vi.fn().mockRejectedValue(new Error("Batch query failed")),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithError(
+          new Error("Batch query failed"),
+        );
 
         await expect(
           QueryBuilder.batchQuery(conn, ["SELECT * FROM users"]),
@@ -1777,9 +1768,9 @@ describe("QueryBuilder", () => {
       });
 
       it("should propagate errors for multiple queries", async () => {
-        const conn = {
-          query: vi.fn().mockRejectedValue(new Error("UNION ALL failed")),
-        } as unknown as AsyncDuckDBConnection;
+        const conn = createMockConnectionWithError(
+          new Error("UNION ALL failed"),
+        );
 
         await expect(
           QueryBuilder.batchQuery(conn, [
@@ -1875,9 +1866,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" WHERE "value" = NULL',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "value" = NULL');
       });
 
       it("should handle undefined value as NULL", async () => {
@@ -1886,14 +1875,16 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" WHERE "value" = NULL',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "value" = NULL');
       });
 
       it("should handle NULL values in IN operator values array", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "status", operator: "IN", values: ["active", null, "pending"] },
+          {
+            columnName: "status",
+            operator: "IN",
+            values: ["active", null, "pending"],
+          },
         ]);
         const sql = await qb.sql();
 
@@ -1910,7 +1901,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"deleted_at\" IS NULL AND \"status\" = 'active'",
+          'SELECT * FROM "df_test_df_id" WHERE "deleted_at" IS NULL AND "status" = \'active\'',
         );
       });
 
@@ -2023,12 +2014,16 @@ describe("QueryBuilder", () => {
 
       it("should handle special characters in column names for filter", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "user email", operator: "=", value: "test@example.com" },
+          {
+            columnName: "user email",
+            operator: "=",
+            value: "test@example.com",
+          },
         ]);
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"user email\" = 'test@example.com'",
+          'SELECT * FROM "df_test_df_id" WHERE "user email" = \'test@example.com\'',
         );
       });
 
@@ -2046,7 +2041,13 @@ describe("QueryBuilder", () => {
       it("should handle special characters in column names for groupBy", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).groupBy(
           ["product category"],
-          [{ columnName: "total amount", function: "sum", alias: "grand total" }],
+          [
+            {
+              columnName: "total amount",
+              function: "sum",
+              alias: "grand total",
+            },
+          ],
         );
         const sql = await qb.sql();
 
@@ -2066,7 +2067,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"status\" = 'active' AND \"type\" = 'user' AND \"role\" = 'admin'",
+          'SELECT * FROM "df_test_df_id" WHERE "status" = \'active\' AND "type" = \'user\' AND "role" = \'admin\'',
         );
       });
 
@@ -2079,26 +2080,34 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"age\" >= 18 AND \"age\" <= 65 AND \"status\" = 'active'",
+          'SELECT * FROM "df_test_df_id" WHERE "age" >= 18 AND "age" <= 65 AND "status" = \'active\'',
         );
       });
 
       it("should combine IN with other operators", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "status", operator: "IN", values: ["active", "pending"] },
+          {
+            columnName: "status",
+            operator: "IN",
+            values: ["active", "pending"],
+          },
           { columnName: "age", operator: ">", value: 21 },
           { columnName: "verified", operator: "=", value: true },
         ]);
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"status\" IN ('active', 'pending') AND \"age\" > 21 AND \"verified\" = TRUE",
+          'SELECT * FROM "df_test_df_id" WHERE "status" IN (\'active\', \'pending\') AND "age" > 21 AND "verified" = TRUE',
         );
       });
 
       it("should combine NOT IN with other operators", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "status", operator: "NOT IN", values: ["deleted", "banned"] },
+          {
+            columnName: "status",
+            operator: "NOT IN",
+            values: ["deleted", "banned"],
+          },
           { columnName: "created_at", operator: ">=", value: "2024-01-01" },
         ]);
         const sql = await qb.sql();
@@ -2117,7 +2126,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"deleted_at\" IS NULL AND \"status\" = 'active' AND \"age\" > 18",
+          'SELECT * FROM "df_test_df_id" WHERE "deleted_at" IS NULL AND "status" = \'active\' AND "age" > 18',
         );
       });
 
@@ -2141,13 +2150,17 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"status\" = 'active' AND \"age\" > 18 AND \"country\" = 'US'",
+          'SELECT * FROM "df_test_df_id" WHERE "status" = \'active\' AND "age" > 18 AND "country" = \'US\'',
         );
       });
 
       it("should handle complex combination with all filter types", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "status", operator: "IN", values: ["active", "pending"] },
+          {
+            columnName: "status",
+            operator: "IN",
+            values: ["active", "pending"],
+          },
           { columnName: "age", operator: ">=", value: 18 },
           { columnName: "age", operator: "<=", value: 65 },
           { columnName: "deleted_at", operator: "IS NULL" },
@@ -2158,7 +2171,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"status\" IN ('active', 'pending') AND \"age\" >= 18 AND \"age\" <= 65 AND \"deleted_at\" IS NULL AND \"email\" IS NOT NULL AND \"country\" NOT IN ('XX', 'YY') AND \"verified\" = TRUE",
+          'SELECT * FROM "df_test_df_id" WHERE "status" IN (\'active\', \'pending\') AND "age" >= 18 AND "age" <= 65 AND "deleted_at" IS NULL AND "email" IS NOT NULL AND "country" NOT IN (\'XX\', \'YY\') AND "verified" = TRUE',
         );
       });
 
@@ -2173,7 +2186,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT \"name\", \"email\", \"age\" FROM \"df_test_df_id\" WHERE \"status\" = 'active' AND \"age\" >= 18 ORDER BY \"name\" ASC",
+          'SELECT "name", "email", "age" FROM "df_test_df_id" WHERE "status" = \'active\' AND "age" >= 18 ORDER BY "name" ASC',
         );
       });
 
@@ -2183,16 +2196,19 @@ describe("QueryBuilder", () => {
             { columnName: "status", operator: "=", value: "completed" },
             { columnName: "year", operator: ">=", value: 2020 },
           ])
-          .groupBy(["category"], [
-            { columnName: "amount", function: "sum", alias: "total" },
-            { columnName: "id", function: "count", alias: "count" },
-          ])
+          .groupBy(
+            ["category"],
+            [
+              { columnName: "amount", function: "sum", alias: "total" },
+              { columnName: "id", function: "count", alias: "count" },
+            ],
+          )
           .sort([{ columnName: "total", direction: "desc" }])
           .limit(10);
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT SUM(\"amount\") AS \"total\", COUNT(\"id\") AS \"count\", \"category\" FROM \"df_test_df_id\" WHERE \"status\" = 'completed' AND \"year\" >= 2020 GROUP BY \"category\" ORDER BY \"total\" DESC LIMIT 10",
+          'SELECT SUM("amount") AS "total", COUNT("id") AS "count", "category" FROM "df_test_df_id" WHERE "status" = \'completed\' AND "year" >= 2020 GROUP BY "category" ORDER BY "total" DESC LIMIT 10',
         );
       });
     });
@@ -2204,7 +2220,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe("SELECT * FROM \"df_test_df_id\" WHERE \"name\" = ''");
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "name" = \'\'');
       });
 
       it("should handle zero as numeric value", async () => {
@@ -2213,9 +2229,7 @@ describe("QueryBuilder", () => {
         ]);
         const sql = await qb.sql();
 
-        expect(sql).toBe(
-          'SELECT * FROM "df_test_df_id" WHERE "balance" = 0',
-        );
+        expect(sql).toBe('SELECT * FROM "df_test_df_id" WHERE "balance" = 0');
       });
 
       it("should handle negative numbers", async () => {
@@ -2270,7 +2284,7 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"text\" = 'line1\nline2\nline3'",
+          'SELECT * FROM "df_test_df_id" WHERE "text" = \'line1\nline2\nline3\'',
         );
       });
 
@@ -2281,18 +2295,22 @@ describe("QueryBuilder", () => {
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"data\" = 'col1\tcol2\tcol3'",
+          'SELECT * FROM "df_test_df_id" WHERE "data" = \'col1\tcol2\tcol3\'',
         );
       });
 
       it("should handle mixed type values in IN operator", async () => {
         const qb = createTestQueryBuilder(mockDataFrame, mockConn).filter([
-          { columnName: "value", operator: "IN", values: [1, "two", true, null] },
+          {
+            columnName: "value",
+            operator: "IN",
+            values: [1, "two", true, null],
+          },
         ]);
         const sql = await qb.sql();
 
         expect(sql).toBe(
-          "SELECT * FROM \"df_test_df_id\" WHERE \"value\" IN (1, 'two', TRUE, NULL)",
+          'SELECT * FROM "df_test_df_id" WHERE "value" IN (1, \'two\', TRUE, NULL)',
         );
       });
     });
