@@ -10,10 +10,6 @@ const spinnerVariants = cva("animate-spin", {
     },
     color: colorVariants,
   },
-  defaultVariants: {
-    size: "md",
-    color: "current",
-  },
 });
 
 export interface SpinnerProps

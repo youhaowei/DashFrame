@@ -15,7 +15,7 @@ const meta = {
     },
     size: {
       control: "select",
-      options: ["default", "sm", "lg", "icon"],
+      options: ["sm", "md", "lg", "icon", "icon-sm", "icon-lg"],
     },
     disabled: {
       control: "boolean",
