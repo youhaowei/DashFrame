@@ -8,6 +8,7 @@ import {
   Surface,
   Toggle,
   VirtualTable,
+  Spinner,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { useVisualizations, useInsights } from "@dashframe/core";
@@ -244,7 +245,7 @@ export function VisualizationDisplay({
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
           <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <Spinner size="lg" />
           </div>
           <p className="text-foreground text-lg font-semibold">
             Loading visualization...

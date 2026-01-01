@@ -25,23 +25,24 @@ const meta = {
     },
     size: {
       control: "select",
-      options: ["default", "sm", "lg"],
+      options: ["sm", "md", "lg"],
+    },
+    loading: {
+      control: "boolean",
+      description: "Shows loading spinner and disables button",
     },
   },
 } satisfies Meta<typeof Button>;
 
 export default meta;
 type Story = Omit<StoryObj<typeof meta>, "args"> & {
-  args?: StoryObj<typeof meta>["args"];
+  args?: Partial<React.ComponentProps<typeof Button>>;
 };
 
-/**
- * Standard button with icon and label
- */
 export const Default: Story = {
   args: {
-    label: "Save",
-    onClick: () => alert("Save clicked"),
+    label: "Add Data Source",
+    onClick: () => console.log("clicked"),
     icon: DatabaseIcon,
   },
 };
@@ -66,6 +67,44 @@ export const Variants: Story = {
           color="danger"
           icon={DeleteIcon}
         />
+        <Button
+          label="Warn"
+          onClick={() => {}}
+          color="warn"
+          variant="outlined"
+        />
+        <Button label="Success" onClick={() => {}} color="success" />
+      </div>
+    </div>
+  ),
+};
+
+/**
+ * Loading states
+ */
+export const Loading: Story = {
+  render: () => (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Button label="Loading" loading />
+        <Button label="Saving..." icon={DatabaseIcon} loading />
+        <Button label="Outlined" variant="outlined" loading />
+        <Button label="Text" variant="text" loading />
+      </div>
+      <div className="flex items-center gap-2">
+        <Button label="Danger" color="danger" loading />
+        <Button
+          label="Delete"
+          color="danger"
+          variant="outlined"
+          icon={DeleteIcon}
+          loading
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Button label="Refresh" icon={RefreshIcon} iconOnly loading />
+        <Button label="Refresh" icon={RefreshIcon} iconOnly size="sm" loading />
+        <Button label="Refresh" icon={RefreshIcon} iconOnly size="lg" loading />
       </div>
     </div>
   ),
@@ -107,18 +146,18 @@ export const IconOnlyMode: Story = {
   render: () => (
     <div className="flex gap-2">
       <Button
-        label="Create"
+        label="Add"
         onClick={() => {}}
         icon={PlusIcon}
+        variant="filled"
         iconOnly
-        tooltip="Create new item"
       />
       <Button
-        label="Refresh"
+        label="Edit"
         onClick={() => {}}
-        icon={RefreshIcon}
+        icon={EditIcon}
+        variant="outlined"
         iconOnly
-        tooltip="Refresh data"
       />
       <Button
         label="Delete"
@@ -126,13 +165,13 @@ export const IconOnlyMode: Story = {
         icon={DeleteIcon}
         color="danger"
         iconOnly
-        tooltip="Delete item"
       />
       <Button
-        label="No Icon"
+        label="Refresh"
         onClick={() => {}}
+        icon={RefreshIcon}
+        variant="text"
         iconOnly
-        tooltip="Shows label in iconOnly mode when no icon"
       />
     </div>
   ),
@@ -156,18 +195,13 @@ export const Sizes: Story = {
         />
       </div>
 
-      {/* Default size group */}
+      {/* Medium size group (default) */}
       <div className="flex items-center gap-2">
+        <Button label="Medium" onClick={() => {}} size="md" icon={PlusIcon} />
         <Button
-          label="Default"
+          label="Medium Compact"
           onClick={() => {}}
-          size="default"
-          icon={PlusIcon}
-        />
-        <Button
-          label="Default Compact"
-          onClick={() => {}}
-          size="default"
+          size="md"
           icon={PlusIcon}
           iconOnly
         />

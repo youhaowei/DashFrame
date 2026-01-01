@@ -1,6 +1,14 @@
 // Utilities
 export { cn } from "./lib/utils";
 
+// Variant tokens (shared CVA values)
+export {
+  colorVariants,
+  sizeScale,
+  type ColorVariant,
+  type SizeVariant,
+} from "./lib/variants";
+
 // Hooks
 export {
   useContainerDimensions,
@@ -18,7 +26,8 @@ export type { LucideIcon } from "./lib/icons";
 // UI Primitives (shadcn/ui components)
 export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
-// Export Button component (primary button API)
+// Button - High-level component with icon, loading, iconOnly support
+// Use buttonVariants only when styling non-button elements as buttons
 export { Button, type ButtonProps } from "./components/button";
 export { buttonVariants } from "./primitives/button";
 export {

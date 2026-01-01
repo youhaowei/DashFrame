@@ -21,7 +21,7 @@ import {
   type VirtualTableColumn,
   ArrowLeftIcon,
   MergeIcon,
-  LoaderIcon,
+  Spinner,
   AlertCircleIcon,
   Button,
 } from "@dashframe/ui";
@@ -668,7 +668,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return (
       <div className="bg-background flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <LoaderIcon className="text-muted-foreground h-8 w-8 animate-spin" />
+          <Spinner size="lg" className="text-muted-foreground" />
           <p className="text-muted-foreground text-sm">
             Loading join configuration...
           </p>
@@ -761,7 +761,8 @@ export default function JoinConfigurePage({ params }: PageProps) {
               </div>
             </div>
             <Button
-              icon={isSubmitting ? LoaderIcon : MergeIcon}
+              icon={MergeIcon}
+              loading={isSubmitting}
               label={isSubmitting ? "Joining..." : "Join Tables"}
               onClick={handleExecuteJoin}
               disabled={!canJoin || isSubmitting}
@@ -1089,7 +1090,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
                 <h2 className="text-lg font-semibold">Preview Result</h2>
                 {isComputingPreview && (
                   <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                    <LoaderIcon className="h-4 w-4 animate-spin" />
+                    <Spinner size="sm" />
                     Computing preview...
                   </div>
                 )}
@@ -1219,7 +1220,7 @@ function TablePreviewSection({
         {!isReady ? (
           <div className="text-muted-foreground flex h-40 items-center justify-center">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <Spinner size="lg" />
               <span className="text-sm">Loading data...</span>
             </div>
           </div>

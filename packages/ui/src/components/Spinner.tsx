@@ -1,42 +1,67 @@
-import { LoaderIcon } from "../lib/icons";
-import { cn } from "../lib/utils";
+import { cva, type VariantProps } from "class-variance-authority";
+import { colorVariants } from "../lib/variants";
 
-export interface SpinnerProps extends React.ComponentProps<"svg"> {
-  /** Size of the spinner - defaults to "md" */
-  size?: "sm" | "md" | "lg";
-}
+const spinnerVariants = cva("animate-spin", {
+  variants: {
+    size: {
+      sm: "size-4",
+      md: "size-5",
+      lg: "size-8",
+    },
+    color: colorVariants,
+  },
+});
 
-const sizeClasses = {
-  sm: "size-4",
-  md: "size-5",
-  lg: "size-8",
-};
+export interface SpinnerProps
+  extends Omit<React.ComponentProps<"svg">, "color">,
+    VariantProps<typeof spinnerVariants> {}
 
 /**
  * Spinner - Loading indicator component
  *
- * A simple spinning loader icon for indicating loading states.
- * Based on shadcn/ui spinner pattern.
+ * A modern, elegant spinning loader with a transparent track and a spinning segment.
+ * Supports size and color variants matching the Button component.
  *
  * @example
  * ```tsx
- * // Default size
+ * // Default (current color, md size)
  * <Spinner />
  *
- * // Small size
- * <Spinner size="sm" />
+ * // Primary color, large
+ * <Spinner color="primary" size="lg" />
  *
- * // Large with custom color
- * <Spinner size="lg" className="text-primary" />
+ * // Small, danger color
+ * <Spinner color="danger" size="sm" />
  * ```
  */
-export function Spinner({ className, size = "md", ...props }: SpinnerProps) {
+export function Spinner({
+  className,
+  size = "md",
+  color = "current",
+  ...props
+}: SpinnerProps) {
   return (
-    <LoaderIcon
+    <svg
       role="status"
       aria-label="Loading"
-      className={cn("animate-spin", sizeClasses[size], className)}
+      data-slot="spinner"
+      data-size={size}
+      data-color={color}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={spinnerVariants({ size, color, className })}
       {...props}
-    />
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" />
+      <path
+        className="opacity-75"
+        d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20"
+        strokeDasharray="40 22"
+      />
+    </svg>
   );
 }

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "../lib/icons";
 import { Button as PrimitiveButton } from "../primitives/button";
+import { Spinner } from "./Spinner";
 import { cn } from "../lib/utils";
 
 export interface ButtonProps {
@@ -15,7 +16,7 @@ export interface ButtonProps {
    */
   color?: "primary" | "secondary" | "warn" | "danger" | "success";
   icon?: LucideIcon;
-  size?: "default" | "sm" | "lg";
+  size?: "sm" | "md" | "lg";
   asChild?: boolean;
   children?: ReactNode;
   className?: string;
@@ -29,6 +30,11 @@ export interface ButtonProps {
    * Whether the button is disabled
    */
   disabled?: boolean;
+  /**
+   * Loading state - disables button and shows spinner
+   * Replaces icon if present, or shows spinner alongside text
+   */
+  loading?: boolean;
 }
 
 /**
@@ -74,7 +80,7 @@ export interface ItemAction extends ButtonProps {
   actions?: ItemAction[];
 }
 
-type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
+type ButtonSize = "sm" | "md" | "lg" | "icon" | "icon-sm" | "icon-lg";
 
 /**
  * Button - Enhanced button component with icon and icon-only mode support
@@ -88,6 +94,7 @@ type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
  * - Icon-only mode (shows icon with sr-only label)
  * - Tooltip support
  * - asChild prop for rendering as Link or other components (Radix Slot pattern)
+ * - Loading state support
  *
  * Variants: filled, outlined, text, link
  * Colors: primary, secondary, warn, danger, success
@@ -105,6 +112,9 @@ type ButtonSize = "default" | "sm" | "lg" | "icon" | "icon-sm" | "icon-lg";
  *
  * // Icon-only button
  * <Button label="Delete" icon={Trash2} color="danger" iconOnly />
+ *
+ * // Loading state
+ * <Button label="Saving" loading />
  *
  * // Link button (using asChild)
  * <Button label="View Details" icon={ArrowRight} asChild>
@@ -125,24 +135,33 @@ export function Button({
   tooltip,
   iconOnly = false,
   disabled,
+  loading = false,
 }: ButtonProps) {
   const shouldShowLabel = !iconOnly || !Icon;
+
+  // Map button size to spinner size (default to "md")
+  const spinnerSize = size || "md";
+
   const buttonContent = children || (
     <>
-      {Icon && <Icon aria-hidden />}
+      {loading ? (
+        <Spinner size={spinnerSize} color="current" aria-hidden />
+      ) : (
+        Icon && <Icon aria-hidden />
+      )}
       {shouldShowLabel ? label : <span className="sr-only">{label}</span>}
     </>
   );
 
   const getButtonSize = (): ButtonSize => {
-    // If iconOnly mode with an icon, use icon size variants
-    if (iconOnly && Icon) {
+    // If iconOnly mode with an icon or loading spinner, use icon size variants
+    if (iconOnly && (Icon || loading)) {
       if (size === "sm") return "icon-sm";
       if (size === "lg") return "icon-lg";
       return "icon";
     }
-    // Otherwise use standard size variants
-    return size || "default";
+    // Map to primitive size (default to "md")
+    return size || "md";
   };
 
   const buttonSize = getButtonSize();
@@ -157,7 +176,7 @@ export function Button({
       aria-label={iconOnly ? label : undefined}
       onClick={onClick}
       asChild={asChild}
-      disabled={disabled}
+      disabled={disabled || loading}
     >
       {buttonContent}
     </PrimitiveButton>
