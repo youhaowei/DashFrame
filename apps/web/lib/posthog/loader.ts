@@ -58,7 +58,7 @@ function waitForIdle(): Promise<void> {
  * @returns Promise resolving to the PostHog instance once loaded and initialized
  */
 export async function loadPostHog(
-  config: PostHogConfig
+  config: PostHogConfig,
 ): Promise<PostHogLoadResult> {
   // Return existing instance if already loaded
   if (loadedInstance) {
@@ -111,8 +111,34 @@ export function isPostHogLoaded(): boolean {
 
 /**
  * Resets the loader state. Primarily useful for testing.
+ * Properly cleans up the PostHog SDK instance (listeners/timers) before resetting state.
  */
-export function resetPostHogLoader(): void {
+export async function resetPostHogLoader(): Promise<void> {
+  if (loadedInstance) {
+    try {
+      // Clean up listeners and timers by calling reset()
+      // This clears user data and resets the instance state
+      loadedInstance.reset();
+
+      // Also try to call destroy() if available at runtime for additional cleanup
+      // (destroy() may exist but not be in the type definitions)
+      const instanceWithDestroy = loadedInstance as unknown as {
+        destroy?: () => void | Promise<void>;
+      };
+      if (typeof instanceWithDestroy.destroy === "function") {
+        const destroyResult = instanceWithDestroy.destroy();
+        // Await if destroy() returns a promise (handles both sync and async cases)
+        if (destroyResult instanceof Promise) {
+          await destroyResult;
+        }
+      }
+    } catch (error) {
+      // Silently handle cleanup errors to ensure state is always reset
+      console.warn("Error cleaning up PostHog instance:", error);
+    }
+  }
+
+  // Reset state variables after cleanup
   loadingPromise = null;
   loadedInstance = null;
 }

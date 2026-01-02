@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useRef,
+  startTransition,
 } from "react";
 import type { PostHog } from "posthog-js";
 import { loadPostHog, getPostHogInstance } from "@/lib/posthog/loader";
@@ -47,6 +48,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     isLoading: false,
   });
   const initRef = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     // Skip if no API key configured
@@ -58,19 +60,30 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     if (initRef.current) return;
     initRef.current = true;
 
+    // Mark component as mounted
+    mountedRef.current = true;
+
     // Check if already loaded (e.g., from another provider instance)
     const existingInstance = getPostHogInstance();
     if (existingInstance) {
-      setState({
-        posthog: existingInstance,
-        isLoaded: true,
-        isLoading: false,
-      });
+      if (mountedRef.current) {
+        startTransition(() => {
+          setState({
+            posthog: existingInstance,
+            isLoaded: true,
+            isLoading: false,
+          });
+        });
+      }
       return;
     }
 
     // Start loading
-    setState((prev) => ({ ...prev, isLoading: true }));
+    if (mountedRef.current) {
+      startTransition(() => {
+        setState((prev) => ({ ...prev, isLoading: true }));
+      });
+    }
 
     loadPostHog({
       apiKey: process.env.NEXT_PUBLIC_POSTHOG_KEY,
@@ -81,6 +94,9 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       capturePageleave: true,
     })
       .then(({ posthog }) => {
+        // Only update state if component is still mounted
+        if (!mountedRef.current) return;
+
         // Flush any events that were queued before PostHog loaded
         flushEventQueue(posthog);
 
@@ -91,6 +107,9 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         });
       })
       .catch((error) => {
+        // Only update state if component is still mounted
+        if (!mountedRef.current) return;
+
         // PostHog loading failed - analytics will be unavailable
         // This is non-critical, so we just log and continue
         console.warn("Failed to load PostHog analytics:", error);
@@ -100,6 +119,11 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
           isLoading: false,
         });
       });
+
+    // Cleanup: mark component as unmounted
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // If PostHog is not configured, render children without context wrapper

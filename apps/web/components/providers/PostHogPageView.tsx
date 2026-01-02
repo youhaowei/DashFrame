@@ -41,7 +41,12 @@ function PostHogPageViewTracker() {
   return null;
 }
 
-// Wrap in Suspense because useSearchParams() needs it in App Router
+/**
+ * Wraps PostHogPageViewTracker in a Suspense boundary for App Router compatibility.
+ * Renders the tracker with a null fallback while loading. Exported for use by other parts of the app.
+ *
+ * @returns JSX.Element
+ */
 export function PostHogPageView() {
   return (
     <Suspense fallback={null}>

@@ -3,7 +3,7 @@ import type { PostHog } from "posthog-js";
 /**
  * Types of analytics events that can be queued before PostHog is initialized.
  */
-export type QueuedEventType = "capture" | "identify" | "page_leave";
+export type QueuedEventType = "capture" | "identify";
 
 /**
  * Base interface for all queued events.
@@ -32,16 +32,9 @@ interface IdentifyEvent extends BaseQueuedEvent {
 }
 
 /**
- * Page leave event (captured automatically by PostHog when enabled).
- */
-interface PageLeaveEvent extends BaseQueuedEvent {
-  type: "page_leave";
-}
-
-/**
  * Union type for all queued events.
  */
-export type QueuedEvent = CaptureEvent | IdentifyEvent | PageLeaveEvent;
+export type QueuedEvent = CaptureEvent | IdentifyEvent;
 
 /**
  * Event queue for storing analytics events before PostHog is initialized.
@@ -96,42 +89,52 @@ class PostHogEventQueue {
   /**
    * Flush all queued events to PostHog in order.
    * Events are replayed with their original timestamps preserved in properties.
+   * If any event fails, the queue is repopulated with the failing event and remaining events
+   * for retry on the next flush attempt.
    */
   flush(posthog: PostHog): void {
     if (this.flushed) {
       return;
     }
 
-    this.flushed = true;
-
     // Sort by timestamp to ensure correct order (should already be ordered, but ensures consistency)
     const events = [...this.queue].sort((a, b) => a.timestamp - b.timestamp);
 
-    for (const event of events) {
-      switch (event.type) {
-        case "capture":
-          posthog.capture(event.eventName, {
-            ...event.properties,
-            $queued_at: event.timestamp,
-          });
-          break;
+    // Process events one by one, stopping on first error
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      try {
+        switch (event.type) {
+          case "capture":
+            posthog.capture(event.eventName, {
+              ...event.properties,
+              $queued_at: event.timestamp,
+            });
+            break;
 
-        case "identify":
-          posthog.identify(event.distinctId, {
-            ...event.properties,
-            $queued_at: event.timestamp,
-          });
-          break;
+          case "identify":
+            posthog.identify(event.distinctId, {
+              ...event.properties,
+              $queued_at: event.timestamp,
+            });
+            break;
+        }
+      } catch (error) {
+        // Log the error for debugging
+        console.error("Error flushing PostHog event:", error, event);
 
-        case "page_leave":
-          // Page leave is handled automatically by PostHog
-          // We don't need to replay this event
-          break;
+        // Re-populate queue with the failing event plus any remaining events
+        // (preserving original order for retry on next flush)
+        this.queue = events.slice(i);
+
+        // Exit loop so unsent events remain for retry
+        return;
       }
     }
 
-    // Clear the queue after flushing
+    // Only clear the queue and mark as flushed after all events succeed
     this.queue = [];
+    this.flushed = true;
   }
 
   /**
@@ -193,7 +196,7 @@ export function resetEventQueue(): void {
  */
 export function queueCapture(
   eventName: string,
-  properties?: Record<string, unknown>
+  properties?: Record<string, unknown>,
 ): void {
   getEventQueue().capture(eventName, properties);
 }
@@ -204,7 +207,7 @@ export function queueCapture(
  */
 export function queueIdentify(
   distinctId: string,
-  properties?: Record<string, unknown>
+  properties?: Record<string, unknown>,
 ): void {
   getEventQueue().identify(distinctId, properties);
 }
