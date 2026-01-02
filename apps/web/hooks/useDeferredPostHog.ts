@@ -71,7 +71,7 @@ export function useDeferredPostHog(): UseDeferredPostHogResult {
         queueCapture(eventName, properties);
       }
     },
-    [posthog, isLoaded]
+    [posthog, isLoaded],
   );
 
   /**
@@ -87,7 +87,7 @@ export function useDeferredPostHog(): UseDeferredPostHogResult {
         queueIdentify(distinctId, properties);
       }
     },
-    [posthog, isLoaded]
+    [posthog, isLoaded],
   );
 
   return {

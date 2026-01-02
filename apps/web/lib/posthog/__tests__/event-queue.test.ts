@@ -37,8 +37,13 @@ describe("PostHogEventQueue", () => {
 
       const events = queue.getQueue();
       expect(events[0].type).toBe("capture");
-      const captureEvent = events[0] as { properties?: Record<string, unknown> };
-      expect(captureEvent.properties).toEqual({ page: "/home", button: "signup" });
+      const captureEvent = events[0] as {
+        properties?: Record<string, unknown>;
+      };
+      expect(captureEvent.properties).toEqual({
+        page: "/home",
+        button: "signup",
+      });
     });
 
     it("should store timestamp with the event", () => {
@@ -75,10 +80,15 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should queue an identify event with properties", () => {
-      queue.identify("user_123", { email: "test@example.com", name: "Test User" });
+      queue.identify("user_123", {
+        email: "test@example.com",
+        name: "Test User",
+      });
 
       const events = queue.getQueue();
-      const identifyEvent = events[0] as { properties?: Record<string, unknown> };
+      const identifyEvent = events[0] as {
+        properties?: Record<string, unknown>;
+      };
       expect(identifyEvent.properties).toEqual({
         email: "test@example.com",
         name: "Test User",
@@ -157,7 +167,7 @@ describe("PostHogEventQueue", () => {
         expect.objectContaining({
           prop: "value",
           $queued_at: expect.any(Number),
-        })
+        }),
       );
     });
 
@@ -176,7 +186,7 @@ describe("PostHogEventQueue", () => {
           name: "Test",
           plan: "pro",
           $queued_at: expect.any(Number),
-        })
+        }),
       );
     });
 
@@ -192,7 +202,8 @@ describe("PostHogEventQueue", () => {
 
       queue.flush(mockPostHog);
 
-      const calls = (mockPostHog.capture as ReturnType<typeof vi.fn>).mock.calls;
+      const calls = (mockPostHog.capture as ReturnType<typeof vi.fn>).mock
+        .calls;
       expect(calls[0][0]).toBe("first");
       expect(calls[1][0]).toBe("second");
       expect(calls[2][0]).toBe("third");
@@ -325,7 +336,11 @@ describe("PostHogEventQueue", () => {
       queue.capture("event_1");
 
       const events = queue.getQueue();
-      events.push({ type: "capture", eventName: "hacked", timestamp: 0 } as never);
+      events.push({
+        type: "capture",
+        eventName: "hacked",
+        timestamp: 0,
+      } as never);
 
       expect(queue.size()).toBe(1);
     });
