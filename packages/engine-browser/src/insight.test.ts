@@ -53,11 +53,7 @@ function createDataTableInfo(
 function createInsightConfig(
   overrides?: Partial<InsightConfiguration>,
 ): InsightConfiguration {
-  const fields = [
-    createField("Name"),
-    createField("Age"),
-    createField("City"),
-  ];
+  const fields = [createField("Name"), createField("Age"), createField("City")];
   const baseTable = createDataTableInfo("users", fields);
 
   return {
@@ -186,7 +182,9 @@ describe("Insight", () => {
       expect(insight.filters).toEqual([
         { columnName: "age", operator: ">", value: 18 },
       ]);
-      expect(insight.orderBy).toEqual([{ columnName: "name", direction: "asc" }]);
+      expect(insight.orderBy).toEqual([
+        { columnName: "name", direction: "asc" },
+      ]);
       expect(insight.limit).toBe(100);
     });
   });
@@ -357,7 +355,9 @@ describe("Insight", () => {
         createField("Age", { type: "number" }),
         createField("City"),
       ];
-      baseTable = createDataTableInfo("users", fields, { dataFrameId: dataFrameId as UUID });
+      baseTable = createDataTableInfo("users", fields, {
+        dataFrameId: dataFrameId as UUID,
+      });
     });
 
     describe("basic SELECT", () => {
@@ -397,9 +397,13 @@ describe("Insight", () => {
           createField("_internal", { columnName: "_internal" }),
           createField("City"),
         ];
-        const tableWithInternal = createDataTableInfo("users", fieldsWithInternal, {
-          dataFrameId: dataFrameId as UUID,
-        });
+        const tableWithInternal = createDataTableInfo(
+          "users",
+          fieldsWithInternal,
+          {
+            dataFrameId: dataFrameId as UUID,
+          },
+        );
         const insight = new Insight({
           name: "Query Without Internal",
           baseTable: tableWithInternal,
@@ -514,7 +518,9 @@ describe("Insight", () => {
 
         const sql = insight.toSQL();
 
-        expect(sql).toContain(`"city" IN ('New York', 'Los Angeles', 'Chicago')`);
+        expect(sql).toContain(
+          `"city" IN ('New York', 'Los Angeles', 'Chicago')`,
+        );
       });
 
       it("should generate WHERE with IN operator for numbers", () => {
@@ -658,8 +664,8 @@ describe("Insight", () => {
 
         const sql = insight.toSQL();
 
-        // limit: 0 is falsy but should still be included
-        expect(sql).not.toContain("LIMIT");
+        // limit: 0 is falsy but should still be included in the SQL
+        expect(sql).toContain("LIMIT 0");
       });
     });
 
@@ -1217,7 +1223,9 @@ describe("Insight", () => {
               joinType: "inner",
             },
           ],
-          filters: [{ columnName: "status", operator: "=", value: "completed" }],
+          filters: [
+            { columnName: "status", operator: "=", value: "completed" },
+          ],
         });
 
         const sql = insight.toSQL();
@@ -1332,7 +1340,9 @@ describe("Insight", () => {
           ],
         });
 
-        expect(() => insight.toSQL()).toThrow("Join table empty_orders has no data");
+        expect(() => insight.toSQL()).toThrow(
+          "Join table empty_orders has no data",
+        );
       });
 
       it("should throw error when base join key field not found", () => {
@@ -1502,7 +1512,9 @@ describe("Insight", () => {
 
       it("should replace existing selectedFields", () => {
         const insightWithFields = insight.withSelectedFields([fields[0].id]);
-        const newerInsight = insightWithFields.withSelectedFields([fields[2].id]);
+        const newerInsight = insightWithFields.withSelectedFields([
+          fields[2].id,
+        ]);
 
         expect(newerInsight.selectedFields).toEqual([fields[2].id]);
       });
@@ -1694,9 +1706,13 @@ describe("Insight", () => {
         expect(newInsight.name).toBe("Chained Insight");
         expect(newInsight.selectedFields).toEqual([fields[0].id]);
         expect(newInsight.metrics).toEqual([metric]);
-        expect(newInsight.filters).toEqual([{ columnName: "age", operator: ">", value: 21 }]);
+        expect(newInsight.filters).toEqual([
+          { columnName: "age", operator: ">", value: 21 },
+        ]);
         expect(newInsight.groupBy).toEqual(["city"]);
-        expect(newInsight.orderBy).toEqual([{ columnName: "city", direction: "asc" }]);
+        expect(newInsight.orderBy).toEqual([
+          { columnName: "city", direction: "asc" },
+        ]);
         expect(newInsight.limit).toBe(50);
 
         // Original should be unchanged
@@ -1779,9 +1795,13 @@ describe("Insight", () => {
         expect(json.baseTable).toBe(baseTable);
         expect(json.selectedFields).toEqual([fields[0].id, fields[1].id]);
         expect(json.metrics).toEqual([metric]);
-        expect(json.filters).toEqual([{ columnName: "age", operator: ">", value: 18 }]);
+        expect(json.filters).toEqual([
+          { columnName: "age", operator: ">", value: 18 },
+        ]);
         expect(json.groupBy).toEqual(["city"]);
-        expect(json.orderBy).toEqual([{ columnName: "age", direction: "desc" }]);
+        expect(json.orderBy).toEqual([
+          { columnName: "age", direction: "desc" },
+        ]);
         expect(json.limit).toBe(50);
       });
     });
@@ -1818,12 +1838,14 @@ describe("Insight", () => {
           name: "Round Trip",
           baseTable,
           selectedFields: [fields[0].id],
-          metrics: [{
-            id: crypto.randomUUID() as UUID,
-            name: "Count",
-            sourceTable: baseTable.id,
-            aggregation: "count",
-          }],
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+          ],
           filters: [{ columnName: "age", operator: ">", value: 21 }],
           groupBy: ["city"],
           orderBy: [{ columnName: "name", direction: "asc" }],
@@ -1869,12 +1891,14 @@ describe("Insight", () => {
         const insight = new Insight({
           name: "With Metrics",
           baseTable,
-          metrics: [{
-            id: crypto.randomUUID() as UUID,
-            name: "Count",
-            sourceTable: baseTable.id,
-            aggregation: "count",
-          }],
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+          ],
         });
 
         expect(insight.hasAnalytics()).toBe(true);
@@ -1904,12 +1928,14 @@ describe("Insight", () => {
         const insight = new Insight({
           name: "Full Analytics",
           baseTable,
-          metrics: [{
-            id: crypto.randomUUID() as UUID,
-            name: "Count",
-            sourceTable: baseTable.id,
-            aggregation: "count",
-          }],
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+          ],
           groupBy: ["city"],
           filters: [{ columnName: "age", operator: ">", value: 18 }],
         });
@@ -1973,12 +1999,14 @@ describe("Insight", () => {
         const insight = new Insight({
           name: "With Metrics",
           baseTable,
-          metrics: [{
-            id: crypto.randomUUID() as UUID,
-            name: "Count",
-            sourceTable: baseTable.id,
-            aggregation: "count",
-          }],
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+          ],
         });
 
         expect(insight.isReady()).toBe(true);
@@ -2109,12 +2137,14 @@ describe("Insight", () => {
           baseTable,
           selectedFields: [fields[0].id],
           groupBy: ["city"],
-          metrics: [{
-            id: crypto.randomUUID() as UUID,
-            name: "Count",
-            sourceTable: baseTable.id,
-            aggregation: "count",
-          }],
+          metrics: [
+            {
+              id: crypto.randomUUID() as UUID,
+              name: "Count",
+              sourceTable: baseTable.id,
+              aggregation: "count",
+            },
+          ],
           filters: [{ columnName: "age", operator: ">", value: 18 }],
           limit: 50,
         });
