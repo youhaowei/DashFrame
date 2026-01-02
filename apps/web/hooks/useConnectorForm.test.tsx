@@ -9,7 +9,6 @@
  * - State management (isSubmitting, submitError)
  * - Form reset functionality
  */
-/* eslint-disable sonarjs/no-nested-functions -- Test files use nested functions in describe/it blocks */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useConnectorForm } from "./useConnectorForm";
