@@ -91,6 +91,14 @@ class PostHogEventQueue {
    * Events are replayed with their original timestamps preserved in properties.
    * If any event fails, the queue is repopulated with the failing event and remaining events
    * for retry on the next flush attempt.
+   *
+   * @remarks
+   * The PostHog SDK's capture and identify methods queue events internally and send them
+   * asynchronously. They typically don't throw synchronous exceptions for network failures.
+   * The try/catch here will only catch immediate JS errors (e.g., if posthog is undefined),
+   * not actual delivery failures. Network-level failures are handled internally by PostHog
+   * with its own retry mechanism, so this retry logic primarily protects against
+   * initialization errors or SDK misuse.
    */
   flush(posthog: PostHog): void {
     if (this.flushed) {

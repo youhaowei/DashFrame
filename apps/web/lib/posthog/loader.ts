@@ -25,6 +25,13 @@ let loadedInstance: PostHog | null = null;
 /**
  * Cross-browser requestIdleCallback with setTimeout fallback.
  * Safari doesn't support requestIdleCallback, so we fall back to setTimeout.
+ *
+ * @remarks
+ * This function returns early without invoking the callback when `window` is undefined
+ * (i.e., during SSR). This means `waitForIdle()` would hang if called during SSR.
+ * This is acceptable since `loadPostHog` is only called from client-side effects.
+ *
+ * @param callback - Function to invoke when the browser becomes idle
  */
 function scheduleIdleCallback(callback: () => void): void {
   if (typeof window === "undefined") {
@@ -43,6 +50,10 @@ function scheduleIdleCallback(callback: () => void): void {
 /**
  * Returns a promise that resolves after the page becomes idle.
  * Uses requestIdleCallback when available, setTimeout as fallback.
+ *
+ * @remarks
+ * This function will hang indefinitely if called during SSR (when `window` is undefined).
+ * Only call this from client-side code. See `scheduleIdleCallback` for details.
  */
 function waitForIdle(): Promise<void> {
   return new Promise((resolve) => {
