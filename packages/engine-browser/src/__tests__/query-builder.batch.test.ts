@@ -9,7 +9,6 @@
  * - Error handling
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { QueryBuilder } from "../query-builder";
 import {
   createMockConnection,

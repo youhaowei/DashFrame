@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
-import { QueryBuilder } from "../query-builder";
 import {
   createMockDataFrame,
   createMockConnection,
