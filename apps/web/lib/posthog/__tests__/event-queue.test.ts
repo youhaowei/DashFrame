@@ -15,6 +15,16 @@ import {
 } from "../event-queue";
 import type { PostHog } from "posthog-js";
 
+/**
+ * Creates a mock PostHog instance for testing.
+ */
+function createMockPostHog(): PostHog {
+  return {
+    capture: vi.fn(),
+    identify: vi.fn(),
+  } as unknown as PostHog;
+}
+
 describe("PostHogEventQueue", () => {
   let queue: PostHogEventQueue;
 
@@ -137,10 +147,7 @@ describe("PostHogEventQueue", () => {
 
   describe("flush", () => {
     it("should flush all events to PostHog", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("event_1", { prop: "value" });
       queue.identify("user_123", { email: "test@example.com" });
@@ -152,11 +159,8 @@ describe("PostHogEventQueue", () => {
       expect(mockPostHog.identify).toHaveBeenCalledTimes(1);
     });
 
-    it("should include $queued_at timestamp in flushed events", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+    it("should include queued_at timestamp in flushed events", () => {
+      const mockPostHog = createMockPostHog();
 
       queue.capture("event_1", { prop: "value" });
 
@@ -166,16 +170,13 @@ describe("PostHogEventQueue", () => {
         "event_1",
         expect.objectContaining({
           prop: "value",
-          $queued_at: expect.any(Number),
+          queued_at: expect.any(Number),
         }),
       );
     });
 
     it("should preserve original properties when flushing", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.identify("user_123", { name: "Test", plan: "pro" });
       queue.flush(mockPostHog);
@@ -185,16 +186,13 @@ describe("PostHogEventQueue", () => {
         expect.objectContaining({
           name: "Test",
           plan: "pro",
-          $queued_at: expect.any(Number),
+          queued_at: expect.any(Number),
         }),
       );
     });
 
     it("should flush events in timestamp order", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("first");
       queue.capture("second");
@@ -210,10 +208,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should clear the queue after flushing", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("event_1");
       queue.capture("event_2");
@@ -224,10 +219,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should mark queue as flushed", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       expect(queue.isFlushed()).toBe(false);
       queue.flush(mockPostHog);
@@ -235,10 +227,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should not flush again if already flushed", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("event_1");
       queue.flush(mockPostHog);
@@ -251,10 +240,7 @@ describe("PostHogEventQueue", () => {
 
   describe("events after flush", () => {
     it("should not queue events after flush", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("before_flush");
       queue.flush(mockPostHog);
@@ -266,10 +252,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should not queue identify after flush", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.flush(mockPostHog);
       queue.identify("user_123");
@@ -291,10 +274,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should reset flushed state", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.flush(mockPostHog);
       expect(queue.isFlushed()).toBe(true);
@@ -304,10 +284,7 @@ describe("PostHogEventQueue", () => {
     });
 
     it("should allow queueing events after reset", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queue.capture("event_1");
       queue.flush(mockPostHog);
@@ -414,10 +391,7 @@ describe("singleton functions", () => {
 
   describe("flushEventQueue", () => {
     it("should flush events from singleton queue", () => {
-      const mockPostHog = {
-        capture: vi.fn(),
-        identify: vi.fn(),
-      } as unknown as PostHog;
+      const mockPostHog = createMockPostHog();
 
       queueCapture("event_1");
       queueIdentify("user_123");
