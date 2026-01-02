@@ -9,7 +9,8 @@ import { cn } from "../lib/utils";
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+  // Note: Root renders a Fragment, so data-slot cannot be applied here
+  return <DialogPrimitive.Root {...props} />;
 }
 
 function DialogTrigger({
@@ -21,7 +22,8 @@ function DialogTrigger({
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+  // Note: Portal renders a Fragment, so data-slot cannot be applied here
+  return <DialogPrimitive.Portal {...props} />;
 }
 
 function DialogClose({
@@ -59,7 +61,7 @@ function DialogContent({
   size?: "default" | "lg" | "xl" | "full";
 }) {
   return (
-    <DialogPortal data-slot="dialog-portal">
+    <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
