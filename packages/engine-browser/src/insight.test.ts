@@ -8,7 +8,12 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { Insight, type InsightConfiguration } from "./insight";
-import type { DataTableInfo, DataTableField, UUID } from "@dashframe/engine";
+import type {
+  DataTableInfo,
+  DataTableField,
+  UUID,
+  InsightMetric,
+} from "@dashframe/engine";
 
 // ============================================================================
 // Test Fixtures
@@ -115,7 +120,6 @@ describe("Insight", () => {
 
     it("should throw error when name is missing", () => {
       const config = createInsightConfig({ baseTable });
-      // @ts-expect-error - Testing runtime validation
       config.name = "";
 
       expect(() => new Insight(config)).toThrow("Insight must have a name");
@@ -1529,7 +1533,7 @@ describe("Insight", () => {
 
     describe("withMetrics", () => {
       it("should create new Insight with updated metrics", () => {
-        const metrics = [
+        const metrics: InsightMetric[] = [
           {
             id: crypto.randomUUID() as UUID,
             name: "Count",
@@ -1544,13 +1548,13 @@ describe("Insight", () => {
       });
 
       it("should replace existing metrics", () => {
-        const metric1 = {
+        const metric1: InsightMetric = {
           id: crypto.randomUUID() as UUID,
           name: "Count",
           sourceTable: baseTable.id,
           aggregation: "count",
         };
-        const metric2 = {
+        const metric2: InsightMetric = {
           id: crypto.randomUUID() as UUID,
           name: "Sum",
           sourceTable: baseTable.id,
@@ -1687,7 +1691,7 @@ describe("Insight", () => {
 
     describe("immutability chain", () => {
       it("should support chaining multiple immutable updates", () => {
-        const metric = {
+        const metric: InsightMetric = {
           id: crypto.randomUUID() as UUID,
           name: "Total",
           sourceTable: baseTable.id,
@@ -1771,7 +1775,7 @@ describe("Insight", () => {
       });
 
       it("should include all configuration properties", () => {
-        const metric = {
+        const metric: InsightMetric = {
           id: crypto.randomUUID() as UUID,
           name: "Count",
           sourceTable: baseTable.id,
