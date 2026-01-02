@@ -67,7 +67,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "build-storybook": "storybook build",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
     "format": "prettier --check .",
