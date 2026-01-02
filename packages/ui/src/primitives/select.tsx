@@ -9,7 +9,8 @@ import { cn } from "../lib/utils";
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />;
+  // Note: Root renders a Fragment, so data-slot cannot be applied here
+  return <SelectPrimitive.Root {...props} />;
 }
 
 function SelectGroup({

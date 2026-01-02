@@ -24,9 +24,8 @@ function DropdownMenu({
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
-  return (
-    <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
-  );
+  // Note: Portal renders a Fragment, so data-slot cannot be applied here
+  return <DropdownMenuPrimitive.Portal {...props} />;
 }
 
 function DropdownMenuTrigger({
@@ -204,7 +203,8 @@ function DropdownMenuShortcut({
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
-  return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />;
+  // Note: Sub renders a Fragment, so data-slot cannot be applied here
+  return <DropdownMenuPrimitive.Sub {...props} />;
 }
 
 function DropdownMenuSubTrigger({
