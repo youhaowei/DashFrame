@@ -116,14 +116,14 @@ class PostHogEventQueue {
           case "capture":
             posthog.capture(event.eventName, {
               ...event.properties,
-              $queued_at: event.timestamp,
+              queued_at: event.timestamp,
             });
             break;
 
           case "identify":
             posthog.identify(event.distinctId, {
               ...event.properties,
-              $queued_at: event.timestamp,
+              queued_at: event.timestamp,
             });
             break;
         }
