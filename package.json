@@ -17,7 +17,7 @@
     "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write --loglevel=error"
   },
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo dev --concurrency=15",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --check .",
