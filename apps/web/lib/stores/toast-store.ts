@@ -80,9 +80,11 @@ interface ToastActions {
 /** Default duration for auto-dismiss in milliseconds */
 const DEFAULT_DURATION = 4000;
 
+/** Counter for generating unique toast IDs */
+let toastCounter = 0;
+
 /** Generate a unique ID for each toast */
-const generateId = () =>
-  `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+const generateId = () => `toast-${Date.now()}-${++toastCounter}`;
 
 /**
  * Global toast notification store
