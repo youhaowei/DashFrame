@@ -20,7 +20,7 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "format": "turbo format",
+    "format": "prettier --check .",
     "format:write": "prettier --write .",
     "test": "turbo test",
     "test:e2e": "turbo test:e2e",

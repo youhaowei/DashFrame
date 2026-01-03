@@ -80,8 +80,6 @@
     "build": "bun --bun next build",
     "clean": "rm -rf .next *.tsbuildinfo",
     "dev": "FORCE_COLOR=1 bun --bun next dev",
-    "format": "prettier --check .",
-    "format:write": "prettier --write .",
     "lint": "bunx eslint .",
     "start": "bun --bun next start",
     "test": "vitest run",

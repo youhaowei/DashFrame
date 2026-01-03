@@ -70,8 +70,6 @@
     "build": "tsc -p tsconfig.build.json",
     "build-storybook": "storybook build",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "format": "prettier --check .",
-    "format:write": "prettier --write .",
     "lint": "eslint src",
     "storybook": "storybook dev -p 6006",
     "typecheck": "tsc --noEmit -p tsconfig.json"

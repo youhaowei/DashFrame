@@ -10,8 +10,6 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "format": "prettier --write . && git diff --exit-code",
-    "format:write": "prettier --write .",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.json"

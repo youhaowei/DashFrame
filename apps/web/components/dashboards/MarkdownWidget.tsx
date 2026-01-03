@@ -61,7 +61,7 @@ export function MarkdownWidget({
   return (
     <div
       className={cn(
-        "prose prose-sm h-full max-w-none overflow-auto p-4 dark:prose-invert",
+        "prose prose-sm dark:prose-invert h-full max-w-none overflow-auto p-4",
         className,
       )}
     >
