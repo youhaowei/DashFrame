@@ -577,6 +577,355 @@ describe("chart-suggestions snapshots", () => {
   });
 
   // ============================================================================
+  // Line Chart Snapshots
+  // ============================================================================
+
+  describe("line chart suggestions", () => {
+    it("should generate temporal X + numerical Y encoding", () => {
+      // Classic time series: date on X-axis, numerical metric on Y-axis
+      const analysis: ColumnAnalysis[] = [
+        createDateColumn({
+          columnName: "field_date",
+          fieldId: "date_001",
+          cardinality: 365,
+        }),
+        createNumberColumn({
+          columnName: "field_revenue",
+          fieldId: "revenue_001",
+          min: 0,
+          max: 50000,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "date_001" as UUID,
+          name: "Date",
+          columnName: "date",
+          dataType: "date",
+        }),
+        createField({
+          id: "revenue_001" as UUID,
+          name: "Revenue",
+          columnName: "revenue",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["date_001" as UUID, "revenue_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 365,
+      });
+
+      // Snapshot should include temporal X-axis and numerical Y-axis
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate temporal X + numerical Y + color encoding (multiple series)", () => {
+      // Multiple line series distinguished by color
+      const analysis: ColumnAnalysis[] = [
+        createDateColumn({
+          columnName: "field_month",
+          fieldId: "month_001",
+          cardinality: 12,
+        }),
+        createNumberColumn({
+          columnName: "field_sales",
+          fieldId: "sales_001",
+          min: 0,
+          max: 100000,
+        }),
+        createStringColumn({
+          columnName: "field_region",
+          fieldId: "region_001",
+          cardinality: 4,
+          sampleValues: ["North", "South", "East", "West"],
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "month_001" as UUID,
+          name: "Month",
+          columnName: "month",
+          dataType: "date",
+        }),
+        createField({
+          id: "sales_001" as UUID,
+          name: "Sales",
+          columnName: "sales",
+          dataType: "number",
+        }),
+        createField({
+          id: "region_001" as UUID,
+          name: "Region",
+          columnName: "region",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: [
+            "month_001" as UUID,
+            "sales_001" as UUID,
+            "region_001" as UUID,
+          ],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 48,
+      });
+
+      // Snapshot should include color encoding for multiple series
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate continuous numerical X + numerical Y encoding", () => {
+      // Line chart with numerical X-axis (not temporal)
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_temperature",
+          fieldId: "temp_001",
+          min: -10,
+          max: 40,
+        }),
+        createNumberColumn({
+          columnName: "field_efficiency",
+          fieldId: "eff_001",
+          min: 0,
+          max: 100,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "temp_001" as UUID,
+          name: "Temperature",
+          columnName: "temperature",
+          dataType: "number",
+        }),
+        createField({
+          id: "eff_001" as UUID,
+          name: "Efficiency",
+          columnName: "efficiency",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["temp_001" as UUID, "eff_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 50,
+      });
+
+      // Snapshot should use numerical X-axis
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with insight metrics", () => {
+      // Line chart using aggregated metrics instead of raw columns
+      const analysis: ColumnAnalysis[] = [
+        createDateColumn({
+          columnName: "field_order_date",
+          fieldId: "date_001",
+          cardinality: 365,
+        }),
+        createNumberColumn({
+          columnName: "field_quantity",
+          fieldId: "qty_001",
+        }),
+        createNumberColumn({
+          columnName: "field_price",
+          fieldId: "price_001",
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "date_001" as UUID,
+          name: "Order Date",
+          columnName: "order_date",
+          dataType: "date",
+        }),
+        createField({
+          id: "qty_001" as UUID,
+          name: "Quantity",
+          columnName: "quantity",
+          dataType: "number",
+        }),
+        createField({
+          id: "price_001" as UUID,
+          name: "Price",
+          columnName: "price",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["date_001" as UUID],
+        },
+        metrics: [
+          {
+            id: "metric_total_revenue" as UUID,
+            name: "Total Revenue",
+            sourceTable: "table123" as UUID,
+            columnName: "price",
+            aggregation: "sum",
+          },
+          {
+            id: "metric_avg_qty" as UUID,
+            name: "Average Quantity",
+            sourceTable: "table123" as UUID,
+            columnName: "quantity",
+            aggregation: "avg",
+          },
+        ],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 365,
+      });
+
+      // Snapshot should use metric encodings (metric: prefix)
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with categorical X + numerical Y", () => {
+      // Line chart with categorical X-axis (less common but valid)
+      const analysis: ColumnAnalysis[] = [
+        createStringColumn({
+          columnName: "field_category",
+          fieldId: "cat_001",
+          cardinality: 5,
+          sampleValues: ["Q1", "Q2", "Q3", "Q4", "Q5"],
+        }),
+        createNumberColumn({
+          columnName: "field_growth_rate",
+          fieldId: "growth_001",
+          min: -5,
+          max: 15,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "cat_001" as UUID,
+          name: "Quarter",
+          columnName: "quarter",
+        }),
+        createField({
+          id: "growth_001" as UUID,
+          name: "Growth Rate",
+          columnName: "growth_rate",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["cat_001" as UUID, "growth_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 5,
+      });
+
+      // Snapshot should support categorical X-axis
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with date binning transforms", () => {
+      // High-cardinality temporal data requiring date binning
+      const analysis: ColumnAnalysis[] = [
+        createDateColumn({
+          columnName: "field_timestamp",
+          fieldId: "ts_001",
+          cardinality: 8760, // hourly data for a year
+        }),
+        createNumberColumn({
+          columnName: "field_value",
+          fieldId: "value_001",
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "ts_001" as UUID,
+          name: "Timestamp",
+          columnName: "timestamp",
+          dataType: "date",
+        }),
+        createField({
+          id: "value_001" as UUID,
+          name: "Value",
+          columnName: "value",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["ts_001" as UUID, "value_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "line",
+        analysis,
+        insight,
+        fields,
+        rowCount: 8760,
+      });
+
+      // Snapshot should include xTransform for date binning
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+  });
+
+  // ============================================================================
   // Edge Cases and Empty States
   // ============================================================================
 
