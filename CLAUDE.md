@@ -151,6 +151,30 @@ const VegaChart = dynamic(() => import("./VegaChart"), { ssr: false });
 
 Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** create `tailwind.config.js`.
 
+### Rate Limiting in tRPC
+
+**All tRPC endpoints that call external APIs use rate limiting to prevent abuse.**
+
+- **Notion endpoints** are rate-limited per client IP (10-30 req/min depending on endpoint cost)
+- **In-memory storage**: Rate limits are per-instance, not shared across deployments
+- **Local development**: All requests share 'unknown' IP identifier - use `destroyAllRateLimiters()` in tests
+- **Testing**: Always call `destroyAllRateLimiters()` in test cleanup to prevent state leakage
+
+**When adding new tRPC endpoints**:
+```typescript
+// Default rate limiting (10 req/min)
+export const myEndpoint = rateLimitedProcedure
+  .input(z.object({ id: z.string() }))
+  .query(async ({ input }) => { /* ... */ });
+
+// Custom rate limiting
+export const heavyEndpoint = publicProcedure
+  .use(rateLimitMiddleware({ windowMs: 60000, maxRequests: 30, name: 'heavyEndpoint' }))
+  .query(async ({ input }) => { /* ... */ });
+```
+
+See `apps/web/lib/trpc/rate-limiter.ts` and `middleware/rate-limit.ts` for implementation details.
+
 ### Other Gotchas
 
 - **Notion API Keys**: Stored in localStorage (use OAuth in production)
