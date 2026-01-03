@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useRef, useMemo } from "react";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import { ensureTableLoaded } from "@dashframe/engine-browser";
 import {
@@ -40,6 +40,9 @@ export interface UseInsightPaginationOptions {
  *
  * The hook fetches required tables internally using getDataTable() from core.
  *
+ * Triggers lazy DuckDB initialization on first call and handles the loading state
+ * while DuckDB initializes.
+ *
  * @example
  * ```tsx
  * const { fetchData, totalCount, fieldCount, isReady } = useInsightPagination({
@@ -59,7 +62,8 @@ export function useInsightPagination({
   showModelPreview = false,
   enabled = true,
 }: UseInsightPaginationOptions) {
-  const { connection, isInitialized } = useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } =
+    useLazyDuckDB();
 
   // State
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -139,7 +143,7 @@ export function useInsightPagination({
   // Load DataFrames into DuckDB (parallel loading for performance)
   const loadDataFrames = useCallback(
     async (baseTable: DataTable, joinedTables: Map<UUID, DataTable>) => {
-      if (!connection) return false;
+      if (!connection || isDuckDBLoading) return false;
 
       // Load base DataFrame
       if (!baseTable.dataFrameId) return false;
@@ -172,7 +176,7 @@ export function useInsightPagination({
 
       return true;
     },
-    [connection],
+    [connection, isDuckDBLoading],
   );
 
   // Initialize: resolve tables, load DataFrames, get count
@@ -182,7 +186,7 @@ export function useInsightPagination({
       return;
     }
 
-    if (!connection || !isInitialized) {
+    if (!connection || !isInitialized || isDuckDBLoading) {
       requestAnimationFrame(() => setIsReady(false));
       return;
     }
@@ -263,6 +267,7 @@ export function useInsightPagination({
   }, [
     connection,
     isInitialized,
+    isDuckDBLoading,
     insight,
     showModelPreview,
     enabled,
@@ -273,7 +278,7 @@ export function useInsightPagination({
   // Fetch callback for VirtualTable
   const fetchData = useCallback(
     async (params: FetchDataParams): Promise<FetchDataResult> => {
-      if (!connection || !isInitialized) {
+      if (!connection || !isInitialized || isDuckDBLoading) {
         return { rows: [], totalCount: 0 };
       }
 
@@ -319,6 +324,7 @@ export function useInsightPagination({
     [
       connection,
       isInitialized,
+      isDuckDBLoading,
       insight,
       showModelPreview,
       resolveTables,
