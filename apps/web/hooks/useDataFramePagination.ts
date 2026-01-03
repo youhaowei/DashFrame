@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
 import { useDataFrames, getDataFrame } from "@dashframe/core";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import type { UUID } from "@dashframe/types";
@@ -9,6 +9,9 @@ import type { UUID } from "@dashframe/types";
  *
  * Provides a `fetchData` callback compatible with VirtualTable's async mode.
  * Uses DuckDB LIMIT/OFFSET for efficient server-side pagination.
+ *
+ * Triggers lazy DuckDB initialization on first call and reflects loading state
+ * via the `isReady` flag while DuckDB initializes.
  *
  * @example
  * ```tsx
@@ -22,7 +25,8 @@ import type { UUID } from "@dashframe/types";
  * ```
  */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
-  const { connection, isInitialized } = useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } =
+    useLazyDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from reactive Dexie data (replaces Zustand subscription)
@@ -38,7 +42,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
 
   // Fetch total count and column info on mount
   useEffect(() => {
-    if (!dataFrameId || !connection || !isInitialized) {
+    if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
       requestAnimationFrame(() => setIsReady(false));
       return;
     }
@@ -88,12 +92,12 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
     };
 
     init();
-  }, [dataFrameId, connection, isInitialized, entry]);
+  }, [dataFrameId, connection, isInitialized, isDuckDBLoading, entry]);
 
   // Fetch callback for VirtualTable
   const fetchData = useCallback(
     async (params: FetchDataParams): Promise<FetchDataResult> => {
-      if (!dataFrameId || !connection || !isInitialized) {
+      if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
         return { rows: [], totalCount: 0 };
       }
 
@@ -126,7 +130,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
     },
-    [dataFrameId, connection, isInitialized, totalCount],
+    [dataFrameId, connection, isInitialized, isDuckDBLoading, totalCount],
   );
 
   return {
