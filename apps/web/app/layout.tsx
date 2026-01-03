@@ -5,6 +5,7 @@ import { PostHogPageView } from "@/components/providers/PostHogPageView";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
+import { EncryptionProvider } from "@/lib/contexts/encryption-context";
 import { TRPCProvider } from "@/lib/trpc/Provider";
 import { DatabaseProvider } from "@dashframe/core";
 import { GeistMono, GeistSans, TooltipProvider } from "@dashframe/ui";
@@ -39,8 +40,9 @@ export default function RootLayout({
             <TooltipProvider>
               <TRPCProvider>
                 <DatabaseProvider>
-                  <DuckDBProvider>
-                    <VisualizationSetup>
+                  <EncryptionProvider>
+                    <DuckDBProvider>
+                      <VisualizationSetup>
                       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                         <div
                           className="absolute -top-1/3 left-1/2 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(163,163,163,0.35),transparent_60%)] opacity-70 blur-3xl dark:opacity-50"
@@ -78,8 +80,9 @@ export default function RootLayout({
                         }}
                       />
                       <ConfirmDialog />
-                    </VisualizationSetup>
-                  </DuckDBProvider>
+                      </VisualizationSetup>
+                    </DuckDBProvider>
+                  </EncryptionProvider>
                 </DatabaseProvider>
               </TRPCProvider>
             </TooltipProvider>
