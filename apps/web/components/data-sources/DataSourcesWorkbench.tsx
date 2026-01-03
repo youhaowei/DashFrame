@@ -276,7 +276,7 @@ export function DataSourcesWorkbench() {
   if (isLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading workspace…</p>
+        <p className="text-sm text-muted-foreground">Loading workspace…</p>
       </div>
     );
   }

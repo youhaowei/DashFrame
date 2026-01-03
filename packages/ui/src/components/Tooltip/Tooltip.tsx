@@ -25,7 +25,7 @@ export function SharedTooltip({
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
         className={cn(
-          "bg-background text-foreground border-border/50 rounded-full border px-2 py-0.5 text-[10px] shadow-lg",
+          "rounded-full border border-border/50 bg-background px-2 py-0.5 text-[10px] text-foreground shadow-lg",
           className,
         )}
         {...props}

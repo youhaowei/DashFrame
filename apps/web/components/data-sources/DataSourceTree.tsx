@@ -47,7 +47,7 @@ export function DataSourceTree({
   if (!dataSource) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm">Data source not found</p>
+        <p className="text-sm text-muted-foreground">Data source not found</p>
       </div>
     );
   }
@@ -59,19 +59,19 @@ export function DataSourceTree({
           <div className="space-y-3">
             {/* Data Source Name */}
             <div>
-              <h2 className="text-foreground text-lg font-semibold">
+              <h2 className="text-lg font-semibold text-foreground">
                 {dataSource.name}
               </h2>
-              <p className="text-muted-foreground text-xs">
+              <p className="text-xs text-muted-foreground">
                 {dataSource.type === "csv" ? "CSV files" : "Data source"}
               </p>
             </div>
 
             {/* Tables Header */}
             <div className="flex items-center gap-2">
-              <FileIcon className="text-muted-foreground h-4 w-4" />
-              <h3 className="text-foreground text-sm font-semibold">Tables</h3>
-              <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+              <FileIcon className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Tables</h3>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 {tables?.length ?? 0}
               </span>
             </div>
@@ -86,7 +86,7 @@ export function DataSourceTree({
               variant="outlined"
               size="sm"
               onClick={() => onDeleteTable(selectedTableId)}
-              className="text-destructive hover:bg-destructive hover:text-destructive-foreground w-full"
+              className="w-full text-destructive hover:bg-destructive hover:text-destructive-foreground"
               icon={DeleteIcon}
             />
           </div>
@@ -144,7 +144,7 @@ export function DataSourceTree({
                       {table.name}
                     </p>
                     {entry && (
-                      <p className="text-muted-foreground mt-1 text-xs">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         {entry.rowCount ?? "?"} rows ×{" "}
                         {entry.columnCount ?? "?"} columns
                       </p>

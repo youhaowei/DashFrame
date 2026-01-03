@@ -152,7 +152,7 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
       margin={[16, 16]}
       resizeHandle={
         isEditable ? (
-          <div className="text-muted-foreground/40 hover:text-muted-foreground absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center transition-colors">
+          <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-muted-foreground/40 transition-colors hover:text-muted-foreground">
             <svg
               width="24"
               height="24"

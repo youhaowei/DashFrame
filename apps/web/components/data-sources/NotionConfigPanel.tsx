@@ -103,10 +103,10 @@ export function NotionConfigPanel({
     <Card className="space-y-4">
       <div className="flex items-center justify-between px-4 pt-4">
         <div>
-          <p className="text-muted-foreground text-xs font-medium">
+          <p className="text-xs font-medium text-muted-foreground">
             Configure Notion insight
           </p>
-          <p className="text-foreground text-sm">
+          <p className="text-sm text-foreground">
             Choose database and properties
           </p>
         </div>
@@ -136,7 +136,7 @@ export function NotionConfigPanel({
 
           {/* Loading State */}
           {isLoadingSchema && (
-            <p className="text-muted-foreground text-sm">
+            <p className="text-sm text-muted-foreground">
               Loading properties...
             </p>
           )}
@@ -145,18 +145,18 @@ export function NotionConfigPanel({
           {schema.length > 0 && !isLoadingSchema && (
             <div className="space-y-2">
               <Label>Select Properties</Label>
-              <div className="border-border max-h-60 space-y-1 overflow-y-auto rounded-md border p-2">
+              <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
                 {schema.map((prop) => (
                   <label
                     key={prop.id}
-                    className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm"
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
                   >
                     <Checkbox
                       checked={selectedPropertyIds.includes(prop.id)}
                       onCheckedChange={() => onToggleProperty(prop.id)}
                     />
                     <span className="flex-1">{prop.name}</span>
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-xs text-muted-foreground">
                       {prop.type}
                     </span>
                   </label>

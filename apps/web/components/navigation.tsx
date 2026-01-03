@@ -92,7 +92,7 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-border/60 border-b px-4 py-4">
+      <div className="border-b border-border/60 px-4 py-4">
         <div
           className={cn(
             "flex items-center gap-3",
@@ -102,11 +102,11 @@ function SidebarContent({
           <Link
             href="/"
             className={cn(
-              "hover:text-primary flex items-center gap-3 transition-colors",
+              "flex items-center gap-3 transition-colors hover:text-primary",
               isCollapsed && "justify-center",
             )}
           >
-            <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <ChartIcon className="h-5 w-5" />
             </span>
             {!isCollapsed && (
@@ -132,7 +132,7 @@ function SidebarContent({
                   iconOnly
                   label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={onToggleCollapse}
-                  className="border-border/60 bg-background text-muted-foreground hover:bg-background h-7 w-7 rounded-full border shadow-sm transition-colors"
+                  className="h-7 w-7 rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-background"
                   tooltip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 />
               )}
@@ -160,7 +160,7 @@ function SidebarContent({
               className={cn(
                 "group relative flex transition-all duration-200",
                 isCollapsed
-                  ? "hover:bg-muted/50 h-10 w-10 items-center justify-center rounded-lg border border-transparent"
+                  ? "h-10 w-10 items-center justify-center rounded-lg border border-transparent hover:bg-muted/50"
                   : "items-center gap-3 rounded-2xl border border-transparent px-3 py-2",
                 isActive && !isCollapsed
                   ? "bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
@@ -176,23 +176,23 @@ function SidebarContent({
                 <>
                   <span
                     className={cn(
-                      "border-border/50 bg-background/90 text-muted-foreground group-hover:text-foreground rounded-lg border p-2 transition-colors",
-                      isActive && "text-primary border-primary/30",
+                      "rounded-lg border border-border/50 bg-background/90 p-2 text-muted-foreground transition-colors group-hover:text-foreground",
+                      isActive && "border-primary/30 text-primary",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
                   </span>
                   <div className="flex flex-1 flex-col">
-                    <span className="text-foreground text-sm font-medium">
+                    <span className="text-sm font-medium text-foreground">
                       {item.name}
                     </span>
-                    <span className="text-muted-foreground text-xs">
+                    <span className="text-xs text-muted-foreground">
                       {item.description}
                     </span>
                   </div>
                   {isActive && (
                     <span
-                      className="border-primary/40 absolute inset-0 rounded-2xl border"
+                      className="absolute inset-0 rounded-2xl border border-primary/40"
                       aria-hidden
                     />
                   )}
@@ -205,10 +205,10 @@ function SidebarContent({
 
       {/* Footer with Settings and GitHub */}
       {!isCollapsed && (
-        <div className="border-border/60 space-y-2 border-t px-4 py-4">
+        <div className="space-y-2 border-t border-border/60 px-4 py-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 text-xs transition-colors">
+              <button className="flex w-full items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
                 <SettingsIcon className="h-4 w-4" />
                 <span>Settings</span>
               </button>
@@ -227,7 +227,7 @@ function SidebarContent({
             href="https://github.com/youhaowei/dashframe"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs transition-colors"
+            className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <GithubIcon className="h-4 w-4" />
             <span>Open source</span>
@@ -300,7 +300,7 @@ export function Navigation() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "border-border/60 bg-background/95/80 supports-backdrop-filter:bg-background/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r backdrop-blur transition-all duration-300 lg:flex",
+          "bg-background/95/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r border-border/60 backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-background/80 lg:flex",
           sidebarWidth,
         )}
       >
@@ -315,7 +315,7 @@ export function Navigation() {
       <button
         type="button"
         onClick={() => setIsHidden((prev) => !prev)}
-        className="border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 shadow-sm transition-all duration-300 lg:flex"
+        className="fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border/60 bg-background text-muted-foreground shadow-sm transition-all duration-300 hover:bg-muted hover:text-foreground lg:flex"
         style={{
           left: handleLeft,
           height: "3rem",
@@ -338,14 +338,14 @@ export function Navigation() {
         iconOnly
         label="Open menu"
         onClick={() => setIsOpen(true)}
-        className="bg-primary hover:bg-primary/90 fixed bottom-4 left-4 z-40 rounded-full shadow-lg lg:hidden"
+        className="fixed bottom-4 left-4 z-40 rounded-full bg-primary shadow-lg hover:bg-primary/90 lg:hidden"
       />
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-xs gap-0 border-0 p-0">
           <div className="flex h-screen flex-col">
-            <div className="border-border/60 flex items-center justify-between border-b p-4">
+            <div className="flex items-center justify-between border-b border-border/60 p-4">
               <span className="text-sm font-semibold">Menu</span>
               <Button
                 variant="text"

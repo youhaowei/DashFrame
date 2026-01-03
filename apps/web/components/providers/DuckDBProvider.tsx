@@ -171,14 +171,14 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   // Graceful error UI
   if (state.error) {
     return (
-      <div className="border-destructive/50 bg-destructive/10 rounded-lg border p-6">
-        <h2 className="text-destructive mb-2 text-lg font-semibold">
+      <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-6">
+        <h2 className="mb-2 text-lg font-semibold text-destructive">
           Failed to initialize DuckDB engine
         </h2>
-        <p className="text-muted-foreground mb-4 text-sm">
+        <p className="mb-4 text-sm text-muted-foreground">
           {state.error.message}
         </p>
-        <p className="text-muted-foreground text-xs">
+        <p className="text-xs text-muted-foreground">
           DashFrame will fall back to array-based processing. Try refreshing.
         </p>
       </div>

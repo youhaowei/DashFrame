@@ -20,13 +20,13 @@ export default function DashboardsError({ error, reset }: ErrorProps) {
 
   return (
     <div className="flex h-full flex-col items-center justify-center p-8">
-      <div className="bg-destructive/10 text-destructive mb-4 flex h-16 w-16 items-center justify-center rounded-full">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <DashboardIcon className="h-8 w-8" />
       </div>
-      <h2 className="text-foreground mb-2 text-lg font-semibold">
+      <h2 className="mb-2 text-lg font-semibold text-foreground">
         Something went wrong
       </h2>
-      <p className="text-muted-foreground mb-6 max-w-md text-center text-sm">
+      <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
         An error occurred while loading dashboards. Please try again.
       </p>
       <Button label="Try again" onClick={reset} />

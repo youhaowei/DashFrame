@@ -64,9 +64,9 @@ export function Section({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-foreground text-sm font-semibold">{title}</p>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
           {description && (
-            <p className="text-muted-foreground text-xs">{description}</p>
+            <p className="text-xs text-muted-foreground">{description}</p>
           )}
         </div>
         {/* Right side: headerRight takes precedence, falls back to actions */}

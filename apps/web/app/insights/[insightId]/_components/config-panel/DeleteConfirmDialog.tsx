@@ -89,7 +89,7 @@ export function DeleteConfirmDialog({
 
         {hasAffectedVisualizations && (
           <div className="space-y-3 py-2">
-            <p className="text-muted-foreground text-sm">
+            <p className="text-sm text-muted-foreground">
               For each visualization, choose to remove this {itemType} from its
               encoding or delete the visualization entirely:
             </p>
@@ -98,13 +98,13 @@ export function DeleteConfirmDialog({
                 ({ visualization, affectedChannels }) => (
                   <div
                     key={visualization.id}
-                    className="bg-muted/50 flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-muted/50 px-3 py-2"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {visualization.name}
                       </p>
-                      <p className="text-muted-foreground text-xs">
+                      <p className="text-xs text-muted-foreground">
                         Used in: {affectedChannels.join(", ")}
                       </p>
                     </div>

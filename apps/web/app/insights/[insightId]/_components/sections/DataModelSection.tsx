@@ -196,7 +196,7 @@ export const DataModelSection = memo(function DataModelSection({
           <div className="text-muted-foreground">
             {baseRowCount.toLocaleString()} rows • {baseFieldCount} fields
           </div>
-          <div className="text-muted-foreground/70 flex items-center gap-1">
+          <div className="flex items-center gap-1 text-muted-foreground/70">
             {baseDataSource && getFileTypeIcon(baseDataSource.type)}
             <span>{getDisplayFileName(dataTable)}</span>
           </div>
@@ -254,7 +254,7 @@ export const DataModelSection = memo(function DataModelSection({
               {joinRowCount.toLocaleString()} rows • {joinFieldCount} fields
             </div>
             {joinTable && joinDataSource && (
-              <div className="text-muted-foreground/70 flex items-center gap-1">
+              <div className="flex items-center gap-1 text-muted-foreground/70">
                 {getFileTypeIcon(joinDataSource.type)}
                 <span>{getDisplayFileName(joinTable)}</span>
               </div>

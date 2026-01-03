@@ -126,7 +126,7 @@ export function VisualizationRenderer({
     return (
       <div className={className} style={{ width, height }}>
         <div className="flex h-full items-center justify-center">
-          <div className="text-muted-foreground flex items-center gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
             <Spinner size="sm" />
             <span className="text-sm">Loading visualization...</span>
           </div>

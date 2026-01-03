@@ -43,11 +43,11 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="border-border bg-card rounded-2xl border p-4 shadow-sm"
+              className="rounded-2xl border border-border bg-card p-4 shadow-sm"
             >
-              <div className="bg-muted mb-3 h-32 animate-pulse rounded-xl" />
-              <div className="bg-muted-foreground/20 mb-2 h-5 w-3/4 animate-pulse rounded" />
-              <div className="bg-muted-foreground/10 h-4 w-1/2 animate-pulse rounded" />
+              <div className="mb-3 h-32 animate-pulse rounded-xl bg-muted" />
+              <div className="mb-2 h-5 w-3/4 animate-pulse rounded bg-muted-foreground/20" />
+              <div className="h-4 w-1/2 animate-pulse rounded bg-muted-foreground/10" />
             </div>
           ))}
         </div>

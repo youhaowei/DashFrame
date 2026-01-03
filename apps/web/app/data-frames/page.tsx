@@ -139,14 +139,14 @@ export default function DataFramesPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      <header className="border-border/60 bg-card/80 supports-[backdrop-filter]:bg-card/60 rounded-2xl border px-6 py-6 shadow-sm backdrop-blur">
-        <h1 className="text-foreground text-3xl font-bold">Data Frames</h1>
-        <p className="text-muted-foreground mt-2 text-sm">
+      <header className="rounded-2xl border border-border/60 bg-card/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <h1 className="text-3xl font-bold text-foreground">Data Frames</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           View and manage processed data from your sources
         </p>
       </header>
 
-      <section className="border-border/60 bg-card/80 supports-[backdrop-filter]:bg-card/60 flex flex-1 flex-col rounded-2xl border shadow-lg backdrop-blur">
+      <section className="flex flex-1 flex-col rounded-2xl border border-border/60 bg-card/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
         <div className="flex-1 p-6">
           <DataGrid
             data={dataFrames ?? []}

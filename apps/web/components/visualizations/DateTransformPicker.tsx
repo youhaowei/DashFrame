@@ -140,12 +140,12 @@ export function DateTransformPicker({
       <div className={className}>
         <Select value={currentValue} onValueChange={handleChange}>
           <SelectTrigger className="h-8 text-xs">
-            <DateTypeIcon className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
+            <DateTypeIcon className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
             <SelectValue placeholder="Date grouping" />
           </SelectTrigger>
           <SelectContent>
             {/* Time Series Options */}
-            <div className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+            <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
               Time Series
             </div>
             {TEMPORAL_OPTIONS.map((opt) => (
@@ -153,7 +153,7 @@ export function DateTransformPicker({
                 <span className="flex items-center gap-1.5">
                   {opt.label}
                   {autoSuggested === opt.value && (
-                    <span className="text-muted-foreground text-[10px]">
+                    <span className="text-[10px] text-muted-foreground">
                       (recommended)
                     </span>
                   )}
@@ -162,7 +162,7 @@ export function DateTransformPicker({
             ))}
 
             {/* Seasonal Analysis Options */}
-            <div className="text-muted-foreground mt-1 border-t px-2 py-1.5 text-xs font-medium">
+            <div className="mt-1 border-t px-2 py-1.5 text-xs font-medium text-muted-foreground">
               Seasonal Analysis
             </div>
             {CATEGORICAL_OPTIONS.map((opt) => (
@@ -181,7 +181,7 @@ export function DateTransformPicker({
     <div className={`space-y-3 ${className || ""}`}>
       {/* Time Series Section */}
       <div className="space-y-1.5">
-        <Label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+        <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <DateTypeIcon className="h-3.5 w-3.5" />
           Time series granularity
         </Label>
@@ -196,12 +196,12 @@ export function DateTransformPicker({
                   <span className="flex items-center gap-1.5">
                     {opt.label}
                     {autoSuggested === opt.value && (
-                      <span className="text-muted-foreground text-xs">
+                      <span className="text-xs text-muted-foreground">
                         (recommended)
                       </span>
                     )}
                   </span>
-                  <span className="text-muted-foreground text-xs">
+                  <span className="text-xs text-muted-foreground">
                     {opt.description}
                   </span>
                 </div>
@@ -213,7 +213,7 @@ export function DateTransformPicker({
 
       {/* Seasonal Analysis Section */}
       <div className="space-y-1.5">
-        <Label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+        <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <DateTypeIcon className="h-3.5 w-3.5" />
           Or group by season
         </Label>
@@ -233,7 +233,7 @@ export function DateTransformPicker({
               <SelectItem key={opt.value} value={opt.value}>
                 <div className="flex flex-col">
                   <span>{opt.label}</span>
-                  <span className="text-muted-foreground text-xs">
+                  <span className="text-xs text-muted-foreground">
                     {opt.description}
                   </span>
                 </div>

@@ -201,7 +201,7 @@ export function InsightMetricEditorModal({
                 </SelectTrigger>
                 <SelectContent>
                   {fieldsForSelect.length === 0 ? (
-                    <div className="text-muted-foreground p-2 text-center text-sm">
+                    <div className="p-2 text-center text-sm text-muted-foreground">
                       {aggregation === "sum" || aggregation === "avg"
                         ? "No numeric fields available"
                         : "No fields available"}
@@ -230,11 +230,11 @@ export function InsightMetricEditorModal({
           </div>
 
           {/* Formula Preview */}
-          <div className="bg-muted rounded-lg p-3">
-            <p className="text-muted-foreground mb-1 text-xs font-medium">
+          <div className="rounded-lg bg-muted p-3">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
               Formula preview
             </p>
-            <code className="text-foreground font-mono text-sm">
+            <code className="font-mono text-sm text-foreground">
               {getFormulaPreview()}
             </code>
           </div>

@@ -244,13 +244,13 @@ export function VisualizationDisplay({
           elevation="inset"
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
-          <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Spinner size="lg" />
           </div>
-          <p className="text-foreground text-lg font-semibold">
+          <p className="text-lg font-semibold text-foreground">
             Loading visualization...
           </p>
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Please wait while the data is being loaded.
           </p>
         </Surface>
@@ -266,13 +266,13 @@ export function VisualizationDisplay({
           elevation="inset"
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
-          <div className="bg-primary/10 text-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ChartIcon className="h-6 w-6" />
           </div>
-          <p className="text-foreground text-lg font-semibold">
+          <p className="text-lg font-semibold text-foreground">
             No visualization yet
           </p>
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Use the controls on the left to create or select a visualization to
             preview.
           </p>
@@ -284,18 +284,18 @@ export function VisualizationDisplay({
   // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <div ref={headerRef} className="border-border/60 border-b px-4 py-2">
+      <div ref={headerRef} className="border-b border-border/60 px-4 py-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-foreground text-xl font-semibold">
+            <p className="text-xl font-semibold text-foreground">
               {activeViz.name}
             </p>
             <div className="flex items-center gap-2">
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 {totalCount.toLocaleString()} rows · {columns.length} columns
               </p>
               {colorDisplayName && (
-                <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   Color: {colorDisplayName}
                 </span>
               )}

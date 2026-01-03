@@ -184,9 +184,9 @@ export function ItemList<T extends ListItem>({
         )}
       >
         {emptyIcon && (
-          <div className="text-muted-foreground mb-3">{emptyIcon}</div>
+          <div className="mb-3 text-muted-foreground">{emptyIcon}</div>
         )}
-        <p className="text-muted-foreground text-sm">{emptyMessage}</p>
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
       </div>
     );
   }

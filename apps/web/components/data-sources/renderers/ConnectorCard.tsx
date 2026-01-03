@@ -77,10 +77,10 @@ export function ConnectorCard({
 
         {/* File input for file connectors */}
         {isFileConnector && (
-          <label className="border-input bg-muted/50 hover:border-primary hover:bg-muted flex cursor-pointer flex-col items-center justify-center rounded-xl border p-6 text-center text-sm font-medium transition">
+          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-input bg-muted/50 p-6 text-center text-sm font-medium transition hover:border-primary hover:bg-muted">
             <span className="text-foreground">Select {connector.name}</span>
             {fileConnector?.helperText && (
-              <span className="text-muted-foreground mt-2 text-xs font-normal">
+              <span className="mt-2 text-xs font-normal text-muted-foreground">
                 {fileConnector.helperText}
               </span>
             )}
