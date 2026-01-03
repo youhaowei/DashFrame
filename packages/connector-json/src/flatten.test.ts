@@ -362,10 +362,7 @@ describe("flattenObjectArray", () => {
     });
 
     it("should flatten array of nested objects", () => {
-      const input = [
-        { user: { name: "Alice" } },
-        { user: { name: "Bob" } },
-      ];
+      const input = [{ user: { name: "Alice" } }, { user: { name: "Bob" } }];
       const result = flattenObjectArray(input);
       expect(result).toEqual([
         { "user.name": "Alice" },

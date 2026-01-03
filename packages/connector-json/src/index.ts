@@ -101,7 +101,8 @@ const parseValue = (raw: JsonPrimitive, type: ColumnType): unknown => {
       if (typeof raw === "boolean") {
         return raw;
       }
-      return raw === "true" || raw === true;
+      // For non-boolean types (string/number), check for truthy string value
+      return raw === "true";
     case "date": {
       if (typeof raw === "string") {
         const date = new Date(raw);

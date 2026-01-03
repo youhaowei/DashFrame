@@ -33,6 +33,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@dashframe/connector-csv": "workspace:*",
+        "@dashframe/connector-json": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/core": "workspace:*",
         "@dashframe/core-dexie": "workspace:*",
@@ -138,6 +139,20 @@
       "devDependencies": {
         "typescript": "^5.6.0",
         "vitest": "^4.0.16",
+      },
+    },
+    "packages/connector-json": {
+      "name": "@dashframe/connector-json",
+      "version": "0.1.0",
+      "dependencies": {
+        "@dashframe/core": "workspace:*",
+        "@dashframe/engine": "workspace:*",
+        "@dashframe/engine-browser": "workspace:*",
+        "apache-arrow": "^21.1.0",
+      },
+      "devDependencies": {
+        "typescript": "^5.6.0",
+        "vitest": "^3.2.4",
       },
     },
     "packages/connector-notion": {
@@ -477,6 +492,8 @@
     "@cucumber/tag-expressions": ["@cucumber/tag-expressions@6.1.2", "", {}, "sha512-xa3pER+ntZhGCxRXSguDTKEHTZpUUsp+RzTRNnit+vi5cqnk6abLdSLg5i3HZXU3c74nQ8afQC6IT507EN74oQ=="],
 
     "@dashframe/connector-csv": ["@dashframe/connector-csv@workspace:packages/connector-csv"],
+
+    "@dashframe/connector-json": ["@dashframe/connector-json@workspace:packages/connector-json"],
 
     "@dashframe/connector-notion": ["@dashframe/connector-notion@workspace:packages/connector-notion"],
 

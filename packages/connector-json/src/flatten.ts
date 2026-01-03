@@ -88,6 +88,65 @@ function isPrimitive(value: unknown): value is JsonPrimitive {
 }
 
 /**
+ * Builds a new key by joining prefix with the new part using the separator.
+ */
+function buildKey(prefix: string, part: string, separator: string): string {
+  return prefix ? `${prefix}${separator}${part}` : part;
+}
+
+/**
+ * Context for the recursive flatten operation.
+ */
+interface FlattenContext {
+  result: FlattenedObject;
+  opts: Required<FlattenOptions>;
+}
+
+/**
+ * Flattens an array value into the result object.
+ */
+function flattenArray(
+  value: JsonValue[],
+  prefix: string,
+  currentDepth: number,
+  ctx: FlattenContext,
+  flattenValue: (v: JsonValue, p: string, d: number) => void,
+): void {
+  if (ctx.opts.arrayHandling === "stringify" || value.length === 0) {
+    ctx.result[prefix] = JSON.stringify(value);
+    return;
+  }
+
+  for (let i = 0; i < value.length; i++) {
+    const key = buildKey(prefix, String(i), ctx.opts.separator);
+    flattenValue(value[i], key, currentDepth + 1);
+  }
+}
+
+/**
+ * Flattens a plain object value into the result object.
+ */
+function flattenPlainObject(
+  value: Record<string, JsonValue>,
+  prefix: string,
+  currentDepth: number,
+  ctx: FlattenContext,
+  flattenValue: (v: JsonValue, p: string, d: number) => void,
+): void {
+  const keys = Object.keys(value);
+
+  if (keys.length === 0) {
+    ctx.result[prefix] = JSON.stringify({});
+    return;
+  }
+
+  for (const key of keys) {
+    const newPrefix = buildKey(prefix, key, ctx.opts.separator);
+    flattenValue(value[key], newPrefix, currentDepth + 1);
+  }
+}
+
+/**
  * Flattens a single nested object into a flat structure with dot-notation keys.
  *
  * @param obj - The object to flatten
@@ -107,76 +166,54 @@ export function flattenObject(
   obj: JsonValue,
   options: FlattenOptions = {},
 ): FlattenedObject {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const result: FlattenedObject = {};
+  const ctx: FlattenContext = {
+    result: {},
+    opts: { ...DEFAULT_OPTIONS, ...options },
+  };
+
+  // Start flattening from root
+  if (isPrimitive(obj)) {
+    return { value: obj };
+  }
+
+  // Handle empty object/array at root
+  if (Array.isArray(obj) && obj.length === 0) {
+    return {};
+  }
+  if (isPlainObject(obj) && Object.keys(obj).length === 0) {
+    return {};
+  }
 
   function flatten(
     value: JsonValue,
     prefix: string,
     currentDepth: number,
   ): void {
-    // Handle primitives - add directly to result
     if (isPrimitive(value)) {
-      result[prefix] = value;
+      ctx.result[prefix] = value;
       return;
     }
 
-    // Check max depth - stringify if exceeded
-    if (currentDepth >= opts.maxDepth) {
-      result[prefix] = JSON.stringify(value);
+    if (currentDepth >= ctx.opts.maxDepth) {
+      ctx.result[prefix] = JSON.stringify(value);
       return;
     }
 
-    // Handle arrays
     if (Array.isArray(value)) {
-      if (opts.arrayHandling === "stringify") {
-        result[prefix] = JSON.stringify(value);
-        return;
-      }
-
-      // Handle empty arrays
-      if (value.length === 0) {
-        result[prefix] = JSON.stringify([]);
-        return;
-      }
-
-      // Flatten with numeric indices
-      for (let i = 0; i < value.length; i++) {
-        const key = prefix ? `${prefix}${opts.separator}${i}` : String(i);
-        flatten(value[i], key, currentDepth + 1);
-      }
+      flattenArray(value, prefix, currentDepth, ctx, flatten);
       return;
     }
 
-    // Handle objects
     if (isPlainObject(value)) {
-      const keys = Object.keys(value);
-
-      // Handle empty objects
-      if (keys.length === 0) {
-        result[prefix] = JSON.stringify({});
-        return;
-      }
-
-      for (const key of keys) {
-        const newPrefix = prefix ? `${prefix}${opts.separator}${key}` : key;
-        flatten(value[key], newPrefix, currentDepth + 1);
-      }
+      flattenPlainObject(value, prefix, currentDepth, ctx, flatten);
       return;
     }
 
-    // Fallback for unexpected types - stringify
-    result[prefix] = String(value);
-  }
-
-  // Start flattening from root
-  if (isPrimitive(obj)) {
-    // Single primitive value at root - not really meaningful but handle it
-    return { value: obj };
+    ctx.result[prefix] = String(value);
   }
 
   flatten(obj, "", 0);
-  return result;
+  return ctx.result;
 }
 
 /**

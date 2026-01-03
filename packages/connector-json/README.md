@@ -125,22 +125,22 @@ console.log(jsonConnector.helperText); // "Supports .json files up to 100MB (sto
 
 Nested objects are flattened using dot-notation:
 
-| Original Key             | Flattened Key        |
-| ------------------------ | -------------------- |
-| `user.name`              | `user.name`          |
-| `metadata.created`       | `metadata.created`   |
+| Original Key       | Flattened Key      |
+| ------------------ | ------------------ |
+| `user.name`        | `user.name`        |
+| `metadata.created` | `metadata.created` |
 
 ## Type Inference
 
 The connector automatically infers column types from sample values:
 
-| Sample Value        | Inferred Type |
-| ------------------- | ------------- |
-| `123`, `45.67`      | `number`      |
-| `true`, `false`     | `boolean`     |
-| `"2024-01-15"`      | `date`        |
-| `"hello"`           | `string`      |
-| `null`/`undefined`  | `unknown`     |
+| Sample Value       | Inferred Type |
+| ------------------ | ------------- |
+| `123`, `45.67`     | `number`      |
+| `true`, `false`    | `boolean`     |
+| `"2024-01-15"`     | `date`        |
+| `"hello"`          | `string`      |
+| `null`/`undefined` | `unknown`     |
 
 ## Generated Fields
 
