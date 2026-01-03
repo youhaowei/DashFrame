@@ -84,7 +84,7 @@ describe("toast-store", () => {
       const id = show({ message: "Test message" });
 
       expect(typeof id).toBe("string");
-      expect(id).toMatch(/^toast-\d+-[a-z0-9]+$/);
+      expect(id).toMatch(/^toast-\d+-\d+$/);
     });
 
     it("should include description in toast config", () => {
@@ -353,8 +353,8 @@ describe("toast-store", () => {
 
       const id = show({ message: "Test toast" });
 
-      // Format: toast-{timestamp}-{random}
-      expect(id).toMatch(/^toast-\d+-[a-z0-9]+$/);
+      // Format: toast-{timestamp}-{counter}
+      expect(id).toMatch(/^toast-\d+-\d+$/);
     });
 
     it("should store generated ID in toast config", () => {
@@ -439,6 +439,88 @@ describe("toast-store", () => {
       const { toasts } = useToastStore.getState();
       expect(toasts[0].duration).toBe(2000);
       expect(toasts[1].duration).toBe(8000);
+    });
+  });
+
+  describe("auto-dismiss cleanup", () => {
+    it("should pass onAutoClose callback to sonner", () => {
+      const { show } = useToastStore.getState();
+
+      show({ message: "Test toast", type: "success" });
+
+      expect(sonnerToast.success).toHaveBeenCalledWith(
+        "Test toast",
+        expect.objectContaining({
+          onAutoClose: expect.any(Function),
+        }),
+      );
+    });
+
+    it("should pass onDismiss callback to sonner", () => {
+      const { show } = useToastStore.getState();
+
+      show({ message: "Test toast", type: "info" });
+
+      expect(sonnerToast.info).toHaveBeenCalledWith(
+        "Test toast",
+        expect.objectContaining({
+          onDismiss: expect.any(Function),
+        }),
+      );
+    });
+
+    it("should remove toast from store when onAutoClose is called", () => {
+      const { show } = useToastStore.getState();
+
+      show({ message: "Test toast", type: "success" });
+
+      // Get the onAutoClose callback that was passed to sonner
+      const sonnerCall = vi.mocked(sonnerToast.success).mock.calls[0];
+      const options = sonnerCall[1] as { onAutoClose: () => void };
+
+      expect(useToastStore.getState().toasts).toHaveLength(1);
+
+      // Simulate Sonner calling onAutoClose
+      options.onAutoClose();
+
+      expect(useToastStore.getState().toasts).toHaveLength(0);
+    });
+
+    it("should remove toast from store when onDismiss is called", () => {
+      const { show } = useToastStore.getState();
+
+      show({ message: "Test toast", type: "error" });
+
+      // Get the onDismiss callback that was passed to sonner
+      const sonnerCall = vi.mocked(sonnerToast.error).mock.calls[0];
+      const options = sonnerCall[1] as { onDismiss: () => void };
+
+      expect(useToastStore.getState().toasts).toHaveLength(1);
+
+      // Simulate Sonner calling onDismiss (manual dismiss via close button or swipe)
+      options.onDismiss();
+
+      expect(useToastStore.getState().toasts).toHaveLength(0);
+    });
+
+    it("should only remove the specific toast when callback is called", () => {
+      const { show } = useToastStore.getState();
+
+      show({ message: "First toast", type: "success" });
+      show({ message: "Second toast", type: "info" });
+
+      // Get the onAutoClose callback for the first toast
+      const firstSonnerCall = vi.mocked(sonnerToast.success).mock.calls[0];
+      const firstOptions = firstSonnerCall[1] as { onAutoClose: () => void };
+
+      expect(useToastStore.getState().toasts).toHaveLength(2);
+
+      // Simulate first toast auto-closing
+      firstOptions.onAutoClose();
+
+      const remainingToasts = useToastStore.getState().toasts;
+      expect(remainingToasts).toHaveLength(1);
+      expect(remainingToasts[0].message).toBe("Second toast");
     });
   });
 });

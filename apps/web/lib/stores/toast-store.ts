@@ -86,6 +86,18 @@ let toastCounter = 0;
 /** Generate a unique ID for each toast */
 const generateId = () => `toast-${Date.now()}-${++toastCounter}`;
 
+/** Create a callback to remove a toast from store state by ID */
+const createRemoveCallback = (
+  set: (fn: (state: ToastState) => Partial<ToastState>) => void,
+  id: string,
+) => {
+  return () => {
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    }));
+  };
+};
+
 /**
  * Global toast notification store
  *
@@ -139,6 +151,9 @@ export const useToastStore = create<ToastState & ToastActions>()(
         toasts: [...state.toasts, toastConfig],
       }));
 
+      // Create callback to clean up store state when toast is dismissed
+      const removeFromStore = createRemoveCallback(set, id);
+
       // Call Sonner toast with appropriate type
       const sonnerOptions = {
         id,
@@ -150,6 +165,9 @@ export const useToastStore = create<ToastState & ToastActions>()(
               onClick: config.action.onClick,
             }
           : undefined,
+        // Clean up store state when toast is dismissed (manual or auto)
+        onDismiss: removeFromStore,
+        onAutoClose: removeFromStore,
       };
 
       switch (type) {
