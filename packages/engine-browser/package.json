@@ -12,6 +12,7 @@
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
     "lint": "eslint src",
     "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "idb-keyval": "^6.2.2"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
     "jsdom": "^25.0.1",
     "typescript": "^5.6.0",
     "vitest": "^4.0.12"

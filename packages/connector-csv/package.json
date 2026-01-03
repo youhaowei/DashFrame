@@ -11,6 +11,7 @@
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
     "lint": "eslint src",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -21,6 +22,7 @@
     "apache-arrow": "^21.1.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
     "typescript": "^5.6.0",
     "vitest": "^4.0.16"
   }
