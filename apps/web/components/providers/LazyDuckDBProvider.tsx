@@ -9,6 +9,7 @@ import {
   useEffect,
 } from "react";
 import type * as duckdb from "@duckdb/duckdb-wasm";
+import { Spinner } from "@dashframe/ui";
 import { initializeDuckDB } from "@/lib/duckdb/init";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
 import { clearInsightViewCache } from "@/hooks/useInsightView";
@@ -122,6 +123,23 @@ export function LazyDuckDBProvider({
     ...state,
     initDuckDB,
   };
+
+  // Loading skeleton during initialization
+  if (state.isLoading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="bg-accent/50 flex flex-col items-center gap-4 rounded-2xl border p-8">
+          <Spinner size="lg" className="text-primary" />
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-sm font-medium">Initializing DuckDB engine</p>
+            <p className="text-muted-foreground text-xs">
+              Loading WASM modules and setting up database...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Graceful error UI
   if (state.error) {
