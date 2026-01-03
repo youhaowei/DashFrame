@@ -15,6 +15,11 @@
 
 /**
  * Generates security headers array for Next.js configuration
+ *
+ * Environment-based configuration:
+ * - Development: Allows 'unsafe-eval' for HMR and React DevTools
+ * - Production: Strict CSP without 'unsafe-eval', includes upgrade-insecure-requests
+ *
  * @returns Array of header objects with key-value pairs
  */
 export function getSecurityHeaders() {
@@ -33,7 +38,8 @@ export function getSecurityHeaders() {
      * script-src: Controls JavaScript execution
      * - 'self': Allow scripts from same origin
      * - 'unsafe-inline': Required for Next.js inline scripts (_next/static)
-     * - 'unsafe-eval': Development only - enables HMR and React DevTools
+     * - 'unsafe-eval': DEVELOPMENT ONLY - enables HMR and React DevTools
+     *   Production removes this for security
      * - 'wasm-unsafe-eval': Required for DuckDB-WASM execution
      * - blob:: Required for DuckDB worker scripts
      * - cdn.jsdelivr.net: DuckDB WASM bundles and dependencies
@@ -42,7 +48,7 @@ export function getSecurityHeaders() {
     [
       "script-src 'self'",
       "'unsafe-inline'", // Next.js inline scripts
-      isDevelopment ? "'unsafe-eval'" : "", // Development HMR only
+      isDevelopment ? "'unsafe-eval'" : "", // Development: HMR/DevTools | Production: removed
       "'wasm-unsafe-eval'", // DuckDB WASM
       "blob:",
       "https://cdn.jsdelivr.net",
@@ -115,9 +121,17 @@ export function getSecurityHeaders() {
 
     /**
      * upgrade-insecure-requests: Automatically upgrade HTTP to HTTPS
-     * Disabled in development to support localhost
+     * PRODUCTION ONLY - Development disables this to support localhost
      */
     !isDevelopment ? "upgrade-insecure-requests" : "",
+
+    /**
+     * report-uri: Placeholder for CSP violation reporting
+     * When implemented, violations will be sent to this endpoint for monitoring
+     * Future implementation: Create /api/csp-report endpoint and uncomment
+     * Reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/report-uri
+     */
+    // "report-uri /api/csp-report",
   ]
     .filter(Boolean)
     .join("; ");
