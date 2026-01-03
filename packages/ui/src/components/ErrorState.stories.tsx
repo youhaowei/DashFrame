@@ -186,8 +186,7 @@ export const FileUploadError: Story = {
 export const AuthenticationError: Story = {
   args: {
     title: "Authentication failed",
-    description:
-      "Your session has expired. Please log in again to continue.",
+    description: "Your session has expired. Please log in again to continue.",
     retryAction: {
       label: "Log in",
       onClick: () => alert("Log in clicked"),
