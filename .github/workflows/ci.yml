@@ -28,7 +28,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Format check
-        run: bun format
+        run: |
+          bun format || (bun format:write && git diff && exit 1)
 
       - name: Run checks
         run: bun check
