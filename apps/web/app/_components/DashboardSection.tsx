@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   Button,
   ItemList,
@@ -8,6 +7,7 @@ import {
   type LucideIcon,
 } from "@dashframe/ui";
 import { ArrowRightIcon } from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
 
 export interface DashboardSectionProps {
   /** Section title displayed in header */

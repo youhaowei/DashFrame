@@ -1,15 +1,15 @@
 "use client";
 
-import * as React from "react";
 import type { ColumnType } from "@dashframe/types";
+import * as React from "react";
 import {
+  BooleanTypeIcon,
   ChevronDownIcon,
   CloseIcon,
-  TextTypeIcon,
-  NumberTypeIcon,
   DateTypeIcon,
-  BooleanTypeIcon,
   DotIcon,
+  NumberTypeIcon,
+  TextTypeIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { Badge } from "./badge";
@@ -130,7 +130,7 @@ export function MultiSelect({
           disabled={disabled}
           className={cn(
             // Base styles matching SelectTrigger
-            "border-input text-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 shadow-xs",
+            "border-input text-foreground shadow-xs focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:ring-destructive/40",
             "flex w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm transition-[color,box-shadow] outline-none",
             "focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
             // Multi-select specific: allow wrapping for tags
@@ -158,11 +158,11 @@ export function MultiSelect({
                         className="max-w-[200px] gap-1 px-2 py-0.5 text-xs font-normal"
                       >
                         {opt.type && (
-                          <TypeIcon className="text-muted-foreground h-3 w-3 shrink-0" />
+                          <TypeIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
                         )}
                         <span className="truncate">{opt.label}</span>
                         <CloseIcon
-                          className="hover:text-foreground h-3 w-3 shrink-0 cursor-pointer"
+                          className="h-3 w-3 shrink-0 cursor-pointer hover:text-foreground"
                           onClick={(e) => handleRemove(e, opt.value)}
                         />
                       </Badge>
@@ -170,13 +170,13 @@ export function MultiSelect({
                   })}
                 </div>
                 {hiddenCount > 0 && (
-                  <span className="text-muted-foreground shrink-0 text-sm">
+                  <span className="shrink-0 text-sm text-muted-foreground">
                     +{hiddenCount} more
                   </span>
                 )}
               </>
             ) : (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-sm text-muted-foreground">
                 {placeholder}
               </span>
             )}
@@ -213,7 +213,7 @@ export function MultiSelect({
                   {option.label}
                 </span>
                 {option.description && (
-                  <span className="text-muted-foreground truncate font-mono text-[11px] leading-tight">
+                  <span className="truncate font-mono text-[11px] leading-tight text-muted-foreground">
                     {option.description}
                   </span>
                 )}

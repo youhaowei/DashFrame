@@ -8,8 +8,7 @@
  * - Result partitioning by _batch_idx
  * - Error handling
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryBuilder } from "../query-builder";
 import {
   createMockConnection,

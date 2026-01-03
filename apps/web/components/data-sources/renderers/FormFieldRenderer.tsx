@@ -1,19 +1,19 @@
 "use client";
 
-import type { ChangeEvent } from "react";
 import type { FormField } from "@dashframe/engine";
 import {
   Field,
-  FieldLabel,
   FieldDescription,
   FieldError,
+  FieldLabel,
   Input,
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@dashframe/ui";
+import type { ChangeEvent } from "react";
 
 /**
  * Simplified field state interface for rendering.

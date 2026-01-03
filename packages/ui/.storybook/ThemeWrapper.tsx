@@ -1,5 +1,5 @@
-import React, { useEffect, type ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
+import { useEffect, type ReactNode } from "react";
 
 interface ThemeWrapperProps {
   /** Child elements to wrap with theme - optional when using createElement's third argument */

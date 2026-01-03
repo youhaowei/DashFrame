@@ -87,7 +87,7 @@ export const WithDescription: Story = {
         <Checkbox id="analytics" className="mt-1" />
         <div className="grid gap-1.5">
           <Label htmlFor="analytics">Enable analytics</Label>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Help us improve by sending anonymous usage data
           </p>
         </div>
@@ -96,7 +96,7 @@ export const WithDescription: Story = {
         <Checkbox id="cookies" className="mt-1" defaultChecked />
         <div className="grid gap-1.5">
           <Label htmlFor="cookies">Allow cookies</Label>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Required for the website to function properly
           </p>
         </div>

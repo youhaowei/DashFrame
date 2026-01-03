@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { EmptyState } from "./EmptyState";
 import {
+  ChartIcon,
   DatabaseIcon,
   FileIcon,
-  ChartIcon,
   LayersIcon,
   PlusIcon,
 } from "../lib/icons";
+import { EmptyState } from "./EmptyState";
 
 const meta = {
   title: "Components/Feedback/EmptyState",

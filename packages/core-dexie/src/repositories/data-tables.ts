@@ -1,14 +1,14 @@
-import { useLiveQuery } from "dexie-react-hooks";
-import { useMemo } from "react";
 import type {
-  UUID,
+  DataTable,
+  DataTableMutations,
   Field,
   Metric,
   SourceSchema,
-  DataTable,
   UseDataTablesResult,
-  DataTableMutations,
+  UUID,
 } from "@dashframe/types";
+import { useLiveQuery } from "dexie-react-hooks";
+import { useMemo } from "react";
 import { db, type DataTableEntity } from "../db";
 
 // ============================================================================

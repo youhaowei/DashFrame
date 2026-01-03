@@ -1,7 +1,7 @@
 "use client";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { Spinner } from "./Spinner";
 
@@ -561,11 +561,11 @@ export function VirtualTable({
       {/* Loading indicator with animated spinner */}
       {isLoading && (
         <div
-          className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-muted/50"
           role="status"
           aria-live="polite"
         >
-          <div className="bg-background/95 text-muted-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm shadow-md">
+          <div className="flex items-center gap-2 rounded-lg bg-background/95 px-4 py-2 text-sm text-muted-foreground shadow-md">
             <Spinner size="sm" aria-hidden="true" />
             <span>Loading data...</span>
           </div>
@@ -575,11 +575,11 @@ export function VirtualTable({
       {/* Table container */}
       <div
         ref={tableContainerRef}
-        className="border-border relative min-h-0 flex-1 overflow-auto rounded-lg border"
+        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border"
       >
         {/* Header */}
         <div
-          className="bg-muted border-border sticky top-0 z-10 border-b"
+          className="sticky top-0 z-10 border-b border-border bg-muted"
           style={{
             display: "grid",
             gridTemplateColumns,
@@ -605,8 +605,8 @@ export function VirtualTable({
                 type="button"
                 key={col.name}
                 className={cn(
-                  "text-muted-foreground cursor-pointer overflow-hidden text-left font-medium select-none",
-                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none",
+                  "cursor-pointer overflow-hidden text-left font-medium text-muted-foreground select-none",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
@@ -631,7 +631,7 @@ export function VirtualTable({
 
         {/* Body */}
         <div
-          className="bg-card relative"
+          className="relative bg-card"
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
             minWidth: "max-content",
@@ -645,7 +645,7 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="border-border absolute border-b"
+                  className="absolute border-b border-border"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
@@ -664,7 +664,7 @@ export function VirtualTable({
                         fontSize,
                       )}
                     >
-                      <div className="bg-muted/50 h-3 w-16 animate-pulse rounded" />
+                      <div className="h-3 w-16 animate-pulse rounded bg-muted/50" />
                     </div>
                   ))}
                 </div>
@@ -675,7 +675,7 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="border-border group absolute border-b"
+                className="group absolute border-b border-border"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
@@ -736,7 +736,7 @@ export function VirtualTable({
             role="status"
             aria-live="polite"
           >
-            <span className="text-muted-foreground text-sm">
+            <span className="text-sm text-muted-foreground">
               No data available
             </span>
           </div>

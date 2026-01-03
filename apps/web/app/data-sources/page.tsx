@@ -1,36 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
-  useDataSources,
   useDataSourceMutations,
+  useDataSources,
   useDataTables,
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
-  Input,
-  Badge,
   DatabaseIcon,
-  TableIcon,
-  PlusIcon,
   DeleteIcon,
-  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  TableIcon,
 } from "@dashframe/ui";
 import {
-  SearchIcon,
-  ExternalLinkIcon,
   CloudIcon,
+  ExternalLinkIcon,
+  SearchIcon,
   SpreadsheetIcon,
 } from "@dashframe/ui/icons";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 // Type for data source with table count
 type DataSourceWithTables = {
@@ -131,7 +131,7 @@ export default function DataSourcesPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
             {getTypeIcon(item.dataSource.type)}
           </div>
 
@@ -143,11 +143,11 @@ export default function DataSourcesPage() {
                 {getTypeLabel(item.dataSource.type)}
               </Badge>
             </div>
-            <p className="text-muted-foreground text-xs">
+            <p className="text-xs text-muted-foreground">
               <TableIcon className="mr-1 inline h-3 w-3" />
               {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
             </p>
-            <p className="text-muted-foreground mt-1 text-xs">
+            <p className="mt-1 text-xs text-muted-foreground">
               Created{" "}
               {new Date(item.dataSource.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -202,20 +202,20 @@ export default function DataSourcesPage() {
   if (isLoading && dataSources.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading data sources…</p>
+        <p className="text-sm text-muted-foreground">Loading data sources…</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-background flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* Header */}
-      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Data Sources</h1>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 {allDataSources.length} source
                 {allDataSources.length !== 1 ? "s" : ""} connected
               </p>
@@ -227,7 +227,7 @@ export default function DataSourcesPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}
@@ -248,15 +248,15 @@ export default function DataSourcesPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <DatabaseIcon className="text-muted-foreground h-8 w-8" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <DatabaseIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No data sources found
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     No data sources match &quot;{searchQuery}&quot;
                   </p>
                   <Button
@@ -270,7 +270,7 @@ export default function DataSourcesPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No data sources yet
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     Connect your first data source to start analyzing
                   </p>
                   <Button

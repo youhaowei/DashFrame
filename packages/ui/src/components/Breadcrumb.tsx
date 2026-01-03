@@ -3,12 +3,12 @@
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 import {
-  Breadcrumb as BreadcrumbPrimitive,
-  BreadcrumbList,
   BreadcrumbItem as BreadcrumbItemPrimitive,
   BreadcrumbLink,
-  BreadcrumbSeparator,
+  BreadcrumbList,
   BreadcrumbPage,
+  Breadcrumb as BreadcrumbPrimitive,
+  BreadcrumbSeparator,
 } from "../primitives/breadcrumb";
 
 export interface BreadcrumbItem {

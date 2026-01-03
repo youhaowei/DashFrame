@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import type { Field, ColumnType } from "@dashframe/types";
+import type { ColumnType, Field } from "@dashframe/types";
 import {
+  Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
   Select,
@@ -17,8 +17,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Checkbox,
 } from "@dashframe/ui";
+import { useState } from "react";
 
 interface FieldEditorModalProps {
   isOpen: boolean;

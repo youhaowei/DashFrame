@@ -22,9 +22,9 @@
  */
 
 import type {
+  AxisType,
   DateTransform,
   TemporalAggregation,
-  AxisType,
 } from "@dashframe/types";
 
 // ============================================================================

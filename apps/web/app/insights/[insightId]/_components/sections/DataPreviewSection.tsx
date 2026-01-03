@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useState, useMemo, useCallback } from "react";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
+import type { Insight } from "@dashframe/types";
 import {
   Section,
   Toggle,
@@ -8,8 +9,7 @@ import {
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { MergeIcon, TableIcon } from "@dashframe/ui/icons";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
-import type { Insight } from "@dashframe/types";
+import { memo, useCallback, useMemo, useState } from "react";
 
 type PreviewMode = "join" | "result";
 

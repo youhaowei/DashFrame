@@ -1,14 +1,14 @@
 /**
  * Unit tests for encoding resolution helpers
  */
-import { describe, it, expect } from "vitest";
 import {
-  resolveToSql,
-  resolveForAnalysis,
   resolveEncodingToSql,
+  resolveForAnalysis,
+  resolveToSql,
 } from "@dashframe/engine";
-import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import type { Field, InsightMetric, UUID } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { describe, expect, it } from "vitest";
 
 describe("encoding-resolution", () => {
   // Test fixtures

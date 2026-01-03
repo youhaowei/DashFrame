@@ -1,5 +1,5 @@
-import type { UUID } from "./uuid";
 import type { DataFrameColumn } from "./column";
+import type { UUID } from "./uuid";
 
 // ============================================================================
 // DataFrame Storage Types

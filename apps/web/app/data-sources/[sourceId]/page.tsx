@@ -1,19 +1,24 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { AppLayout } from "@/components/layouts/AppLayout";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  Button,
-  Input,
+  useDataFrames,
+  useDataSourceMutations,
+  useDataSources,
+  useDataTableMutations,
+  useDataTables,
+} from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
+import {
   Badge,
+  Breadcrumb,
+  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   DatabaseIcon,
-  TableIcon,
-  PlusIcon,
   DeleteIcon,
   Dialog,
   DialogContent,
@@ -25,24 +30,19 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeftIcon as LuArrowLeft,
-  FileIcon as LuFileSpreadsheet,
-  CloudIcon as LuCloud,
-  MoreIcon as LuMoreHorizontal,
-  Breadcrumb,
+  Input,
   ItemCard,
+  ChevronLeftIcon as LuArrowLeft,
+  CloudIcon as LuCloud,
+  FileIcon as LuFileSpreadsheet,
+  MoreIcon as LuMoreHorizontal,
+  PlusIcon,
+  TableIcon,
+  VirtualTable,
 } from "@dashframe/ui";
-import {
-  useDataSources,
-  useDataSourceMutations,
-  useDataTables,
-  useDataTableMutations,
-  useDataFrames,
-} from "@dashframe/core";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { VirtualTable } from "@dashframe/ui";
-import type { UUID } from "@dashframe/types";
-import { AppLayout } from "@/components/layouts/AppLayout";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { use, useMemo, useState } from "react";
 
 interface PageProps {
   params: Promise<{ sourceId: string }>;
@@ -169,7 +169,7 @@ export default function DataSourcePage({ params }: PageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <p className="text-muted-foreground text-sm">Loading data source…</p>
+          <p className="text-sm text-muted-foreground">Loading data source…</p>
         </div>
       </div>
     );
@@ -181,7 +181,7 @@ export default function DataSourcePage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data source not found</h2>
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             The data source you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -237,8 +237,8 @@ export default function DataSourcePage({ params }: PageProps) {
 
               {dataTables.length === 0 ? (
                 <div className="py-8 text-center">
-                  <TableIcon className="text-muted-foreground mx-auto mb-2 h-8 w-8" />
-                  <p className="text-muted-foreground text-sm">No tables yet</p>
+                  <TableIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">No tables yet</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -270,7 +270,7 @@ export default function DataSourcePage({ params }: PageProps) {
                 <h2 className="text-xl font-semibold">
                   {tableDetails.dataTable?.name}
                 </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {tableDetails.fields.length} fields •{" "}
                   {tableDetails.metrics.length} metrics
                 </p>
@@ -311,7 +311,7 @@ export default function DataSourcePage({ params }: PageProps) {
               </CardHeader>
               <CardContent>
                 {tableDetails.fields.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">
+                  <p className="text-sm text-muted-foreground">
                     No fields defined
                   </p>
                 ) : (
@@ -319,7 +319,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     {tableDetails.fields.map((field) => (
                       <div
                         key={field.id}
-                        className="bg-muted/30 flex items-center justify-between rounded-lg px-3 py-2"
+                        className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
                       >
                         <span className="text-sm font-medium">
                           {field.name}
@@ -341,7 +341,7 @@ export default function DataSourcePage({ params }: PageProps) {
               </CardHeader>
               <CardContent>
                 {tableDetails.metrics.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">
+                  <p className="text-sm text-muted-foreground">
                     No metrics defined
                   </p>
                 ) : (
@@ -349,7 +349,7 @@ export default function DataSourcePage({ params }: PageProps) {
                     {tableDetails.metrics.map((metric) => (
                       <div
                         key={metric.id}
-                        className="bg-muted/30 flex items-center justify-between rounded-lg px-3 py-2"
+                        className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
                       >
                         <span className="text-sm font-medium">
                           {metric.name}
@@ -382,7 +382,7 @@ export default function DataSourcePage({ params }: PageProps) {
                           <div className="flex h-40 items-center justify-center">
                             <div className="flex flex-col items-center gap-2">
                               <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                              <p className="text-muted-foreground text-sm">
+                              <p className="text-sm text-muted-foreground">
                                 Loading data...
                               </p>
                             </div>
@@ -402,7 +402,7 @@ export default function DataSourcePage({ params }: PageProps) {
 
                       return (
                         <div className="flex h-40 items-center justify-center">
-                          <p className="text-muted-foreground text-sm">
+                          <p className="text-sm text-muted-foreground">
                             No data available
                           </p>
                         </div>
@@ -416,9 +416,9 @@ export default function DataSourcePage({ params }: PageProps) {
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <TableIcon className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
+              <TableIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 Choose a table from the sidebar to view its details
               </p>
             </div>

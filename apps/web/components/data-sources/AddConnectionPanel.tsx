@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
-import { Alert, AlertDescription } from "@dashframe/ui";
+import { getConnectors } from "@/lib/connectors/registry";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { getConnectors } from "@/lib/connectors/registry";
+import { Alert, AlertDescription } from "@dashframe/ui";
+import { useMemo } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 
 export interface AddConnectionPanelProps {

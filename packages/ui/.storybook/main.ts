@@ -1,7 +1,7 @@
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 import type { StorybookConfig } from "@storybook/nextjs-vite";
+import { dirname } from "path";
 import remarkGfm from "remark-gfm";
+import { fileURLToPath } from "url";
 
 const config: StorybookConfig = {
   stories: ["../src/**/*.mdx", "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
@@ -24,9 +24,6 @@ const config: StorybookConfig = {
   framework: {
     name: getAbsolutePath("@storybook/nextjs-vite"),
     options: {},
-  },
-  core: {
-    packageManager: "bun",
   },
 };
 

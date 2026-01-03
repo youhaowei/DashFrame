@@ -1,23 +1,23 @@
 "use client";
 
-import * as React from "react";
+import type { Visualization } from "@dashframe/types";
 import {
+  Button,
   cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Button,
   type ItemAction,
 } from "@dashframe/ui";
-import type { Visualization } from "@dashframe/types";
-import { VisualizationPreview } from "./VisualizationPreview";
 import {
   ChartIcon,
   DataPointIcon,
-  TableIcon,
   MoreIcon,
+  TableIcon,
 } from "@dashframe/ui/icons";
+import * as React from "react";
+import { VisualizationPreview } from "./VisualizationPreview";
 
 interface VisualizationItemCardProps {
   /** The visualization to display */
@@ -40,16 +40,16 @@ interface VisualizationItemCardProps {
 function getVizFallbackIcon(type: string) {
   switch (type) {
     case "bar":
-      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
+      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
     case "line":
     case "area":
-      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
+      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
     case "point":
     case "scatter":
-      return <DataPointIcon className="text-muted-foreground/40 h-10 w-10" />;
+      return <DataPointIcon className="h-10 w-10 text-muted-foreground/40" />;
     case "table":
     default:
-      return <TableIcon className="text-muted-foreground/40 h-10 w-10" />;
+      return <TableIcon className="h-10 w-10 text-muted-foreground/40" />;
   }
 }
 
@@ -110,16 +110,16 @@ export function VisualizationItemCard({
       onKeyDown={handleKeyDown}
       className={cn(
         "group w-full overflow-hidden rounded-lg border text-left transition-[border-color,background-color] duration-150",
-        onClick && "hover:bg-accent/50 cursor-pointer",
+        onClick && "cursor-pointer hover:bg-accent/50",
         active
-          ? "border-primary ring-primary ring-2"
+          ? "border-primary ring-2 ring-primary"
           : "border-border/60 hover:border-border",
         className,
       )}
     >
       {/* Preview Section */}
       <div
-        className="bg-muted/30 w-full overflow-hidden"
+        className="w-full overflow-hidden bg-muted/30"
         style={{ height: `${previewHeight}px` }}
       >
         <VisualizationPreview
@@ -174,7 +174,7 @@ export function VisualizationItemCard({
             </div>
           )}
         </div>
-        <p className="text-muted-foreground mt-1 truncate text-xs">
+        <p className="mt-1 truncate text-xs text-muted-foreground">
           Created {createdDate}
         </p>
       </div>

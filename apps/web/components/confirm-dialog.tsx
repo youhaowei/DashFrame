@@ -1,15 +1,15 @@
 "use client";
 
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
 } from "@dashframe/ui";
-import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 
 /**
  * Global confirm dialog component

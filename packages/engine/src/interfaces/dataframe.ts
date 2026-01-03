@@ -5,8 +5,8 @@
  * Re-exported here for backward compatibility.
  */
 export type {
-  DataFrameStorageLocation,
-  DataFrameJSON,
   DataFrame,
   DataFrameFactory,
+  DataFrameJSON,
+  DataFrameStorageLocation,
 } from "@dashframe/types";

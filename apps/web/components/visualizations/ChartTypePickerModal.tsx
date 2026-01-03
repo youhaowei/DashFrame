@@ -1,17 +1,17 @@
 "use client";
 
-import { useCallback } from "react";
+import type { Insight } from "@/lib/stores/types";
+import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type { Field } from "@dashframe/types";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@dashframe/ui";
-import type { Field } from "@dashframe/types";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import type { Insight } from "@/lib/stores/types";
-import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
+import { useCallback } from "react";
 import { ChartTypePicker } from "./ChartTypePicker";
 
 interface ChartTypePickerModalProps {

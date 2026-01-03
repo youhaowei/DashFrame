@@ -17,11 +17,11 @@
  */
 
 import type {
-  UUID,
   DataTable,
-  Insight,
   Field,
+  Insight,
   InsightMetric,
+  UUID,
 } from "@dashframe/types";
 
 // ============================================================================

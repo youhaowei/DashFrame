@@ -57,60 +57,60 @@ export { DatabaseProvider, useDatabase } from "./provider";
 
 // Data Sources
 export {
-  useDataSources,
-  useDataSourceMutations,
+  getAllDataSources,
   getDataSource,
   getDataSourceByType,
-  getAllDataSources,
+  useDataSourceMutations,
+  useDataSources,
 } from "./repositories/data-sources";
 
 // Data Tables
 export {
-  useDataTables,
-  useDataTableMutations,
+  getAllDataTables,
   getDataTable,
   getDataTablesBySource,
-  getAllDataTables,
+  useDataTableMutations,
+  useDataTables,
 } from "./repositories/data-tables";
 
 // Insights
 export {
-  useInsights,
-  useInsight,
-  useCompiledInsight,
-  useInsightMutations,
-  getInsight,
   getAllInsights,
+  getInsight,
+  useCompiledInsight,
+  useInsight,
+  useInsightMutations,
+  useInsights,
 } from "./repositories/insights";
 
 // Visualizations
 export {
-  useVisualizations,
-  useVisualizationMutations,
+  getAllVisualizations,
   getVisualization,
   getVisualizationsByInsight,
-  getAllVisualizations,
+  useVisualizationMutations,
+  useVisualizations,
 } from "./repositories/visualizations";
 
 // Dashboards
 export {
-  useDashboards,
-  useDashboardMutations,
-  getDashboard,
   getAllDashboards,
+  getDashboard,
+  useDashboardMutations,
+  useDashboards,
 } from "./repositories/dashboards";
 
 // DataFrames
 export {
-  useDataFrames,
-  useDataFrameMutations,
-  getDataFrame,
-  getDataFrameEntry,
-  getDataFrameByInsight,
   getAllDataFrames,
+  getDataFrame,
+  getDataFrameByInsight,
+  getDataFrameEntry,
+  useDataFrameMutations,
+  useDataFrames,
   type DataFrameEntry,
-  type UseDataFramesResult,
   type DataFrameMutations,
+  type UseDataFramesResult,
 } from "./repositories/data-frames";
 
 // ============================================================================
@@ -119,10 +119,10 @@ export {
 
 export { db } from "./db";
 export type {
+  DashboardEntity,
+  DataFrameEntity,
   DataSourceEntity,
   DataTableEntity,
   InsightEntity,
   VisualizationEntity,
-  DashboardEntity,
-  DataFrameEntity,
 } from "./db";

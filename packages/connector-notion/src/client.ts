@@ -1,7 +1,7 @@
 import { Client } from "@notionhq/client";
 import type {
-  QueryDatabaseResponse,
   GetDatabaseResponse,
+  QueryDatabaseResponse,
   SearchResponse,
 } from "@notionhq/client/build/src/api-endpoints";
 

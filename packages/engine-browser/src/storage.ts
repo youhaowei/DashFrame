@@ -1,5 +1,5 @@
-import { get, set, del, keys } from "idb-keyval";
-import type { UUID, DataFrameStorage } from "@dashframe/engine";
+import type { DataFrameStorage, UUID } from "@dashframe/engine";
+import { del, get, keys, set } from "idb-keyval";
 
 /**
  * IndexedDB implementation of DataFrameStorage.

@@ -8,7 +8,7 @@
  * - CSV parsing edge cases (quotes, line endings, special characters)
  * - Form field configuration
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CSVConnector, csvConnector } from "./connector";
 
 // Mock the csvToDataFrame function to avoid IndexedDB dependencies in unit tests

@@ -1,9 +1,9 @@
 import { csvToDataFrame } from "@dashframe/connector-csv";
-import { getDataSourceByType, getDataTable, db } from "@dashframe/core";
-import { deleteArrowData } from "@dashframe/engine-browser";
-import type { BrowserDataFrame } from "@dashframe/engine-browser";
-import type { Metric } from "@dashframe/types";
+import { db, getDataSourceByType, getDataTable } from "@dashframe/core";
 import type { FileParseResult } from "@dashframe/engine";
+import type { BrowserDataFrame } from "@dashframe/engine-browser";
+import { deleteArrowData } from "@dashframe/engine-browser";
+import type { Metric } from "@dashframe/types";
 
 const ensureCountMetric = (
   existing: Metric[] = [],

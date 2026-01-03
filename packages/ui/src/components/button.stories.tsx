@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Button } from "./button";
 import {
-  PlusIcon,
-  DeleteIcon,
-  RefreshIcon,
   DatabaseIcon,
+  DeleteIcon,
   EditIcon,
+  PlusIcon,
+  RefreshIcon,
 } from "../lib/icons";
+import { Button } from "./button";
 
 const meta = {
   title: "Components/Actions/Button",

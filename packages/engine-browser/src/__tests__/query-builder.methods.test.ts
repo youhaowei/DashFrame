@@ -11,13 +11,13 @@
  * - select() method
  * - Operation accumulation
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryBuilder } from "../query-builder";
 import {
-  createMockDataFrame,
   createMockConnection,
+  createMockDataFrame,
 } from "./query-builder.fixtures";
 
 describe("QueryBuilder - Chainable Methods", () => {

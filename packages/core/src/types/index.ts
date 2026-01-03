@@ -10,17 +10,17 @@ export type {
 
 export type { Field, SourceSchema } from "./field";
 
-export type { AggregationType, Metric, InsightMetric } from "./metric";
+export type { AggregationType, InsightMetric, Metric } from "./metric";
 
 export type {
-  // DataFrame interface types (storage references)
-  DataFrameStorageLocation,
-  DataFrameJSON,
   DataFrame,
+  DataFrameData,
   DataFrameFactory,
+  DataFrameJSON,
   // DataFrame data types (in-memory)
   DataFrameRow,
-  DataFrameData,
+  // DataFrame interface types (storage references)
+  DataFrameStorageLocation,
 } from "./dataframe";
 
 export type { DataTableField, DataTableInfo } from "./data-table-info";

@@ -1,61 +1,60 @@
 "use client";
 
-import { use, useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Button,
-  Input,
-  Badge,
-  Card,
-  CardContent,
-  ChartIcon,
-  DeleteIcon,
-  SelectField,
-  Spinner,
-} from "@dashframe/ui";
-import {
-  ArrowLeftIcon,
-  DataPointIcon,
-  ArrowUpDownIcon,
-  AlertCircleIcon,
-} from "@dashframe/ui/icons";
-import {
-  isSwapAllowed,
-  getSwappedChartType,
-  validateEncoding,
-} from "@/lib/visualizations/encoding-enforcer";
-import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
-import { CHART_TYPE_METADATA } from "@dashframe/types";
-import {
-  useVisualizations,
-  useVisualizationMutations,
-  useInsights,
-  useCompiledInsight,
-  useDataTables,
-  getDataFrame as getDexieDataFrame,
-} from "@dashframe/core";
-import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
-import { getColumnIcon } from "@/lib/utils/field-icons";
-import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import { parseEncoding } from "@dashframe/types";
-import type {
-  UUID,
-  DataFrameColumn,
-  DataFrameRow,
-  VisualizationType,
-  VisualizationEncoding,
-} from "@dashframe/types";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useInsightView } from "@/hooks/useInsightView";
 import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useInsightView } from "@/hooks/useInsightView";
-import type { Insight as InsightType } from "@dashframe/types";
+import { getColumnIcon } from "@/lib/utils/field-icons";
+import {
+  getSwappedChartType,
+  isSwapAllowed,
+  validateEncoding,
+} from "@/lib/visualizations/encoding-enforcer";
+import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
+import {
+  getDataFrame as getDexieDataFrame,
+  useCompiledInsight,
+  useDataTables,
+  useInsights,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@dashframe/core";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
+import type {
+  DataFrameColumn,
+  DataFrameRow,
+  Insight as InsightType,
+  UUID,
+  VisualizationEncoding,
+  VisualizationType,
+} from "@dashframe/types";
+import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  ChartIcon,
+  DeleteIcon,
+  Input,
+  SelectField,
+  Spinner,
+} from "@dashframe/ui";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  ArrowUpDownIcon,
+  DataPointIcon,
+} from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;
@@ -511,7 +510,7 @@ export default function VisualizationPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="lg" className="text-muted-foreground" />
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Loading visualization...
           </p>
         </div>
@@ -525,7 +524,7 @@ export default function VisualizationPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -564,7 +563,7 @@ export default function VisualizationPage({ params }: PageProps) {
                 {getVizIcon(visualization.visualizationType)}
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
-              <p className="text-muted-foreground mb-4 text-sm">
+              <p className="mb-4 text-sm text-muted-foreground">
                 The data for this visualization is not available. Please refresh
                 from the source insight.
               </p>
@@ -702,7 +701,7 @@ export default function VisualizationPage({ params }: PageProps) {
           </div>
 
           {/* Metadata row */}
-          <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-3 text-xs">
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span>
               {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
               {dataFrameEntry?.columnCount ?? "?"} columns
@@ -838,7 +837,7 @@ export default function VisualizationPage({ params }: PageProps) {
 
               return (
                 <div className="mt-3">
-                  <p className="text-muted-foreground mb-2 text-xs">
+                  <p className="mb-2 text-xs text-muted-foreground">
                     Similar charts
                   </p>
                   <div className="flex flex-wrap gap-1">
@@ -867,14 +866,14 @@ export default function VisualizationPage({ params }: PageProps) {
             <div className="border-t pt-4">
               <h3 className="mb-2 text-sm font-semibold">Source</h3>
               <Card
-                className="hover:bg-muted/50 cursor-pointer transition-colors"
+                className="cursor-pointer transition-colors hover:bg-muted/50"
                 onClick={() =>
                   router.push(`/insights/${visualization.insightId}`)
                 }
               >
                 <CardContent className="p-3">
                   <p className="truncate text-sm font-medium">Source Insight</p>
-                  <p className="text-muted-foreground text-xs">
+                  <p className="text-xs text-muted-foreground">
                     Click to view insight details
                   </p>
                 </CardContent>

@@ -1,8 +1,10 @@
 import type { IconType } from "react-icons";
+import { FiFileText } from "react-icons/fi";
 import {
   LuArrowLeft,
   LuArrowRight,
   LuArrowUpDown,
+  LuCalculator,
   LuCalendar,
   LuCheck,
   LuChevronDown,
@@ -18,32 +20,34 @@ import {
   LuCircleAlert,
   LuCircleCheck,
   LuCircleDot,
+  LuCloud,
   LuCopy,
   LuDatabase,
   LuDot,
+  LuEllipsisVertical,
   LuExternalLink,
-  LuFileSpreadsheet,
   LuEye,
+  LuFileSpreadsheet,
   LuGripHorizontal,
   LuGripVertical,
-  LuInfo,
-  LuLightbulb,
-  LuMerge,
-  LuPencil,
   LuHash,
+  LuInfo,
   LuLayers,
   LuLayoutDashboard,
   LuLayoutGrid,
   LuLifeBuoy,
+  LuLightbulb,
   LuList,
   LuLoaderPinwheel,
   LuMenu,
+  LuMerge,
   LuMoon,
-  LuSettings,
-  LuShield,
-  LuEllipsisVertical,
+  LuPencil,
   LuPlus,
   LuRefreshCw,
+  LuSearch,
+  LuSettings,
+  LuShield,
   LuSparkles,
   LuSquareCheck,
   LuSun,
@@ -55,11 +59,7 @@ import {
   LuType,
   LuUsers,
   LuX,
-  LuCloud,
-  LuCalculator,
-  LuSearch,
 } from "react-icons/lu";
-import { FiFileText } from "react-icons/fi";
 import { SiGithub, SiNotion } from "react-icons/si";
 
 // Type export - maps to IconType for compatibility (import from "@dashframe/ui/icons")
@@ -73,87 +73,103 @@ export type LucideIcon = IconType;
 // ============================================================================
 
 // Navigation & Layout
-export { LuArrowLeft as ArrowLeftIcon };
-export { LuArrowRight as ArrowRightIcon };
-export { LuArrowUpDown as ArrowUpDownIcon };
-export { LuChevronDown as ChevronDownIcon };
-export { LuChevronUp as ChevronUpIcon };
-export { LuChevronRight as ChevronRightIcon };
-export { LuChevronLeft as ChevronLeftIcon };
-export { LuChevronsLeft as ChevronsLeftIcon };
-export { LuChevronsRight as ChevronsRightIcon };
-export { LuChevronsUp as ChevronsUpIcon };
-export { LuChevronsDown as ChevronsDownIcon };
-export { LuChevronsUpDown as ChevronsUpDownIcon };
-export { LuMenu as MenuIcon };
-export { LuGripHorizontal as DragHandleIcon };
-export { LuGripVertical as DragHandleVerticalIcon };
+export {
+  LuArrowLeft as ArrowLeftIcon,
+  LuArrowRight as ArrowRightIcon,
+  LuArrowUpDown as ArrowUpDownIcon,
+  LuChevronDown as ChevronDownIcon,
+  LuChevronLeft as ChevronLeftIcon,
+  LuChevronRight as ChevronRightIcon,
+  LuChevronUp as ChevronUpIcon,
+  LuChevronsDown as ChevronsDownIcon,
+  LuChevronsLeft as ChevronsLeftIcon,
+  LuChevronsRight as ChevronsRightIcon,
+  LuChevronsUpDown as ChevronsUpDownIcon,
+  LuChevronsUp as ChevronsUpIcon,
+  LuGripHorizontal as DragHandleIcon,
+  LuGripVertical as DragHandleVerticalIcon,
+  LuMenu as MenuIcon,
+};
 
 // Pages & Views
-export { LuLayoutDashboard as DashboardIcon };
-export { LuLayoutGrid as GridIcon };
+export { LuLayoutDashboard as DashboardIcon, LuLayoutGrid as GridIcon };
 
 // Actions
-export { LuPlus as PlusIcon };
-export { LuPencil as EditIcon };
-export { LuTrash2 as DeleteIcon };
-export { LuCopy as CopyIcon };
-export { LuRefreshCw as RefreshIcon };
-export { LuX as CloseIcon };
-export { LuEye as EyeIcon };
-export { LuExternalLink as ExternalLinkIcon };
-export { LuMerge as MergeIcon };
+export {
+  LuX as CloseIcon,
+  LuCopy as CopyIcon,
+  LuTrash2 as DeleteIcon,
+  LuPencil as EditIcon,
+  LuExternalLink as ExternalLinkIcon,
+  LuEye as EyeIcon,
+  LuMerge as MergeIcon,
+  LuPlus as PlusIcon,
+  LuRefreshCw as RefreshIcon,
+};
 
 // Settings & Configuration
-export { LuSettings as SettingsIcon };
-export { LuShield as ShieldIcon };
-export { LuEllipsisVertical as MoreIcon };
+export {
+  LuEllipsisVertical as MoreIcon,
+  LuSettings as SettingsIcon,
+  LuShield as ShieldIcon,
+};
 
 // Theme & Appearance
-export { LuMoon as DarkModeIcon };
-export { LuSun as LightModeIcon };
+export { LuMoon as DarkModeIcon, LuSun as LightModeIcon };
 
 // Data Visualization
-export { LuTrendingUp as ChartIcon };
-export { LuTable as TableIcon };
-export { LuList as ListIcon };
-export { LuLayers as LayersIcon };
+export {
+  LuTrendingUp as ChartIcon,
+  LuLayers as LayersIcon,
+  LuList as ListIcon,
+  LuTable as TableIcon,
+};
 
 // Data Sources & Files
-export { LuDatabase as DatabaseIcon };
-export { FiFileText as FileIcon };
-export { SiNotion as NotionIcon };
-export { LuCloud as CloudIcon };
-export { LuFileSpreadsheet as SpreadsheetIcon };
-export { LuCalculator as CalculatorIcon };
+export {
+  LuCalculator as CalculatorIcon,
+  LuCloud as CloudIcon,
+  LuDatabase as DatabaseIcon,
+  FiFileText as FileIcon,
+  SiNotion as NotionIcon,
+  LuFileSpreadsheet as SpreadsheetIcon,
+};
 
 // Brands
 export { SiGithub as GithubIcon };
 
 // Status & Feedback
-export { LuCheck as CheckIcon };
-export { LuCircleCheck as CheckCircleIcon };
-export { LuSquareCheck as CheckSquareIcon };
-export { LuCircleAlert as AlertCircleIcon };
-export { LuInfo as InfoIcon };
-export { LuLoaderPinwheel as LoaderIcon };
-export { LuCircleDot as PendingIcon };
+export {
+  LuCircleAlert as AlertCircleIcon,
+  LuCircleCheck as CheckCircleIcon,
+  LuCheck as CheckIcon,
+  LuSquareCheck as CheckSquareIcon,
+  LuInfo as InfoIcon,
+  LuLoaderPinwheel as LoaderIcon,
+  LuCircleDot as PendingIcon,
+};
 
 // Data Types
-export { LuType as TextTypeIcon };
-export { LuHash as NumberTypeIcon };
-export { LuCalendar as DateTypeIcon };
-export { LuToggleLeft as BooleanTypeIcon };
+export {
+  LuToggleLeft as BooleanTypeIcon,
+  LuCalendar as DateTypeIcon,
+  LuHash as NumberTypeIcon,
+  LuType as TextTypeIcon,
+};
 
 // UI Elements
-export { LuCircle as CircleIcon };
-export { LuDot as DotIcon };
-export { LuCircleDot as DataPointIcon };
+export {
+  LuCircle as CircleIcon,
+  LuCircleDot as DataPointIcon,
+  LuDot as DotIcon,
+};
 
 // Utilities
-export { LuSparkles as SparklesIcon };
-export { LuLifeBuoy as HelpIcon };
-export { LuTerminal as TerminalIcon };
-export { LuLightbulb as LightbulbIcon };
-export { LuSearch as SearchIcon };
-export { LuUsers as UsersIcon };
+export {
+  LuLifeBuoy as HelpIcon,
+  LuLightbulb as LightbulbIcon,
+  LuSearch as SearchIcon,
+  LuSparkles as SparklesIcon,
+  LuTerminal as TerminalIcon,
+  LuUsers as UsersIcon,
+};

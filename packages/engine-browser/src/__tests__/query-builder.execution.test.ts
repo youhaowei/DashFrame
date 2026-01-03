@@ -8,16 +8,16 @@
  * - run() method
  * - Error handling for execution methods
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryBuilder } from "../query-builder";
 import {
-  createMockDataFrame,
-  createMockConnectionWithResults,
   createMockConnectionForRun,
-  createTestQueryBuilder,
+  createMockConnectionWithResults,
+  createMockDataFrame,
   createMockUserResults,
+  createTestQueryBuilder,
 } from "./query-builder.fixtures";
 
 // Mock BrowserDataFrame for run() tests - must be in test file for Vitest hoisting

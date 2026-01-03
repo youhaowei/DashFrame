@@ -1,12 +1,12 @@
+import type {
+  CreateDataSourceInput,
+  DataSource,
+  DataSourceMutations,
+  UseDataSourcesResult,
+  UUID,
+} from "@dashframe/types";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import type {
-  UUID,
-  DataSource,
-  CreateDataSourceInput,
-  UseDataSourcesResult,
-  DataSourceMutations,
-} from "@dashframe/types";
 import { db, type DataSourceEntity } from "../db";
 
 // ============================================================================

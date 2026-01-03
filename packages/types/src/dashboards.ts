@@ -1,5 +1,5 @@
-import type { UUID } from "./uuid";
 import type { UseQueryResult } from "./repository-base";
+import type { UUID } from "./uuid";
 
 // ============================================================================
 // Dashboard Types

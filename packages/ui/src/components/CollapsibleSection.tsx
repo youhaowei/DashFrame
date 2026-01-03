@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { cn } from "../lib/utils";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../primitives/collapsible";
 import { CollapseHandle } from "./CollapseHandle";
-import { cn } from "../lib/utils";
 
 export interface CollapsibleSectionProps {
   defaultOpen?: boolean;

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 import { Button as PrimitiveButton } from "../primitives/button";
 import { Spinner } from "./Spinner";
-import { cn } from "../lib/utils";
 
 export interface ButtonProps {
   label: string;

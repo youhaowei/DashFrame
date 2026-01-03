@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { cn, Surface } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
-import { EditIcon, DragHandleIcon, DeleteIcon } from "@dashframe/ui/icons";
-import type { DashboardItem as DashboardItemType } from "@dashframe/types";
-import { useDashboardMutations } from "@dashframe/core";
-import { MarkdownWidget } from "./MarkdownWidget";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { useDashboardMutations } from "@dashframe/core";
+import type { DashboardItem as DashboardItemType } from "@dashframe/types";
+import { cn, Surface } from "@dashframe/ui";
+import { DeleteIcon, DragHandleIcon, EditIcon } from "@dashframe/ui/icons";
+import { Button } from "@dashframe/ui/primitives/button";
+import { useState } from "react";
+import { MarkdownWidget } from "./MarkdownWidget";
 
 interface DashboardItemProps {
   item: DashboardItemType;
@@ -46,9 +46,9 @@ export function DashboardItem({
     >
       {/* Action header - tucked under the container's rounded corners, visible on hover */}
       {isEditable && (
-        <div className="grid-drag-handle bg-muted hover:bg-muted/80 absolute -top-8 right-0 left-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg px-2 pt-4 pb-8 opacity-0 transition-all group-hover:opacity-100">
+        <div className="grid-drag-handle absolute -top-8 right-0 left-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg bg-muted px-2 pt-4 pb-8 opacity-0 transition-all group-hover:opacity-100 hover:bg-muted/80">
           {/* Drag Handle Indicator */}
-          <div className="text-muted-foreground/60 flex items-center gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground/60">
             <DragHandleIcon className="h-4 w-4" />
           </div>
 
@@ -61,7 +61,7 @@ export function DashboardItem({
               <Button
                 variant="text"
                 size="icon"
-                className="hover:bg-background/80 h-6 w-6"
+                className="h-6 w-6 hover:bg-background/80"
                 onClick={() => setIsEditingContent(true)}
               >
                 <EditIcon className="h-3.5 w-3.5" />
@@ -70,7 +70,7 @@ export function DashboardItem({
             <Button
               variant="text"
               size="icon"
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive h-6 w-6"
+              className="h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={() => removeItem(dashboardId, item.id)}
             >
               <DeleteIcon className="h-3.5 w-3.5" />
