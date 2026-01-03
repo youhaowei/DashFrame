@@ -91,9 +91,7 @@ export function rateLimitMiddleware(options: RateLimitMiddlewareOptions = {}) {
 
   return middleware(({ ctx, next }) => {
     // Extract client IP from context headers
-    // Context will be updated in subtask 2.2 to include headers
-    const headers = (ctx as { headers?: Record<string, string | string[] | undefined> }).headers ?? {};
-    const clientIp = getClientIp(headers);
+    const clientIp = getClientIp(ctx.headers);
 
     // Check rate limit
     const result = limiter.checkLimit(clientIp);
