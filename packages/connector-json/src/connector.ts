@@ -7,10 +7,10 @@
 
 import {
   FileSourceConnector,
-  type FormField,
   type FileParseResult,
-  type ValidationResult,
+  type FormField,
   type UUID,
+  type ValidationResult,
 } from "@dashframe/engine-browser";
 import { jsonToDataFrame } from "./index";
 
