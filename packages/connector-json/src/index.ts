@@ -1,29 +1,29 @@
 import type {
-  DataFrame,
   ColumnType,
-  UUID,
+  DataFrame,
   Field,
-  TableColumn,
   SourceSchema,
+  TableColumn,
+  UUID,
 } from "@dashframe/engine-browser";
 import { DataFrame as DataFrameClass } from "@dashframe/engine-browser";
 import {
-  tableToIPC,
-  Table,
-  vectorFromArray,
-  Float64,
   Bool,
-  Utf8,
+  Float64,
+  Table,
+  tableToIPC,
   TimestampMillisecond,
-  type Vector,
+  Utf8,
+  vectorFromArray,
   type DataType,
+  type Vector,
 } from "apache-arrow";
 import {
-  flattenObjectArray,
   extractKeys,
-  type JsonValue,
-  type JsonPrimitive,
+  flattenObjectArray,
   type FlattenOptions,
+  type JsonPrimitive,
+  type JsonValue,
 } from "./flatten";
 
 /**
@@ -305,14 +305,14 @@ export async function jsonToDataFrame(
 // ============================================================================
 
 export {
+  extractKeys,
   flattenObject,
   flattenObjectArray,
-  extractKeys,
   unflattenObject,
-  type JsonValue,
-  type JsonPrimitive,
   type FlattenedObject,
   type FlattenOptions,
+  type JsonPrimitive,
+  type JsonValue,
 } from "./flatten";
 
 export { JSONConnector, jsonConnector } from "./connector";

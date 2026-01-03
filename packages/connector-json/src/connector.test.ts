@@ -9,7 +9,7 @@
  * - JSON structure validation (must be array of objects or single object)
  * - Form field configuration
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JSONConnector, jsonConnector } from "./connector";
 
 // Mock the jsonToDataFrame function to avoid IndexedDB dependencies in unit tests
