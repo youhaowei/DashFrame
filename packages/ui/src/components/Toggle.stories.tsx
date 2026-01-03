@@ -1,15 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { Toggle } from "./Toggle";
 import {
   ChartIcon,
-  TableIcon,
-  ListIcon,
-  GridIcon,
-  NumberTypeIcon,
-  TextTypeIcon,
   DateTypeIcon,
+  GridIcon,
+  ListIcon,
+  NumberTypeIcon,
+  TableIcon,
+  TextTypeIcon,
 } from "../lib/icons";
+import { Toggle } from "./Toggle";
 
 const meta = {
   title: "Components/Actions/Toggle",

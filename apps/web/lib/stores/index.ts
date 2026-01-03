@@ -18,21 +18,21 @@ export {
 // Type Exports
 // ============================================================================
 export type {
+  BaseDataSource,
+  DataSource,
   DataTable,
   Insight,
   InsightExecutionType,
-  BaseDataSource,
   LocalDataSource,
   NotionDataSource,
   PostgreSQLDataSource,
-  DataSource,
-  VisualizationSource,
   Visualization,
+  VisualizationSource,
 } from "./types";
 
 export {
-  isLocalDataSource,
-  isCSVDataSource, // Legacy alias for isLocalDataSource
+  isCSVDataSource,
+  isLocalDataSource, // Legacy alias for isLocalDataSource
   isNotionDataSource,
   isPostgreSQLDataSource,
 } from "./types";

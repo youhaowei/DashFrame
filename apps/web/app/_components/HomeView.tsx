@@ -1,14 +1,14 @@
 "use client";
 
 import {
-  useVisualizations,
-  useInsights,
   useDataSources,
   useDataTables,
+  useInsights,
+  useVisualizations,
 } from "@dashframe/core";
-import { RecentVisualizationsSection } from "./RecentVisualizationsSection";
-import { RecentInsightsSection } from "./RecentInsightsSection";
 import { QuickLinksSection } from "./QuickLinksSection";
+import { RecentInsightsSection } from "./RecentInsightsSection";
+import { RecentVisualizationsSection } from "./RecentVisualizationsSection";
 
 /**
  * HomeView - Main view for returning users with existing data

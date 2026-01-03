@@ -1,17 +1,17 @@
 "use client";
 
-import { memo, useState, useMemo, useCallback } from "react";
-import {
-  Section,
-  ItemList,
-  JoinTypeIcon,
-  type ListItem,
-  type ItemAction,
-} from "@dashframe/ui";
-import { PlusIcon, DatabaseIcon, CloseIcon } from "@dashframe/ui/icons";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
-import type { DataTable, Insight, Field } from "@dashframe/types";
+import type { DataTable, Field, Insight } from "@dashframe/types";
+import {
+  ItemList,
+  JoinTypeIcon,
+  Section,
+  type ItemAction,
+  type ListItem,
+} from "@dashframe/ui";
+import { CloseIcon, DatabaseIcon, PlusIcon } from "@dashframe/ui/icons";
+import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataSourcesSectionProps {
   insight: Insight;

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { SectionList } from "./SectionList";
-import { ItemCard } from "../primitives/item-card";
 import { LuDatabase, LuFileText, LuTable } from "react-icons/lu";
+import { ItemCard } from "../primitives/item-card";
+import { SectionList } from "./SectionList";
 
 const meta: Meta<typeof SectionList> = {
   title: "Components/SectionList",

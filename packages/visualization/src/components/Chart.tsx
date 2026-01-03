@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
+import { Spinner, cn, useContainerDimensions } from "@dashframe/ui";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
-import { useContainerDimensions, Spinner, cn } from "@dashframe/ui";
 
 // ============================================================================
 // Theme Detection
@@ -285,7 +285,7 @@ export function Chart({
     <div
       ref={containerRef}
       className={cn(
-        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
+        "flex min-h-0 items-center justify-center overflow-hidden bg-muted/30",
         className,
       )}
       style={{

@@ -82,12 +82,12 @@ export {
 // ============================================================================
 
 export {
-  registerRenderer,
+  chartRendererRegistry,
+  clearRegistry,
+  getRegisteredTypes,
   getRenderer,
   hasRenderer,
-  getRegisteredTypes,
-  clearRegistry,
-  chartRendererRegistry,
+  registerRenderer,
   useRegistryVersion,
 } from "./registry";
 
@@ -101,7 +101,7 @@ export { Chart, type ChartProps } from "./components";
 // Renderers
 // ============================================================================
 
-export { createVgplotRenderer, VGPLOT_SUPPORTED_TYPES } from "./renderers";
+export { VGPLOT_SUPPORTED_TYPES, createVgplotRenderer } from "./renderers";
 
 // ============================================================================
 // Re-export Types
@@ -109,16 +109,16 @@ export { createVgplotRenderer, VGPLOT_SUPPORTED_TYPES } from "./renderers";
 
 // Chart renderer types from @dashframe/core
 export type {
-  ChartTheme,
-  ChartConfig,
   ChartCleanup,
+  ChartConfig,
   ChartRenderer,
   ChartRendererRegistry,
+  ChartTheme,
 } from "@dashframe/core";
 
 // Visualization types from @dashframe/types
 export type {
-  VisualizationType,
-  VisualizationEncoding,
   ChartEncoding,
+  VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";

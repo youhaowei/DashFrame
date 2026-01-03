@@ -1,11 +1,11 @@
 // Query types
 export type {
+  Aggregation,
+  AggregationFunction,
   FilterOperator,
   FilterPredicate,
+  JoinOptions,
+  JoinType,
   SortDirection,
   SortOrder,
-  AggregationFunction,
-  Aggregation,
-  JoinType,
-  JoinOptions,
 } from "./query";

@@ -20,9 +20,9 @@
  * ```
  */
 
-import { useSyncExternalStore } from "react";
 import type { ChartRenderer, ChartRendererRegistry } from "@dashframe/core";
 import type { VisualizationType } from "@dashframe/types";
+import { useSyncExternalStore } from "react";
 
 // ============================================================================
 // Registry Implementation

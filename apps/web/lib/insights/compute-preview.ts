@@ -1,11 +1,11 @@
 import type {
-  DataFrameData,
-  UUID,
-  Field,
   DataFrameColumn,
-  Insight,
+  DataFrameData,
   DataTable,
+  Field,
+  Insight,
   InsightMetric,
+  UUID,
 } from "@dashframe/types";
 
 /**

@@ -1,5 +1,5 @@
-import type { UUID } from "./uuid";
 import type { ColumnType, TableColumn } from "./column";
+import type { UUID } from "./uuid";
 
 /**
  * Field - User-facing column with lineage tracking.

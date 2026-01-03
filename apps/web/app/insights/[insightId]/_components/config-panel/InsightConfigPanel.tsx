@@ -1,24 +1,18 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { Panel, InputField } from "@dashframe/ui";
-import {
-  useInsightMutations,
-  useVisualizations,
-  useVisualizationMutations,
-  useDataTableMutations,
-} from "@dashframe/core";
-import type { Insight, DataTable, InsightMetric } from "@dashframe/types";
 import {
   computeCombinedFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
-import { FieldsSection } from "./FieldsSection";
-import { MetricsSection } from "./MetricsSection";
-import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
-import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
-import { FieldRenameDialog } from "./FieldRenameDialog";
-import { MetricEditDialog } from "./MetricEditDialog";
+import {
+  useDataTableMutations,
+  useInsightMutations,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@dashframe/core";
+import type { DataTable, Insight, InsightMetric } from "@dashframe/types";
+import { InputField, Panel } from "@dashframe/ui";
+import { useCallback, useMemo, useState } from "react";
 import {
   DeleteConfirmDialog,
   findVisualizationsUsingField,
@@ -26,6 +20,12 @@ import {
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
+import { FieldRenameDialog } from "./FieldRenameDialog";
+import { FieldsSection } from "./FieldsSection";
+import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
+import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
+import { MetricEditDialog } from "./MetricEditDialog";
+import { MetricsSection } from "./MetricsSection";
 
 interface InsightConfigPanelProps {
   insight: Insight;

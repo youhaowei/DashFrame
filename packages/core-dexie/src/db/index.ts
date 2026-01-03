@@ -1,9 +1,9 @@
 export { DashFrameDB, db } from "./schema";
 export type {
+  DashboardEntity,
+  DataFrameEntity,
   DataSourceEntity,
   DataTableEntity,
   InsightEntity,
   VisualizationEntity,
-  DashboardEntity,
-  DataFrameEntity,
 } from "./schema";

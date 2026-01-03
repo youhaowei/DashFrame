@@ -1,8 +1,8 @@
 import type { Preview } from "@storybook/nextjs-vite";
 import { createElement } from "react";
-import { ThemeWrapper } from "./ThemeWrapper";
-import { TooltipProvider } from "../src/primitives/tooltip";
 import "../src/globals.css";
+import { TooltipProvider } from "../src/primitives/tooltip";
+import { ThemeWrapper } from "./ThemeWrapper";
 
 const preview: Preview = {
   parameters: {
@@ -12,8 +12,16 @@ const preview: Preview = {
         date: /Date$/i,
       },
     },
+
     // Disable Chromatic snapshots by default - enable per-story with chromatic: { disableSnapshot: false }
     chromatic: { disableSnapshot: true },
+
+    a11y: {
+      // 'todo' - show a11y violations in the test UI only
+      // 'error' - fail CI on a11y violations
+      // 'off' - skip a11y checks entirely
+      test: "todo",
+    },
   },
   tags: ["autodocs"],
   globalTypes: {

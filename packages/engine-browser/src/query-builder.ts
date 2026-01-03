@@ -1,7 +1,7 @@
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
-import { loadArrowData } from "./storage";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { BrowserDataFrame } from "./dataframe";
+import { loadArrowData } from "./storage";
 
 // ============================================================================
 // Global Table Loading Mutex
@@ -524,8 +524,8 @@ export class QueryBuilder {
 
 // Re-export types for convenience
 export type {
-  FilterPredicate,
-  SortOrder,
   Aggregation,
+  FilterPredicate,
   JoinOptions,
+  SortOrder,
 } from "@dashframe/engine";

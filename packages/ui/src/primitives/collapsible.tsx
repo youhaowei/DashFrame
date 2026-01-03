@@ -5,7 +5,8 @@ import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 function Collapsible({
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
-  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
+  // Note: Root renders a Fragment, so data-slot cannot be applied here
+  return <CollapsiblePrimitive.Root {...props} />;
 }
 
 function CollapsibleTrigger({
@@ -30,4 +31,4 @@ function CollapsibleContent({
   );
 }
 
-export { Collapsible, CollapsibleTrigger, CollapsibleContent };
+export { Collapsible, CollapsibleContent, CollapsibleTrigger };

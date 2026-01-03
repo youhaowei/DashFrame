@@ -9,7 +9,7 @@
  * not executable code.
  */
 /* eslint-disable sonarjs/code-eval -- Security test file: malicious payloads are test fixtures */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { sanitizeSvg, SVG_SANITIZE_CONFIG } from "./svg-sanitization";
 
 describe("SVG Sanitization Security", () => {

@@ -1,6 +1,22 @@
 "use client";
 
-import * as React from "react";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  MoreIcon,
+  Surface,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@dashframe/ui";
 import {
   ColumnDef,
   SortingState,
@@ -9,23 +25,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import {
-  MoreIcon,
-  Button,
-  Surface,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@dashframe/ui";
+import * as React from "react";
 
 interface DataGridProps<TData> {
   data: TData[];
@@ -118,8 +118,8 @@ export function DataGrid<TData>({
         elevation="inset"
         className="flex flex-col items-center justify-center rounded-lg p-12 text-center"
       >
-        <p className="text-foreground text-base font-medium">{emptyMessage}</p>
-        <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
+        <p className="text-base font-medium text-foreground">{emptyMessage}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
         {onCreate && (
           <Button label="Create New" onClick={onCreate} className="mt-4" />
         )}

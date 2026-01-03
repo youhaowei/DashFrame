@@ -1,6 +1,6 @@
-import { createBdd } from "playwright-bdd";
 import { expect } from "@playwright/test";
 import path from "path";
+import { createBdd } from "playwright-bdd";
 
 const { When, Then } = createBdd();
 

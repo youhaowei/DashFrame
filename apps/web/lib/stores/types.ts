@@ -1,11 +1,11 @@
 import type {
-  UUID,
+  AxisType,
   Field,
   Metric,
   SourceSchema,
-  VisualizationType,
-  AxisType,
+  UUID,
   VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
 
 // ============================================================================
@@ -166,7 +166,7 @@ export const isCSVDataSource = (ds: DataSource): ds is LocalDataSource =>
 // ============================================================================
 
 // Re-export visualization types from @dashframe/types
-export type { VisualizationType, AxisType, VisualizationEncoding };
+export type { AxisType, VisualizationEncoding, VisualizationType };
 
 export interface VisualizationSource {
   dataFrameId: UUID; // The DataFrame being visualized

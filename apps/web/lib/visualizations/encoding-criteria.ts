@@ -9,10 +9,9 @@
  * - axis-warnings.ts: Warns users about problematic selections
  */
 
-import type { ColumnAnalysis } from "@dashframe/types";
+import type { ColumnAnalysis, Field } from "@dashframe/types";
 import { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
 import type { VisualizationType } from "../stores/types";
-import type { Field } from "@dashframe/types";
 
 // ============================================================================
 // Result Types

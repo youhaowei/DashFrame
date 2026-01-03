@@ -1,10 +1,10 @@
 "use client";
 
-import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
+import * as React from "react";
 
-import { cn } from "../lib/utils";
 import { ChevronRightIcon, MoreIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,
@@ -21,7 +21,7 @@ const BreadcrumbList = React.forwardRef<
   <ol
     ref={ref}
     className={cn(
-      "text-muted-foreground flex flex-wrap items-center gap-1.5 text-sm break-words sm:gap-2.5",
+      "flex flex-wrap items-center gap-1.5 text-sm break-words text-muted-foreground sm:gap-2.5",
       className,
     )}
     {...props}
@@ -52,7 +52,7 @@ const BreadcrumbLink = React.forwardRef<
   return (
     <Comp
       ref={ref}
-      className={cn("hover:text-foreground transition-colors", className)}
+      className={cn("transition-colors hover:text-foreground", className)}
       {...props}
     />
   );
@@ -68,7 +68,7 @@ const BreadcrumbPage = React.forwardRef<
     role="link"
     aria-disabled="true"
     aria-current="page"
-    className={cn("text-foreground font-normal", className)}
+    className={cn("font-normal text-foreground", className)}
     {...props}
   />
 ));
@@ -108,10 +108,10 @@ BreadcrumbEllipsis.displayName = "BreadcrumbElipssis";
 
 export {
   Breadcrumb,
-  BreadcrumbList,
+  BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbLink,
+  BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-  BreadcrumbEllipsis,
 };

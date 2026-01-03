@@ -1,12 +1,12 @@
-import { useLiveQuery } from "dexie-react-hooks";
-import { useMemo } from "react";
-import type { UUID, DataFrame, DataFrameAnalysis } from "@dashframe/types";
 import {
   // Import the class for fromJSON() factory method
   // The class implements the DataFrame interface
   DataFrame as BrowserDataFrame,
   deleteArrowData,
 } from "@dashframe/engine-browser";
+import type { DataFrame, DataFrameAnalysis, UUID } from "@dashframe/types";
+import { useLiveQuery } from "dexie-react-hooks";
+import { useMemo } from "react";
 import { db, type DataFrameEntity } from "../db";
 
 // ============================================================================

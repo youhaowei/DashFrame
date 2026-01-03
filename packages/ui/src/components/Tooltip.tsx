@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import {
-  Tooltip as TooltipPrimitive,
   TooltipContent,
+  Tooltip as TooltipPrimitive,
   TooltipTrigger,
 } from "../primitives/tooltip";
 

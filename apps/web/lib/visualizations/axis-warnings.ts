@@ -1,10 +1,13 @@
-import type { ColumnAnalysis } from "@dashframe/types";
-import { looksLikeIdentifier, CARDINALITY_THRESHOLDS } from "@dashframe/types";
-import type { VisualizationType, CompiledInsight } from "@dashframe/types";
 import {
   resolveForAnalysis,
   type EncodingResolutionContext,
 } from "@dashframe/engine";
+import type {
+  ColumnAnalysis,
+  CompiledInsight,
+  VisualizationType,
+} from "@dashframe/types";
+import { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
 
 /**
  * Warning message with reason explanation for axis selection

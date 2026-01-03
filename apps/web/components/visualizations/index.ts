@@ -2,10 +2,10 @@
 export { CreateVisualizationModal } from "./CreateVisualizationModal";
 export { DateTransformPicker } from "./DateTransformPicker";
 export { EmptyState } from "./EmptyState";
+export { JoinFlowModal } from "./JoinFlowModal";
 export { VisualizationDisplay } from "./VisualizationDisplay";
 export { VisualizationItemCard } from "./VisualizationItemCard";
 export { VisualizationPreview } from "./VisualizationPreview";
-export { JoinFlowModal } from "./JoinFlowModal";
 
 // Re-export VirtualTable from @dashframe/ui for backward compatibility
 // TableView is deprecated - use VirtualTable from @dashframe/ui directly

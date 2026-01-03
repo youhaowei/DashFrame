@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { MultiSelect } from "./multi-select";
 import { useState } from "react";
+import { MultiSelect } from "./multi-select";
 
 const meta = {
   title: "Primitives/Forms/MultiSelect",

@@ -17,14 +17,14 @@ export {
 } from "./hooks/useContainerDimensions";
 
 // Fonts
-export { GeistSans, GeistMono } from "./lib/fonts";
+export { GeistMono, GeistSans } from "./lib/fonts";
 
 // Icons
 export * from "./lib/icons";
 export type { LucideIcon } from "./lib/icons";
 
 // UI Primitives (shadcn/ui components)
-export { Alert, AlertTitle, AlertDescription } from "./primitives/alert";
+export { Alert, AlertDescription, AlertTitle } from "./primitives/alert";
 export { Badge } from "./primitives/badge";
 // Button - High-level component with icon, loading, iconOnly support
 // Use buttonVariants only when styling non-button elements as buttons
@@ -32,85 +32,85 @@ export { Button, type ButtonProps } from "./components/button";
 export { buttonVariants } from "./primitives/button";
 export {
   Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
   type CardProps,
 } from "./primitives/card";
-export {
-  ItemCard,
-  ClickableItemCard,
-  type ItemCardProps,
-} from "./primitives/item-card";
 export { Checkbox } from "./primitives/checkbox";
 export {
   Collapsible,
-  CollapsibleTrigger,
   CollapsibleContent,
+  CollapsibleTrigger,
 } from "./primitives/collapsible";
 export {
   Dialog,
-  DialogPortal,
-  DialogOverlay,
-  DialogTrigger,
   DialogClose,
   DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
 } from "./primitives/dialog";
 export {
   DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuCheckboxItem,
-  DropdownMenuRadioItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuGroup,
-  DropdownMenuPortal,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuRadioGroup,
+  DropdownMenuTrigger,
 } from "./primitives/dropdown-menu";
 export {
   Field,
-  FieldLabel,
   FieldDescription,
   FieldError,
+  FieldLabel,
 } from "./primitives/field";
 export { Input } from "./primitives/input";
+export {
+  ClickableItemCard,
+  ItemCard,
+  type ItemCardProps,
+} from "./primitives/item-card";
 export { Label } from "./primitives/label";
 export { MultiSelect } from "./primitives/multi-select";
 export {
   NavigationMenu,
-  NavigationMenuList,
-  NavigationMenuItem,
   NavigationMenuContent,
-  NavigationMenuTrigger,
-  NavigationMenuLink,
   NavigationMenuIndicator,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
   NavigationMenuViewport,
   navigationMenuTriggerStyle,
 } from "./primitives/navigation-menu";
 export { ScrollArea, ScrollBar } from "./primitives/scroll-area";
 export {
   Select,
-  SelectGroup,
-  SelectValue,
-  SelectTrigger,
   SelectContent,
-  SelectLabel,
+  SelectGroup,
   SelectItem,
-  SelectSeparator,
-  SelectScrollUpButton,
+  SelectLabel,
   SelectScrollDownButton,
+  SelectScrollUpButton,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
 } from "./primitives/select";
 export { Separator } from "./primitives/separator";
 export { Skeleton } from "./primitives/skeleton";
@@ -118,20 +118,20 @@ export { Surface } from "./primitives/surface";
 export { Switch } from "./primitives/switch";
 export {
   Table,
-  TableHeader,
   TableBody,
+  TableCaption,
+  TableCell,
   TableFooter,
   TableHead,
+  TableHeader,
   TableRow,
-  TableCell,
-  TableCaption,
 } from "./primitives/table";
-export { Tabs, TabsList, TabsTrigger, TabsContent } from "./primitives/tabs";
+export { Tabs, TabsContent, TabsList, TabsTrigger } from "./primitives/tabs";
 export {
   Tooltip,
-  TooltipTrigger,
   TooltipContent,
   TooltipProvider,
+  TooltipTrigger,
 } from "./primitives/tooltip";
 
 // Shared Components (custom reusable components)
@@ -144,65 +144,65 @@ export { ButtonGroup as ActionGroup } from "./components/ButtonGroup";
 /**
  * @deprecated Use ButtonGroupProps instead. ActionGroupProps will be removed in a future version.
  */
-export type { ButtonGroupProps as ActionGroupProps } from "./components/ButtonGroup";
 export {
   Breadcrumb,
   type BreadcrumbItem,
   type BreadcrumbProps,
 } from "./components/Breadcrumb";
+export type { ButtonGroupProps as ActionGroupProps } from "./components/ButtonGroup";
 export { CollapseHandle } from "./components/CollapseHandle";
 export { CollapsibleSection } from "./components/CollapsibleSection";
-export { Section, type SectionProps } from "./components/Section";
 export { Container } from "./components/Container";
 export { EmptyState } from "./components/EmptyState";
-export {
-  ItemSelector,
-  type ItemSelectorProps,
-  type SelectableItem,
-} from "./components/ItemSelector";
-export { Panel, PanelSection } from "./components/Panel";
-export { Stack } from "./components/Stack";
-export { Toggle } from "./components/Toggle";
-export { Spinner, type SpinnerProps } from "./components/Spinner";
-export { Tooltip as CustomTooltip } from "./components/Tooltip";
-export {
-  VirtualTable,
-  type VirtualTableProps,
-  type VirtualTableColumnConfig,
-  type VirtualTableColumn,
-  type FetchDataParams,
-  type FetchDataResult,
-} from "./components/VirtualTable";
-export { SectionList, type SectionListProps } from "./components/SectionList";
 export {
   ItemList,
   type ItemListProps,
   type ListItem,
 } from "./components/ItemList";
 export {
-  SortableList,
-  type SortableListProps,
-  type SortableListItem,
-} from "./components/SortableList";
+  ItemSelector,
+  type ItemSelectorProps,
+  type SelectableItem,
+} from "./components/ItemSelector";
 export {
   JoinTypeIcon,
-  getJoinTypeLabel,
   getJoinTypeDescription,
-  type JoinTypeIconProps,
+  getJoinTypeLabel,
   type JoinType,
+  type JoinTypeIconProps,
 } from "./components/JoinTypeIcon";
+export { Panel, PanelSection } from "./components/Panel";
+export { Section, type SectionProps } from "./components/Section";
+export { SectionList, type SectionListProps } from "./components/SectionList";
+export {
+  SortableList,
+  type SortableListItem,
+  type SortableListProps,
+} from "./components/SortableList";
+export { Spinner, type SpinnerProps } from "./components/Spinner";
+export { Stack } from "./components/Stack";
+export { Toggle } from "./components/Toggle";
+export { Tooltip as CustomTooltip } from "./components/Tooltip";
+export {
+  VirtualTable,
+  type FetchDataParams,
+  type FetchDataResult,
+  type VirtualTableColumn,
+  type VirtualTableColumnConfig,
+  type VirtualTableProps,
+} from "./components/VirtualTable";
 
 // Chart Icons (static SVG representations of chart types)
 export {
-  BarYIcon,
-  BarXIcon,
-  LineIcon,
   AreaYIcon,
-  DotIcon,
-  HexbinIcon,
-  HeatmapIcon,
-  RasterIcon,
+  BarXIcon,
+  BarYIcon,
   CHART_ICONS,
+  DotIcon,
+  HeatmapIcon,
+  HexbinIcon,
+  LineIcon,
+  RasterIcon,
   getChartIcon,
 } from "./components/chart-icons";
 

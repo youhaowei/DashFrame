@@ -1,16 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { Badge } from "./badge";
+import { Checkbox } from "./checkbox";
 import {
   Table,
   TableBody,
   TableCaption,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
-  TableFooter,
 } from "./table";
-import { Badge } from "./badge";
-import { Checkbox } from "./checkbox";
 
 const meta = {
   title: "Primitives/Data/Table",

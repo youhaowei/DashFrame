@@ -1,6 +1,6 @@
 import type { UUID } from "@dashframe/types";
-import type { DataFrame } from "./dataframe";
 import type { RemoteApiConnector } from "../connector/base";
+import type { DataFrame } from "./dataframe";
 
 // ============================================================================
 // Query Representation

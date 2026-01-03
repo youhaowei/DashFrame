@@ -1,6 +1,5 @@
-import type { VisualizationType, Insight } from "../stores/types";
-import type { DataFrameData, Field } from "@dashframe/types";
-import type { ColumnAnalysis } from "@dashframe/types";
+import type { ColumnAnalysis, DataFrameData, Field } from "@dashframe/types";
+import type { Insight, VisualizationType } from "../stores/types";
 import type { SuggestionEncoding } from "./suggest-charts";
 
 /**

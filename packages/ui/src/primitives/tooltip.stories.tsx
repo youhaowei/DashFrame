@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { Button } from "../components/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./tooltip";
-import { Button } from "../components/button";
 
 const meta: Meta<typeof Tooltip> = {
   title: "Primitives/Feedback/Tooltip",
@@ -75,7 +75,7 @@ export const OnIcon: Story = {
     <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -103,7 +103,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -125,7 +125,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"
