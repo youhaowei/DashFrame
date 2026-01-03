@@ -1,4 +1,3 @@
 {
-  "plugins": ["prettier-plugin-tailwindcss"],
-  "tailwindStylesheet": "./packages/ui/src/globals.css"
+  "plugins": ["prettier-plugin-tailwindcss"]
 }
