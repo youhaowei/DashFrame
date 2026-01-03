@@ -28,14 +28,14 @@ export const Horizontal: Story = {
       <div className="space-y-4">
         <div>
           <h3 className="text-sm font-medium">Section 1</h3>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Content for the first section.
           </p>
         </div>
         <Separator />
         <div>
           <h3 className="text-sm font-medium">Section 2</h3>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Content for the second section.
           </p>
         </div>
@@ -64,10 +64,10 @@ export const Vertical: Story = {
 
 export const InCard: Story = {
   render: () => (
-    <div className="bg-card w-96 rounded-xl border p-6">
+    <div className="w-96 rounded-xl border bg-card p-6">
       <div>
         <h3 className="text-lg font-semibold">Dashboard Settings</h3>
-        <p className="text-muted-foreground mt-1 text-sm">
+        <p className="mt-1 text-sm text-muted-foreground">
           Manage your dashboard preferences
         </p>
       </div>
@@ -75,17 +75,17 @@ export const InCard: Story = {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-sm">Auto-refresh</span>
-          <span className="text-muted-foreground text-sm">Every 5 minutes</span>
+          <span className="text-sm text-muted-foreground">Every 5 minutes</span>
         </div>
         <Separator />
         <div className="flex items-center justify-between">
           <span className="text-sm">Theme</span>
-          <span className="text-muted-foreground text-sm">System</span>
+          <span className="text-sm text-muted-foreground">System</span>
         </div>
         <Separator />
         <div className="flex items-center justify-between">
           <span className="text-sm">Language</span>
-          <span className="text-muted-foreground text-sm">English</span>
+          <span className="text-sm text-muted-foreground">English</span>
         </div>
       </div>
     </div>
@@ -99,7 +99,7 @@ export const WithDecorativeText: Story = {
         <p className="text-sm">Content before the separator</p>
         <div className="relative">
           <Separator />
-          <span className="bg-background text-muted-foreground absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-2 text-xs">
+          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
             OR
           </span>
         </div>
@@ -118,19 +118,19 @@ export const NavigationMenu: Story = {
         <nav className="flex items-center gap-4">
           <a
             href="#"
-            className="text-muted-foreground hover:text-foreground text-sm"
+            className="text-sm text-muted-foreground hover:text-foreground"
           >
             Dashboard
           </a>
           <a
             href="#"
-            className="text-muted-foreground hover:text-foreground text-sm"
+            className="text-sm text-muted-foreground hover:text-foreground"
           >
             Insights
           </a>
           <a
             href="#"
-            className="text-muted-foreground hover:text-foreground text-sm"
+            className="text-sm text-muted-foreground hover:text-foreground"
           >
             Settings
           </a>
@@ -143,7 +143,7 @@ export const NavigationMenu: Story = {
 
 export const ListWithSeparators: Story = {
   render: () => (
-    <div className="bg-card w-80 rounded-md border p-4">
+    <div className="w-80 rounded-md border bg-card p-4">
       {["Apple", "Banana", "Cherry", "Date", "Elderberry"].map(
         (item, index, arr) => (
           <div key={item}>

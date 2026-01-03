@@ -145,11 +145,11 @@ function renderDragOverlayContent<T extends SortableListItem>(
     return (
       <div
         className={cn(
-          "bg-card flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5 shadow-lg",
+          "flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5 shadow-lg",
           itemClassName,
         )}
       >
-        <DragHandleVerticalIcon className="text-muted-foreground h-4 w-4 shrink-0" />
+        <DragHandleVerticalIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         {renderItem(activeItem, items.indexOf(activeItem))}
       </div>
     );
@@ -242,9 +242,9 @@ export function SortableList<T extends SortableListItem>({
         )}
       >
         {emptyIcon && (
-          <div className="text-muted-foreground mb-3">{emptyIcon}</div>
+          <div className="mb-3 text-muted-foreground">{emptyIcon}</div>
         )}
-        <p className="text-muted-foreground text-sm">{emptyMessage}</p>
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
       </div>
     );
   }
@@ -425,7 +425,7 @@ function SortableItem<T extends SortableListItem>({
         ref={setNodeRef}
         style={sortableStyle}
         className={cn(
-          "bg-card flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5",
+          "flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5",
           isDragging && "opacity-50",
           className,
           itemClassName,
@@ -433,7 +433,7 @@ function SortableItem<T extends SortableListItem>({
       >
         {/* Drag handle */}
         <button
-          className="text-muted-foreground hover:text-foreground shrink-0 cursor-grab active:cursor-grabbing"
+          className="shrink-0 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}

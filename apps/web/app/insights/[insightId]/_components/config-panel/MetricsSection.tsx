@@ -69,14 +69,14 @@ export function MetricsSection({
       <div className="border-b">
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
-            <button className="hover:bg-accent/50 -ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors">
+            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50">
               <ChevronRightIcon
                 className={cn(
-                  "text-muted-foreground h-4 w-4 transition-transform",
+                  "h-4 w-4 text-muted-foreground transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <CalculatorIcon className="text-muted-foreground h-4 w-4" />
+              <CalculatorIcon className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm leading-none font-medium">Metrics</span>
               <Badge
                 variant="secondary"
@@ -111,7 +111,7 @@ export function MetricsSection({
                 )}
               />
             ) : (
-              <p className="text-muted-foreground py-2 text-sm">
+              <p className="py-2 text-sm text-muted-foreground">
                 No metrics configured.
               </p>
             )}
@@ -135,9 +135,9 @@ function MetricItemContent({
 }: MetricItemContentProps) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <CalculatorIcon className="text-primary h-3 w-3 shrink-0" />
+      <CalculatorIcon className="h-3 w-3 shrink-0 text-primary" />
       <span
-        className="text-primary min-w-0 flex-1 cursor-pointer truncate text-sm hover:underline"
+        className="min-w-0 flex-1 cursor-pointer truncate text-sm text-primary hover:underline"
         onClick={(e) => {
           e.stopPropagation();
           onEditClick();
@@ -146,7 +146,7 @@ function MetricItemContent({
       >
         {metric.name}
       </span>
-      <span className="text-primary/60 shrink-0 text-xs">
+      <span className="shrink-0 text-xs text-primary/60">
         {metric.aggregation}
       </span>
       <button
@@ -154,7 +154,7 @@ function MetricItemContent({
           e.stopPropagation();
           onEditClick();
         }}
-        className="text-primary/60 hover:bg-primary/10 hover:text-primary shrink-0 rounded-full p-0.5"
+        className="shrink-0 rounded-full p-0.5 text-primary/60 hover:bg-primary/10 hover:text-primary"
         aria-label={`Edit ${metric.name}`}
       >
         <EditIcon className="h-3 w-3" />
@@ -164,7 +164,7 @@ function MetricItemContent({
           e.stopPropagation();
           onRemove();
         }}
-        className="text-primary/60 hover:bg-primary/10 hover:text-primary shrink-0 rounded-full p-0.5"
+        className="shrink-0 rounded-full p-0.5 text-primary/60 hover:bg-primary/10 hover:text-primary"
         aria-label={`Remove ${metric.name}`}
       >
         <CloseIcon className="h-3 w-3" />

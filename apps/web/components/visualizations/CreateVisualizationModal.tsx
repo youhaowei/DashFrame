@@ -106,7 +106,7 @@ export function CreateVisualizationModal({
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>
-              <span className="text-muted-foreground text-xs font-normal">
+              <span className="text-xs font-normal text-muted-foreground">
                 Open and modify the existing insight
               </span>
             </Button>
@@ -116,7 +116,7 @@ export function CreateVisualizationModal({
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Create new based on this</span>
-              <span className="text-muted-foreground text-xs font-normal">
+              <span className="text-xs font-normal text-muted-foreground">
                 Chain a new insight from this data
               </span>
             </Button>

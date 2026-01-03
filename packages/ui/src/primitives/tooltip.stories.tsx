@@ -75,7 +75,7 @@ export const OnIcon: Story = {
     <div className="flex gap-4">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -103,7 +103,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -125,7 +125,7 @@ export const OnIcon: Story = {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button className="hover:bg-accent rounded-md p-2">
+          <button className="rounded-md p-2 hover:bg-accent">
             <svg
               className="h-5 w-5"
               fill="none"

@@ -164,7 +164,7 @@ export default function VisualizationsPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
             {getTypeIcon(item.visualization.visualizationType)}
           </div>
 
@@ -179,13 +179,13 @@ export default function VisualizationsPage() {
               </Badge>
             </div>
             {item.insight && (
-              <p className="text-muted-foreground text-xs">
+              <p className="text-xs text-muted-foreground">
                 From: {item.insight.name}
                 {item.sourceType && ` • ${item.sourceType}`}
               </p>
             )}
             {item.visualization.encoding && (
-              <p className="text-muted-foreground text-xs">
+              <p className="text-xs text-muted-foreground">
                 {item.visualization.encoding.x &&
                   `X: ${item.visualization.encoding.x}`}
                 {item.visualization.encoding.x &&
@@ -195,7 +195,7 @@ export default function VisualizationsPage() {
                   `Y: ${item.visualization.encoding.y}`}
               </p>
             )}
-            <p className="text-muted-foreground mt-1 text-xs">
+            <p className="mt-1 text-xs text-muted-foreground">
               Created{" "}
               {new Date(item.visualization.createdAt).toLocaleDateString(
                 "en-US",
@@ -253,21 +253,21 @@ export default function VisualizationsPage() {
   // Show loading state
   if (isLoadingViz) {
     return (
-      <div className="bg-background flex h-screen items-center justify-center">
+      <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-muted-foreground">Loading visualizations...</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-background flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* Header */}
-      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Visualizations</h1>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 {visualizationsData.length} visualization
                 {visualizationsData.length !== 1 ? "s" : ""} created
               </p>
@@ -279,7 +279,7 @@ export default function VisualizationsPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -300,15 +300,15 @@ export default function VisualizationsPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <ChartIcon className="text-muted-foreground h-8 w-8" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <ChartIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No visualizations found
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     No visualizations match &quot;{searchQuery}&quot;
                   </p>
                   <Button
@@ -322,7 +322,7 @@ export default function VisualizationsPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No visualizations yet
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     Create your first visualization to see your data come to
                     life
                   </p>

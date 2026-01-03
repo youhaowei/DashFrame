@@ -57,12 +57,12 @@ export function AppLayout({
   return (
     <div
       className={cn(
-        "bg-background flex h-screen flex-col overflow-hidden",
+        "flex h-screen flex-col overflow-hidden bg-background",
         className,
       )}
     >
       {/* Sticky Header */}
-      <header className="bg-card/90 sticky top-0 z-10 shrink-0 border-b backdrop-blur-sm">
+      <header className="sticky top-0 z-10 shrink-0 border-b bg-card/90 backdrop-blur-sm">
         <div className="container mx-auto px-8 py-4">
           <div className="flex items-center justify-between gap-6">
             {/* Breadcrumb navigation */}
@@ -86,7 +86,7 @@ export function AppLayout({
         )}
 
         {/* Main content */}
-        <main className="bg-background flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
           <div className={cn("flex-1 overflow-y-auto p-0", childrenClassName)}>
             {children}
           </div>
@@ -102,7 +102,7 @@ export function AppLayout({
 
       {/* Footer (optional) */}
       {footer && (
-        <footer className="bg-card/90 sticky bottom-0 shrink-0 border-t px-6 py-4 backdrop-blur-sm">
+        <footer className="sticky bottom-0 shrink-0 border-t bg-card/90 px-6 py-4 backdrop-blur-sm">
           {footer}
         </footer>
       )}

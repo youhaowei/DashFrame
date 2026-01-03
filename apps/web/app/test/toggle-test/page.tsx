@@ -54,7 +54,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Selected value: {defaultVariantValue}
           </p>
         </Card>
@@ -90,7 +90,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Selected value: {smallDefaultVariant}
           </p>
         </Card>
@@ -124,7 +124,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Selected value: {outlineVariantValue}
           </p>
         </Card>
@@ -156,7 +156,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="text-muted-foreground mt-2 text-sm">
+          <p className="mt-2 text-sm text-muted-foreground">
             Selected value: {smallOutlineVariant}
           </p>
         </Card>

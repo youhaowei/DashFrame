@@ -63,21 +63,21 @@ export const HeaderOnly: Story = {
     ),
     children: (
       <div className="space-y-4">
-        <div className="border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 p-4">
           <div className="flex items-center gap-2">
             <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Sales Database</span>
           </div>
-          <p className="text-muted-foreground mt-2 text-xs">
+          <p className="mt-2 text-xs text-muted-foreground">
             PostgreSQL • 12 tables
           </p>
         </div>
-        <div className="border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 p-4">
           <div className="flex items-center gap-2">
             <DatabaseIcon className="h-4 w-4" />
             <span className="text-sm font-medium">Analytics DB</span>
           </div>
-          <p className="text-muted-foreground mt-2 text-xs">
+          <p className="mt-2 text-xs text-muted-foreground">
             MongoDB • 8 collections
           </p>
         </div>
@@ -102,9 +102,9 @@ export const ScrollableContent: Story = {
     children: (
       <div className="space-y-4">
         {Array.from({ length: 20 }, (_, i) => (
-          <div key={i} className="border-border/60 rounded-xl border p-4">
+          <div key={i} className="rounded-xl border border-border/60 p-4">
             <h3 className="text-sm font-medium">Item {i + 1}</h3>
-            <p className="text-muted-foreground text-xs">
+            <p className="text-xs text-muted-foreground">
               This demonstrates scrollable content behavior
             </p>
           </div>
@@ -216,7 +216,7 @@ export const FloatingElevation: Story = {
         <p className="text-sm">
           This panel floats above other content with elevated shadow.
         </p>
-        <p className="text-muted-foreground text-xs">
+        <p className="text-xs text-muted-foreground">
           Use floating elevation for panels that overlay other elements.
         </p>
       </div>
@@ -224,7 +224,7 @@ export const FloatingElevation: Story = {
   },
   decorators: [
     (Story) => (
-      <div className="bg-muted/20 flex h-[300px] w-[400px] items-center justify-center">
+      <div className="flex h-[300px] w-[400px] items-center justify-center bg-muted/20">
         <Story />
       </div>
     ),
@@ -239,7 +239,7 @@ export const DataSourceControls: Story = {
     header: (
       <div>
         <h2 className="text-base font-semibold">Data Source Controls</h2>
-        <p className="text-muted-foreground mt-1 text-xs">
+        <p className="mt-1 text-xs text-muted-foreground">
           Configure your database connection
         </p>
       </div>
@@ -259,7 +259,7 @@ export const DataSourceControls: Story = {
           <label className="mb-2 block text-sm font-medium">Host</label>
           <input
             type="text"
-            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
             placeholder="localhost:5432"
           />
         </div>
@@ -269,15 +269,15 @@ export const DataSourceControls: Story = {
           </label>
           <input
             type="text"
-            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
             placeholder="sales_db"
           />
         </div>
-        <div className="border-border/60 bg-muted/30 rounded-xl border p-4">
-          <p className="text-muted-foreground text-xs">
+        <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
+          <p className="text-xs text-muted-foreground">
             <strong>Status:</strong> Connected
           </p>
-          <p className="text-muted-foreground mt-1 text-xs">
+          <p className="mt-1 text-xs text-muted-foreground">
             <strong>Tables:</strong> 12 discovered
           </p>
         </div>
