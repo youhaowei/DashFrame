@@ -6,7 +6,7 @@ import {
   isEncryptionUnlocked,
   lockEncryption,
   unlockEncryption,
-} from "@dashframe/core-dexie/crypto/key-manager";
+} from "@dashframe/core-dexie";
 import {
   createContext,
   useCallback,
