@@ -8,8 +8,10 @@
  * - getRegisteredTypes() - Listing all registered types
  * - clearRegistry() - Clearing all registered renderers
  * - getRegistryVersion() - Getting registry version counter
+ * - useRegistryVersion() - React hook for subscribing to registry changes
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import type { ChartRenderer } from "@dashframe/core";
 import type { VisualizationType } from "@dashframe/types";
 import {
@@ -19,6 +21,7 @@ import {
   getRenderer,
   hasRenderer,
   registerRenderer,
+  useRegistryVersion,
 } from "./registry";
 
 describe("registry", () => {
@@ -562,6 +565,329 @@ describe("registry", () => {
       expect(barY).toBe(barRenderer);
       expect(line).toBe(lineRenderer);
       expect(barY).not.toBe(line);
+    });
+  });
+
+  describe("useRegistryVersion()", () => {
+    describe("basic functionality", () => {
+      it("should return current registry version", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        expect(typeof result.current).toBe("number");
+        expect(result.current).toBeGreaterThanOrEqual(0);
+      });
+
+      it("should return same version as getRegistryVersion", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        expect(result.current).toBe(getRegistryVersion());
+      });
+
+      it("should return consistent version across multiple calls", () => {
+        const { result, rerender } = renderHook(() => useRegistryVersion());
+
+        const initialVersion = result.current;
+        rerender();
+
+        expect(result.current).toBe(initialVersion);
+      });
+    });
+
+    describe("registry change subscription", () => {
+      it("should update when new renderer is registered", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        const versionBefore = result.current;
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        expect(result.current).toBe(versionBefore + 1);
+      });
+
+      it("should update when multiple renderers are registered", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        const v0 = result.current;
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const v1 = result.current;
+        expect(v1).toBe(v0 + 1);
+
+        act(() => {
+          registerRenderer(barRenderer);
+        });
+
+        const v2 = result.current;
+        expect(v2).toBe(v1 + 1);
+      });
+
+      it("should update when renderer with multiple types is registered", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        const versionBefore = result.current;
+
+        act(() => {
+          registerRenderer(multiRenderer); // Registers dot, hexbin, heatmap
+        });
+
+        // Should increment only once even for multiple types
+        expect(result.current).toBe(versionBefore + 1);
+      });
+
+      it("should not update when re-registering same types", () => {
+        // Register initial renderer
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const { result } = renderHook(() => useRegistryVersion());
+        const versionBefore = result.current;
+
+        // Re-register same type with different renderer instance
+        const newLineRenderer = createMockRenderer(["line"]);
+        act(() => {
+          registerRenderer(newLineRenderer);
+        });
+
+        // Version should not change when re-registering same types
+        expect(result.current).toBe(versionBefore);
+      });
+
+      it("should update when new types are added along with existing", () => {
+        // Register initial renderer
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const { result } = renderHook(() => useRegistryVersion());
+        const versionBefore = result.current;
+
+        // Register renderer with both existing and new types
+        const mixedRenderer = createMockRenderer(["line", "areaY"]);
+        act(() => {
+          registerRenderer(mixedRenderer);
+        });
+
+        // Version should increment because "areaY" is new
+        expect(result.current).toBe(versionBefore + 1);
+      });
+    });
+
+    describe("clearing registry", () => {
+      it("should not trigger update when registry is cleared", () => {
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const { result } = renderHook(() => useRegistryVersion());
+        const versionBefore = result.current;
+
+        act(() => {
+          clearRegistry();
+        });
+
+        // Clear should not increment version
+        expect(result.current).toBe(versionBefore);
+      });
+
+      it("should update when registering after clear", () => {
+        act(() => {
+          registerRenderer(lineRenderer);
+          clearRegistry();
+        });
+
+        const { result } = renderHook(() => useRegistryVersion());
+        const versionBefore = result.current;
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        // Registering after clear should increment version (new registration)
+        expect(result.current).toBe(versionBefore + 1);
+      });
+    });
+
+    describe("multiple hook instances", () => {
+      it("should update all instances when registry changes", () => {
+        const { result: result1 } = renderHook(() => useRegistryVersion());
+        const { result: result2 } = renderHook(() => useRegistryVersion());
+
+        const v1Before = result1.current;
+        const v2Before = result2.current;
+
+        expect(v1Before).toBe(v2Before);
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        // Both hooks should see the update
+        expect(result1.current).toBe(v1Before + 1);
+        expect(result2.current).toBe(v2Before + 1);
+        expect(result1.current).toBe(result2.current);
+      });
+
+      it("should handle independent unmounting", () => {
+        const { result: result1 } = renderHook(() => useRegistryVersion());
+        const { result: result2, unmount: unmount2 } = renderHook(() =>
+          useRegistryVersion(),
+        );
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const v1After = result1.current;
+        const v2After = result2.current;
+
+        expect(v1After).toBe(v2After);
+
+        // Unmount second hook
+        unmount2();
+
+        // First hook should still work after second is unmounted
+        act(() => {
+          registerRenderer(barRenderer);
+        });
+
+        expect(result1.current).toBe(v1After + 1);
+      });
+    });
+
+    describe("subscription cleanup", () => {
+      it("should unsubscribe when hook unmounts", () => {
+        const { unmount } = renderHook(() => useRegistryVersion());
+
+        // Unmount the hook
+        unmount();
+
+        // Registry should still work after hook unmounts
+        expect(() => {
+          registerRenderer(lineRenderer);
+        }).not.toThrow();
+
+        expect(hasRenderer("line")).toBe(true);
+      });
+
+      it("should not leak subscriptions on unmount", () => {
+        // Render and unmount multiple times
+        for (let i = 0; i < 10; i++) {
+          const { unmount } = renderHook(() => useRegistryVersion());
+          unmount();
+        }
+
+        // Registry should still function normally
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        expect(hasRenderer("line")).toBe(true);
+      });
+    });
+
+    describe("integration with registry operations", () => {
+      it("should track version through complete workflow", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        const v0 = result.current;
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+        const v1 = result.current;
+        expect(v1).toBe(v0 + 1);
+
+        act(() => {
+          registerRenderer(barRenderer);
+        });
+        const v2 = result.current;
+        expect(v2).toBe(v1 + 1);
+
+        act(() => {
+          clearRegistry();
+        });
+        const v3 = result.current;
+        expect(v3).toBe(v2); // Clear doesn't increment
+
+        act(() => {
+          registerRenderer(multiRenderer);
+        });
+        const v4 = result.current;
+        expect(v4).toBe(v3 + 1);
+      });
+
+      it("should not update for read-only operations", () => {
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        const { result } = renderHook(() => useRegistryVersion());
+        const versionBefore = result.current;
+
+        // Read-only operations should not trigger updates
+        getRenderer("line");
+        hasRenderer("line");
+        getRegisteredTypes();
+
+        expect(result.current).toBe(versionBefore);
+      });
+    });
+
+    describe("type safety and consistency", () => {
+      it("should always return a number", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        expect(typeof result.current).toBe("number");
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        expect(typeof result.current).toBe("number");
+      });
+
+      it("should return non-negative version", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+
+        expect(result.current).toBeGreaterThanOrEqual(0);
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+
+        expect(result.current).toBeGreaterThanOrEqual(0);
+      });
+
+      it("should maintain version monotonicity", () => {
+        const { result } = renderHook(() => useRegistryVersion());
+        const versions: number[] = [result.current];
+
+        act(() => {
+          registerRenderer(lineRenderer);
+        });
+        versions.push(result.current);
+
+        act(() => {
+          registerRenderer(barRenderer);
+        });
+        versions.push(result.current);
+
+        act(() => {
+          registerRenderer(multiRenderer);
+        });
+        versions.push(result.current);
+
+        // Each new registration should have a higher version
+        for (let i = 1; i < versions.length; i++) {
+          expect(versions[i]).toBeGreaterThan(versions[i - 1]);
+        }
+      });
     });
   });
 });
