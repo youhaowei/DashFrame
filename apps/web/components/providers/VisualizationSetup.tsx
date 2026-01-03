@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
 import {
   VisualizationProvider,
-  useVisualization,
-  registerRenderer,
   createVgplotRenderer,
+  registerRenderer,
+  useVisualization,
 } from "@dashframe/visualization";
+import { useEffect, type ReactNode } from "react";
 import { useDuckDB } from "./DuckDBProvider";
 
 // ============================================================================

@@ -1,23 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import type { DataTable } from "@dashframe/types";
-import type { DataFrameEntry } from "@dashframe/core";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import type { DataFrameEntry } from "@dashframe/core";
+import type { DataTable } from "@dashframe/types";
 import {
   Button,
-  PlusIcon,
-  EditIcon,
+  ButtonGroup,
   CloseIcon,
-  SparklesIcon,
+  DeleteIcon,
+  EditIcon,
+  EmptyState,
   LayersIcon,
   Panel,
+  PlusIcon,
+  SparklesIcon,
   Toggle,
-  EmptyState,
   VirtualTable,
-  DeleteIcon,
-  ButtonGroup,
 } from "@dashframe/ui";
+import { useState } from "react";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;

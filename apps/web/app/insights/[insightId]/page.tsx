@@ -1,7 +1,7 @@
 "use client";
 
-import { use } from "react";
 import { useInsight } from "@dashframe/core";
+import { use } from "react";
 import { InsightView, LoadingView, NotFoundView } from "./_components";
 
 interface PageProps {

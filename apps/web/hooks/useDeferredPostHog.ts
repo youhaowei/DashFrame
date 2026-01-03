@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback } from "react";
 import { usePostHogContext } from "@/components/providers/PostHogProvider";
 import { queueCapture, queueIdentify } from "@/lib/posthog/event-queue";
+import { useCallback } from "react";
 
 /**
  * Return type for the useDeferredPostHog hook.

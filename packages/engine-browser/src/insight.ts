@@ -1,9 +1,9 @@
 import type {
-  UUID,
-  InsightMetric,
-  JoinType,
   DataTableField,
   DataTableInfo,
+  InsightMetric,
+  JoinType,
+  UUID,
 } from "@dashframe/engine";
 
 // Re-export from core for backwards compatibility

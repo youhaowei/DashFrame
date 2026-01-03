@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
   Select,
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@dashframe/ui";
-import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
+import { useEffect, useMemo, useState } from "react";
 
 type AggregationType =
   | "sum"

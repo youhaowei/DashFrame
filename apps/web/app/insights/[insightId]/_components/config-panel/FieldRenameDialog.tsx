@@ -1,18 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
 } from "@dashframe/ui";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { useState } from "react";
 
 interface FieldRenameDialogProps {
   field: CombinedField | null;

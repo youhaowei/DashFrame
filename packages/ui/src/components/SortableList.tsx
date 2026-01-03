@@ -1,34 +1,33 @@
 "use client";
 
-import * as React from "react";
-import { useCallback } from "react";
-import { useState } from "react";
 import {
-  DndContext,
   closestCenter,
+  DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverlay,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
+  horizontalListSortingStrategy,
+  rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-  horizontalListSortingStrategy,
-  rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
-import { ItemCard, type ItemAction } from "../primitives/item-card";
-import { cn } from "../lib/utils";
+import * as React from "react";
+import { useCallback, useState } from "react";
 import { DragHandleVerticalIcon, type LucideIcon } from "../lib/icons";
-import type { ListItem, ItemListProps } from "./ItemList";
+import { cn } from "../lib/utils";
+import { ItemCard, type ItemAction } from "../primitives/item-card";
+import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
+import type { ItemListProps, ListItem } from "./ItemList";
 
 /**
  * Base sortable item requires only an id.

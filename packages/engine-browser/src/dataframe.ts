@@ -1,12 +1,12 @@
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type {
-  UUID,
   DataFrame,
-  DataFrameStorageLocation,
-  DataFrameJSON,
   DataFrameFactory,
+  DataFrameJSON,
+  DataFrameStorageLocation,
+  UUID,
 } from "@dashframe/engine";
-import { persistArrowData, generateArrowKey } from "./storage";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { generateArrowKey, persistArrowData } from "./storage";
 
 /**
  * BrowserDataFrame - Browser implementation of DataFrame.

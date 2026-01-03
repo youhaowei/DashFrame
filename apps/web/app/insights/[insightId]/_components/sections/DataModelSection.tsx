@@ -1,31 +1,31 @@
 "use client";
 
-import { memo, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Section,
-  ItemList,
-  JoinTypeIcon,
-  type ListItem,
-  type ItemAction,
-} from "@dashframe/ui";
-import {
-  PlusIcon,
-  DatabaseIcon,
-  CloseIcon,
-  ExternalLinkIcon,
-  CloudIcon,
-  FileIcon,
-  TableIcon,
-} from "@dashframe/ui/icons";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {
   useDataFrames,
-  useInsightMutations,
   useDataSources,
+  useInsightMutations,
 } from "@dashframe/core";
-import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import type { DataTable, Insight } from "@dashframe/types";
+import {
+  ItemList,
+  JoinTypeIcon,
+  Section,
+  type ItemAction,
+  type ListItem,
+} from "@dashframe/ui";
+import {
+  CloseIcon,
+  CloudIcon,
+  DatabaseIcon,
+  ExternalLinkIcon,
+  FileIcon,
+  PlusIcon,
+  TableIcon,
+} from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataModelSectionProps {
   insight: Insight;

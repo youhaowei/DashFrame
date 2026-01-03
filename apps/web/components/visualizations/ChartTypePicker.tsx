@@ -1,33 +1,33 @@
 "use client";
 
-import { useMemo, useCallback, memo, useState } from "react";
-import {
-  cn,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  Toggle,
-  CHART_ICONS,
-} from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
-import { SparklesIcon, InfoIcon } from "@dashframe/ui/icons";
-import {
-  CHART_TYPE_METADATA,
-  getChartTypesForTag,
-  type VisualizationType,
-  type ChartTag,
-  type Field,
-} from "@dashframe/types";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type { Insight } from "@/lib/stores/types";
 import {
-  suggestByTag,
   suggestByChartType,
+  suggestByTag,
   type ChartSuggestion,
   type TagSuggestion,
 } from "@/lib/visualizations/suggest-charts";
-import { SCATTER_MAX_POINTS } from "@dashframe/types";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import {
+  CHART_TYPE_METADATA,
+  getChartTypesForTag,
+  SCATTER_MAX_POINTS,
+  type ChartTag,
+  type Field,
+  type VisualizationType,
+} from "@dashframe/types";
+import {
+  CHART_ICONS,
+  cn,
+  Toggle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@dashframe/ui";
+import { InfoIcon, SparklesIcon } from "@dashframe/ui/icons";
+import { Button } from "@dashframe/ui/primitives/button";
 import { Chart } from "@dashframe/visualization";
+import { memo, useCallback, useMemo, useState } from "react";
 
 /** Height of the chart preview area in pixels */
 const PREVIEW_HEIGHT = 120;

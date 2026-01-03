@@ -1,12 +1,12 @@
 import type { UUID } from "@dashframe/types";
 import type {
-  SourceType,
-  FormField,
-  ValidationResult,
-  FileParseResult,
-  RemoteDatabase,
-  QueryOptions,
   ConnectorQueryResult,
+  FileParseResult,
+  FormField,
+  QueryOptions,
+  RemoteDatabase,
+  SourceType,
+  ValidationResult,
 } from "./types";
 
 /**

@@ -1,8 +1,8 @@
 "use client";
 
+import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Card } from "@dashframe/ui";
 import { Button } from "@dashframe/ui/primitives/button";
-import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
 
 /**

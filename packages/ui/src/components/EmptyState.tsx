@@ -1,6 +1,6 @@
 import type { LucideIcon } from "../lib/icons";
-import { Button } from "../primitives/button";
 import { cn } from "../lib/utils";
+import { Button } from "../primitives/button";
 
 export interface EmptyStateAction {
   label: string;

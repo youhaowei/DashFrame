@@ -1,19 +1,24 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { AppLayout } from "@/components/layouts/AppLayout";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
-  Button,
-  Input,
+  useDataFrames,
+  useDataSourceMutations,
+  useDataSources,
+  useDataTableMutations,
+  useDataTables,
+} from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
+import {
   Badge,
+  Breadcrumb,
+  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   DatabaseIcon,
-  TableIcon,
-  PlusIcon,
   DeleteIcon,
   Dialog,
   DialogContent,
@@ -25,24 +30,19 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  ChevronLeftIcon as LuArrowLeft,
-  FileIcon as LuFileSpreadsheet,
-  CloudIcon as LuCloud,
-  MoreIcon as LuMoreHorizontal,
-  Breadcrumb,
+  Input,
   ItemCard,
+  ChevronLeftIcon as LuArrowLeft,
+  CloudIcon as LuCloud,
+  FileIcon as LuFileSpreadsheet,
+  MoreIcon as LuMoreHorizontal,
+  PlusIcon,
+  TableIcon,
+  VirtualTable,
 } from "@dashframe/ui";
-import {
-  useDataSources,
-  useDataSourceMutations,
-  useDataTables,
-  useDataTableMutations,
-  useDataFrames,
-} from "@dashframe/core";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { VirtualTable } from "@dashframe/ui";
-import type { UUID } from "@dashframe/types";
-import { AppLayout } from "@/components/layouts/AppLayout";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { use, useMemo, useState } from "react";
 
 interface PageProps {
   params: Promise<{ sourceId: string }>;

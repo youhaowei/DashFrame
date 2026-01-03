@@ -1,16 +1,16 @@
-import "../globals.css";
-import type { Metadata } from "next";
-import { TRPCProvider } from "@/lib/trpc/Provider";
-import { TooltipProvider, GeistSans, GeistMono } from "@dashframe/ui";
-import { Toaster } from "sonner";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Navigation } from "@/components/navigation";
-import { DatabaseProvider } from "@dashframe/core";
-import { PostHogProvider } from "@/components/providers/PostHogProvider";
-import { PostHogPageView } from "@/components/providers/PostHogPageView";
-import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
-import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Navigation } from "@/components/navigation";
+import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
+import { PostHogPageView } from "@/components/providers/PostHogPageView";
+import { PostHogProvider } from "@/components/providers/PostHogProvider";
+import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
+import { ThemeProvider } from "@/components/theme-provider";
+import { TRPCProvider } from "@/lib/trpc/Provider";
+import { DatabaseProvider } from "@dashframe/core";
+import { GeistMono, GeistSans, TooltipProvider } from "@dashframe/ui";
+import type { Metadata } from "next";
+import { Toaster } from "sonner";
+import "../globals.css";
 
 export const metadata: Metadata = {
   title: "DashFrame",

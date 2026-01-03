@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
+import { Button } from "../components/button";
+import { ChevronDownIcon } from "../lib/icons";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "./collapsible";
-import { Button } from "../components/button";
-import { ChevronDownIcon } from "../lib/icons";
-import { useState } from "react";
 
 const meta = {
   title: "Primitives/Layout/Collapsible",

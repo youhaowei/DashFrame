@@ -1,9 +1,9 @@
 "use client";
 
-import { memo } from "react";
-import { Section } from "@dashframe/ui";
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
+import { Section } from "@dashframe/ui";
+import { memo } from "react";
 
 interface SuggestedChartsSectionProps {
   tableName: string;

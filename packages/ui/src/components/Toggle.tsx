@@ -2,8 +2,8 @@
 
 import React, { type ReactNode } from "react";
 import { cn } from "../lib/utils";
-import { Tooltip } from "./Tooltip";
 import { Badge } from "../primitives/badge";
+import { Tooltip } from "./Tooltip";
 
 export interface ToggleOption<T extends string> {
   value: T;

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
 import { cn } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
 import { CheckIcon, CloseIcon } from "@dashframe/ui/icons";
+import { Button } from "@dashframe/ui/primitives/button";
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 interface MarkdownWidgetProps {
   content: string;

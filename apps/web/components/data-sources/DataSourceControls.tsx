@@ -1,31 +1,31 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { trpc } from "@/lib/trpc/Provider";
+import type { NotionDatabase } from "@dashframe/connector-notion";
 import {
-  DeleteIcon,
-  DatabaseIcon,
-  PlusIcon,
-  RefreshIcon,
-  Spinner,
-  ChevronDownIcon,
+  useDataSourceMutations,
+  useDataSources,
+  useDataTableMutations,
+  useDataTables,
+} from "@dashframe/core";
+import {
   Button,
-  Surface,
+  ChevronDownIcon,
+  cn,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  cn,
-  Panel,
+  DatabaseIcon,
+  DeleteIcon,
   InputField,
+  Panel,
+  PlusIcon,
+  RefreshIcon,
+  Spinner,
+  Surface,
 } from "@dashframe/ui";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  useDataSources,
-  useDataSourceMutations,
-  useDataTables,
-  useDataTableMutations,
-} from "@dashframe/core";
-import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase } from "@dashframe/connector-notion";
 
 interface CollapsibleSectionProps {
   title: string;

@@ -1,8 +1,8 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, Suspense, useRef } from "react";
 import { useDeferredPostHog } from "@/hooks/useDeferredPostHog";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef } from "react";
 
 function PostHogPageViewTracker() {
   const pathname = usePathname();

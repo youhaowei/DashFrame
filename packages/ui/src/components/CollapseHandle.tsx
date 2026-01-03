@@ -1,8 +1,8 @@
 import {
+  ChevronsDownIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
   ChevronsUpIcon,
-  ChevronsDownIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 

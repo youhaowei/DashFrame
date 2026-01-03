@@ -1,24 +1,24 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import type { InsightMetric } from "@dashframe/types";
 import {
-  Button,
   Badge,
-  SortableList,
-  type SortableListItem,
+  Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  SortableList,
   cn,
+  type SortableListItem,
 } from "@dashframe/ui";
 import {
   CalculatorIcon,
-  PlusIcon,
   ChevronRightIcon,
   CloseIcon,
   EditIcon,
+  PlusIcon,
 } from "@dashframe/ui/icons";
-import type { InsightMetric } from "@dashframe/types";
+import { useCallback, useState } from "react";
 
 /** Extended sortable item with metric data */
 interface MetricSortableItem extends SortableListItem {

@@ -1,7 +1,12 @@
 "use client";
 
-import { useState, useEffect, use, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import {
+  useDashboardMutations,
+  useDashboards,
+  useVisualizations,
+} from "@dashframe/core";
+import type { DashboardItemType } from "@dashframe/types";
 import {
   Button,
   Dialog,
@@ -10,10 +15,10 @@ import {
   DialogTitle,
   Label,
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@dashframe/ui";
 import {
   ArrowLeftIcon,
@@ -23,13 +28,8 @@ import {
   FileIcon,
   PlusIcon,
 } from "@dashframe/ui/icons";
-import {
-  useDashboards,
-  useDashboardMutations,
-  useVisualizations,
-} from "@dashframe/core";
-import type { DashboardItemType } from "@dashframe/types";
-import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
 
 export default function DashboardDetailPage({
   params,

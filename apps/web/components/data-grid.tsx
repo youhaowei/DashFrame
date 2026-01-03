@@ -1,6 +1,22 @@
 "use client";
 
-import * as React from "react";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  MoreIcon,
+  Surface,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@dashframe/ui";
 import {
   ColumnDef,
   SortingState,
@@ -9,23 +25,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import {
-  MoreIcon,
-  Button,
-  Surface,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@dashframe/ui";
+import * as React from "react";
 
 interface DataGridProps<TData> {
   data: TData[];

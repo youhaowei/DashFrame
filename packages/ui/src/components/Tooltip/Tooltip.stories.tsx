@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { SharedTooltip } from "./Tooltip";
-import { Button } from "../../primitives/button";
 import {
-  DatabaseIcon,
-  PlusIcon,
-  DeleteIcon,
-  RefreshIcon,
   ChartIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  PlusIcon,
+  RefreshIcon,
 } from "../../lib/icons";
+import { Button } from "../../primitives/button";
+import { SharedTooltip } from "./Tooltip";
 
 const meta = {
   title: "Components/Feedback/Tooltip",

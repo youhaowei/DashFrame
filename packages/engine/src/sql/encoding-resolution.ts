@@ -14,14 +14,14 @@
  * No legacy format support - invalid formats return undefined or { valid: false }.
  */
 
-import type { Field, InsightMetric, ChannelTransform } from "@dashframe/types";
+import type { ChannelTransform, Field, InsightMetric } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
+import { applyDateTransformToSql } from "./date-transforms";
 import {
-  metricToSqlExpression,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
+  metricToSqlExpression,
 } from "./insight-sql";
-import { applyDateTransformToSql } from "./date-transforms";
 
 // ============================================================================
 // Resolution Context

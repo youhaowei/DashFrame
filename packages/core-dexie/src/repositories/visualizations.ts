@@ -1,14 +1,14 @@
-import { useLiveQuery } from "dexie-react-hooks";
-import { useMemo } from "react";
 import type {
+  UseVisualizationsResult,
   UUID,
   VegaLiteSpec,
-  VisualizationType,
-  VisualizationEncoding,
   Visualization,
-  UseVisualizationsResult,
+  VisualizationEncoding,
   VisualizationMutations,
+  VisualizationType,
 } from "@dashframe/types";
+import { useLiveQuery } from "dexie-react-hooks";
+import { useMemo } from "react";
 import { db, type VisualizationEntity } from "../db";
 
 // ============================================================================

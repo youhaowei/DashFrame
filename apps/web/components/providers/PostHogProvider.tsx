@@ -1,16 +1,16 @@
 "use client";
 
+import { flushEventQueue } from "@/lib/posthog/event-queue";
+import { getPostHogInstance, loadPostHog } from "@/lib/posthog/loader";
+import type { PostHog } from "posthog-js";
 import {
   createContext,
+  startTransition,
   useContext,
   useEffect,
-  useState,
   useRef,
-  startTransition,
+  useState,
 } from "react";
-import type { PostHog } from "posthog-js";
-import { loadPostHog, getPostHogInstance } from "@/lib/posthog/loader";
-import { flushEventQueue } from "@/lib/posthog/event-queue";
 
 /**
  * Context value for the deferred PostHog provider.

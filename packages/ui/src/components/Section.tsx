@@ -1,8 +1,8 @@
 import * as React from "react";
 import { cn } from "../lib/utils";
+import { Skeleton } from "../primitives/skeleton";
 import { Surface, type SurfaceProps } from "../primitives/surface";
 import { ButtonGroup, type ItemAction } from "./ButtonGroup";
-import { Skeleton } from "../primitives/skeleton";
 
 export interface SectionProps extends Omit<SurfaceProps, "children"> {
   /** Section title */

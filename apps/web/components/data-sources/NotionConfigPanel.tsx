@@ -3,11 +3,11 @@ import type {
   NotionProperty,
 } from "@dashframe/connector-notion";
 import {
+  Button,
   Card,
   CardContent,
-  Button,
-  Label,
   Checkbox,
+  Label,
   Select,
   SelectContent,
   SelectItem,

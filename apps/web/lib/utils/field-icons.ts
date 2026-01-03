@@ -5,15 +5,15 @@
  * Used in field selectors, axis configuration, and data model displays.
  */
 
+import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
 import type { LucideIcon } from "@dashframe/ui/icons";
 import {
-  NumberTypeIcon,
-  DateTypeIcon,
   BooleanTypeIcon,
-  TextTypeIcon,
   CalculatorIcon,
+  DateTypeIcon,
+  NumberTypeIcon,
+  TextTypeIcon,
 } from "@dashframe/ui/icons";
-import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
 
 /**
  * Get icon for a field based on its type string.

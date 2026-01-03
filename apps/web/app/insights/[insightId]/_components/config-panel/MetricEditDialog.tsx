@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import type {
+  AggregationType,
+  DataTable,
+  InsightMetric,
+} from "@dashframe/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
   Select,
@@ -17,11 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@dashframe/ui";
-import type {
-  DataTable,
-  InsightMetric,
-  AggregationType,
-} from "@dashframe/types";
+import { useMemo, useState } from "react";
 
 interface MetricEditDialogProps {
   metric: InsightMetric | null;

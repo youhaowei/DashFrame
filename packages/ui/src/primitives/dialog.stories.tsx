@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { Button } from "../components/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog";
-import { Button } from "../components/button";
 import { Input } from "./input";
 import { Label } from "./label";
 

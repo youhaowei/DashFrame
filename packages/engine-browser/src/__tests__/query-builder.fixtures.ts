@@ -12,9 +12,9 @@
  * Note: The vi.mock() for BrowserDataFrame must be in the test file that needs it,
  * not in this fixtures file, because Vitest hoists mocks to the top of each file.
  */
-import { vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { vi } from "vitest";
 import { QueryBuilder } from "../query-builder";
 
 /**

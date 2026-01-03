@@ -11,8 +11,8 @@
  * appends explanatory notes to the changelog.
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { resolve, join, dirname } from "path";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);

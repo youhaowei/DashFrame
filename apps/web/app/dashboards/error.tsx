@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
 import { Button, DashboardIcon } from "@dashframe/ui";
+import { useEffect } from "react";
 
 interface ErrorProps {
   error: Error & { digest?: string };

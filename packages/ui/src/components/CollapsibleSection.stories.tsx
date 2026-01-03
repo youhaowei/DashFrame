@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
+import { DatabaseIcon, PlusIcon } from "../lib/icons";
+import { Button } from "../primitives/button";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 import { Panel } from "./Panel";
-import { Button } from "../primitives/button";
-import { DatabaseIcon, PlusIcon } from "../lib/icons";
-import { useState } from "react";
 
 const meta = {
   title: "Components/Layout/CollapsibleSection",

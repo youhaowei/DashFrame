@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { cn, Surface } from "@dashframe/ui";
-import { Button } from "@dashframe/ui/primitives/button";
-import { EditIcon, DragHandleIcon, DeleteIcon } from "@dashframe/ui/icons";
-import type { DashboardItem as DashboardItemType } from "@dashframe/types";
-import { useDashboardMutations } from "@dashframe/core";
-import { MarkdownWidget } from "./MarkdownWidget";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { useDashboardMutations } from "@dashframe/core";
+import type { DashboardItem as DashboardItemType } from "@dashframe/types";
+import { cn, Surface } from "@dashframe/ui";
+import { DeleteIcon, DragHandleIcon, EditIcon } from "@dashframe/ui/icons";
+import { Button } from "@dashframe/ui/primitives/button";
+import { useState } from "react";
+import { MarkdownWidget } from "./MarkdownWidget";
 
 interface DashboardItemProps {
   item: DashboardItemType;

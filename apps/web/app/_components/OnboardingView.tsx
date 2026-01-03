@@ -1,8 +1,8 @@
 "use client";
 
-import { Card, CardContent, ChartIcon } from "@dashframe/ui";
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { Card, CardContent, ChartIcon } from "@dashframe/ui";
 
 const WelcomeHeader = () => (
   <div className="mb-8 text-center">

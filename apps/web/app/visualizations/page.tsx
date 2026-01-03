@@ -1,37 +1,37 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
-  useVisualizations,
-  useVisualizationMutations,
-  useInsights,
   useDataSources,
   useDataTables,
+  useInsights,
+  useVisualizationMutations,
+  useVisualizations,
 } from "@dashframe/core";
-import type { Visualization, Insight, UUID } from "@dashframe/types";
+import type { Insight, UUID, Visualization } from "@dashframe/types";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
-  Input,
-  Badge,
   ChartIcon,
-  TableIcon,
-  PlusIcon,
   DeleteIcon,
-  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  TableIcon,
 } from "@dashframe/ui";
 import {
-  SearchIcon,
-  ExternalLinkIcon,
   DataPointIcon,
+  ExternalLinkIcon,
+  SearchIcon,
 } from "@dashframe/ui/icons";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 // Type for visualization with joined details
 type VisualizationWithDetails = {

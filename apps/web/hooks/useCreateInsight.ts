@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { getInsight, useInsightMutations } from "@dashframe/core";
 import { useRouter } from "next/navigation";
-import { useInsightMutations, getInsight } from "@dashframe/core";
+import { useCallback } from "react";
 
 /**
  * Creates insights and navigates to their pages.

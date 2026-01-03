@@ -1,12 +1,12 @@
 "use client";
 
+import type { ReactElement } from "react";
+import { cn } from "../../lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../../primitives/tooltip";
-import { cn } from "../../lib/utils";
-import type { ReactElement } from "react";
 
 interface SharedTooltipProps {
   content: React.ReactNode;

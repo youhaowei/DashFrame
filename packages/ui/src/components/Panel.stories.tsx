@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Panel, PanelSection } from "./Panel";
+import { DatabaseIcon, DeleteIcon, PlusIcon, RefreshIcon } from "../lib/icons";
 import { Button } from "../primitives/button";
-import { DatabaseIcon, PlusIcon, RefreshIcon, DeleteIcon } from "../lib/icons";
+import { Panel, PanelSection } from "./Panel";
 
 const meta = {
   title: "Components/Layout/Panel",

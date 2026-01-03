@@ -1,16 +1,16 @@
-import Dexie, { type EntityTable } from "dexie";
 import type {
-  UUID,
+  DataFrameAnalysis,
+  DataFrameJSON,
   Field,
+  InsightMetric,
   Metric,
   SourceSchema,
-  InsightMetric,
+  UUID,
   VegaLiteSpec,
-  VisualizationType,
   VisualizationEncoding,
-  DataFrameJSON,
-  DataFrameAnalysis,
+  VisualizationType,
 } from "@dashframe/types";
+import Dexie, { type EntityTable } from "dexie";
 
 // ============================================================================
 // Database Entity Types (Flat Tables)

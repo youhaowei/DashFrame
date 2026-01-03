@@ -1,14 +1,14 @@
+import type {
+  CompiledInsight,
+  Insight,
+  InsightFilter,
+  InsightMetric,
+  InsightMutations,
+  UseQueryResult,
+  UUID,
+} from "@dashframe/types";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import type {
-  UUID,
-  InsightMetric,
-  Insight,
-  CompiledInsight,
-  InsightFilter,
-  UseQueryResult,
-  InsightMutations,
-} from "@dashframe/types";
 import { db, type InsightEntity } from "../db";
 
 // ============================================================================

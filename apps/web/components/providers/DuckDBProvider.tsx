@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useRef } from "react";
-import * as duckdb from "@duckdb/duckdb-wasm";
-import { clearAllTableCaches } from "@dashframe/engine-browser";
 import { clearInsightViewCache } from "@/hooks/useInsightView";
+import { clearAllTableCaches } from "@dashframe/engine-browser";
+import * as duckdb from "@duckdb/duckdb-wasm";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 /**
  * Custom DuckDB logger with cleaner console output.

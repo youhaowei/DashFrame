@@ -1,21 +1,26 @@
 /* eslint-disable sonarjs/cognitive-complexity */
-import type { VisualizationType } from "../stores/types";
-import type { Insight } from "../stores/types";
+import {
+  applyDateTransformToSql,
+  extractUUIDFromColumnAlias,
+  getAxisTypeForTransform,
+  selectTemporalAggregation,
+  temporalTransform,
+} from "@dashframe/engine";
 import type {
-  Field,
-  ChartEncoding,
   ChannelTransform,
+  ChartEncoding,
   ChartTag,
   ColumnAnalysis,
   DateAnalysis,
+  Field,
 } from "@dashframe/types";
+import type { Insight, VisualizationType } from "../stores/types";
 import {
-  selectTemporalAggregation,
-  applyDateTransformToSql,
-  getAxisTypeForTransform,
-  temporalTransform,
-  extractUUIDFromColumnAlias,
-} from "@dashframe/engine";
+  hasNumericalVariance,
+  isBlockedColumn,
+  isSuitableCategoricalXAxis,
+  isSuitableColorColumn,
+} from "./encoding-criteria";
 
 /**
  * Re-export ChartEncoding as SuggestionEncoding for backwards compatibility.
@@ -34,12 +39,6 @@ type ExtendedColumnAnalysis = ColumnAnalysis & {
   /** User-visible display name from field metadata */
   displayName: string;
 };
-import {
-  isBlockedColumn,
-  hasNumericalVariance,
-  isSuitableCategoricalXAxis,
-  isSuitableColorColumn,
-} from "./encoding-criteria";
 
 /**
  * Enrich column analysis with display names from field metadata.
@@ -1412,9 +1411,9 @@ function rankSuggestions(
 // ============================================================================
 
 import {
-  getChartTypesForTag,
-  CHART_TYPE_METADATA,
   CHART_TAG_METADATA,
+  CHART_TYPE_METADATA,
+  getChartTypesForTag,
 } from "@dashframe/types";
 
 /**

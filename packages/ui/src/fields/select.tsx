@@ -1,15 +1,15 @@
 "use client";
 
+import * as SelectPrimitiveParts from "@radix-ui/react-select";
+import { CheckIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 import { Field, FieldLabel } from "../primitives/field";
 import {
-  Select as SelectPrimitive,
   SelectContent,
+  Select as SelectPrimitive,
   SelectTrigger,
   SelectValue,
 } from "../primitives/select";
-import { CheckIcon } from "../lib/icons";
-import { cn } from "../lib/utils";
-import * as SelectPrimitiveParts from "@radix-ui/react-select";
 
 interface SelectOption {
   label: string;

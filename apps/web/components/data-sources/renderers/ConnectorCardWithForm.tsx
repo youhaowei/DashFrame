@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectorForm } from "@/hooks/useConnectorForm";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -8,7 +9,6 @@ import {
   type RemoteApiConnector,
   type RemoteDatabase,
 } from "@dashframe/engine";
-import { useConnectorForm } from "@/hooks/useConnectorForm";
 import { ConnectorCard } from "./ConnectorCard";
 import { FormFieldRenderer } from "./FormFieldRenderer";
 

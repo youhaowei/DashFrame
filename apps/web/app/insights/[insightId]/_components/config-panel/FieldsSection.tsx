@@ -1,27 +1,27 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
-  Button,
   Badge,
-  SortableList,
-  type SortableListItem,
+  Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  SortableList,
   cn,
+  type SortableListItem,
 } from "@dashframe/ui";
 import {
+  BooleanTypeIcon,
   ChevronRightIcon,
   CloseIcon,
-  PlusIcon,
-  NumberTypeIcon,
-  EditIcon,
   DateTypeIcon,
-  BooleanTypeIcon,
+  EditIcon,
+  NumberTypeIcon,
+  PlusIcon,
   TextTypeIcon,
 } from "@dashframe/ui/icons";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { useCallback, useState } from "react";
 
 /**
  * Render field type icon based on type string.

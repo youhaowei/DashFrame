@@ -13,15 +13,15 @@ export type {
 
 export type { Field, SourceSchema } from "./field";
 
-export type { AggregationType, Metric, InsightMetric } from "./metric";
+export type { AggregationType, InsightMetric, Metric } from "./metric";
 
 export type {
-  DataFrameStorageLocation,
-  DataFrameJSON,
   DataFrame,
-  DataFrameFactory,
-  DataFrameRow,
   DataFrameData,
+  DataFrameFactory,
+  DataFrameJSON,
+  DataFrameRow,
+  DataFrameStorageLocation,
 } from "./dataframe";
 
 export type { DataTableField, DataTableInfo } from "./data-table-info";
@@ -33,54 +33,54 @@ export type { DataTableField, DataTableInfo } from "./data-table-info";
 export type { UseQueryResult } from "./repository-base";
 
 export type {
-  DataSource,
   CreateDataSourceInput,
-  UseDataSourcesResult,
+  DataSource,
   DataSourceMutations,
-  UseDataSources,
   UseDataSourceMutations,
+  UseDataSources,
+  UseDataSourcesResult,
 } from "./data-sources";
 
 export type {
   DataTable,
-  UseDataTablesResult,
   DataTableMutations,
-  UseDataTables,
   UseDataTableMutations,
+  UseDataTables,
+  UseDataTablesResult,
 } from "./data-tables";
 
 export type {
-  InsightFilter,
-  InsightSort,
-  InsightJoinConfig,
-  Insight,
   CompiledInsight,
+  Insight,
+  InsightFilter,
+  InsightJoinConfig,
   InsightMutations,
-  UseInsights,
+  InsightSort,
   UseInsightMutations,
+  UseInsights,
 } from "./insights";
 
 export type {
-  VegaLiteSpec,
-  VisualizationType,
   AxisType,
-  VisualizationEncoding,
-  Visualization,
-  UseVisualizationsResult,
-  VisualizationMutations,
-  UseVisualizations,
-  UseVisualizationMutations,
   ChartTag,
   ChartTypeMetadata,
+  UseVisualizationMutations,
+  UseVisualizations,
+  UseVisualizationsResult,
+  VegaLiteSpec,
+  Visualization,
+  VisualizationEncoding,
+  VisualizationMutations,
+  VisualizationType,
 } from "./visualizations";
 
 export {
-  CHART_TYPE_METADATA,
   CHART_TAG_METADATA,
+  CHART_TYPE_METADATA,
+  SCATTER_MAX_POINTS,
+  getAvailableTags,
   getChartTypesForTag,
   getTagsForChartType,
-  getAvailableTags,
-  SCATTER_MAX_POINTS,
 } from "./visualizations";
 
 // =============================================================================
@@ -88,36 +88,36 @@ export {
 // =============================================================================
 
 export type {
+  CategoricalDateGroup,
+  ChannelTransform,
+  ChartEncoding,
+  DateTransform,
+  EncodingType,
+  EncodingValue,
   FieldEncodingValue,
   MetricEncodingValue,
-  EncodingValue,
-  EncodingType,
   ParsedEncoding,
-  ChartEncoding,
   TemporalAggregation,
-  CategoricalDateGroup,
-  DateTransform,
-  ChannelTransform,
 } from "./encoding-helpers";
 
 export {
-  parseEncoding,
   fieldEncoding,
-  metricEncoding,
   isFieldEncoding,
   isMetricEncoding,
   isValidEncoding,
+  metricEncoding,
+  parseEncoding,
 } from "./encoding-helpers";
 
 export type {
-  DashboardItemType,
-  DashboardItem,
-  Dashboard,
-  UseDashboardsResult,
   CreateItemInput,
+  Dashboard,
+  DashboardItem,
+  DashboardItemType,
   DashboardMutations,
-  UseDashboards,
   UseDashboardMutations,
+  UseDashboards,
+  UseDashboardsResult,
 } from "./dashboards";
 
 // =============================================================================
@@ -125,28 +125,28 @@ export type {
 // =============================================================================
 
 export type {
-  ColumnAnalysisBase,
-  StringSemantic,
-  NumberSemantic,
-  DateSemantic,
-  BooleanSemantic,
-  ArraySemantic,
-  UnknownSemantic,
-  StringAnalysis,
-  NumberAnalysis,
-  DateAnalysis,
-  BooleanAnalysis,
   ArrayAnalysis,
-  UnknownAnalysis,
+  ArraySemantic,
+  BooleanAnalysis,
+  BooleanSemantic,
   ColumnAnalysis,
+  ColumnAnalysisBase,
+  ColumnCategory,
   ColumnDataType,
   ColumnSemantic,
   DataFrameAnalysis,
-  ColumnCategory,
+  DateAnalysis,
+  DateSemantic,
+  NumberAnalysis,
+  NumberSemantic,
+  StringAnalysis,
+  StringSemantic,
+  UnknownAnalysis,
+  UnknownSemantic,
 } from "./column-analysis";
 
 export {
+  CARDINALITY_THRESHOLDS,
   getLegacyCategory,
   looksLikeIdentifier,
-  CARDINALITY_THRESHOLDS,
 } from "./column-analysis";

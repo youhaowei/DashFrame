@@ -1,36 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
-  useDataSources,
   useDataSourceMutations,
+  useDataSources,
   useDataTables,
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
-  Input,
-  Badge,
   DatabaseIcon,
-  TableIcon,
-  PlusIcon,
   DeleteIcon,
-  MoreIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  TableIcon,
 } from "@dashframe/ui";
 import {
-  SearchIcon,
-  ExternalLinkIcon,
   CloudIcon,
+  ExternalLinkIcon,
+  SearchIcon,
   SpreadsheetIcon,
 } from "@dashframe/ui/icons";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 // Type for data source with table count
 type DataSourceWithTables = {

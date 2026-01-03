@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  Button,
-} from "@dashframe/ui";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@dashframe/ui";
+import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
 
 interface CreateVisualizationModalProps {
   isOpen: boolean;

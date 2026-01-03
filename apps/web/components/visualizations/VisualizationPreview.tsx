@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
-import type { Visualization, ChartEncoding } from "@dashframe/types";
-import { parseEncoding } from "@dashframe/types";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import { useInsight } from "@dashframe/core";
-import { Spinner } from "@dashframe/ui";
 import { useInsightView } from "@/hooks/useInsightView";
+import { useInsight } from "@dashframe/core";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import type { ChartEncoding, Visualization } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
+import { Spinner } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { useMemo } from "react";
 
 const PREVIEW_HEIGHT = 200; // px
 

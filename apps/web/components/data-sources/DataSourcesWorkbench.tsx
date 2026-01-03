@@ -1,36 +1,36 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import {
-  useDataSources,
-  useDataTables,
-  useDataTableMutations,
-  useDataFrames,
-} from "@dashframe/core";
-import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { DataSourceSelector } from "./DataSourceSelector";
-import { DataSourceTree } from "./DataSourceTree";
-import { TableDetailPanel } from "./TableDetailPanel";
-import { FieldEditorModal } from "./FieldEditorModal";
-import { MetricEditorModal } from "./MetricEditorModal";
-import { AddConnectionPanel } from "./AddConnectionPanel";
+import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  Button,
-} from "@dashframe/ui";
-import { toast } from "sonner";
-import type { Field, Metric } from "@dashframe/types";
+  useDataFrames,
+  useDataSources,
+  useDataTableMutations,
+  useDataTables,
+} from "@dashframe/core";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
+import type { Field, Metric } from "@dashframe/types";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@dashframe/ui";
+import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { AddConnectionPanel } from "./AddConnectionPanel";
+import { DataSourceSelector } from "./DataSourceSelector";
+import { DataSourceTree } from "./DataSourceTree";
+import { FieldEditorModal } from "./FieldEditorModal";
+import { MetricEditorModal } from "./MetricEditorModal";
+import { TableDetailPanel } from "./TableDetailPanel";
 
 export function DataSourcesWorkbench() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);

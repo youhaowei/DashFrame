@@ -1,23 +1,23 @@
 "use client";
 
-import { useState, useMemo, useEffect, useLayoutEffect, useRef } from "react";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
+import { useInsightView } from "@/hooks/useInsightView";
+import { useInsights, useVisualizations } from "@dashframe/core";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
 import {
   ChartIcon,
-  TableIcon,
   LayersIcon,
+  Spinner,
   Surface,
+  TableIcon,
   Toggle,
   VirtualTable,
-  Spinner,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
-import { useVisualizations, useInsights } from "@dashframe/core";
-import type { Visualization, ChartEncoding, Insight } from "@dashframe/types";
-import { parseEncoding } from "@dashframe/types";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import { useInsightView } from "@/hooks/useInsightView";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { Chart } from "@dashframe/visualization";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;

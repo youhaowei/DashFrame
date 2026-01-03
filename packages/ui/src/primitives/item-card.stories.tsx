@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { ItemCard } from "./item-card";
 import {
-  DatabaseIcon,
   ChartIcon,
-  TableIcon,
-  EditIcon,
+  DatabaseIcon,
   DeleteIcon,
+  EditIcon,
+  TableIcon,
 } from "../lib/icons";
+import { ItemCard } from "./item-card";
 
 const meta = {
   title: "Primitives/Cards/ItemCard",

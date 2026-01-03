@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
-import type { Insight, DataTable } from "@dashframe/types";
+import type { DataTable, Insight } from "@dashframe/types";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 
 interface JoinFlowModalProps {
   insight: Insight;

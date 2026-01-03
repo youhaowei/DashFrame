@@ -1,23 +1,23 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { SectionList, ArrowLeftIcon, Button } from "@dashframe/ui";
+import { handleFileConnectorResult } from "@/lib/local-csv-handler";
+import {
+  useDataFrames,
+  useDataSources,
+  useDataTables,
+  useInsights,
+} from "@dashframe/core";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import {
-  useDataSources,
-  useDataTables,
-  useInsights,
-  useDataFrames,
-} from "@dashframe/core";
-import { handleFileConnectorResult } from "@/lib/local-csv-handler";
+import { ArrowLeftIcon, Button, SectionList } from "@dashframe/ui";
+import { useCallback, useMemo, useState } from "react";
+import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
-import { AddConnectionPanel } from "./AddConnectionPanel";
 
 export interface DataPickerContentProps {
   /**

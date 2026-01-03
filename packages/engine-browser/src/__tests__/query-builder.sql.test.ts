@@ -11,12 +11,12 @@
  * - Complex query generation (buildPlan)
  * - Edge cases for SQL generation
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataFrame } from "@dashframe/engine";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createMockDataFrame,
   createMockConnection,
+  createMockDataFrame,
   createTestQueryBuilder,
 } from "./query-builder.fixtures";
 

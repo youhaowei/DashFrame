@@ -1,15 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
-  useInsights,
-  useInsightMutations,
-  useVisualizations,
   useDataSources,
   useDataTables,
+  useInsightMutations,
+  useInsights,
+  useVisualizations,
 } from "@dashframe/core";
-import type { Insight, DataTable, UUID } from "@dashframe/types";
+import type { DataTable, Insight, UUID } from "@dashframe/types";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  ChartIcon,
+  DeleteIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  FileIcon,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "@dashframe/ui";
+import { ExternalLinkIcon, SearchIcon } from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 // Type for insight with joined details
 type InsightWithDetails = {
@@ -38,25 +57,6 @@ function getInsightState(
   if (isConfigured) return "configured";
   return "draft";
 }
-import {
-  Button,
-  Card,
-  CardContent,
-  Input,
-  Badge,
-  ChartIcon,
-  PlusIcon,
-  DeleteIcon,
-  SettingsIcon,
-  FileIcon,
-  MoreIcon,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@dashframe/ui";
-import { SearchIcon, ExternalLinkIcon } from "@dashframe/ui/icons";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
  * Insights Management Page

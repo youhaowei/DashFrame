@@ -1,12 +1,12 @@
-import { z } from "zod";
-import { router, publicProcedure } from "../server";
 import {
   fetchNotionDatabases,
   fetchNotionDatabaseSchema,
-  notionToDataFrame,
   generateFieldsFromNotionSchema,
+  notionToDataFrame,
   type NotionConfig,
 } from "@dashframe/connector-notion";
+import { z } from "zod";
+import { publicProcedure, router } from "../server";
 
 export const notionRouter = router({
   listDatabases: publicProcedure

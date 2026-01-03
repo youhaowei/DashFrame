@@ -1,7 +1,7 @@
-import type { UUID } from "./uuid";
 import type { Field, SourceSchema } from "./field";
 import type { Metric } from "./metric";
 import type { UseQueryResult } from "./repository-base";
+import type { UUID } from "./uuid";
 
 // ============================================================================
 // DataTable Type

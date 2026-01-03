@@ -1,20 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import type {
+  CategoricalDateGroup,
+  ChannelTransform,
+  TemporalAggregation,
+} from "@dashframe/types";
 import {
+  Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Label,
 } from "@dashframe/ui";
 import { DateTypeIcon } from "@dashframe/ui/icons";
-import type {
-  TemporalAggregation,
-  CategoricalDateGroup,
-  ChannelTransform,
-} from "@dashframe/types";
+import { useMemo } from "react";
 
 /**
  * Temporal aggregation options for time series charts.

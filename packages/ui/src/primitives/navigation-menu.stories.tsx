@@ -1,5 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
+  ChartIcon,
+  DatabaseIcon,
+  FileIcon,
+  SettingsIcon,
+  ShieldIcon,
+  UsersIcon,
+} from "../lib/icons";
+import {
   NavigationMenu,
   NavigationMenuContent,
   NavigationMenuItem,
@@ -7,14 +15,6 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
 } from "./navigation-menu";
-import {
-  DatabaseIcon,
-  ChartIcon,
-  SettingsIcon,
-  FileIcon,
-  UsersIcon,
-  ShieldIcon,
-} from "../lib/icons";
 
 const meta = {
   title: "Primitives/Navigation/NavigationMenu",

@@ -1,36 +1,36 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { trpc } from "@/lib/trpc/Provider";
+import type { NotionProperty } from "@dashframe/connector-notion";
+import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 import {
   useDataSources,
-  useDataTables,
   useDataTableMutations,
+  useDataTables,
 } from "@dashframe/core";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataTable, Field } from "@dashframe/types";
 import {
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Surface,
-  Button,
   ChevronDownIcon,
   ChevronUpIcon,
-  DatabaseIcon,
-  LayersIcon,
-  RefreshIcon,
   cn,
+  DatabaseIcon,
   InputField,
+  LayersIcon,
   MultiSelectField,
+  RefreshIcon,
+  Surface,
   VirtualTable,
   type VirtualTableColumn,
 } from "@dashframe/ui";
-import { trpc } from "@/lib/trpc/Provider";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import type { NotionProperty } from "@dashframe/connector-notion";
-import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;

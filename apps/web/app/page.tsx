@@ -2,8 +2,8 @@
 
 import { useVisualizations } from "@dashframe/core";
 import { Spinner } from "@dashframe/ui";
-import { OnboardingView } from "./_components/OnboardingView";
 import { HomeView } from "./_components/HomeView";
+import { OnboardingView } from "./_components/OnboardingView";
 
 /**
  * Home Page

@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
-import { ItemCard, type ItemAction } from "../primitives/item-card";
-import { cn } from "../lib/utils";
 import type { LucideIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
+import { ItemCard, type ItemAction } from "../primitives/item-card";
+import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
 
 export interface ListItem {
   /**

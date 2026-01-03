@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { Breadcrumb, cn, type BreadcrumbItem } from "@dashframe/ui";
 import Link from "next/link";
-import { cn, Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
+import type { ReactNode } from "react";
 
 export interface AppLayoutProps {
   /** Breadcrumb navigation items */
@@ -113,8 +113,10 @@ export function AppLayout({
 /**
  * @deprecated Use AppLayout instead. This is a backward-compatible alias.
  */
-export interface WorkbenchLayoutProps
-  extends Omit<AppLayoutProps, "breadcrumbs" | "headerContent"> {
+export interface WorkbenchLayoutProps extends Omit<
+  AppLayoutProps,
+  "breadcrumbs" | "headerContent"
+> {
   /** @deprecated Use breadcrumbs instead */
   header?: ReactNode;
 }

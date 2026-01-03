@@ -10,16 +10,16 @@
  */
 
 import {
-  RemoteApiConnector,
   DataFrame,
-  type FormField,
-  type RemoteDatabase,
-  type ValidationResult,
+  RemoteApiConnector,
   type ConnectorQueryResult,
+  type FormField,
   type QueryOptions,
+  type RemoteDatabase,
   type UUID,
+  type ValidationResult,
 } from "@dashframe/engine-browser";
-import { listDatabases, getDatabaseSchema, queryDatabase } from "./client";
+import { getDatabaseSchema, listDatabases, queryDatabase } from "./client";
 import { convertNotionToDataFrame } from "./converter";
 import { generateFieldsFromNotionSchema } from "./index";
 

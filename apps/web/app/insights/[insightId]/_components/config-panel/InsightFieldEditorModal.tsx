@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
+  Badge,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  Badge,
   Input,
   cn,
 } from "@dashframe/ui";
-import { NumberTypeIcon, DatabaseIcon, SearchIcon } from "@dashframe/ui/icons";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@dashframe/ui/icons";
+import { useMemo, useState } from "react";
 
 interface InsightFieldEditorModalProps {
   isOpen: boolean;

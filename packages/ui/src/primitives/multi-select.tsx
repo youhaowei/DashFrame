@@ -1,15 +1,15 @@
 "use client";
 
-import * as React from "react";
 import type { ColumnType } from "@dashframe/types";
+import * as React from "react";
 import {
+  BooleanTypeIcon,
   ChevronDownIcon,
   CloseIcon,
-  TextTypeIcon,
-  NumberTypeIcon,
   DateTypeIcon,
-  BooleanTypeIcon,
   DotIcon,
+  NumberTypeIcon,
+  TextTypeIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { Badge } from "./badge";

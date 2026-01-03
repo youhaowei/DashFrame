@@ -1,5 +1,6 @@
 "use client";
 
+import type * as duckdb from "@duckdb/duckdb-wasm";
 import {
   createContext,
   useContext,
@@ -7,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type * as duckdb from "@duckdb/duckdb-wasm";
 
 /**
  * Mosaic types - using dynamic import to avoid SSR issues.

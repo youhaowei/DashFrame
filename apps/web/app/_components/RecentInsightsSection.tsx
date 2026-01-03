@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { SparklesIcon } from "@dashframe/ui";
+import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 
-import { DashboardSection } from "./DashboardSection";
 import { useInsights } from "@dashframe/core";
+import { DashboardSection } from "./DashboardSection";
 
 /**
  * RecentInsightsSection - Displays the 3 most recent insights

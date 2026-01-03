@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback } from "react";
-import { SparklesIcon } from "@dashframe/ui/icons";
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { SparklesIcon } from "@dashframe/ui/icons";
+import { useCallback } from "react";
 
 interface EmptyStateProps {
   onCreateClick: () => void;

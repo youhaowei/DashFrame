@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { ChartIcon, DatabaseIcon, ItemList, SparklesIcon } from "@dashframe/ui";
 import { useRouter } from "next/navigation";
-import { ChartIcon, SparklesIcon, DatabaseIcon, ItemList } from "@dashframe/ui";
+import { useMemo } from "react";
 
 import {
-  useVisualizations,
-  useInsights,
   useDataSources,
+  useInsights,
+  useVisualizations,
 } from "@dashframe/core";
 
 /**

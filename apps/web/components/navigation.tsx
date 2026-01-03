@@ -1,46 +1,46 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  useDashboardMutations,
+  useDataFrameMutations,
+  useDataSourceMutations,
+  useInsightMutations,
+  useVisualizationMutations,
+} from "@dashframe/core";
 import {
   type LucideIcon,
+  Button,
+  ChartIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
-  DatabaseIcon,
-  GithubIcon,
-  DashboardIcon,
-  GridIcon,
-  ChartIcon,
-  SparklesIcon,
-  MenuIcon,
   CloseIcon,
-  SettingsIcon,
+  DashboardIcon,
+  DatabaseIcon,
   DeleteIcon,
-  Button,
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuTrigger,
+  GithubIcon,
+  GridIcon,
+  MenuIcon,
+  SettingsIcon,
+  SparklesIcon,
   cn,
 } from "@dashframe/ui";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
-import { ThemeToggle } from "@/components/theme-toggle";
-import {
-  useDataSourceMutations,
-  useInsightMutations,
-  useDataFrameMutations,
-  useVisualizationMutations,
-  useDashboardMutations,
-} from "@dashframe/core";
 
 type NavItem = {
   name: string;

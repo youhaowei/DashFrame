@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useState, useEffect } from "react";
 import {
   VirtualTable,
-  type VirtualTableColumnConfig,
-  type VirtualTableColumn,
   type FetchDataParams,
   type FetchDataResult,
+  type VirtualTableColumn,
+  type VirtualTableColumnConfig,
 } from "@dashframe/ui";
+import { useCallback, useEffect, useState } from "react";
 import { useDuckDB } from "../providers/DuckDBProvider";
 
 // ============================================================================

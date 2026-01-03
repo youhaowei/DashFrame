@@ -1,17 +1,17 @@
 "use client";
 
+import type { Visualization, VisualizationEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
 } from "@dashframe/ui";
-import { AlertCircleIcon, DeleteIcon, CloseIcon } from "@dashframe/ui/icons";
-import type { Visualization, VisualizationEncoding } from "@dashframe/types";
-import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { AlertCircleIcon, CloseIcon, DeleteIcon } from "@dashframe/ui/icons";
 
 /** Information about a visualization that uses the item being deleted */
 export interface AffectedVisualization {

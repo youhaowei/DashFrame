@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Stack } from "./Stack";
+import { ChartIcon, DatabaseIcon, FileIcon } from "../lib/icons";
 import { Button } from "../primitives/button";
-import { DatabaseIcon, ChartIcon, FileIcon } from "../lib/icons";
+import { Stack } from "./Stack";
 
 const meta = {
   title: "Components/Layout/Stack",

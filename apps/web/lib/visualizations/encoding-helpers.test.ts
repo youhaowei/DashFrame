@@ -1,16 +1,16 @@
 /**
  * Unit tests for encoding-helpers module
  */
-import { describe, it, expect } from "vitest";
+import type { UUID } from "@dashframe/types";
 import {
-  parseEncoding,
   fieldEncoding,
-  metricEncoding,
   isFieldEncoding,
   isMetricEncoding,
   isValidEncoding,
+  metricEncoding,
+  parseEncoding,
 } from "@dashframe/types";
-import type { UUID } from "@dashframe/types";
+import { describe, expect, it } from "vitest";
 
 describe("encoding-helpers", () => {
   const testFieldId = "abc-123-def-456" as UUID;

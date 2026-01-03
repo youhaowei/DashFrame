@@ -1,23 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useDashboardMutations, useDashboards } from "@dashframe/core";
 import {
   Button,
-  Input,
-  Surface,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Label,
-  PlusIcon,
   DashboardIcon,
   DeleteIcon,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  PlusIcon,
+  Surface,
 } from "@dashframe/ui";
-import { useDashboards, useDashboardMutations } from "@dashframe/core";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function DashboardsPage() {
   const router = useRouter();

@@ -1,61 +1,60 @@
 "use client";
 
-import { use, useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Button,
-  Input,
-  Badge,
-  Card,
-  CardContent,
-  ChartIcon,
-  DeleteIcon,
-  SelectField,
-  Spinner,
-} from "@dashframe/ui";
-import {
-  ArrowLeftIcon,
-  DataPointIcon,
-  ArrowUpDownIcon,
-  AlertCircleIcon,
-} from "@dashframe/ui/icons";
-import {
-  isSwapAllowed,
-  getSwappedChartType,
-  validateEncoding,
-} from "@/lib/visualizations/encoding-enforcer";
-import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
-import { CHART_TYPE_METADATA } from "@dashframe/types";
-import {
-  useVisualizations,
-  useVisualizationMutations,
-  useInsights,
-  useCompiledInsight,
-  useDataTables,
-  getDataFrame as getDexieDataFrame,
-} from "@dashframe/core";
-import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
-import { getColumnIcon } from "@/lib/utils/field-icons";
-import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import { parseEncoding } from "@dashframe/types";
-import type {
-  UUID,
-  DataFrameColumn,
-  DataFrameRow,
-  VisualizationType,
-  VisualizationEncoding,
-} from "@dashframe/types";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useInsightView } from "@/hooks/useInsightView";
 import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useInsightView } from "@/hooks/useInsightView";
-import type { Insight as InsightType } from "@dashframe/types";
+import { getColumnIcon } from "@/lib/utils/field-icons";
+import {
+  getSwappedChartType,
+  isSwapAllowed,
+  validateEncoding,
+} from "@/lib/visualizations/encoding-enforcer";
+import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
+import {
+  getDataFrame as getDexieDataFrame,
+  useCompiledInsight,
+  useDataTables,
+  useInsights,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@dashframe/core";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
+import type {
+  DataFrameColumn,
+  DataFrameRow,
+  Insight as InsightType,
+  UUID,
+  VisualizationEncoding,
+  VisualizationType,
+} from "@dashframe/types";
+import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  ChartIcon,
+  DeleteIcon,
+  Input,
+  SelectField,
+  Spinner,
+} from "@dashframe/ui";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  ArrowUpDownIcon,
+  DataPointIcon,
+} from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
 
 interface PageProps {
   params: Promise<{ visualizationId: string }>;

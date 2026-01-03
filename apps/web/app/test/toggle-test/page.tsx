@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import {
+  Card,
   ChartIcon,
-  TableIcon,
-  ListIcon,
+  DarkModeIcon,
   GridIcon,
   LightModeIcon,
-  DarkModeIcon,
+  ListIcon,
+  TableIcon,
   Toggle,
-  Card,
 } from "@dashframe/ui";
+import { useState } from "react";
 
 export default function ToggleTestPage() {
   const [defaultVariantValue, setDefaultVariantValue] = useState("chart");

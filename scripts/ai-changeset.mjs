@@ -19,12 +19,12 @@
  * Requires ANTHROPIC_API_KEY environment variable
  */
 
-import { execSync } from "child_process";
-import { writeFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-import { randomBytes, randomInt } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
+import { execSync } from "child_process";
+import { randomBytes, randomInt } from "crypto";
+import { writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -1,23 +1,23 @@
 "use client";
 
-import * as React from "react";
+import type { Visualization } from "@dashframe/types";
 import {
+  Button,
   cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Button,
   type ItemAction,
 } from "@dashframe/ui";
-import type { Visualization } from "@dashframe/types";
-import { VisualizationPreview } from "./VisualizationPreview";
 import {
   ChartIcon,
   DataPointIcon,
-  TableIcon,
   MoreIcon,
+  TableIcon,
 } from "@dashframe/ui/icons";
+import * as React from "react";
+import { VisualizationPreview } from "./VisualizationPreview";
 
 interface VisualizationItemCardProps {
   /** The visualization to display */

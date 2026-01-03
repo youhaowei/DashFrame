@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { GridIcon, ListIcon } from "../lib/icons";
 import type { LucideIcon } from "../lib/icons";
+import { GridIcon, ListIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 import { ButtonGroup, type ItemAction } from "./ButtonGroup";
 import { Toggle } from "./Toggle";
-import { cn } from "../lib/utils";
 
 export type { ItemAction } from "./button";
 

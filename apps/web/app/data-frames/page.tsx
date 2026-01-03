@@ -1,25 +1,25 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { DataGrid } from "@/components/data-grid";
 import {
-  useDataFrames,
   useDataFrameMutations,
+  useDataFrames,
   type DataFrameEntry,
 } from "@dashframe/core";
-import { DataGrid } from "@/components/data-grid";
-import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Button,
   ArrowUpDownIcon,
-  Input,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Input,
   Label,
 } from "@dashframe/ui";
+import type { ColumnDef } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
 
 export default function DataFramesPage() {
   // Use Dexie hooks for reactive data

@@ -4,16 +4,16 @@
  * These tests verify that analytics events are properly queued before PostHog
  * is initialized and correctly flushed once initialization completes.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { PostHog } from "posthog-js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PostHogEventQueue,
+  flushEventQueue,
   getEventQueue,
-  resetEventQueue,
   queueCapture,
   queueIdentify,
-  flushEventQueue,
+  resetEventQueue,
 } from "../event-queue";
-import type { PostHog } from "posthog-js";
 
 /**
  * Creates a mock PostHog instance for testing.

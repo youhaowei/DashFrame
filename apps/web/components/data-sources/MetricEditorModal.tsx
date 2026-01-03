@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import type { Field, Metric } from "@dashframe/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
   Select,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@dashframe/ui";
+import { useEffect, useState } from "react";
 
 type AggregationType =
   | "sum"

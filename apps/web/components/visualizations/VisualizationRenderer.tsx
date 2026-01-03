@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
-import { useVisualizations, useInsights, useDataTables } from "@dashframe/core";
-import { Chart } from "@dashframe/visualization";
-import { resolveEncodingToSql } from "@dashframe/engine";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
+import { resolveEncodingToSql } from "@dashframe/engine";
+import type { ChartEncoding, UUID } from "@dashframe/types";
 import { Spinner } from "@dashframe/ui";
-import type { UUID, ChartEncoding } from "@dashframe/types";
+import { Chart } from "@dashframe/visualization";
+import { useMemo } from "react";
 
 interface VisualizationRendererProps {
   /** The visualization ID to render */

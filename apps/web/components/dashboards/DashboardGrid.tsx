@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useCallback } from "react";
-import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
-import type { Dashboard } from "@dashframe/types";
 import { useDashboardMutations } from "@dashframe/core";
+import type { Dashboard } from "@dashframe/types";
+import { useCallback, useMemo, useRef } from "react";
+import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
