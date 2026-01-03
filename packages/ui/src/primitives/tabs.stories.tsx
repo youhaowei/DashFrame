@@ -24,7 +24,7 @@ export const Default: Story = {
       <TabsContent value="tab1">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Content for Tab 1</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             This is the content that appears when Tab 1 is selected.
           </p>
         </div>
@@ -32,7 +32,7 @@ export const Default: Story = {
       <TabsContent value="tab2">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Content for Tab 2</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             This is the content that appears when Tab 2 is selected.
           </p>
         </div>
@@ -40,7 +40,7 @@ export const Default: Story = {
       <TabsContent value="tab3">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Content for Tab 3</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             This is the content that appears when Tab 3 is selected.
           </p>
         </div>
@@ -63,15 +63,15 @@ export const AccountSettings: Story = {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Username</label>
-              <p className="text-sm text-muted-foreground">john_doe</p>
+              <p className="text-muted-foreground text-sm">john_doe</p>
             </div>
             <div>
               <label className="text-sm font-medium">Email</label>
-              <p className="text-sm text-muted-foreground">john@example.com</p>
+              <p className="text-muted-foreground text-sm">john@example.com</p>
             </div>
             <div>
               <label className="text-sm font-medium">Bio</label>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 Software developer passionate about building great products.
               </p>
             </div>
@@ -86,19 +86,19 @@ export const AccountSettings: Story = {
               <label className="text-sm font-medium">
                 Two-factor authentication
               </label>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 Enabled via authenticator app
               </p>
             </div>
             <div>
               <label className="text-sm font-medium">Password</label>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-muted-foreground text-sm">
                 Last changed 30 days ago
               </p>
             </div>
             <div>
               <label className="text-sm font-medium">Active sessions</label>
-              <p className="text-sm text-muted-foreground">3 active devices</p>
+              <p className="text-muted-foreground text-sm">3 active devices</p>
             </div>
           </div>
         </div>
@@ -111,15 +111,15 @@ export const AccountSettings: Story = {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Email notifications</label>
-              <p className="text-sm text-muted-foreground">Enabled</p>
+              <p className="text-muted-foreground text-sm">Enabled</p>
             </div>
             <div>
               <label className="text-sm font-medium">Push notifications</label>
-              <p className="text-sm text-muted-foreground">Disabled</p>
+              <p className="text-muted-foreground text-sm">Disabled</p>
             </div>
             <div>
               <label className="text-sm font-medium">Weekly digest</label>
-              <p className="text-sm text-muted-foreground">Enabled</p>
+              <p className="text-muted-foreground text-sm">Enabled</p>
             </div>
           </div>
         </div>
@@ -183,7 +183,7 @@ export const WithIcons: Story = {
       </TabsList>
       <TabsContent value="overview">
         <div className="rounded-md border p-6">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Welcome to your dashboard overview. Here you can see a summary of
             your key metrics and activities.
           </p>
@@ -191,14 +191,14 @@ export const WithIcons: Story = {
       </TabsContent>
       <TabsContent value="analytics">
         <div className="rounded-md border p-6">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             View detailed analytics and performance metrics for your account.
           </p>
         </div>
       </TabsContent>
       <TabsContent value="reports">
         <div className="rounded-md border p-6">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Generate and download comprehensive reports for your data.
           </p>
         </div>
@@ -220,7 +220,7 @@ export const DisabledTab: Story = {
       <TabsContent value="active">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Active Items</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             View all currently active items.
           </p>
         </div>
@@ -228,7 +228,7 @@ export const DisabledTab: Story = {
       <TabsContent value="upcoming">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Upcoming Items</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             View items scheduled for the future.
           </p>
         </div>
@@ -236,7 +236,7 @@ export const DisabledTab: Story = {
       <TabsContent value="archived">
         <div className="rounded-md border p-4">
           <h3 className="mb-2 font-semibold">Archived Items</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             This tab is disabled and cannot be accessed.
           </p>
         </div>
@@ -264,28 +264,28 @@ export const FullWidth: Story = {
       </TabsList>
       <TabsContent value="all">
         <div className="rounded-md border p-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Showing all tasks regardless of status.
           </p>
         </div>
       </TabsContent>
       <TabsContent value="pending">
         <div className="rounded-md border p-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Showing tasks that are pending completion.
           </p>
         </div>
       </TabsContent>
       <TabsContent value="completed">
         <div className="rounded-md border p-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Showing all completed tasks.
           </p>
         </div>
       </TabsContent>
       <TabsContent value="cancelled">
         <div className="rounded-md border p-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Showing cancelled tasks.
           </p>
         </div>

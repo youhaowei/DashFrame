@@ -511,7 +511,7 @@ export default function VisualizationPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="lg" className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Loading visualization...
           </p>
         </div>
@@ -525,7 +525,7 @@ export default function VisualizationPage({ params }: PageProps) {
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -564,7 +564,7 @@ export default function VisualizationPage({ params }: PageProps) {
                 {getVizIcon(visualization.visualizationType)}
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
-              <p className="mb-4 text-sm text-muted-foreground">
+              <p className="text-muted-foreground mb-4 text-sm">
                 The data for this visualization is not available. Please refresh
                 from the source insight.
               </p>
@@ -702,7 +702,7 @@ export default function VisualizationPage({ params }: PageProps) {
           </div>
 
           {/* Metadata row */}
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-3 text-xs">
             <span>
               {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
               {dataFrameEntry?.columnCount ?? "?"} columns
@@ -838,7 +838,7 @@ export default function VisualizationPage({ params }: PageProps) {
 
               return (
                 <div className="mt-3">
-                  <p className="mb-2 text-xs text-muted-foreground">
+                  <p className="text-muted-foreground mb-2 text-xs">
                     Similar charts
                   </p>
                   <div className="flex flex-wrap gap-1">
@@ -867,14 +867,14 @@ export default function VisualizationPage({ params }: PageProps) {
             <div className="border-t pt-4">
               <h3 className="mb-2 text-sm font-semibold">Source</h3>
               <Card
-                className="cursor-pointer transition-colors hover:bg-muted/50"
+                className="hover:bg-muted/50 cursor-pointer transition-colors"
                 onClick={() =>
                   router.push(`/insights/${visualization.insightId}`)
                 }
               >
                 <CardContent className="p-3">
                   <p className="truncate text-sm font-medium">Source Insight</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-muted-foreground text-xs">
                     Click to view insight details
                   </p>
                 </CardContent>

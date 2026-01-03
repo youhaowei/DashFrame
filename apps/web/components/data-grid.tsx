@@ -118,8 +118,8 @@ export function DataGrid<TData>({
         elevation="inset"
         className="flex flex-col items-center justify-center rounded-lg p-12 text-center"
       >
-        <p className="text-base font-medium text-foreground">{emptyMessage}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
+        <p className="text-foreground text-base font-medium">{emptyMessage}</p>
+        <p className="text-muted-foreground mt-1 text-sm">{emptyDescription}</p>
         {onCreate && (
           <Button label="Create New" onClick={onCreate} className="mt-4" />
         )}

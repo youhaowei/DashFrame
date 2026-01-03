@@ -103,12 +103,12 @@ export function EmptyState({
       aria-live="polite"
     >
       <Icon
-        className={cn(config.icon, "mb-4 text-muted-foreground")}
+        className={cn(config.icon, "text-muted-foreground mb-4")}
         aria-hidden="true"
       />
       <h3 className={cn(config.title, "mb-2 font-medium")}>{title}</h3>
       {description && (
-        <p className={cn(config.description, "mb-4 text-muted-foreground")}>
+        <p className={cn(config.description, "text-muted-foreground mb-4")}>
           {description}
         </p>
       )}

@@ -69,15 +69,15 @@ export function SuggestedInsights({
 
   if (suggestions.length === 0) {
     return (
-      <div className="rounded-lg border bg-card p-4">
-        <h3 className="mb-4 text-xs font-medium text-muted-foreground">
+      <div className="bg-card rounded-lg border p-4">
+        <h3 className="text-muted-foreground mb-4 text-xs font-medium">
           Suggested insights
         </h3>
         <div className="py-8 text-center">
-          <p className="mb-4 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mb-4 text-sm">
             No obvious chart suggestions for this data.
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             You can still create a custom visualization below.
           </p>
         </div>
@@ -86,9 +86,9 @@ export function SuggestedInsights({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="bg-card rounded-lg border p-4">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-xs font-medium text-muted-foreground">
+        <h3 className="text-muted-foreground text-xs font-medium">
           Suggested insights
         </h3>
         {onRegenerate && suggestions.length > 0 && (
@@ -103,7 +103,7 @@ export function SuggestedInsights({
         {suggestions.map((suggestion) => (
           <Card
             key={suggestion.id}
-            className="flex flex-col p-3 transition-colors hover:border-primary"
+            className="hover:border-primary flex flex-col p-3 transition-colors"
           >
             {/* Chart Preview */}
             <div className="mb-3 h-[120px] w-full overflow-hidden rounded-lg bg-transparent">
@@ -117,16 +117,16 @@ export function SuggestedInsights({
                   preview
                   className="h-[120px] w-full"
                   fallback={
-                    <div className="flex h-full w-full items-center justify-center rounded-lg bg-muted">
-                      <span className="text-xs text-muted-foreground">
+                    <div className="bg-muted flex h-full w-full items-center justify-center rounded-lg">
+                      <span className="text-muted-foreground text-xs">
                         Loading chart...
                       </span>
                     </div>
                   }
                 />
               ) : (
-                <div className="flex h-full w-full items-center justify-center rounded-lg bg-muted">
-                  <span className="text-xs text-muted-foreground">
+                <div className="bg-muted flex h-full w-full items-center justify-center rounded-lg">
+                  <span className="text-muted-foreground text-xs">
                     Initializing...
                   </span>
                 </div>
@@ -139,12 +139,12 @@ export function SuggestedInsights({
                 <h4 className="truncate text-sm font-medium">
                   {suggestion.title}
                 </h4>
-                <span className="ml-2 shrink-0 rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                <span className="bg-primary/10 text-primary ml-2 shrink-0 rounded px-2 py-0.5 text-xs">
                   {suggestion.chartType}
                 </span>
               </div>
 
-              <div className="mb-3 space-y-1 text-xs text-muted-foreground">
+              <div className="text-muted-foreground mb-3 space-y-1 text-xs">
                 <EncodingRow
                   label="X"
                   value={suggestion.encoding.xLabel ?? suggestion.encoding.x}

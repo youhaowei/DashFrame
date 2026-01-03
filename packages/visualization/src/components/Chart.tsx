@@ -285,7 +285,7 @@ export function Chart({
     <div
       ref={containerRef}
       className={cn(
-        "flex min-h-0 items-center justify-center overflow-hidden bg-muted/30",
+        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
         className,
       )}
       style={{

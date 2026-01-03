@@ -561,11 +561,11 @@ export function VirtualTable({
       {/* Loading indicator with animated spinner */}
       {isLoading && (
         <div
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-muted/50"
+          className="bg-muted/50 pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg"
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-center gap-2 rounded-lg bg-background/95 px-4 py-2 text-sm text-muted-foreground shadow-md">
+          <div className="bg-background/95 text-muted-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm shadow-md">
             <Spinner size="sm" aria-hidden="true" />
             <span>Loading data...</span>
           </div>
@@ -575,11 +575,11 @@ export function VirtualTable({
       {/* Table container */}
       <div
         ref={tableContainerRef}
-        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border"
+        className="border-border relative min-h-0 flex-1 overflow-auto rounded-lg border"
       >
         {/* Header */}
         <div
-          className="sticky top-0 z-10 border-b border-border bg-muted"
+          className="border-border bg-muted sticky top-0 z-10 border-b"
           style={{
             display: "grid",
             gridTemplateColumns,
@@ -605,8 +605,8 @@ export function VirtualTable({
                 type="button"
                 key={col.name}
                 className={cn(
-                  "cursor-pointer overflow-hidden text-left font-medium text-muted-foreground select-none",
-                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none",
+                  "text-muted-foreground cursor-pointer overflow-hidden text-left font-medium select-none",
+                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
@@ -631,7 +631,7 @@ export function VirtualTable({
 
         {/* Body */}
         <div
-          className="relative bg-card"
+          className="bg-card relative"
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
             minWidth: "max-content",
@@ -645,7 +645,7 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="absolute border-b border-border"
+                  className="border-border absolute border-b"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
@@ -664,7 +664,7 @@ export function VirtualTable({
                         fontSize,
                       )}
                     >
-                      <div className="h-3 w-16 animate-pulse rounded bg-muted/50" />
+                      <div className="bg-muted/50 h-3 w-16 animate-pulse rounded" />
                     </div>
                   ))}
                 </div>
@@ -675,7 +675,7 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="group absolute border-b border-border"
+                className="group border-border absolute border-b"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
@@ -736,7 +736,7 @@ export function VirtualTable({
             role="status"
             aria-live="polite"
           >
-            <span className="text-sm text-muted-foreground">
+            <span className="text-muted-foreground text-sm">
               No data available
             </span>
           </div>

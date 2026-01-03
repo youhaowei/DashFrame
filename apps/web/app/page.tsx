@@ -18,14 +18,14 @@ export default function HomePage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="bg-background flex h-screen items-center justify-center">
         <Spinner size="lg" className="text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="bg-background flex h-screen flex-col">
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl px-6 py-12">

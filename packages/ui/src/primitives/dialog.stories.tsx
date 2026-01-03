@@ -38,7 +38,7 @@ export const Default: Story = {
           </DialogDescription>
         </DialogHeader>
         <div className="py-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Dialog content goes here. You can add any components or text you
             need.
           </p>
@@ -96,7 +96,7 @@ export const FormDialog: Story = {
             <Label htmlFor="bio">Bio</Label>
             <textarea
               id="bio"
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="border-input placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[80px] w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="Tell us about yourself"
               defaultValue="I'm a software developer"
             />

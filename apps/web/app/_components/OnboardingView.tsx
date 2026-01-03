@@ -6,11 +6,11 @@ import { useCreateInsight } from "@/hooks/useCreateInsight";
 
 const WelcomeHeader = () => (
   <div className="mb-8 text-center">
-    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-      <ChartIcon className="h-6 w-6 text-primary" />
+    <div className="bg-primary/10 mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full">
+      <ChartIcon className="text-primary h-6 w-6" />
     </div>
     <h2 className="mb-2 text-2xl font-bold">Welcome to DashFrame</h2>
-    <p className="text-base text-muted-foreground">
+    <p className="text-muted-foreground text-base">
       Create beautiful visualizations from your data.
     </p>
   </div>

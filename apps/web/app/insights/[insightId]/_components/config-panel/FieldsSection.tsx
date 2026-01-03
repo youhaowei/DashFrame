@@ -108,14 +108,14 @@ export function FieldsSection({
       <div className="border-b">
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
-            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50">
+            <button className="hover:bg-accent/50 -ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors">
               <ChevronRightIcon
                 className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform",
+                  "text-muted-foreground h-4 w-4 transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <NumberTypeIcon className="h-4 w-4 text-muted-foreground" />
+              <NumberTypeIcon className="text-muted-foreground h-4 w-4" />
               <span className="text-sm leading-none font-medium">Fields</span>
               <Badge
                 variant="secondary"
@@ -149,7 +149,7 @@ export function FieldsSection({
                 )}
               />
             ) : (
-              <p className="py-2 text-sm text-muted-foreground">
+              <p className="text-muted-foreground py-2 text-sm">
                 No fields selected.
               </p>
             )}
@@ -190,7 +190,7 @@ function FieldItemContent({
           e.stopPropagation();
           onRenameClick();
         }}
-        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-full p-0.5"
         aria-label={`Rename ${field.displayName}`}
       >
         <EditIcon className="h-3 w-3" />
@@ -200,7 +200,7 @@ function FieldItemContent({
           e.stopPropagation();
           onRemove();
         }}
-        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 rounded-full p-0.5"
         aria-label={`Remove ${field.displayName}`}
       >
         <CloseIcon className="h-3 w-3" />

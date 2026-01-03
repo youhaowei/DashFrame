@@ -64,22 +64,22 @@ function FieldRenameForm({
 
       <div className="space-y-4 py-4">
         {/* Source info (read-only) */}
-        <div className="space-y-2 rounded-lg bg-muted px-3 py-3">
+        <div className="bg-muted space-y-2 rounded-lg px-3 py-3">
           {tableName && (
             <div className="flex items-start justify-between gap-4">
-              <span className="shrink-0 text-sm text-muted-foreground">
+              <span className="text-muted-foreground shrink-0 text-sm">
                 Table
               </span>
-              <span className="min-w-0 text-right text-sm break-all text-foreground">
+              <span className="text-foreground min-w-0 text-right text-sm break-all">
                 {tableName}
               </span>
             </div>
           )}
           <div className="flex items-start justify-between gap-4">
-            <span className="shrink-0 text-sm text-muted-foreground">
+            <span className="text-muted-foreground shrink-0 text-sm">
               Column
             </span>
-            <code className="min-w-0 text-right font-mono text-sm break-all text-foreground">
+            <code className="text-foreground min-w-0 text-right font-mono text-sm break-all">
               {columnName}
             </code>
           </div>

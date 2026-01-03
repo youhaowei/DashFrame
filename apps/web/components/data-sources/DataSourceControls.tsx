@@ -48,13 +48,13 @@ function CollapsibleSection({
     <Collapsible
       open={isOpen}
       onOpenChange={setIsOpen}
-      className={cn(!isFooter && "border-b border-border/40", className)}
+      className={cn(!isFooter && "border-border/40 border-b", className)}
     >
-      <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
+        <h3 className="text-foreground text-sm font-semibold">{title}</h3>
         <ChevronDownIcon
           className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform duration-200",
+            "text-muted-foreground h-4 w-4 transition-transform duration-200",
             // Footer collapses upward, so flip the logic
             isFooter ? !isOpen && "rotate-180" : isOpen && "rotate-180",
           )}
@@ -184,10 +184,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
         <Surface elevation="inset" className="w-full p-8 text-center">
-          <p className="text-base font-medium text-foreground">
+          <p className="text-foreground text-base font-medium">
             No data source selected
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             Select a data source or create a new one to configure settings.
           </p>
         </Surface>
@@ -233,7 +233,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   return (
     <Panel footer={actionsFooter}>
       {/* Name field at top */}
-      <div className="border-b border-border/40 px-4 pt-4 pb-3">
+      <div className="border-border/40 border-b px-4 pt-4 pb-3">
         <InputField
           label="Name"
           value={dataSource.name}
@@ -252,7 +252,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               className="font-mono text-xs"
               placeholder="secret_..."
             />
-            <p className="mt-1.5 text-xs text-muted-foreground">
+            <p className="text-muted-foreground mt-1.5 text-xs">
               Your Notion integration token
             </p>
           </div>
@@ -264,15 +264,15 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         <Collapsible
           open={isDataTablesOpen}
           onOpenChange={setIsDataTablesOpen}
-          className="border-b border-border/40"
+          className="border-border/40 border-b"
         >
-          <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30">
-            <h3 className="text-sm font-semibold text-foreground">
+          <CollapsibleTrigger className="hover:bg-muted/30 flex w-full items-center justify-between px-4 py-3 text-left transition-colors">
+            <h3 className="text-foreground text-sm font-semibold">
               Data Tables
             </h3>
             <div className="flex items-center gap-2">
               {lastFetchTime ? (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground text-[10px]">
                   synced{" "}
                   {(() => {
                     const diff = Date.now() - lastFetchTime;
@@ -284,7 +284,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                   })()}
                 </span>
               ) : (
-                <span className="text-[10px] text-muted-foreground/70 italic">
+                <span className="text-muted-foreground/70 text-[10px] italic">
                   not synced
                 </span>
               )}
@@ -310,7 +310,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 className={cn(
                   "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors",
                   "hover:bg-accent hover:text-accent-foreground",
-                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
                   isLoadingDatabases
                     ? "cursor-not-allowed opacity-50"
                     : "cursor-pointer",
@@ -327,7 +327,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               </div>
               <ChevronDownIcon
                 className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                  "text-muted-foreground h-4 w-4 transition-transform duration-200",
                   isDataTablesOpen && "rotate-180",
                 )}
               />
@@ -338,7 +338,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               {/* Configured Data Tables */}
               {dataTables.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  <p className="text-muted-foreground mb-2 text-xs font-medium">
                     Added ({dataTables.length})
                   </p>
                   <div className="space-y-1.5">
@@ -360,13 +360,13 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                       let statusText = null;
                       if (dt.lastFetchedAt) {
                         statusText = (
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          <p className="text-muted-foreground mt-0.5 text-[10px]">
                             {formatRelativeTime(dt.lastFetchedAt)}
                           </p>
                         );
                       } else if (!dt.dataFrameId) {
                         statusText = (
-                          <p className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
+                          <p className="text-muted-foreground/70 mt-0.5 text-[10px] italic">
                             No data cached
                           </p>
                         );
@@ -382,9 +382,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                             "shadow-sm",
                           )}
                         >
-                          <DatabaseIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <DatabaseIcon className="text-primary h-3.5 w-3.5 shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-semibold text-foreground">
+                            <p className="text-foreground truncate text-xs font-semibold">
                               {dt.name}
                             </p>
                             {statusText}
@@ -407,7 +407,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                   if (unconfiguredDatabases.length > 0) {
                     return (
                       <div>
-                        <p className="mb-2 text-xs font-medium text-muted-foreground">
+                        <p className="text-muted-foreground mb-2 text-xs font-medium">
                           Available Notion databases (
                           {unconfiguredDatabases.length})
                         </p>
@@ -415,11 +415,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                           {unconfiguredDatabases.map((db) => (
                             <div
                               key={db.id}
-                              className="flex items-center gap-2 rounded-md border border-dashed border-border/50 bg-muted/20 p-2"
+                              className="border-border/50 bg-muted/20 flex items-center gap-2 rounded-md border border-dashed p-2"
                             >
-                              <DatabaseIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                              <DatabaseIcon className="text-muted-foreground h-3 w-3 shrink-0" />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs font-medium text-foreground">
+                                <p className="text-foreground truncate text-xs font-medium">
                                   {db.title}
                                 </p>
                               </div>
@@ -439,14 +439,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                   }
                   if (dataTables.length > 0) {
                     return (
-                      <p className="py-2 text-center text-xs text-muted-foreground">
+                      <p className="text-muted-foreground py-2 text-center text-xs">
                         All Notion databases added
                       </p>
                     );
                   }
                   if (!lastFetchTime) {
                     return (
-                      <p className="py-3 text-center text-xs text-muted-foreground">
+                      <p className="text-muted-foreground py-3 text-center text-xs">
                         Click the refresh button to load databases
                       </p>
                     );
@@ -461,9 +461,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
       {/* Files count for CSV */}
       {dataSource.type === "csv" && (
-        <div className="border-b border-border/40 px-4 py-3">
-          <p className="text-xs font-medium text-muted-foreground">Files</p>
-          <p className="mt-1 text-sm font-medium text-foreground">
+        <div className="border-border/40 border-b px-4 py-3">
+          <p className="text-muted-foreground text-xs font-medium">Files</p>
+          <p className="text-foreground mt-1 text-sm font-medium">
             {allTables?.length ?? 0}{" "}
             {(allTables?.length ?? 0) === 1 ? "file" : "files"}
           </p>

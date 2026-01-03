@@ -31,7 +31,7 @@ export const Default: Story = {
   args: {
     defaultOpen: true,
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h3 className="mb-4 text-base font-semibold">Content Section</h3>
         <p className="text-sm">
           This content can be collapsed and expanded using the chevron button
@@ -49,7 +49,7 @@ export const StartsClosed: Story = {
   args: {
     defaultOpen: false,
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h3 className="mb-4 text-base font-semibold">Hidden Content</h3>
         <p className="text-sm">
           This section starts collapsed. Click the chevron to expand.
@@ -114,23 +114,23 @@ export const WithRichContent: Story = {
   args: {
     defaultOpen: true,
     children: (
-      <div className="space-y-4 rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card space-y-4 rounded-2xl border p-6">
         <div>
           <h3 className="mb-2 text-base font-semibold">Section Title</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             This section contains rich content with multiple elements.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl border border-border/60 p-4">
+          <div className="border-border/60 rounded-xl border p-4">
             <DatabaseIcon className="mb-2 h-5 w-5" />
             <p className="text-sm font-medium">PostgreSQL</p>
-            <p className="text-xs text-muted-foreground">12 tables</p>
+            <p className="text-muted-foreground text-xs">12 tables</p>
           </div>
-          <div className="rounded-xl border border-border/60 p-4">
+          <div className="border-border/60 rounded-xl border p-4">
             <DatabaseIcon className="mb-2 h-5 w-5" />
             <p className="text-sm font-medium">MongoDB</p>
-            <p className="text-xs text-muted-foreground">8 collections</p>
+            <p className="text-muted-foreground text-xs">8 collections</p>
           </div>
         </div>
         <Button className="w-full">
@@ -149,14 +149,14 @@ export const NestedSections: Story = {
   render: () => (
     <div className="space-y-4">
       <CollapsibleSection defaultOpen={true}>
-        <div className="rounded-2xl border border-border/60 bg-card p-6">
+        <div className="border-border/60 bg-card rounded-2xl border p-6">
           <h3 className="mb-4 text-base font-semibold">Parent Section</h3>
           <p className="mb-4 text-sm">This is the outer collapsible section.</p>
 
           <CollapsibleSection defaultOpen={false}>
-            <div className="rounded-xl border border-border/60 bg-muted/50 p-4">
+            <div className="border-border/60 bg-muted/50 rounded-xl border p-4">
               <h4 className="mb-2 text-sm font-semibold">Nested Section</h4>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 This is a nested collapsible section inside the parent.
               </p>
             </div>
@@ -178,7 +178,7 @@ export const SettingsPanel: Story = {
     >
       <div className="-m-6 space-y-4">
         <CollapsibleSection defaultOpen={true}>
-          <div className="border-b border-border/60 bg-card p-6">
+          <div className="border-border/60 bg-card border-b p-6">
             <h3 className="mb-4 text-sm font-semibold">General Settings</h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -198,7 +198,7 @@ export const SettingsPanel: Story = {
         </CollapsibleSection>
 
         <CollapsibleSection defaultOpen={false}>
-          <div className="border-b border-border/60 bg-card p-6">
+          <div className="border-border/60 bg-card border-b p-6">
             <h3 className="mb-4 text-sm font-semibold">Advanced Settings</h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -235,12 +235,12 @@ export const LongContent: Story = {
   args: {
     defaultOpen: true,
     children: (
-      <div className="space-y-4 rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card space-y-4 rounded-2xl border p-6">
         <h3 className="text-base font-semibold">Long Content Section</h3>
         {Array.from({ length: 10 }, (_, i) => (
-          <div key={i} className="rounded-xl border border-border/60 p-4">
+          <div key={i} className="border-border/60 rounded-xl border p-4">
             <h4 className="text-sm font-medium">Item {i + 1}</h4>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               This is a content item in a collapsible section
             </p>
           </div>
@@ -257,7 +257,7 @@ export const MinimalContent: Story = {
   args: {
     defaultOpen: true,
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <p className="text-sm">Simple collapsible content</p>
       </div>
     ),

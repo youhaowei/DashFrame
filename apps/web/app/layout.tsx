@@ -25,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${GeistSans.variable} ${GeistMono.variable} bg-background font-sans text-foreground`}
+        className={`${GeistSans.variable} ${GeistMono.variable} bg-background text-foreground font-sans`}
         suppressHydrationWarning
       >
         <ThemeProvider
@@ -56,10 +56,10 @@ export default function RootLayout({
                         />
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,rgba(64,64,64,0.16),transparent_55%)] opacity-60 dark:opacity-40" />
                         <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.1),transparent,rgba(255,255,255,0.02))] dark:bg-[linear-gradient(120deg,rgba(0,0,0,0.05),transparent,rgba(0,0,0,0.2))]" />
-                        <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] dark:bg-background/75" />
+                        <div className="bg-background/50 dark:bg-background/75 absolute inset-0 backdrop-blur-[2px]" />
                       </div>
 
-                      <div className="relative isolate flex min-h-screen flex-row bg-background text-foreground">
+                      <div className="bg-background text-foreground relative isolate flex min-h-screen flex-row">
                         <Navigation />
 
                         <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">

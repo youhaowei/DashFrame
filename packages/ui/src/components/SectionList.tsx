@@ -59,7 +59,7 @@ export function SectionList({
     <section className={cn("space-y-3", className)}>
       <h4
         className={cn(
-          "text-sm font-medium text-muted-foreground",
+          "text-muted-foreground text-sm font-medium",
           titleClassName,
         )}
       >
@@ -67,7 +67,7 @@ export function SectionList({
       </h4>
       <div className={cn("grid gap-3", contentClassName)}>{children}</div>
       {emptyMessage && !React.Children.count(children) && (
-        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+        <p className="text-muted-foreground text-sm">{emptyMessage}</p>
       )}
     </section>
   );

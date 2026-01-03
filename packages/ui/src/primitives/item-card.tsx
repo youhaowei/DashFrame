@@ -156,12 +156,12 @@ function ContentSection({
           </p>
         )}
         {subtitle && (
-          <span className="shrink-0 text-xs text-muted-foreground">
+          <span className="text-muted-foreground shrink-0 text-xs">
             {subtitle}
           </span>
         )}
         {badge && (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs">
             {badge}
           </span>
         )}
@@ -170,7 +170,7 @@ function ContentSection({
       </div>
       {content && <div className="mt-2">{content}</div>}
       {disabledReason && (
-        <p className="mt-1 text-xs text-muted-foreground">{disabledReason}</p>
+        <p className="text-muted-foreground mt-1 text-xs">{disabledReason}</p>
       )}
     </div>
   );
@@ -330,16 +330,16 @@ export function ItemCard({
         {...wrapperProps}
         className={cn(
           "group w-full overflow-hidden rounded-lg border text-left transition-colors transition-shadow",
-          isDisabled && "cursor-not-allowed border-border/40 opacity-50",
-          isClickable && "cursor-pointer hover:bg-accent/50",
-          isActiveAndEnabled && "border-primary ring-2 ring-primary",
+          isDisabled && "border-border/40 cursor-not-allowed opacity-50",
+          isClickable && "hover:bg-accent/50 cursor-pointer",
+          isActiveAndEnabled && "border-primary ring-primary ring-2",
           !isDisabled && !active && "border-border/60 hover:border-border",
           className,
         )}
       >
         {/* Preview Section */}
         <div
-          className="w-full bg-muted/30"
+          className="bg-muted/30 w-full"
           style={{ height: `${previewHeight}px` }}
         >
           {preview}
@@ -357,8 +357,8 @@ export function ItemCard({
       {...wrapperProps}
       className={cn(
         "group w-full rounded-lg border text-left transition-colors transition-shadow",
-        isDisabled && "cursor-not-allowed border-border/40 opacity-50",
-        isClickable && "cursor-pointer hover:bg-accent/50",
+        isDisabled && "border-border/40 cursor-not-allowed opacity-50",
+        isClickable && "hover:bg-accent/50 cursor-pointer",
         isActiveAndEnabled && "border-primary bg-primary/5",
         !isDisabled &&
           !active &&

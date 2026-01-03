@@ -18,7 +18,7 @@ const longContent = Array.from({ length: 50 }, (_, i) => `Item ${i + 1}`);
 
 export const VerticalScroll: Story = {
   render: () => (
-    <ScrollArea className="h-72 w-80 rounded-md border bg-card p-4">
+    <ScrollArea className="bg-card h-72 w-80 rounded-md border p-4">
       <div className="space-y-2">
         {longContent.map((item) => (
           <div key={item} className="text-sm">
@@ -32,12 +32,12 @@ export const VerticalScroll: Story = {
 
 export const HorizontalScroll: Story = {
   render: () => (
-    <ScrollArea className="w-96 rounded-md border bg-card whitespace-nowrap">
+    <ScrollArea className="bg-card w-96 rounded-md border whitespace-nowrap">
       <div className="flex w-max gap-4 p-4">
         {Array.from({ length: 20 }, (_, i) => (
           <div
             key={i}
-            className="flex h-20 w-40 shrink-0 items-center justify-center rounded-md bg-accent"
+            className="bg-accent flex h-20 w-40 shrink-0 items-center justify-center rounded-md"
           >
             Card {i + 1}
           </div>
@@ -49,7 +49,7 @@ export const HorizontalScroll: Story = {
 
 export const WithSeparators: Story = {
   render: () => (
-    <ScrollArea className="h-72 w-80 rounded-md border bg-card">
+    <ScrollArea className="bg-card h-72 w-80 rounded-md border">
       <div className="p-4">
         <h4 className="mb-4 text-sm leading-none font-medium">Tags</h4>
         {Array.from({ length: 30 }, (_, i) => (
@@ -65,7 +65,7 @@ export const WithSeparators: Story = {
 
 export const LongText: Story = {
   render: () => (
-    <ScrollArea className="h-80 w-96 rounded-md border bg-card p-4">
+    <ScrollArea className="bg-card h-80 w-96 rounded-md border p-4">
       <div className="space-y-4 text-sm">
         <p>
           Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
@@ -102,7 +102,7 @@ export const LongText: Story = {
 
 export const CodeBlock: Story = {
   render: () => (
-    <ScrollArea className="h-64 w-96 rounded-md border bg-card">
+    <ScrollArea className="bg-card h-64 w-96 rounded-md border">
       <pre className="p-4 text-xs">
         <code>
           {`function fibonacci(n: number): number {
@@ -134,7 +134,7 @@ console.log(fibonacciMemo(50)); // Much faster!`}
 
 export const DataTable: Story = {
   render: () => (
-    <ScrollArea className="h-80 w-full max-w-2xl rounded-md border bg-card">
+    <ScrollArea className="bg-card h-80 w-full max-w-2xl rounded-md border">
       <div className="p-4">
         <table className="w-full">
           <thead>

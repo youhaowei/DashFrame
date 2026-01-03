@@ -36,7 +36,7 @@ type Story = Omit<StoryObj<typeof meta>, "args"> & {
 export const Default: Story = {
   args: {
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Default Container</h2>
         <p className="text-sm">
           This is a standard container with lg max-width (max-w-7xl) and md
@@ -55,13 +55,13 @@ export const SmallMaxWidth: Story = {
   args: {
     maxWidth: "sm",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Small Container</h2>
         <p className="mb-4 text-sm">
           This container uses max-w-3xl, perfect for readable content like
           articles, blog posts, or forms where you want shorter line lengths.
         </p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Narrow containers improve readability by preventing lines from
           becoming too long, which can strain the eyes.
         </p>
@@ -77,7 +77,7 @@ export const MediumMaxWidth: Story = {
   args: {
     maxWidth: "md",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Medium Container</h2>
         <p className="text-sm">
           This container uses max-w-5xl, good for content pages that need more
@@ -95,7 +95,7 @@ export const LargeMaxWidth: Story = {
   args: {
     maxWidth: "lg",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Large Container</h2>
         <p className="text-sm">
           This container uses max-w-7xl, the default for most page layouts. Good
@@ -113,7 +113,7 @@ export const ExtraLargeMaxWidth: Story = {
   args: {
     maxWidth: "xl",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Extra Large Container</h2>
         <p className="text-sm">
           This container uses max-w-[1400px], great for data-dense dashboards or
@@ -131,7 +131,7 @@ export const DoubleExtraLargeMaxWidth: Story = {
   args: {
     maxWidth: "2xl",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">2XL Container</h2>
         <p className="text-sm">
           This container uses max-w-[1600px], for very wide layouts on large
@@ -149,7 +149,7 @@ export const FullWidth: Story = {
   args: {
     maxWidth: "full",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Full Width Container</h2>
         <p className="text-sm">
           This container uses max-w-full, taking up the entire viewport width.
@@ -168,7 +168,7 @@ export const NoPadding: Story = {
     maxWidth: "lg",
     padding: "none",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">No Padding</h2>
         <p className="text-sm">
           This container has no horizontal padding (px-0). Content extends to
@@ -188,7 +188,7 @@ export const SmallPadding: Story = {
     maxWidth: "lg",
     padding: "sm",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Small Padding</h2>
         <p className="text-sm">
           This container uses px-4 padding. Good for mobile-first designs or
@@ -207,7 +207,7 @@ export const LargePadding: Story = {
     maxWidth: "lg",
     padding: "lg",
     children: (
-      <div className="rounded-2xl border border-border/60 bg-card p-6">
+      <div className="border-border/60 bg-card rounded-2xl border p-6">
         <h2 className="mb-4 text-lg font-semibold">Large Padding</h2>
         <p className="text-sm">
           This container uses px-8 padding. Great for spacious layouts on larger
@@ -225,27 +225,27 @@ export const SemanticElements: Story = {
   render: () => (
     <div className="space-y-4">
       <Container as="main" maxWidth="lg">
-        <div className="rounded-2xl border border-border/60 bg-card p-6">
+        <div className="border-border/60 bg-card rounded-2xl border p-6">
           <h2 className="mb-2 text-lg font-semibold">Main Element</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Rendered as &lt;main&gt;
           </p>
         </div>
       </Container>
 
       <Container as="section" maxWidth="lg">
-        <div className="rounded-2xl border border-border/60 bg-card p-6">
+        <div className="border-border/60 bg-card rounded-2xl border p-6">
           <h2 className="mb-2 text-lg font-semibold">Section Element</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Rendered as &lt;section&gt;
           </p>
         </div>
       </Container>
 
       <Container as="article" maxWidth="lg">
-        <div className="rounded-2xl border border-border/60 bg-card p-6">
+        <div className="border-border/60 bg-card rounded-2xl border p-6">
           <h2 className="mb-2 text-lg font-semibold">Article Element</h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Rendered as &lt;article&gt;
           </p>
         </div>
@@ -265,20 +265,20 @@ export const DashboardLayout: Story = {
       <div className="space-y-6">
         <div>
           <h1 className="mb-2 text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Welcome back! Here's your data overview.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-border/60 bg-card p-6">
+          <div className="border-border/60 bg-card rounded-2xl border p-6">
             <h3 className="mb-1 text-sm font-medium">Data Sources</h3>
             <p className="text-2xl font-bold">12</p>
           </div>
-          <div className="rounded-2xl border border-border/60 bg-card p-6">
+          <div className="border-border/60 bg-card rounded-2xl border p-6">
             <h3 className="mb-1 text-sm font-medium">Insights</h3>
             <p className="text-2xl font-bold">45</p>
           </div>
-          <div className="rounded-2xl border border-border/60 bg-card p-6">
+          <div className="border-border/60 bg-card rounded-2xl border p-6">
             <h3 className="mb-1 text-sm font-medium">Visualizations</h3>
             <p className="text-2xl font-bold">23</p>
           </div>
@@ -300,7 +300,7 @@ export const ArticleLayout: Story = {
       <div className="space-y-4">
         <div>
           <h1 className="mb-2 text-2xl font-bold">Article Title</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             Published on January 15, 2024
           </p>
         </div>

@@ -73,13 +73,13 @@ function Surface({
           // Raised: Standard card appearance
           "border-border/60 bg-card/80 shadow-sm": elevation === "raised",
           // Floating: Elevated panel with glassmorphism
-          "border-border/60 bg-card/70 shadow-lg backdrop-blur supports-backdrop-filter:bg-card/60":
+          "border-border/60 bg-card/70 supports-backdrop-filter:bg-card/60 shadow-lg backdrop-blur":
             elevation === "floating",
           // Inset: Sunken surface with inset shadow
           "border-border bg-muted/30 shadow-inner": elevation === "inset",
         },
         // Interactive states
-        interactive && "cursor-pointer hover:border-border hover:bg-accent/50",
+        interactive && "hover:border-border hover:bg-accent/50 cursor-pointer",
         className,
       )}
       {...props}

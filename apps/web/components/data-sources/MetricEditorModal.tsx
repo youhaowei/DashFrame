@@ -196,11 +196,11 @@ export function MetricEditorModal({
           </div>
 
           {/* Formula Preview */}
-          <div className="rounded-lg bg-muted p-3">
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
+          <div className="bg-muted rounded-lg p-3">
+            <p className="text-muted-foreground mb-1 text-xs font-medium">
               Formula Preview
             </p>
-            <code className="font-mono text-sm text-foreground">
+            <code className="text-foreground font-mono text-sm">
               {getFormulaPreview()}
             </code>
           </div>

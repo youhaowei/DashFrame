@@ -40,16 +40,16 @@ interface VisualizationItemCardProps {
 function getVizFallbackIcon(type: string) {
   switch (type) {
     case "bar":
-      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "line":
     case "area":
-      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <ChartIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "point":
     case "scatter":
-      return <DataPointIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <DataPointIcon className="text-muted-foreground/40 h-10 w-10" />;
     case "table":
     default:
-      return <TableIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <TableIcon className="text-muted-foreground/40 h-10 w-10" />;
   }
 }
 
@@ -110,16 +110,16 @@ export function VisualizationItemCard({
       onKeyDown={handleKeyDown}
       className={cn(
         "group w-full overflow-hidden rounded-lg border text-left transition-[border-color,background-color] duration-150",
-        onClick && "cursor-pointer hover:bg-accent/50",
+        onClick && "hover:bg-accent/50 cursor-pointer",
         active
-          ? "border-primary ring-2 ring-primary"
+          ? "border-primary ring-primary ring-2"
           : "border-border/60 hover:border-border",
         className,
       )}
     >
       {/* Preview Section */}
       <div
-        className="w-full overflow-hidden bg-muted/30"
+        className="bg-muted/30 w-full overflow-hidden"
         style={{ height: `${previewHeight}px` }}
       >
         <VisualizationPreview
@@ -174,7 +174,7 @@ export function VisualizationItemCard({
             </div>
           )}
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
+        <p className="text-muted-foreground mt-1 truncate text-xs">
           Created {createdDate}
         </p>
       </div>

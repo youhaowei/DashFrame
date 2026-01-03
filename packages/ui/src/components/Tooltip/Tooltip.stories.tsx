@@ -142,7 +142,7 @@ export const DataSourceIcon: Story = {
   args: {
     content: "PostgreSQL database",
     children: (
-      <div className="cursor-pointer rounded-xl border border-border/60 bg-card p-4 transition hover:bg-muted/50">
+      <div className="border-border/60 bg-card hover:bg-muted/50 cursor-pointer rounded-xl border p-4 transition">
         <DatabaseIcon className="h-5 w-5" />
       </div>
     ),
@@ -156,7 +156,7 @@ export const ChartTypeIndicator: Story = {
   args: {
     content: "Bar chart visualization",
     children: (
-      <div className="cursor-help rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+      <div className="bg-primary/10 text-primary cursor-help rounded-full px-3 py-1 text-xs font-semibold">
         Bar
       </div>
     ),
@@ -190,13 +190,13 @@ export const MultipleTooltips: Story = {
       <span className="text-sm font-medium">Sales Database</span>
 
       <SharedTooltip content="PostgreSQL">
-        <span className="cursor-help rounded-full bg-muted px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+        <span className="bg-muted text-muted-foreground cursor-help rounded-full px-2 text-[11px] font-semibold tracking-wide">
           PostgreSQL
         </span>
       </SharedTooltip>
 
       <SharedTooltip content="12 tables available">
-        <span className="cursor-help text-xs text-muted-foreground">
+        <span className="text-muted-foreground cursor-help text-xs">
           12 tables
         </span>
       </SharedTooltip>
@@ -211,7 +211,7 @@ export const OnBadge: Story = {
   args: {
     content: "1,250 rows in this dataset",
     children: (
-      <span className="cursor-help rounded-full bg-muted px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+      <span className="bg-muted text-muted-foreground cursor-help rounded-full px-2 text-[11px] font-semibold tracking-wide">
         1,250 rows
       </span>
     ),
