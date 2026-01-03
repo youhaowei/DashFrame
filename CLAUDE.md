@@ -250,3 +250,399 @@ Before implementing any UI changes, follow this component-first approach:
 - **Flowler Coding Style**: Focus on readability, maintainability, and simplicity
 - **Test driven development**: Write tests for critical logic, especially when it comes to handling data. For features that has spec, make sure to include a test plan as well.
 - **Detect Code Smells Early**: Watch for signs of complexity, duplication, or poor separation of concerns. Ask questions if something feels off, help user create tasks to refactor or improve code quality if found tech debt that might not be directly related to the feature being implemented.
+
+## Testing
+
+### Test Commands
+
+```bash
+# Run all unit tests
+bun test
+
+# Run tests in watch mode
+bun test:watch
+
+# Run tests with coverage report
+bun test:coverage
+
+# Run coverage for specific package
+bun test:coverage --filter @dashframe/types
+
+# Run E2E tests
+cd e2e/web
+bun test
+
+# Run E2E tests in UI mode
+cd e2e/web
+bun test:ui
+
+# Generate E2E step definitions (BDD)
+cd e2e/web
+bun bddgen
+```
+
+### Testing Philosophy
+
+DashFrame follows **test-driven development** for critical logic:
+
+- **80% coverage target**: Core functionality must have comprehensive test coverage
+- **Unit tests first**: Test pure functions, utilities, and business logic in isolation
+- **Integration tests**: Test how components work together (hooks, stores, data flows)
+- **E2E tests**: Test critical user workflows end-to-end (CSV upload, chart creation, dashboard building)
+- **Snapshot tests**: Catch visual regressions in chart configurations
+
+### Unit Testing Patterns
+
+DashFrame uses **Vitest** for unit and integration tests. Tests are colocated with source files using `.test.ts` or `.test.tsx` extensions.
+
+#### Basic Structure
+
+```typescript
+/**
+ * Unit tests for encoding-helpers module
+ *
+ * Tests cover:
+ * - fieldEncoding() - Creating field encoding strings
+ * - metricEncoding() - Creating metric encoding strings
+ * - parseEncoding() - Parsing encoding strings
+ */
+import { describe, expect, it } from "vitest";
+import { fieldEncoding, metricEncoding } from "./encoding-helpers";
+
+describe("encoding-helpers", () => {
+  describe("fieldEncoding()", () => {
+    it("should create field encoding with correct format", () => {
+      const result = fieldEncoding("field-id");
+      expect(result).toBe("field:field-id");
+    });
+
+    it("should handle edge cases", () => {
+      // Test edge cases, errors, validation
+    });
+  });
+});
+```
+
+#### Key Conventions
+
+1. **File header comment**: Document what functions/features are tested
+2. **Nested describe blocks**: One per function/feature, organize related tests
+3. **Clear test names**: Use "should" format describing expected behavior
+4. **Mock factories**: Create reusable factory functions for test data
+5. **No console.log**: Remove debugging statements before committing
+6. **Test isolation**: Use `beforeEach`/`afterEach` for cleanup
+
+#### Mock Data Factories
+
+Create reusable factories to reduce boilerplate:
+
+```typescript
+/**
+ * Helper to create a mock NumberAnalysis
+ */
+function createNumberColumn(name: string, options?: {
+  hasVariance?: boolean;
+  uniqueCount?: number;
+}): ColumnAnalysis {
+  return {
+    name,
+    type: "number",
+    semantic: "measure",
+    hasVariance: options?.hasVariance ?? true,
+    uniqueCount: options?.uniqueCount ?? 100,
+    // ... other required fields
+  };
+}
+```
+
+### React Hook Testing Patterns
+
+Use `@testing-library/react` for testing React hooks:
+
+```typescript
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock dependencies
+const mockCreate = vi.fn();
+vi.mock("@dashframe/core", () => ({
+  useInsightMutations: () => ({ create: mockCreate }),
+}));
+
+describe("useCreateInsight", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should create insight from table", async () => {
+    const { result } = renderHook(() => useCreateInsight());
+
+    let insightId: string | null = null;
+    await act(async () => {
+      insightId = await result.current.createInsightFromTable("table-1");
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+      baseTableId: "table-1",
+    }));
+    expect(insightId).toBeTruthy();
+  });
+});
+```
+
+#### Hook Testing Best Practices
+
+- **Always use `act()`**: Wrap state updates and async operations
+- **Use `waitFor()`**: For async assertions that may take time
+- **Clear mocks**: Use `vi.clearAllMocks()` in `beforeEach`
+- **Test stability**: Verify `useCallback` memoization with reference equality
+- **Mock external dependencies**: Mock `@dashframe/core`, `next/navigation`, etc.
+
+### E2E Testing Patterns
+
+DashFrame uses **Playwright** with **playwright-bdd** for behavior-driven E2E tests.
+
+#### Feature Files (Gherkin)
+
+Located in `e2e/web/features/workflows/*.feature`:
+
+```gherkin
+Feature: Core Workflow: CSV to Chart
+  As a new user
+  I want to upload a CSV and create a chart immediately
+  So that I can see value in the product quickly
+
+  @core @workflow
+  Scenario: Upload CSV and create a suggested chart
+    Given I am on the DashFrame home page
+    When I upload the "sales_data.csv" file
+    Then I should be redirected to the insight configuration page
+    And I should see chart suggestions
+    When I click "Create" on the first suggestion
+    Then I should be redirected to the visualization page
+    And I should see the chart rendered
+```
+
+#### Step Definitions
+
+Located in `e2e/web/steps/*.steps.ts`:
+
+```typescript
+import { Given, When, Then } from "@playwright/test/steps";
+import { expect } from "@playwright/test";
+
+Given("I am on the DashFrame home page", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL("/");
+});
+
+When("I upload the {string} file", async ({ page }, filename: string) => {
+  const fileInput = page.locator('input[type="file"]');
+  await fileInput.setInputFiles(`./fixtures/${filename}`);
+});
+```
+
+#### E2E Best Practices
+
+- **Use semantic selectors**: Prefer `getByRole`, `getByLabel`, `getByText` over CSS selectors
+- **Wait for navigation**: Use `page.waitForURL()` for route transitions
+- **Reuse steps**: Import common steps from `common.steps.ts`
+- **Tag scenarios**: Use `@workflow`, `@core`, `@visualization` for filtering
+- **Add fixtures**: Place test data files in `e2e/web/fixtures/`
+
+### Snapshot Testing
+
+Use snapshot tests to catch regressions in chart configurations:
+
+```typescript
+import { describe, expect, it } from "vitest";
+import { suggestByChartType } from "./suggest-charts";
+
+describe("bar chart suggestions", () => {
+  it("should generate categorical X + numerical Y encoding", () => {
+    const suggestions = suggestByChartType("barY", analysis, insight);
+
+    // Snapshot captures: chart type, encoding (x, y, color), labels
+    expect(suggestions[0]).toMatchSnapshot();
+  });
+});
+```
+
+**When to use snapshots**:
+
+- Chart configuration generation (encoding, transforms, labels)
+- Complex object outputs where structure matters
+- Visual regression detection for data transformations
+
+**Run tests to generate snapshots**:
+
+```bash
+bun test chart-suggestions.snapshot.test.ts
+```
+
+Snapshots are saved in `__snapshots__/` directories. Review changes carefully in PRs.
+
+### Coverage Requirements
+
+**Coverage targets**: 80% for branches, functions, lines, and statements.
+
+Configured in `vitest.config.ts`:
+
+```typescript
+coverage: {
+  provider: "v8",
+  reporter: ["text", "json", "html"],
+  thresholds: {
+    branches: 80,
+    functions: 80,
+    lines: 80,
+    statements: 80,
+  },
+}
+```
+
+**Priority for testing**:
+
+1. **HIGH**: Data operations (converters, analyzers, DataFrame logic)
+2. **HIGH**: Business logic (chart suggestions, encoding validation, metric computation)
+3. **MEDIUM**: React hooks (data fetching, state management)
+4. **MEDIUM**: Utilities (helpers, type guards, formatting)
+5. **LOW**: UI components (prefer E2E tests for user flows)
+
+### Mock Strategies
+
+#### Mocking Vitest Functions
+
+```typescript
+import { vi } from "vitest";
+
+// Mock entire module
+vi.mock("@dashframe/core", () => ({
+  useDataSources: vi.fn(),
+  getDataFrame: vi.fn(),
+}));
+
+// Mock with implementation
+const mockFetch = vi.fn().mockResolvedValue({ data: [] });
+
+// Mock console methods (suppress expected errors)
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+```
+
+#### Mocking External Dependencies
+
+Common mocks for DashFrame:
+
+```typescript
+// Mock @dashframe/core
+vi.mock("@dashframe/core", () => ({
+  useDataSources: () => [],
+  getDataFrame: vi.fn(),
+  useInsightMutations: () => ({ create: vi.fn() }),
+}));
+
+// Mock next/navigation
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/",
+}));
+
+// Mock DuckDB provider
+vi.mock("@/components/providers/DuckDBProvider", () => ({
+  useDuckDB: () => ({
+    connection: mockConnection,
+    isInitialized: true,
+  }),
+}));
+```
+
+### Test File Organization
+
+```
+packages/types/src/
+  encoding-helpers.ts
+  encoding-helpers.test.ts       # Colocated with source
+
+apps/web/lib/
+  visualizations/
+    suggest-charts.ts
+    suggest-charts.test.ts        # Unit tests
+    chart-suggestions.snapshot.test.ts  # Snapshot tests
+
+apps/web/hooks/
+  useCreateInsight.tsx
+  useCreateInsight.test.tsx       # Hook tests with .tsx extension
+
+e2e/web/
+  features/
+    workflows/
+      csv_to_chart.feature        # Gherkin scenarios
+  steps/
+    common.steps.ts               # Reusable step definitions
+    data-sources.steps.ts
+  fixtures/
+    sales_data.csv                # Test data files
+```
+
+### Running Tests in CI
+
+Tests run automatically in GitHub Actions on:
+
+- Pull requests (all tests + coverage)
+- Main branch commits (all tests + coverage)
+- Coverage reports uploaded to coverage service
+
+**Local pre-commit checks**:
+
+```bash
+bun check        # Lint + typecheck + format
+bun test:coverage  # Run tests with coverage
+```
+
+### Debugging Tests
+
+```bash
+# Run single test file
+bun test suggest-charts.test.ts
+
+# Run tests matching pattern
+bun test --grep "bar chart"
+
+# Run with UI (vitest UI)
+bun test --ui
+
+# Debug with breakpoints
+bun test --inspect-brk
+
+# E2E debugging
+cd e2e/web
+bun test:debug    # Opens Playwright inspector
+bun test:ui       # Opens Playwright UI mode
+```
+
+### Writing New Tests
+
+When adding new functionality:
+
+1. **Start with unit tests**: Test pure functions and utilities first
+2. **Add integration tests**: Test hooks and state interactions
+3. **Add E2E tests**: For user-facing workflows (if critical path)
+4. **Add snapshots**: For complex data transformations
+5. **Run coverage**: Ensure you meet 80% threshold
+6. **Update this doc**: If you introduce new patterns
+
+**Example checklist**:
+
+- [ ] Unit tests for all public functions
+- [ ] Edge cases covered (null, undefined, empty arrays)
+- [ ] Error handling tested
+- [ ] Mock factories created for reusable test data
+- [ ] No console.log statements
+- [ ] Coverage threshold met (80%)
+- [ ] Tests pass in CI
