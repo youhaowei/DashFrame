@@ -926,6 +926,483 @@ describe("chart-suggestions snapshots", () => {
   });
 
   // ============================================================================
+  // Scatter Plot (Dot) Chart Snapshots
+  // ============================================================================
+
+  describe("dot (scatter plot) chart suggestions", () => {
+    it("should generate numerical X + numerical Y encoding", () => {
+      // Classic scatter plot: two numerical dimensions for correlation analysis
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_price",
+          fieldId: "price_001",
+          min: 10,
+          max: 500,
+        }),
+        createNumberColumn({
+          columnName: "field_units_sold",
+          fieldId: "units_001",
+          min: 0,
+          max: 1000,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "price_001" as UUID,
+          name: "Price",
+          columnName: "price",
+          dataType: "number",
+        }),
+        createField({
+          id: "units_001" as UUID,
+          name: "Units Sold",
+          columnName: "units_sold",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["price_001" as UUID, "units_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 100,
+      });
+
+      // Snapshot should include both X and Y numerical encodings
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate numerical X + numerical Y + color encoding (grouped scatter)", () => {
+      // Scatter plot with categorical color for grouping points
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_age",
+          fieldId: "age_001",
+          min: 18,
+          max: 65,
+        }),
+        createNumberColumn({
+          columnName: "field_income",
+          fieldId: "income_001",
+          min: 20000,
+          max: 150000,
+        }),
+        createStringColumn({
+          columnName: "field_education",
+          fieldId: "edu_001",
+          cardinality: 4,
+          sampleValues: ["High School", "Bachelor", "Master", "PhD"],
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "age_001" as UUID,
+          name: "Age",
+          columnName: "age",
+          dataType: "number",
+        }),
+        createField({
+          id: "income_001" as UUID,
+          name: "Income",
+          columnName: "income",
+          dataType: "number",
+        }),
+        createField({
+          id: "edu_001" as UUID,
+          name: "Education Level",
+          columnName: "education",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: [
+            "age_001" as UUID,
+            "income_001" as UUID,
+            "edu_001" as UUID,
+          ],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 500,
+      });
+
+      // Snapshot should include color encoding for categorical grouping
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate numerical X + numerical Y + size encoding (bubble chart)", () => {
+      // Bubble chart: scatter plot with size encoding for a third dimension
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_advertising_spend",
+          fieldId: "adspend_001",
+          min: 1000,
+          max: 100000,
+        }),
+        createNumberColumn({
+          columnName: "field_revenue",
+          fieldId: "revenue_001",
+          min: 5000,
+          max: 500000,
+        }),
+        createNumberColumn({
+          columnName: "field_customer_count",
+          fieldId: "customers_001",
+          min: 10,
+          max: 5000,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "adspend_001" as UUID,
+          name: "Advertising Spend",
+          columnName: "advertising_spend",
+          dataType: "number",
+        }),
+        createField({
+          id: "revenue_001" as UUID,
+          name: "Revenue",
+          columnName: "revenue",
+          dataType: "number",
+        }),
+        createField({
+          id: "customers_001" as UUID,
+          name: "Customer Count",
+          columnName: "customer_count",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: [
+            "adspend_001" as UUID,
+            "revenue_001" as UUID,
+            "customers_001" as UUID,
+          ],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 200,
+        options: { limit: 3 },
+      });
+
+      // Snapshot should include size encoding for bubble chart effect
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with insight metrics", () => {
+      // Scatter plot using aggregated metrics instead of raw columns
+      const analysis: ColumnAnalysis[] = [
+        createStringColumn({
+          columnName: "field_product_category",
+          fieldId: "cat_001",
+          cardinality: 10,
+        }),
+        createNumberColumn({
+          columnName: "field_quantity",
+          fieldId: "qty_001",
+        }),
+        createNumberColumn({
+          columnName: "field_price",
+          fieldId: "price_001",
+        }),
+        createNumberColumn({
+          columnName: "field_cost",
+          fieldId: "cost_001",
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "cat_001" as UUID,
+          name: "Product Category",
+          columnName: "product_category",
+        }),
+        createField({
+          id: "qty_001" as UUID,
+          name: "Quantity",
+          columnName: "quantity",
+          dataType: "number",
+        }),
+        createField({
+          id: "price_001" as UUID,
+          name: "Price",
+          columnName: "price",
+          dataType: "number",
+        }),
+        createField({
+          id: "cost_001" as UUID,
+          name: "Cost",
+          columnName: "cost",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["cat_001" as UUID],
+        },
+        metrics: [
+          {
+            id: "metric_avg_price" as UUID,
+            name: "Average Price",
+            sourceTable: "table123" as UUID,
+            columnName: "price",
+            aggregation: "avg",
+          },
+          {
+            id: "metric_total_qty" as UUID,
+            name: "Total Quantity",
+            sourceTable: "table123" as UUID,
+            columnName: "quantity",
+            aggregation: "sum",
+          },
+          {
+            id: "metric_avg_cost" as UUID,
+            name: "Average Cost",
+            sourceTable: "table123" as UUID,
+            columnName: "cost",
+            aggregation: "avg",
+          },
+        ],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 10,
+      });
+
+      // Snapshot should use metric encodings (metric: prefix)
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with integer coordinates", () => {
+      // Scatter plot with integer-based numerical columns
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_rating",
+          fieldId: "rating_001",
+          min: 1,
+          max: 5,
+          sampleValues: [1, 2, 3, 4, 5],
+        }),
+        createNumberColumn({
+          columnName: "field_review_count",
+          fieldId: "reviews_001",
+          min: 0,
+          max: 1000,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "rating_001" as UUID,
+          name: "Rating",
+          columnName: "rating",
+          dataType: "number",
+        }),
+        createField({
+          id: "reviews_001" as UUID,
+          name: "Review Count",
+          columnName: "review_count",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["rating_001" as UUID, "reviews_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 250,
+      });
+
+      // Snapshot should handle integer-based coordinates
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding for small dataset (correlation analysis)", () => {
+      // Scatter plot suitable for correlation analysis with small dataset
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_study_hours",
+          fieldId: "hours_001",
+          min: 0,
+          max: 10,
+        }),
+        createNumberColumn({
+          columnName: "field_test_score",
+          fieldId: "score_001",
+          min: 0,
+          max: 100,
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "hours_001" as UUID,
+          name: "Study Hours",
+          columnName: "study_hours",
+          dataType: "number",
+        }),
+        createField({
+          id: "score_001" as UUID,
+          name: "Test Score",
+          columnName: "test_score",
+          dataType: "number",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: ["hours_001" as UUID, "score_001" as UUID],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 50, // Small dataset for correlation
+      });
+
+      // Snapshot should be suitable for correlation analysis
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+
+    it("should generate encoding with numerical X + numerical Y + color + size (full bubble chart)", () => {
+      // Full bubble chart with all encodings: X, Y, color, and size
+      const analysis: ColumnAnalysis[] = [
+        createNumberColumn({
+          columnName: "field_gdp_per_capita",
+          fieldId: "gdp_001",
+          min: 1000,
+          max: 80000,
+        }),
+        createNumberColumn({
+          columnName: "field_life_expectancy",
+          fieldId: "life_001",
+          min: 50,
+          max: 85,
+        }),
+        createNumberColumn({
+          columnName: "field_population",
+          fieldId: "pop_001",
+          min: 100000,
+          max: 1400000000,
+        }),
+        createStringColumn({
+          columnName: "field_continent",
+          fieldId: "continent_001",
+          cardinality: 6,
+          sampleValues: [
+            "Africa",
+            "Asia",
+            "Europe",
+            "North America",
+            "South America",
+            "Oceania",
+          ],
+        }),
+      ];
+
+      const fields: Field[] = [
+        createField({
+          id: "gdp_001" as UUID,
+          name: "GDP per Capita",
+          columnName: "gdp_per_capita",
+          dataType: "number",
+        }),
+        createField({
+          id: "life_001" as UUID,
+          name: "Life Expectancy",
+          columnName: "life_expectancy",
+          dataType: "number",
+        }),
+        createField({
+          id: "pop_001" as UUID,
+          name: "Population",
+          columnName: "population",
+          dataType: "number",
+        }),
+        createField({
+          id: "continent_001" as UUID,
+          name: "Continent",
+          columnName: "continent",
+        }),
+      ];
+
+      const insight = createInsight({
+        baseTable: {
+          tableId: "table123" as UUID,
+          selectedFields: [
+            "gdp_001" as UUID,
+            "life_001" as UUID,
+            "pop_001" as UUID,
+            "continent_001" as UUID,
+          ],
+        },
+        metrics: [],
+      });
+
+      const suggestions = suggestByChartType({
+        chartType: "dot",
+        analysis,
+        insight,
+        fields,
+        rowCount: 180,
+        options: { limit: 3 },
+      });
+
+      // Snapshot should include all four encodings (x, y, color, size)
+      expect(suggestions[0]).toMatchSnapshot();
+    });
+  });
+
+  // ============================================================================
   // Edge Cases and Empty States
   // ============================================================================
 
