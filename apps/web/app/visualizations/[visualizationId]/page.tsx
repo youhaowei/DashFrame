@@ -53,7 +53,7 @@ import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
 import { useInsightView } from "@/hooks/useInsightView";
 import type { Insight as InsightType } from "@dashframe/types";
 
@@ -143,9 +143,12 @@ export default function VisualizationPage({ params }: PageProps) {
     entry: dataFrameEntry,
   } = useDataFrameData(dataFrameId);
 
-  // DuckDB connection for join computation
-  const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
-    useDuckDB();
+  // DuckDB connection for join computation (lazy-loaded on component mount)
+  const {
+    connection: duckDBConnection,
+    isInitialized: isDuckDBReady,
+    isLoading: isDuckDBLoading,
+  } = useLazyDuckDB();
 
   // Build Insight object for useInsightView (needs baseTableId and joins)
   const insightForView: InsightType | null = useMemo(() => {
@@ -178,7 +181,7 @@ export default function VisualizationPage({ params }: PageProps) {
     }
 
     // Wait for DuckDB to be ready
-    if (!duckDBConnection || !isDuckDBReady) {
+    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) {
       return;
     }
 
@@ -255,6 +258,7 @@ export default function VisualizationPage({ params }: PageProps) {
     insight?.id,
     duckDBConnection,
     isDuckDBReady,
+    isDuckDBLoading,
     dataTable,
     dataTables,
   ]);
@@ -336,8 +340,9 @@ export default function VisualizationPage({ params }: PageProps) {
   const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
 
   // Run DuckDB analysis on the insight view (has UUID-based column names)
+  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
-    if (!duckDBConnection || !isDuckDBReady) return;
+    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
     if (!analysisViewName || !isAnalysisViewReady) {
       setColumnAnalysis([]);
       return;
@@ -353,7 +358,13 @@ export default function VisualizationPage({ params }: PageProps) {
       }
     };
     runAnalysis();
-  }, [duckDBConnection, isDuckDBReady, analysisViewName, isAnalysisViewReady]);
+  }, [
+    duckDBConnection,
+    isDuckDBReady,
+    isDuckDBLoading,
+    analysisViewName,
+    isAnalysisViewReady,
+  ]);
 
   // Get column options for Color/Size selects (derived from compiledInsight)
   // Uses storage encoding format (field:<uuid>, metric:<uuid>) for values
