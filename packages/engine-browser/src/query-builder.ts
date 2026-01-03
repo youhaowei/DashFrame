@@ -224,10 +224,12 @@ export async function ensureTableLoaded(
     // This handles cases where DuckDB was reset or table was dropped externally
     let tableExists = false;
     try {
-      const checkResult = await conn.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_name = '${tableName}' LIMIT 1`,
+      const stmt = await conn.prepare(
+        `SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1`,
       );
+      const checkResult = await stmt.query(tableName);
       tableExists = checkResult.toArray().length > 0;
+      await stmt.close();
     } catch {
       // If check fails (e.g., DuckDB not ready), assume table doesn't exist
       tableExists = false;
