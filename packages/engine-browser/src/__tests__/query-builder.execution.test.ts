@@ -454,4 +454,45 @@ describe("QueryBuilder - Execution Methods", () => {
       await expect(qb.run()).rejects.toThrow("Export to Arrow failed");
     });
   });
+
+  describe("table existence check - parameterized query", () => {
+    it("should use prepare() with parameterized SQL and pass table name to stmt.query()", async () => {
+      // Create mock prepared statement with tracking
+      const mockStmtQuery = vi.fn().mockResolvedValue({
+        toArray: () => [{ exists: 1 }],
+      });
+      const mockStmtClose = vi.fn().mockResolvedValue(undefined);
+      const mockStmt = {
+        query: mockStmtQuery,
+        close: mockStmtClose,
+      };
+
+      // Create mock connection with prepare tracking
+      const mockPrepare = vi.fn().mockResolvedValue(mockStmt);
+      const mockConn = {
+        prepare: mockPrepare,
+        query: vi.fn().mockResolvedValue({
+          toArray: () => [],
+        }),
+        insertArrowFromIPCStream: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AsyncDuckDBConnection;
+
+      // Create QueryBuilder WITHOUT tableName to trigger ensureLoaded()
+      const qb = new QueryBuilder(mockDataFrame, mockConn);
+
+      // Trigger table loading by calling sql()
+      await qb.sql();
+
+      // Verify prepare() was called with parameterized SQL containing ? placeholder
+      expect(mockPrepare).toHaveBeenCalledWith(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1",
+      );
+
+      // Verify stmt.query() was called with the table name
+      expect(mockStmtQuery).toHaveBeenCalledWith("df_test_df_id");
+
+      // Verify stmt.close() was called
+      expect(mockStmtClose).toHaveBeenCalled();
+    });
+  });
 });
