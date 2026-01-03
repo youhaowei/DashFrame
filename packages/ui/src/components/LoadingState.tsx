@@ -79,12 +79,12 @@ export function LoadingState({
       aria-busy="true"
     >
       <LoaderIcon
-        className={cn(config.icon, "text-muted-foreground mb-4 animate-spin")}
+        className={cn(config.icon, "mb-4 animate-spin text-muted-foreground")}
         aria-hidden="true"
       />
       <h3 className={cn(config.title, "mb-2 font-medium")}>{title}</h3>
       {description && (
-        <p className={cn(config.description, "text-muted-foreground mb-4")}>
+        <p className={cn(config.description, "mb-4 text-muted-foreground")}>
           {description}
         </p>
       )}

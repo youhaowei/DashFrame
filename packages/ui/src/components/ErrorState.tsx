@@ -1,6 +1,6 @@
 import { AlertCircleIcon, RefreshIcon } from "../lib/icons";
-import { Button } from "../primitives/button";
 import { cn } from "../lib/utils";
+import { Button } from "../primitives/button";
 
 export interface ErrorStateAction {
   /** Button label */
@@ -95,12 +95,12 @@ export function ErrorState({
       aria-live="assertive"
     >
       <AlertCircleIcon
-        className={cn(config.icon, "text-destructive mb-4")}
+        className={cn(config.icon, "mb-4 text-destructive")}
         aria-hidden="true"
       />
       <h3 className={cn(config.title, "mb-2 font-medium")}>{title}</h3>
       {description && (
-        <p className={cn(config.description, "text-muted-foreground mb-4")}>
+        <p className={cn(config.description, "mb-4 text-muted-foreground")}>
           {description}
         </p>
       )}
