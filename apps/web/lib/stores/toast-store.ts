@@ -1,7 +1,7 @@
 "use client";
 
-import { create } from "zustand";
 import { toast as sonnerToast } from "sonner";
+import { create } from "zustand";
 
 /**
  * Toast notification types
@@ -52,13 +52,25 @@ interface ToastActions {
   /** Show a toast notification */
   show: (config: ShowToastConfig) => string;
   /** Show a success toast */
-  showSuccess: (message: string, options?: Omit<ShowToastConfig, "message" | "type">) => string;
+  showSuccess: (
+    message: string,
+    options?: Omit<ShowToastConfig, "message" | "type">,
+  ) => string;
   /** Show an error toast */
-  showError: (message: string, options?: Omit<ShowToastConfig, "message" | "type">) => string;
+  showError: (
+    message: string,
+    options?: Omit<ShowToastConfig, "message" | "type">,
+  ) => string;
   /** Show a warning toast */
-  showWarning: (message: string, options?: Omit<ShowToastConfig, "message" | "type">) => string;
+  showWarning: (
+    message: string,
+    options?: Omit<ShowToastConfig, "message" | "type">,
+  ) => string;
   /** Show an info toast */
-  showInfo: (message: string, options?: Omit<ShowToastConfig, "message" | "type">) => string;
+  showInfo: (
+    message: string,
+    options?: Omit<ShowToastConfig, "message" | "type">,
+  ) => string;
   /** Dismiss a specific toast by ID */
   dismiss: (id: string) => void;
   /** Dismiss all toasts */
@@ -69,7 +81,8 @@ interface ToastActions {
 const DEFAULT_DURATION = 4000;
 
 /** Generate a unique ID for each toast */
-const generateId = () => `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+const generateId = () =>
+  `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 /**
  * Global toast notification store
@@ -101,84 +114,86 @@ const generateId = () => `toast-${Date.now()}-${Math.random().toString(36).slice
  * });
  * ```
  */
-export const useToastStore = create<ToastState & ToastActions>()((set, get) => ({
-  toasts: [],
+export const useToastStore = create<ToastState & ToastActions>()(
+  (set, get) => ({
+    toasts: [],
 
-  show: (config) => {
-    const id = generateId();
-    const type = config.type ?? "info";
-    const duration = config.duration ?? DEFAULT_DURATION;
+    show: (config) => {
+      const id = generateId();
+      const type = config.type ?? "info";
+      const duration = config.duration ?? DEFAULT_DURATION;
 
-    const toastConfig: ToastConfig = {
-      id,
-      type,
-      message: config.message,
-      description: config.description,
-      duration,
-      action: config.action,
-    };
+      const toastConfig: ToastConfig = {
+        id,
+        type,
+        message: config.message,
+        description: config.description,
+        duration,
+        action: config.action,
+      };
 
-    // Add to store state
-    set((state) => ({
-      toasts: [...state.toasts, toastConfig],
-    }));
+      // Add to store state
+      set((state) => ({
+        toasts: [...state.toasts, toastConfig],
+      }));
 
-    // Call Sonner toast with appropriate type
-    const sonnerOptions = {
-      id,
-      description: config.description,
-      duration,
-      action: config.action
-        ? {
-            label: config.action.label,
-            onClick: config.action.onClick,
-          }
-        : undefined,
-    };
+      // Call Sonner toast with appropriate type
+      const sonnerOptions = {
+        id,
+        description: config.description,
+        duration,
+        action: config.action
+          ? {
+              label: config.action.label,
+              onClick: config.action.onClick,
+            }
+          : undefined,
+      };
 
-    switch (type) {
-      case "success":
-        sonnerToast.success(config.message, sonnerOptions);
-        break;
-      case "error":
-        sonnerToast.error(config.message, sonnerOptions);
-        break;
-      case "warning":
-        sonnerToast.warning(config.message, sonnerOptions);
-        break;
-      case "info":
-        sonnerToast.info(config.message, sonnerOptions);
-        break;
-    }
+      switch (type) {
+        case "success":
+          sonnerToast.success(config.message, sonnerOptions);
+          break;
+        case "error":
+          sonnerToast.error(config.message, sonnerOptions);
+          break;
+        case "warning":
+          sonnerToast.warning(config.message, sonnerOptions);
+          break;
+        case "info":
+          sonnerToast.info(config.message, sonnerOptions);
+          break;
+      }
 
-    return id;
-  },
+      return id;
+    },
 
-  showSuccess: (message, options) => {
-    return get().show({ ...options, message, type: "success" });
-  },
+    showSuccess: (message, options) => {
+      return get().show({ ...options, message, type: "success" });
+    },
 
-  showError: (message, options) => {
-    return get().show({ ...options, message, type: "error" });
-  },
+    showError: (message, options) => {
+      return get().show({ ...options, message, type: "error" });
+    },
 
-  showWarning: (message, options) => {
-    return get().show({ ...options, message, type: "warning" });
-  },
+    showWarning: (message, options) => {
+      return get().show({ ...options, message, type: "warning" });
+    },
 
-  showInfo: (message, options) => {
-    return get().show({ ...options, message, type: "info" });
-  },
+    showInfo: (message, options) => {
+      return get().show({ ...options, message, type: "info" });
+    },
 
-  dismiss: (id) => {
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id),
-    }));
-    sonnerToast.dismiss(id);
-  },
+    dismiss: (id) => {
+      set((state) => ({
+        toasts: state.toasts.filter((t) => t.id !== id),
+      }));
+      sonnerToast.dismiss(id);
+    },
 
-  dismissAll: () => {
-    set({ toasts: [] });
-    sonnerToast.dismiss();
-  },
-}));
+    dismissAll: () => {
+      set({ toasts: [] });
+      sonnerToast.dismiss();
+    },
+  }),
+);

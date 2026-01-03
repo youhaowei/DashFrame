@@ -1,7 +1,7 @@
 /**
  * Unit tests for toast-store module
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useToastStore } from "./toast-store";
 
 // Mock sonner toast
@@ -46,25 +46,25 @@ describe("toast-store", () => {
       show({ message: "Success message", type: "success" });
       expect(sonnerToast.success).toHaveBeenCalledWith(
         "Success message",
-        expect.any(Object)
+        expect.any(Object),
       );
 
       show({ message: "Error message", type: "error" });
       expect(sonnerToast.error).toHaveBeenCalledWith(
         "Error message",
-        expect.any(Object)
+        expect.any(Object),
       );
 
       show({ message: "Warning message", type: "warning" });
       expect(sonnerToast.warning).toHaveBeenCalledWith(
         "Warning message",
-        expect.any(Object)
+        expect.any(Object),
       );
 
       show({ message: "Info message", type: "info" });
       expect(sonnerToast.info).toHaveBeenCalledWith(
         "Info message",
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -116,7 +116,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.success).toHaveBeenCalledWith(
         "Operation completed",
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -150,7 +150,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.error).toHaveBeenCalledWith(
         "Something went wrong",
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -174,7 +174,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.warning).toHaveBeenCalledWith(
         "Please be careful",
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -198,7 +198,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.info).toHaveBeenCalledWith(
         "Here is some information",
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -330,7 +330,7 @@ describe("toast-store", () => {
             label: "Retry",
             onClick: mockCallback,
           },
-        })
+        }),
       );
     });
   });
@@ -373,7 +373,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.success).toHaveBeenCalledWith(
         "Test toast",
-        expect.objectContaining({ id })
+        expect.objectContaining({ id }),
       );
     });
   });
@@ -395,7 +395,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.info).toHaveBeenCalledWith(
         "Test toast",
-        expect.objectContaining({ duration: 4000 })
+        expect.objectContaining({ duration: 4000 }),
       );
     });
   });
@@ -417,7 +417,7 @@ describe("toast-store", () => {
 
       expect(sonnerToast.success).toHaveBeenCalledWith(
         "Long toast",
-        expect.objectContaining({ duration: 10000 })
+        expect.objectContaining({ duration: 10000 }),
       );
     });
 
