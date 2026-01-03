@@ -140,7 +140,7 @@ describe("JSONConnector", () => {
 
   describe("parse - invalid JSON handling", () => {
     it("should reject invalid JSON syntax", async () => {
-      const invalidJson = '{invalid json}';
+      const invalidJson = "{invalid json}";
       const file = new File([invalidJson], "invalid.json", {
         type: "application/json",
       });
@@ -296,7 +296,8 @@ describe("JSONConnector", () => {
     });
 
     it("should parse array of objects", async () => {
-      const validArray = '[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]';
+      const validArray =
+        '[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]';
       const file = new File([validArray], "valid-array.json", {
         type: "application/json",
       });
@@ -332,7 +333,8 @@ describe("JSONConnector", () => {
     });
 
     it("should parse nested objects", async () => {
-      const nestedJson = '[{"user": {"name": "Alice", "address": {"city": "NYC"}}}]';
+      const nestedJson =
+        '[{"user": {"name": "Alice", "address": {"city": "NYC"}}}]';
       const file = new File([nestedJson], "nested.json", {
         type: "application/json",
       });

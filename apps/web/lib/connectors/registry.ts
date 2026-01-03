@@ -33,7 +33,11 @@ import {
  * All registered connectors (singletons - stateless).
  * Order determines display order in the UI.
  */
-const allConnectors: AnyConnector[] = [csvConnector, jsonConnector, notionConnector];
+const allConnectors: AnyConnector[] = [
+  csvConnector,
+  jsonConnector,
+  notionConnector,
+];
 
 /**
  * Options for filtering connectors
