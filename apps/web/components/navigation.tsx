@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useToastStore } from "@/lib/stores";
 import {
   useDashboardMutations,
   useDataFrameMutations,
@@ -40,7 +41,6 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
 
 type NavItem = {
   name: string;
@@ -245,6 +245,7 @@ export function Navigation() {
   const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  const { showSuccess } = useToastStore();
   const { remove: removeDataSource } = useDataSourceMutations();
   const { remove: removeInsight } = useInsightMutations();
   const { clear: clearDataFrames } = useDataFrameMutations();
@@ -283,7 +284,7 @@ export function Navigation() {
     await clearDataFrames();
 
     setShowClearConfirm(false);
-    toast.success("All data cleared");
+    showSuccess("All data cleared");
     router.push("/");
   };
 
