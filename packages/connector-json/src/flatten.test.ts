@@ -12,14 +12,14 @@
  * - extractKeys function
  * - unflattenObject (inverse operation)
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  extractKeys,
   flattenObject,
   flattenObjectArray,
-  extractKeys,
   unflattenObject,
-  type JsonValue,
   type FlattenedObject,
+  type JsonValue,
 } from "./flatten";
 
 describe("flattenObject", () => {
