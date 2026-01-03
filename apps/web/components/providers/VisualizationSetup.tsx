@@ -7,7 +7,7 @@ import {
   registerRenderer,
   createVgplotRenderer,
 } from "@dashframe/visualization";
-import { useDuckDB } from "./DuckDBProvider";
+import { useLazyDuckDB } from "./LazyDuckDBProvider";
 
 // ============================================================================
 // Renderer Registration
@@ -47,15 +47,15 @@ interface VisualizationSetupProps {
  * VisualizationSetup - Wires up the visualization system.
  *
  * This component:
- * 1. Gets the DuckDB instance from DuckDBProvider
- * 2. Wraps children with VisualizationProvider
+ * 1. Triggers DuckDB initialization on mount (lazy loading)
+ * 2. Wraps children with VisualizationProvider once DuckDB is ready
  * 3. Registers the vgplot renderer on mount
  *
  * ## Provider Hierarchy
  *
  * ```
- * DuckDBProvider (provides db)
- *     └── VisualizationSetup (this component)
+ * LazyDuckDBProvider (provides lazy db)
+ *     └── VisualizationSetup (this component - triggers DuckDB init)
  *           └── VisualizationProvider (creates Mosaic coordinator)
  *                 └── RendererRegistration (registers vgplot)
  *                 └── children
@@ -65,29 +65,31 @@ interface VisualizationSetupProps {
  *
  * ```tsx
  * // In layout.tsx
- * <DuckDBProvider>
+ * <LazyDuckDBProvider>
  *   <VisualizationSetup>
  *     <App />
  *   </VisualizationSetup>
- * </DuckDBProvider>
+ * </LazyDuckDBProvider>
  * ```
  *
  * ## Note
  *
- * This component waits for DuckDB to initialize before rendering
- * the VisualizationProvider. Children will see a loading state
- * until both DuckDB and Mosaic are ready.
+ * This component triggers DuckDB initialization on mount via useLazyDuckDB.
+ * Children are rendered immediately (pass-through during loading).
+ * LazyDuckDBProvider handles error UI if initialization fails.
+ * VisualizationProvider is only rendered after DuckDB is ready.
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { db, isInitialized, error } = useDuckDB();
+  const { db, isInitialized, isLoading, error } = useLazyDuckDB();
 
   // Wait for DuckDB to initialize
-  if (!isInitialized || !db) {
-    return <>{children}</>; // Pass through - DuckDBProvider handles loading
+  // Pass through children during loading - LazyDuckDBProvider handles error UI
+  if (isLoading || !isInitialized || !db) {
+    return <>{children}</>;
   }
 
   if (error) {
-    return <>{children}</>; // Pass through - DuckDBProvider handles errors
+    return <>{children}</>; // Pass through - LazyDuckDBProvider handles errors
   }
 
   return (
