@@ -39,6 +39,7 @@ import {
   LuLightbulb,
   LuList,
   LuLoaderPinwheel,
+  LuLock,
   LuMenu,
   LuMerge,
   LuMoon,
@@ -110,6 +111,7 @@ export {
 // Settings & Configuration
 export {
   LuEllipsisVertical as MoreIcon,
+  LuLock as LockIcon,
   LuSettings as SettingsIcon,
   LuShield as ShieldIcon,
 };
