@@ -8,7 +8,7 @@ import {
   type FetchDataParams,
   type FetchDataResult,
 } from "@dashframe/ui";
-import { useDuckDB } from "../providers/DuckDBProvider";
+import { useLazyDuckDB } from "../providers/LazyDuckDBProvider";
 
 // ============================================================================
 // Types
@@ -45,9 +45,12 @@ export interface DuckDBTableProps {
  * DuckDBTable - A thin wrapper around VirtualTable for DuckDB queries
  *
  * This component:
- * 1. Uses the DuckDB connection from context
- * 2. Implements the onFetchData callback with SQL queries
- * 3. Delegates all rendering to VirtualTable
+ * 1. Triggers lazy DuckDB initialization on mount (via useLazyDuckDB)
+ * 2. Uses the DuckDB connection from context
+ * 3. Implements the onFetchData callback with SQL queries
+ * 4. Delegates all rendering to VirtualTable
+ *
+ * Shows a loading state while DuckDB initializes.
  *
  * @example
  * ```tsx
@@ -74,7 +77,8 @@ export function DuckDBTable({
   onCellClick,
   onHeaderClick,
 }: DuckDBTableProps) {
-  const { connection, isInitialized, error: dbError } = useDuckDB();
+  const { connection, isInitialized, isLoading, error: dbError } =
+    useLazyDuckDB();
   const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
     [],
   );
@@ -144,7 +148,7 @@ export function DuckDBTable({
     );
   }
 
-  if (!isInitialized) {
+  if (isLoading || !isInitialized) {
     return (
       <div className="flex h-32 items-center justify-center">
         <span className="text-muted-foreground text-sm">
