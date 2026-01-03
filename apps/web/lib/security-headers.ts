@@ -27,6 +27,23 @@ export function getSecurityHeaders() {
   const isDevelopment = process.env.NODE_ENV === "development";
 
   /**
+   * PostHog host configuration
+   * Supports both default (us.i.posthog.com) and custom NEXT_PUBLIC_POSTHOG_HOST
+   */
+  const customPostHogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
+  const postHogHosts = [
+    // Wildcard patterns for PostHog SaaS domains
+    "https://*.posthog.com",
+    "https://*.i.posthog.com",
+    // Default PostHog hosts
+    "https://us.i.posthog.com",
+    "https://eu.i.posthog.com",
+    "https://app.posthog.com",
+    // Custom host if configured
+    customPostHogHost ? customPostHogHost : null,
+  ].filter(Boolean);
+
+  /**
    * Content Security Policy (CSP)
    * Prevents XSS attacks by controlling which resources can be loaded
    */
@@ -43,7 +60,7 @@ export function getSecurityHeaders() {
      * - 'wasm-unsafe-eval': Required for DuckDB-WASM execution
      * - blob:: Required for DuckDB worker scripts
      * - cdn.jsdelivr.net: DuckDB WASM bundles and dependencies
-     * - *.posthog.com: PostHog analytics SDK
+     * - PostHog hosts: Analytics SDK loading (supports custom NEXT_PUBLIC_POSTHOG_HOST)
      */
     [
       "script-src 'self'",
@@ -52,10 +69,7 @@ export function getSecurityHeaders() {
       "'wasm-unsafe-eval'", // DuckDB WASM
       "blob:",
       "https://cdn.jsdelivr.net",
-      "https://*.posthog.com",
-      "https://us.i.posthog.com",
-      "https://eu.i.posthog.com",
-      "https://app.posthog.com",
+      ...postHogHosts, // PostHog analytics hosts
     ]
       .filter(Boolean)
       .join(" "),
@@ -79,9 +93,11 @@ export function getSecurityHeaders() {
      * - 'self': Allow connections to same origin (API routes)
      * - blob:: Required for DuckDB worker communication
      * - cdn.jsdelivr.net: WASM module loading
-     * - *.posthog.com: PostHog event tracking
+     * - PostHog hosts: Event tracking (supports custom NEXT_PUBLIC_POSTHOG_HOST)
      */
-    "connect-src 'self' blob: https://cdn.jsdelivr.net https://*.posthog.com https://us.i.posthog.com https://eu.i.posthog.com https://app.posthog.com",
+    ["connect-src 'self' blob: https://cdn.jsdelivr.net", ...postHogHosts]
+      .filter(Boolean)
+      .join(" "),
 
     /**
      * img-src: Controls image sources
