@@ -14,7 +14,7 @@ import { initializeDuckDB } from "@/lib/duckdb/init";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
 import { clearInsightViewCache } from "@/hooks/useInsightView";
 
-interface LazyDuckDBContextValue {
+interface DuckDBContextValue {
   db: duckdb.AsyncDuckDB | null;
   connection: duckdb.AsyncDuckDBConnection | null;
   isInitialized: boolean;
@@ -23,7 +23,7 @@ interface LazyDuckDBContextValue {
   initDuckDB: () => Promise<void>;
 }
 
-const LazyDuckDBContext = createContext<LazyDuckDBContextValue>({
+const DuckDBContext = createContext<DuckDBContextValue>({
   db: null,
   connection: null,
   isInitialized: false,
@@ -33,18 +33,18 @@ const LazyDuckDBContext = createContext<LazyDuckDBContextValue>({
 });
 
 /**
- * Lazy DuckDB Provider that doesn't load DuckDB on mount.
+ * DuckDB Provider that lazy-loads DuckDB on-demand.
  * Components trigger initialization by calling initDuckDB() from context.
  * This improves initial page load time by deferring the ~10MB WASM bundle
  * until it's actually needed.
  */
-export function LazyDuckDBProvider({
+export function DuckDBProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const [state, setState] = useState<
-    Omit<LazyDuckDBContextValue, "initDuckDB">
+    Omit<DuckDBContextValue, "initDuckDB">
   >({
     db: null,
     connection: null,
@@ -119,7 +119,7 @@ export function LazyDuckDBProvider({
     };
   }, []);
 
-  const contextValue: LazyDuckDBContextValue = {
+  const contextValue: DuckDBContextValue = {
     ...state,
     initDuckDB,
   };
@@ -159,18 +159,18 @@ export function LazyDuckDBProvider({
   }
 
   return (
-    <LazyDuckDBContext.Provider value={contextValue}>
+    <DuckDBContext.Provider value={contextValue}>
       {children}
-    </LazyDuckDBContext.Provider>
+    </DuckDBContext.Provider>
   );
 }
 
 /**
- * Hook to access lazy DuckDB context.
+ * Hook to access DuckDB context.
  * Provides db, connection, loading/error states, and initDuckDB() function.
- * Does NOT automatically trigger initialization - use useLazyDuckDB() for that.
+ * Does NOT automatically trigger initialization - use useDuckDB() for that.
  */
-export const useDuckDBContext = () => useContext(LazyDuckDBContext);
+export const useDuckDBContext = () => useContext(DuckDBContext);
 
 /**
  * Hook that auto-initializes DuckDB on first call.
@@ -181,7 +181,7 @@ export const useDuckDBContext = () => useContext(LazyDuckDBContext);
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { db, connection, isLoading } = useLazyDuckDB();
+ *   const { db, connection, isLoading } = useDuckDB();
  *
  *   if (isLoading) return <div>Loading DuckDB...</div>;
  *   if (!connection) return <div>DuckDB not available</div>;
@@ -190,8 +190,8 @@ export const useDuckDBContext = () => useContext(LazyDuckDBContext);
  * }
  * ```
  */
-export function useLazyDuckDB() {
-  const context = useContext(LazyDuckDBContext);
+export function useDuckDB() {
+  const context = useContext(DuckDBContext);
   const initCalledRef = useRef(false);
 
   // Auto-initialize on first call

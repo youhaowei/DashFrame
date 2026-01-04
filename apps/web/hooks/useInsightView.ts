@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import { ensureTableLoaded, buildInsightSQL } from "@dashframe/engine-browser";
 import type { Insight, DataTable, UUID } from "@dashframe/types";
@@ -73,7 +73,7 @@ export function getCachedViewName(insightId: string): string | null {
  */
 export function useInsightView(insight: Insight | null | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useLazyDuckDB();
+    useDuckDB();
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;

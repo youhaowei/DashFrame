@@ -53,7 +53,7 @@ import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useInsightView } from "@/hooks/useInsightView";
 import type { Insight as InsightType } from "@dashframe/types";
 
@@ -148,7 +148,7 @@ export default function VisualizationPage({ params }: PageProps) {
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useLazyDuckDB();
+  } = useDuckDB();
 
   // Build Insight object for useInsightView (needs baseTableId and joins)
   const insightForView: InsightType | null = useMemo(() => {

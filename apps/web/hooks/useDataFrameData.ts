@@ -11,7 +11,7 @@ import {
   getDataFrame,
   type DataFrameEntry,
 } from "@dashframe/core";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
 const loadingPromises = new Map<string, Promise<void>>();
@@ -100,7 +100,7 @@ export function useDataFrameData(
   },
 ): UseDataFrameDataResult {
   const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useLazyDuckDB();
+    useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from the reactive data

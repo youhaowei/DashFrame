@@ -8,7 +8,7 @@ import { Navigation } from "@/components/navigation";
 import { DatabaseProvider } from "@dashframe/core";
 import { PostHogProvider } from "@/components/providers/PostHogProvider";
 import { PostHogPageView } from "@/components/providers/PostHogPageView";
-import { LazyDuckDBProvider } from "@/components/providers/LazyDuckDBProvider";
+import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
@@ -39,7 +39,7 @@ export default function RootLayout({
             <TooltipProvider>
               <TRPCProvider>
                 <DatabaseProvider>
-                  <LazyDuckDBProvider>
+                  <DuckDBProvider>
                     <VisualizationSetup>
                       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                         <div
@@ -71,7 +71,7 @@ export default function RootLayout({
                       <Toaster />
                       <ConfirmDialog />
                     </VisualizationSetup>
-                  </LazyDuckDBProvider>
+                  </DuckDBProvider>
                 </DatabaseProvider>
               </TRPCProvider>
             </TooltipProvider>

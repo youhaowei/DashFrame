@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useDataFrames, getDataFrame } from "@dashframe/core";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import type { UUID } from "@dashframe/types";
@@ -26,7 +26,7 @@ import type { UUID } from "@dashframe/types";
  */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useLazyDuckDB();
+    useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from reactive Dexie data (replaces Zustand subscription)

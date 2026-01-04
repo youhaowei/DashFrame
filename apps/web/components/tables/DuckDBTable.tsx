@@ -8,7 +8,7 @@ import {
   type FetchDataParams,
   type FetchDataResult,
 } from "@dashframe/ui";
-import { useLazyDuckDB } from "../providers/LazyDuckDBProvider";
+import { useDuckDB } from "../providers/DuckDBProvider";
 
 // ============================================================================
 // Types
@@ -45,7 +45,7 @@ export interface DuckDBTableProps {
  * DuckDBTable - A thin wrapper around VirtualTable for DuckDB queries
  *
  * This component:
- * 1. Triggers lazy DuckDB initialization on mount (via useLazyDuckDB)
+ * 1. Triggers lazy DuckDB initialization on mount (via useDuckDB)
  * 2. Uses the DuckDB connection from context
  * 3. Implements the onFetchData callback with SQL queries
  * 4. Delegates all rendering to VirtualTable
@@ -78,7 +78,7 @@ export function DuckDBTable({
   onHeaderClick,
 }: DuckDBTableProps) {
   const { connection, isInitialized, isLoading, error: dbError } =
-    useLazyDuckDB();
+    useDuckDB();
   const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
     [],
   );

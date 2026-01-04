@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useRef, useMemo } from "react";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import { ensureTableLoaded } from "@dashframe/engine-browser";
 import {
@@ -63,7 +63,7 @@ export function useInsightPagination({
   enabled = true,
 }: UseInsightPaginationOptions) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useLazyDuckDB();
+    useDuckDB();
 
   // State
   const [totalCount, setTotalCount] = useState<number>(0);

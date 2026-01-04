@@ -7,7 +7,7 @@ import {
   registerRenderer,
   createVgplotRenderer,
 } from "@dashframe/visualization";
-import { useLazyDuckDB } from "./LazyDuckDBProvider";
+import { useDuckDB } from "./DuckDBProvider";
 
 // ============================================================================
 // Renderer Registration
@@ -54,7 +54,7 @@ interface VisualizationSetupProps {
  * ## Provider Hierarchy
  *
  * ```
- * LazyDuckDBProvider (provides lazy db)
+ * DuckDBProvider (provides lazy db)
  *     └── VisualizationSetup (this component - triggers DuckDB init)
  *           └── VisualizationProvider (creates Mosaic coordinator)
  *                 └── RendererRegistration (registers vgplot)
@@ -65,31 +65,31 @@ interface VisualizationSetupProps {
  *
  * ```tsx
  * // In layout.tsx
- * <LazyDuckDBProvider>
+ * <DuckDBProvider>
  *   <VisualizationSetup>
  *     <App />
  *   </VisualizationSetup>
- * </LazyDuckDBProvider>
+ * </DuckDBProvider>
  * ```
  *
  * ## Note
  *
- * This component triggers DuckDB initialization on mount via useLazyDuckDB.
+ * This component triggers DuckDB initialization on mount via useDuckDB.
  * Children are rendered immediately (pass-through during loading).
- * LazyDuckDBProvider handles error UI if initialization fails.
+ * DuckDBProvider handles error UI if initialization fails.
  * VisualizationProvider is only rendered after DuckDB is ready.
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { db, isInitialized, isLoading, error } = useLazyDuckDB();
+  const { db, isInitialized, isLoading, error } = useDuckDB();
 
   // Wait for DuckDB to initialize
-  // Pass through children during loading - LazyDuckDBProvider handles error UI
+  // Pass through children during loading - DuckDBProvider handles error UI
   if (isLoading || !isInitialized || !db) {
     return <>{children}</>;
   }
 
   if (error) {
-    return <>{children}</>; // Pass through - LazyDuckDBProvider handles errors
+    return <>{children}</>; // Pass through - DuckDBProvider handles errors
   }
 
   return (

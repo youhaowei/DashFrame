@@ -25,7 +25,7 @@ import { DataPreviewSection } from "./sections/DataPreviewSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
 import { InsightConfigPanel } from "./config-panel";
 import { useInsightView } from "@/hooks/useInsightView";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
@@ -484,7 +484,7 @@ export function InsightView({ insight }: InsightViewProps) {
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useLazyDuckDB();
+  } = useDuckDB();
 
   // Find data table
   const dataTable = useMemo(

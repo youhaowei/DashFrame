@@ -32,7 +32,7 @@ import {
   getDataFrame,
 } from "@dashframe/core";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import { useLazyDuckDB } from "@/components/providers/LazyDuckDBProvider";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import type { DataTable, InsightJoinConfig } from "@dashframe/types";
 
 interface PageProps {
@@ -114,7 +114,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     connection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useLazyDuckDB();
+  } = useDuckDB();
 
   // Pagination hooks for async VirtualTable (full dataset browsing)
   const {
