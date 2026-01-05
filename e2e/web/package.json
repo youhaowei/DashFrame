@@ -19,8 +19,9 @@
     "bddgen:watch": "bddgen --watch"
   },
   "dependencies": {
-    "@dashframe/connector-csv": "workspace:*",
+    "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/csv": "workspace:*",
     "@dashframe/core": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",
