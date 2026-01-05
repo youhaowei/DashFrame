@@ -193,7 +193,12 @@ export {
 } from "./index";
 
 // Flattening utilities
-export { flattenObject, flattenArray } from "./flatten";
+export {
+  flattenObject,
+  flattenObjectArray,
+  extractKeys,
+  unflattenObject,
+} from "./flatten";
 
 // Connector pattern
 export { JSONConnector, jsonConnector } from "./connector";
