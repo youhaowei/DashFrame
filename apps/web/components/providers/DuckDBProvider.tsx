@@ -9,7 +9,6 @@ import {
   useEffect,
 } from "react";
 import type * as duckdb from "@duckdb/duckdb-wasm";
-import { Spinner } from "@dashframe/ui";
 import { initializeDuckDB } from "@/lib/duckdb/init";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
 import { clearInsightViewCache } from "@/hooks/useInsightView";
@@ -33,10 +32,15 @@ const DuckDBContext = createContext<DuckDBContextValue>({
 });
 
 /**
- * DuckDB Provider that lazy-loads DuckDB on-demand.
- * Components trigger initialization by calling initDuckDB() from context.
- * This improves initial page load time by deferring the ~10MB WASM bundle
- * until it's actually needed.
+ * DuckDB Provider that eagerly loads DuckDB in the background.
+ * Initialization starts automatically during browser idle time (via requestIdleCallback),
+ * so DuckDB is typically ready by the time components need it.
+ *
+ * This approach:
+ * - Keeps ~10MB WASM bundle in a separate chunk (code splitting via dynamic import)
+ * - Doesn't block initial page render
+ * - Starts loading immediately but non-blocking
+ * - Components show inline loading states while DuckDB initializes
  */
 export function DuckDBProvider({
   children,
@@ -119,45 +123,33 @@ export function DuckDBProvider({
     };
   }, []);
 
+  // Eager background initialization - starts loading during browser idle time
+  // This improves UX by having DuckDB ready before user needs it,
+  // while not blocking initial page render
+  useEffect(() => {
+    const startInit = () => {
+      if (!initRef.current) {
+        initDuckDB();
+      }
+    };
+
+    if ("requestIdleCallback" in window) {
+      const idleId = requestIdleCallback(startInit, { timeout: 2000 });
+      return () => cancelIdleCallback(idleId);
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      const timeoutId = setTimeout(startInit, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [initDuckDB]);
+
   const contextValue: DuckDBContextValue = {
     ...state,
     initDuckDB,
   };
 
-  // Loading skeleton during initialization
-  if (state.isLoading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="bg-accent/50 flex flex-col items-center gap-4 rounded-2xl border p-8">
-          <Spinner size="lg" className="text-primary" />
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-sm font-medium">Initializing DuckDB engine</p>
-            <p className="text-muted-foreground text-xs">
-              Loading WASM modules and setting up database...
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Graceful error UI
-  if (state.error) {
-    return (
-      <div className="border-destructive/50 bg-destructive/10 rounded-lg border p-6">
-        <h2 className="text-destructive mb-2 text-lg font-semibold">
-          Failed to initialize DuckDB engine
-        </h2>
-        <p className="text-muted-foreground mb-4 text-sm">
-          {state.error.message}
-        </p>
-        <p className="text-muted-foreground text-xs">
-          DashFrame will fall back to array-based processing. Try refreshing.
-        </p>
-      </div>
-    );
-  }
-
+  // Always render children - DuckDB loads in background
+  // Components that need DuckDB handle their own loading states
   return (
     <DuckDBContext.Provider value={contextValue}>
       {children}
@@ -166,24 +158,24 @@ export function DuckDBProvider({
 }
 
 /**
- * Hook to access DuckDB context.
- * Provides db, connection, loading/error states, and initDuckDB() function.
- * Does NOT automatically trigger initialization - use useDuckDB() for that.
+ * Hook to access DuckDB context with all fields including initDuckDB().
+ * Most components should use useDuckDB() instead.
  */
 export const useDuckDBContext = () => useContext(DuckDBContext);
 
 /**
- * Hook that auto-initializes DuckDB on first call.
- * Components that need DuckDB should use this hook instead of useDuckDBContext.
+ * Hook to access DuckDB connection and state.
+ * DuckDB initializes eagerly in the background when DuckDBProvider mounts,
+ * so components don't need to trigger initialization.
  *
- * @returns DuckDB instance with { db, connection, isLoading, error }
+ * @returns DuckDB instance with { db, connection, isLoading, isInitialized, error }
  *
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { db, connection, isLoading } = useDuckDB();
+ *   const { connection, isLoading, isInitialized } = useDuckDB();
  *
- *   if (isLoading) return <div>Loading DuckDB...</div>;
+ *   if (isLoading || !isInitialized) return <div>Loading DuckDB...</div>;
  *   if (!connection) return <div>DuckDB not available</div>;
  *
  *   // Use connection...
@@ -192,15 +184,6 @@ export const useDuckDBContext = () => useContext(DuckDBContext);
  */
 export function useDuckDB() {
   const context = useContext(DuckDBContext);
-  const initCalledRef = useRef(false);
-
-  // Auto-initialize on first call
-  useEffect(() => {
-    if (!initCalledRef.current && !context.isInitialized && !context.isLoading) {
-      initCalledRef.current = true;
-      context.initDuckDB();
-    }
-  }, [context]);
 
   return {
     db: context.db,
