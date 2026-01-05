@@ -80,6 +80,19 @@ const inferColumnType = (values: JsonPrimitive[]): ColumnType => {
 };
 
 /**
+ * Parse a raw value as a boolean, handling common representations.
+ * Accepts: boolean true/false, case-insensitive "true", string/numeric "1".
+ */
+const parseBoolean = (raw: JsonPrimitive): boolean => {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "string") {
+    const normalized = raw.toLowerCase().trim();
+    return normalized === "true" || normalized === "1";
+  }
+  return typeof raw === "number" && raw === 1;
+};
+
+/**
  * Parse a raw value into the appropriate typed value for Arrow.
  * For date columns, returns Date objects for proper Arrow serialization.
  */
@@ -98,11 +111,7 @@ const parseValue = (raw: JsonPrimitive, type: ColumnType): unknown => {
       return Number.isNaN(numeric) ? null : numeric;
     }
     case "boolean":
-      if (typeof raw === "boolean") {
-        return raw;
-      }
-      // For non-boolean types (string/number), check for truthy string value
-      return raw === "true";
+      return parseBoolean(raw);
     case "date": {
       if (typeof raw === "string") {
         const date = new Date(raw);
