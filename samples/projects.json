@@ -1,0 +1,67 @@
+[
+  {
+    "project_id": "proj-001",
+    "name": "CloudSync Pro",
+    "description": "Enterprise file synchronization and collaboration platform",
+    "status": "active",
+    "type": "saas",
+    "launch_date": "2021-03-01",
+    "tech_stack": ["React", "Node.js", "PostgreSQL", "AWS"],
+    "team_lead": "emp-001",
+    "product_manager": "emp-005",
+    "monthly_active_users": 45000,
+    "mrr": 125000
+  },
+  {
+    "project_id": "proj-002",
+    "name": "DataVault",
+    "description": "Secure data backup and recovery solution",
+    "status": "active",
+    "type": "saas",
+    "launch_date": "2022-01-15",
+    "tech_stack": ["Go", "PostgreSQL", "GCP", "Redis"],
+    "team_lead": "emp-004",
+    "product_manager": "emp-005",
+    "monthly_active_users": 28000,
+    "mrr": 89000
+  },
+  {
+    "project_id": "proj-003",
+    "name": "TeamFlow",
+    "description": "Real-time team communication and project management",
+    "status": "active",
+    "type": "saas",
+    "launch_date": "2023-06-01",
+    "tech_stack": ["TypeScript", "Next.js", "Supabase", "Vercel"],
+    "team_lead": "emp-002",
+    "product_manager": "emp-005",
+    "monthly_active_users": 12000,
+    "mrr": 34000
+  },
+  {
+    "project_id": "proj-004",
+    "name": "AnalyticsHub",
+    "description": "Business intelligence and analytics dashboard",
+    "status": "beta",
+    "type": "saas",
+    "launch_date": "2024-01-10",
+    "tech_stack": ["Python", "React", "ClickHouse", "AWS"],
+    "team_lead": "emp-003",
+    "product_manager": "emp-005",
+    "monthly_active_users": 850,
+    "mrr": 5200
+  },
+  {
+    "project_id": "proj-005",
+    "name": "Mobile SDK",
+    "description": "Cross-platform mobile development toolkit",
+    "status": "maintenance",
+    "type": "sdk",
+    "launch_date": "2020-09-01",
+    "tech_stack": ["Swift", "Kotlin", "React Native"],
+    "team_lead": "emp-004",
+    "product_manager": "emp-005",
+    "monthly_active_users": 3200,
+    "mrr": 18000
+  }
+]
