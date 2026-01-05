@@ -146,7 +146,7 @@ The connector automatically infers column types from sample values:
 
 For each JSON file, the connector generates:
 
-1. **`_rowIndex`** - System computed field (number, identifier)
+1. **`_rowIndex`** - System-computed field (number, identifier)
    - Used as primary key if no ID column detected
    - Excluded from visualization suggestions
 
