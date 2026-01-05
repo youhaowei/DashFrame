@@ -8,14 +8,12 @@ const testDir = defineBddConfig({
   outputDir: "features/.generated",
 });
 
-// Find available port starting from 3100 (avoid conflicts with dev:3000, worktrees, etc.)
-const TEST_PORT = process.env.E2E_PORT
-  ? parseInt(process.env.E2E_PORT, 10)
+// If E2E_PORT is set, assume a dev server is already running (dev mode).
+// Otherwise, find an available port and run a production build (default).
+const hasExternalServer = !!process.env.E2E_PORT;
+const TEST_PORT = hasExternalServer
+  ? parseInt(process.env.E2E_PORT!, 10)
   : findAvailablePortSync(3100);
-
-// Mode: 'production' (default) or 'dev' (fast iteration)
-const E2E_MODE = process.env.E2E_MODE || "production";
-const isProduction = E2E_MODE === "production";
 
 export default defineConfig({
   testDir,
@@ -63,17 +61,15 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    // Production mode: Build to .next-e2e (separate from dev .next)
-    // Dev mode: Use regular dev server (faster iteration)
-    command: isProduction
-      ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun build && bun start -p ${TEST_PORT}`
-      : `cd ../../apps/web && PORT=${TEST_PORT} bun dev`,
-
-    url: `http://localhost:${TEST_PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: isProduction ? 180_000 : 120_000, // Production build takes longer
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: hasExternalServer
+    ? undefined // Dev server already running at E2E_PORT
+    : {
+        // Build to .next-e2e (separate from dev .next) and start production server
+        command: `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && bun run start -p ${TEST_PORT}`,
+        url: `http://localhost:${TEST_PORT}`,
+        reuseExistingServer: !process.env.CI,
+        timeout: 180_000, // Production build takes longer
+        stdout: "pipe",
+        stderr: "pipe",
+      },
 });
