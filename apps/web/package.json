@@ -1,9 +1,9 @@
 {
   "type": "module",
   "dependencies": {
-    "@dashframe/connector-csv": "workspace:*",
-    "@dashframe/connector-json": "workspace:*",
+    "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/csv": "workspace:*",
     "@dashframe/core": "workspace:*",
     "@dashframe/core-dexie": "workspace:*",
     "@dashframe/engine": "workspace:*",

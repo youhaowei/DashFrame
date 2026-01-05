@@ -310,7 +310,7 @@ export async function jsonToDataFrame(
 }
 
 // ============================================================================
-// Exports - Flatten utilities and Connector
+// Flatten Utilities
 // ============================================================================
 
 export {
@@ -323,5 +323,3 @@ export {
   type JsonPrimitive,
   type JsonValue,
 } from "./flatten";
-
-export { JSONConnector, jsonConnector } from "./connector";

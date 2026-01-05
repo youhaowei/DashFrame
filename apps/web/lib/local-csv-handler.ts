@@ -1,5 +1,5 @@
-import { csvToDataFrame } from "@dashframe/connector-csv";
 import { db, getDataSourceByType, getDataTable } from "@dashframe/core";
+import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
 import { deleteArrowData } from "@dashframe/engine-browser";
@@ -56,17 +56,17 @@ export async function handleLocalCSVUpload(
   csvData: string[][],
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
-  // 1. Ensure local data source exists (uses "csv" connector type)
-  let dataSource = await getDataSourceByType("csv");
+  // 1. Ensure local data source exists (uses "local" connector type)
+  let dataSource = await getDataSourceByType("local");
   if (!dataSource) {
     const id = crypto.randomUUID();
     await db.dataSources.add({
       id,
-      type: "csv",
+      type: "local",
       name: "Local Files",
       createdAt: Date.now(),
     });
-    dataSource = await getDataSourceByType("csv");
+    dataSource = await getDataSourceByType("local");
     if (!dataSource) {
       throw new Error("Failed to create local data source");
     }
@@ -192,17 +192,17 @@ export async function handleFileConnectorResult(
   // In browser context, all DataFrames are BrowserDataFrame instances
   const dataFrame = parseResult.dataFrame as BrowserDataFrame;
 
-  // 1. Ensure local data source exists (uses "csv" connector type)
-  let dataSource = await getDataSourceByType("csv");
+  // 1. Ensure local data source exists (uses "local" connector type)
+  let dataSource = await getDataSourceByType("local");
   if (!dataSource) {
     const id = crypto.randomUUID();
     await db.dataSources.add({
       id,
-      type: "csv",
+      type: "local",
       name: "Local Files",
       createdAt: Date.now(),
     });
-    dataSource = await getDataSourceByType("csv");
+    dataSource = await getDataSourceByType("local");
     if (!dataSource) {
       throw new Error("Failed to create local data source");
     }
