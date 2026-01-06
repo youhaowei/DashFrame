@@ -141,15 +141,15 @@ export const Sizes: Story = {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <Badge className="px-1.5 py-0.5 text-xs">Small</Badge>
-        <span className="text-muted-foreground text-xs">Custom small size</span>
+        <span className="text-xs text-muted-foreground">Custom small size</span>
       </div>
       <div className="flex items-center gap-2">
         <Badge>Default</Badge>
-        <span className="text-muted-foreground text-xs">Default size</span>
+        <span className="text-xs text-muted-foreground">Default size</span>
       </div>
       <div className="flex items-center gap-2">
         <Badge className="px-3 py-1.5 text-sm">Large</Badge>
-        <span className="text-muted-foreground text-xs">Custom large size</span>
+        <span className="text-xs text-muted-foreground">Custom large size</span>
       </div>
     </div>
   ),

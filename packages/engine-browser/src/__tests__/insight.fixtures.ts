@@ -6,7 +6,7 @@
  * - createDataTableInfo: Creates DataTableInfo instances
  * - createInsightConfig: Creates InsightConfiguration instances
  */
-import type { DataTableInfo, DataTableField, UUID } from "@dashframe/engine";
+import type { DataTableField, DataTableInfo, UUID } from "@dashframe/engine";
 import type { InsightConfiguration } from "../insight";
 
 /**

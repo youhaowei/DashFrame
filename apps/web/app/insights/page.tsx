@@ -1,15 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
-  useInsights,
-  useInsightMutations,
-  useVisualizations,
   useDataSources,
   useDataTables,
+  useInsightMutations,
+  useInsights,
+  useVisualizations,
 } from "@dashframe/core";
-import type { Insight, DataTable, UUID } from "@dashframe/types";
+import type { DataTable, Insight, UUID } from "@dashframe/types";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  ChartIcon,
+  DeleteIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  FileIcon,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "@dashframe/ui";
+import { ExternalLinkIcon, SearchIcon } from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 // Type for insight with joined details
 type InsightWithDetails = {
@@ -38,25 +57,6 @@ function getInsightState(
   if (isConfigured) return "configured";
   return "draft";
 }
-import {
-  Button,
-  Card,
-  CardContent,
-  Input,
-  Badge,
-  ChartIcon,
-  PlusIcon,
-  DeleteIcon,
-  SettingsIcon,
-  FileIcon,
-  MoreIcon,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@dashframe/ui";
-import { SearchIcon, ExternalLinkIcon } from "@dashframe/ui/icons";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 
 /**
  * Insights Management Page
@@ -186,11 +186,11 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <ChartIcon className="text-primary h-5 w-5" />;
+        return <ChartIcon className="h-5 w-5 text-primary" />;
       case "configured":
-        return <SettingsIcon className="text-muted-foreground h-5 w-5" />;
+        return <SettingsIcon className="h-5 w-5 text-muted-foreground" />;
       case "draft":
-        return <FileIcon className="text-muted-foreground h-5 w-5" />;
+        return <FileIcon className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
@@ -218,7 +218,7 @@ export default function InsightsPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="bg-muted flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
             {getStateIcon(item.state)}
           </div>
 
@@ -228,11 +228,11 @@ export default function InsightsPage() {
               <h4 className="truncate font-medium">{item.insight.name}</h4>
               {getStateBadge(item.state, item.visualizationCount)}
             </div>
-            <p className="text-muted-foreground text-xs">
+            <p className="text-xs text-muted-foreground">
               {item.dataTable?.name || "Unknown table"}
               {item.sourceType && ` • ${item.sourceType}`}
             </p>
-            <p className="text-muted-foreground mt-1 text-xs">
+            <p className="mt-1 text-xs text-muted-foreground">
               Created{" "}
               {new Date(item.insight.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -285,14 +285,14 @@ export default function InsightsPage() {
   );
 
   return (
-    <div className="bg-background flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* Header */}
-      <header className="bg-card/90 sticky top-0 z-10 border-b backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Insights</h1>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 {insights.length} insight{insights.length !== 1 ? "s" : ""}{" "}
                 total
               </p>
@@ -304,7 +304,7 @@ export default function InsightsPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -322,7 +322,7 @@ export default function InsightsPage() {
           {groupedInsights.withViz.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-muted-foreground text-sm font-semibold">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   With Visualizations ({groupedInsights.withViz.length})
                 </h2>
               </div>
@@ -336,7 +336,7 @@ export default function InsightsPage() {
           {groupedInsights.configured.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-muted-foreground text-sm font-semibold">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   Configured ({groupedInsights.configured.length})
                 </h2>
               </div>
@@ -350,7 +350,7 @@ export default function InsightsPage() {
           {groupedInsights.drafts.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-muted-foreground text-sm font-semibold">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
                 <Button
@@ -372,15 +372,15 @@ export default function InsightsPage() {
           {/* Empty State */}
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-                <FileIcon className="text-muted-foreground h-8 w-8" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No insights found
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     No insights match &quot;{searchQuery}&quot;
                   </p>
                   <Button
@@ -394,7 +394,7 @@ export default function InsightsPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No insights yet
                   </h3>
-                  <p className="text-muted-foreground mb-4 text-sm">
+                  <p className="mb-4 text-sm text-muted-foreground">
                     Create your first insight to start analyzing data
                   </p>
                   <Button

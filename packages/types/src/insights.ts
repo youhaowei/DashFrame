@@ -1,7 +1,7 @@
-import type { UUID } from "./uuid";
+import type { Field } from "./field";
 import type { InsightMetric } from "./metric";
 import type { UseQueryResult } from "./repository-base";
-import type { Field } from "./field";
+import type { UUID } from "./uuid";
 
 // ============================================================================
 // Insight Types

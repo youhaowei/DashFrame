@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Switch } from "./switch";
 import { Label } from "./label";
+import { Switch } from "./switch";
 
 const meta = {
   title: "Primitives/Forms/Switch",
@@ -86,7 +86,7 @@ export const WithDescription: Story = {
         <Switch id="analytics" className="mt-1" />
         <div className="grid gap-1.5">
           <Label htmlFor="analytics">Analytics tracking</Label>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Share anonymous usage data to help improve the product
           </p>
         </div>
@@ -95,7 +95,7 @@ export const WithDescription: Story = {
         <Switch id="marketing" className="mt-1" defaultChecked />
         <div className="grid gap-1.5">
           <Label htmlFor="marketing">Marketing emails</Label>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Receive updates about new features and product announcements
           </p>
         </div>
@@ -104,7 +104,7 @@ export const WithDescription: Story = {
         <Switch id="security" className="mt-1" defaultChecked disabled />
         <div className="grid gap-1.5">
           <Label htmlFor="security">Security alerts</Label>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-muted-foreground">
             Required: Cannot be disabled for security reasons
           </p>
         </div>
@@ -145,7 +145,7 @@ export const PrivacySettings: Story = {
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <Label htmlFor="profile-visibility">Make profile public</Label>
-              <p className="text-muted-foreground mt-1 text-sm">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Allow others to see your profile information
               </p>
             </div>
@@ -154,7 +154,7 @@ export const PrivacySettings: Story = {
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <Label htmlFor="activity-status">Show activity status</Label>
-              <p className="text-muted-foreground mt-1 text-sm">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Let others see when you're online
               </p>
             </div>
@@ -163,7 +163,7 @@ export const PrivacySettings: Story = {
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <Label htmlFor="search-indexing">Search engine indexing</Label>
-              <p className="text-muted-foreground mt-1 text-sm">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Allow search engines to index your profile
               </p>
             </div>
@@ -211,7 +211,7 @@ export const AccessibilitySettings: Story = {
             <Switch id="high-contrast" className="mt-1" />
             <div className="grid gap-1.5">
               <Label htmlFor="high-contrast">High contrast mode</Label>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 Increase contrast for better readability
               </p>
             </div>
@@ -220,7 +220,7 @@ export const AccessibilitySettings: Story = {
             <Switch id="reduce-motion" className="mt-1" />
             <div className="grid gap-1.5">
               <Label htmlFor="reduce-motion">Reduce motion</Label>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 Minimize animations and transitions
               </p>
             </div>
@@ -229,7 +229,7 @@ export const AccessibilitySettings: Story = {
             <Switch id="screen-reader" className="mt-1" defaultChecked />
             <div className="grid gap-1.5">
               <Label htmlFor="screen-reader">Screen reader optimization</Label>
-              <p className="text-muted-foreground text-sm">
+              <p className="text-sm text-muted-foreground">
                 Enhance experience for assistive technologies
               </p>
             </div>

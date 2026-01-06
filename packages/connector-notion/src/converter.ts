@@ -1,12 +1,12 @@
 import type {
-  DataFrameRow,
   ColumnType,
-  Field,
   DataFrameColumn,
+  DataFrameRow,
+  Field,
 } from "@dashframe/engine-browser";
 import type {
-  QueryDatabaseResponse,
   PageObjectResponse,
+  QueryDatabaseResponse,
 } from "@notionhq/client/build/src/api-endpoints";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 

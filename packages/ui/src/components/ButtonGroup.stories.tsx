@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { ButtonGroup } from "./ButtonGroup";
 import {
-  PlusIcon,
-  DeleteIcon,
-  RefreshIcon,
-  DatabaseIcon,
-  EditIcon,
   CloseIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  EditIcon,
+  PlusIcon,
+  RefreshIcon,
 } from "../lib/icons";
+import { ButtonGroup } from "./ButtonGroup";
 
 const meta = {
   title: "Components/Actions/ButtonGroup",
@@ -264,7 +264,7 @@ export const CompactMixedIcons: Story = {
     (Story) => (
       <div className="space-y-4">
         <Story />
-        <p className="text-muted-foreground max-w-md text-xs">
+        <p className="max-w-md text-xs text-muted-foreground">
           Note: In compact mode, buttons without icons will show labels instead
         </p>
       </div>

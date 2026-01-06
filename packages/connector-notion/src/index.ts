@@ -1,12 +1,12 @@
 import type {
-  UUID,
   Field,
-  TableColumn,
   SourceSchema,
+  TableColumn,
+  UUID,
 } from "@dashframe/engine-browser";
 import {
-  listDatabases,
   getDatabaseSchema,
+  listDatabases,
   queryDatabase,
   type NotionDatabase,
   type NotionProperty,
@@ -18,7 +18,7 @@ import {
 } from "./converter";
 
 // Re-export types
-export type { NotionDatabase, NotionProperty, NotionConversionResult };
+export type { NotionConversionResult, NotionDatabase, NotionProperty };
 
 // Re-export utilities
 export { mapNotionTypeToColumnType };

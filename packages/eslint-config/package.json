@@ -10,10 +10,7 @@
     "typescript-eslint": ">=8.0.0"
   },
   "private": true,
-  "scripts": {
-    "format": "prettier --check .",
-    "format:write": "prettier --write ."
-  },
+  "scripts": {},
   "type": "module",
   "version": "0.1.0"
 }

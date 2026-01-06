@@ -67,7 +67,7 @@ export const Panel = forwardRef<HTMLDivElement, PanelProps>(function Panel(
     >
       {/* Fixed header */}
       {header && (
-        <div className="border-border/60 shrink-0 border-b">{header}</div>
+        <div className="shrink-0 border-b border-border/60">{header}</div>
       )}
 
       {/* Scrollable content */}
@@ -75,7 +75,7 @@ export const Panel = forwardRef<HTMLDivElement, PanelProps>(function Panel(
 
       {/* Fixed footer */}
       {footer && (
-        <div className="border-border/60 shrink-0 border-t">{footer}</div>
+        <div className="shrink-0 border-t border-border/60">{footer}</div>
       )}
     </Surface>
   );
@@ -127,10 +127,10 @@ export function PanelSection({
       {(title || description) && (
         <div className="mb-4">
           {title && (
-            <h3 className="text-foreground text-base font-semibold">{title}</h3>
+            <h3 className="text-base font-semibold text-foreground">{title}</h3>
           )}
           {description && (
-            <p className="text-muted-foreground mt-1 text-sm">{description}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           )}
         </div>
       )}

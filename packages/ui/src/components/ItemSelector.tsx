@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { GridIcon, ListIcon } from "../lib/icons";
 import type { LucideIcon } from "../lib/icons";
+import { GridIcon, ListIcon } from "../lib/icons";
+import { cn } from "../lib/utils";
 import { ButtonGroup, type ItemAction } from "./ButtonGroup";
 import { Toggle } from "./Toggle";
-import { cn } from "../lib/utils";
 
 export type { ItemAction } from "./button";
 
@@ -67,7 +67,7 @@ export function ItemSelector({
   return (
     <div
       className={cn(
-        "border-border/60 bg-card/70 rounded-2xl border p-4 shadow-sm",
+        "rounded-2xl border border-border/60 bg-card/70 p-4 shadow-sm",
         className,
       )}
     >
@@ -76,7 +76,7 @@ export function ItemSelector({
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <h2 className="text-foreground text-base font-semibold">
+              <h2 className="text-base font-semibold text-foreground">
                 {title}
               </h2>
               {/* View style toggle inline */}
@@ -103,7 +103,7 @@ export function ItemSelector({
               )}
             </div>
             {description && (
-              <p className="text-muted-foreground text-xs">{description}</p>
+              <p className="text-xs text-muted-foreground">{description}</p>
             )}
           </div>
           {actions.length > 0 && (
@@ -149,7 +149,7 @@ export function ItemSelector({
                       onClick={() => onItemSelect(item.id)}
                       aria-pressed={item.active}
                       className={cn(
-                        "focus-visible:ring-ring min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:ring-2 focus-visible:outline-none",
+                        "min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                         item.active
                           ? "border-primary/70 bg-primary/5"
                           : "border-border/70 bg-card/70",
@@ -157,18 +157,18 @@ export function ItemSelector({
                     >
                       <div className="flex items-center gap-2">
                         {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                        <span className="text-foreground text-sm font-medium">
+                        <span className="text-sm font-medium text-foreground">
                           {item.label}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         {item.metadata && (
-                          <span className="text-muted-foreground text-xs">
+                          <span className="text-xs text-muted-foreground">
                             {item.metadata}
                           </span>
                         )}
                         {item.badge && (
-                          <span className="bg-muted text-muted-foreground rounded-full px-1 text-[10px] leading-4 font-semibold tracking-wide">
+                          <span className="rounded-full bg-muted px-1 text-[10px] leading-4 font-semibold tracking-wide text-muted-foreground">
                             {item.badge}
                           </span>
                         )}

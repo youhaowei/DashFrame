@@ -1,4 +1,4 @@
-import { ItemCard, DatabaseIcon } from "@dashframe/ui";
+import { DatabaseIcon, ItemCard } from "@dashframe/ui";
 
 /**
  * Display info for a data table in lists.

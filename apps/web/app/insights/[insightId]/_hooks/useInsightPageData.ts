@@ -1,23 +1,23 @@
 "use client";
 
-import { useMemo } from "react";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import type { PreviewResult } from "@/lib/insights/compute-preview";
+import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import {
-  useInsights,
-  useInsightMutations,
   useDataSources,
   useDataTables,
+  useInsightMutations,
+  useInsights,
   useVisualizations,
 } from "@dashframe/core";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { computeInsightPreview } from "@/lib/insights/compute-preview";
-import type { PreviewResult } from "@/lib/insights/compute-preview";
 import type {
+  DataSource,
+  DataTable,
   Field,
   Insight,
-  DataTable,
-  DataSource,
   Metric,
 } from "@dashframe/types";
+import { useMemo } from "react";
 
 /**
  * Data table info derived from insight's baseTableId

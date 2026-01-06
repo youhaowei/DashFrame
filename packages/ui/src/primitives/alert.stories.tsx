@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Alert, AlertDescription, AlertTitle } from "./alert";
 import {
-  TerminalIcon,
   AlertCircleIcon,
-  InfoIcon,
   CheckCircleIcon,
+  InfoIcon,
+  TerminalIcon,
 } from "../lib/icons";
+import { Alert, AlertDescription, AlertTitle } from "./alert";
 
 const meta = {
   title: "Primitives/Feedback/Alert",

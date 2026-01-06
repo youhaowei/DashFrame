@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Stack } from "./Stack";
+import { ChartIcon, DatabaseIcon, FileIcon } from "../lib/icons";
 import { Button } from "../primitives/button";
-import { DatabaseIcon, ChartIcon, FileIcon } from "../lib/icons";
+import { Stack } from "./Stack";
 
 const meta = {
   title: "Components/Layout/Stack",
@@ -50,13 +50,13 @@ export const Default: Story = {
     spacing: "md",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -73,13 +73,13 @@ export const Horizontal: Story = {
     spacing: "md",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -96,8 +96,8 @@ export const NoSpacing: Story = {
     spacing: "none",
     children: (
       <>
-        <div className="bg-card border-border/60 border-b p-4">Item 1</div>
-        <div className="bg-card border-border/60 border-b p-4">Item 2</div>
+        <div className="border-b border-border/60 bg-card p-4">Item 1</div>
+        <div className="border-b border-border/60 bg-card p-4">Item 2</div>
         <div className="bg-card p-4">Item 3</div>
       </>
     ),
@@ -113,13 +113,13 @@ export const ExtraSmallSpacing: Story = {
     spacing: "xs",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -136,13 +136,13 @@ export const SmallSpacing: Story = {
     spacing: "sm",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -159,13 +159,13 @@ export const LargeSpacing: Story = {
     spacing: "lg",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -182,13 +182,13 @@ export const ExtraLargeSpacing: Story = {
     spacing: "xl",
     children: (
       <>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 1
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 2
         </div>
-        <div className="bg-card border-border/60 rounded-xl border p-4">
+        <div className="rounded-xl border border-border/60 bg-card p-4">
           Item 3
         </div>
       </>
@@ -230,7 +230,7 @@ export const CenterJustified: Story = {
   },
   decorators: [
     (Story) => (
-      <div className="border-border/60 w-full rounded-2xl border p-6">
+      <div className="w-full rounded-2xl border border-border/60 p-6">
         <Story />
       </div>
     ),
@@ -248,13 +248,13 @@ export const SpaceBetween: Story = {
     children: (
       <>
         <span className="text-sm font-medium">Total Items</span>
-        <span className="text-muted-foreground text-sm">42</span>
+        <span className="text-sm text-muted-foreground">42</span>
       </>
     ),
   },
   decorators: [
     (Story) => (
-      <div className="border-border/60 w-full rounded-2xl border p-4">
+      <div className="w-full rounded-2xl border border-border/60 p-4">
         <Story />
       </div>
     ),
@@ -292,7 +292,7 @@ export const WrappingStack: Story = {
   },
   decorators: [
     (Story) => (
-      <div className="border-border/60 w-[300px] rounded-2xl border p-4">
+      <div className="w-[300px] rounded-2xl border border-border/60 p-4">
         <Story />
       </div>
     ),
@@ -309,9 +309,9 @@ export const IconAndText: Story = {
     align: "center",
     children: (
       <>
-        <DatabaseIcon className="text-primary h-4 w-4" />
+        <DatabaseIcon className="h-4 w-4 text-primary" />
         <span className="text-sm font-medium">Sales Database</span>
-        <span className="text-muted-foreground text-xs">12 tables</span>
+        <span className="text-xs text-muted-foreground">12 tables</span>
       </>
     ),
   },
@@ -330,7 +330,7 @@ export const FormLayout: Story = {
           <label className="mb-2 block text-sm font-medium">Name</label>
           <input
             type="text"
-            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
             placeholder="Enter name"
           />
         </div>
@@ -338,14 +338,14 @@ export const FormLayout: Story = {
           <label className="mb-2 block text-sm font-medium">Email</label>
           <input
             type="email"
-            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
             placeholder="Enter email"
           />
         </div>
         <div>
           <label className="mb-2 block text-sm font-medium">Message</label>
           <textarea
-            className="border-border/60 bg-background w-full rounded-xl border px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
             placeholder="Enter message"
             rows={3}
           />
@@ -375,11 +375,11 @@ export const CardGrid: Story = {
         {[DatabaseIcon, ChartIcon, FileIcon].map((Icon, i) => (
           <div
             key={i}
-            className="bg-card border-border/60 w-[200px] rounded-2xl border p-6"
+            className="w-[200px] rounded-2xl border border-border/60 bg-card p-6"
           >
             <Icon className="mb-3 h-5 w-5" />
             <h3 className="mb-1 text-sm font-semibold">Feature {i + 1}</h3>
-            <p className="text-muted-foreground text-xs">
+            <p className="text-xs text-muted-foreground">
               Description text here
             </p>
           </div>
@@ -399,14 +399,14 @@ export const StretchAlignment: Story = {
     align: "stretch",
     children: (
       <>
-        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
+        <div className="flex-1 rounded-xl border border-border/60 bg-card p-4">
           Flexible item 1
         </div>
-        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
+        <div className="flex-1 rounded-xl border border-border/60 bg-card p-4">
           Flexible item 2<br />
           with more content
         </div>
-        <div className="bg-card border-border/60 flex-1 rounded-xl border p-4">
+        <div className="flex-1 rounded-xl border border-border/60 bg-card p-4">
           Flexible item 3
         </div>
       </>
@@ -420,7 +420,7 @@ export const StretchAlignment: Story = {
 export const NestedStacks: Story = {
   render: () => (
     <Stack direction="vertical" spacing="lg">
-      <div className="bg-card border-border/60 rounded-2xl border p-6">
+      <div className="rounded-2xl border border-border/60 bg-card p-6">
         <h3 className="mb-4 text-sm font-semibold">Horizontal nested stack</h3>
         <Stack direction="horizontal" spacing="sm">
           <Button size="sm">Button 1</Button>
@@ -433,7 +433,7 @@ export const NestedStacks: Story = {
         </Stack>
       </div>
 
-      <div className="bg-card border-border/60 rounded-2xl border p-6">
+      <div className="rounded-2xl border border-border/60 bg-card p-6">
         <h3 className="mb-4 text-sm font-semibold">Vertical nested stack</h3>
         <Stack direction="vertical" spacing="xs">
           <div className="text-sm">Item 1</div>

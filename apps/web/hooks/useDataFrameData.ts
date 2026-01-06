@@ -1,17 +1,17 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type {
-  UUID,
-  DataFrameRow,
-  DataFrameColumn,
-  DataFrameData,
-  ColumnType,
-} from "@dashframe/types";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import {
-  useDataFrames,
   getDataFrame,
+  useDataFrames,
   type DataFrameEntry,
 } from "@dashframe/core";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import type {
+  ColumnType,
+  DataFrameColumn,
+  DataFrameData,
+  DataFrameRow,
+  UUID,
+} from "@dashframe/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
 const loadingPromises = new Map<string, Promise<void>>();

@@ -1,14 +1,14 @@
-import { useCallback, useState, useEffect, useRef, useMemo } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
-import { ensureTableLoaded } from "@dashframe/engine-browser";
 import {
   buildInsightSQL,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
+import { ensureTableLoaded } from "@dashframe/engine-browser";
+import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import type { Insight, DataTable, UUID, Field } from "@dashframe/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Options for useInsightPagination hook.

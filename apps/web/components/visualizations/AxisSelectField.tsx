@@ -1,33 +1,33 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { getColumnIcon } from "@/lib/utils/field-icons";
 import {
+  getColumnWarning,
+  getRankedColumnOptions,
+  type AxisWarning,
+} from "@/lib/visualizations/axis-warnings";
+import {
+  getAxisSemanticLabel,
+  getValidColumnsForChannel,
+  isColumnValidForChannel,
+} from "@/lib/visualizations/encoding-enforcer";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type {
+  CompiledInsight,
+  UUID,
+  VisualizationType,
+} from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import {
+  Badge,
   SelectField,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  Badge,
 } from "@dashframe/ui";
 import { AlertCircleIcon, ArrowUpDownIcon } from "@dashframe/ui/icons";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import type {
-  VisualizationType,
-  CompiledInsight,
-  UUID,
-} from "@dashframe/types";
-import { fieldEncoding, metricEncoding } from "@dashframe/types";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import {
-  getRankedColumnOptions,
-  getColumnWarning,
-  type AxisWarning,
-} from "@/lib/visualizations/axis-warnings";
-import {
-  getValidColumnsForChannel,
-  getAxisSemanticLabel,
-  isColumnValidForChannel,
-} from "@/lib/visualizations/encoding-enforcer";
-import { getColumnIcon } from "@/lib/utils/field-icons";
+import { useCallback, useMemo } from "react";
 
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */

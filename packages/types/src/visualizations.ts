@@ -1,10 +1,10 @@
-import type { UUID } from "./uuid";
-import type { UseQueryResult } from "./repository-base";
 import type {
-  EncodingValue,
   AxisType,
   ChannelTransform,
+  EncodingValue,
 } from "./encoding-helpers";
+import type { UseQueryResult } from "./repository-base";
+import type { UUID } from "./uuid";
 
 // Re-export AxisType for convenience
 export type { AxisType };

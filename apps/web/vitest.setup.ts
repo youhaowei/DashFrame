@@ -1,4 +1,6 @@
 import "@testing-library/react";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
 
 // Mock ResizeObserver for tests
 class MockResizeObserver {
@@ -49,3 +51,8 @@ global.ResizeObserver = MockResizeObserver;
 // Store reference for tests to access
 // @ts-expect-error - test helper
 global.MockResizeObserver = MockResizeObserver;
+
+// Cleanup after each test to prevent test pollution
+afterEach(() => {
+  cleanup();
+});

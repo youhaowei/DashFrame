@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import type { Field, Metric } from "@dashframe/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Button,
   Input,
   Label,
   Select,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@dashframe/ui";
+import { useEffect, useState } from "react";
 
 type AggregationType =
   | "sum"
@@ -196,11 +196,11 @@ export function MetricEditorModal({
           </div>
 
           {/* Formula Preview */}
-          <div className="bg-muted rounded-lg p-3">
-            <p className="text-muted-foreground mb-1 text-xs font-medium">
+          <div className="rounded-lg bg-muted p-3">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
               Formula Preview
             </p>
-            <code className="text-foreground font-mono text-sm">
+            <code className="font-mono text-sm text-foreground">
               {getFormulaPreview()}
             </code>
           </div>

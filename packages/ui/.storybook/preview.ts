@@ -1,8 +1,8 @@
 import type { Preview } from "@storybook/nextjs-vite";
 import { createElement } from "react";
-import { ThemeWrapper } from "./ThemeWrapper";
-import { TooltipProvider } from "../src/primitives/tooltip";
 import "../src/globals.css";
+import { TooltipProvider } from "../src/primitives/tooltip";
+import { ThemeWrapper } from "./ThemeWrapper";
 
 const preview: Preview = {
   parameters: {

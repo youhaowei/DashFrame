@@ -5,9 +5,9 @@
  */
 
 export type {
-  ChartTheme,
-  ChartConfig,
   ChartCleanup,
+  ChartConfig,
   ChartRenderer,
   ChartRendererRegistry,
+  ChartTheme,
 } from "./types";

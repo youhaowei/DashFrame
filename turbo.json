@@ -35,10 +35,6 @@
       "dependsOn": ["^build"],
       "outputs": ["storybook-static/**"]
     },
-    "format": {
-      "dependsOn": ["^format"],
-      "outputs": []
-    },
     "lint": {},
     "test": {
       "dependsOn": ["^build"],
@@ -48,7 +44,7 @@
       "dependsOn": ["^typecheck"]
     },
     "check": {
-      "dependsOn": ["lint", "typecheck", "format", "test"],
+      "dependsOn": ["lint", "typecheck", "test"],
       "outputs": []
     },
     "clean": {

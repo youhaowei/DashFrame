@@ -1,5 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
+  ChartIcon,
+  DatabaseIcon,
+  FileIcon,
+  SettingsIcon,
+  ShieldIcon,
+  UsersIcon,
+} from "../lib/icons";
+import {
   NavigationMenu,
   NavigationMenuContent,
   NavigationMenuItem,
@@ -7,14 +15,6 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
 } from "./navigation-menu";
-import {
-  DatabaseIcon,
-  ChartIcon,
-  SettingsIcon,
-  FileIcon,
-  UsersIcon,
-  ShieldIcon,
-} from "../lib/icons";
 
 const meta = {
   title: "Primitives/Navigation/NavigationMenu",
@@ -38,19 +38,19 @@ export const Default: Story = {
             <div className="grid w-[400px] gap-3 p-4">
               <NavigationMenuLink href="#">
                 <div className="font-medium">Introduction</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Learn about DashFrame and its features
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <div className="font-medium">Installation</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   How to install and set up DashFrame
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <div className="font-medium">Quick start</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Get up and running in minutes
                 </div>
               </NavigationMenuLink>
@@ -63,19 +63,19 @@ export const Default: Story = {
             <div className="grid w-[400px] gap-3 p-4">
               <NavigationMenuLink href="#">
                 <div className="font-medium">Alert</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Display important messages to users
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <div className="font-medium">Button</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Clickable button component
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <div className="font-medium">Card</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Container for content and actions
                 </div>
               </NavigationMenuLink>
@@ -98,28 +98,28 @@ export const WithIcons: Story = {
               <NavigationMenuLink href="#">
                 <DatabaseIcon className="mb-2" />
                 <div className="font-medium">Data sources</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Connect to CSV, Notion, and more
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <FileIcon className="mb-2" />
                 <div className="font-medium">DataFrames</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Transform and prepare your data
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <ChartIcon className="mb-2" />
                 <div className="font-medium">Visualizations</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Create charts and dashboards
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <SettingsIcon className="mb-2" />
                 <div className="font-medium">Configuration</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Manage settings and preferences
                 </div>
               </NavigationMenuLink>
@@ -133,14 +133,14 @@ export const WithIcons: Story = {
               <NavigationMenuLink href="#">
                 <FileIcon className="mb-2" />
                 <div className="font-medium">Documentation</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Complete guides and API reference
                 </div>
               </NavigationMenuLink>
               <NavigationMenuLink href="#">
                 <UsersIcon className="mb-2" />
                 <div className="font-medium">Community</div>
-                <div className="text-muted-foreground text-xs">
+                <div className="text-xs text-muted-foreground">
                   Join our community forum
                 </div>
               </NavigationMenuLink>
@@ -178,7 +178,7 @@ export const SimpleLinks: Story = {
 
 export const FullApplicationNav: Story = {
   render: () => (
-    <div className="bg-card w-full border-b">
+    <div className="w-full border-b bg-card">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
           <div className="text-lg font-bold">DashFrame</div>
@@ -191,28 +191,28 @@ export const FullApplicationNav: Story = {
                     <NavigationMenuLink href="#">
                       <DatabaseIcon className="mb-2" />
                       <div className="font-medium">Data Studio</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Connect and transform your data sources
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
                       <ChartIcon className="mb-2" />
                       <div className="font-medium">Analytics</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Create beautiful visualizations
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
                       <ShieldIcon className="mb-2" />
                       <div className="font-medium">Enterprise</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Advanced security and compliance
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
                       <UsersIcon className="mb-2" />
                       <div className="font-medium">Collaboration</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Work together with your team
                       </div>
                     </NavigationMenuLink>
@@ -225,19 +225,19 @@ export const FullApplicationNav: Story = {
                   <div className="grid w-[400px] gap-3 p-4">
                     <NavigationMenuLink href="#">
                       <div className="font-medium">For marketers</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Track campaign performance
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
                       <div className="font-medium">For analysts</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         Deep dive into your data
                       </div>
                     </NavigationMenuLink>
                     <NavigationMenuLink href="#">
                       <div className="font-medium">For executives</div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-xs text-muted-foreground">
                         High-level business insights
                       </div>
                     </NavigationMenuLink>

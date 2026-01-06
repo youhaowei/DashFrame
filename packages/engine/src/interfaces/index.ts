@@ -1,28 +1,28 @@
 // DataFrame interface and types
 export type {
-  DataFrameStorageLocation,
-  DataFrameJSON,
   DataFrame,
   DataFrameFactory,
+  DataFrameJSON,
+  DataFrameStorageLocation,
 } from "./dataframe";
 
 // Storage interface
 export type { DataFrameStorage } from "./storage";
 
 // Query engine interface
-export type { QueryResult, QueryEngine } from "./query-engine";
+export type { QueryEngine, QueryResult } from "./query-engine";
 
 // Query planner interface
-export type {
-  Query,
-  QueryFilter,
-  QueryAggregation,
-  QuerySort,
-  ExecutionStrategy,
-  ExecutionReason,
-  ExecutionPlan,
-  QueryPlanner,
-  PushDownOperation,
-  QueryPushDownCapable,
-} from "./query-planner";
 export { isQueryPushDownCapable } from "./query-planner";
+export type {
+  ExecutionPlan,
+  ExecutionReason,
+  ExecutionStrategy,
+  PushDownOperation,
+  Query,
+  QueryAggregation,
+  QueryFilter,
+  QueryPlanner,
+  QueryPushDownCapable,
+  QuerySort,
+} from "./query-planner";

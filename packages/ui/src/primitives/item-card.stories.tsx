@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { ItemCard } from "./item-card";
 import {
-  DatabaseIcon,
   ChartIcon,
-  TableIcon,
-  EditIcon,
+  DatabaseIcon,
   DeleteIcon,
+  EditIcon,
+  TableIcon,
 } from "../lib/icons";
+import { ItemCard } from "./item-card";
 
 const meta = {
   title: "Primitives/Cards/ItemCard",
@@ -60,10 +60,10 @@ type Story = StoryObj<typeof meta>;
 
 // Mock preview component
 const MockPreview = ({ type }: { type: string }) => (
-  <div className="from-primary/10 to-primary/5 flex h-full w-full items-center justify-center bg-gradient-to-br">
+  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
     <div className="text-center">
       <div className="mb-2 text-4xl">📊</div>
-      <div className="text-muted-foreground text-xs">{type} Preview</div>
+      <div className="text-xs text-muted-foreground">{type} Preview</div>
     </div>
   </div>
 );

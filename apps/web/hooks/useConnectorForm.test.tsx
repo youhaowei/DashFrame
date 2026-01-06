@@ -9,14 +9,14 @@
  * - State management (isSubmitting, submitError)
  * - Form reset functionality
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
-import { useConnectorForm } from "./useConnectorForm";
 import type {
   BaseConnector,
   FormField,
   ValidationResult,
 } from "@dashframe/engine";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useConnectorForm } from "./useConnectorForm";
 
 // Create a mock connector for testing
 function createMockConnector(options: {

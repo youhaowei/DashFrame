@@ -35,25 +35,25 @@ export const AllElevations: Story = {
     <div className="flex flex-wrap gap-6">
       <Surface elevation="plain" className="w-[200px] p-6">
         <h3 className="mb-2 font-semibold">Plain</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Minimal flat surface with border only
         </p>
       </Surface>
       <Surface elevation="raised" className="w-[200px] p-6">
         <h3 className="mb-2 font-semibold">Raised</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Standard elevated surface with subtle shadow
         </p>
       </Surface>
       <Surface elevation="floating" className="w-[200px] p-6">
         <h3 className="mb-2 font-semibold">Floating</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Prominent elevation with backdrop blur
         </p>
       </Surface>
       <Surface elevation="inset" className="w-[200px] p-6">
         <h3 className="mb-2 font-semibold">Inset</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Sunken appearance with inset shadow
         </p>
       </Surface>
@@ -66,13 +66,13 @@ export const Interactive: Story = {
     <div className="flex gap-4">
       <Surface elevation="raised" interactive className="cursor-pointer p-6">
         <h3 className="mb-2 font-semibold">Interactive Surface</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Hover over me to see the effect
         </p>
       </Surface>
       <Surface elevation="floating" interactive className="cursor-pointer p-6">
         <h3 className="mb-2 font-semibold">Floating Interactive</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Click or hover for interaction
         </p>
       </Surface>
@@ -84,11 +84,11 @@ export const CardExample: Story = {
   render: () => (
     <Surface elevation="raised" className="w-[350px] p-6">
       <h2 className="mb-2 text-xl font-bold">Surface as Card</h2>
-      <p className="text-muted-foreground mb-4 text-sm">
+      <p className="mb-4 text-sm text-muted-foreground">
         Surface can be used as a card container with standardized elevation.
       </p>
       <div className="flex gap-2">
-        <button className="bg-primary text-primary-foreground rounded-md px-4 py-2 text-sm">
+        <button className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
           Action
         </button>
         <button className="rounded-md border px-4 py-2 text-sm">Cancel</button>

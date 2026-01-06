@@ -1,21 +1,21 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Section,
-  ItemList,
-  type ListItem,
-  type ItemAction,
-} from "@dashframe/ui";
-import { ChartIcon, PlusIcon, CopyIcon, DeleteIcon } from "@dashframe/ui/icons";
-import type { Visualization, Field } from "@dashframe/types";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
-import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
 import { ChartTypePicker } from "@/components/visualizations/ChartTypePicker";
 import { ChartTypePickerModal } from "@/components/visualizations/ChartTypePickerModal";
+import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
 import type { Insight } from "@/lib/stores/types";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
+import type { ColumnAnalysis } from "@dashframe/engine-browser";
+import type { Field, Visualization } from "@dashframe/types";
+import {
+  ItemList,
+  Section,
+  type ItemAction,
+  type ListItem,
+} from "@dashframe/ui";
+import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@dashframe/ui/icons";
+import { useRouter } from "next/navigation";
+import { memo, useCallback, useMemo, useState } from "react";
 
 interface VisualizationsSectionProps {
   visualizations: Visualization[];

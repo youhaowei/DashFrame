@@ -1,13 +1,13 @@
 // Connector types
 export type {
-  SourceType,
-  FormFieldType,
-  FormField,
-  ValidationResult,
-  FileParseResult,
-  RemoteDatabase,
-  QueryOptions,
   ConnectorQueryResult,
+  FileParseResult,
+  FormField,
+  FormFieldType,
+  QueryOptions,
+  RemoteDatabase,
+  SourceType,
+  ValidationResult,
 } from "./types";
 
 // Connector base classes

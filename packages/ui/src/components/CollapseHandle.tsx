@@ -1,8 +1,8 @@
 import {
+  ChevronsDownIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
   ChevronsUpIcon,
-  ChevronsDownIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 
@@ -77,12 +77,12 @@ export function CollapseHandle({
         "flex items-center justify-center",
         config.size,
         config.rounded,
-        "border-border/60 border",
+        "border border-border/60",
         config.border,
         "bg-card text-muted-foreground",
         "shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
-        "hover:bg-muted/50 hover:text-foreground transition-all hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]",
-        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+        "transition-all hover:bg-muted/50 hover:text-foreground hover:shadow-[0_3px_10px_rgba(0,0,0,0.12)]",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         className,
       )}
       aria-label={ariaLabel || `${isOpen ? "Collapse" : "Expand"} section`}

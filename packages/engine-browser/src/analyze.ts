@@ -1,24 +1,27 @@
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import {
   type DataFrameColumn,
   type Field,
   extractUUIDFromColumnAlias,
 } from "@dashframe/engine";
 import type {
-  ColumnAnalysis,
-  StringAnalysis,
-  NumberAnalysis,
-  DateAnalysis,
   BooleanAnalysis,
+  ColumnAnalysis,
+  DateAnalysis,
+  NumberAnalysis,
+  StringAnalysis,
   UnknownAnalysis,
 } from "@dashframe/types";
 import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { Insight } from "./insight";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
-export type { ColumnAnalysis, DataFrameAnalysis } from "@dashframe/types";
-export type { ColumnCategory } from "@dashframe/types";
-export { looksLikeIdentifier, CARDINALITY_THRESHOLDS } from "@dashframe/types";
+export { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
+export type {
+  ColumnAnalysis,
+  ColumnCategory,
+  DataFrameAnalysis,
+} from "@dashframe/types";
 
 // Pattern detection helpers
 // Safe regex patterns that avoid catastrophic backtracking (ReDoS)

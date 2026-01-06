@@ -8,15 +8,15 @@
  * - isReady() method
  * - getDescription() method
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { Insight } from "../insight";
 import type {
-  DataTableInfo,
   DataTableField,
-  UUID,
+  DataTableInfo,
   InsightMetric,
+  UUID,
 } from "@dashframe/engine";
-import { createField, createDataTableInfo } from "./insight.fixtures";
+import { beforeEach, describe, expect, it } from "vitest";
+import { Insight } from "../insight";
+import { createDataTableInfo, createField } from "./insight.fixtures";
 
 describe("Insight - Utility Methods", () => {
   let baseTable: DataTableInfo;

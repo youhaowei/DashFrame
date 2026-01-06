@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
-import { ensureTableLoaded, buildInsightSQL } from "@dashframe/engine-browser";
-import type { Insight, DataTable, UUID } from "@dashframe/types";
+import { buildInsightSQL, ensureTableLoaded } from "@dashframe/engine-browser";
+import type { DataTable, Insight, UUID } from "@dashframe/types";
+import { useEffect, useState } from "react";
 
 // Module-level cache to track which views have been created
 // This survives React Strict Mode's double-invoke and HMR remounts

@@ -8,10 +8,10 @@
  * - LIMIT clause generation
  * - Combined clauses
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import type { DataTableField, DataTableInfo, UUID } from "@dashframe/engine";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Insight } from "../insight";
-import type { DataTableInfo, DataTableField, UUID } from "@dashframe/engine";
-import { createField, createDataTableInfo } from "./insight.fixtures";
+import { createDataTableInfo, createField } from "./insight.fixtures";
 
 describe("Insight - SQL Generation", () => {
   let baseTable: DataTableInfo;

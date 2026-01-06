@@ -1,38 +1,39 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useInsightView } from "@/hooks/useInsightView";
+import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
+import type { Insight as LocalInsight } from "@/lib/stores/types";
+import { mergeAnalyses } from "@/lib/visualizations/merge-analyses";
+import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import {
-  useInsightMutations,
-  useDataTables,
-  useDataFrames,
+  getDataFrame,
   useDataFrameMutations,
-  useVisualizations,
+  useDataFrames,
+  useDataTables,
+  useInsightMutations,
   useVisualizationMutations,
+  useVisualizations,
 } from "@dashframe/core";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
-  Insight,
-  UUID,
+  ColumnAnalysis,
+  DataFrameAnalysis,
   Field,
+  Insight,
   InsightMetric,
+  UUID,
   VegaLiteSpec,
 } from "@dashframe/types";
-import type { Insight as LocalInsight } from "@/lib/stores/types";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
 import { DataModelSection } from "./sections/DataModelSection";
 import { DataPreviewSection } from "./sections/DataPreviewSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
-import { InsightConfigPanel } from "./config-panel";
-import { useInsightView } from "@/hooks/useInsightView";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
-import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
-import { getDataFrame } from "@dashframe/core";
-import type { ColumnAnalysis, DataFrameAnalysis } from "@dashframe/types";
-import { fieldIdToColumnAlias } from "@dashframe/engine";
-import { mergeAnalyses } from "@/lib/visualizations/merge-analyses";
 
 /**
  * Remap column names in analysis results from original names to UUID aliases.
@@ -68,10 +69,10 @@ function remapAnalysisColumnNames(
   });
 }
 
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
-import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 
 /** Helper context for DataFrame analysis operations */
 interface AnalysisContext {

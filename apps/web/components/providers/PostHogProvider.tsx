@@ -1,25 +1,152 @@
 "use client";
 
-import posthog from "posthog-js";
-import { PostHogProvider as PHProvider } from "posthog-js/react";
-import { useEffect } from "react";
+import { flushEventQueue } from "@/lib/posthog/event-queue";
+import { getPostHogInstance, loadPostHog } from "@/lib/posthog/loader";
+import type { PostHog } from "posthog-js";
+import {
+  createContext,
+  startTransition,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
+/**
+ * Context value for the deferred PostHog provider.
+ * Exposes loading state and PostHog instance for components.
+ */
+interface PostHogContextValue {
+  /** The PostHog instance, null while loading or if disabled */
+  posthog: PostHog | null;
+  /** Whether PostHog has been loaded and initialized */
+  isLoaded: boolean;
+  /** Whether PostHog is currently loading */
+  isLoading: boolean;
+}
+
+const PostHogContext = createContext<PostHogContextValue>({
+  posthog: null,
+  isLoaded: false,
+  isLoading: false,
+});
+
+/**
+ * PostHog provider with deferred loading.
+ *
+ * This provider dynamically imports posthog-js after the page becomes idle
+ * (using requestIdleCallback or setTimeout fallback for Safari), improving
+ * initial page load performance by not blocking the critical rendering path.
+ *
+ * Events captured before PostHog loads are queued and automatically flushed
+ * once initialization completes.
+ */
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<PostHogContextValue>({
+    posthog: null,
+    isLoaded: false,
+    isLoading: false,
+  });
+  const initRef = useRef(false);
+  const mountedRef = useRef(true);
+
   useEffect(() => {
-    if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-      posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
-        api_host:
-          process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
-        person_profiles: "identified_only",
-        capture_pageview: false, // We'll capture manually for better SPA support
-        capture_pageleave: true,
+    // Skip if no API key configured
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      return;
+    }
+
+    // Prevent multiple initialization attempts
+    if (initRef.current) return;
+    initRef.current = true;
+
+    // Mark component as mounted
+    mountedRef.current = true;
+
+    // Check if already loaded (e.g., from another provider instance)
+    const existingInstance = getPostHogInstance();
+    if (existingInstance) {
+      if (mountedRef.current) {
+        startTransition(() => {
+          setState({
+            posthog: existingInstance,
+            isLoaded: true,
+            isLoading: false,
+          });
+        });
+      }
+      return;
+    }
+
+    // Start loading
+    if (mountedRef.current) {
+      startTransition(() => {
+        setState((prev) => ({ ...prev, isLoading: true }));
       });
     }
+
+    loadPostHog({
+      apiKey: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+      apiHost:
+        process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
+      personProfiles: "identified_only",
+      capturePageview: false, // We'll capture manually for better SPA support
+      capturePageleave: true,
+    })
+      .then(({ posthog }) => {
+        // Only update state if component is still mounted
+        if (!mountedRef.current) return;
+
+        // Flush any events that were queued before PostHog loaded
+        flushEventQueue(posthog);
+
+        setState({
+          posthog,
+          isLoaded: true,
+          isLoading: false,
+        });
+      })
+      .catch((error) => {
+        // Only update state if component is still mounted
+        if (!mountedRef.current) return;
+
+        // PostHog loading failed - analytics will be unavailable
+        // This is non-critical, so we just log and continue
+        console.warn("Failed to load PostHog analytics:", error);
+        setState({
+          posthog: null,
+          isLoaded: false,
+          isLoading: false,
+        });
+      });
+
+    // Cleanup: mark component as unmounted
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
+  // If PostHog is not configured, render children without context wrapper
   if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     return <>{children}</>;
   }
 
-  return <PHProvider client={posthog}>{children}</PHProvider>;
+  return (
+    <PostHogContext.Provider value={state}>{children}</PostHogContext.Provider>
+  );
 }
+
+/**
+ * Hook to access the deferred PostHog context.
+ *
+ * Returns the PostHog instance (if loaded), loading state, and initialization state.
+ * Use this hook in components that need to track analytics events.
+ */
+export function usePostHogContext(): PostHogContextValue {
+  return useContext(PostHogContext);
+}
+
+/**
+ * Export the context for advanced use cases (e.g., testing).
+ */
+export { PostHogContext };

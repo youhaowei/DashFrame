@@ -9,7 +9,7 @@
  * Note: connect() and query() methods require server-side proxy due to CORS,
  * so they are tested via integration tests with the tRPC router.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { NotionConnector, notionConnector } from "./connector";
 
 describe("NotionConnector", () => {

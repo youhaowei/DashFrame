@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { ItemSelector, type SelectableItem } from "./ItemSelector";
 import {
-  DatabaseIcon,
-  FileIcon,
   ChartIcon,
-  PlusIcon,
+  DatabaseIcon,
   DeleteIcon,
+  FileIcon,
+  PlusIcon,
   RefreshIcon,
 } from "../lib/icons";
+import { ItemSelector, type SelectableItem } from "./ItemSelector";
 
 const meta = {
   title: "Components/Selection/ItemSelector",

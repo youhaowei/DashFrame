@@ -17,13 +17,16 @@
  * channel and validating complete encoding configurations.
  */
 
-import type { ColumnAnalysis } from "@dashframe/types";
-import { looksLikeIdentifier } from "@dashframe/types";
-import type { VisualizationType, CompiledInsight } from "@dashframe/types";
 import {
   resolveForAnalysis,
   type EncodingResolutionContext,
 } from "@dashframe/engine";
+import type {
+  ColumnAnalysis,
+  CompiledInsight,
+  VisualizationType,
+} from "@dashframe/types";
+import { looksLikeIdentifier } from "@dashframe/types";
 
 // ============================================================================
 // Types

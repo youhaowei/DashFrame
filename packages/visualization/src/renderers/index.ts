@@ -5,6 +5,6 @@
  */
 
 export {
-  createVgplotRenderer,
   VGPLOT_SUPPORTED_TYPES,
+  createVgplotRenderer,
 } from "./vgplot-renderer";

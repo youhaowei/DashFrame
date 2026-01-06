@@ -11,8 +11,10 @@ import {
   type DataPickerContentProps,
 } from "./DataPickerContent";
 
-interface DataPickerModalProps
-  extends Omit<DataPickerContentProps, "onCancel"> {
+interface DataPickerModalProps extends Omit<
+  DataPickerContentProps,
+  "onCancel"
+> {
   /**
    * Whether the modal is open
    */

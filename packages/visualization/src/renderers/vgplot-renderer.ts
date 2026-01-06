@@ -27,8 +27,8 @@
  * ```
  */
 
-import type { ChartConfig, ChartCleanup, ChartRenderer } from "@dashframe/core";
-import type { VisualizationType, ChartEncoding } from "@dashframe/types";
+import type { ChartCleanup, ChartConfig, ChartRenderer } from "@dashframe/core";
+import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 
 /**
  * vgplot API type from dynamic import.
