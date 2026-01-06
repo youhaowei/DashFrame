@@ -45,9 +45,12 @@ export interface DuckDBTableProps {
  * DuckDBTable - A thin wrapper around VirtualTable for DuckDB queries
  *
  * This component:
- * 1. Uses the DuckDB connection from context
- * 2. Implements the onFetchData callback with SQL queries
- * 3. Delegates all rendering to VirtualTable
+ * 1. Triggers lazy DuckDB initialization on mount (via useDuckDB)
+ * 2. Uses the DuckDB connection from context
+ * 3. Implements the onFetchData callback with SQL queries
+ * 4. Delegates all rendering to VirtualTable
+ *
+ * Shows a loading state while DuckDB initializes.
  *
  * @example
  * ```tsx
@@ -74,14 +77,15 @@ export function DuckDBTable({
   onCellClick,
   onHeaderClick,
 }: DuckDBTableProps) {
-  const { connection, isInitialized, error: dbError } = useDuckDB();
+  const { connection, isInitialized, isLoading, error: dbError } = useDuckDB();
   const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
     [],
   );
 
   // Infer columns from table schema if not provided
   useEffect(() => {
-    if (!isInitialized || !connection || columns) return;
+    // Guard: wait for DuckDB to finish loading before inferring columns
+    if (isLoading || !isInitialized || !connection || columns) return;
 
     (async () => {
       try {
@@ -98,7 +102,7 @@ export function DuckDBTable({
         console.error("Failed to infer columns for table:", tableName, err);
       }
     })();
-  }, [isInitialized, connection, tableName, columns]);
+  }, [isLoading, isInitialized, connection, tableName, columns]);
 
   // Build the fetch callback
   const handleFetchData = useCallback(
@@ -144,7 +148,7 @@ export function DuckDBTable({
     );
   }
 
-  if (!isInitialized) {
+  if (isLoading || !isInitialized) {
     return (
       <div className="flex h-32 items-center justify-center">
         <span className="text-sm text-muted-foreground">
