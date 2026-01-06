@@ -38,10 +38,18 @@ type VgplotAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 /**
  * Extended vgplot API with coordinator access (not in public types).
  * The coordinator provides direct DuckDB query access for data inspection.
+ *
+ * Note: The coordinator is at api.context.coordinator (not api.coordinator)
+ * as set up by createAPIContext({ coordinator }).
  */
 interface VgplotAPIExtended extends VgplotAPI {
-  coordinator?: {
-    query: (sql: string) => Promise<{ toArray: () => { val: unknown }[] }>;
+  context?: {
+    coordinator?: {
+      query: (
+        sql: string,
+        options?: { type?: string; cache?: boolean },
+      ) => Promise<unknown>;
+    };
   };
   colorDomain?: (domain: string[]) => void;
 }
@@ -437,18 +445,18 @@ function setupColorDomain(
   colorColumn: string,
   tableName: string,
 ): void {
-  const { coordinator } = api;
+  const coordinator = api.context?.coordinator;
   if (!coordinator?.query) return;
 
   coordinator
     .query(
       `SELECT DISTINCT "${colorColumn}" as val FROM ${tableName} ORDER BY "${colorColumn}"`,
+      { type: "json" },
     )
     .then((result) => {
-      if (!result?.toArray) return;
+      if (!Array.isArray(result)) return;
 
-      const rows = result.toArray();
-      const domain = rows.map((row) => String(row.val));
+      const domain = result.map((row) => String((row as { val: unknown }).val));
 
       if (domain.length > 0 && api.colorDomain) {
         api.colorDomain(domain);
@@ -567,6 +575,72 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       config: ChartConfig,
     ): ChartCleanup {
       try {
+        console.log(
+          `[VgplotRenderer] Starting render for ${type}:`,
+          JSON.stringify({
+            tableName: config.tableName,
+            encoding: config.encoding,
+          }),
+        );
+
+        // Debug: query for available tables using the coordinator
+        // Note: coordinator is at api.context.coordinator (set by createAPIContext)
+        const coordinator = extendedApi.context?.coordinator;
+        if (coordinator?.query) {
+          // Query using JSON type for easier debugging (returns plain objects)
+          coordinator
+            .query("SHOW TABLES", { type: "json" })
+            .then((result) => {
+              console.log(
+                `[VgplotRenderer] Available DuckDB tables:`,
+                JSON.stringify(result),
+              );
+            })
+            .catch((e: unknown) => {
+              console.error(`[VgplotRenderer] Error querying tables:`, e);
+            });
+
+          // Also try to query the specific table
+          coordinator
+            .query(`SELECT COUNT(*) as cnt FROM "${config.tableName}"`, {
+              type: "json",
+            })
+            .then((result) => {
+              console.log(
+                `[VgplotRenderer] Table ${config.tableName} row count:`,
+                JSON.stringify(result),
+              );
+            })
+            .catch((e: unknown) => {
+              console.error(
+                `[VgplotRenderer] Error querying ${config.tableName}:`,
+                e,
+              );
+            });
+
+          // Query actual data to see encoding columns
+          coordinator
+            .query(`SELECT * FROM "${config.tableName}" LIMIT 2`, {
+              type: "json",
+            })
+            .then((result) => {
+              console.log(
+                `[VgplotRenderer] Table ${config.tableName} sample data:`,
+                JSON.stringify(result),
+              );
+            })
+            .catch((e: unknown) => {
+              console.error(
+                `[VgplotRenderer] Error sampling ${config.tableName}:`,
+                e,
+              );
+            });
+        } else {
+          console.warn(
+            `[VgplotRenderer] No coordinator.query available for debugging`,
+          );
+        }
+
         // Build plot options
         const mark = buildMark(api, type, config.tableName, config.encoding);
         const chartColors = getChartColors();
@@ -588,8 +662,14 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         }
 
         // Create and mount the plot
+        console.log(`[VgplotRenderer] Creating plot...`);
         const plot = api.plot(...plotOptions);
+        console.log(`[VgplotRenderer] Plot created, appending to container`);
         container.appendChild(plot);
+        console.log(
+          `[VgplotRenderer] Plot appended, container innerHTML:`,
+          container.innerHTML.substring(0, 200),
+        );
 
         // Set up color domain for stacked bar charts
         if (
