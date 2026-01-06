@@ -15,11 +15,18 @@ import type * as duckdb from "@duckdb/duckdb-wasm";
  * and ensure log entries are processed synchronously and in order.
  */
 class DuckDBLogger implements duckdb.Logger {
-  private verbose =
-    typeof window !== "undefined" &&
-    localStorage.getItem("dashframe:duckdb-verbose") === "true";
-
+  private _verbose: boolean | null = null;
   private duckdbModule: typeof duckdb | null = null;
+
+  /** Lazy-evaluated verbose flag to avoid localStorage access during SSR */
+  private get verbose(): boolean {
+    if (this._verbose === null) {
+      this._verbose =
+        typeof window !== "undefined" &&
+        localStorage.getItem("dashframe:duckdb-verbose") === "true";
+    }
+    return this._verbose;
+  }
 
   /** Set the DuckDB module reference after dynamic import */
   setModule(module: typeof duckdb): void {
