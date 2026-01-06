@@ -2,6 +2,7 @@ node_modules
 **/dist
 **/build
 **/.next
+**/.next-e2e
 **/out
 **/.turbo
 coverage
@@ -11,4 +12,3 @@ pnpm-lock.yaml
 
 # E2E generated files
 e2e/web/features/.generated
-
