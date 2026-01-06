@@ -77,15 +77,15 @@ export function DuckDBTable({
   onCellClick,
   onHeaderClick,
 }: DuckDBTableProps) {
-  const { connection, isInitialized, isLoading, error: dbError } =
-    useDuckDB();
+  const { connection, isInitialized, isLoading, error: dbError } = useDuckDB();
   const [inferredColumns, setInferredColumns] = useState<VirtualTableColumn[]>(
     [],
   );
 
   // Infer columns from table schema if not provided
   useEffect(() => {
-    if (!isInitialized || !connection || columns) return;
+    // Guard: wait for DuckDB to finish loading before inferring columns
+    if (isLoading || !isInitialized || !connection || columns) return;
 
     (async () => {
       try {
@@ -102,7 +102,7 @@ export function DuckDBTable({
         console.error("Failed to infer columns for table:", tableName, err);
       }
     })();
-  }, [isInitialized, connection, tableName, columns]);
+  }, [isLoading, isInitialized, connection, tableName, columns]);
 
   // Build the fetch callback
   const handleFetchData = useCallback(

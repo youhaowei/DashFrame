@@ -42,14 +42,8 @@ const DuckDBContext = createContext<DuckDBContextValue>({
  * - Starts loading immediately but non-blocking
  * - Components show inline loading states while DuckDB initializes
  */
-export function DuckDBProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [state, setState] = useState<
-    Omit<DuckDBContextValue, "initDuckDB">
-  >({
+export function DuckDBProvider({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<Omit<DuckDBContextValue, "initDuckDB">>({
     db: null,
     connection: null,
     isInitialized: false,
@@ -63,14 +57,29 @@ export function DuckDBProvider({
   const connectionRef = useRef<duckdb.AsyncDuckDBConnection | null>(null);
   /** Ref to track live db instance for cleanup */
   const dbRef = useRef<duckdb.AsyncDuckDB | null>(null);
+  /** Ref to read current state values without triggering callback re-creation */
+  const stateRef = useRef(state);
+
+  // Sync state to ref in an effect to avoid updating refs during render
+  useEffect(() => {
+    stateRef.current = state;
+  });
 
   /**
    * Initialize DuckDB on-demand.
    * Safe to call multiple times - will only initialize once.
+   *
+   * Uses refs to read state values to avoid recreating the callback when state changes,
+   * which prevents unnecessary requestIdleCallback cleanup/re-registration cycles.
    */
   const initDuckDB = useCallback(async () => {
     // Already initialized or currently initializing
-    if (initRef.current || state.isInitialized || state.isLoading) {
+    // Read from ref to avoid callback dependency on state
+    if (
+      initRef.current ||
+      stateRef.current.isInitialized ||
+      stateRef.current.isLoading
+    ) {
       return;
     }
 
@@ -109,7 +118,7 @@ export function DuckDBProvider({
       // Reset ref so retry is possible
       initRef.current = false;
     }
-  }, [state.isInitialized, state.isLoading]);
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {

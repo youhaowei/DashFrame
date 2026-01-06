@@ -10,35 +10,45 @@ import type * as duckdb from "@duckdb/duckdb-wasm";
  * Custom DuckDB logger with cleaner console output.
  * Only logs warnings and errors by default to reduce console noise.
  * Set localStorage['dashframe:duckdb-verbose'] = 'true' for all logs.
+ *
+ * The module reference is set after dynamic import to avoid async delays
+ * and ensure log entries are processed synchronously and in order.
  */
 class DuckDBLogger implements duckdb.Logger {
   private verbose =
     typeof window !== "undefined" &&
     localStorage.getItem("dashframe:duckdb-verbose") === "true";
 
+  private duckdbModule: typeof duckdb | null = null;
+
+  /** Set the DuckDB module reference after dynamic import */
+  setModule(module: typeof duckdb): void {
+    this.duckdbModule = module;
+  }
+
   log(entry: duckdb.LogEntryVariant): void {
-    // Dynamically import to access log utility functions
-    import("@duckdb/duckdb-wasm").then((duckdb) => {
-      const level = duckdb.getLogLevelLabel(entry.level);
-      const topic = duckdb.getLogTopicLabel(entry.topic);
-      const event = duckdb.getLogEventLabel(entry.event);
-      const value = entry.value ? `: ${entry.value}` : "";
+    // Skip logging if module not yet loaded (shouldn't happen in practice)
+    if (!this.duckdbModule) return;
 
-      const message = `[DuckDB][${level}] ${topic} ${event}${value}`;
+    const level = this.duckdbModule.getLogLevelLabel(entry.level);
+    const topic = this.duckdbModule.getLogTopicLabel(entry.topic);
+    const event = this.duckdbModule.getLogEventLabel(entry.event);
+    const value = entry.value ? `: ${entry.value}` : "";
 
-      switch (entry.level) {
-        case duckdb.LogLevel.ERROR:
-          console.error(message);
-          break;
-        case duckdb.LogLevel.WARNING:
-          console.warn(message);
-          break;
-        case duckdb.LogLevel.DEBUG:
-        default:
-          if (this.verbose) console.debug(message);
-          break;
-      }
-    });
+    const message = `[DuckDB][${level}] ${topic} ${event}${value}`;
+
+    switch (entry.level) {
+      case this.duckdbModule.LogLevel.ERROR:
+        console.error(message);
+        break;
+      case this.duckdbModule.LogLevel.WARNING:
+        console.warn(message);
+        break;
+      case this.duckdbModule.LogLevel.DEBUG:
+      default:
+        if (this.verbose) console.debug(message);
+        break;
+    }
   }
 }
 
@@ -80,8 +90,13 @@ export async function initializeDuckDB(): Promise<DuckDBInstance> {
     const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
     const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
 
+    // Defensive check for mainWorker URL
+    if (!bundle.mainWorker) {
+      throw new Error("Selected DuckDB bundle is missing mainWorker URL");
+    }
+
     // Create main worker via blob URL to avoid CORS
-    const { worker, blobUrl } = createWorkerFromCDN(bundle.mainWorker!);
+    const { worker, blobUrl } = createWorkerFromCDN(bundle.mainWorker);
     blobUrls.push(blobUrl);
 
     // Handle pthread worker if present (for SharedArrayBuffer multithreading)
@@ -96,7 +111,10 @@ export async function initializeDuckDB(): Promise<DuckDBInstance> {
       pthreadWorkerUrl = pthreadBlobUrl;
     }
 
+    // Create logger and set module reference for synchronous logging
     const logger = new DuckDBLogger();
+    logger.setModule(duckdb);
+
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, pthreadWorkerUrl);
 
