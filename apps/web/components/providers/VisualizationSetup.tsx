@@ -79,10 +79,10 @@ interface VisualizationSetupProps {
  * until both DuckDB and Mosaic are ready.
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { db, isInitialized, error } = useDuckDB();
+  const { db, connection, isInitialized, error } = useDuckDB();
 
   // Wait for DuckDB to initialize
-  if (!isInitialized || !db) {
+  if (!isInitialized || !db || !connection) {
     return <>{children}</>; // Pass through - DuckDBProvider handles loading
   }
 
@@ -91,7 +91,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
   }
 
   return (
-    <VisualizationProvider db={db}>
+    <VisualizationProvider db={db} connection={connection}>
       <RendererRegistration />
       {children}
     </VisualizationProvider>
