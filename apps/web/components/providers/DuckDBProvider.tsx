@@ -1,17 +1,17 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useCallback,
-  useState,
-  useRef,
-  useEffect,
-} from "react";
-import type * as duckdb from "@duckdb/duckdb-wasm";
+import { clearInsightViewCache } from "@/hooks/useInsightView";
 import { initializeDuckDB } from "@/lib/duckdb/init";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
-import { clearInsightViewCache } from "@/hooks/useInsightView";
+import type * as duckdb from "@duckdb/duckdb-wasm";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 interface DuckDBContextValue {
   db: duckdb.AsyncDuckDB | null;

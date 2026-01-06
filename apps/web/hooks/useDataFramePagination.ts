@@ -25,8 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
  * ```
  */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
-  const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from reactive Dexie data (replaces Zustand subscription)

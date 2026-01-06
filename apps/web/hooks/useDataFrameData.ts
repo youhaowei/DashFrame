@@ -99,8 +99,7 @@ export function useDataFrameData(
     skip?: boolean;
   },
 ): UseDataFrameDataResult {
-  const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from the reactive data

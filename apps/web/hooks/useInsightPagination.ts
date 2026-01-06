@@ -62,8 +62,7 @@ export function useInsightPagination({
   showModelPreview = false,
   enabled = true,
 }: UseInsightPaginationOptions) {
-  const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
 
   // State
   const [totalCount, setTotalCount] = useState<number>(0);

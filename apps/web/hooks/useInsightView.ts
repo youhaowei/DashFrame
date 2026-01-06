@@ -72,8 +72,7 @@ export function getCachedViewName(insightId: string): string | null {
  * ```
  */
 export function useInsightView(insight: Insight | null | undefined) {
-  const { connection, isInitialized, isLoading: isDuckDBLoading } =
-    useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;
