@@ -25,9 +25,6 @@ const config: StorybookConfig = {
     name: getAbsolutePath("@storybook/nextjs-vite"),
     options: {},
   },
-  core: {
-    packageManager: "bun",
-  },
 };
 
 export default config;
