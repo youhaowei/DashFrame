@@ -329,6 +329,7 @@ export function Chart({
   return (
     <div
       ref={containerRef}
+      data-testid="visualization-chart"
       className={className}
       style={{
         width: width === "container" ? "100%" : width,

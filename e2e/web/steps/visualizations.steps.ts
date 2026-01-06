@@ -9,7 +9,10 @@ Then("I should see the chart rendered", async ({ page }) => {
     timeout: 30_000,
   });
 
-  // Verify the actual chart is rendered by checking for SVG element
-  // The vgplot renderer creates SVG visualizations inside the Chart component container
-  await expect(page.locator("svg")).toBeVisible({ timeout: 10_000 });
+  // Verify the chart SVG is rendered inside the Chart component container
+  await expect(
+    page.locator('[data-testid="visualization-chart"] svg'),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
 });
