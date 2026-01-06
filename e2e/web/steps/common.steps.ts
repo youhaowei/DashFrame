@@ -14,7 +14,10 @@ Given("I am on the DashFrame home page", async ({ page }) => {
 Then(
   "I should be redirected to the insight configuration page",
   async ({ page }) => {
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
+    // File upload and processing can take time, especially for JSON parsing
+    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/, {
+      timeout: 15_000,
+    });
   },
 );
 

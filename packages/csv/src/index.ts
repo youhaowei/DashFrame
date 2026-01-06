@@ -224,7 +224,7 @@ export async function csvToDataFrame(
 }
 
 // ============================================================================
-// Connector Pattern
+// Parser Utility
 // ============================================================================
 
-export { CSVConnector, csvConnector } from "./connector";
+export { parseCSV } from "./parser";

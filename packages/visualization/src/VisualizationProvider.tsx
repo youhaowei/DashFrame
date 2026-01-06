@@ -44,6 +44,8 @@ const VisualizationContext = createContext<VisualizationContextValue>({
 export interface VisualizationProviderProps {
   /** DuckDB-WASM database instance */
   db: duckdb.AsyncDuckDB;
+  /** DuckDB-WASM connection - MUST be the same connection used for creating views/tables */
+  connection: duckdb.AsyncDuckDBConnection;
   /** Children to render */
   children: ReactNode;
 }
@@ -86,9 +88,16 @@ export interface VisualizationProviderProps {
  * ## How It Works
  *
  * 1. Creates a Mosaic Coordinator
- * 2. Connects to the provided DuckDB instance via wasmConnector
+ * 2. Connects to the provided DuckDB instance via wasmConnector using the SAME connection
  * 3. Creates vgplot API context for building charts
  * 4. Provides context to child components
+ *
+ * ## Important: Connection Sharing
+ *
+ * The connection parameter MUST be the same connection used for creating DuckDB views
+ * and tables. In DuckDB-WASM, views created on one connection are not visible to
+ * queries on a different connection. By passing the shared connection, Mosaic can
+ * query views created by useInsightView and other hooks.
  *
  * ## Data Flow
  *
@@ -108,6 +117,7 @@ export interface VisualizationProviderProps {
  */
 export function VisualizationProvider({
   db,
+  connection,
   children,
 }: VisualizationProviderProps) {
   const [state, setState] = useState<VisualizationContextValue>({
@@ -118,21 +128,52 @@ export function VisualizationProvider({
   });
 
   useEffect(() => {
+    console.log(
+      "[Visualization] useEffect started, db:",
+      !!db,
+      "connection:",
+      !!connection,
+    );
     let cancelled = false;
 
     (async () => {
       try {
+        console.log("[Visualization] About to import vgplot");
         // Dynamically import vgplot to avoid SSR issues
         const vg = await import("@uwdata/vgplot");
+        console.log(
+          "[Visualization] vgplot imported, wasmConnector:",
+          typeof vg.wasmConnector,
+        );
 
         if (cancelled) return;
 
         // Create Mosaic coordinator
         const coordinator = new vg.Coordinator();
 
-        // Connect to the provided DuckDB instance
-        const connector = vg.wasmConnector({ duckdb: db });
+        // Connect to the provided DuckDB instance using the SAME connection
+        // This is critical: views created on one connection are not visible
+        // to queries on a different connection. By passing both db AND connection,
+        // Mosaic will reuse the existing connection instead of creating a new one.
+        console.log(
+          "[Visualization] Creating wasmConnector with shared connection",
+          {
+            hasDb: !!db,
+            hasConnection: !!connection,
+          },
+        );
+        const connector = vg.wasmConnector({ duckdb: db, connection });
         coordinator.databaseConnector(connector);
+
+        // Verify the connector has both db and connection
+        const connectorDb = await connector.getDuckDB();
+        const connectorCon = await connector.getConnection();
+        console.log("[Visualization] Connector verified:", {
+          connectorHasDb: !!connectorDb,
+          connectorHasCon: !!connectorCon,
+          sameDb: connectorDb === db,
+          sameCon: connectorCon === connection,
+        });
 
         // Create vgplot API context bound to this coordinator
         const api = vg.createAPIContext({ coordinator });
@@ -146,7 +187,9 @@ export function VisualizationProvider({
           error: null,
         });
 
-        console.log("[Visualization] Provider initialized");
+        console.log(
+          "[Visualization] Provider initialized with shared connection",
+        );
       } catch (err) {
         if (cancelled) return;
 
@@ -163,7 +206,7 @@ export function VisualizationProvider({
     return () => {
       cancelled = true;
     };
-  }, [db]);
+  }, [db, connection]);
 
   return (
     <VisualizationContext.Provider value={state}>

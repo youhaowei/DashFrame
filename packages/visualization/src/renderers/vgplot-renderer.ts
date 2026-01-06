@@ -38,10 +38,18 @@ type VgplotAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 /**
  * Extended vgplot API with coordinator access (not in public types).
  * The coordinator provides direct DuckDB query access for data inspection.
+ *
+ * Note: The coordinator is at api.context.coordinator (not api.coordinator)
+ * as set up by createAPIContext({ coordinator }).
  */
 interface VgplotAPIExtended extends VgplotAPI {
-  coordinator?: {
-    query: (sql: string) => Promise<{ toArray: () => { val: unknown }[] }>;
+  context?: {
+    coordinator?: {
+      query: (
+        sql: string,
+        options?: { type?: string; cache?: boolean },
+      ) => Promise<unknown>;
+    };
   };
   colorDomain?: (domain: string[]) => void;
 }
@@ -437,18 +445,18 @@ function setupColorDomain(
   colorColumn: string,
   tableName: string,
 ): void {
-  const { coordinator } = api;
+  const coordinator = api.context?.coordinator;
   if (!coordinator?.query) return;
 
   coordinator
     .query(
       `SELECT DISTINCT "${colorColumn}" as val FROM ${tableName} ORDER BY "${colorColumn}"`,
+      { type: "json" },
     )
     .then((result) => {
-      if (!result?.toArray) return;
+      if (!Array.isArray(result)) return;
 
-      const rows = result.toArray();
-      const domain = rows.map((row) => String(row.val));
+      const domain = result.map((row) => String((row as { val: unknown }).val));
 
       if (domain.length > 0 && api.colorDomain) {
         api.colorDomain(domain);

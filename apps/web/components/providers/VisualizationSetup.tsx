@@ -82,7 +82,7 @@ interface VisualizationSetupProps {
  * VisualizationProvider is only rendered after DuckDB is ready.
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { db, isInitialized, isLoading, error, initDuckDB } =
+  const { db, connection, isInitialized, isLoading, error, initDuckDB } =
     useDuckDBContext();
 
   const handleRetry = useCallback(() => {
@@ -103,14 +103,13 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       </>
     );
   }
-
   // Pass through children during loading - components handle their own loading states
-  if (isLoading || !isInitialized || !db) {
+  if (isLoading || !isInitialized || !db || !connection) {
     return <>{children}</>;
   }
 
   return (
-    <VisualizationProvider db={db}>
+    <VisualizationProvider db={db} connection={connection}>
       <RendererRegistration />
       {children}
     </VisualizationProvider>

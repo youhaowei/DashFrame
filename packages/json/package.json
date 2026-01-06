@@ -1,5 +1,5 @@
 {
-  "name": "@dashframe/connector-csv",
+  "name": "@dashframe/json",
   "version": "0.1.0",
   "private": true,
   "type": "module",

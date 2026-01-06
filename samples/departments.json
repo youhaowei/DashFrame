@@ -1,0 +1,47 @@
+[
+  {
+    "department_id": "dept-eng",
+    "name": "Engineering",
+    "budget_annual": 2500000,
+    "headcount": 6,
+    "headcount_target": 8,
+    "cost_center": "CC-100",
+    "location": "San Francisco"
+  },
+  {
+    "department_id": "dept-product",
+    "name": "Product",
+    "budget_annual": 800000,
+    "headcount": 2,
+    "headcount_target": 3,
+    "cost_center": "CC-200",
+    "location": "San Francisco"
+  },
+  {
+    "department_id": "dept-design",
+    "name": "Design",
+    "budget_annual": 600000,
+    "headcount": 2,
+    "headcount_target": 3,
+    "cost_center": "CC-300",
+    "location": "San Francisco"
+  },
+  {
+    "department_id": "dept-sales",
+    "name": "Sales",
+    "budget_annual": 1200000,
+    "headcount": 3,
+    "headcount_target": 5,
+    "cost_center": "CC-400",
+    "location": "New York"
+  },
+  {
+    "department_id": "dept-ops",
+    "name": "Operations",
+    "budget_annual": 900000,
+    "headcount": 2,
+    "headcount_target": 2,
+    "cost_center": "CC-500",
+    "location": "San Francisco"
+  }
+]
