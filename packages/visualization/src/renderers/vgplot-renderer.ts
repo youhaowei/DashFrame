@@ -575,72 +575,6 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       config: ChartConfig,
     ): ChartCleanup {
       try {
-        console.log(
-          `[VgplotRenderer] Starting render for ${type}:`,
-          JSON.stringify({
-            tableName: config.tableName,
-            encoding: config.encoding,
-          }),
-        );
-
-        // Debug: query for available tables using the coordinator
-        // Note: coordinator is at api.context.coordinator (set by createAPIContext)
-        const coordinator = extendedApi.context?.coordinator;
-        if (coordinator?.query) {
-          // Query using JSON type for easier debugging (returns plain objects)
-          coordinator
-            .query("SHOW TABLES", { type: "json" })
-            .then((result) => {
-              console.log(
-                `[VgplotRenderer] Available DuckDB tables:`,
-                JSON.stringify(result),
-              );
-            })
-            .catch((e: unknown) => {
-              console.error(`[VgplotRenderer] Error querying tables:`, e);
-            });
-
-          // Also try to query the specific table
-          coordinator
-            .query(`SELECT COUNT(*) as cnt FROM "${config.tableName}"`, {
-              type: "json",
-            })
-            .then((result) => {
-              console.log(
-                `[VgplotRenderer] Table ${config.tableName} row count:`,
-                JSON.stringify(result),
-              );
-            })
-            .catch((e: unknown) => {
-              console.error(
-                `[VgplotRenderer] Error querying ${config.tableName}:`,
-                e,
-              );
-            });
-
-          // Query actual data to see encoding columns
-          coordinator
-            .query(`SELECT * FROM "${config.tableName}" LIMIT 2`, {
-              type: "json",
-            })
-            .then((result) => {
-              console.log(
-                `[VgplotRenderer] Table ${config.tableName} sample data:`,
-                JSON.stringify(result),
-              );
-            })
-            .catch((e: unknown) => {
-              console.error(
-                `[VgplotRenderer] Error sampling ${config.tableName}:`,
-                e,
-              );
-            });
-        } else {
-          console.warn(
-            `[VgplotRenderer] No coordinator.query available for debugging`,
-          );
-        }
-
         // Build plot options
         const mark = buildMark(api, type, config.tableName, config.encoding);
         const chartColors = getChartColors();
@@ -662,14 +596,8 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         }
 
         // Create and mount the plot
-        console.log(`[VgplotRenderer] Creating plot...`);
         const plot = api.plot(...plotOptions);
-        console.log(`[VgplotRenderer] Plot created, appending to container`);
         container.appendChild(plot);
-        console.log(
-          `[VgplotRenderer] Plot appended, container innerHTML:`,
-          container.innerHTML.substring(0, 200),
-        );
 
         // Set up color domain for stacked bar charts
         if (
