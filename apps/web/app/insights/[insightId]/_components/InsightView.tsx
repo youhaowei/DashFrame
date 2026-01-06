@@ -480,7 +480,7 @@ export function InsightView({ insight }: InsightViewProps) {
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allVisualizations = [] } = useVisualizations();
 
-  // DuckDB connection for chart suggestions (lazy-loaded on component mount)
+  // DuckDB connection for chart suggestions (initialized by DuckDBProvider during idle time)
   const {
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,

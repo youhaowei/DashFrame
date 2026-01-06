@@ -113,7 +113,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return allDataTables.find((t) => t.id === joinTableId) ?? null;
   }, [allDataTables, joinTableId]);
 
-  // DuckDB connection for join preview (lazy-loaded on component mount)
+  // DuckDB connection for join preview (initialized by DuckDBProvider during idle time)
   const {
     connection,
     isInitialized: isDuckDBReady,

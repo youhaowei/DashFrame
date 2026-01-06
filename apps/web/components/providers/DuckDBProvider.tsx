@@ -60,7 +60,9 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   /** Ref to read current state values without triggering callback re-creation */
   const stateRef = useRef(state);
 
-  // Sync state to ref in an effect to avoid updating refs during render
+  // Sync state to ref after every render to keep it current for stable callbacks.
+  // Intentionally omits dependency array - this runs after every render to ensure
+  // stateRef always has the latest state values for use in initDuckDB callback.
   useEffect(() => {
     stateRef.current = state;
   });
@@ -123,9 +125,21 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Cleanup using refs to get live values
-      connectionRef.current?.close();
-      dbRef.current?.terminate();
+      // Cleanup using refs to get live values.
+      // Wrap in try/catch to prevent unhandled errors if DuckDB is in an unexpected state.
+      try {
+        connectionRef.current?.close();
+      } catch (err) {
+        console.warn("Failed to close DuckDB connection during cleanup:", err);
+      }
+      try {
+        dbRef.current?.terminate();
+      } catch (err) {
+        console.warn(
+          "Failed to terminate DuckDB instance during cleanup:",
+          err,
+        );
+      }
       // Clear table caches since DuckDB instance is being destroyed
       clearAllTableCaches();
       clearInsightViewCache();

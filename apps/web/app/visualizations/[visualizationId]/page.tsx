@@ -142,7 +142,7 @@ export default function VisualizationPage({ params }: PageProps) {
     entry: dataFrameEntry,
   } = useDataFrameData(dataFrameId);
 
-  // DuckDB connection for join computation (lazy-loaded on component mount)
+  // DuckDB connection for join computation (initialized by DuckDBProvider during idle time)
   const {
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,
