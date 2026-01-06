@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "bddgen",
-    "test:e2e": "playwright test --project=chromium",
-    "test:e2e:ci": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test --project=chromium",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --project=chromium --headed",
     "test:debug": "playwright test --debug",
