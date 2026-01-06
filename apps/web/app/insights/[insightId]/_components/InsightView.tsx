@@ -477,9 +477,12 @@ export function InsightView({ insight }: InsightViewProps) {
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allVisualizations = [] } = useVisualizations();
 
-  // DuckDB connection for chart suggestions
-  const { connection: duckDBConnection, isInitialized: isDuckDBReady } =
-    useDuckDB();
+  // DuckDB connection for chart suggestions (initialized by DuckDBProvider during idle time)
+  const {
+    connection: duckDBConnection,
+    isInitialized: isDuckDBReady,
+    isLoading: isDuckDBLoading,
+  } = useDuckDB();
 
   // Find data table
   const dataTable = useMemo(
@@ -573,8 +576,9 @@ export function InsightView({ insight }: InsightViewProps) {
   }, [dataTable?.fields, insight.joins, allDataTables]);
 
   // Column analysis effect - uses cached analysis from DataFrame if available
+  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
-    if (!duckDBConnection || !isDuckDBReady) return;
+    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
     if (!chartTableName || !isChartViewReady) {
       setColumnAnalysis([]);
       return;
@@ -743,6 +747,7 @@ export function InsightView({ insight }: InsightViewProps) {
   }, [
     duckDBConnection,
     isDuckDBReady,
+    isDuckDBLoading,
     chartTableName,
     isChartViewReady,
     baseDataFrameEntry,

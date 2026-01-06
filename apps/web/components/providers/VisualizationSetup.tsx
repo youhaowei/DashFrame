@@ -1,13 +1,14 @@
 "use client";
 
+import { ErrorState } from "@dashframe/ui";
 import {
   VisualizationProvider,
   createVgplotRenderer,
   registerRenderer,
   useVisualization,
 } from "@dashframe/visualization";
-import { useEffect, type ReactNode } from "react";
-import { useDuckDB } from "./DuckDBProvider";
+import { useCallback, useEffect, type ReactNode } from "react";
+import { useDuckDBContext } from "./DuckDBProvider";
 
 // ============================================================================
 // Renderer Registration
@@ -47,15 +48,16 @@ interface VisualizationSetupProps {
  * VisualizationSetup - Wires up the visualization system.
  *
  * This component:
- * 1. Gets the DuckDB instance from DuckDBProvider
- * 2. Wraps children with VisualizationProvider
- * 3. Registers the vgplot renderer on mount
+ * 1. Consumes DuckDB state from DuckDBProvider (which handles lazy loading)
+ * 2. Shows error UI if DuckDB initialization fails
+ * 3. Wraps children with VisualizationProvider once DuckDB is ready
+ * 4. Registers the vgplot renderer on mount
  *
  * ## Provider Hierarchy
  *
  * ```
- * DuckDBProvider (provides db)
- *     └── VisualizationSetup (this component)
+ * DuckDBProvider (handles lazy loading via requestIdleCallback)
+ *     └── VisualizationSetup (this component - shows error UI, wraps with Mosaic)
  *           └── VisualizationProvider (creates Mosaic coordinator)
  *                 └── RendererRegistration (registers vgplot)
  *                 └── children
@@ -74,20 +76,36 @@ interface VisualizationSetupProps {
  *
  * ## Note
  *
- * This component waits for DuckDB to initialize before rendering
- * the VisualizationProvider. Children will see a loading state
- * until both DuckDB and Mosaic are ready.
+ * DuckDB initialization is triggered by DuckDBProvider during browser idle time.
+ * Children are rendered immediately (pass-through during loading).
+ * Error UI is shown here if DuckDB initialization fails.
+ * VisualizationProvider is only rendered after DuckDB is ready.
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { db, connection, isInitialized, error } = useDuckDB();
+  const { db, connection, isInitialized, isLoading, error, initDuckDB } =
+    useDuckDBContext();
 
-  // Wait for DuckDB to initialize
-  if (!isInitialized || !db || !connection) {
-    return <>{children}</>; // Pass through - DuckDBProvider handles loading
-  }
+  const handleRetry = useCallback(() => {
+    initDuckDB();
+  }, [initDuckDB]);
 
+  // Show error state if DuckDB initialization failed
   if (error) {
-    return <>{children}</>; // Pass through - DuckDBProvider handles errors
+    return (
+      <>
+        <ErrorState
+          title="Failed to initialize data engine"
+          description={error.message}
+          retryAction={{ label: "Retry", onClick: handleRetry }}
+          className="min-h-[200px]"
+        />
+        {children}
+      </>
+    );
+  }
+  // Pass through children during loading - components handle their own loading states
+  if (isLoading || !isInitialized || !db || !connection) {
+    return <>{children}</>;
   }
 
   return (

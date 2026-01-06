@@ -50,6 +50,9 @@ export function getCachedViewName(insightId: string): string | null {
  * This provides a consistent interface for Chart components regardless of
  * whether the insight has joins or not.
  *
+ * Triggers lazy DuckDB initialization on first call and handles the loading state
+ * while DuckDB initializes.
+ *
  * ## Why always create a view
  *
  * - Simpler mental model: Chart always queries `insight_view_*`
@@ -69,7 +72,7 @@ export function getCachedViewName(insightId: string): string | null {
  * ```
  */
 export function useInsightView(insight: Insight | null | undefined) {
-  const { connection, isInitialized } = useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;
@@ -103,6 +106,7 @@ export function useInsightView(insight: Insight | null | undefined) {
     if (
       !connection ||
       !isInitialized ||
+      isDuckDBLoading ||
       !insightId ||
       !baseTableId ||
       !configKey
@@ -240,7 +244,15 @@ export function useInsightView(insight: Insight | null | undefined) {
     // - Do NOT include `isReady` (would create feedback loop when we setIsReady)
     // - `joinsKey` is a serialized representation of `insight.joins`, so we don't need `insight.joins` directly
     // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes
-  }, [connection, isInitialized, insightId, baseTableId, joinsKey, configKey]);
+  }, [
+    connection,
+    isInitialized,
+    isDuckDBLoading,
+    insightId,
+    baseTableId,
+    joinsKey,
+    configKey,
+  ]);
 
   return {
     /** The DuckDB view name to query (always `insight_view_<insightId>`) */

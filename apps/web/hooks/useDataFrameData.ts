@@ -72,6 +72,9 @@ function extractColumns(rows: DataFrameRow[]): DataFrameColumn[] {
  * This hook handles the async loading of data that is stored in IndexedDB
  * and needs to be loaded into DuckDB for querying.
  *
+ * Triggers lazy DuckDB initialization on first call and returns loading state
+ * while DuckDB initializes.
+ *
  * @param dataFrameId - The UUID of the DataFrame to load, or undefined
  * @param options - Optional configuration
  * @returns Object with data, loading state, error, entry metadata, and reload function
@@ -96,7 +99,7 @@ export function useDataFrameData(
     skip?: boolean;
   },
 ): UseDataFrameDataResult {
-  const { connection, isInitialized } = useDuckDB();
+  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
   // Find the entry from the reactive data
@@ -117,7 +120,13 @@ export function useDataFrameData(
   const skip = options?.skip ?? false;
 
   const loadData = useCallback(async () => {
-    if (!dataFrameId || !connection || !isInitialized || skip) {
+    if (
+      !dataFrameId ||
+      !connection ||
+      !isInitialized ||
+      isDuckDBLoading ||
+      skip
+    ) {
       return;
     }
 
@@ -186,7 +195,7 @@ export function useDataFrameData(
         setIsLoading(false);
       }
     }
-  }, [dataFrameId, connection, isInitialized, limit, skip]);
+  }, [dataFrameId, connection, isInitialized, isDuckDBLoading, limit, skip]);
 
   // Load data when dataFrameId changes or connection becomes available
   useEffect(() => {

@@ -113,8 +113,12 @@ export default function JoinConfigurePage({ params }: PageProps) {
     return allDataTables.find((t) => t.id === joinTableId) ?? null;
   }, [allDataTables, joinTableId]);
 
-  // DuckDB connection for join preview
-  const { connection, isInitialized: isDuckDBReady } = useDuckDB();
+  // DuckDB connection for join preview (initialized by DuckDBProvider during idle time)
+  const {
+    connection,
+    isInitialized: isDuckDBReady,
+    isLoading: isDuckDBLoading,
+  } = useDuckDB();
 
   // Pagination hooks for async VirtualTable (full dataset browsing)
   const {
@@ -247,8 +251,9 @@ export default function JoinConfigurePage({ params }: PageProps) {
   >([]);
 
   // Analyze matching columns for suggestions
+  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
-    if (!connection || !isDuckDBReady) return;
+    if (isDuckDBLoading || !connection || !isDuckDBReady) return;
     if (!baseTable?.dataFrameId || !joinTable?.dataFrameId) return;
     // Wait for pagination hooks to be ready (they load the data into DuckDB)
     if (!isBaseReady || !isJoinReady) return;
@@ -335,6 +340,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
   }, [
     connection,
     isDuckDBReady,
+    isDuckDBLoading,
     baseTable,
     joinTable,
     baseFields,
@@ -350,12 +356,13 @@ export default function JoinConfigurePage({ params }: PageProps) {
   }, []);
 
   // Analyze selected columns for Venn diagram
+  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
     if (!leftFieldId || !rightFieldId) {
       setJoinAnalysis(null);
       return;
     }
-    if (!connection || !isDuckDBReady) return;
+    if (isDuckDBLoading || !connection || !isDuckDBReady) return;
     if (!baseTable?.dataFrameId || !joinTable?.dataFrameId) return;
 
     const leftField = baseFields.find((f) => f.id === leftFieldId);
@@ -430,6 +437,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     rightFieldId,
     connection,
     isDuckDBReady,
+    isDuckDBLoading,
     baseTable,
     joinTable,
     baseFields,
@@ -437,13 +445,14 @@ export default function JoinConfigurePage({ params }: PageProps) {
   ]);
 
   // Compute join preview using DuckDB (handles full dataset efficiently)
+  // DuckDB is lazy-loaded, so we check isDuckDBLoading before computing preview
   useEffect(() => {
     if (!leftFieldId || !rightFieldId) {
       setPreviewResult(null);
       return;
     }
 
-    if (!connection || !isDuckDBReady) {
+    if (isDuckDBLoading || !connection || !isDuckDBReady) {
       return;
     }
 
@@ -589,6 +598,7 @@ export default function JoinConfigurePage({ params }: PageProps) {
     joinType,
     connection,
     isDuckDBReady,
+    isDuckDBLoading,
     baseTable,
     joinTable,
     baseFields,
