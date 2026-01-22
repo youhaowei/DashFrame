@@ -65,7 +65,8 @@ export default defineConfig({
     ? undefined // Dev server already running at E2E_PORT
     : {
         // Build to .next-e2e (separate from dev .next) and start production server
-        command: `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && bun run start -p ${TEST_PORT}`,
+        // Both build and start need NEXT_DIST_DIR to use the same output directory
+        command: `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && NEXT_DIST_DIR=.next-e2e bun run start -p ${TEST_PORT}`,
         url: `http://localhost:${TEST_PORT}`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000, // Production build takes longer
