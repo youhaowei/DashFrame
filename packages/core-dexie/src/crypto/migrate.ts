@@ -70,61 +70,64 @@ function isEncrypted(value: string): boolean {
  * const result = await migrateToEncryption(key);
  * console.log(`Encrypted ${result.encrypted} of ${result.total} data sources`);
  */
+type FieldEncryptionResult = {
+  encryptedValue?: string;
+  wasEncrypted: boolean;
+  wasSkipped: boolean;
+};
+
+async function encryptFieldIfNeeded(
+  value: string | undefined,
+  key: CryptoKey,
+): Promise<FieldEncryptionResult> {
+  if (!value || value.trim().length === 0) {
+    return { wasEncrypted: false, wasSkipped: false };
+  }
+
+  if (isEncrypted(value)) {
+    return { wasEncrypted: false, wasSkipped: true };
+  }
+
+  const encryptedValue = await encrypt(value, key);
+  return { encryptedValue, wasEncrypted: true, wasSkipped: false };
+}
+
 export async function migrateToEncryption(key: CryptoKey): Promise<{
   total: number;
   encrypted: number;
   skipped: number;
 }> {
-  // Get all data sources from the database
   const dataSources = await db.dataSources.toArray();
 
   let encryptedCount = 0;
   let skippedCount = 0;
 
-  // Process each data source
   for (const dataSource of dataSources) {
-    let needsUpdate = false;
     const updates: Partial<DataSourceEntity> = {};
 
-    // Check and encrypt apiKey if present and plaintext
-    if (dataSource.apiKey && dataSource.apiKey.trim().length > 0) {
-      if (isEncrypted(dataSource.apiKey)) {
-        skippedCount++;
-      } else {
-        // Encrypt plaintext apiKey
-        updates.apiKey = await encrypt(dataSource.apiKey, key);
-        needsUpdate = true;
-        encryptedCount++;
-      }
+    const apiKeyResult = await encryptFieldIfNeeded(dataSource.apiKey, key);
+    if (apiKeyResult.encryptedValue) {
+      updates.apiKey = apiKeyResult.encryptedValue;
     }
 
-    // Check and encrypt connectionString if present and plaintext
-    if (
-      dataSource.connectionString &&
-      dataSource.connectionString.trim().length > 0
-    ) {
-      if (isEncrypted(dataSource.connectionString)) {
-        // Already encrypted, skip
-        if (!dataSource.apiKey) {
-          // Only count if we haven't already counted for apiKey
-          skippedCount++;
-        }
-      } else {
-        // Encrypt plaintext connectionString
-        updates.connectionString = await encrypt(
-          dataSource.connectionString,
-          key,
-        );
-        needsUpdate = true;
-        // Only increment if we haven't already for apiKey
-        if (!updates.apiKey) {
-          encryptedCount++;
-        }
-      }
+    const connStringResult = await encryptFieldIfNeeded(
+      dataSource.connectionString,
+      key,
+    );
+    if (connStringResult.encryptedValue) {
+      updates.connectionString = connStringResult.encryptedValue;
     }
 
-    // Update the database if changes were made
-    if (needsUpdate) {
+    const anyFieldEncrypted =
+      apiKeyResult.wasEncrypted || connStringResult.wasEncrypted;
+    const anyFieldSkipped =
+      apiKeyResult.wasSkipped || connStringResult.wasSkipped;
+    const dataSourceSkipped = anyFieldSkipped && !anyFieldEncrypted;
+
+    if (anyFieldEncrypted) encryptedCount++;
+    if (dataSourceSkipped) skippedCount++;
+
+    if (Object.keys(updates).length > 0) {
       await db.dataSources.update(dataSource.id, updates);
     }
   }

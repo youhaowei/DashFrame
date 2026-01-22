@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/no-hardcoded-passwords -- Test files require test passwords */
 /**
  * Unit tests for encryption key manager
  *

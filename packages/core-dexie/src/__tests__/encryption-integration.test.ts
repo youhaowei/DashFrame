@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/no-hardcoded-passwords -- Test files require test passwords */
 /**
  * End-to-end integration tests for encryption feature
  *

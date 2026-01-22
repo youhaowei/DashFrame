@@ -59,13 +59,7 @@ function base64ToUint8Array(base64: string): Uint8Array {
  * Retrieves salt from IndexedDB settings
  */
 async function getSalt(): Promise<Uint8Array | null> {
-  // Type assertion: settings table will be added in task 2.2
-  const settingsTable = (db as any).settings;
-  if (!settingsTable) {
-    throw new Error("Settings table not initialized");
-  }
-
-  const setting = await settingsTable.get(SETTINGS_KEYS.ENCRYPTION_SALT);
+  const setting = await db.settings.get(SETTINGS_KEYS.ENCRYPTION_SALT);
   if (!setting || typeof setting.value !== "string") {
     return null;
   }
@@ -76,13 +70,7 @@ async function getSalt(): Promise<Uint8Array | null> {
  * Stores salt in IndexedDB settings
  */
 async function storeSalt(salt: Uint8Array): Promise<void> {
-  // Type assertion: settings table will be added in task 2.2
-  const settingsTable = (db as any).settings;
-  if (!settingsTable) {
-    throw new Error("Settings table not initialized");
-  }
-
-  await settingsTable.put({
+  await db.settings.put({
     key: SETTINGS_KEYS.ENCRYPTION_SALT,
     value: uint8ArrayToBase64(salt),
   });
@@ -92,13 +80,7 @@ async function storeSalt(salt: Uint8Array): Promise<void> {
  * Retrieves verifier from IndexedDB settings
  */
 async function getVerifier(): Promise<string | null> {
-  // Type assertion: settings table will be added in task 2.2
-  const settingsTable = (db as any).settings;
-  if (!settingsTable) {
-    throw new Error("Settings table not initialized");
-  }
-
-  const setting = await settingsTable.get(SETTINGS_KEYS.ENCRYPTION_VERIFIER);
+  const setting = await db.settings.get(SETTINGS_KEYS.ENCRYPTION_VERIFIER);
   if (!setting || typeof setting.value !== "string") {
     return null;
   }
@@ -109,13 +91,7 @@ async function getVerifier(): Promise<string | null> {
  * Stores verifier in IndexedDB settings
  */
 async function storeVerifier(verifier: string): Promise<void> {
-  // Type assertion: settings table will be added in task 2.2
-  const settingsTable = (db as any).settings;
-  if (!settingsTable) {
-    throw new Error("Settings table not initialized");
-  }
-
-  await settingsTable.put({
+  await db.settings.put({
     key: SETTINGS_KEYS.ENCRYPTION_VERIFIER,
     value: verifier,
   });
