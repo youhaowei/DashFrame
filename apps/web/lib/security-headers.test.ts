@@ -4,7 +4,7 @@
  * These tests ensure that all expected security headers are present
  * and properly configured for both development and production environments.
  */
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getSecurityHeaders } from "./security-headers";
 
 describe("Security Headers", () => {
@@ -42,7 +42,7 @@ describe("Security Headers", () => {
     it("should include Content-Security-Policy header", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader).toBeDefined();
@@ -60,7 +60,7 @@ describe("Security Headers", () => {
     it("should include X-Content-Type-Options header", () => {
       const headers = getSecurityHeaders();
       const xContentTypeHeader = headers.find(
-        (h) => h.key === "X-Content-Type-Options"
+        (h) => h.key === "X-Content-Type-Options",
       );
 
       expect(xContentTypeHeader).toBeDefined();
@@ -70,7 +70,7 @@ describe("Security Headers", () => {
     it("should include Strict-Transport-Security header", () => {
       const headers = getSecurityHeaders();
       const hstsHeader = headers.find(
-        (h) => h.key === "Strict-Transport-Security"
+        (h) => h.key === "Strict-Transport-Security",
       );
 
       expect(hstsHeader).toBeDefined();
@@ -90,7 +90,7 @@ describe("Security Headers", () => {
     it("should include Permissions-Policy header", () => {
       const headers = getSecurityHeaders();
       const permissionsHeader = headers.find(
-        (h) => h.key === "Permissions-Policy"
+        (h) => h.key === "Permissions-Policy",
       );
 
       expect(permissionsHeader).toBeDefined();
@@ -102,7 +102,7 @@ describe("Security Headers", () => {
     it("should include default-src directive", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("default-src 'self'");
@@ -111,7 +111,7 @@ describe("Security Headers", () => {
     it("should include script-src with required sources", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("script-src");
@@ -125,7 +125,7 @@ describe("Security Headers", () => {
     it("should include worker-src with blob: for DuckDB", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("worker-src");
@@ -136,7 +136,7 @@ describe("Security Headers", () => {
     it("should include connect-src with required sources", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("connect-src");
@@ -148,7 +148,7 @@ describe("Security Headers", () => {
     it("should include PostHog hosts in script-src and connect-src", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("https://*.posthog.com");
@@ -158,7 +158,7 @@ describe("Security Headers", () => {
     it("should include style-src with unsafe-inline", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("style-src");
@@ -169,7 +169,7 @@ describe("Security Headers", () => {
     it("should include img-src with data: and blob:", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("img-src");
@@ -181,7 +181,7 @@ describe("Security Headers", () => {
     it("should include font-src with data:", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("font-src");
@@ -192,7 +192,7 @@ describe("Security Headers", () => {
     it("should include object-src 'none'", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("object-src 'none'");
@@ -201,7 +201,7 @@ describe("Security Headers", () => {
     it("should include base-uri 'self'", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("base-uri 'self'");
@@ -210,7 +210,7 @@ describe("Security Headers", () => {
     it("should include form-action 'self'", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("form-action 'self'");
@@ -219,7 +219,7 @@ describe("Security Headers", () => {
     it("should include frame-ancestors 'none'", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("frame-ancestors 'none'");
@@ -231,7 +231,7 @@ describe("Security Headers", () => {
       process.env.NODE_ENV = "development";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("'unsafe-eval'");
@@ -241,7 +241,7 @@ describe("Security Headers", () => {
       process.env.NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).not.toContain("'unsafe-eval'");
@@ -251,7 +251,7 @@ describe("Security Headers", () => {
       process.env.NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("upgrade-insecure-requests");
@@ -261,7 +261,7 @@ describe("Security Headers", () => {
       process.env.NODE_ENV = "development";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).not.toContain("upgrade-insecure-requests");
@@ -270,10 +270,11 @@ describe("Security Headers", () => {
 
   describe("PostHog Custom Host Support", () => {
     it("should include custom PostHog host when NEXT_PUBLIC_POSTHOG_HOST is set", () => {
-      process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://custom.posthog.example.com";
+      process.env.NEXT_PUBLIC_POSTHOG_HOST =
+        "https://custom.posthog.example.com";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toContain("https://custom.posthog.example.com");
@@ -283,7 +284,7 @@ describe("Security Headers", () => {
       delete process.env.NEXT_PUBLIC_POSTHOG_HOST;
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy"
+        (h) => h.key === "Content-Security-Policy",
       );
 
       expect(cspHeader?.value).toBeTruthy();
@@ -295,7 +296,7 @@ describe("Security Headers", () => {
     it("should disable camera permission", () => {
       const headers = getSecurityHeaders();
       const permissionsHeader = headers.find(
-        (h) => h.key === "Permissions-Policy"
+        (h) => h.key === "Permissions-Policy",
       );
 
       expect(permissionsHeader?.value).toContain("camera=()");
@@ -304,7 +305,7 @@ describe("Security Headers", () => {
     it("should disable microphone permission", () => {
       const headers = getSecurityHeaders();
       const permissionsHeader = headers.find(
-        (h) => h.key === "Permissions-Policy"
+        (h) => h.key === "Permissions-Policy",
       );
 
       expect(permissionsHeader?.value).toContain("microphone=()");
@@ -313,7 +314,7 @@ describe("Security Headers", () => {
     it("should disable geolocation permission", () => {
       const headers = getSecurityHeaders();
       const permissionsHeader = headers.find(
-        (h) => h.key === "Permissions-Policy"
+        (h) => h.key === "Permissions-Policy",
       );
 
       expect(permissionsHeader?.value).toContain("geolocation=()");
@@ -322,7 +323,7 @@ describe("Security Headers", () => {
     it("should disable FLoC tracking", () => {
       const headers = getSecurityHeaders();
       const permissionsHeader = headers.find(
-        (h) => h.key === "Permissions-Policy"
+        (h) => h.key === "Permissions-Policy",
       );
 
       expect(permissionsHeader?.value).toContain("interest-cohort=()");
