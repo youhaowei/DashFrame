@@ -30,30 +30,30 @@ export function generateSalt(): Uint8Array {
  */
 export async function deriveKey(
   passphrase: string,
-  salt: Uint8Array
+  salt: Uint8Array,
 ): Promise<CryptoKey> {
   // Convert passphrase to key material
   const encoder = new TextEncoder();
   const passphraseKey = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     encoder.encode(passphrase),
-    'PBKDF2',
+    "PBKDF2",
     false,
-    ['deriveBits', 'deriveKey']
+    ["deriveBits", "deriveKey"],
   );
 
   // Derive AES-GCM key using PBKDF2 with 100,000 iterations and SHA-256
   return crypto.subtle.deriveKey(
     {
-      name: 'PBKDF2',
+      name: "PBKDF2",
       salt: salt,
       iterations: 100000,
-      hash: 'SHA-256',
+      hash: "SHA-256",
     },
     passphraseKey,
-    { name: 'AES-GCM', length: 256 },
+    { name: "AES-GCM", length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ["encrypt", "decrypt"],
   );
 }
 
@@ -70,7 +70,7 @@ export async function deriveKey(
  */
 export async function encrypt(
   plaintext: string,
-  key: CryptoKey
+  key: CryptoKey,
 ): Promise<string> {
   // Generate random 12-byte IV for AES-GCM
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -79,11 +79,11 @@ export async function encrypt(
   const encoder = new TextEncoder();
   const ciphertext = await crypto.subtle.encrypt(
     {
-      name: 'AES-GCM',
+      name: "AES-GCM",
       iv: iv,
     },
     key,
-    encoder.encode(plaintext)
+    encoder.encode(plaintext),
   );
 
   // Combine IV + ciphertext (ciphertext already includes 16-byte auth tag)
@@ -109,7 +109,7 @@ export async function encrypt(
  */
 export async function decrypt(
   ciphertext: string,
-  key: CryptoKey
+  key: CryptoKey,
 ): Promise<string> {
   // Decode from base64
   const combined = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
@@ -121,11 +121,11 @@ export async function decrypt(
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
     {
-      name: 'AES-GCM',
+      name: "AES-GCM",
       iv: iv,
     },
     key,
-    encryptedData
+    encryptedData,
   );
 
   // Decode to string

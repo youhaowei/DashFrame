@@ -9,8 +9,8 @@
  * - Migration result counts
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
 import "fake-indexeddb/auto";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../../db";
 import type { DataSourceEntity } from "../../db/schema";
 import { deriveKey, encrypt, generateSalt } from "../index";
@@ -79,7 +79,7 @@ describe("migration utilities", () => {
       const updated = await db.dataSources.get(dataSource.id);
       expect(updated).toBeDefined();
       expect(updated!.connectionString).not.toBe(
-        "postgresql://user:pass@localhost:5432/db"
+        "postgresql://user:pass@localhost:5432/db",
       );
       expect(updated!.connectionString).toMatch(/^[A-Za-z0-9+/]+=*$/);
     });
@@ -224,7 +224,7 @@ describe("migration utilities", () => {
       expect(updated!.apiKey).not.toBe("api_key_123");
       expect(updated!.apiKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
       expect(updated!.connectionString).not.toBe(
-        "postgresql://localhost:5432/db"
+        "postgresql://localhost:5432/db",
       );
       expect(updated!.connectionString).toMatch(/^[A-Za-z0-9+/]+=*$/);
     });

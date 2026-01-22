@@ -7,20 +7,20 @@
  * - Roundtrip (add then read) returns original
  * - Mutations without unlocked key fail
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import type { CreateDataSourceInput } from "@dashframe/types";
 import "fake-indexeddb/auto";
-import { db } from "../../db";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   initializeEncryption,
-  unlockEncryption,
   lockEncryption,
+  unlockEncryption,
 } from "../../crypto/key-manager";
+import { db } from "../../db";
 import {
-  useDataSourceMutations,
-  getDataSource,
   getAllDataSources,
+  getDataSource,
+  useDataSourceMutations,
 } from "../data-sources";
-import type { CreateDataSourceInput } from "@dashframe/types";
 
 describe("data-sources repository encryption", () => {
   // Reset database and initialize encryption before each test
@@ -71,7 +71,7 @@ describe("data-sources repository encryption", () => {
       expect(storedEntity?.connectionString).toBeDefined();
       expect(storedEntity?.connectionString).not.toBe(plainConnectionString);
       expect(storedEntity?.connectionString?.length).toBeGreaterThan(
-        plainConnectionString.length
+        plainConnectionString.length,
       );
     });
 
@@ -110,7 +110,9 @@ describe("data-sources repository encryption", () => {
       };
 
       // Should fail because key is locked
-      await expect(mutations.add(input)).rejects.toThrow("Encryption is locked");
+      await expect(mutations.add(input)).rejects.toThrow(
+        "Encryption is locked",
+      );
     });
 
     it("should handle empty apiKey gracefully", async () => {
@@ -413,7 +415,7 @@ describe("data-sources repository encryption", () => {
       // Should be encrypted
       expect(storedEntity?.connectionString).not.toBe(newConnectionString);
       expect(storedEntity?.connectionString?.length).toBeGreaterThan(
-        newConnectionString.length
+        newConnectionString.length,
       );
     });
 
@@ -431,9 +433,9 @@ describe("data-sources repository encryption", () => {
       lockEncryption();
 
       // Update should fail because key is locked
-      await expect(
-        mutations.update(id, { apiKey: "new-key" })
-      ).rejects.toThrow("Encryption is locked");
+      await expect(mutations.update(id, { apiKey: "new-key" })).rejects.toThrow(
+        "Encryption is locked",
+      );
     });
 
     it("should allow updating non-sensitive fields without encryption key", async () => {
@@ -503,7 +505,7 @@ describe("data-sources repository encryption", () => {
 
       // Try to unlock with wrong passphrase
       await expect(unlockEncryption("wrong-passphrase")).rejects.toThrow(
-        "Invalid passphrase"
+        "Invalid passphrase",
       );
 
       // Should not be able to read (key still locked)

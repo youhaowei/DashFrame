@@ -8,16 +8,16 @@
  * - State management (initialized, unlocked)
  * - Error handling and edge cases
  */
-import { beforeEach, describe, expect, it } from "vitest";
 import "fake-indexeddb/auto";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../../db";
 import {
+  getEncryptionKey,
   initializeEncryption,
-  unlockEncryption,
   isEncryptionInitialized,
   isEncryptionUnlocked,
-  getEncryptionKey,
   lockEncryption,
+  unlockEncryption,
 } from "../key-manager";
 
 describe("key-manager", () => {
@@ -90,19 +90,19 @@ describe("key-manager", () => {
 
       // Second initialization should fail
       await expect(initializeEncryption("second-passphrase")).rejects.toThrow(
-        "Encryption is already initialized"
+        "Encryption is already initialized",
       );
     });
 
     it("should throw error for empty passphrase", async () => {
       await expect(initializeEncryption("")).rejects.toThrow(
-        "Passphrase cannot be empty"
+        "Passphrase cannot be empty",
       );
     });
 
     it("should throw error for whitespace-only passphrase", async () => {
       await expect(initializeEncryption("   ")).rejects.toThrow(
-        "Passphrase cannot be empty"
+        "Passphrase cannot be empty",
       );
     });
 
@@ -149,7 +149,7 @@ describe("key-manager", () => {
 
     it("should throw error with wrong passphrase", async () => {
       await expect(unlockEncryption("wrong-passphrase")).rejects.toThrow(
-        "Invalid passphrase"
+        "Invalid passphrase",
       );
 
       // Should still be locked
@@ -162,19 +162,19 @@ describe("key-manager", () => {
       await db.open();
 
       await expect(unlockEncryption("any-passphrase")).rejects.toThrow(
-        "Encryption is not initialized"
+        "Encryption is not initialized",
       );
     });
 
     it("should throw error for empty passphrase", async () => {
       await expect(unlockEncryption("")).rejects.toThrow(
-        "Passphrase cannot be empty"
+        "Passphrase cannot be empty",
       );
     });
 
     it("should throw error for whitespace-only passphrase", async () => {
       await expect(unlockEncryption("   ")).rejects.toThrow(
-        "Passphrase cannot be empty"
+        "Passphrase cannot be empty",
       );
     });
 
@@ -252,9 +252,7 @@ describe("key-manager", () => {
 
   describe("getEncryptionKey", () => {
     it("should throw error when encryption is locked", () => {
-      expect(() => getEncryptionKey()).toThrow(
-        "Encryption is locked"
-      );
+      expect(() => getEncryptionKey()).toThrow("Encryption is locked");
     });
 
     it("should return CryptoKey when unlocked", async () => {
@@ -270,9 +268,7 @@ describe("key-manager", () => {
       await initializeEncryption("test-passphrase");
       lockEncryption();
 
-      expect(() => getEncryptionKey()).toThrow(
-        "Encryption is locked"
-      );
+      expect(() => getEncryptionKey()).toThrow("Encryption is locked");
     });
 
     it("should return same key instance while unlocked", async () => {
@@ -388,7 +384,7 @@ describe("key-manager", () => {
 
       // Try to unlock with wrong passphrase
       await expect(unlockEncryption("wrong-passphrase")).rejects.toThrow(
-        "Invalid passphrase"
+        "Invalid passphrase",
       );
 
       // Should still be locked
@@ -440,7 +436,7 @@ describe("key-manager", () => {
 
       // Unlock should fail
       await expect(unlockEncryption("test-passphrase")).rejects.toThrow(
-        "Invalid passphrase"
+        "Invalid passphrase",
       );
     });
 
@@ -453,7 +449,7 @@ describe("key-manager", () => {
 
       // Unlock should fail
       await expect(unlockEncryption("test-passphrase")).rejects.toThrow(
-        "Encryption verifier not found"
+        "Encryption verifier not found",
       );
     });
 
@@ -466,7 +462,7 @@ describe("key-manager", () => {
 
       // Unlock should fail
       await expect(unlockEncryption("test-passphrase")).rejects.toThrow(
-        "Encryption is not initialized"
+        "Encryption is not initialized",
       );
     });
   });

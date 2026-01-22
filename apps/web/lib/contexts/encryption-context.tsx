@@ -73,7 +73,11 @@ const EncryptionContext = createContext<EncryptionContextValue>({
  *   <App />
  * </EncryptionProvider>
  */
-export function EncryptionProvider({ children }: { children: React.ReactNode }) {
+export function EncryptionProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);

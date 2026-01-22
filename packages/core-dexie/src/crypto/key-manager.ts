@@ -7,7 +7,7 @@
  */
 
 import { db } from "../db";
-import { deriveKey, encrypt, decrypt, generateSalt } from "./index";
+import { decrypt, deriveKey, encrypt, generateSalt } from "./index";
 
 // ============================================================================
 // In-Memory Key Cache
@@ -224,7 +224,9 @@ export async function unlockEncryption(passphrase: string): Promise<void> {
   // Load verifier from IndexedDB
   const verifier = await getVerifier();
   if (!verifier) {
-    throw new Error("Encryption verifier not found. Database may be corrupted.");
+    throw new Error(
+      "Encryption verifier not found. Database may be corrupted.",
+    );
   }
 
   // Validate passphrase
@@ -273,9 +275,7 @@ export function isEncryptionUnlocked(): boolean {
  */
 export function getEncryptionKey(): CryptoKey {
   if (!cachedKey) {
-    throw new Error(
-      "Encryption is locked. Call unlockEncryption() first.",
-    );
+    throw new Error("Encryption is locked. Call unlockEncryption() first.");
   }
   return cachedKey;
 }

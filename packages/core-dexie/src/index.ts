@@ -138,6 +138,6 @@ export type {
   DataSourceEntity,
   DataTableEntity,
   InsightEntity,
-  VisualizationEntity,
   SettingsEntity,
+  VisualizationEntity,
 } from "./db";

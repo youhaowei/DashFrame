@@ -9,22 +9,22 @@
  * 5. Verify data accessible and correctly decrypted
  * 6. Test wrong passphrase rejection
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import type { CreateDataSourceInput } from "@dashframe/types";
 import "fake-indexeddb/auto";
-import { db } from "../db";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   initializeEncryption,
-  unlockEncryption,
   isEncryptionInitialized,
   isEncryptionUnlocked,
   lockEncryption,
+  unlockEncryption,
 } from "../crypto/key-manager";
+import { db } from "../db";
 import {
-  useDataSourceMutations,
-  getDataSource,
   getAllDataSources,
+  getDataSource,
+  useDataSourceMutations,
 } from "../repositories/data-sources";
-import type { CreateDataSourceInput } from "@dashframe/types";
 
 describe("encryption integration - full flow", () => {
   // Reset database before each test
@@ -77,7 +77,7 @@ describe("encryption integration - full flow", () => {
 
     // Verify data cannot be accessed while locked
     await expect(getDataSource(dataSourceId)).rejects.toThrow(
-      "Encryption is locked"
+      "Encryption is locked",
     );
 
     // 4. Unlock encryption with correct passphrase
@@ -98,7 +98,9 @@ describe("encryption integration - full flow", () => {
     // Verify data is still encrypted in storage (not plaintext)
     const storedEntityAfterUnlock = await db.dataSources.get(dataSourceId);
     expect(storedEntityAfterUnlock?.apiKey).not.toBe(apiKey);
-    expect(storedEntityAfterUnlock?.connectionString).not.toBe(connectionString);
+    expect(storedEntityAfterUnlock?.connectionString).not.toBe(
+      connectionString,
+    );
   });
 
   it("should reject wrong passphrase and keep data inaccessible", async () => {
@@ -122,7 +124,7 @@ describe("encryption integration - full flow", () => {
 
     // Try to unlock with wrong passphrase
     await expect(unlockEncryption(wrongPassphrase)).rejects.toThrow(
-      "Invalid passphrase"
+      "Invalid passphrase",
     );
 
     // Verify encryption is still locked
@@ -130,7 +132,7 @@ describe("encryption integration - full flow", () => {
 
     // Verify data is still inaccessible
     await expect(getDataSource(dataSourceId)).rejects.toThrow(
-      "Encryption is locked"
+      "Encryption is locked",
     );
 
     // Unlock with correct passphrase
@@ -168,7 +170,7 @@ describe("encryption integration - full flow", () => {
     expect(allSourcesBeforeReload[0].apiKey).toBe("notion_key_1");
     expect(allSourcesBeforeReload[1].apiKey).toBe("notion_key_2");
     expect(allSourcesBeforeReload[2].connectionString).toBe(
-      "postgresql://localhost/db1"
+      "postgresql://localhost/db1",
     );
 
     // Simulate page reload
@@ -186,7 +188,7 @@ describe("encryption integration - full flow", () => {
     expect(allSourcesAfterReload[0].apiKey).toBe("notion_key_1");
     expect(allSourcesAfterReload[1].apiKey).toBe("notion_key_2");
     expect(allSourcesAfterReload[2].connectionString).toBe(
-      "postgresql://localhost/db1"
+      "postgresql://localhost/db1",
     );
   });
 
@@ -247,7 +249,7 @@ describe("encryption integration - full flow", () => {
         type: "notion",
         name: "Test",
         apiKey: "secret",
-      })
+      }),
     ).rejects.toThrow("Encryption is locked");
 
     // Unlock encryption
@@ -383,7 +385,7 @@ describe("encryption integration - full flow", () => {
 
     // Data should be inaccessible
     await expect(getDataSource(dataSourceId)).rejects.toThrow(
-      "Encryption is locked"
+      "Encryption is locked",
     );
 
     // User must unlock with passphrase

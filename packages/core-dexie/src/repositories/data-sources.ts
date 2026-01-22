@@ -7,11 +7,11 @@ import type {
 } from "@dashframe/types";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
-import { db, type DataSourceEntity } from "../db";
 import {
-  encryptSensitiveFields,
   decryptSensitiveFields,
+  encryptSensitiveFields,
 } from "../crypto/field-encryption";
+import { db, type DataSourceEntity } from "../db";
 
 // ============================================================================
 // Entity to Domain Conversion
@@ -25,7 +25,9 @@ import {
  * @returns DataSource with decrypted sensitive fields
  * @throws Error if encryption key is not unlocked
  */
-async function entityToDataSource(entity: DataSourceEntity): Promise<DataSource> {
+async function entityToDataSource(
+  entity: DataSourceEntity,
+): Promise<DataSource> {
   // Decrypt sensitive fields
   const decrypted = await decryptSensitiveFields(entity);
 
@@ -96,7 +98,10 @@ export function useDataSourceMutations(): DataSourceMutations {
         >,
       ): Promise<void> => {
         // If sensitive fields are being updated, encrypt them
-        if (updates.apiKey !== undefined || updates.connectionString !== undefined) {
+        if (
+          updates.apiKey !== undefined ||
+          updates.connectionString !== undefined
+        ) {
           // Get current entity to preserve non-updated fields
           const current = await db.dataSources.get(id);
           if (!current) {
@@ -115,8 +120,10 @@ export function useDataSourceMutations(): DataSourceMutations {
 
           // Update only the fields that were provided
           const encryptedUpdates: Partial<DataSourceEntity> = {};
-          if (updates.name !== undefined) encryptedUpdates.name = encrypted.name;
-          if (updates.apiKey !== undefined) encryptedUpdates.apiKey = encrypted.apiKey;
+          if (updates.name !== undefined)
+            encryptedUpdates.name = encrypted.name;
+          if (updates.apiKey !== undefined)
+            encryptedUpdates.apiKey = encrypted.apiKey;
           if (updates.connectionString !== undefined) {
             encryptedUpdates.connectionString = encrypted.connectionString;
           }

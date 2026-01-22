@@ -113,7 +113,7 @@ export async function migrateToEncryption(key: CryptoKey): Promise<{
         // Encrypt plaintext connectionString
         updates.connectionString = await encrypt(
           dataSource.connectionString,
-          key
+          key,
         );
         needsUpdate = true;
         // Only increment if we haven't already for apiKey

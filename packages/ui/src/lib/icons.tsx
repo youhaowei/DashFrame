@@ -110,8 +110,8 @@ export {
 
 // Settings & Configuration
 export {
-  LuEllipsisVertical as MoreIcon,
   LuLock as LockIcon,
+  LuEllipsisVertical as MoreIcon,
   LuSettings as SettingsIcon,
   LuShield as ShieldIcon,
 };

@@ -5,9 +5,9 @@
  * in DataSource entities before storage and after retrieval.
  */
 
-import { encrypt, decrypt } from "./index";
-import { getEncryptionKey } from "./key-manager";
 import type { DataSourceEntity } from "../db/schema";
+import { decrypt, encrypt } from "./index";
+import { getEncryptionKey } from "./key-manager";
 
 /**
  * Encrypts sensitive fields in a DataSource entity
@@ -28,7 +28,7 @@ import type { DataSourceEntity } from "../db/schema";
  * // encrypted.apiKey is now base64-encoded ciphertext
  */
 export async function encryptSensitiveFields(
-  entity: DataSourceEntity
+  entity: DataSourceEntity,
 ): Promise<DataSourceEntity> {
   // Clone entity to avoid mutation
   const cloned = { ...entity };
@@ -62,7 +62,7 @@ export async function encryptSensitiveFields(
  * // decrypted.apiKey is now the original plaintext
  */
 export async function decryptSensitiveFields(
-  entity: DataSourceEntity
+  entity: DataSourceEntity,
 ): Promise<DataSourceEntity> {
   // Clone entity to avoid mutation
   const cloned = { ...entity };
@@ -78,7 +78,7 @@ export async function decryptSensitiveFields(
       // If decryption fails, the value might already be plaintext (during migration)
       // or the key is wrong. Re-throw with context.
       throw new Error(
-        `Failed to decrypt apiKey for data source ${entity.id}: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to decrypt apiKey for data source ${entity.id}: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }
@@ -91,7 +91,7 @@ export async function decryptSensitiveFields(
       // If decryption fails, the value might already be plaintext (during migration)
       // or the key is wrong. Re-throw with context.
       throw new Error(
-        `Failed to decrypt connectionString for data source ${entity.id}: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to decrypt connectionString for data source ${entity.id}: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }
