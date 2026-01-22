@@ -17,9 +17,10 @@ import {
 } from "../../crypto/key-manager";
 import { db } from "../../db";
 import {
+  addDataSource,
   getAllDataSources,
   getDataSource,
-  useDataSourceMutations,
+  updateDataSource,
 } from "../data-sources";
 
 describe("data-sources repository encryption", () => {
@@ -32,7 +33,6 @@ describe("data-sources repository encryption", () => {
 
   describe("add() with encryption", () => {
     it("should store encrypted apiKey (not plaintext)", async () => {
-      const mutations = useDataSourceMutations();
       const plainApiKey = "secret_notion_key_12345";
 
       const input: CreateDataSourceInput = {
@@ -41,7 +41,7 @@ describe("data-sources repository encryption", () => {
         apiKey: plainApiKey,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read directly from IndexedDB (bypassing decryption)
       const storedEntity = await db.dataSources.get(id);
@@ -53,7 +53,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should store encrypted connectionString (not plaintext)", async () => {
-      const mutations = useDataSourceMutations();
       const plainConnectionString = "postgresql://user:pass@localhost:5432/db";
 
       const input: CreateDataSourceInput = {
@@ -62,7 +61,7 @@ describe("data-sources repository encryption", () => {
         connectionString: plainConnectionString,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read directly from IndexedDB (bypassing decryption)
       const storedEntity = await db.dataSources.get(id);
@@ -76,7 +75,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should store both encrypted fields when both provided", async () => {
-      const mutations = useDataSourceMutations();
       const plainApiKey = "sk-api-key-abc";
       const plainConnectionString = "mongodb://localhost:27017/test";
 
@@ -87,7 +85,7 @@ describe("data-sources repository encryption", () => {
         connectionString: plainConnectionString,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read directly from IndexedDB (bypassing decryption)
       const storedEntity = await db.dataSources.get(id);
@@ -98,8 +96,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should throw error if encryption key is not unlocked", async () => {
-      const mutations = useDataSourceMutations();
-
       // Lock encryption
       lockEncryption();
 
@@ -110,21 +106,19 @@ describe("data-sources repository encryption", () => {
       };
 
       // Should fail because key is locked
-      await expect(mutations.add(input)).rejects.toThrow(
+      await expect(addDataSource(input)).rejects.toThrow(
         "Encryption is locked",
       );
     });
 
     it("should handle empty apiKey gracefully", async () => {
-      const mutations = useDataSourceMutations();
-
       const input: CreateDataSourceInput = {
         type: "csv",
         name: "Test CSV",
         // No apiKey provided
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Should succeed without error
       expect(id).toBeDefined();
@@ -134,15 +128,13 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should not encrypt empty string apiKey", async () => {
-      const mutations = useDataSourceMutations();
-
       const input: CreateDataSourceInput = {
         type: "notion",
         name: "Test Notion",
         apiKey: "",
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read directly from IndexedDB
       const storedEntity = await db.dataSources.get(id);
@@ -154,7 +146,6 @@ describe("data-sources repository encryption", () => {
 
   describe("read() with decryption", () => {
     it("should return decrypted apiKey", async () => {
-      const mutations = useDataSourceMutations();
       const plainApiKey = "secret_notion_key_12345";
 
       const input: CreateDataSourceInput = {
@@ -163,7 +154,7 @@ describe("data-sources repository encryption", () => {
         apiKey: plainApiKey,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read using repository function (should decrypt)
       const dataSource = await getDataSource(id);
@@ -173,7 +164,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should return decrypted connectionString", async () => {
-      const mutations = useDataSourceMutations();
       const plainConnectionString = "postgresql://user:pass@localhost:5432/db";
 
       const input: CreateDataSourceInput = {
@@ -182,7 +172,7 @@ describe("data-sources repository encryption", () => {
         connectionString: plainConnectionString,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read using repository function (should decrypt)
       const dataSource = await getDataSource(id);
@@ -192,8 +182,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should decrypt all data sources in getAllDataSources", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add multiple data sources
       const sources = [
         { type: "notion", name: "Notion 1", apiKey: "key1" },
@@ -202,29 +190,30 @@ describe("data-sources repository encryption", () => {
       ];
 
       for (const source of sources) {
-        await mutations.add(source);
+        await addDataSource(source);
       }
 
       // Get all data sources
       const allSources = await getAllDataSources();
 
-      // All should be decrypted
+      // All should be decrypted (order not guaranteed, so check by name)
       expect(allSources).toHaveLength(3);
-      expect(allSources[0].apiKey).toBe("key1");
-      expect(allSources[1].apiKey).toBe("key2");
-      expect(allSources[2].connectionString).toBe("conn1");
+      const notion1 = allSources.find((s) => s.name === "Notion 1");
+      const notion2 = allSources.find((s) => s.name === "Notion 2");
+      const db1 = allSources.find((s) => s.name === "DB 1");
+      expect(notion1?.apiKey).toBe("key1");
+      expect(notion2?.apiKey).toBe("key2");
+      expect(db1?.connectionString).toBe("conn1");
     });
 
     it("should throw error if encryption key is not unlocked during read", async () => {
-      const mutations = useDataSourceMutations();
-
       const input: CreateDataSourceInput = {
         type: "notion",
         name: "Test Notion",
         apiKey: "secret_key",
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Lock encryption
       lockEncryption();
@@ -236,7 +225,6 @@ describe("data-sources repository encryption", () => {
 
   describe("roundtrip encryption/decryption", () => {
     it("should roundtrip apiKey: add then read returns original", async () => {
-      const mutations = useDataSourceMutations();
       const originalApiKey = "sk-original-api-key-12345";
 
       const input: CreateDataSourceInput = {
@@ -246,7 +234,7 @@ describe("data-sources repository encryption", () => {
       };
 
       // Add
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read
       const dataSource = await getDataSource(id);
@@ -258,7 +246,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should roundtrip connectionString: add then read returns original", async () => {
-      const mutations = useDataSourceMutations();
       const originalConnectionString =
         "mongodb://admin:password@localhost:27017/mydb?authSource=admin";
 
@@ -269,7 +256,7 @@ describe("data-sources repository encryption", () => {
       };
 
       // Add
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read
       const dataSource = await getDataSource(id);
@@ -280,7 +267,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should roundtrip both fields when both provided", async () => {
-      const mutations = useDataSourceMutations();
       const originalApiKey = "api-key-abc";
       const originalConnectionString = "conn-string-xyz";
 
@@ -292,7 +278,7 @@ describe("data-sources repository encryption", () => {
       };
 
       // Add
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
 
       // Read
       const dataSource = await getDataSource(id);
@@ -303,7 +289,6 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should roundtrip with special characters in apiKey", async () => {
-      const mutations = useDataSourceMutations();
       const specialKey = "sk-!@#$%^&*()_+-=[]{}|;:',.<>?/`~";
 
       const input: CreateDataSourceInput = {
@@ -312,14 +297,13 @@ describe("data-sources repository encryption", () => {
         apiKey: specialKey,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
       const dataSource = await getDataSource(id);
 
       expect(dataSource?.apiKey).toBe(specialKey);
     });
 
     it("should roundtrip with unicode characters in connectionString", async () => {
-      const mutations = useDataSourceMutations();
       const unicodeString = "postgresql://用户:密码@localhost/数据库";
 
       const input: CreateDataSourceInput = {
@@ -328,14 +312,13 @@ describe("data-sources repository encryption", () => {
         connectionString: unicodeString,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
       const dataSource = await getDataSource(id);
 
       expect(dataSource?.connectionString).toBe(unicodeString);
     });
 
     it("should roundtrip very long apiKey", async () => {
-      const mutations = useDataSourceMutations();
       const longKey = "sk-" + "a".repeat(1000);
 
       const input: CreateDataSourceInput = {
@@ -344,7 +327,7 @@ describe("data-sources repository encryption", () => {
         apiKey: longKey,
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
       const dataSource = await getDataSource(id);
 
       expect(dataSource?.apiKey).toBe(longKey);
@@ -353,10 +336,8 @@ describe("data-sources repository encryption", () => {
 
   describe("update() with encryption", () => {
     it("should encrypt new apiKey on update", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add initial data source
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test Notion",
         apiKey: "old-key",
@@ -364,7 +345,7 @@ describe("data-sources repository encryption", () => {
 
       // Update apiKey
       const newApiKey = "new-secret-key-12345";
-      await mutations.update(id, { apiKey: newApiKey });
+      await updateDataSource(id, { apiKey: newApiKey });
 
       // Read directly from IndexedDB (bypassing decryption)
       const storedEntity = await db.dataSources.get(id);
@@ -375,10 +356,8 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should decrypt updated apiKey on read", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add initial data source
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test Notion",
         apiKey: "old-key",
@@ -386,7 +365,7 @@ describe("data-sources repository encryption", () => {
 
       // Update apiKey
       const newApiKey = "new-secret-key-12345";
-      await mutations.update(id, { apiKey: newApiKey });
+      await updateDataSource(id, { apiKey: newApiKey });
 
       // Read using repository function
       const dataSource = await getDataSource(id);
@@ -396,10 +375,8 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should encrypt new connectionString on update", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add initial data source
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "postgres",
         name: "Test DB",
         connectionString: "old-conn",
@@ -407,7 +384,7 @@ describe("data-sources repository encryption", () => {
 
       // Update connectionString
       const newConnectionString = "postgresql://new:connection@localhost/db";
-      await mutations.update(id, { connectionString: newConnectionString });
+      await updateDataSource(id, { connectionString: newConnectionString });
 
       // Read directly from IndexedDB (bypassing decryption)
       const storedEntity = await db.dataSources.get(id);
@@ -420,10 +397,8 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should throw error if encryption key is not unlocked during update", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add initial data source
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test Notion",
         apiKey: "old-key",
@@ -433,16 +408,14 @@ describe("data-sources repository encryption", () => {
       lockEncryption();
 
       // Update should fail because key is locked
-      await expect(mutations.update(id, { apiKey: "new-key" })).rejects.toThrow(
+      await expect(updateDataSource(id, { apiKey: "new-key" })).rejects.toThrow(
         "Encryption is locked",
       );
     });
 
     it("should allow updating non-sensitive fields without encryption key", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add initial data source
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Old Name",
         apiKey: "secret-key",
@@ -455,7 +428,7 @@ describe("data-sources repository encryption", () => {
       await unlockEncryption("test-passphrase");
 
       // Update non-sensitive field (name only, no apiKey/connectionString)
-      await mutations.update(id, { name: "New Name" });
+      await updateDataSource(id, { name: "New Name" });
 
       // Should succeed
       const dataSource = await getDataSource(id);
@@ -465,11 +438,10 @@ describe("data-sources repository encryption", () => {
 
   describe("session lifecycle", () => {
     it("should work across lock/unlock cycles", async () => {
-      const mutations = useDataSourceMutations();
       const originalApiKey = "persistent-api-key";
 
       // Session 1: Add data
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test Notion",
         apiKey: originalApiKey,
@@ -491,10 +463,8 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should fail to read after wrong passphrase unlock", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add data with correct passphrase
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test Notion",
         apiKey: "secret-key",
@@ -515,9 +485,7 @@ describe("data-sources repository encryption", () => {
 
   describe("edge cases", () => {
     it("should handle data source without sensitive fields", async () => {
-      const mutations = useDataSourceMutations();
-
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "csv",
         name: "Test CSV",
         // No apiKey or connectionString
@@ -531,9 +499,7 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should handle whitespace-only apiKey gracefully", async () => {
-      const mutations = useDataSourceMutations();
-
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test",
         apiKey: "   ", // Whitespace only
@@ -551,15 +517,13 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should preserve other entity fields during encryption", async () => {
-      const mutations = useDataSourceMutations();
-
       const input: CreateDataSourceInput = {
         type: "notion",
         name: "Test Notion",
         apiKey: "secret-key",
       };
 
-      const id = await mutations.add(input);
+      const id = await addDataSource(input);
       const dataSource = await getDataSource(id);
 
       // All fields should be preserved
@@ -571,13 +535,11 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should handle concurrent add operations", async () => {
-      const mutations = useDataSourceMutations();
-
       // Add multiple data sources concurrently
       const results = await Promise.all([
-        mutations.add({ type: "notion", name: "Source 1", apiKey: "key1" }),
-        mutations.add({ type: "notion", name: "Source 2", apiKey: "key2" }),
-        mutations.add({ type: "notion", name: "Source 3", apiKey: "key3" }),
+        addDataSource({ type: "notion", name: "Source 1", apiKey: "key1" }),
+        addDataSource({ type: "notion", name: "Source 2", apiKey: "key2" }),
+        addDataSource({ type: "notion", name: "Source 3", apiKey: "key3" }),
       ]);
 
       // All should succeed
@@ -596,17 +558,16 @@ describe("data-sources repository encryption", () => {
 
   describe("encryption verification", () => {
     it("should produce different ciphertexts for same plaintext (random IV)", async () => {
-      const mutations = useDataSourceMutations();
       const sameApiKey = "same-api-key";
 
       // Add two data sources with same apiKey
-      const id1 = await mutations.add({
+      const id1 = await addDataSource({
         type: "notion",
         name: "Source 1",
         apiKey: sameApiKey,
       });
 
-      const id2 = await mutations.add({
+      const id2 = await addDataSource({
         type: "notion",
         name: "Source 2",
         apiKey: sameApiKey,
@@ -628,9 +589,7 @@ describe("data-sources repository encryption", () => {
     });
 
     it("should use base64 encoding for ciphertext", async () => {
-      const mutations = useDataSourceMutations();
-
-      const id = await mutations.add({
+      const id = await addDataSource({
         type: "notion",
         name: "Test",
         apiKey: "secret",

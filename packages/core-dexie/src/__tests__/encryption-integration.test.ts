@@ -22,9 +22,10 @@ import {
 } from "../crypto/key-manager";
 import { db } from "../db";
 import {
+  addDataSource,
   getAllDataSources,
   getDataSource,
-  useDataSourceMutations,
+  updateDataSource,
 } from "../repositories/data-sources";
 
 describe("encryption integration - full flow", () => {
@@ -47,7 +48,6 @@ describe("encryption integration - full flow", () => {
     expect(isEncryptionUnlocked()).toBe(true);
 
     // 2. Add data source with API key
-    const mutations = useDataSourceMutations();
     const input: CreateDataSourceInput = {
       type: "notion",
       name: "My Notion Workspace",
@@ -55,7 +55,7 @@ describe("encryption integration - full flow", () => {
       connectionString: connectionString,
     };
 
-    const dataSourceId = await mutations.add(input);
+    const dataSourceId = await addDataSource(input);
     expect(dataSourceId).toBeDefined();
 
     // Verify data is encrypted in storage
@@ -113,8 +113,7 @@ describe("encryption integration - full flow", () => {
     await initializeEncryption(correctPassphrase);
 
     // Add data source
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Test Notion",
       apiKey: apiKey,
@@ -151,7 +150,6 @@ describe("encryption integration - full flow", () => {
     await initializeEncryption(passphrase);
 
     // Add multiple data sources
-    const mutations = useDataSourceMutations();
     const sources = [
       { type: "notion", name: "Notion 1", apiKey: "notion_key_1" },
       { type: "notion", name: "Notion 2", apiKey: "notion_key_2" },
@@ -162,7 +160,7 @@ describe("encryption integration - full flow", () => {
       },
     ];
 
-    const ids = await Promise.all(sources.map((s) => mutations.add(s)));
+    const ids = await Promise.all(sources.map((s) => addDataSource(s)));
     expect(ids).toHaveLength(3);
 
     // Verify all data is accessible before reload
@@ -200,8 +198,7 @@ describe("encryption integration - full flow", () => {
 
     // Initialize and add data source
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Test Notion",
       apiKey: originalApiKey,
@@ -212,7 +209,7 @@ describe("encryption integration - full flow", () => {
     expect(original?.apiKey).toBe(originalApiKey);
 
     // Update API key
-    await mutations.update(dataSourceId, { apiKey: updatedApiKey });
+    await updateDataSource(dataSourceId, { apiKey: updatedApiKey });
 
     // Verify update
     const updated = await getDataSource(dataSourceId);
@@ -239,14 +236,13 @@ describe("encryption integration - full flow", () => {
 
     // Initialize encryption
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
 
     // Simulate page reload
     lockEncryption();
 
     // Try to add data source without unlocking
     await expect(
-      mutations.add({
+      addDataSource({
         type: "notion",
         name: "Test",
         apiKey: "secret",
@@ -257,7 +253,7 @@ describe("encryption integration - full flow", () => {
     await unlockEncryption(passphrase);
 
     // Now mutation should succeed
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Test",
       apiKey: "secret",
@@ -272,8 +268,7 @@ describe("encryption integration - full flow", () => {
 
     // Initialize and add data
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Persistent Source",
       apiKey: apiKey,
@@ -309,8 +304,7 @@ describe("encryption integration - full flow", () => {
 
     // Initialize and add data
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "custom",
       name: "Special Characters Test",
       apiKey: specialApiKey,
@@ -338,8 +332,7 @@ describe("encryption integration - full flow", () => {
 
     // Initialize and add data
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Long Key Test",
       apiKey: longApiKey,
@@ -367,8 +360,7 @@ describe("encryption integration - full flow", () => {
     await initializeEncryption(passphrase);
 
     // Add data
-    const mutations = useDataSourceMutations();
-    const dataSourceId = await mutations.add({
+    const dataSourceId = await addDataSource({
       type: "notion",
       name: "Test",
       apiKey: "secret",
@@ -402,14 +394,13 @@ describe("encryption integration - full flow", () => {
 
     // Initialize and add multiple data sources
     await initializeEncryption(passphrase);
-    const mutations = useDataSourceMutations();
 
     const ids = await Promise.all([
-      mutations.add({ type: "notion", name: "Source 1", apiKey: "key1" }),
-      mutations.add({ type: "notion", name: "Source 2", apiKey: "key2" }),
-      mutations.add({ type: "notion", name: "Source 3", apiKey: "key3" }),
-      mutations.add({ type: "notion", name: "Source 4", apiKey: "key4" }),
-      mutations.add({ type: "notion", name: "Source 5", apiKey: "key5" }),
+      addDataSource({ type: "notion", name: "Source 1", apiKey: "key1" }),
+      addDataSource({ type: "notion", name: "Source 2", apiKey: "key2" }),
+      addDataSource({ type: "notion", name: "Source 3", apiKey: "key3" }),
+      addDataSource({ type: "notion", name: "Source 4", apiKey: "key4" }),
+      addDataSource({ type: "notion", name: "Source 5", apiKey: "key5" }),
     ]);
 
     // Simulate page reload

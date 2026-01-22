@@ -70,76 +70,9 @@ export function useDataSources(): UseDataSourcesResult {
 export function useDataSourceMutations(): DataSourceMutations {
   return useMemo(
     () => ({
-      add: async (input: CreateDataSourceInput): Promise<UUID> => {
-        const id = crypto.randomUUID();
-
-        // Create entity with plaintext values
-        const entity: DataSourceEntity = {
-          id,
-          type: input.type,
-          name: input.name,
-          apiKey: input.apiKey,
-          connectionString: input.connectionString,
-          createdAt: Date.now(),
-        };
-
-        // Encrypt sensitive fields before storage
-        // This will throw if encryption key is not unlocked
-        const encrypted = await encryptSensitiveFields(entity);
-
-        await db.dataSources.add(encrypted);
-        return id;
-      },
-
-      update: async (
-        id: UUID,
-        updates: Partial<
-          Pick<DataSource, "name" | "apiKey" | "connectionString">
-        >,
-      ): Promise<void> => {
-        // If sensitive fields are being updated, encrypt them
-        if (
-          updates.apiKey !== undefined ||
-          updates.connectionString !== undefined
-        ) {
-          // Get current entity to preserve non-updated fields
-          const current = await db.dataSources.get(id);
-          if (!current) {
-            throw new Error(`DataSource with id ${id} not found`);
-          }
-
-          // Create entity with updated values
-          const updated: DataSourceEntity = {
-            ...current,
-            ...updates,
-          };
-
-          // Encrypt sensitive fields
-          // This will throw if encryption key is not unlocked
-          const encrypted = await encryptSensitiveFields(updated);
-
-          // Update only the fields that were provided
-          const encryptedUpdates: Partial<DataSourceEntity> = {};
-          if (updates.name !== undefined)
-            encryptedUpdates.name = encrypted.name;
-          if (updates.apiKey !== undefined)
-            encryptedUpdates.apiKey = encrypted.apiKey;
-          if (updates.connectionString !== undefined) {
-            encryptedUpdates.connectionString = encrypted.connectionString;
-          }
-
-          await db.dataSources.update(id, encryptedUpdates);
-        } else {
-          // No sensitive fields to encrypt, just update
-          await db.dataSources.update(id, updates);
-        }
-      },
-
-      remove: async (id: UUID): Promise<void> => {
-        // Also delete related data tables
-        await db.dataTables.where("dataSourceId").equals(id).delete();
-        await db.dataSources.delete(id);
-      },
+      add: addDataSource,
+      update: updateDataSource,
+      remove: removeDataSource,
     }),
     [],
   );
@@ -148,6 +81,82 @@ export function useDataSourceMutations(): DataSourceMutations {
 // ============================================================================
 // Direct Access Functions (for non-React contexts)
 // ============================================================================
+
+/**
+ * Add a new data source.
+ * Encrypts sensitive fields before storage.
+ *
+ * @param input - Data source creation input
+ * @returns UUID of the created data source
+ * @throws Error if encryption key is not unlocked
+ */
+export async function addDataSource(
+  input: CreateDataSourceInput,
+): Promise<UUID> {
+  const id = crypto.randomUUID();
+
+  const entity: DataSourceEntity = {
+    id,
+    type: input.type,
+    name: input.name,
+    apiKey: input.apiKey,
+    connectionString: input.connectionString,
+    createdAt: Date.now(),
+  };
+
+  const encrypted = await encryptSensitiveFields(entity);
+  await db.dataSources.add(encrypted);
+  return id;
+}
+
+/**
+ * Update an existing data source.
+ * Encrypts sensitive fields before storage.
+ *
+ * @param id - Data source UUID
+ * @param updates - Fields to update
+ * @throws Error if encryption key is not unlocked or data source not found
+ */
+export async function updateDataSource(
+  id: UUID,
+  updates: Partial<Pick<DataSource, "name" | "apiKey" | "connectionString">>,
+): Promise<void> {
+  if (updates.apiKey !== undefined || updates.connectionString !== undefined) {
+    const current = await db.dataSources.get(id);
+    if (!current) {
+      throw new Error(`DataSource with id ${id} not found`);
+    }
+
+    const updated: DataSourceEntity = {
+      ...current,
+      ...updates,
+    };
+
+    const encrypted = await encryptSensitiveFields(updated);
+
+    const encryptedUpdates: Partial<DataSourceEntity> = {};
+    if (updates.name !== undefined) encryptedUpdates.name = encrypted.name;
+    if (updates.apiKey !== undefined)
+      encryptedUpdates.apiKey = encrypted.apiKey;
+    if (updates.connectionString !== undefined) {
+      encryptedUpdates.connectionString = encrypted.connectionString;
+    }
+
+    await db.dataSources.update(id, encryptedUpdates);
+  } else {
+    await db.dataSources.update(id, updates);
+  }
+}
+
+/**
+ * Remove a data source and its related data tables.
+ *
+ * @param id - Data source UUID
+ */
+export async function removeDataSource(id: UUID): Promise<void> {
+  await db.dataTables.where("dataSourceId").equals(id).delete();
+  await db.dataSources.delete(id);
+}
 
 /**
  * Get a single data source by ID.
