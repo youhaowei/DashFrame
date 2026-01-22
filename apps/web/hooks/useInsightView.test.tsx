@@ -84,11 +84,11 @@ function createMockDataTable(options: {
   dataFrameId?: string;
 }): DataTable {
   return {
-    id: (options.id ?? "table-abc") as any,
+    id: (options.id ?? "table-abc") as DataTable["id"],
     name: options.name ?? "Test Table",
-    dataSourceId: "ds-123" as any,
+    dataSourceId: "ds-123" as DataTable["dataSourceId"],
     table: "test_table",
-    dataFrameId: (options.dataFrameId ?? "df-123") as any,
+    dataFrameId: (options.dataFrameId ?? "df-123") as DataTable["dataFrameId"],
     fields: [],
     metrics: [],
     createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
@@ -1151,7 +1151,7 @@ describe("useInsightView", () => {
     it("should reset state when baseTableId is missing", () => {
       const insightNoBaseTable = createMockInsight({
         id: "insight-no-base",
-        baseTableId: undefined as any, // Force undefined
+        baseTableId: undefined as unknown as Insight["baseTableId"], // Force undefined
       });
 
       const { result } = renderHook(() => useInsightView(insightNoBaseTable));

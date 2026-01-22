@@ -271,7 +271,7 @@ describe("confirm-dialog-store", () => {
         config: {
           title: "Test",
           description: "Test",
-          onConfirm: undefined as any, // Simulate missing callback
+          onConfirm: undefined as unknown as () => void, // Simulate missing callback
         },
       });
 

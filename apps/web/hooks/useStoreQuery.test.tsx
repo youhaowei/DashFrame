@@ -273,9 +273,7 @@ describe("useStoreQuery", () => {
         return callCount > 1; // First call: false, second call: true
       });
 
-      const { result } = renderHook(() =>
-        useStoreQuery(store, (state) => state.count),
-      );
+      renderHook(() => useStoreQuery(store, (state) => state.count));
 
       // Should have checked hasHydrated multiple times (initial state + effect)
       expect(store.persist?.hasHydrated).toHaveBeenCalled();
@@ -493,7 +491,9 @@ describe("useStoreQuery", () => {
 
       // Mock onFinishHydration to return undefined
       if (store.persist) {
-        store.persist.onFinishHydration = vi.fn(() => undefined as any);
+        store.persist.onFinishHydration = vi.fn(
+          () => undefined as unknown as () => void,
+        );
       }
 
       const { unmount } = renderHook(() =>
@@ -582,7 +582,8 @@ describe("useStoreQuery", () => {
         useStoreQuery(store, (state) => state.items),
       );
 
-      const firstResult = result.current;
+      // Capture initial result to verify structure is maintained after rerender
+      expect(result.current).toHaveProperty("data");
 
       rerender();
 
@@ -625,7 +626,8 @@ describe("useStoreQuery", () => {
         hasHydrated: true,
       });
 
-      let selector: (state: TestState) => any = (state) => state.items;
+      let selector: (state: TestState) => string[] | number = (state) =>
+        state.items;
 
       const { result, rerender } = renderHook(() =>
         useStoreQuery(store, selector),

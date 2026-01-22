@@ -79,7 +79,7 @@ function createDateAnalysis(columnName: string): DateAnalysis {
   };
 }
 
-function createBooleanAnalysis(columnName: string): BooleanAnalysis {
+function _createBooleanAnalysis(columnName: string): BooleanAnalysis {
   return {
     columnName,
     dataType: "boolean",

@@ -47,7 +47,7 @@ vi.mock("@dashframe/core", () => ({
 /**
  * Helper to create a mock DataFrame with load() method
  */
-function createMockDataFrame(rows: DataFrameRow[]) {
+function createMockDataFrame(_rows: DataFrameRow[]) {
   const mockLoad = vi.fn().mockResolvedValue({
     limit: vi.fn().mockReturnThis(),
     sql: vi.fn().mockResolvedValue("SELECT * FROM data"),
@@ -77,8 +77,8 @@ function createMockEntry(options: {
   name?: string;
 }): DataFrameEntry {
   return {
-    id: options.id as any,
-    insightId: options.insightId as any,
+    id: options.id as DataFrameEntry["id"],
+    insightId: options.insightId as DataFrameEntry["insightId"],
     name: options.name ?? "Test DataFrame",
     createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
     storage: { type: "indexeddb", key: `df-${options.id}` },
@@ -337,7 +337,7 @@ describe("useDataFrameData", () => {
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
       mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
 
-      const { result, rerender } = renderHook(
+      const { rerender } = renderHook(
         ({ skip }) => useDataFrameData("df-toggle", { skip }),
         { initialProps: { skip: true } },
       );
