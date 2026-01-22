@@ -434,7 +434,7 @@ describe("BrowserDataFrame.load", () => {
     // Mock AsyncDuckDBConnection
     const mockConnection = {
       query: vi.fn(),
-    } as any;
+    } as unknown as Parameters<typeof df.load>[0];
 
     const queryBuilder = await df.load(mockConnection);
 
@@ -456,7 +456,7 @@ describe("BrowserDataFrame.load", () => {
 
     const mockConnection = {
       query: vi.fn(),
-    } as any;
+    } as unknown as Parameters<typeof df.load>[0];
 
     const queryBuilder = await df.load(mockConnection);
 
