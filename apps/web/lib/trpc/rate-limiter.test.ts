@@ -320,7 +320,6 @@ describe("rate-limiter", () => {
     });
 
     it("should run cleanup automatically on interval", () => {
-      const cleanupSpy = vi.fn();
       limiter = createRateLimiter({
         windowMs: 10000,
         maxRequests: 5,
@@ -572,12 +571,14 @@ describe("rate-limiter", () => {
     });
 
     it("should handle IPv6 addresses", () => {
+      /* eslint-disable sonarjs/no-hardcoded-ip -- RFC 3849 documentation IP */
       const headers = {
         "x-forwarded-for": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
       };
 
       const ip = getClientIp(headers);
       expect(ip).toBe("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+      /* eslint-enable sonarjs/no-hardcoded-ip */
     });
   });
 
