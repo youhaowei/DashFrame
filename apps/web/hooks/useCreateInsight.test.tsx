@@ -14,26 +14,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCreateInsight } from "./useCreateInsight";
 
 // Mock functions must be hoisted with vi.mock
-const { mockCreateInsight, mockGetInsight } = vi.hoisted(() => ({
-  mockCreateInsight: vi.fn(),
-  mockGetInsight: vi.fn(),
-}));
+const { mockCreateInsight, mockGetInsight, mockMutations } = vi.hoisted(() => {
+  const create = vi.fn();
+  return {
+    mockCreateInsight: create,
+    mockGetInsight: vi.fn(),
+    mockMutations: { create },
+  };
+});
 
 vi.mock("@dashframe/core", () => ({
-  useInsightMutations: () => ({
-    create: mockCreateInsight,
-  }),
+  useInsightMutations: () => mockMutations,
   getInsight: mockGetInsight,
 }));
 
-const { mockPush } = vi.hoisted(() => ({
-  mockPush: vi.fn(),
-}));
+const { mockPush, mockRouter } = vi.hoisted(() => {
+  const push = vi.fn();
+  return {
+    mockPush: push,
+    mockRouter: { push },
+  };
+});
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mockPush,
-  }),
+  useRouter: () => mockRouter,
 }));
 
 /**

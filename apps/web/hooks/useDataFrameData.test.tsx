@@ -381,9 +381,10 @@ describe("useDataFrameData", () => {
 
       const { result } = renderHook(() => useDataFrameData("df-no-conn"));
 
-      // Should not attempt to load
+      // Should not attempt to load, but isLoading is true initially
+      // because we have a dataFrameId (loading will complete when connection is ready)
       expect(result.current.data).toBeNull();
-      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isLoading).toBe(true);
       expect(result.current.error).toBeNull();
       expect(mockGetDataFrame).not.toHaveBeenCalled();
     });
@@ -666,12 +667,22 @@ describe("useDataFrameData", () => {
       const mockDataFrame1 = createMockDataFrame(mockRows1);
       const mockDataFrame2 = createMockDataFrame(mockRows2);
 
-      mockGetDataFrame
-        .mockResolvedValueOnce(mockDataFrame1)
-        .mockResolvedValueOnce(mockDataFrame2);
-      mockQuery
-        .mockResolvedValueOnce(createMockQueryResult(mockRows1))
-        .mockResolvedValueOnce(createMockQueryResult(mockRows2));
+      // Use mockImplementation to return different values based on call order
+      let getDataFrameCallCount = 0;
+      mockGetDataFrame.mockImplementation(() => {
+        getDataFrameCallCount++;
+        return Promise.resolve(
+          getDataFrameCallCount === 1 ? mockDataFrame1 : mockDataFrame2,
+        );
+      });
+
+      let queryCallCount = 0;
+      mockQuery.mockImplementation(() => {
+        queryCallCount++;
+        return Promise.resolve(
+          createMockQueryResult(queryCallCount === 1 ? mockRows1 : mockRows2),
+        );
+      });
 
       const { result, rerender } = renderHook(
         ({ id }) => useDataFrameData(id),

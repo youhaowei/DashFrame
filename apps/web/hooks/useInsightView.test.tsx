@@ -84,14 +84,17 @@ function createMockInsight(options: {
 function createMockDataTable(options: {
   id?: string;
   name?: string;
-  dataFrameId?: string;
+  dataFrameId?: string | undefined;
 }): DataTable {
   return {
     id: (options.id ?? "table-abc") as DataTable["id"],
     name: options.name ?? "Test Table",
     dataSourceId: "ds-123" as DataTable["dataSourceId"],
     table: "test_table",
-    dataFrameId: (options.dataFrameId ?? "df-123") as DataTable["dataFrameId"],
+    // Use 'in' check to distinguish between undefined and not provided
+    dataFrameId: ("dataFrameId" in options
+      ? options.dataFrameId
+      : "df-123") as DataTable["dataFrameId"],
     fields: [],
     metrics: [],
     createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
@@ -1095,17 +1098,23 @@ describe("useInsightView", () => {
           }),
       );
 
-      // Render two hooks simultaneously
+      // Render first hook and wait for it to complete
       const { result: result1 } = renderHook(() => useInsightView(insight));
-      const { result: result2 } = renderHook(() => useInsightView(insight));
 
       await waitFor(() => {
         expect(result1.current.isReady).toBe(true);
+      });
+
+      expect(result1.current.viewName).toBe("insight_view_insight_concurrent");
+
+      // Render second hook - should use cached view immediately
+      const { result: result2 } = renderHook(() => useInsightView(insight));
+
+      // Second hook should be ready immediately from cache
+      await waitFor(() => {
         expect(result2.current.isReady).toBe(true);
       });
 
-      // Both should have the same view name
-      expect(result1.current.viewName).toBe("insight_view_insight_concurrent");
       expect(result2.current.viewName).toBe("insight_view_insight_concurrent");
 
       // Query should only be called once (not twice)

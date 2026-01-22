@@ -110,6 +110,7 @@ export function useDataFrameData(
 
   const [data, setData] = useState<DataFrameData | null>(null);
   // Start loading if we have a dataFrameId and aren't skipping
+  // The actual load will only happen when connection is ready
   const [isLoading, setIsLoading] = useState(
     () => !!dataFrameId && !(options?.skip ?? false),
   );
@@ -138,6 +139,7 @@ export function useDataFrameData(
     if (!dataFrame) {
       setError(`DataFrame not found: ${dataFrameId}`);
       setData(null);
+      setIsLoading(false);
       return;
     }
 
