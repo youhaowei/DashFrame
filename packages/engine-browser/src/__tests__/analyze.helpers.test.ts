@@ -23,7 +23,7 @@ import { CARDINALITY_THRESHOLDS, suggestJoinColumns } from "../analyze";
 function createStringAnalysis(
   columnName: string,
   options: {
-    semantic?: "categorical" | "text" | "identifier" | "reference" | "email" | "url" | "uuid";
+    semantic?: "categorical" | "text" | "identifier" | "email" | "url" | "uuid";
     cardinality?: number;
     uniqueness?: number;
   } = {},
@@ -121,13 +121,13 @@ describe("suggestJoinColumns", () => {
       });
     });
 
-    it("should match on reference columns", () => {
+    it("should match on identifier columns", () => {
       const leftAnalysis: ColumnAnalysis[] = [
-        createStringAnalysis("tags", { semantic: "reference" }),
+        createStringAnalysis("tags", { semantic: "identifier" }),
       ];
 
       const rightAnalysis: ColumnAnalysis[] = [
-        createStringAnalysis("tags", { semantic: "reference" }),
+        createStringAnalysis("tags", { semantic: "identifier" }),
       ];
 
       const suggestions = suggestJoinColumns(leftAnalysis, rightAnalysis);
@@ -387,9 +387,7 @@ describe("suggestJoinColumns", () => {
     });
 
     it("should allow same semantic types", () => {
-      const leftAnalysis: ColumnAnalysis[] = [
-        createDateAnalysis("created_at"),
-      ];
+      const leftAnalysis: ColumnAnalysis[] = [createDateAnalysis("created_at")];
 
       const rightAnalysis: ColumnAnalysis[] = [
         createDateAnalysis("created_at"),

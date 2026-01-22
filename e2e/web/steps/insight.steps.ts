@@ -24,9 +24,7 @@ When("I select the {string} field", async ({ page }, fieldName: string) => {
   await addFieldButton.click();
 
   // Wait for the field editor modal to appear
-  await expect(
-    page.getByRole("heading", { name: "Add Field" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add Field" })).toBeVisible();
 
   // Find and click the field in the list
   // The field appears as a selectable item in the modal
@@ -61,9 +59,7 @@ When("I click the add metric button", async ({ page }) => {
   await addMetricButton.click();
 
   // Wait for the metric editor modal to appear
-  await expect(
-    page.getByRole("heading", { name: "Add Metric" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add Metric" })).toBeVisible();
 });
 
 /**
@@ -75,9 +71,7 @@ When(
     // Select aggregation type from dropdown
     const aggregationSelect = page.getByLabel("Aggregation");
     await aggregationSelect.click();
-    await page
-      .getByRole("option", { name: aggregation, exact: true })
-      .click();
+    await page.getByRole("option", { name: aggregation, exact: true }).click();
 
     // Select column from dropdown
     const columnSelect = page.getByLabel("Column");
@@ -172,18 +166,15 @@ When("I click the add join button", async ({ page }) => {
 /**
  * Selects a table for joining
  */
-When(
-  "I select the products table for the join",
-  async ({ page }) => {
-    // In the join flow, we need to select the products table
-    // Look for a table selector or list item containing "products"
-    const productsTable = page.getByText(/products_data\.csv|products/i).first();
-    await productsTable.click();
+When("I select the products table for the join", async ({ page }) => {
+  // In the join flow, we need to select the products table
+  // Look for a table selector or list item containing "products"
+  const productsTable = page.getByText(/products_data\.csv|products/i).first();
+  await productsTable.click();
 
-    // Wait for selection to register
-    await page.waitForTimeout(300);
-  },
-);
+  // Wait for selection to register
+  await page.waitForTimeout(300);
+});
 
 /**
  * Configures the join with left and right fields
@@ -238,28 +229,23 @@ Then("I should see the joined table in the data model", async ({ page }) => {
 /**
  * Verifies combined fields from both tables are available
  */
-Then(
-  "I should see combined fields from both tables",
-  async ({ page }) => {
-    // After a join, fields from both tables should be visible
-    // Check that we have fields from the products table (like "Price" or "Supplier")
-    const fieldsSection = page.locator('text="Fields"').locator("..");
+Then("I should see combined fields from both tables", async ({ page }) => {
+  // After a join, fields from both tables should be visible
+  // Check that we have fields from the products table (like "Price" or "Supplier")
+  const fieldsSection = page.locator('text="Fields"').locator("..");
 
-    // Open the add field dialog to see all available fields
-    const addFieldButton = fieldsSection.getByRole("button", {
-      name: /Add Field/i,
-    });
-    await addFieldButton.click();
+  // Open the add field dialog to see all available fields
+  const addFieldButton = fieldsSection.getByRole("button", {
+    name: /Add Field/i,
+  });
+  await addFieldButton.click();
 
-    // Wait for the field editor modal
-    await expect(
-      page.getByRole("heading", { name: "Add Field" }),
-    ).toBeVisible();
+  // Wait for the field editor modal
+  await expect(page.getByRole("heading", { name: "Add Field" })).toBeVisible();
 
-    // Check for a field from the joined table (e.g., "Price" from products)
-    await expect(page.getByText("Price", { exact: true }).first()).toBeVisible();
+  // Check for a field from the joined table (e.g., "Price" from products)
+  await expect(page.getByText("Price", { exact: true }).first()).toBeVisible();
 
-    // Close the modal
-    await page.keyboard.press("Escape");
-  },
-);
+  // Close the modal
+  await page.keyboard.press("Escape");
+});

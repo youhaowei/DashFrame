@@ -10,7 +10,6 @@
  * - isValidEncoding() - Type guard for valid encodings
  */
 import { describe, expect, it } from "vitest";
-import type { UUID } from "./uuid";
 import {
   fieldEncoding,
   isFieldEncoding,
@@ -19,6 +18,7 @@ import {
   metricEncoding,
   parseEncoding,
 } from "./encoding-helpers";
+import type { UUID } from "./uuid";
 
 describe("encoding-helpers", () => {
   // Sample UUIDs for testing
@@ -35,7 +35,9 @@ describe("encoding-helpers", () => {
       const uuid1 = "550e8400-e29b-41d4-a716-446655440000" as UUID;
       const uuid2 = "simple-id" as UUID;
 
-      expect(fieldEncoding(uuid1)).toBe("field:550e8400-e29b-41d4-a716-446655440000");
+      expect(fieldEncoding(uuid1)).toBe(
+        "field:550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(fieldEncoding(uuid2)).toBe("field:simple-id");
     });
 
@@ -55,7 +57,9 @@ describe("encoding-helpers", () => {
       const uuid1 = "550e8400-e29b-41d4-a716-446655440000" as UUID;
       const uuid2 = "simple-id" as UUID;
 
-      expect(metricEncoding(uuid1)).toBe("metric:550e8400-e29b-41d4-a716-446655440000");
+      expect(metricEncoding(uuid1)).toBe(
+        "metric:550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(metricEncoding(uuid2)).toBe("metric:simple-id");
     });
 
@@ -76,7 +80,9 @@ describe("encoding-helpers", () => {
       });
 
       it("should parse field encoding with UUID format", () => {
-        const result = parseEncoding("field:550e8400-e29b-41d4-a716-446655440000");
+        const result = parseEncoding(
+          "field:550e8400-e29b-41d4-a716-446655440000",
+        );
         expect(result).toEqual({
           type: "field",
           id: "550e8400-e29b-41d4-a716-446655440000",
@@ -102,7 +108,9 @@ describe("encoding-helpers", () => {
       });
 
       it("should parse metric encoding with UUID format", () => {
-        const result = parseEncoding("metric:550e8400-e29b-41d4-a716-446655440000");
+        const result = parseEncoding(
+          "metric:550e8400-e29b-41d4-a716-446655440000",
+        );
         expect(result).toEqual({
           type: "metric",
           id: "550e8400-e29b-41d4-a716-446655440000",
@@ -205,7 +213,9 @@ describe("encoding-helpers", () => {
       });
 
       it("should return true for field encoding with UUID", () => {
-        expect(isFieldEncoding("field:550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+        expect(
+          isFieldEncoding("field:550e8400-e29b-41d4-a716-446655440000"),
+        ).toBe(true);
       });
 
       it("should return true for field encoding with simple ID", () => {
@@ -255,7 +265,9 @@ describe("encoding-helpers", () => {
       });
 
       it("should return true for metric encoding with UUID", () => {
-        expect(isMetricEncoding("metric:550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+        expect(
+          isMetricEncoding("metric:550e8400-e29b-41d4-a716-446655440000"),
+        ).toBe(true);
       });
 
       it("should return true for metric encoding with simple ID", () => {
@@ -309,11 +321,15 @@ describe("encoding-helpers", () => {
       });
 
       it("should return true for field encoding with UUID", () => {
-        expect(isValidEncoding("field:550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+        expect(
+          isValidEncoding("field:550e8400-e29b-41d4-a716-446655440000"),
+        ).toBe(true);
       });
 
       it("should return true for metric encoding with UUID", () => {
-        expect(isValidEncoding("metric:550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+        expect(
+          isValidEncoding("metric:550e8400-e29b-41d4-a716-446655440000"),
+        ).toBe(true);
       });
     });
 

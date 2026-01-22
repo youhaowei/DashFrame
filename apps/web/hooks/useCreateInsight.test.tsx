@@ -9,7 +9,7 @@
  * - Mock dependency injection for core hooks and router
  */
 import type { Insight } from "@dashframe/types";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCreateInsight } from "./useCreateInsight";
 
@@ -51,8 +51,8 @@ function createMockInsight(options: {
     joins: [],
     filters: [],
     sorts: [],
-    createdAt: new Date("2024-01-01T00:00:00.000Z"),
-    updatedAt: new Date("2024-01-01T00:00:00.000Z"),
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    updatedAt: Date.parse("2024-01-01T00:00:00.000Z"),
   };
 }
 
@@ -154,11 +154,9 @@ describe("useCreateInsight", () => {
         await result.current.createInsightFromTable("table-empty", "");
       });
 
-      expect(mockCreateInsight).toHaveBeenCalledWith(
-        "",
-        "table-empty",
-        { selectedFields: [] },
-      );
+      expect(mockCreateInsight).toHaveBeenCalledWith("", "table-empty", {
+        selectedFields: [],
+      });
     });
 
     it("should handle creation errors by propagating them", async () => {
@@ -168,7 +166,10 @@ describe("useCreateInsight", () => {
 
       await expect(async () => {
         await act(async () => {
-          await result.current.createInsightFromTable("table-fail", "Fail Test");
+          await result.current.createInsightFromTable(
+            "table-fail",
+            "Fail Test",
+          );
         });
       }).rejects.toThrow("Database error");
     });
@@ -188,7 +189,10 @@ describe("useCreateInsight", () => {
       const { result } = renderHook(() => useCreateInsight());
 
       await act(async () => {
-        await result.current.createInsightFromInsight("source-123", "Source Insight");
+        await result.current.createInsightFromInsight(
+          "source-123",
+          "Source Insight",
+        );
       });
 
       expect(mockGetInsight).toHaveBeenCalledWith("source-123");
@@ -333,7 +337,10 @@ describe("useCreateInsight", () => {
 
       await expect(async () => {
         await act(async () => {
-          await result.current.createInsightFromInsight("error-123", "Error Test");
+          await result.current.createInsightFromInsight(
+            "error-123",
+            "Error Test",
+          );
         });
       }).rejects.toThrow("Fetch error");
     });

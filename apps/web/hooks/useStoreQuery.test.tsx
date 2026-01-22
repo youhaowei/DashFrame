@@ -21,6 +21,17 @@ type TestState = {
   user: { name: string } | null;
 };
 
+// Type matching PersistedStore from useStoreQuery
+type MockPersistedStore<TState> = {
+  <TResult>(selector: (state: TState) => TResult): TResult;
+  getState: () => TState;
+  subscribe: (listener: (state: TState) => void) => () => void;
+  persist?: {
+    hasHydrated?: () => boolean;
+    onFinishHydration?: (cb: () => void) => () => void;
+  };
+};
+
 /**
  * Helper to create a mock Zustand persisted store
  */
@@ -34,34 +45,35 @@ function createMockStore(options: {
   let isHydrated = options.hasHydrated ?? false;
   const hydrationCallbacks: Set<() => void> = new Set();
 
-  // Mock store function (Zustand selector)
-  const store = vi.fn(<TResult>(selector: (state: TestState) => TResult) => {
+  // Create the store function with proper typing
+  const storeFn = <TResult,>(
+    selector: (state: TestState) => TResult,
+  ): TResult => {
     return selector(currentState);
+  };
+
+  // Create the full store object with all required methods
+  const store: MockPersistedStore<TestState> = Object.assign(storeFn, {
+    getState: () => currentState,
+    subscribe: (listener: (state: TestState) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    persist:
+      options.hasPersist !== false
+        ? {
+            hasHydrated: vi.fn(() => isHydrated),
+            onFinishHydration: vi.fn((cb: () => void) => {
+              hydrationCallbacks.add(cb);
+              return () => {
+                hydrationCallbacks.delete(cb);
+              };
+            }),
+          }
+        : undefined,
   });
-
-  // Add getState method
-  store.getState = vi.fn(() => currentState);
-
-  // Add subscribe method
-  store.subscribe = vi.fn((listener: (state: TestState) => void) => {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  });
-
-  // Add persist methods if requested
-  if (options.hasPersist !== false) {
-    store.persist = {
-      hasHydrated: vi.fn(() => isHydrated),
-      onFinishHydration: vi.fn((cb: () => void) => {
-        hydrationCallbacks.add(cb);
-        return () => {
-          hydrationCallbacks.delete(cb);
-        };
-      }),
-    };
-  }
 
   // Helper to simulate hydration
   const triggerHydration = () => {

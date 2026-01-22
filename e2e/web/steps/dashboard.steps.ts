@@ -15,9 +15,7 @@ When("I navigate to the dashboards page", async ({ page }) => {
  */
 Then("I should see the dashboards page", async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboards$/);
-  await expect(
-    page.getByRole("heading", { name: "Dashboards" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboards" })).toBeVisible();
 });
 
 /**
@@ -50,20 +48,28 @@ When(
 /**
  * Clicks the Create button in the dialog
  */
-When("I click the {string} button in the dialog", async ({ page }, buttonLabel: string) => {
-  // Find the button within the dialog
-  const dialog = page.locator('[role="dialog"]');
-  await dialog.getByRole("button", { name: buttonLabel, exact: true }).click();
-});
+When(
+  "I click the {string} button in the dialog",
+  async ({ page }, buttonLabel: string) => {
+    // Find the button within the dialog
+    const dialog = page.locator('[role="dialog"]');
+    await dialog
+      .getByRole("button", { name: buttonLabel, exact: true })
+      .click();
+  },
+);
 
 /**
  * Verifies that the user is redirected to the dashboard detail page
  */
-Then("I should be redirected to the dashboard detail page", async ({ page }) => {
-  await expect(page).toHaveURL(/\/dashboards\/[a-zA-Z0-9-]+$/);
-  // Wait a bit for the page to load
-  await page.waitForTimeout(500);
-});
+Then(
+  "I should be redirected to the dashboard detail page",
+  async ({ page }) => {
+    await expect(page).toHaveURL(/\/dashboards\/[a-zA-Z0-9-]+$/);
+    // Wait a bit for the page to load
+    await page.waitForTimeout(500);
+  },
+);
 
 /**
  * Verifies that the dashboard name is displayed in the header
@@ -103,7 +109,9 @@ Then(
   "the {string} widget type should be selected",
   async ({ page }, widgetType: string) => {
     // The selected widget type should have the ring-1 ring-primary class
-    const visualizationOption = page.locator("text=" + widgetType).locator("..");
+    const visualizationOption = page
+      .locator("text=" + widgetType)
+      .locator("..");
     await expect(visualizationOption).toHaveClass(/ring-primary/);
   },
 );
@@ -134,10 +142,13 @@ Then("the widget dialog should close", async ({ page }) => {
 /**
  * Verifies that a visualization widget appears on the dashboard
  */
-Then("I should see a visualization widget on the dashboard", async ({ page }) => {
-  // Look for the canvas element which indicates a Vega-Lite chart is rendered
-  await expect(page.locator("canvas").first()).toBeVisible();
-});
+Then(
+  "I should see a visualization widget on the dashboard",
+  async ({ page }) => {
+    // Look for the canvas element which indicates a Vega-Lite chart is rendered
+    await expect(page.locator("canvas").first()).toBeVisible();
+  },
+);
 
 /**
  * Verifies that the dashboard is not in edit mode

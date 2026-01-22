@@ -2,7 +2,10 @@
  * Unit tests for confirm-dialog-store module
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useConfirmDialogStore, type ConfirmDialogConfig } from "./confirm-dialog-store";
+import {
+  useConfirmDialogStore,
+  type ConfirmDialogConfig,
+} from "./confirm-dialog-store";
 
 describe("confirm-dialog-store", () => {
   // Reset store state before each test
@@ -436,7 +439,8 @@ describe("confirm-dialog-store", () => {
       // User clicks delete button
       confirm({
         title: "Delete item",
-        description: "Are you sure you want to delete this item? This action cannot be undone.",
+        description:
+          "Are you sure you want to delete this item? This action cannot be undone.",
         confirmLabel: "Delete",
         variant: "destructive",
         onConfirm: () => deleteItem("item-123"),
@@ -498,7 +502,8 @@ describe("confirm-dialog-store", () => {
     });
 
     it("should support rapid confirm/cancel cycles", () => {
-      const { confirm, handleConfirm, handleCancel } = useConfirmDialogStore.getState();
+      const { confirm, handleConfirm, handleCancel } =
+        useConfirmDialogStore.getState();
       const action1 = vi.fn();
       const action2 = vi.fn();
       const cancel2 = vi.fn();

@@ -377,7 +377,6 @@ describe("BrowserDataFrame.getStorageType", () => {
         type: "s3",
         bucket: "my-bucket",
         key: "data/df-1.arrow",
-        region: "us-west-2",
       },
       fieldIds: createFieldIds(),
       createdAt: Date.now(),
@@ -391,9 +390,8 @@ describe("BrowserDataFrame.getStorageType", () => {
       id: "df-1" as string,
       storage: {
         type: "r2",
-        bucket: "my-bucket",
-        key: "data/df-1.arrow",
         accountId: "account-123",
+        key: "data/df-1.arrow",
       },
       fieldIds: createFieldIds(),
       createdAt: Date.now(),

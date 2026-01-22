@@ -73,10 +73,7 @@ describe("visualizations", () => {
 
     describe("barY metadata", () => {
       it("should have correct tags", () => {
-        expect(CHART_TYPE_METADATA.barY.tags).toEqual([
-          "comparison",
-          "trend",
-        ]);
+        expect(CHART_TYPE_METADATA.barY.tags).toEqual(["comparison", "trend"]);
       });
 
       it("should have correct display name", () => {

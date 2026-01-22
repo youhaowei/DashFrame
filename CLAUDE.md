@@ -340,10 +340,13 @@ Create reusable factories to reduce boilerplate:
 /**
  * Helper to create a mock NumberAnalysis
  */
-function createNumberColumn(name: string, options?: {
-  hasVariance?: boolean;
-  uniqueCount?: number;
-}): ColumnAnalysis {
+function createNumberColumn(
+  name: string,
+  options?: {
+    hasVariance?: boolean;
+    uniqueCount?: number;
+  },
+): ColumnAnalysis {
   return {
     name,
     type: "number",
@@ -382,9 +385,11 @@ describe("useCreateInsight", () => {
       insightId = await result.current.createInsightFromTable("table-1");
     });
 
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
-      baseTableId: "table-1",
-    }));
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseTableId: "table-1",
+      }),
+    );
     expect(insightId).toBeTruthy();
   });
 });

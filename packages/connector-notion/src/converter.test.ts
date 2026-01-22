@@ -19,10 +19,7 @@ import {
 // Test Fixtures
 // ============================================================================
 
-function createField(
-  name: string,
-  options: Partial<Field> = {},
-): Field {
+function createField(name: string, options: Partial<Field> = {}): Field {
   return {
     id: crypto.randomUUID(),
     name,
@@ -493,7 +490,10 @@ describe("extractPropertyValue", () => {
           {
             name: "document.pdf",
             type: "file" as const,
-            file: { url: "https://example.com/document.pdf", expiry_time: "2024-12-31T00:00:00.000Z" },
+            file: {
+              url: "https://example.com/document.pdf",
+              expiry_time: "2024-12-31T00:00:00.000Z",
+            },
           },
           {
             name: "image.png",
@@ -522,10 +522,7 @@ describe("extractPropertyValue", () => {
       const property = {
         id: "related",
         type: "relation" as const,
-        relation: [
-          { id: "page-1" },
-          { id: "page-2" },
-        ],
+        relation: [{ id: "page-1" }, { id: "page-2" }],
         has_more: false,
       };
 

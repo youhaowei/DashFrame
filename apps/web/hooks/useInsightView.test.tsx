@@ -70,8 +70,8 @@ function createMockInsight(options: {
     joins: options.joins ?? [],
     filters: [],
     sorts: [],
-    createdAt: new Date("2024-01-01T00:00:00.000Z"),
-    updatedAt: new Date("2024-01-01T00:00:00.000Z"),
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    updatedAt: Date.parse("2024-01-01T00:00:00.000Z"),
   };
 }
 
@@ -84,13 +84,14 @@ function createMockDataTable(options: {
   dataFrameId?: string;
 }): DataTable {
   return {
-    id: options.id ?? "table-abc",
+    id: (options.id ?? "table-abc") as any,
     name: options.name ?? "Test Table",
-    dataSourceId: "ds-123",
-    dataFrameId: options.dataFrameId ?? "df-123",
+    dataSourceId: "ds-123" as any,
+    table: "test_table",
+    dataFrameId: (options.dataFrameId ?? "df-123") as any,
     fields: [],
-    createdAt: new Date("2024-01-01T00:00:00.000Z"),
-    updatedAt: new Date("2024-01-01T00:00:00.000Z"),
+    metrics: [],
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
   };
 }
 
@@ -307,7 +308,9 @@ describe("useInsightView", () => {
 
       // Verify CREATE OR REPLACE VIEW was called
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('CREATE OR REPLACE VIEW "insight_view_insight_simple" AS'),
+        expect.stringContaining(
+          'CREATE OR REPLACE VIEW "insight_view_insight_simple" AS',
+        ),
       );
     });
 
@@ -874,7 +877,9 @@ describe("useInsightView", () => {
       const { result } = renderHook(() => useInsightView(insight));
 
       await waitFor(() => {
-        expect(result.current.error).toBe("Failed to build SQL for insight view");
+        expect(result.current.error).toBe(
+          "Failed to build SQL for insight view",
+        );
       });
 
       expect(result.current.isReady).toBe(false);
@@ -1126,8 +1131,8 @@ describe("useInsightView", () => {
       mockQuery.mockResolvedValue(undefined);
 
       const { result, rerender } = renderHook(
-        ({ insight }) => useInsightView(insight),
-        { initialProps: { insight } },
+        ({ insight }: { insight: Insight | null }) => useInsightView(insight),
+        { initialProps: { insight: insight as Insight | null } },
       );
 
       await waitFor(() => {

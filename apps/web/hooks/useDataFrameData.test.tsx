@@ -77,10 +77,12 @@ function createMockEntry(options: {
   name?: string;
 }): DataFrameEntry {
   return {
-    id: options.id,
-    insightId: options.insightId ?? null,
+    id: options.id as any,
+    insightId: options.insightId as any,
     name: options.name ?? "Test DataFrame",
-    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    storage: { type: "indexeddb", key: `df-${options.id}` },
+    fieldIds: [],
   };
 }
 
@@ -216,7 +218,9 @@ describe("useDataFrameData", () => {
       const mockRows = [{ id: 1 }];
       const mockDataFrame = createMockDataFrame(mockRows);
       const mockLimitFn = vi.fn().mockReturnThis();
-      const mockSqlFn = vi.fn().mockResolvedValue("SELECT * FROM data LIMIT 1000");
+      const mockSqlFn = vi
+        .fn()
+        .mockResolvedValue("SELECT * FROM data LIMIT 1000");
 
       mockDataFrame.load = vi.fn().mockResolvedValue({
         limit: mockLimitFn,
@@ -237,7 +241,9 @@ describe("useDataFrameData", () => {
       const mockRows = [{ id: 1 }];
       const mockDataFrame = createMockDataFrame(mockRows);
       const mockLimitFn = vi.fn().mockReturnThis();
-      const mockSqlFn = vi.fn().mockResolvedValue("SELECT * FROM data LIMIT 50");
+      const mockSqlFn = vi
+        .fn()
+        .mockResolvedValue("SELECT * FROM data LIMIT 50");
 
       mockDataFrame.load = vi.fn().mockResolvedValue({
         limit: mockLimitFn,
@@ -482,11 +488,7 @@ describe("useDataFrameData", () => {
 
   describe("column type inference", () => {
     it("should infer 'number' type from numeric values", async () => {
-      const mockRows = [
-        { score: 95 },
-        { score: 87.5 },
-        { score: 100 },
-      ];
+      const mockRows = [{ score: 95 }, { score: 87.5 }, { score: 100 }];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -502,10 +504,7 @@ describe("useDataFrameData", () => {
     });
 
     it("should infer 'string' type from text values", async () => {
-      const mockRows = [
-        { name: "Alice" },
-        { name: "Bob" },
-      ];
+      const mockRows = [{ name: "Alice" }, { name: "Bob" }];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -521,10 +520,7 @@ describe("useDataFrameData", () => {
     });
 
     it("should infer 'boolean' type from boolean values", async () => {
-      const mockRows = [
-        { active: true },
-        { active: false },
-      ];
+      const mockRows = [{ active: true }, { active: false }];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -578,10 +574,7 @@ describe("useDataFrameData", () => {
     });
 
     it("should infer 'unknown' type from all null values", async () => {
-      const mockRows = [
-        { value: null },
-        { value: null },
-      ];
+      const mockRows = [{ value: null }, { value: null }];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -597,11 +590,7 @@ describe("useDataFrameData", () => {
     });
 
     it("should skip null/undefined values when inferring types", async () => {
-      const mockRows = [
-        { score: null },
-        { score: undefined },
-        { score: 95 },
-      ];
+      const mockRows = [{ score: null }, { score: undefined }, { score: 95 }];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -639,8 +628,12 @@ describe("useDataFrameData", () => {
       mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
 
       // Render two hooks with same ID simultaneously
-      const { result: result1 } = renderHook(() => useDataFrameData("df-mutex"));
-      const { result: result2 } = renderHook(() => useDataFrameData("df-mutex"));
+      const { result: result1 } = renderHook(() =>
+        useDataFrameData("df-mutex"),
+      );
+      const { result: result2 } = renderHook(() =>
+        useDataFrameData("df-mutex"),
+      );
 
       // Both should be loading
       expect(result1.current.isLoading).toBe(true);
@@ -732,7 +725,9 @@ describe("useDataFrameData", () => {
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
       mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
 
-      const { result, rerender } = renderHook(() => useDataFrameData("df-stable"));
+      const { result, rerender } = renderHook(() =>
+        useDataFrameData("df-stable"),
+      );
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -752,7 +747,9 @@ describe("useDataFrameData", () => {
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
       mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
 
-      const { result, rerender } = renderHook(() => useDataFrameData("df-stable-2"));
+      const { result, rerender } = renderHook(() =>
+        useDataFrameData("df-stable-2"),
+      );
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -870,9 +867,7 @@ describe("useDataFrameDataByInsight", () => {
     });
 
     it("should return null when insightId is undefined", () => {
-      const { result } = renderHook(() =>
-        useDataFrameDataByInsight(undefined),
-      );
+      const { result } = renderHook(() => useDataFrameDataByInsight(undefined));
 
       expect(result.current.data).toBeNull();
       expect(result.current.isLoading).toBe(false);
@@ -881,9 +876,7 @@ describe("useDataFrameDataByInsight", () => {
 
     it("should return null when DataFrame not found for insightId", async () => {
       mockUseDataFrames.mockReturnValue({
-        data: [
-          createMockEntry({ id: "df-other", insightId: "insight-other" }),
-        ],
+        data: [createMockEntry({ id: "df-other", insightId: "insight-other" })],
       });
 
       const { result } = renderHook(() =>
@@ -909,7 +902,9 @@ describe("useDataFrameDataByInsight", () => {
       const mockRows = [{ id: 1 }];
       const mockDataFrame = createMockDataFrame(mockRows);
       const mockLimitFn = vi.fn().mockReturnThis();
-      const mockSqlFn = vi.fn().mockResolvedValue("SELECT * FROM data LIMIT 100");
+      const mockSqlFn = vi
+        .fn()
+        .mockResolvedValue("SELECT * FROM data LIMIT 100");
 
       mockDataFrame.load = vi.fn().mockResolvedValue({
         limit: mockLimitFn,
