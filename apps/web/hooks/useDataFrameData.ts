@@ -109,7 +109,10 @@ export function useDataFrameData(
   );
 
   const [data, setData] = useState<DataFrameData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Start loading if we have a dataFrameId and aren't skipping
+  const [isLoading, setIsLoading] = useState(
+    () => !!dataFrameId && !(options?.skip ?? false),
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Track the last loaded dataFrameId to prevent unnecessary reloads

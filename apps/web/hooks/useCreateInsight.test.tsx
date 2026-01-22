@@ -13,9 +13,11 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCreateInsight } from "./useCreateInsight";
 
-// Mock @dashframe/core
-const mockCreateInsight = vi.fn();
-const mockGetInsight = vi.fn();
+// Mock functions must be hoisted with vi.mock
+const { mockCreateInsight, mockGetInsight } = vi.hoisted(() => ({
+  mockCreateInsight: vi.fn(),
+  mockGetInsight: vi.fn(),
+}));
 
 vi.mock("@dashframe/core", () => ({
   useInsightMutations: () => ({
@@ -24,8 +26,9 @@ vi.mock("@dashframe/core", () => ({
   getInsight: mockGetInsight,
 }));
 
-// Mock next/navigation
-const mockPush = vi.fn();
+const { mockPush } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({

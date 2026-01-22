@@ -22,22 +22,24 @@ import {
   useDataFrameDataByInsight,
 } from "./useDataFrameData";
 
-// Mock DuckDB connection
-const mockQuery = vi.fn();
-const mockConnection = {
-  query: mockQuery,
-};
-
-// Mock DuckDB provider
-const mockUseDuckDB = vi.fn();
+// Mock functions must be hoisted with vi.mock
+const { mockQuery, mockConnection, mockUseDuckDB } = vi.hoisted(() => {
+  const query = vi.fn();
+  return {
+    mockQuery: query,
+    mockConnection: { query },
+    mockUseDuckDB: vi.fn(),
+  };
+});
 
 vi.mock("@/components/providers/DuckDBProvider", () => ({
   useDuckDB: () => mockUseDuckDB(),
 }));
 
-// Mock @dashframe/core
-const mockGetDataFrame = vi.fn();
-const mockUseDataFrames = vi.fn();
+const { mockGetDataFrame, mockUseDataFrames } = vi.hoisted(() => ({
+  mockGetDataFrame: vi.fn(),
+  mockUseDataFrames: vi.fn(),
+}));
 
 vi.mock("@dashframe/core", () => ({
   getDataFrame: mockGetDataFrame,
@@ -94,6 +96,7 @@ describe("useDataFrameData", () => {
     mockUseDuckDB.mockReturnValue({
       connection: mockConnection,
       isInitialized: true,
+      isLoading: false,
       db: {},
       error: null,
     });

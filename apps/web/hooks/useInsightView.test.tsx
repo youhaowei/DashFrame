@@ -21,31 +21,34 @@ import {
   useInsightView,
 } from "./useInsightView";
 
-// Mock DuckDB connection
-const mockQuery = vi.fn();
-const mockConnection = {
-  query: mockQuery,
-};
-
-// Mock DuckDB provider
-const mockUseDuckDB = vi.fn();
+// Mock functions must be hoisted with vi.mock
+const { mockQuery, mockConnection, mockUseDuckDB } = vi.hoisted(() => {
+  const query = vi.fn();
+  return {
+    mockQuery: query,
+    mockConnection: { query },
+    mockUseDuckDB: vi.fn(),
+  };
+});
 
 vi.mock("@/components/providers/DuckDBProvider", () => ({
   useDuckDB: () => mockUseDuckDB(),
 }));
 
-// Mock @dashframe/core
-const mockGetDataFrame = vi.fn();
-const mockGetDataTable = vi.fn();
+const { mockGetDataFrame, mockGetDataTable } = vi.hoisted(() => ({
+  mockGetDataFrame: vi.fn(),
+  mockGetDataTable: vi.fn(),
+}));
 
 vi.mock("@dashframe/core", () => ({
   getDataFrame: mockGetDataFrame,
   getDataTable: mockGetDataTable,
 }));
 
-// Mock @dashframe/engine-browser
-const mockBuildInsightSQL = vi.fn();
-const mockEnsureTableLoaded = vi.fn();
+const { mockBuildInsightSQL, mockEnsureTableLoaded } = vi.hoisted(() => ({
+  mockBuildInsightSQL: vi.fn(),
+  mockEnsureTableLoaded: vi.fn(),
+}));
 
 vi.mock("@dashframe/engine-browser", () => ({
   buildInsightSQL: mockBuildInsightSQL,

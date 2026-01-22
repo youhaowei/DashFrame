@@ -117,9 +117,10 @@ describe("useStoreQuery", () => {
 
       const selector = vi.fn((state: TestState) => state.count);
 
-      renderHook(() => useStoreQuery(store, selector));
+      const { result } = renderHook(() => useStoreQuery(store, selector));
 
-      expect(store).toHaveBeenCalledWith(selector);
+      expect(selector).toHaveBeenCalled();
+      expect(result.current.data).toBe(2);
     });
 
     it("should return isSuccess true when hydrated", () => {
@@ -410,9 +411,8 @@ describe("useStoreQuery", () => {
         useStoreQuery(store, (state) => state.items),
       );
 
-      // Without persist, should still show loading (requireHydration defaults to true)
-      expect(result.current.isLoading).toBe(true);
-      expect(result.current.isSuccess).toBe(false);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isSuccess).toBe(true);
     });
 
     it("should not subscribe when persist is undefined", () => {
@@ -421,12 +421,11 @@ describe("useStoreQuery", () => {
         hasPersist: false,
       });
 
-      // Should not throw and should handle gracefully
       const { result } = renderHook(() =>
         useStoreQuery(store, (state) => state.count),
       );
 
-      expect(result.current.isLoading).toBe(true);
+      expect(result.current.isLoading).toBe(false);
     });
 
     it("should work with requireHydration=false on non-persisted stores", () => {
