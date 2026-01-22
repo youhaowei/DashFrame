@@ -2,7 +2,6 @@
 
 import { useEncryption } from "@/lib/contexts/encryption-context";
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,10 +18,6 @@ interface PassphraseModalProps {
    * Whether the modal is open
    */
   isOpen: boolean;
-  /**
-   * Called when the modal should close (after successful unlock/initialization)
-   */
-  onClose: () => void;
 }
 
 /**
@@ -35,13 +30,10 @@ interface PassphraseModalProps {
  *
  * @example
  * ```tsx
- * <PassphraseModal
- *   isOpen={!isUnlocked}
- *   onClose={() => setShowModal(false)}
- * />
+ * <PassphraseModal isOpen={!isUnlocked} />
  * ```
  */
-export function PassphraseModal({ isOpen, onClose }: PassphraseModalProps) {
+export function PassphraseModal({ isOpen }: PassphraseModalProps) {
   const { isInitialized, initialize, unlock, error, isLoading } =
     useEncryption();
 
@@ -66,9 +58,8 @@ export function PassphraseModal({ isOpen, onClose }: PassphraseModalProps) {
       if (isInitialized) {
         // Unlock with existing passphrase
         await unlock(passphrase);
-        // Reset form and close on success
+        // Reset form on success (modal closes automatically via derived state)
         setPassphrase("");
-        onClose();
       } else {
         // Setup new passphrase - validate confirmation
         if (passphrase !== confirmPassphrase) {
@@ -77,24 +68,20 @@ export function PassphraseModal({ isOpen, onClose }: PassphraseModalProps) {
         }
 
         await initialize(passphrase);
-        // Reset form and close on success
+        // Reset form on success (modal closes automatically via derived state)
         setPassphrase("");
         setConfirmPassphrase("");
-        onClose();
       }
     } catch (err) {
-      // Error is handled by EncryptionContext and displayed via error prop
-      // No need to handle here as we show context.error below
+      // Error state is managed by EncryptionContext and displayed via the error prop
+      // Log for debugging purposes
+      console.error("Passphrase operation failed:", err);
     }
   };
 
-  /**
-   * Handle dialog close attempt
-   * Only allow closing after successful unlock/initialization
-   */
   const handleOpenChange = (open: boolean) => {
     // Prevent closing the modal - user must unlock/initialize
-    // We only close via onClose() after successful operation
+    // Modal closes automatically via derived state when unlocked
     if (!open) {
       return;
     }
@@ -169,12 +156,35 @@ export function PassphraseModal({ isOpen, onClose }: PassphraseModalProps) {
           </div>
 
           <DialogFooter>
-            <Button
+            <button
               type="submit"
-              label={isInitialized ? "Unlock" : "Create"}
               disabled={isLoading}
-              loading={isLoading}
-            />
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+            >
+              {isLoading && (
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              {isInitialized ? "Unlock" : "Create"}
+            </button>
           </DialogFooter>
         </form>
       </DialogContent>

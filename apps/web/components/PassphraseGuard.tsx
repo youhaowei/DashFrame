@@ -3,7 +3,6 @@
 import { PassphraseModal } from "@/components/PassphraseModal";
 import { useEncryption } from "@/lib/contexts/encryption-context";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 
 interface PassphraseGuardProps {
   children: React.ReactNode;
@@ -29,9 +28,8 @@ interface PassphraseGuardProps {
  * ```
  */
 export function PassphraseGuard({ children }: PassphraseGuardProps) {
-  const { isUnlocked, isInitialized } = useEncryption();
+  const { isUnlocked } = useEncryption();
   const pathname = usePathname();
-  const [showModal, setShowModal] = useState(false);
 
   // Protected routes that require encryption to be unlocked
   const protectedRoutes = ["/data-sources"];
@@ -41,23 +39,17 @@ export function PassphraseGuard({ children }: PassphraseGuardProps) {
     pathname.startsWith(route),
   );
 
-  useEffect(() => {
-    // Show modal if:
-    // 1. User is on a protected route AND encryption is not unlocked
-    // This covers both cases:
-    //    - First time setup (not initialized)
-    //    - Subsequent sessions (initialized but locked)
-    if (isProtectedRoute && !isUnlocked) {
-      setShowModal(true);
-    } else {
-      setShowModal(false);
-    }
-  }, [isProtectedRoute, isUnlocked, isInitialized]);
+  // Show modal if user is on a protected route AND encryption is not unlocked
+  // This covers both cases:
+  //    - First time setup (not initialized)
+  //    - Subsequent sessions (initialized but locked)
+  // Derived state - no need for useState/useEffect
+  const showModal = isProtectedRoute && !isUnlocked;
 
   return (
     <>
       {children}
-      <PassphraseModal isOpen={showModal} onClose={() => setShowModal(false)} />
+      <PassphraseModal isOpen={showModal} />
     </>
   );
 }
