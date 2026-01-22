@@ -22,10 +22,11 @@ import {
 } from "../key-manager";
 
 describe("key-manager", () => {
-  // Reset database before each test
+  // Reset database and in-memory state before each test
   beforeEach(async () => {
-    await db.delete();
-    await db.open();
+    lockEncryption(); // Clear in-memory cached key
+    await db.settings.clear();
+    await db.dataSources.clear();
   });
 
   describe("isEncryptionInitialized", () => {

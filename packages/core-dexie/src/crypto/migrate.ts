@@ -109,6 +109,8 @@ export async function migrateToEncryption(key: CryptoKey): Promise<{
     if (apiKeyResult.encryptedValue) {
       updates.apiKey = apiKeyResult.encryptedValue;
     }
+    if (apiKeyResult.wasEncrypted) encryptedCount++;
+    if (apiKeyResult.wasSkipped) skippedCount++;
 
     const connStringResult = await encryptFieldIfNeeded(
       dataSource.connectionString,
@@ -117,15 +119,8 @@ export async function migrateToEncryption(key: CryptoKey): Promise<{
     if (connStringResult.encryptedValue) {
       updates.connectionString = connStringResult.encryptedValue;
     }
-
-    const anyFieldEncrypted =
-      apiKeyResult.wasEncrypted || connStringResult.wasEncrypted;
-    const anyFieldSkipped =
-      apiKeyResult.wasSkipped || connStringResult.wasSkipped;
-    const dataSourceSkipped = anyFieldSkipped && !anyFieldEncrypted;
-
-    if (anyFieldEncrypted) encryptedCount++;
-    if (dataSourceSkipped) skippedCount++;
+    if (connStringResult.wasEncrypted) encryptedCount++;
+    if (connStringResult.wasSkipped) skippedCount++;
 
     if (Object.keys(updates).length > 0) {
       await db.dataSources.update(dataSource.id, updates);

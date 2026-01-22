@@ -217,7 +217,7 @@ describe("migration utilities", () => {
 
       // Verify both fields were encrypted
       expect(result.total).toBe(1);
-      expect(result.encrypted).toBe(1); // Count once per data source
+      expect(result.encrypted).toBe(2);
 
       const updated = await db.dataSources.get(dataSource.id);
       expect(updated).toBeDefined();
