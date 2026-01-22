@@ -230,7 +230,7 @@ export function getClientIp(
   // Try x-real-ip (nginx)
   const realIp = headers["x-real-ip"];
   if (realIp) {
-    return Array.isArray(realIp) ? realIp[0] ?? "unknown" : realIp;
+    return Array.isArray(realIp) ? (realIp[0] ?? "unknown") : realIp;
   }
 
   // Fallback for local development

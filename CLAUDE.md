@@ -161,16 +161,27 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 - **Testing**: Always call `destroyAllRateLimiters()` in test cleanup to prevent state leakage
 
 **When adding new tRPC endpoints**:
+
 ```typescript
 // Default rate limiting (10 req/min)
 export const myEndpoint = rateLimitedProcedure
   .input(z.object({ id: z.string() }))
-  .query(async ({ input }) => { /* ... */ });
+  .query(async ({ input }) => {
+    /* ... */
+  });
 
 // Custom rate limiting
 export const heavyEndpoint = publicProcedure
-  .use(rateLimitMiddleware({ windowMs: 60000, maxRequests: 30, name: 'heavyEndpoint' }))
-  .query(async ({ input }) => { /* ... */ });
+  .use(
+    rateLimitMiddleware({
+      windowMs: 60000,
+      maxRequests: 30,
+      name: "heavyEndpoint",
+    }),
+  )
+  .query(async ({ input }) => {
+    /* ... */
+  });
 ```
 
 See `apps/web/lib/trpc/rate-limiter.ts` and `middleware/rate-limit.ts` for implementation details.

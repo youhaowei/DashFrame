@@ -6,8 +6,8 @@ import {
   type NotionConfig,
 } from "@dashframe/connector-notion";
 import { z } from "zod";
-import { publicProcedure, rateLimitedProcedure, router } from "../server";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { publicProcedure, rateLimitedProcedure, router } from "../server";
 
 export const notionRouter = router({
   listDatabases: rateLimitedProcedure

@@ -19,12 +19,12 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import { middleware } from "../server";
 import {
   createRateLimiter,
   getClientIp,
   type RateLimiterOptions,
 } from "../rate-limiter";
+import { middleware } from "../server";
 
 /**
  * Rate limiter options for middleware
