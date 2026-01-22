@@ -21,8 +21,8 @@ export function debugLog(
 ): void {
   // Only log in development or when explicitly enabled
   if (
-    process.env.NODE_ENV !== 'production' ||
-    process.env.NEXT_PUBLIC_DEBUG === 'true'
+    process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_DEBUG === "true"
   ) {
     console.debug(`[${category}]`, message, ...args);
   }
