@@ -164,14 +164,18 @@ describe("encryption integration - full flow", () => {
     const ids = await Promise.all(sources.map((s) => addDataSource(s)));
     expect(ids).toHaveLength(3);
 
-    // Verify all data is accessible before reload
+    // Verify all data is accessible before reload (order not guaranteed)
     const allSourcesBeforeReload = await getAllDataSources();
     expect(allSourcesBeforeReload).toHaveLength(3);
-    expect(allSourcesBeforeReload[0].apiKey).toBe("notion_key_1");
-    expect(allSourcesBeforeReload[1].apiKey).toBe("notion_key_2");
-    expect(allSourcesBeforeReload[2].connectionString).toBe(
-      "postgresql://localhost/db1",
-    );
+    const apiKeysBefore = allSourcesBeforeReload
+      .map((s) => s.apiKey)
+      .filter(Boolean);
+    const connStringsBefore = allSourcesBeforeReload
+      .map((s) => s.connectionString)
+      .filter(Boolean);
+    expect(apiKeysBefore).toContain("notion_key_1");
+    expect(apiKeysBefore).toContain("notion_key_2");
+    expect(connStringsBefore).toContain("postgresql://localhost/db1");
 
     // Simulate page reload
     lockEncryption();
@@ -182,14 +186,18 @@ describe("encryption integration - full flow", () => {
     // Unlock encryption
     await unlockEncryption(passphrase);
 
-    // Verify all data is accessible again
+    // Verify all data is accessible again (order not guaranteed)
     const allSourcesAfterReload = await getAllDataSources();
     expect(allSourcesAfterReload).toHaveLength(3);
-    expect(allSourcesAfterReload[0].apiKey).toBe("notion_key_1");
-    expect(allSourcesAfterReload[1].apiKey).toBe("notion_key_2");
-    expect(allSourcesAfterReload[2].connectionString).toBe(
-      "postgresql://localhost/db1",
-    );
+    const apiKeysAfter = allSourcesAfterReload
+      .map((s) => s.apiKey)
+      .filter(Boolean);
+    const connStringsAfter = allSourcesAfterReload
+      .map((s) => s.connectionString)
+      .filter(Boolean);
+    expect(apiKeysAfter).toContain("notion_key_1");
+    expect(apiKeysAfter).toContain("notion_key_2");
+    expect(connStringsAfter).toContain("postgresql://localhost/db1");
   });
 
   it("should handle update operations across reload", async () => {
