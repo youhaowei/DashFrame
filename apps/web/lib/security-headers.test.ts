@@ -228,7 +228,7 @@ describe("Security Headers", () => {
 
   describe("Environment-based Configuration", () => {
     it("should include unsafe-eval in development mode", () => {
-      process.env.NODE_ENV = "development";
+      (process.env as Record<string, string>).NODE_ENV = "development";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -238,7 +238,7 @@ describe("Security Headers", () => {
     });
 
     it("should NOT include unsafe-eval in production mode", () => {
-      process.env.NODE_ENV = "production";
+      (process.env as Record<string, string>).NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -248,7 +248,7 @@ describe("Security Headers", () => {
     });
 
     it("should include upgrade-insecure-requests in production", () => {
-      process.env.NODE_ENV = "production";
+      (process.env as Record<string, string>).NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -258,7 +258,7 @@ describe("Security Headers", () => {
     });
 
     it("should NOT include upgrade-insecure-requests in development", () => {
-      process.env.NODE_ENV = "development";
+      (process.env as Record<string, string>).NODE_ENV = "development";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
