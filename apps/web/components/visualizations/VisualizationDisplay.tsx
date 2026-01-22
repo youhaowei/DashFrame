@@ -61,7 +61,7 @@ export function VisualizationDisplay({
   const dataTable = useMemo(() => {
     if (!insight?.baseTableId) return undefined;
     return dataTables.find((t) => t.id === insight.baseTableId);
-  }, [insight?.baseTableId, dataTables]);
+  }, [insight, dataTables]);
 
   // Build an Insight-compatible object for useInsightView
   // This transforms the store insight format to what useInsightView expects
