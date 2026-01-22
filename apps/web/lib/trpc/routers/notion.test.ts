@@ -10,6 +10,7 @@
 import {
   fetchNotionDatabases,
   fetchNotionDatabaseSchema,
+  generateFieldsFromNotionSchema,
   notionToDataFrame,
 } from "@dashframe/connector-notion";
 import { TRPCError } from "@trpc/server";
@@ -47,20 +48,25 @@ describe("notionRouter - rate limiting integration", () => {
       results: [],
       has_more: false,
       next_cursor: null,
-    });
+    } as unknown as Awaited<ReturnType<typeof fetchNotionDatabases>>);
 
     vi.mocked(fetchNotionDatabaseSchema).mockResolvedValue({
       id: "test-db-id",
       title: [{ plain_text: "Test Database" }],
       properties: {},
-    });
+    } as unknown as Awaited<ReturnType<typeof fetchNotionDatabaseSchema>>);
 
     vi.mocked(notionToDataFrame).mockResolvedValue({
       schema: {
         fields: [],
       },
       data: [],
-    });
+    } as unknown as Awaited<ReturnType<typeof notionToDataFrame>>);
+
+    vi.mocked(generateFieldsFromNotionSchema).mockReturnValue({
+      fields: [],
+      sourceSchema: { properties: {} },
+    } as unknown as ReturnType<typeof generateFieldsFromNotionSchema>);
   });
 
   afterEach(() => {
@@ -130,7 +136,7 @@ describe("notionRouter - rate limiting integration", () => {
 
         // Check error cause includes retry information
         expect(trpcError.cause).toBeDefined();
-        const cause = trpcError.cause as {
+        const cause = trpcError.cause as unknown as {
           retryAfter: number;
           resetMs: number;
           clientIp: string;

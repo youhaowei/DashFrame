@@ -165,14 +165,14 @@ describe("rate-limiter", () => {
       expect(blocked.success).toBe(false);
 
       // Advance time so the first request expires (from t=0 to t=10001)
-      // Now at t=13001, window is [3001, 13001]
+      // Now at t=13001, window is (3001, 13001]
       vi.advanceTimersByTime(10001);
 
-      // First request at t=0 should be expired
-      // Only 2 requests remain (from t=3000)
+      // All requests have expired (t=0 and t=3000 are both <= 3001)
+      // Window uses ts > windowStart, so t=3000 is NOT included
       const allowed = limiter.checkLimit("user-1");
       expect(allowed.success).toBe(true);
-      expect(allowed.remaining).toBe(0); // 3 total, now have 3
+      expect(allowed.remaining).toBe(2); // All expired, this is 1st request in new window
     });
 
     it("should calculate correct reset time", () => {

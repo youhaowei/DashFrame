@@ -19,12 +19,12 @@
  */
 
 import { TRPCError } from "@trpc/server";
+import { middleware } from "../init";
 import {
   createRateLimiter,
   getClientIp,
   type RateLimiterOptions,
 } from "../rate-limiter";
-import { middleware } from "../server";
 
 /**
  * Rate limiter options for middleware
@@ -86,30 +86,25 @@ function getRateLimiter(options: RateLimitMiddlewareOptions) {
  * ```
  */
 export function rateLimitMiddleware(options: RateLimitMiddlewareOptions = {}) {
-  const limiter = getRateLimiter(options);
   const procedureName = options.name ?? "endpoint";
 
   return middleware(({ ctx, next }) => {
-    // Extract client IP from context headers
+    const limiter = getRateLimiter(options);
     const clientIp = getClientIp(ctx.headers);
-
-    // Check rate limit
     const result = limiter.checkLimit(clientIp);
 
     if (!result.success) {
-      // Rate limit exceeded - throw TRPCError with TOO_MANY_REQUESTS code
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
         message: `Rate limit exceeded for ${procedureName}. Please try again later.`,
         cause: {
-          retryAfter: Math.ceil(result.reset / 1000), // Convert ms to seconds
+          retryAfter: Math.ceil(result.reset / 1000),
           resetMs: result.reset,
           clientIp,
         },
       });
     }
 
-    // Rate limit check passed - continue to the next middleware/procedure
     return next();
   });
 }

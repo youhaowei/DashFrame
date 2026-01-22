@@ -221,9 +221,8 @@ export function getClientIp(
   if (forwardedFor) {
     // x-forwarded-for can be comma-separated list: "client, proxy1, proxy2"
     // The first IP is the original client
-    const firstIp = Array.isArray(forwardedFor)
-      ? forwardedFor[0]
-      : forwardedFor.split(",")[0];
+    const value = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+    const firstIp = value?.split(",")[0];
     return firstIp?.trim() ?? "unknown";
   }
 

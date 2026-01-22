@@ -1,31 +1,9 @@
-import { initTRPC } from "@trpc/server";
-import superjson from "superjson";
+import { publicProcedure } from "./init";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 
-/**
- * Context type for tRPC procedures
- * Includes request headers for IP extraction and rate limiting
- */
-export interface Context {
-  /** Request headers (for IP extraction in rate limiting middleware) */
-  headers: Record<string, string | string[] | undefined>;
-}
-
-/**
- * Initialization of tRPC backend
- * Should be done only once per backend!
- */
-const t = initTRPC.context<Context>().create({
-  transformer: superjson,
-});
-
-/**
- * Export reusable router and procedure helpers
- * that can be used throughout the router
- */
-export const router = t.router;
-export const publicProcedure = t.procedure;
-export const middleware = t.middleware;
+// Re-export tRPC primitives from init.ts to maintain backward compatibility
+// The init.ts file exists to break circular dependencies between server.ts and middleware/rate-limit.ts
+export { middleware, publicProcedure, router, type Context } from "./init";
 
 /**
  * Rate-limited procedure with default limits (10 requests per minute)
