@@ -136,6 +136,15 @@ export interface DataFrameEntity extends DataFrameJSON {
   analysis?: DataFrameAnalysis;
 }
 
+/**
+ * Settings entity - key-value store for application settings.
+ * Used for storing encryption salt, verifier, and other app-level config.
+ */
+export interface SettingsEntity {
+  key: string; // Unique key (e.g., "encryption:salt", "encryption:verifier")
+  value: string; // Serialized value (e.g., base64-encoded)
+}
+
 // ============================================================================
 // Dexie Database Class
 // ============================================================================
@@ -150,6 +159,7 @@ export interface DataFrameEntity extends DataFrameJSON {
  * - visualizations: Charts (insightId FK)
  * - dashboards: Dashboard layouts
  * - dataFrames: DataFrame metadata (insightId FK)
+ * - settings: Key-value store for app settings (encryption salt, etc.)
  */
 export class DashFrameDB extends Dexie {
   dataSources!: EntityTable<DataSourceEntity, "id">;
@@ -158,10 +168,12 @@ export class DashFrameDB extends Dexie {
   visualizations!: EntityTable<VisualizationEntity, "id">;
   dashboards!: EntityTable<DashboardEntity, "id">;
   dataFrames!: EntityTable<DataFrameEntity, "id">;
+  settings!: EntityTable<SettingsEntity, "key">;
 
   constructor() {
     super("dashframe");
 
+    // Version 1: Initial schema
     this.version(1).stores({
       dataSources: "id, type, createdAt",
       dataTables: "id, dataSourceId, createdAt",
@@ -169,6 +181,17 @@ export class DashFrameDB extends Dexie {
       visualizations: "id, insightId, createdAt",
       dashboards: "id, createdAt",
       dataFrames: "id, insightId, createdAt",
+    });
+
+    // Version 2: Add settings table for encryption
+    this.version(2).stores({
+      dataSources: "id, type, createdAt",
+      dataTables: "id, dataSourceId, createdAt",
+      insights: "id, baseTableId, createdAt",
+      visualizations: "id, insightId, createdAt",
+      dashboards: "id, createdAt",
+      dataFrames: "id, insightId, createdAt",
+      settings: "key", // Key-value store with key as primary key
     });
   }
 }

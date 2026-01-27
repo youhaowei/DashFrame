@@ -131,6 +131,51 @@ import { useDataSources, useDataSourceMutations } from "@dashframe/core";
 
 This keeps components backend-agnostic. The backend implementation is selected via `NEXT_PUBLIC_DATA_BACKEND` env var.
 
+### Encryption for Sensitive Data
+
+**Client-side encryption** protects sensitive fields (API keys, connection strings) in IndexedDB. Uses Web Crypto API with:
+
+- **Algorithm**: AES-256-GCM (authenticated encryption)
+- **Key derivation**: PBKDF2 with SHA-256, 100,000 iterations
+- **Key storage**: CryptoKey cached in memory only (cleared on page reload)
+- **Salt storage**: IndexedDB settings table (persistent, per-browser instance)
+
+**Key management functions** (from `@dashframe/core`):
+
+```typescript
+import {
+  initializeEncryption,
+  isEncryptionInitialized,
+  unlockEncryption,
+  isEncryptionUnlocked,
+  lockEncryption,
+  migrateToEncryption,
+} from "@dashframe/core";
+
+// First-time setup
+await initializeEncryption("user-passphrase");
+
+// Subsequent sessions
+if (await isEncryptionInitialized()) {
+  await unlockEncryption("user-passphrase");
+}
+
+// Check if key is available
+if (isEncryptionUnlocked()) {
+  // Can access encrypted data
+}
+
+// Lock encryption (clears key from memory)
+lockEncryption();
+```
+
+**Important**:
+
+- User must unlock encryption each session (passphrase not stored)
+- Encryption key required before accessing/modifying DataSources with API keys
+- Protected routes (e.g., `/data-sources`) trigger unlock modal automatically
+- Migration utility (`migrateToEncryption`) encrypts existing plaintext data on first setup
+
 ## Critical Gotchas
 
 ### Vega-Lite SSR
@@ -153,7 +198,7 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 
 ### Other Gotchas
 
-- **Notion API Keys**: Stored in localStorage (use OAuth in production)
+- **Notion API Keys**: Encrypted at rest in IndexedDB. User must unlock encryption with passphrase each session.
 - **Turborepo Cache**: Run `turbo build --force` if seeing stale builds
 
 ## Development Best Practices
