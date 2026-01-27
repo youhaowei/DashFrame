@@ -6,10 +6,11 @@ import {
   type NotionConfig,
 } from "@dashframe/connector-notion";
 import { z } from "zod";
-import { publicProcedure, router } from "../server";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { publicProcedure, rateLimitedProcedure, router } from "../server";
 
 export const notionRouter = router({
-  listDatabases: publicProcedure
+  listDatabases: rateLimitedProcedure
     .input(
       z.object({
         apiKey: z.string().min(1, "API key is required"),
@@ -21,6 +22,13 @@ export const notionRouter = router({
     }),
 
   getDatabaseSchema: publicProcedure
+    .use(
+      rateLimitMiddleware({
+        windowMs: 60000,
+        maxRequests: 20,
+        name: "getDatabaseSchema",
+      }),
+    )
     .input(
       z.object({
         apiKey: z.string().min(1, "API key is required"),
@@ -33,6 +41,13 @@ export const notionRouter = router({
     }),
 
   queryDatabase: publicProcedure
+    .use(
+      rateLimitMiddleware({
+        windowMs: 60000,
+        maxRequests: 30,
+        name: "queryDatabase",
+      }),
+    )
     .input(
       z.object({
         apiKey: z.string().min(1, "API key is required"),
