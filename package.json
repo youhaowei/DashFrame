@@ -23,6 +23,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "test": "turbo test",
+    "test:coverage": "turbo test:coverage",
     "test:e2e": "turbo test:e2e",
     "test:e2e:ci": "turbo test:e2e:ci",
     "test:e2e:ui": "bun test:ui --filter @dashframe/web-e2e",

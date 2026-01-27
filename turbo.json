@@ -40,6 +40,11 @@
       "dependsOn": ["^build"],
       "cache": true
     },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "outputs": ["coverage/**"]
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
