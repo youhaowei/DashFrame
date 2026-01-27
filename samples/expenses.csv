@@ -1,0 +1,21 @@
+expense_id,department_id,category,vendor,amount,date,description,approved_by
+exp-001,dept-eng,cloud,AWS,28500,2024-01-15,Monthly AWS infrastructure,emp-010
+exp-002,dept-eng,cloud,Vercel,1200,2024-01-15,TeamFlow hosting,emp-001
+exp-003,dept-eng,tools,GitHub,450,2024-01-01,GitHub Enterprise seats,emp-010
+exp-004,dept-eng,tools,Datadog,890,2024-01-01,Monitoring and observability,emp-001
+exp-005,dept-design,tools,Figma,720,2024-01-01,Design tool licenses,emp-012
+exp-006,dept-sales,tools,Salesforce,2400,2024-01-01,CRM platform,emp-013
+exp-007,dept-sales,tools,HubSpot,850,2024-01-01,Marketing automation,emp-013
+exp-008,dept-ops,tools,Slack,680,2024-01-01,Team communication,emp-014
+exp-009,dept-ops,tools,Notion,340,2024-01-01,Documentation platform,emp-009
+exp-010,dept-eng,cloud,AWS,31200,2024-02-15,Monthly AWS infrastructure,emp-010
+exp-011,dept-sales,travel,United Airlines,1850,2024-01-22,Client visit - Chicago,emp-008
+exp-012,dept-sales,travel,Marriott,720,2024-01-22,Hotel - Chicago trip,emp-008
+exp-013,dept-eng,training,Coursera,1200,2024-01-10,Team learning subscriptions,emp-001
+exp-014,dept-product,tools,Amplitude,1500,2024-01-01,Product analytics,emp-011
+exp-015,dept-eng,cloud,GCP,8900,2024-01-15,DataVault infrastructure,emp-004
+exp-016,dept-ops,office,WeWork,12500,2024-01-01,SF office space,emp-014
+exp-017,dept-ops,office,WeWork,8500,2024-01-01,NY office space,emp-014
+exp-018,dept-eng,hardware,Apple,4500,2024-01-18,New engineer laptop,emp-001
+exp-019,dept-design,hardware,Apple,3200,2024-02-01,Designer workstation upgrade,emp-012
+exp-020,dept-eng,cloud,AWS,29800,2024-03-15,Monthly AWS infrastructure,emp-010

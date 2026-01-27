@@ -2,10 +2,9 @@
 
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
-import { useInsights, useVisualizations } from "@dashframe/core";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
+import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
-import { parseEncoding } from "@dashframe/types";
 import {
   ChartIcon,
   LayersIcon,
@@ -44,6 +43,7 @@ export function VisualizationDisplay({
   const { data: visualizations = [], isLoading: isVizLoading } =
     useVisualizations();
   const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
 
   // Get the visualization
   const activeViz = useMemo((): Visualization | null => {
@@ -56,6 +56,12 @@ export function VisualizationDisplay({
     if (!activeViz) return undefined;
     return insights.find((i) => i.id === activeViz.insightId);
   }, [activeViz, insights]);
+
+  // Get the data table for encoding resolution
+  const dataTable = useMemo(() => {
+    if (!insight?.baseTableId) return undefined;
+    return dataTables.find((t) => t.id === insight.baseTableId);
+  }, [insight, dataTables]);
 
   // Build an Insight-compatible object for useInsightView
   // This transforms the store insight format to what useInsightView expects
@@ -70,8 +76,19 @@ export function VisualizationDisplay({
   }, [insight]);
 
   // Use insight view hook to get the proper table name (handles joins)
-  const { viewName: insightViewName, isReady: isInsightViewReady } =
-    useInsightView(insightForView);
+  const {
+    viewName: insightViewName,
+    isReady: isInsightViewReady,
+    error: insightViewError,
+  } = useInsightView(insightForView);
+
+  // Debug logging for E2E
+  console.log("[VisualizationDisplay] insightView state:", {
+    insightViewName,
+    isInsightViewReady,
+    insightViewError,
+    insightForView: insightForView?.id,
+  });
 
   // Use insight pagination for table data (queries DuckDB directly)
   const {
@@ -144,40 +161,30 @@ export function VisualizationDisplay({
     return null;
   }, [insightViewName, isInsightViewReady]);
 
-  /**
-   * Convert encoding value from storage format (field:<uuid>) to SQL column alias (field_<uuid>).
-   * Also handles metric: prefix conversion.
-   */
-  const resolveEncodingChannel = (
-    value: string | undefined,
-  ): string | undefined => {
-    if (!value) return undefined;
-    const parsed = parseEncoding(value);
-    if (!parsed) return undefined;
-    return parsed.type === "field"
-      ? fieldIdToColumnAlias(parsed.id)
-      : metricIdToColumnAlias(parsed.id);
-  };
-
-  // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
-  // The encoding values stored in the visualization use prefix format, but the SQL columns
-  // use underscore-based aliases created by buildInsightSQL
+  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
+  // This converts:
+  // - field:<uuid> → column name (e.g., "category", "Product")
+  // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)", "count(*)")
+  //
+  // vgplot will perform the aggregation when rendering, so we pass the actual SQL expression,
+  // not a pre-computed column alias. The insight view contains raw data (model mode),
+  // and vgplot uses the aggregation expressions to build GROUP BY queries.
   const resolvedEncoding = useMemo((): ChartEncoding => {
-    if (!activeViz?.encoding) {
+    if (!activeViz?.encoding || !dataTable || !insight) {
       return {};
     }
 
-    // Convert each channel from field:<uuid> to field_<uuid> format
-    const x = resolveEncodingChannel(activeViz.encoding.x);
-    const y = resolveEncodingChannel(activeViz.encoding.y);
-    const color = resolveEncodingChannel(activeViz.encoding.color);
-    const size = resolveEncodingChannel(activeViz.encoding.size);
+    // Build resolution context with fields and metrics
+    const context = {
+      fields: dataTable.fields ?? [],
+      metrics: insight.metrics ?? [],
+    };
+
+    // Resolve prefixed IDs to SQL expressions
+    const resolved = resolveEncodingToSql(activeViz.encoding, context);
 
     return {
-      x,
-      y,
-      color,
-      size,
+      ...resolved,
       xType: activeViz.encoding.xType,
       yType: activeViz.encoding.yType,
       // Pass through date transforms for temporal bar charts
@@ -185,13 +192,14 @@ export function VisualizationDisplay({
       xTransform: activeViz.encoding.xTransform,
       yTransform: activeViz.encoding.yTransform,
       // Include human-readable axis labels for chart display
-      // Look up using the resolved column alias
-      xLabel: x ? columnDisplayNames[x] : undefined,
-      yLabel: y ? columnDisplayNames[y] : undefined,
-      colorLabel: color ? columnDisplayNames[color] : undefined,
-      sizeLabel: size ? columnDisplayNames[size] : undefined,
+      xLabel: resolved.x ? columnDisplayNames[resolved.x] : undefined,
+      yLabel: resolved.y ? columnDisplayNames[resolved.y] : undefined,
+      colorLabel: resolved.color
+        ? columnDisplayNames[resolved.color]
+        : undefined,
+      sizeLabel: resolved.size ? columnDisplayNames[resolved.size] : undefined,
     };
-  }, [activeViz, columnDisplayNames]);
+  }, [activeViz, dataTable, insight, columnDisplayNames]);
 
   // Build column configs for VirtualTable to show human-readable headers
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
@@ -203,13 +211,9 @@ export function VisualizationDisplay({
 
   // Get human-readable display name for color encoding
   const colorDisplayName = useMemo(() => {
-    const colorEncoding = activeViz?.encoding?.color;
-    if (!colorEncoding) return null;
-    // Resolve to column alias first, then look up display name
-    const colorAlias = resolveEncodingChannel(colorEncoding);
-    if (!colorAlias) return null;
-    return columnDisplayNames[colorAlias] ?? colorAlias;
-  }, [activeViz, columnDisplayNames]);
+    if (!resolvedEncoding.color) return null;
+    return columnDisplayNames[resolvedEncoding.color] ?? resolvedEncoding.color;
+  }, [resolvedEncoding.color, columnDisplayNames]);
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;

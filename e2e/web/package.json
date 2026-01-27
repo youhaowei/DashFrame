@@ -5,12 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "bddgen",
-    "test:e2e": "playwright test --project=chromium",
-    "test:e2e:dev": "E2E_MODE=dev playwright test --project=chromium",
-    "test:e2e:ci": "playwright test",
-    "test:ui": "E2E_MODE=dev playwright test --ui",
-    "test:headed": "E2E_MODE=dev playwright test --project=chromium --headed",
-    "test:debug": "E2E_MODE=dev playwright test --debug",
+    "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test --project=chromium",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --project=chromium --headed",
+    "test:debug": "playwright test --debug",
     "test:smoke": "playwright test --grep @smoke --project=chromium",
     "test:html": "E2E_REPORT=html playwright test --project=chromium && playwright show-report",
     "codegen": "playwright codegen http://localhost:3000",
@@ -19,8 +18,9 @@
     "bddgen:watch": "bddgen --watch"
   },
   "dependencies": {
-    "@dashframe/connector-csv": "workspace:*",
+    "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/csv": "workspace:*",
     "@dashframe/core": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",

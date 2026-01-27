@@ -54,13 +54,16 @@ function remapAnalysisColumnNames(
   // Build reverse lookup: original column name → field UUID alias
   const columnNameToAlias = new Map<string, string>();
   for (const field of fields) {
+    const alias = fieldIdToColumnAlias(field.id);
     if (field.columnName) {
-      columnNameToAlias.set(field.columnName, fieldIdToColumnAlias(field.id));
+      columnNameToAlias.set(field.columnName.trim().toLowerCase(), alias);
     }
+    // Also map by field name as fallback (user-facing name often matches column name initially)
+    columnNameToAlias.set(field.name.trim().toLowerCase(), alias);
   }
 
   return analysis.map((col) => {
-    const alias = columnNameToAlias.get(col.columnName);
+    const alias = columnNameToAlias.get(col.columnName.toLowerCase());
     if (alias) {
       return { ...col, columnName: alias };
     }
@@ -111,12 +114,6 @@ async function analyzeAndCacheDataFrame(
   };
 
   await ctx.updateAnalysis(dataFrameId, analysis);
-  console.log(
-    "[InsightView] DataFrame cached",
-    dataFrameId,
-    remappedResults.length,
-    "columns",
-  );
 
   return analysis;
 }
@@ -138,6 +135,65 @@ interface DataTableEntry {
 /** Join specification */
 interface JoinSpec {
   rightTableId: UUID;
+}
+
+/**
+ * Check if all joined DataFrames are loaded (for joined insights).
+ */
+function areJoinedDataFramesLoaded(
+  joins: JoinSpec[],
+  allDataTables: DataTableEntry[],
+  allDataFrameEntries: DataFrameEntry[],
+): boolean {
+  for (const join of joins) {
+    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
+    if (!joinedTable?.dataFrameId) return false;
+    const joinedDf = allDataFrameEntries.find(
+      (df) => df.id === joinedTable.dataFrameId,
+    );
+    if (!joinedDf) return false;
+  }
+  return true;
+}
+
+/**
+ * Get cached columns for single DataFrame (non-joined).
+ */
+function getCachedSingleAnalysis(
+  baseDataFrameEntry: DataFrameEntry,
+  fieldHash: string,
+): ColumnAnalysis[] | null {
+  if (!baseDataFrameEntry.analysis) return null;
+  const cached = baseDataFrameEntry.analysis;
+  if (cached.fieldHash !== fieldHash) return null;
+  if (cached.columns.length === 0) return null;
+  return cached.columns;
+}
+
+/**
+ * Get merged cached columns for joined insights.
+ */
+function getCachedJoinedAnalysis(
+  baseDataFrameEntry: DataFrameEntry,
+  joins: JoinSpec[],
+  allDataTables: DataTableEntry[],
+  allDataFrameEntries: DataFrameEntry[],
+  baseFields: Field[],
+): ColumnAnalysis[] | null {
+  if (!baseDataFrameEntry.analysis) return null;
+
+  const analysesToMerge: DataFrameAnalysis[] = [baseDataFrameEntry.analysis];
+  for (const join of joins) {
+    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
+    if (!joinedTable?.dataFrameId) return null;
+    const joinedDf = allDataFrameEntries.find(
+      (df) => df.id === joinedTable.dataFrameId,
+    );
+    if (!joinedDf?.analysis) return null;
+    analysesToMerge.push(joinedDf.analysis);
+  }
+  const merged = mergeAnalyses(analysesToMerge);
+  return remapAnalysisColumnNames(merged, baseFields);
 }
 
 /**
@@ -581,169 +637,75 @@ export function InsightView({ insight }: InsightViewProps) {
   // Column analysis effect - uses cached analysis from DataFrame if available
   // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
+    // Early returns for loading/unready states
     if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
     if (!chartTableName || !isChartViewReady) {
       setColumnAnalysis([]);
       return;
     }
-    // Wait for DataFrame entity to load before checking cache
-    // This prevents triggering analysis before we can check for cached results
     if (!baseDataFrameEntry) return;
+    if (isAnalyzing) return;
 
-    const hasJoins = (insight.joins?.length ?? 0) > 0;
+    const joins = insight.joins ?? [];
+    const hasJoins = joins.length > 0;
     const fieldHash = computeFieldHash();
-
-    // Helper: Check if all joined DataFrames are loaded (for joined insights)
-    const areJoinedDataFramesLoaded = (): boolean => {
-      for (const join of insight.joins ?? []) {
-        const joinedTable = allDataTables.find(
-          (t) => t.id === join.rightTableId,
-        );
-        if (!joinedTable?.dataFrameId) return false;
-        const joinedDf = allDataFrameEntries.find(
-          (df) => df.id === joinedTable.dataFrameId,
-        );
-        if (!joinedDf) return false;
-      }
-      return true;
-    };
+    const baseFields = dataTable?.fields ?? [];
 
     // For joined insights, wait for all DataFrames to load
-    if (hasJoins && !areJoinedDataFramesLoaded()) return;
-
-    // Helper: Get cached columns for single DataFrame (non-joined)
-    const getCachedSingleAnalysis = (): ColumnAnalysis[] | null => {
-      if (!baseDataFrameEntry.analysis) {
-        console.log("[InsightView] No cached analysis on DataFrame");
-        return null;
-      }
-      const cached = baseDataFrameEntry.analysis;
-      if (cached.fieldHash !== fieldHash) {
-        console.log("[InsightView] Cache miss: fieldHash mismatch", {
-          cached: cached.fieldHash,
-          current: fieldHash,
-        });
-        return null;
-      }
-      if (cached.columns.length === 0) {
-        console.log("[InsightView] Cache miss: empty columns");
-        return null;
-      }
-      console.log(
-        "[InsightView] Cache HIT - using cached analysis",
-        cached.columns.length,
-        "columns",
-      );
-      return cached.columns;
-    };
-
-    // Helper: Get merged cached columns for joined insights
-    const getCachedJoinedAnalysis = (): ColumnAnalysis[] | null => {
-      if (!baseDataFrameEntry.analysis) {
-        console.log(
-          "[InsightView] Joined: No cached analysis on base DataFrame",
-        );
-        return null;
-      }
-      const analysesToMerge: DataFrameAnalysis[] = [
-        baseDataFrameEntry.analysis,
-      ];
-      for (const join of insight.joins ?? []) {
-        const joinedTable = allDataTables.find(
-          (t) => t.id === join.rightTableId,
-        );
-        if (!joinedTable?.dataFrameId) {
-          console.log(
-            "[InsightView] Joined: Missing dataFrameId for join table",
-          );
-          return null;
-        }
-        const joinedDf = allDataFrameEntries.find(
-          (df) => df.id === joinedTable.dataFrameId,
-        );
-        if (!joinedDf?.analysis) {
-          console.log(
-            "[InsightView] Joined: No cached analysis on joined DataFrame",
-            joinedTable.dataFrameId,
-          );
-          return null;
-        }
-        analysesToMerge.push(joinedDf.analysis);
-      }
-      const merged = mergeAnalyses(analysesToMerge);
-      console.log(
-        "[InsightView] Cache HIT - using merged cached analyses",
-        merged.length,
-        "columns",
-      );
-      return merged;
-    };
+    if (
+      hasJoins &&
+      !areJoinedDataFramesLoaded(joins, allDataTables, allDataFrameEntries)
+    ) {
+      return;
+    }
 
     // Try cached analysis first
     const cachedColumns = hasJoins
-      ? getCachedJoinedAnalysis()
-      : getCachedSingleAnalysis();
+      ? getCachedJoinedAnalysis(
+          baseDataFrameEntry,
+          joins,
+          allDataTables,
+          allDataFrameEntries,
+          baseFields,
+        )
+      : getCachedSingleAnalysis(baseDataFrameEntry, fieldHash);
 
     if (cachedColumns) {
-      console.log("[InsightView] Using cached analysis, skipping DuckDB");
-      setColumnAnalysis(cachedColumns);
+      // For non-joined, we need to remap; for joined, already remapped
+      const result = hasJoins
+        ? cachedColumns
+        : remapAnalysisColumnNames(cachedColumns, baseFields);
+      setColumnAnalysis(result);
       return;
     }
 
     // No valid cache - run analysis and cache results
-    // Skip if already analyzing (prevents duplicate runs from effect re-triggering)
-    if (isAnalyzing) {
-      console.log("[InsightView] Analysis already in progress, skipping...");
-      return;
-    }
-
-    console.log("[InsightView] Cache miss - running DuckDB analysis...");
     const runAnalysis = async () => {
       setIsAnalyzing(true);
       const ctx: AnalysisContext = { duckDBConnection, updateAnalysis };
 
       try {
         if (!hasJoins) {
-          // Single DataFrame - analyze and cache
-          console.log("[InsightView] Analyzing single DataFrame...");
           const results = await analyzeView(duckDBConnection, chartTableName);
-          console.log(
-            "[InsightView] Analysis complete",
-            results.length,
-            "columns",
-          );
-          setColumnAnalysis(results);
+          const remappedResults = remapAnalysisColumnNames(results, baseFields);
+          setColumnAnalysis(remappedResults);
 
           // Cache for this DataFrame
           const analysisToCache: DataFrameAnalysis = {
-            columns: results,
+            columns: remappedResults,
             rowCount,
             analyzedAt: Date.now(),
             fieldHash,
           };
           await updateAnalysis(baseDataFrameEntry.id, analysisToCache);
-          console.log(
-            "[InsightView] Analysis cached for DataFrame",
-            baseDataFrameEntry.id,
-          );
         } else {
-          // Joined insight - analyze each DataFrame individually and cache
-          console.log(
-            "[InsightView] Analyzing joined DataFrames individually...",
-          );
-          const baseFields = dataTable?.fields ?? [];
           const merged = await analyzeJoinedDataFrames(
             baseDataFrameEntry,
             baseFields,
-            insight.joins ?? [],
+            joins,
             allDataTables,
             allDataFrameEntries,
             ctx,
-          );
-          console.log(
-            "[InsightView] Merged analysis complete",
-            merged.length,
-            "columns",
           );
           setColumnAnalysis(merged);
         }

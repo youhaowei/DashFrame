@@ -14,11 +14,11 @@
  * const fileConnectors = getConnectors({ sourceType: 'file' });
  *
  * // Get connector by ID
- * const csvConnector = getConnectorById('csv');
+ * const localConnector = getConnectorById('local');
  * ```
  */
 
-import { csvConnector } from "@dashframe/connector-csv";
+import { localFileConnector } from "@dashframe/connector-local";
 import { notionConnector } from "@dashframe/connector-notion";
 import {
   isFileConnector,
@@ -32,7 +32,7 @@ import {
  * All registered connectors (singletons - stateless).
  * Order determines display order in the UI.
  */
-const allConnectors: AnyConnector[] = [csvConnector, notionConnector];
+const allConnectors: AnyConnector[] = [localFileConnector, notionConnector];
 
 /**
  * Options for filtering connectors
