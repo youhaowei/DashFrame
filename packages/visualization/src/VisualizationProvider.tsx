@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { debugLog } from "./debug";
 
 /**
  * Mosaic types - using dynamic import to avoid SSR issues.
@@ -146,7 +147,7 @@ export function VisualizationProvider({
           error: null,
         });
 
-        console.log("[Visualization] Provider initialized");
+        debugLog("visualization", "Provider initialized");
       } catch (err) {
         if (cancelled) return;
 

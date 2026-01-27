@@ -1,6 +1,7 @@
 import type { DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { BrowserDataFrame } from "./dataframe";
+import { debugLog } from "./debug";
 import { loadArrowData } from "./storage";
 
 // ============================================================================
@@ -439,7 +440,7 @@ export class QueryBuilder {
    */
   async run(): Promise<BrowserDataFrame> {
     const sql = await this.sql();
-    console.debug("Executing QueryBuilder SQL:", sql);
+    debugLog("sql", "Executing QueryBuilder SQL:", sql);
 
     const exportResult = await this.conn.query(`
       COPY (${sql}) TO 'output.arrow' (FORMAT ARROW)

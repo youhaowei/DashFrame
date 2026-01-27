@@ -13,6 +13,7 @@ import type {
 } from "@dashframe/types";
 import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { debugLog } from "./debug";
 import { Insight } from "./insight";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
@@ -987,7 +988,7 @@ export async function analyzeView(
       errorMessage.includes("does not exist") ||
       errorMessage.includes("not found")
     ) {
-      console.debug("[analyzeView] View not found, skipping analysis");
+      debugLog("analyze", "View not found, skipping analysis");
       return [];
     }
     throw e; // Re-throw other errors
@@ -1034,9 +1035,7 @@ export async function analyzeInsight(
       // The caller's effect will re-run when tables are loaded
       const errorMessage = e instanceof Error ? e.message : String(e);
       if (errorMessage.includes("does not exist")) {
-        console.debug(
-          "[analyzeInsight] Tables not yet loaded, skipping analysis",
-        );
+        debugLog("analyze", "Tables not yet loaded, skipping analysis");
         return [];
       }
       throw e; // Re-throw other errors
