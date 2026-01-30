@@ -42,8 +42,16 @@ export const createMockConnection = (): AsyncDuckDBConnection => {
     toArray: () => [],
   });
 
+  const mockPrepare = vi.fn().mockResolvedValue({
+    query: vi.fn().mockResolvedValue({
+      toArray: () => [],
+    }),
+    close: vi.fn().mockResolvedValue(undefined),
+  });
+
   return {
     query: mockQuery,
+    prepare: mockPrepare,
     insertArrowFromIPCStream: vi.fn().mockResolvedValue(undefined),
   } as unknown as AsyncDuckDBConnection;
 };
@@ -58,8 +66,16 @@ export const createMockConnectionWithResults = <T = Record<string, unknown>>(
     toArray: () => queryResults,
   });
 
+  const mockPrepare = vi.fn().mockResolvedValue({
+    query: vi.fn().mockResolvedValue({
+      toArray: () => queryResults,
+    }),
+    close: vi.fn().mockResolvedValue(undefined),
+  });
+
   return {
     query: mockQuery,
+    prepare: mockPrepare,
     insertArrowFromIPCStream: vi.fn().mockResolvedValue(undefined),
   } as unknown as AsyncDuckDBConnection;
 };
@@ -79,10 +95,18 @@ export const createMockConnectionForRun = (
 export const createMockConnectionWithArrayResults = (
   results: Record<string, unknown>[],
 ): AsyncDuckDBConnection => {
+  const mockPrepare = vi.fn().mockResolvedValue({
+    query: vi.fn().mockResolvedValue({
+      toArray: () => results,
+    }),
+    close: vi.fn().mockResolvedValue(undefined),
+  });
+
   return {
     query: vi.fn().mockResolvedValue({
       toArray: () => results,
     }),
+    prepare: mockPrepare,
   } as unknown as AsyncDuckDBConnection;
 };
 
@@ -94,6 +118,7 @@ export const createMockConnectionWithError = (
 ): AsyncDuckDBConnection => {
   return {
     query: vi.fn().mockRejectedValue(error),
+    prepare: vi.fn().mockRejectedValue(error),
   } as unknown as AsyncDuckDBConnection;
 };
 

@@ -1,3 +1,5 @@
+import { getSecurityHeaders } from "./lib/security-headers.ts";
+
 /** @type {import("next").NextConfig} */
 const nextConfig = {
   typescript: {
@@ -34,12 +36,15 @@ const nextConfig = {
     return config;
   },
 
-  // Required headers for SharedArrayBuffer (DuckDB needs this)
+  // Security headers and SharedArrayBuffer support
   async headers() {
     return [
       {
         source: "/(.*)",
         headers: [
+          // Security headers (CSP, X-Frame-Options, HSTS, etc.)
+          ...getSecurityHeaders(),
+          // Required for SharedArrayBuffer (DuckDB needs this)
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
         ],
