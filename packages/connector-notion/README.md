@@ -218,4 +218,4 @@ export { mapNotionTypeToColumnType, extractPropertyValue } from "./converter";
 
 - `@dashframe/engine` - Connector base classes (`RemoteApiConnector`)
 - `@dashframe/engine-browser` - DataFrame implementation
-- `@dashframe/connector-csv` - CSV file connector
+- `@dashframe/connector-local` - Local file connector (CSV/JSON)

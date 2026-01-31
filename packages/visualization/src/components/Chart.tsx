@@ -243,14 +243,6 @@ export function Chart({
       theme,
     };
 
-    console.log(`[Chart] Rendering chart:`, {
-      tableName,
-      visualizationType,
-      encoding,
-      resolvedWidth,
-      resolvedHeight,
-    });
-
     // Cleanup previous render
     if (cleanupRef.current) {
       cleanupRef.current();
@@ -263,10 +255,6 @@ export function Chart({
         container,
         visualizationType,
         config,
-      );
-      console.log(
-        `[Chart] Renderer completed, container innerHTML length:`,
-        container.innerHTML.length,
       );
     } catch (error) {
       console.error("[Chart] Render error:", error);

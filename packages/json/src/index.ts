@@ -178,13 +178,17 @@ export async function jsonToDataFrame(
 ): Promise<JSONConversionResult> {
   const { wrapSingleObject = true, ...flattenOptions } = options;
 
-  // Step 1: Normalize input to array of objects
+  // Guard against null input (typeof null === "object")
+  if (jsonData === null) {
+    throw new Error("JSON data cannot be null");
+  }
+
+  // Normalize input to array of objects
   let dataArray: JsonValue[];
 
   if (Array.isArray(jsonData)) {
     dataArray = jsonData;
   } else if (wrapSingleObject && typeof jsonData === "object") {
-    // Single object - wrap in array
     dataArray = [jsonData as JsonValue];
   } else {
     throw new Error("JSON data must be an array of objects or a single object");
@@ -202,7 +206,7 @@ export async function jsonToDataFrame(
     throw new Error("JSON data has no extractable columns");
   }
 
-  // Step 3: Infer column types from flattened data
+  // Infer column types from flattened data
   const userColumns = columnNames.map((name) => {
     const values = flattenedRows.map((row) => row[name]);
     return {
@@ -211,13 +215,18 @@ export async function jsonToDataFrame(
     };
   });
 
+  const hasRowIndexColumn = userColumns.some((col) => col.name === "_rowIndex");
+  const systemRowIndexName = hasRowIndexColumn ? "_rowIndex_sys" : "_rowIndex";
+
   // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
   const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
-  const primaryKey = detectedIdColumn ? detectedIdColumn.name : "_rowIndex";
+  const primaryKey = detectedIdColumn
+    ? detectedIdColumn.name
+    : systemRowIndexName;
 
-  // Step 4: Create rows with parsed values and _rowIndex
+  // Create rows with parsed values and system row index
   const rows = flattenedRows.map((flatRow, index) => {
-    const row: Record<string, unknown> = { _rowIndex: index };
+    const row: Record<string, unknown> = { [systemRowIndexName]: index };
     for (const col of userColumns) {
       row[col.name] = parseValue(flatRow[col.name], col.type);
     }
@@ -236,18 +245,16 @@ export async function jsonToDataFrame(
     lastSyncedAt: Date.now(),
   };
 
-  // Step 6: Auto-generate fields (including _rowIndex computed field)
+  // Auto-generate fields (including system row index)
   const fields: Field[] = [
-    // System field - computed from array index
     {
       id: crypto.randomUUID(),
-      name: "_rowIndex",
+      name: systemRowIndexName,
       tableId: dataTableId,
-      columnName: undefined, // Computed field
+      columnName: undefined,
       type: "number",
-      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
+      isIdentifier: true,
     },
-    // User fields from source
     ...columns.map((col) => ({
       id: crypto.randomUUID(),
       name: col.name,
@@ -257,9 +264,9 @@ export async function jsonToDataFrame(
     })),
   ];
 
-  // Step 7: Convert to Arrow table with explicit types
+  // Convert to Arrow table
   const allColumns = [
-    { name: "_rowIndex", type: "number" as ColumnType },
+    { name: systemRowIndexName, type: "number" as ColumnType },
     ...userColumns,
   ];
 

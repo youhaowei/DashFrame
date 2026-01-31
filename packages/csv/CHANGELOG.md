@@ -1,5 +1,5 @@
-# @dashframe/connector-csv
+# @dashframe/csv
 
 ## 0.1.0
 
-Initial release of DashFrame CSV connector.
+Initial release of DashFrame CSV utilities.
