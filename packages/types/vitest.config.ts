@@ -1,4 +1,3 @@
-import path from "path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -22,15 +21,6 @@ export default defineConfig({
         lines: 80,
         statements: 80,
       },
-    },
-  },
-  resolve: {
-    alias: {
-      "@dashframe/engine": path.resolve(__dirname, "../engine/src"),
-      "@dashframe/engine-browser": path.resolve(
-        __dirname,
-        "../engine-browser/src",
-      ),
     },
   },
 });

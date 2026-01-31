@@ -33,7 +33,8 @@ export function useStoreQuery<TState, TResult>(
   const data = store(selector);
 
   const [isHydrated, setIsHydrated] = useState(
-    () => store.persist?.hasHydrated?.() ?? false,
+    // If no persist middleware, consider already hydrated (nothing to hydrate)
+    () => (store.persist ? (store.persist.hasHydrated?.() ?? false) : true),
   );
 
   useEffect(() => {

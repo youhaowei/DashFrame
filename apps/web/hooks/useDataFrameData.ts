@@ -109,7 +109,11 @@ export function useDataFrameData(
   );
 
   const [data, setData] = useState<DataFrameData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Start loading if we have a dataFrameId and aren't skipping
+  // The actual load will only happen when connection is ready
+  const [isLoading, setIsLoading] = useState(
+    () => !!dataFrameId && !(options?.skip ?? false),
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Track the last loaded dataFrameId to prevent unnecessary reloads
@@ -135,6 +139,7 @@ export function useDataFrameData(
     if (!dataFrame) {
       setError(`DataFrame not found: ${dataFrameId}`);
       setData(null);
+      setIsLoading(false);
       return;
     }
 

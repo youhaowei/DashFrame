@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "node",
+    environment: "jsdom",
     globals: true,
     include: ["**/*.test.{ts,tsx}"],
     coverage: {
@@ -26,11 +26,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@dashframe/engine": path.resolve(__dirname, "../engine/src"),
-      "@dashframe/engine-browser": path.resolve(
-        __dirname,
-        "../engine-browser/src",
-      ),
+      "@dashframe/types": path.resolve(__dirname, "../types/src"),
+      "@dashframe/core": path.resolve(__dirname, "../core/src"),
+      "@dashframe/ui": path.resolve(__dirname, "../ui/src"),
     },
   },
 });
