@@ -5,5 +5,6 @@ export type {
   DataSourceEntity,
   DataTableEntity,
   InsightEntity,
+  SettingsEntity,
   VisualizationEntity,
 } from "./schema";
