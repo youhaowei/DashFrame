@@ -61,27 +61,31 @@ flattenObjectArray([
 
 ```typescript
 flattenObject(data, {
-  maxDepth: 2,              // Limit nesting depth
-  separator: "_",           // Use underscore: user_name
-  arrayHandling: "stringify" // Arrays become JSON strings
+  maxDepth: 2, // Limit nesting depth
+  separator: "_", // Use underscore: user_name
+  arrayHandling: "stringify", // Arrays become JSON strings
 });
 ```
 
 ## Type Inference
 
-| Sample Value       | Inferred Type |
-| ------------------ | ------------- |
-| `123`, `45.67`     | `number`      |
-| `true`, `false`    | `boolean`     |
-| `"2024-01-15"`     | `date`        |
-| `"hello"`          | `string`      |
-| `null`             | `unknown`     |
+| Sample Value    | Inferred Type |
+| --------------- | ------------- |
+| `123`, `45.67`  | `number`      |
+| `true`, `false` | `boolean`     |
+| `"2024-01-15"`  | `date`        |
+| `"hello"`       | `string`      |
+| `null`          | `unknown`     |
 
 ## Exports
 
 ```typescript
 // Conversion
-export { jsonToDataFrame, type JSONData, type JSONConversionResult } from "./index";
+export {
+  jsonToDataFrame,
+  type JSONData,
+  type JSONConversionResult,
+} from "./index";
 
 // Flatten utilities
 export {
