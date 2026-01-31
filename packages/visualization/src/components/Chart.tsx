@@ -296,6 +296,7 @@ export function Chart({
   const renderLoading = () => (
     <div
       ref={containerRef}
+      data-testid="visualization-chart"
       className={cn(
         "flex min-h-0 items-center justify-center overflow-hidden bg-muted/30",
         className,
