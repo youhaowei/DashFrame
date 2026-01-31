@@ -11,7 +11,11 @@
     "e2e/*"
   ],
   "overrides": {
-    "@duckdb/duckdb-wasm": "1.32.0"
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write --loglevel=error"
