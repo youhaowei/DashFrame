@@ -67,9 +67,9 @@ describe("encoding-resolution", () => {
   };
 
   describe("resolveToSql", () => {
-    it("should resolve field encoding to column name", () => {
+    it("should resolve field encoding to UUID-based column alias", () => {
       const result = resolveToSql(fieldEncoding("field-1" as UUID), context);
-      expect(result).toBe("category");
+      expect(result).toBe("field_field_1");
     });
 
     it("should resolve metric encoding to SQL expression", () => {
@@ -169,7 +169,7 @@ describe("encoding-resolution", () => {
   });
 
   describe("resolveEncodingToSql", () => {
-    it("should resolve all encoding channels", () => {
+    it("should resolve all encoding channels to UUID-based aliases", () => {
       const encoding = {
         x: fieldEncoding("field-1" as UUID),
         y: metricEncoding("metric-1" as UUID),
@@ -178,9 +178,9 @@ describe("encoding-resolution", () => {
 
       const result = resolveEncodingToSql(encoding, context);
 
-      expect(result.x).toBe("category");
+      expect(result.x).toBe("field_field_1");
       expect(result.y).toBe("sum(revenue)");
-      expect(result.color).toBe("created_at");
+      expect(result.color).toBe("field_field_3");
     });
 
     it("should handle undefined channels", () => {
@@ -191,7 +191,7 @@ describe("encoding-resolution", () => {
 
       const result = resolveEncodingToSql(encoding, context);
 
-      expect(result.x).toBe("category");
+      expect(result.x).toBe("field_field_1");
       expect(result.y).toBeUndefined();
     });
 
@@ -205,9 +205,7 @@ describe("encoding-resolution", () => {
 
       const result = resolveEncodingToSql(encoding, context);
 
-      // resolveEncodingToSql only resolves data channels, not axis types
-      // Axis types should be preserved separately by the caller
-      expect(result.x).toBe("category");
+      expect(result.x).toBe("field_field_1");
       expect(result.y).toBe("sum(revenue)");
       expect(Object.keys(result).sort()).toEqual(["color", "size", "x", "y"]);
     });

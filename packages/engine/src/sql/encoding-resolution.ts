@@ -55,9 +55,9 @@ export interface EncodingResolutionContext {
  *
  * @example
  * ```typescript
- * // Field encoding resolves to column name
+ * // Field encoding resolves to UUID-based column alias
  * resolveToSql("field:abc-123", context)
- * // Returns: "category" (the field's columnName)
+ * // Returns: "field_abc_123" (matches insight view column names)
  *
  * // Field with date transform
  * resolveToSql("field:date-id", context, { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } })
@@ -85,7 +85,9 @@ export function resolveToSql(
   switch (parsed.type) {
     case "field": {
       const field = context.fields.find((f) => f.id === parsed.id);
-      baseSql = field ? (field.columnName ?? field.name) : undefined;
+      // Use UUID-based column alias to match the column names in the insight view
+      // The insight view uses field_<uuid> format for all columns
+      baseSql = field ? fieldIdToColumnAlias(field.id) : undefined;
       break;
     }
     case "metric": {
