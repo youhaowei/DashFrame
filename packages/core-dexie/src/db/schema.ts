@@ -138,11 +138,10 @@ export interface DataFrameEntity extends DataFrameJSON {
 
 /**
  * Settings entity - key-value store for application settings.
- * Used for storing encryption salt, verifier, and other app-level config.
  */
 export interface SettingsEntity {
-  key: string; // Unique key (e.g., "encryption:salt", "encryption:verifier")
-  value: string; // Serialized value (e.g., base64-encoded)
+  key: string; // Unique key
+  value: string; // Serialized value
 }
 
 // ============================================================================
@@ -159,7 +158,7 @@ export interface SettingsEntity {
  * - visualizations: Charts (insightId FK)
  * - dashboards: Dashboard layouts
  * - dataFrames: DataFrame metadata (insightId FK)
- * - settings: Key-value store for app settings (encryption salt, etc.)
+ * - settings: Key-value store for app settings
  */
 export class DashFrameDB extends Dexie {
   dataSources!: EntityTable<DataSourceEntity, "id">;

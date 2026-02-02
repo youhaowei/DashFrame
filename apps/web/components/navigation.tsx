@@ -1,7 +1,6 @@
 "use client";
 
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useEncryption } from "@/lib/contexts/encryption-context";
 import { useToastStore } from "@/lib/stores";
 import {
   useDashboardMutations,
@@ -34,7 +33,6 @@ import {
   DropdownMenuTrigger,
   GithubIcon,
   GridIcon,
-  LockIcon,
   MenuIcon,
   SettingsIcon,
   SparklesIcon,
@@ -90,7 +88,6 @@ function SidebarContent({
   onClearData,
 }: SidebarContentProps) {
   const pathname = usePathname();
-  const { isUnlocked, lock } = useEncryption();
 
   return (
     <div className="flex h-full flex-col">
@@ -127,22 +124,7 @@ function SidebarContent({
                 isCollapsed && "w-full justify-center",
               )}
             >
-              {!isCollapsed && (
-                <>
-                  <ThemeToggle />
-                  {isUnlocked && (
-                    <Button
-                      variant="text"
-                      icon={LockIcon}
-                      iconOnly
-                      label="Lock encryption"
-                      onClick={lock}
-                      className="h-7 w-7 rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-background"
-                      tooltip="Lock encryption"
-                    />
-                  )}
-                </>
-              )}
+              {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
                 <Button
                   variant="text"

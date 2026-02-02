@@ -114,20 +114,6 @@ export {
 } from "./repositories/data-frames";
 
 // ============================================================================
-// Encryption Key Management
-// ============================================================================
-
-export {
-  initializeEncryption,
-  isEncryptionInitialized,
-  isEncryptionUnlocked,
-  lockEncryption,
-  unlockEncryption,
-} from "./crypto/key-manager";
-
-export { migrateToEncryption } from "./crypto/migrate";
-
-// ============================================================================
 // Direct Database Access (advanced use cases only)
 // ============================================================================
 
