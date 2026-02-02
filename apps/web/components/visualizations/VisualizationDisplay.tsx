@@ -76,19 +76,8 @@ export function VisualizationDisplay({
   }, [insight]);
 
   // Use insight view hook to get the proper table name (handles joins)
-  const {
-    viewName: insightViewName,
-    isReady: isInsightViewReady,
-    error: insightViewError,
-  } = useInsightView(insightForView);
-
-  // Debug logging for E2E
-  console.log("[VisualizationDisplay] insightView state:", {
-    insightViewName,
-    isInsightViewReady,
-    insightViewError,
-    insightForView: insightForView?.id,
-  });
+  const { viewName: insightViewName, isReady: isInsightViewReady } =
+    useInsightView(insightForView);
 
   // Use insight pagination for table data (queries DuckDB directly)
   const {

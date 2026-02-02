@@ -159,6 +159,15 @@ export class LocalFileConnector extends FileSourceConnector {
       if (firstItem === null || typeof firstItem !== "object") {
         throw new Error("JSON array must contain objects");
       }
+      // Validate all items are objects (not just the first)
+      if (
+        !jsonData.every(
+          (item) =>
+            item !== null && typeof item === "object" && !Array.isArray(item),
+        )
+      ) {
+        throw new Error("JSON array must contain only objects");
+      }
     }
 
     return jsonToDataFrame(jsonData as JSONData, tableId);
