@@ -122,21 +122,18 @@ export async function csvToDataFrame(
 
   // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
   const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
-  const primaryKey = detectedIdColumn ? detectedIdColumn.name : "_rowIndex";
+  const primaryKey = detectedIdColumn?.name;
 
   // Create rows with parsed values
-  const rows = rowsData.map((row, index) =>
-    header.reduce<Record<string, unknown>>(
-      (acc, key, colIndex) => {
-        const column = userColumns[colIndex];
-        acc[key] = parseValue(row[colIndex], column.type);
-        return acc;
-      },
-      { _rowIndex: index },
-    ),
+  const rows = rowsData.map((row) =>
+    header.reduce<Record<string, unknown>>((acc, key, colIndex) => {
+      const column = userColumns[colIndex];
+      acc[key] = parseValue(row[colIndex], column.type);
+      return acc;
+    }, {}),
   );
 
-  // Step 2: Build source schema (no _rowIndex in source - it's computed)
+  // Build source schema
   const columns: TableColumn[] = userColumns.map((col) => ({
     name: col.name,
     type: col.type,
@@ -148,37 +145,21 @@ export async function csvToDataFrame(
     lastSyncedAt: Date.now(),
   };
 
-  // Step 3: Auto-generate fields (including _rowIndex computed field)
-  const fields: Field[] = [
-    // System field - computed from array index
-    {
-      id: crypto.randomUUID(),
-      name: "_rowIndex",
-      tableId: dataTableId,
-      columnName: undefined, // Computed field
-      type: "number",
-      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
-    },
-    // User fields from source
-    ...columns.map((col) => ({
-      id: crypto.randomUUID(),
-      name: col.name,
-      tableId: dataTableId,
-      columnName: col.name,
-      type: col.type as ColumnType,
-    })),
-  ];
+  // Auto-generate fields from columns
+  const fields: Field[] = columns.map((col) => ({
+    id: crypto.randomUUID(),
+    name: col.name,
+    tableId: dataTableId,
+    columnName: col.name,
+    type: col.type as ColumnType,
+  }));
 
-  // Step 4: Convert to Arrow table with explicit types
+  // Convert to Arrow table with explicit types
   // Using vectorFromArray with type hints ensures dates become TimestampMillisecond
   // instead of being inferred as VARCHAR strings.
-  const allColumns = [
-    { name: "_rowIndex", type: "number" as ColumnType },
-    ...userColumns,
-  ];
 
   const arrowColumns: Record<string, Vector<DataType>> = {};
-  for (const col of allColumns) {
+  for (const col of userColumns) {
     const values = rows.map((row) => row[col.name]);
 
     // Create typed Arrow vectors based on column type
@@ -204,7 +185,7 @@ export async function csvToDataFrame(
   const arrowTable = new Table(arrowColumns);
   const ipcBuffer = tableToIPC(arrowTable);
 
-  // Step 5: Create DataFrame with IndexedDB storage
+  // Create DataFrame with IndexedDB storage
   const dataFrame = await DataFrameClass.create(
     ipcBuffer,
     fields.map((f) => f.id),

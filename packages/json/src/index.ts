@@ -215,25 +215,20 @@ export async function jsonToDataFrame(
     };
   });
 
-  const hasRowIndexColumn = userColumns.some((col) => col.name === "_rowIndex");
-  const systemRowIndexName = hasRowIndexColumn ? "_rowIndex_sys" : "_rowIndex";
-
   // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
   const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
-  const primaryKey = detectedIdColumn
-    ? detectedIdColumn.name
-    : systemRowIndexName;
+  const primaryKey = detectedIdColumn?.name;
 
-  // Create rows with parsed values and system row index
-  const rows = flattenedRows.map((flatRow, index) => {
-    const row: Record<string, unknown> = { [systemRowIndexName]: index };
+  // Create rows with parsed values
+  const rows = flattenedRows.map((flatRow) => {
+    const row: Record<string, unknown> = {};
     for (const col of userColumns) {
       row[col.name] = parseValue(flatRow[col.name], col.type);
     }
     return row;
   });
 
-  // Step 5: Build source schema (no _rowIndex in source - it's computed)
+  // Build source schema
   const columns: TableColumn[] = userColumns.map((col) => ({
     name: col.name,
     type: col.type,
@@ -245,33 +240,19 @@ export async function jsonToDataFrame(
     lastSyncedAt: Date.now(),
   };
 
-  // Auto-generate fields (including system row index)
-  const fields: Field[] = [
-    {
-      id: crypto.randomUUID(),
-      name: systemRowIndexName,
-      tableId: dataTableId,
-      columnName: undefined,
-      type: "number",
-      isIdentifier: true,
-    },
-    ...columns.map((col) => ({
-      id: crypto.randomUUID(),
-      name: col.name,
-      tableId: dataTableId,
-      columnName: col.name,
-      type: col.type as ColumnType,
-    })),
-  ];
+  // Auto-generate fields from columns
+  const fields: Field[] = columns.map((col) => ({
+    id: crypto.randomUUID(),
+    name: col.name,
+    tableId: dataTableId,
+    columnName: col.name,
+    type: col.type as ColumnType,
+  }));
 
   // Convert to Arrow table
-  const allColumns = [
-    { name: systemRowIndexName, type: "number" as ColumnType },
-    ...userColumns,
-  ];
 
   const arrowColumns: Record<string, Vector<DataType>> = {};
-  for (const col of allColumns) {
+  for (const col of userColumns) {
     const values = rows.map((row) => row[col.name]);
 
     // Create typed Arrow vectors based on column type

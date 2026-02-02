@@ -572,12 +572,8 @@ export type JoinSuggestion = {
 
 // Helper functions for join column suggestion
 function isInternalColumn(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.startsWith("_") || // Internal columns like _rowIndex
-    lower === "rowindex" ||
-    lower === "row_index"
-  );
+  // Internal columns start with underscore (e.g., _notionId)
+  return name.startsWith("_");
 }
 
 function typesCompatible(left: ColumnAnalysis, right: ColumnAnalysis): boolean {
