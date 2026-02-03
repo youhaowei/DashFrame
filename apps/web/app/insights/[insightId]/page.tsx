@@ -1,26 +1,42 @@
-import { InsightPageClient } from "./_components/InsightPageClient";
+"use client";
+
+import { Spinner } from "@dashframe/ui";
+import dynamic from "next/dynamic";
+import { use } from "react";
 
 /**
- * Force static generation - no serverless function.
- * Data lives in IndexedDB (browser), so server rendering is meaningless.
+ * Skeleton loading state rendered during SSR.
+ * The actual content is loaded client-side only to avoid IndexedDB access during SSR.
  */
-export const dynamic = "force-static";
-export const dynamicParams = true;
+function InsightSkeleton() {
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Spinner size="lg" className="text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading insight...</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Dynamically import the content component with SSR disabled.
+ * This prevents @dashframe/core (IndexedDB) from being evaluated during SSR.
+ */
+const InsightPageContent = dynamic(
+  () => import("./_components/InsightPageContent"),
+  {
+    ssr: false,
+    loading: () => <InsightSkeleton />,
+  },
+);
 
 interface PageProps {
   params: Promise<{ insightId: string }>;
 }
 
-/**
- * Insight Page (Server Component shell)
- *
- * This is a minimal server component that:
- * 1. Forces static generation (no serverless function)
- * 2. Passes params to a client component for rendering
- *
- * All IndexedDB access happens in the client component.
- */
-export default async function InsightPage({ params }: PageProps) {
-  const { insightId } = await params;
-  return <InsightPageClient insightId={insightId} />;
+export default function InsightPage({ params }: PageProps) {
+  const { insightId } = use(params);
+
+  return <InsightPageContent insightId={insightId} />;
 }

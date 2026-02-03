@@ -1,8 +1,8 @@
 "use client";
 
 import { useInsight } from "@dashframe/core";
+import { Spinner } from "@dashframe/ui";
 import { InsightView } from "./InsightView";
-import { LoadingView } from "./LoadingView";
 import { NotFoundView } from "./NotFoundView";
 
 interface InsightPageContentProps {
@@ -21,7 +21,14 @@ export default function InsightPageContent({
   const { data: insight, isLoading } = useInsight(insightId);
 
   if (isLoading) {
-    return <LoadingView />;
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Spinner size="lg" className="text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading insight...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!insight) {
