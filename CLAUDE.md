@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Quick Reference
 
+**This project uses Bun** as the package manager and runtime. Use `bun` instead of `npm`, `yarn`, or `pnpm`.
+
 | Task                   | Command                                        |
 | ---------------------- | ---------------------------------------------- |
 | Validate all           | `bun check`                                    |

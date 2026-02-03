@@ -195,5 +195,48 @@ export class DashFrameDB extends Dexie {
   }
 }
 
-// Singleton database instance
-export const db = new DashFrameDB();
+// ============================================================================
+// Singleton Database Instance (Lazy-loaded for SSR safety)
+// ============================================================================
+
+/**
+ * Lazily-initialized database instance.
+ * This avoids creating the database during SSR where IndexedDB doesn't exist.
+ */
+let _db: DashFrameDB | null = null;
+
+function getDatabase(): DashFrameDB {
+  // Guard against SSR - IndexedDB only exists in browser
+  if (typeof window === "undefined" || typeof indexedDB === "undefined") {
+    throw new Error(
+      "[DashFrame] Database cannot be accessed during server-side rendering. " +
+        "Ensure database operations are only performed in client components " +
+        "after the component has mounted.",
+    );
+  }
+
+  // Lazy initialization
+  if (!_db) {
+    _db = new DashFrameDB();
+  }
+  return _db;
+}
+
+/**
+ * Singleton database instance.
+ *
+ * Uses a Proxy to lazily initialize the database on first access.
+ * This ensures the database is only created in browser environments,
+ * preventing SSR errors when the module is imported on the server.
+ */
+export const db: DashFrameDB = new Proxy({} as DashFrameDB, {
+  get(_, prop) {
+    const instance = getDatabase();
+    const value = instance[prop as keyof DashFrameDB];
+    // Bind methods to the instance
+    if (typeof value === "function") {
+      return value.bind(instance);
+    }
+    return value;
+  },
+});
