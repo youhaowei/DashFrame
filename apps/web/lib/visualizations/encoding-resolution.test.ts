@@ -195,6 +195,37 @@ describe("encoding-resolution", () => {
       expect(result.y).toBeUndefined();
     });
 
+    it("should handle empty string for color (None selection)", () => {
+      // When user selects "None" for color, the value is stored as empty string
+      const encoding = {
+        x: fieldEncoding("field-1" as UUID),
+        y: metricEncoding("metric-1" as UUID),
+        color: "", // Empty string represents "None" in the UI
+      };
+
+      const result = resolveEncodingToSql(encoding, context);
+
+      expect(result.x).toBe("field_field_1");
+      expect(result.y).toBe("sum(revenue)");
+      // Empty string should resolve to undefined, not be passed through
+      expect(result.color).toBeUndefined();
+    });
+
+    it("should handle missing X axis (only Y selected)", () => {
+      // User may select only Y axis before selecting X
+      const encoding = {
+        x: "", // Not selected
+        y: metricEncoding("metric-1" as UUID),
+        color: "",
+      };
+
+      const result = resolveEncodingToSql(encoding, context);
+
+      expect(result.x).toBeUndefined();
+      expect(result.y).toBe("sum(revenue)");
+      expect(result.color).toBeUndefined();
+    });
+
     it("should only resolve x, y, color, size channels (not axis types)", () => {
       const encoding = {
         x: fieldEncoding("field-1" as UUID),

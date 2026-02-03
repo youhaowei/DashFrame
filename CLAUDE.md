@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Task                   | Command                                        |
 | ---------------------- | ---------------------------------------------- |
 | Validate all           | `bun check`                                    |
-| Run unit tests         | `bun test`                                     |
+| Run unit tests         | `bun run test`                                 |
 | Run E2E tests          | `cd e2e/web && bun run test:e2e`               |
 | E2E (fast, dev server) | `cd e2e/web && E2E_PORT=3000 bun run test:e2e` |
 | Filter package         | `bun check --filter @dashframe/web`            |
@@ -298,16 +298,16 @@ Before implementing any UI changes, follow this component-first approach:
 
 ```bash
 # Run all unit tests
-bun test
+bun run test
 
 # Run tests in watch mode
-bun test:watch
+bun run test:watch
 
 # Run tests with coverage report
-bun test:coverage
+bun run test:coverage
 
 # Run coverage for specific package
-bun test:coverage --filter @dashframe/types
+bun run test:coverage --filter @dashframe/types
 
 # Run E2E tests
 cd e2e/web
@@ -472,7 +472,7 @@ bun run test:html      # HTML report after run
 Use for chart configs, complex objects, and data transformation regression testing.
 
 ```bash
-bun test chart-suggestions.snapshot.test.ts  # Generate/update snapshots
+bun run test chart-suggestions.snapshot.test.ts  # Generate/update snapshots
 ```
 
 Snapshots saved in `__snapshots__/`. Review changes carefully in PRs.
@@ -514,15 +514,15 @@ vi.mock("next/navigation", () => ({
 - **Unit tests**: Run on all PRs and main commits with coverage
 - **E2E**: Chromium only, single worker, 2 retries, artifacts for 7 days
 
-**Local pre-commit**: `bun check && bun test:coverage`
+**Local pre-commit**: `bun check && bun run test:coverage`
 
 ### Debugging Tests
 
 ```bash
-bun test suggest-charts.test.ts   # Single file
-bun test --grep "bar chart"       # Pattern match
-bun test --ui                     # Vitest UI
-cd e2e/web && bun test:debug      # Playwright inspector
+bun run test suggest-charts.test.ts   # Single file
+bun run test --grep "bar chart"       # Pattern match
+bun run test --ui                     # Vitest UI
+cd e2e/web && bun run test:debug      # Playwright inspector
 ```
 
 ### Writing New Tests
