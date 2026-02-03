@@ -205,17 +205,22 @@ export class DashFrameDB extends Dexie {
  */
 let _db: DashFrameDB | null = null;
 
-function getDatabase(): DashFrameDB {
-  // Guard against SSR - IndexedDB only exists in browser
-  if (typeof window === "undefined" || typeof indexedDB === "undefined") {
-    throw new Error(
-      "[DashFrame] Database cannot be accessed during server-side rendering. " +
-        "Ensure database operations are only performed in client components " +
-        "after the component has mounted.",
-    );
+/**
+ * Check if we're running in a browser environment.
+ */
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof indexedDB !== "undefined";
+}
+
+/**
+ * Get the database instance, creating it lazily if needed.
+ * Returns null during SSR.
+ */
+function getDatabase(): DashFrameDB | null {
+  if (!isBrowser()) {
+    return null;
   }
 
-  // Lazy initialization
   if (!_db) {
     _db = new DashFrameDB();
   }
@@ -223,15 +228,74 @@ function getDatabase(): DashFrameDB {
 }
 
 /**
+ * Create a no-op proxy for Dexie tables during SSR.
+ * Returns promises that resolve to empty results, allowing useLiveQuery
+ * to complete without errors during server-side rendering.
+ */
+function createSSRTableProxy(): unknown {
+  const handler: ProxyHandler<object> = {
+    get(_, prop) {
+      // Common Dexie table methods - return functions that resolve to empty/undefined
+      if (prop === "toArray") return async () => [];
+      if (prop === "get") return async () => undefined;
+      if (prop === "where") return () => createSSRTableProxy();
+      if (prop === "equals") return () => createSSRTableProxy();
+      if (prop === "bulkGet") return async () => [];
+      if (prop === "count") return async () => 0;
+      if (prop === "first") return async () => undefined;
+      if (prop === "last") return async () => undefined;
+      if (prop === "filter") return () => createSSRTableProxy();
+      if (prop === "limit") return () => createSSRTableProxy();
+      if (prop === "offset") return () => createSSRTableProxy();
+      if (prop === "reverse") return () => createSSRTableProxy();
+      if (prop === "sortBy") return async () => [];
+      if (prop === "delete") return async () => {};
+      if (prop === "add") return async () => "";
+      if (prop === "put") return async () => "";
+      if (prop === "update") return async () => 0;
+      if (prop === "then") return undefined; // Not a promise
+      // Return self for chaining
+      return createSSRTableProxy();
+    },
+  };
+  return new Proxy({}, handler);
+}
+
+/**
  * Singleton database instance.
  *
  * Uses a Proxy to lazily initialize the database on first access.
- * This ensures the database is only created in browser environments,
- * preventing SSR errors when the module is imported on the server.
+ * During SSR, returns no-op table proxies that return empty results,
+ * allowing useLiveQuery hooks to complete without errors.
  */
 export const db: DashFrameDB = new Proxy({} as DashFrameDB, {
   get(_, prop) {
     const instance = getDatabase();
+
+    // During SSR, return no-op proxies for table access
+    if (!instance) {
+      // Table properties (dataSources, insights, etc.)
+      if (
+        typeof prop === "string" &&
+        [
+          "dataSources",
+          "dataTables",
+          "insights",
+          "visualizations",
+          "dashboards",
+          "dataFrames",
+          "settings",
+        ].includes(prop)
+      ) {
+        return createSSRTableProxy();
+      }
+      // Other methods - return no-ops
+      if (prop === "open") return async () => {};
+      if (prop === "close") return async () => {};
+      if (prop === "transaction") return async () => {};
+      return undefined;
+    }
+
     const value = instance[prop as keyof DashFrameDB];
     // Bind methods to the instance
     if (typeof value === "function") {
