@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { use } from "react";
-import { LoadingView } from "./_components";
+// Import directly to avoid loading InsightView which imports @dashframe/core
+import { LoadingView } from "./_components/LoadingView";
 
 /**
  * Dynamically import the insight content component with SSR disabled.
