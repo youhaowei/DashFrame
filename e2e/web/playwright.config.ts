@@ -1,12 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { defineBddConfig } from "playwright-bdd";
 import { findAvailablePortSync } from "./support/port-finder";
-
-const testDir = defineBddConfig({
-  features: "features/**/*.feature",
-  steps: "steps/**/*.ts",
-  outputDir: "features/.generated",
-});
 
 // If E2E_PORT is set, assume a dev server is already running (dev mode).
 // Otherwise, find an available port and run a production build (default).
@@ -16,7 +9,7 @@ const TEST_PORT = hasExternalServer
   : findAvailablePortSync(3100);
 
 export default defineConfig({
-  testDir,
+  testDir: "./tests",
   timeout: 30_000,
   expect: {
     timeout: 5_000,

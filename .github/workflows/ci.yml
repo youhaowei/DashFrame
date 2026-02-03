@@ -54,9 +54,6 @@ jobs:
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
 
-      - name: Generate BDD tests
-        run: cd e2e/web && bun bddgen
-
       - name: Run E2E tests
         run: cd e2e/web && bun run test:e2e:ci
 
