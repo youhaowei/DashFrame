@@ -119,9 +119,12 @@ export function getSecurityHeaders() {
      *   Security note: Needed for Next.js framework, but limits XSS protection.
      *   Mitigated by other security layers (input sanitization, escaping).
      *
-     * - 'unsafe-eval': DEVELOPMENT ONLY - enables eval() for HMR and React DevTools
-     *   Production removes this for maximum security. Never use in production!
-     *   Why needed: Webpack's HMR uses eval() to hot-reload modules during development.
+     * - 'unsafe-eval': Required for Apache Arrow library (used by DuckDB for data serialization)
+     *   Why needed: Apache Arrow internally uses new Function() for schema handling and
+     *   code generation. Without this, file uploads fail with EvalError in production.
+     *   Security note: This does weaken XSS protection, but is required for core functionality.
+     *   Mitigated by: strict input sanitization, no user-generated script execution,
+     *   and other CSP directives that limit attack surface.
      *
      * - 'wasm-unsafe-eval': Required for WebAssembly instantiation (DuckDB-WASM)
      *   Why needed: WASM compilation requires compile/instantiate APIs that CSP
@@ -148,7 +151,7 @@ export function getSecurityHeaders() {
     [
       "script-src 'self'",
       "'unsafe-inline'", // Next.js inline scripts
-      isDevelopment ? "'unsafe-eval'" : "", // Development: HMR/DevTools | Production: removed
+      "'unsafe-eval'", // Apache Arrow library requires this (uses dynamic code generation for schema handling)
       "'wasm-unsafe-eval'", // DuckDB WASM
       "blob:",
       "https://cdn.jsdelivr.net",

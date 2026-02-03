@@ -18,9 +18,15 @@ When("I upload the {string} file", async ({ page }, fileName: string) => {
   // Wait for the Local Files connector card to be visible (exact match to avoid "Select Local Files" button)
   await expect(page.getByText("Local Files", { exact: true })).toBeVisible();
 
-  // The file input is hidden but we can target it directly
-  const fileInput = page.locator('input[type="file"]');
-  await fileInput.setInputFiles(filePath);
+  // Use filechooser API for more reliable file uploads
+  const [fileChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.getByText("Select Local Files").click(),
+  ]);
+  await fileChooser.setFiles(filePath);
+
+  // Wait for file processing
+  await page.waitForTimeout(2000);
 });
 
 /**
