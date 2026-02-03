@@ -186,6 +186,33 @@ export const heavyEndpoint = publicProcedure
 
 See `apps/web/lib/trpc/rate-limiter.ts` and `middleware/rate-limit.ts` for implementation details.
 
+### Content Security Policy (CSP) and `unsafe-eval`
+
+**The CSP includes `'unsafe-eval'` in production - this is intentional and required.**
+
+DashFrame uses DuckDB-WASM for in-browser SQL analytics. DuckDB depends on Apache Arrow for data serialization, and Apache Arrow internally uses dynamic code generation for schema handling and optimized accessor generation. This requires `'unsafe-eval'` in the Content Security Policy.
+
+**Why this matters:**
+
+- Without `'unsafe-eval'`, file uploads fail silently with `EvalError` in production builds
+- Development works fine because webpack HMR also needs `'unsafe-eval'`
+- The error only appears in production builds where CSP is stricter
+
+**Security mitigations:**
+
+- No user-generated code is ever executed
+- All data inputs are sanitized before processing
+- Other CSP directives (`default-src 'self'`, `frame-ancestors 'none'`, etc.) limit attack surface
+- The `'unsafe-eval'` only affects JavaScript eval, not other security boundaries
+
+**If you see `EvalError` in production:**
+
+1. Check that `'unsafe-eval'` is in the `script-src` directive
+2. See `apps/web/lib/security-headers.ts` for full CSP configuration
+3. Don't remove `'unsafe-eval'` - it breaks core functionality
+
+**Alternative considered:** Using a WASM-only Arrow implementation would avoid this, but no production-ready alternative exists that works with DuckDB-WASM.
+
 ### Other Gotchas
 
 - **Notion API Keys**: Stored in IndexedDB. Treat as sensitive - don't commit to version control.
