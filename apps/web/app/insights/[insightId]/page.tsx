@@ -1,36 +1,26 @@
-"use client";
-
-import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
-// Import directly to avoid loading InsightView which imports @dashframe/core
-import { LoadingView } from "./_components/LoadingView";
+import { InsightPageClient } from "./_components/InsightPageClient";
 
 /**
- * Dynamically import the insight content component with SSR disabled.
- * This prevents IndexedDB access during static site generation.
+ * Force static generation - no serverless function.
+ * Data lives in IndexedDB (browser), so server rendering is meaningless.
  */
-const InsightPageContent = dynamic(
-  () => import("./_components/InsightPageContent"),
-  {
-    ssr: false,
-    loading: () => <LoadingView />,
-  },
-);
+export const dynamic = "force-static";
+export const dynamicParams = true;
+
+interface PageProps {
+  params: Promise<{ insightId: string }>;
+}
 
 /**
- * Insight Page
+ * Insight Page (Server Component shell)
  *
- * Uses dynamic import with ssr: false to ensure IndexedDB operations
- * only happen in the browser, not during static site generation.
- * Uses useParams instead of server params to avoid server-side execution.
+ * This is a minimal server component that:
+ * 1. Forces static generation (no serverless function)
+ * 2. Passes params to a client component for rendering
+ *
+ * All IndexedDB access happens in the client component.
  */
-export default function InsightPage() {
-  const params = useParams<{ insightId: string }>();
-  const insightId = params?.insightId;
-
-  if (!insightId) {
-    return <LoadingView />;
-  }
-
-  return <InsightPageContent insightId={insightId} />;
+export default async function InsightPage({ params }: PageProps) {
+  const { insightId } = await params;
+  return <InsightPageClient insightId={insightId} />;
 }
