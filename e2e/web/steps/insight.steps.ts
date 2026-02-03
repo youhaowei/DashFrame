@@ -16,15 +16,16 @@ Then("I should see the insight configuration panel", async ({ page }) => {
  * Selects a field by clicking the add field button and choosing from the dropdown
  */
 When("I select the {string} field", async ({ page }, fieldName: string) => {
-  // Click the "Add Field" button in the Fields section
+  // Click the "Add" button in the Fields section
+  // Note: The button label is "Add" (not "Add Field") as per FieldsSection.tsx
   const fieldsSection = page.locator('text="Fields"').locator("..");
   const addFieldButton = fieldsSection.getByRole("button", {
-    name: /Add Field/i,
+    name: /^Add$/i,
   });
   await addFieldButton.click();
 
   // Wait for the field editor modal to appear
-  await expect(page.getByRole("heading", { name: "Add Field" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add field" })).toBeVisible();
 
   // Find and click the field in the list
   // The field appears as a selectable item in the modal
@@ -52,14 +53,15 @@ Then(
  * Clicks the add metric button
  */
 When("I click the add metric button", async ({ page }) => {
+  // Note: The button label is "Add" (not "Add Metric") as per MetricsSection.tsx
   const metricsSection = page.locator('text="Metrics"').locator("..");
   const addMetricButton = metricsSection.getByRole("button", {
-    name: /Add Metric/i,
+    name: /^Add$/i,
   });
   await addMetricButton.click();
 
   // Wait for the metric editor modal to appear
-  await expect(page.getByRole("heading", { name: "Add Metric" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add metric" })).toBeVisible();
 });
 
 /**
@@ -96,7 +98,7 @@ When("I save the metric as {string}", async ({ page }, metricName: string) => {
 
   // Wait for the modal to close
   await expect(
-    page.getByRole("heading", { name: "Add Metric" }),
+    page.getByRole("heading", { name: "Add metric" }),
   ).not.toBeVisible();
 });
 
@@ -235,13 +237,14 @@ Then("I should see combined fields from both tables", async ({ page }) => {
   const fieldsSection = page.locator('text="Fields"').locator("..");
 
   // Open the add field dialog to see all available fields
+  // Note: The button label is "Add" (not "Add Field") as per FieldsSection.tsx
   const addFieldButton = fieldsSection.getByRole("button", {
-    name: /Add Field/i,
+    name: /^Add$/i,
   });
   await addFieldButton.click();
 
   // Wait for the field editor modal
-  await expect(page.getByRole("heading", { name: "Add Field" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add field" })).toBeVisible();
 
   // Check for a field from the joined table (e.g., "Price" from products)
   await expect(page.getByText("Price", { exact: true }).first()).toBeVisible();

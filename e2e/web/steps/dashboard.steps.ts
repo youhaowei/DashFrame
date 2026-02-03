@@ -15,7 +15,10 @@ When("I navigate to the dashboards page", async ({ page }) => {
  */
 Then("I should see the dashboards page", async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboards$/);
-  await expect(page.getByRole("heading", { name: "Dashboards" })).toBeVisible();
+  // Use exact: true to avoid matching "No dashboards yet" heading
+  await expect(
+    page.getByRole("heading", { name: "Dashboards", exact: true }),
+  ).toBeVisible();
 });
 
 /**

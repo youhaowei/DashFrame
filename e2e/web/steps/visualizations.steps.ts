@@ -11,7 +11,8 @@ Then("I should see the chart rendered", async ({ page }) => {
   });
 
   // Wait for data to be loaded (shown in header metadata)
-  await expect(page.getByText(/\d+ rows · \d+ columns/)).toBeVisible({
+  // Note: UI uses bullet (•) not middle dot (·) between "rows" and "columns"
+  await expect(page.getByText(/\d+ rows • \d+ columns/)).toBeVisible({
     timeout: 30_000,
   });
 
