@@ -1,10 +1,9 @@
 "use client";
 
 import { useInsightView } from "@/hooks/useInsightView";
-import { useInsight } from "@dashframe/core";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { useDataTables, useInsight } from "@dashframe/core";
+import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Visualization } from "@dashframe/types";
-import { parseEncoding } from "@dashframe/types";
 import { Spinner } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { useMemo } from "react";
@@ -29,18 +28,6 @@ interface VisualizationPreviewProps {
 }
 
 /**
- * Convert encoding value from storage format (field:<uuid>) to SQL column alias (field_<uuid>).
- */
-function resolveEncodingChannel(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const parsed = parseEncoding(value);
-  if (!parsed) return undefined;
-  return parsed.type === "field"
-    ? fieldIdToColumnAlias(parsed.id)
-    : metricIdToColumnAlias(parsed.id);
-}
-
-/**
  * Renders a small preview of a visualization for use in cards and lists.
  *
  * Uses Chart with preview mode enabled for minimal chrome
@@ -60,28 +47,45 @@ export function VisualizationPreview({
     visualization.insightId,
   );
 
+  // Fetch data tables for encoding resolution
+  const { data: dataTables = [] } = useDataTables();
+
+  // Find the data table for this insight
+  const dataTable = useMemo(() => {
+    if (!insight?.baseTableId) return undefined;
+    return dataTables.find((t) => t.id === insight.baseTableId);
+  }, [insight?.baseTableId, dataTables]);
+
   // Create/get the DuckDB view using the same hook as insight pages
   // This ensures views are created on-demand and properly cached
   const { viewName, isReady, error } = useInsightView(insight);
 
-  // Resolve encoding from storage format (field:<uuid>) to SQL column aliases (field_<uuid>)
+  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
+  // - field:<uuid> → column name (e.g., "Product")
+  // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)")
   const resolvedEncoding = useMemo((): ChartEncoding => {
-    if (!visualization.encoding) {
+    if (!visualization.encoding || !dataTable || !insight) {
       return {};
     }
 
+    // Build resolution context with fields and metrics
+    const context = {
+      fields: dataTable.fields ?? [],
+      metrics: insight.metrics ?? [],
+    };
+
+    // Resolve prefixed IDs to SQL expressions
+    const resolved = resolveEncodingToSql(visualization.encoding, context);
+
     return {
-      x: resolveEncodingChannel(visualization.encoding.x),
-      y: resolveEncodingChannel(visualization.encoding.y),
-      color: resolveEncodingChannel(visualization.encoding.color),
-      size: resolveEncodingChannel(visualization.encoding.size),
+      ...resolved,
       xType: visualization.encoding.xType,
       yType: visualization.encoding.yType,
       // Pass through date transforms for temporal bar charts
       xTransform: visualization.encoding.xTransform,
       yTransform: visualization.encoding.yTransform,
     };
-  }, [visualization.encoding]);
+  }, [visualization.encoding, dataTable, insight]);
 
   // Loading state - waiting for insight data or view creation
   if (isLoadingInsight || !isReady || !viewName) {

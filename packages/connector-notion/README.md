@@ -99,15 +99,11 @@ const sample = await notionToDataFrameSample(
 
 For each Notion database, the connector generates:
 
-1. **`_rowIndex`** - System computed field (number, identifier)
-   - Computed from array index
-   - Excluded from visualization suggestions
-
-2. **`_notionId`** - System computed field (string, identifier)
+1. **`_notionId`** - System computed field (string, identifier)
    - Notion page ID
    - Used as primary key
 
-3. **User columns** - One field per Notion property
+2. **User columns** - One field per Notion property
    - UUID-based references for formula stability
    - Native Notion types preserved in `sourceSchema`
 
@@ -218,4 +214,4 @@ export { mapNotionTypeToColumnType, extractPropertyValue } from "./converter";
 
 - `@dashframe/engine` - Connector base classes (`RemoteApiConnector`)
 - `@dashframe/engine-browser` - DataFrame implementation
-- `@dashframe/connector-csv` - CSV file connector
+- `@dashframe/connector-local` - Local file connector (CSV/JSON)

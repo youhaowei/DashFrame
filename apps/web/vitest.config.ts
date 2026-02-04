@@ -41,9 +41,11 @@ export default defineConfig({
         __dirname,
         "../../packages/engine-browser/src",
       ),
-      "@dashframe/connector-csv": path.resolve(
+      "@dashframe/csv": path.resolve(__dirname, "../../packages/csv/src"),
+      "@dashframe/json": path.resolve(__dirname, "../../packages/json/src"),
+      "@dashframe/connector-local": path.resolve(
         __dirname,
-        "../../packages/connector-csv/src",
+        "../../packages/connector-local/src",
       ),
       "@dashframe/connector-notion": path.resolve(
         __dirname,

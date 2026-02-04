@@ -191,3 +191,65 @@ registerRenderer(sankeyRenderer);
 | UI components           | `docs/ui-components.md`             |
 | Visualization rendering | `packages/visualization/README.md`  |
 | State & UI flows        | `apps/web/STATE-MANAGEMENT.md`      |
+| Security headers        | `apps/web/lib/security-headers.ts`  |
+
+## Security Architecture
+
+### Content Security Policy (CSP)
+
+DashFrame implements a comprehensive Content Security Policy to protect against XSS and other injection attacks. The CSP is configured in `apps/web/lib/security-headers.ts`.
+
+#### Key CSP Directives
+
+| Directive                   | Value                                                                            | Purpose                                          |
+| --------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `default-src`               | `'self'`                                                                         | Only allow resources from same origin by default |
+| `script-src`                | `'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: cdn.jsdelivr.net` | See below for rationale                          |
+| `frame-ancestors`           | `'none'`                                                                         | Prevent clickjacking attacks                     |
+| `upgrade-insecure-requests` | (production only)                                                                | Force HTTPS                                      |
+
+#### Why `'unsafe-eval'` is Required
+
+DashFrame's in-browser analytics engine uses:
+
+1. **DuckDB-WASM** - SQL analytics engine compiled to WebAssembly
+2. **Apache Arrow** - Columnar data format for efficient data transfer
+
+Apache Arrow uses dynamic code generation internally for:
+
+- Schema-to-accessor mapping
+- Optimized field readers/writers
+- Type-specific serialization
+
+This dynamic code generation requires `'unsafe-eval'` in CSP. Without it, file uploads fail with:
+
+```
+EvalError: Evaluating a string as JavaScript violates the following
+Content Security Policy directive because 'unsafe-eval' is not an
+allowed source of script
+```
+
+#### Security Mitigations
+
+Despite requiring `'unsafe-eval'`, DashFrame maintains strong security through:
+
+1. **No user code execution** - All data is processed through sanitized pipelines
+2. **Strict origin controls** - `default-src 'self'` limits where resources load from
+3. **No framing** - `frame-ancestors 'none'` prevents clickjacking
+4. **HTTPS enforcement** - `upgrade-insecure-requests` in production
+5. **Minimal permissions** - `Permissions-Policy` disables unused browser APIs
+6. **Input validation** - All file uploads validated before processing
+
+#### Alternatives Considered
+
+| Alternative            | Why Not Chosen                                        |
+| ---------------------- | ----------------------------------------------------- |
+| WASM-only Arrow        | No production-ready implementation exists for browser |
+| Custom serialization   | Would lose DuckDB compatibility and performance       |
+| Server-side processing | Breaks local-first architecture principle             |
+
+The trade-off is acceptable because:
+
+- DashFrame processes structured data (CSV, JSON), not executable content
+- All processing happens in isolated contexts (no user scripts)
+- The attack surface is limited to data injection, mitigated by validation

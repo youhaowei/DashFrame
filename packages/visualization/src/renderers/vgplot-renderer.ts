@@ -38,10 +38,18 @@ type VgplotAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 /**
  * Extended vgplot API with coordinator access (not in public types).
  * The coordinator provides direct DuckDB query access for data inspection.
+ *
+ * Note: The coordinator is at api.context.coordinator (not api.coordinator)
+ * as set up by createAPIContext({ coordinator }).
  */
 interface VgplotAPIExtended extends VgplotAPI {
-  coordinator?: {
-    query: (sql: string) => Promise<{ toArray: () => { val: unknown }[] }>;
+  context?: {
+    coordinator?: {
+      query: (
+        sql: string,
+        options?: { type?: string; cache?: boolean },
+      ) => Promise<unknown>;
+    };
   };
   colorDomain?: (domain: string[]) => void;
 }
@@ -437,18 +445,18 @@ function setupColorDomain(
   colorColumn: string,
   tableName: string,
 ): void {
-  const { coordinator } = api;
+  const coordinator = api.context?.coordinator;
   if (!coordinator?.query) return;
 
   coordinator
     .query(
       `SELECT DISTINCT "${colorColumn}" as val FROM ${tableName} ORDER BY "${colorColumn}"`,
+      { type: "json" },
     )
     .then((result) => {
-      if (!result?.toArray) return;
+      if (!Array.isArray(result)) return;
 
-      const rows = result.toArray();
-      const domain = rows.map((row) => String(row.val));
+      const domain = result.map((row) => String((row as { val: unknown }).val));
 
       if (domain.length > 0 && api.colorDomain) {
         api.colorDomain(domain);
@@ -458,6 +466,115 @@ function setupColorDomain(
       console.warn("[VgplotRenderer] Could not set color domain:", e);
     });
 }
+
+// ============================================================================
+// Encoding Validation
+// ============================================================================
+
+/**
+ * Validation result for chart encoding.
+ */
+interface EncodingValidation {
+  valid: boolean;
+  missingChannels: string[];
+}
+
+/**
+ * Validate that required encoding channels are present for a chart type.
+ * All vgplot marks require at least x and y channels.
+ *
+ * @param encoding - The chart encoding to validate
+ * @param _chartType - The visualization type (unused, all types require x/y)
+ * @returns Validation result with missing channel names
+ */
+function validateEncoding(
+  encoding: ChartEncoding,
+  _chartType: VisualizationType,
+): EncodingValidation {
+  const missingChannels: string[] = [];
+
+  // All supported chart types require both x and y
+  if (!encoding.x) {
+    missingChannels.push("x");
+  }
+  if (!encoding.y) {
+    missingChannels.push("y");
+  }
+
+  return {
+    valid: missingChannels.length === 0,
+    missingChannels,
+  };
+}
+
+/**
+ * Render an "incomplete encoding" message in the container using safe DOM methods.
+ */
+function renderIncompleteEncoding(
+  container: HTMLElement,
+  missingChannels: string[],
+): void {
+  // Clear container safely
+  while (container.firstChild) {
+    container.removeChild(container.firstChild);
+  }
+
+  const channelList = missingChannels.map((c) => c.toUpperCase()).join(" and ");
+
+  // Create wrapper div
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted-foreground, #6b7280);
+  `;
+
+  // Create SVG icon
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.5");
+  svg.style.cssText =
+    "width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.5;";
+
+  const path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path1.setAttribute("d", "M3 3v18h18");
+  path1.setAttribute("stroke-linecap", "round");
+  path1.setAttribute("stroke-linejoin", "round");
+
+  const path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path2.setAttribute("d", "M18.7 8l-5.1 5.2-2.8-2.7L7 14.3");
+  path2.setAttribute("stroke-linecap", "round");
+  path2.setAttribute("stroke-linejoin", "round");
+
+  svg.appendChild(path1);
+  svg.appendChild(path2);
+
+  // Create title text
+  const title = document.createElement("p");
+  title.style.cssText = "font-size: 14px; font-weight: 500; margin: 0 0 4px 0;";
+  title.textContent = `Select ${channelList} axis`;
+
+  // Create description text
+  const desc = document.createElement("p");
+  desc.style.cssText = "font-size: 12px; opacity: 0.7; margin: 0;";
+  desc.textContent = "Configure the encoding to render this chart";
+
+  wrapper.appendChild(svg);
+  wrapper.appendChild(title);
+  wrapper.appendChild(desc);
+  container.appendChild(wrapper);
+}
+
+// ============================================================================
+// Mark Building
+// ============================================================================
 
 /**
  * Build a vgplot mark for the given chart type.
@@ -566,6 +683,17 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       type: VisualizationType,
       config: ChartConfig,
     ): ChartCleanup {
+      // Validate encoding has required channels before attempting to render
+      const validation = validateEncoding(config.encoding, type);
+      if (!validation.valid) {
+        renderIncompleteEncoding(container, validation.missingChannels);
+        return () => {
+          while (container.firstChild) {
+            container.removeChild(container.firstChild);
+          }
+        };
+      }
+
       try {
         // Build plot options
         const mark = buildMark(api, type, config.tableName, config.encoding);

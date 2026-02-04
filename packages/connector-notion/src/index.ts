@@ -74,7 +74,7 @@ export async function notionToDataFrame(
     // Keep system fields and selected user fields
     activeFields = fields.filter(
       (field) =>
-        !field.columnName || // System fields (_rowIndex, _notionId)
+        !field.columnName || // System fields (_notionId)
         selectedNames.includes(field.columnName),
     );
   }
@@ -95,14 +95,6 @@ export function generateFieldsFromNotionSchema(
 ): { fields: Field[]; sourceSchema: SourceSchema } {
   // System fields (computed)
   const systemFields: Field[] = [
-    {
-      id: crypto.randomUUID(),
-      name: "_rowIndex",
-      tableId: dataTableId,
-      columnName: undefined, // Computed from array index
-      type: "number",
-      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
-    },
     {
       id: crypto.randomUUID(),
       name: "_notionId",
@@ -165,7 +157,7 @@ export async function notionToDataFrameSample(
     // Keep system fields and selected user fields
     activeFields = fields.filter(
       (field) =>
-        !field.columnName || // System fields (_rowIndex, _notionId)
+        !field.columnName || // System fields (_notionId)
         selectedNames.includes(field.columnName),
     );
   }

@@ -138,11 +138,10 @@ export interface DataFrameEntity extends DataFrameJSON {
 
 /**
  * Settings entity - key-value store for application settings.
- * Used for storing encryption salt, verifier, and other app-level config.
  */
 export interface SettingsEntity {
-  key: string; // Unique key (e.g., "encryption:salt", "encryption:verifier")
-  value: string; // Serialized value (e.g., base64-encoded)
+  key: string; // Unique key
+  value: string; // Serialized value
 }
 
 // ============================================================================
@@ -159,7 +158,7 @@ export interface SettingsEntity {
  * - visualizations: Charts (insightId FK)
  * - dashboards: Dashboard layouts
  * - dataFrames: DataFrame metadata (insightId FK)
- * - settings: Key-value store for app settings (encryption salt, etc.)
+ * - settings: Key-value store for app settings
  */
 export class DashFrameDB extends Dexie {
   dataSources!: EntityTable<DataSourceEntity, "id">;
@@ -196,5 +195,141 @@ export class DashFrameDB extends Dexie {
   }
 }
 
-// Singleton database instance
-export const db = new DashFrameDB();
+// ============================================================================
+// Singleton Database Instance (Lazy-loaded for SSR safety)
+// ============================================================================
+
+/**
+ * Lazily-initialized database instance.
+ * This avoids creating the database during SSR where IndexedDB doesn't exist.
+ */
+let _db: DashFrameDB | null = null;
+
+/**
+ * Check if we're running in a browser environment.
+ */
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof indexedDB !== "undefined";
+}
+
+/**
+ * Get the database instance, creating it lazily if needed.
+ * Returns null during SSR.
+ */
+function getDatabase(): DashFrameDB | null {
+  if (!isBrowser()) {
+    return null;
+  }
+
+  if (!_db) {
+    _db = new DashFrameDB();
+  }
+  return _db;
+}
+
+/**
+ * SSR table method handlers - maps method names to no-op implementations.
+ * Using a lookup table reduces cognitive complexity compared to if-else chains.
+ */
+const SSR_TABLE_METHODS: Record<
+  string,
+  (() => unknown) | (() => Promise<unknown>) | undefined
+> = {
+  // Methods returning empty arrays
+  toArray: async () => [],
+  bulkGet: async () => [],
+  sortBy: async () => [],
+  // Methods returning undefined
+  get: async () => undefined,
+  first: async () => undefined,
+  last: async () => undefined,
+  // Methods returning primitives
+  count: async () => 0,
+  delete: async () => {},
+  add: async () => "",
+  put: async () => "",
+  update: async () => 0,
+  // Not a promise
+  then: undefined,
+};
+
+/** Methods that return chainable proxies */
+const SSR_CHAINABLE_METHODS = new Set([
+  "where",
+  "equals",
+  "filter",
+  "limit",
+  "offset",
+  "reverse",
+]);
+
+/**
+ * Create a no-op proxy for Dexie tables during SSR.
+ * Returns promises that resolve to empty results, allowing useLiveQuery
+ * to complete without errors during server-side rendering.
+ */
+function createSSRTableProxy(): unknown {
+  const handler: ProxyHandler<object> = {
+    get(_, prop) {
+      if (typeof prop !== "string") return createSSRTableProxy();
+
+      // Check lookup table for known methods
+      if (prop in SSR_TABLE_METHODS) {
+        return SSR_TABLE_METHODS[prop];
+      }
+
+      // Check chainable methods
+      if (SSR_CHAINABLE_METHODS.has(prop)) {
+        return () => createSSRTableProxy();
+      }
+
+      // Default: return self for chaining
+      return createSSRTableProxy();
+    },
+  };
+  return new Proxy({}, handler);
+}
+
+/**
+ * Singleton database instance.
+ *
+ * Uses a Proxy to lazily initialize the database on first access.
+ * During SSR, returns no-op table proxies that return empty results,
+ * allowing useLiveQuery hooks to complete without errors.
+ */
+export const db: DashFrameDB = new Proxy({} as DashFrameDB, {
+  get(_, prop) {
+    const instance = getDatabase();
+
+    // During SSR, return no-op proxies for table access
+    if (!instance) {
+      // Table properties (dataSources, insights, etc.)
+      if (
+        typeof prop === "string" &&
+        [
+          "dataSources",
+          "dataTables",
+          "insights",
+          "visualizations",
+          "dashboards",
+          "dataFrames",
+          "settings",
+        ].includes(prop)
+      ) {
+        return createSSRTableProxy();
+      }
+      // Other methods - return no-ops
+      if (prop === "open") return async () => {};
+      if (prop === "close") return async () => {};
+      if (prop === "transaction") return async () => {};
+      return undefined;
+    }
+
+    const value = instance[prop as keyof DashFrameDB];
+    // Bind methods to the instance
+    if (typeof value === "function") {
+      return value.bind(instance);
+    }
+    return value;
+  },
+});

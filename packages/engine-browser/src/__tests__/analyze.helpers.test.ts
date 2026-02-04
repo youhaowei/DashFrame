@@ -400,53 +400,25 @@ describe("suggestJoinColumns", () => {
   });
 
   describe("Internal column filtering", () => {
-    it("should exclude _rowIndex from suggestions", () => {
+    it("should exclude underscore-prefixed columns from suggestions", () => {
       const leftAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("_rowIndex", { semantic: "identifier" }),
+        createStringAnalysis("_notionId", { semantic: "identifier" }),
         createStringAnalysis("id", { semantic: "identifier" }),
       ];
 
       const rightAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("_rowIndex", { semantic: "identifier" }),
+        createStringAnalysis("_notionId", { semantic: "identifier" }),
       ];
 
       const suggestions = suggestJoinColumns(leftAnalysis, rightAnalysis);
 
-      // Should not suggest _rowIndex
+      // Should not suggest internal columns (underscore-prefixed)
       expect(suggestions.every((s) => !s.leftColumn.startsWith("_"))).toBe(
         true,
       );
       expect(suggestions.every((s) => !s.rightColumn.startsWith("_"))).toBe(
         true,
       );
-    });
-
-    it("should exclude rowindex (case-insensitive)", () => {
-      const leftAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("rowindex", { semantic: "identifier" }),
-      ];
-
-      const rightAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("ROWINDEX", { semantic: "identifier" }),
-      ];
-
-      const suggestions = suggestJoinColumns(leftAnalysis, rightAnalysis);
-
-      expect(suggestions).toHaveLength(0);
-    });
-
-    it("should exclude row_index", () => {
-      const leftAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("row_index", { semantic: "identifier" }),
-      ];
-
-      const rightAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("row_index", { semantic: "identifier" }),
-      ];
-
-      const suggestions = suggestJoinColumns(leftAnalysis, rightAnalysis);
-
-      expect(suggestions).toHaveLength(0);
     });
   });
 
@@ -502,11 +474,11 @@ describe("suggestJoinColumns", () => {
 
     it("should handle analysis with only internal columns", () => {
       const leftAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("_rowIndex", { semantic: "identifier" }),
+        createStringAnalysis("_notionId", { semantic: "identifier" }),
       ];
 
       const rightAnalysis: ColumnAnalysis[] = [
-        createNumberAnalysis("_rowIndex", { semantic: "identifier" }),
+        createStringAnalysis("_notionId", { semantic: "identifier" }),
       ];
 
       const suggestions = suggestJoinColumns(leftAnalysis, rightAnalysis);

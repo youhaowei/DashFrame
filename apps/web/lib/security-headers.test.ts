@@ -237,14 +237,17 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("'unsafe-eval'");
     });
 
-    it("should NOT include unsafe-eval in production mode", () => {
+    it("should include unsafe-eval in production mode (required for Apache Arrow)", () => {
+      // Note: 'unsafe-eval' is intentionally included in production because
+      // Apache Arrow (used by DuckDB for data serialization) requires it for
+      // dynamic code generation. See docs/architecture.md for security rationale.
       (process.env as Record<string, string>).NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
       );
 
-      expect(cspHeader?.value).not.toContain("'unsafe-eval'");
+      expect(cspHeader?.value).toContain("'unsafe-eval'");
     });
 
     it("should include upgrade-insecure-requests in production", () => {

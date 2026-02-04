@@ -699,7 +699,6 @@ describe("convertNotionToDataFrame", () => {
 
   beforeEach(() => {
     fields = [
-      createField("_rowIndex", { type: "number" }),
       createField("_notionId", { type: "string" }),
       createField("Name", { columnName: "Name" }),
       createField("Status", { columnName: "Status" }),
@@ -774,7 +773,6 @@ describe("convertNotionToDataFrame", () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toEqual({
-      _rowIndex: 0,
       _notionId: "page-1",
       Name: "Test Item",
       Status: "Active",
@@ -834,7 +832,7 @@ describe("convertNotionToDataFrame", () => {
 
     const result = convertNotionToDataFrame(response, fields);
 
-    expect(result.fieldIds).toHaveLength(5);
+    expect(result.fieldIds).toHaveLength(4);
     expect(result.fieldIds.every((id) => typeof id === "string")).toBe(true);
   });
 
@@ -897,56 +895,6 @@ describe("convertNotionToDataFrame", () => {
     const result = convertNotionToDataFrame(response, fields);
 
     expect(result.rowCount).toBe(2);
-  });
-
-  it("should handle _rowIndex as computed field", () => {
-    const response = {
-      object: "list" as const,
-      results: [
-        {
-          object: "page" as const,
-          id: "page-1",
-          created_time: "2024-01-15T00:00:00.000Z",
-          last_edited_time: "2024-01-15T00:00:00.000Z",
-          created_by: { object: "user" as const, id: "user-1" },
-          last_edited_by: { object: "user" as const, id: "user-1" },
-          cover: null,
-          icon: null,
-          parent: { type: "database_id" as const, database_id: "db-1" },
-          archived: false,
-          in_trash: false,
-          properties: {},
-          url: "https://notion.so/page-1",
-          public_url: null,
-        },
-        {
-          object: "page" as const,
-          id: "page-2",
-          created_time: "2024-01-15T00:00:00.000Z",
-          last_edited_time: "2024-01-15T00:00:00.000Z",
-          created_by: { object: "user" as const, id: "user-1" },
-          last_edited_by: { object: "user" as const, id: "user-1" },
-          cover: null,
-          icon: null,
-          parent: { type: "database_id" as const, database_id: "db-1" },
-          archived: false,
-          in_trash: false,
-          properties: {},
-          url: "https://notion.so/page-2",
-          public_url: null,
-        },
-      ] as PageObjectResponse[],
-      next_cursor: null,
-      has_more: false,
-      type: "page_or_database" as const,
-      page_or_database: {},
-      request_id: "req-1",
-    };
-
-    const result = convertNotionToDataFrame(response, fields);
-
-    expect(result.rows[0]._rowIndex).toBe(0);
-    expect(result.rows[1]._rowIndex).toBe(1);
   });
 
   it("should handle _notionId as computed field", () => {
@@ -1018,22 +966,5 @@ describe("convertNotionToDataFrame", () => {
 
     expect(result.rowCount).toBe(1);
     expect(result.rows[0]._notionId).toBe("page-1");
-  });
-
-  it("should exclude _rowIndex from Arrow columns", () => {
-    const response = {
-      object: "list" as const,
-      results: [],
-      next_cursor: null,
-      has_more: false,
-      type: "page_or_database" as const,
-      page_or_database: {},
-      request_id: "req-1",
-    };
-
-    const result = convertNotionToDataFrame(response, fields);
-
-    // _rowIndex should not be in columns
-    expect(result.columns.find((c) => c.name === "_rowIndex")).toBeUndefined();
   });
 });

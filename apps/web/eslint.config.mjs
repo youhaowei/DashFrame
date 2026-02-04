@@ -39,4 +39,8 @@ export default defineConfig([
   {
     rules: sharedRules,
   },
+  {
+    // Ignore E2E build artifacts (generated files shouldn't be linted)
+    ignores: [".next-e2e/**"],
+  },
 ]);

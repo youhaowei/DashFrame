@@ -1,7 +1,12 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import { getSecurityHeaders } from "./lib/security-headers.ts";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import("next").NextConfig} */
 const nextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: {
     ignoreBuildErrors: false,
   },
@@ -25,12 +30,16 @@ const nextConfig = {
 
     // Storage backend selection via build-time alias
     // Maps stub package to actual storage implementation based on env var
+    // Uses absolute path to avoid transitive dependency resolution issues
     const storageImpl = process.env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
-    const backendPackage = `@dashframe/core-${storageImpl}`;
+    const backendPath = path.resolve(
+      __dirname,
+      `../../packages/core-${storageImpl}/src/index.ts`,
+    );
 
     config.resolve.alias = {
       ...config.resolve.alias,
-      "@dashframe/core-store": backendPackage,
+      "@dashframe/core-store": backendPath,
     };
 
     return config;

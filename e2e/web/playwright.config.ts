@@ -1,32 +1,66 @@
 import { defineConfig, devices } from "@playwright/test";
-import { defineBddConfig } from "playwright-bdd";
+import os from "os";
 import { findAvailablePortSync } from "./support/port-finder";
 
-const testDir = defineBddConfig({
-  features: "features/**/*.feature",
-  steps: "steps/**/*.ts",
-  outputDir: "features/.generated",
-});
+// Environment detection
+const isCI = !!process.env.CI;
 
-// Find available port starting from 3100 (avoid conflicts with dev:3000, worktrees, etc.)
-const TEST_PORT = process.env.E2E_PORT
-  ? parseInt(process.env.E2E_PORT, 10)
-  : findAvailablePortSync(3100);
+// Worker configuration
+// CI: 1 worker (serial execution for reliability)
+// Local: Multiple workers for faster parallel execution (capped at 6)
+const WORKER_COUNT = isCI ? 1 : Math.min(os.cpus().length, 6);
 
-// Mode: 'production' (default) or 'dev' (fast iteration)
-const E2E_MODE = process.env.E2E_MODE || "production";
-const isProduction = E2E_MODE === "production";
+// Port configuration
+// Each worker gets its own port for IndexedDB isolation
+const BASE_PORT = findAvailablePortSync(3100);
+
+// Export for use in test fixtures
+export { BASE_PORT, isCI, WORKER_COUNT };
+
+/**
+ * Generate webServer configuration.
+ *
+ * - CI: Single server, build included in command
+ * - Local: Multiple servers for parallel workers
+ */
+function getWebServerConfig() {
+  if (isCI) {
+    // CI: Single server with build
+    return {
+      command: `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT}`,
+      url: `http://localhost:${BASE_PORT}`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      stdout: "pipe" as const,
+      stderr: "pipe" as const,
+    };
+  }
+
+  // Local: Multiple servers for parallel workers
+  // First server builds, others wait for build to complete
+  return Array.from({ length: WORKER_COUNT }, (_, i) => ({
+    command:
+      i === 0
+        ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT}`
+        : `cd ../../apps/web && while [ ! -f .next-e2e/BUILD_ID ]; do sleep 1; done && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT + i}`,
+    url: `http://localhost:${BASE_PORT + i}`,
+    reuseExistingServer: true,
+    timeout: 180_000,
+    stdout: "pipe" as const,
+    stderr: "pipe" as const,
+  }));
+}
 
 export default defineConfig({
-  testDir,
+  testDir: "./tests",
   timeout: 30_000,
   expect: {
     timeout: 5_000,
   },
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
+  workers: isCI ? 1 : WORKER_COUNT,
 
   reporter:
     process.env.E2E_REPORT === "html"
@@ -37,11 +71,12 @@ export default defineConfig({
       : [
           ["json", { outputFile: "test-results/results.json" }],
           ["junit", { outputFile: "test-results/junit.xml" }],
-          process.env.CI ? ["github"] : ["list"],
+          isCI ? ["github"] : ["list"],
         ],
 
   use: {
-    baseURL: `http://localhost:${TEST_PORT}`,
+    // Default baseURL - overridden by fixture for parallel workers
+    baseURL: `http://localhost:${BASE_PORT}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -53,27 +88,20 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
-    },
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
+    // Firefox and WebKit only in CI for comprehensive coverage
+    ...(isCI
+      ? [
+          {
+            name: "firefox",
+            use: { ...devices["Desktop Firefox"] },
+          },
+          {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+          },
+        ]
+      : []),
   ],
 
-  webServer: {
-    // Production mode: Build to .next-e2e (separate from dev .next)
-    // Dev mode: Use regular dev server (faster iteration)
-    command: isProduction
-      ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun build && bun start -p ${TEST_PORT}`
-      : `cd ../../apps/web && PORT=${TEST_PORT} bun dev`,
-
-    url: `http://localhost:${TEST_PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: isProduction ? 180_000 : 120_000, // Production build takes longer
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: getWebServerConfig(),
 });

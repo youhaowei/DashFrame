@@ -217,15 +217,12 @@ export function convertNotionToDataFrame(
   // Convert Notion pages to DataFrame rows
   const rows: DataFrameRow[] = response.results
     .filter((result): result is PageObjectResponse => result.object === "page")
-    .map((page, index) => {
+    .map((page) => {
       const row: DataFrameRow = {};
 
       // Extract values for each field
       fields.forEach((field) => {
-        if (field.name === "_rowIndex") {
-          // Computed field: array index
-          row[field.name] = index;
-        } else if (field.name === "_notionId") {
+        if (field.name === "_notionId") {
           // Computed field: Notion page ID
           row[field.name] = page.id;
         } else if (field.columnName) {
@@ -238,10 +235,8 @@ export function convertNotionToDataFrame(
       return row;
     });
 
-  // Convert rows to Arrow table (exclude _rowIndex as it's computed)
-  const columnNames = fields
-    .filter((f) => f.name !== "_rowIndex")
-    .map((f) => f.name);
+  // Convert rows to Arrow table
+  const columnNames = fields.map((f) => f.name);
 
   const arrays = columnNames.reduce(
     (acc, colName) => {
