@@ -4,7 +4,6 @@ import { findAvailablePortSync } from "./support/port-finder";
 
 // Environment detection
 const isCI = !!process.env.CI;
-const hasExternalServer = !!process.env.E2E_PORT;
 
 // Worker configuration
 // CI: 1 worker (serial execution for reliability)
@@ -13,25 +12,18 @@ const WORKER_COUNT = isCI ? 1 : Math.min(os.cpus().length, 6);
 
 // Port configuration
 // Each worker gets its own port for IndexedDB isolation
-const BASE_PORT = hasExternalServer
-  ? parseInt(process.env.E2E_PORT!, 10)
-  : findAvailablePortSync(3100);
+const BASE_PORT = findAvailablePortSync(3100);
 
 // Export for use in test fixtures
-export { BASE_PORT, hasExternalServer, isCI, WORKER_COUNT };
+export { BASE_PORT, isCI, WORKER_COUNT };
 
 /**
  * Generate webServer configuration.
  *
- * - External server (E2E_PORT set): No webServer config
  * - CI: Single server, build included in command
- * - Local: Multiple servers for parallel workers, global-setup handles build
+ * - Local: Multiple servers for parallel workers
  */
 function getWebServerConfig() {
-  if (hasExternalServer) {
-    return undefined;
-  }
-
   if (isCI) {
     // CI: Single server with build
     return {

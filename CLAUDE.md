@@ -6,14 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **This project uses Bun** as the package manager and runtime. Use `bun` instead of `npm`, `yarn`, or `pnpm`.
 
-| Task                   | Command                                        |
-| ---------------------- | ---------------------------------------------- |
-| Validate all           | `bun check`                                    |
-| Run unit tests         | `bun run test`                                 |
-| Run E2E tests          | `cd e2e/web && bun run test:e2e`               |
-| E2E (fast, dev server) | `cd e2e/web && E2E_PORT=3000 bun run test:e2e` |
-| Filter package         | `bun check --filter @dashframe/web`            |
-| Storybook              | `bun storybook`                                |
+| Task           | Command                             |
+| -------------- | ----------------------------------- |
+| Validate all   | `bun check`                         |
+| Run unit tests | `bun run test`                      |
+| Run E2E tests  | `cd e2e/web && bun run test:e2e`    |
+| Filter package | `bun check --filter @dashframe/web` |
+| Storybook      | `bun storybook`                     |
 
 **⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested.** User manages their own dev environment.
 
@@ -405,8 +404,6 @@ test("upload CSV and create chart", async ({
 
 #### Running Tests
 
-**Production Build Mode (Default)** - Full CI simulation:
-
 ```bash
 cd e2e/web
 bun run test:e2e
@@ -414,18 +411,8 @@ bun run test:e2e
 
 - Builds to isolated `.next-e2e` directory
 - Auto-finds available port (3100-3120)
-- 3-minute build timeout
-
-**Dev Server Mode (Fast)** - Use existing dev server:
-
-```bash
-# Terminal 1
-bun dev
-
-# Terminal 2
-cd e2e/web
-E2E_PORT=3000 bun run test:e2e
-```
+- Local: parallel workers with separate servers for IndexedDB isolation
+- CI: single worker for reliability
 
 #### Filtering Tests
 

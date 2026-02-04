@@ -47,23 +47,12 @@ bun run test:e2e
 This will:
 
 1. Build the app to `.next-e2e` (separate from dev `.next`)
-2. Start the production server on an available port
-3. Run all tests
-4. Shut down the server
+2. Start production server(s) on available ports
+3. Run all tests (parallel locally, serial in CI)
+4. Shut down the servers
 
-### Development Mode (Requires Running Dev Server)
-
-If you already have a dev server running, you can skip the build step by pointing tests at your running server:
-
-```bash
-# Terminal 1: Start dev server on port 3000 (from apps/web)
-bun dev
-
-# Terminal 2: Run tests against the dev server (from e2e/web)
-E2E_PORT=3000 bun run test:e2e
-```
-
-**Note:** When `E2E_PORT` is set, Playwright assumes a server is already running at that port and skips the build/start step. If no server is running, tests will timeout waiting for the page to load.
+**Local execution**: Each parallel worker gets its own server port for IndexedDB isolation.
+**CI execution**: Single worker with single server for reliability.
 
 ### Filtering Tests
 

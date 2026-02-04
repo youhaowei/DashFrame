@@ -12,7 +12,7 @@
 import { test as base, expect } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
-import { BASE_PORT, hasExternalServer, isCI } from "../playwright.config";
+import { BASE_PORT, isCI } from "../playwright.config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "..", "fixtures");
@@ -22,11 +22,11 @@ const fixturesDir = path.join(__dirname, "..", "fixtures");
  * Each worker gets its own port for IndexedDB isolation.
  */
 function getWorkerBaseURL(parallelIndex: number): string {
-  // In CI or with external server, use the default port
-  if (isCI || hasExternalServer) {
+  // CI: single worker, single port
+  // Local: each worker gets its own port for IndexedDB isolation
+  if (isCI) {
     return `http://localhost:${BASE_PORT}`;
   }
-  // For local parallel execution, each worker gets its own port
   return `http://localhost:${BASE_PORT + parallelIndex}`;
 }
 
