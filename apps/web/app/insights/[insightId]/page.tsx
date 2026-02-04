@@ -1,42 +1,17 @@
-"use client";
-
-import { Spinner } from "@dashframe/ui";
-import dynamic from "next/dynamic";
-import { use } from "react";
+import InsightPageContent from "./_components/InsightPageContent";
 
 /**
- * Skeleton loading state rendered during SSR.
- * The actual content is loaded client-side only to avoid IndexedDB access during SSR.
+ * Force static generation - no serverless function.
+ * Data lives in IndexedDB (browser), so server rendering is meaningless.
  */
-function InsightSkeleton() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <Spinner size="lg" className="text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading insight...</p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Dynamically import the content component with SSR disabled.
- * This prevents @dashframe/core (IndexedDB) from being evaluated during SSR.
- */
-const InsightPageContent = dynamic(
-  () => import("./_components/InsightPageContent"),
-  {
-    ssr: false,
-    loading: () => <InsightSkeleton />,
-  },
-);
+export const dynamic = "force-static";
+export const dynamicParams = true;
 
 interface PageProps {
   params: Promise<{ insightId: string }>;
 }
 
-export default function InsightPage({ params }: PageProps) {
-  const { insightId } = use(params);
-
+export default async function InsightPage({ params }: PageProps) {
+  const { insightId } = await params;
   return <InsightPageContent insightId={insightId} />;
 }
