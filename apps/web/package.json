@@ -79,7 +79,7 @@
   "name": "@dashframe/web",
   "private": true,
   "scripts": {
-    "build": "bun --bun next build",
+    "build": "bun --bun next build --webpack",
     "clean": "rm -rf .next *.tsbuildinfo",
     "dev": "FORCE_COLOR=1 bun --bun next dev",
     "lint": "bunx eslint .",

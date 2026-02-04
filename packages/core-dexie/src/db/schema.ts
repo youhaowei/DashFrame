@@ -228,6 +228,42 @@ function getDatabase(): DashFrameDB | null {
 }
 
 /**
+ * SSR table method handlers - maps method names to no-op implementations.
+ * Using a lookup table reduces cognitive complexity compared to if-else chains.
+ */
+const SSR_TABLE_METHODS: Record<
+  string,
+  (() => unknown) | (() => Promise<unknown>) | undefined
+> = {
+  // Methods returning empty arrays
+  toArray: async () => [],
+  bulkGet: async () => [],
+  sortBy: async () => [],
+  // Methods returning undefined
+  get: async () => undefined,
+  first: async () => undefined,
+  last: async () => undefined,
+  // Methods returning primitives
+  count: async () => 0,
+  delete: async () => {},
+  add: async () => "",
+  put: async () => "",
+  update: async () => 0,
+  // Not a promise
+  then: undefined,
+};
+
+/** Methods that return chainable proxies */
+const SSR_CHAINABLE_METHODS = new Set([
+  "where",
+  "equals",
+  "filter",
+  "limit",
+  "offset",
+  "reverse",
+]);
+
+/**
  * Create a no-op proxy for Dexie tables during SSR.
  * Returns promises that resolve to empty results, allowing useLiveQuery
  * to complete without errors during server-side rendering.
@@ -235,26 +271,19 @@ function getDatabase(): DashFrameDB | null {
 function createSSRTableProxy(): unknown {
   const handler: ProxyHandler<object> = {
     get(_, prop) {
-      // Common Dexie table methods - return functions that resolve to empty/undefined
-      if (prop === "toArray") return async () => [];
-      if (prop === "get") return async () => undefined;
-      if (prop === "where") return () => createSSRTableProxy();
-      if (prop === "equals") return () => createSSRTableProxy();
-      if (prop === "bulkGet") return async () => [];
-      if (prop === "count") return async () => 0;
-      if (prop === "first") return async () => undefined;
-      if (prop === "last") return async () => undefined;
-      if (prop === "filter") return () => createSSRTableProxy();
-      if (prop === "limit") return () => createSSRTableProxy();
-      if (prop === "offset") return () => createSSRTableProxy();
-      if (prop === "reverse") return () => createSSRTableProxy();
-      if (prop === "sortBy") return async () => [];
-      if (prop === "delete") return async () => {};
-      if (prop === "add") return async () => "";
-      if (prop === "put") return async () => "";
-      if (prop === "update") return async () => 0;
-      if (prop === "then") return undefined; // Not a promise
-      // Return self for chaining
+      if (typeof prop !== "string") return createSSRTableProxy();
+
+      // Check lookup table for known methods
+      if (prop in SSR_TABLE_METHODS) {
+        return SSR_TABLE_METHODS[prop];
+      }
+
+      // Check chainable methods
+      if (SSR_CHAINABLE_METHODS.has(prop)) {
+        return () => createSSRTableProxy();
+      }
+
+      // Default: return self for chaining
       return createSSRTableProxy();
     },
   };
