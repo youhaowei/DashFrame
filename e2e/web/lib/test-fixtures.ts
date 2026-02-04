@@ -43,6 +43,12 @@ type UploadBufferFn = (
 type WaitForChartFn = () => Promise<void>;
 type HomePageFn = () => Promise<void>;
 
+// Worker-scoped fixtures (shared across tests in same worker)
+interface DashFrameWorkerFixtures {
+  /** Clears IndexedDB once when worker starts */
+  clearIndexedDB: void;
+}
+
 interface DashFrameFixtures {
   /** The worker's assigned base URL */
   workerBaseURL: string;
@@ -60,7 +66,40 @@ interface DashFrameFixtures {
 // Custom test with fixtures
 // ─────────────────────────────────────────────────────────────
 
-export const test = base.extend<DashFrameFixtures>({
+export const test = base.extend<DashFrameFixtures, DashFrameWorkerFixtures>({
+  /**
+   * Clear IndexedDB once when worker starts.
+   * Removes any pre-existing data from local development.
+   * Worker-scoped + auto means it runs once per worker, before any tests.
+   */
+  clearIndexedDB: [
+    async ({ browser }, use, workerInfo) => {
+      const workerBaseURL = getWorkerBaseURL(workerInfo.parallelIndex);
+      const page = await browser.newPage();
+      try {
+        await page.goto(workerBaseURL);
+        await page.evaluate(async () => {
+          const databases = await indexedDB.databases();
+          await Promise.all(
+            databases.map(
+              (db) =>
+                db.name &&
+                new Promise<void>((resolve, reject) => {
+                  const request = indexedDB.deleteDatabase(db.name!);
+                  request.onsuccess = () => resolve();
+                  request.onerror = () => reject(request.error);
+                }),
+            ),
+          );
+        });
+      } finally {
+        await page.close();
+      }
+      await use();
+    },
+    { scope: "worker", auto: true },
+  ],
+
   /**
    * Get the worker's assigned base URL.
    * Each worker gets its own port for IndexedDB isolation.
@@ -129,31 +168,11 @@ export const test = base.extend<DashFrameFixtures>({
   /**
    * Navigate to home page and verify it's loaded.
    * Uses absolute URL to ensure correct server for each worker.
-   * Clears IndexedDB before each test for clean state.
+   * IndexedDB is cleared once per worker by clearIndexedDB fixture.
    */
   homePage: async ({ page, workerBaseURL }, use) => {
     await use(async () => {
-      // Navigate first to establish origin
       await page.goto(workerBaseURL);
-
-      // Clear all IndexedDB databases for clean test state
-      await page.evaluate(async () => {
-        const databases = await indexedDB.databases();
-        await Promise.all(
-          databases.map(
-            (db) =>
-              db.name &&
-              new Promise<void>((resolve, reject) => {
-                const request = indexedDB.deleteDatabase(db.name!);
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-              }),
-          ),
-        );
-      });
-
-      // Reload to apply clean state
-      await page.reload();
       await expect(
         page.getByRole("heading", { name: "Welcome to DashFrame" }),
       ).toBeVisible();
