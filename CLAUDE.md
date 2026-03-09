@@ -147,6 +147,14 @@ git commit -m "chore(deps): update stdui submodule"
 
 **Always push the submodule before pushing DashFrame.** The pointer is a promise — the remote must have the commit it references. A `pre-push` hook enforces this, but proactively follow the order: push stdui first, then push DashFrame. Never leave the submodule pointer dirty.
 
+**Before committing in DashFrame**, check for dirty submodules:
+
+```bash
+git submodule foreach --quiet 'if [ -n "$(git status --porcelain)" ]; then echo "$sm_path has uncommitted changes"; fi'
+```
+
+If any submodule has uncommitted changes, commit and push them first (step 1 above), then commit the pointer update in DashFrame. This applies to `/commit`, manual commits, and any workflow that stages files.
+
 **Critical**: Packages export TypeScript source directly (`main: "src/index.ts"`), not compiled JS. Web app uses TypeScript path mappings for hot reload. See `tsconfig.json` files.
 
 ## State Management & Persistence
