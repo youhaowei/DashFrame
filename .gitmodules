@@ -1,0 +1,3 @@
+[submodule "libs/stdui"]
+	path = libs/stdui
+	url = git@github.com:youhaowei/stdui.git
