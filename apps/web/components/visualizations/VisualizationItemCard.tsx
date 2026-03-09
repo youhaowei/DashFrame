@@ -112,7 +112,7 @@ export function VisualizationItemCard({
         "group w-full overflow-hidden rounded-lg border text-left transition-[border-color,background-color] duration-150",
         onClick && "cursor-pointer hover:bg-neutral-bg-emphasis/50",
         active
-          ? "border-primary ring-primary ring-2"
+          ? "border-palette-primary ring-2 ring-palette-primary"
           : "border-neutral-border/60 hover:border-neutral-border",
         className,
       )}

@@ -46,8 +46,8 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
               className="rounded-2xl border border-neutral-border bg-neutral-bg p-4 shadow-sm"
             >
               <div className="mb-3 h-32 animate-pulse rounded-xl bg-neutral-bg-muted" />
-              <div className="bg-neutral-bg-muted-foreground/20 mb-2 h-5 w-3/4 animate-pulse rounded" />
-              <div className="bg-neutral-bg-muted-foreground/10 h-4 w-1/2 animate-pulse rounded" />
+              <div className="mb-2 h-5 w-3/4 animate-pulse rounded bg-neutral-fg-subtle/20" />
+              <div className="h-4 w-1/2 animate-pulse rounded bg-neutral-fg-subtle/10" />
             </div>
           ))}
         </div>

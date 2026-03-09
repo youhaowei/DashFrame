@@ -101,7 +101,7 @@ export function MetricsSection({
                 items={sortableItems}
                 onReorder={handleReorder}
                 gap={6}
-                itemClassName="bg-palette-primary/5 border-primary/20"
+                itemClassName="bg-palette-primary/5 border-palette-primary/20"
                 renderItem={(item) => (
                   <MetricItemContent
                     metric={item.metric}

@@ -159,8 +159,8 @@ export default function DashboardDetailContent({
                 <div
                   className={`cursor-pointer rounded-lg border p-4 transition-all ${
                     addType === "visualization"
-                      ? "border-primary ring-primary bg-palette-primary/5 ring-1"
-                      : "hover:border-primary/50"
+                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                      : "hover:border-palette-primary/50"
                   }`}
                   onClick={() => setAddType("visualization")}
                 >
@@ -175,8 +175,8 @@ export default function DashboardDetailContent({
                 <div
                   className={`cursor-pointer rounded-lg border p-4 transition-all ${
                     addType === "markdown"
-                      ? "border-primary ring-primary bg-palette-primary/5 ring-1"
-                      : "hover:border-primary/50"
+                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                      : "hover:border-palette-primary/50"
                   }`}
                   onClick={() => setAddType("markdown")}
                 >

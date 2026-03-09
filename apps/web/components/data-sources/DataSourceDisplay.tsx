@@ -238,7 +238,7 @@ function LocalDataSourceView({
                   onClick={() => setSelectedTableId(table.id)}
                   className={cn(
                     "w-full rounded-lg border border-neutral-border/60 p-3 text-left transition-colors hover:border-neutral-border hover:bg-neutral-bg-emphasis/50",
-                    isSelected && "border-primary bg-palette-primary/5",
+                    isSelected && "border-palette-primary bg-palette-primary/5",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -549,7 +549,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                           className={cn(
                             "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-neutral-bg-muted/50",
                             selectedDataTableId === dataTable.id
-                              ? "border-primary bg-palette-primary/5 font-medium text-neutral-fg"
+                              ? "border-palette-primary bg-palette-primary/5 font-medium text-neutral-fg"
                               : "border-neutral-border/40 text-neutral-fg-subtle",
                           )}
                         >

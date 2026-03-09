@@ -849,7 +849,7 @@ export default function JoinConfigureContent({
                       key={pair.columnName}
                       type="button"
                       onClick={() => applySuggestion(pair)}
-                      className="group hover:border-primary/50 flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-border bg-neutral-bg px-3 py-2 text-sm transition-colors hover:bg-palette-primary/10"
+                      className="group flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-border bg-neutral-bg px-3 py-2 text-sm transition-colors hover:border-palette-primary/50 hover:bg-palette-primary/10"
                     >
                       <span className="font-medium text-neutral-fg group-hover:text-palette-primary">
                         {pair.leftField.columnName ?? pair.leftField.name}
@@ -1046,7 +1046,7 @@ export default function JoinConfigureContent({
                       x="45"
                       y="110"
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[9px]"
+                      className="fill-neutral-fg-subtle text-[9px]"
                     >
                       Base
                     </text>
@@ -1054,7 +1054,7 @@ export default function JoinConfigureContent({
                       x="155"
                       y="110"
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[9px]"
+                      className="fill-neutral-fg-subtle text-[9px]"
                     >
                       Join
                     </text>

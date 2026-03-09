@@ -107,7 +107,7 @@ export function SuggestedInsights({
         {suggestions.map((suggestion) => (
           <Card
             key={suggestion.id}
-            className="hover:border-primary flex flex-col p-3 transition-colors"
+            className="flex flex-col p-3 transition-colors hover:border-palette-primary"
           >
             {/* Chart Preview */}
             <div className="mb-3 h-[120px] w-full overflow-hidden rounded-lg bg-transparent">

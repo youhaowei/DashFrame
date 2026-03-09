@@ -119,7 +119,7 @@ export function DataSourceTree({
                   "group w-full rounded-xl border p-3 text-left transition-all",
                   "hover:border-neutral-border hover:bg-neutral-bg-emphasis/50",
                   isSelected
-                    ? "border-primary bg-palette-primary/5 shadow-sm"
+                    ? "border-palette-primary bg-palette-primary/5 shadow-sm"
                     : "border-neutral-border/60",
                 )}
               >

@@ -380,8 +380,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                           key={dt.id}
                           className={cn(
                             "flex items-center gap-2 rounded-md border p-2 transition-all",
-                            "border-primary/40 bg-palette-primary/5",
-                            "hover:border-primary/60 hover:bg-palette-primary/10",
+                            "border-palette-primary/40 bg-palette-primary/5",
+                            "hover:border-palette-primary/60 hover:bg-palette-primary/10",
                             "shadow-sm",
                           )}
                         >

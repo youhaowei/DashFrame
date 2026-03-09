@@ -179,7 +179,8 @@ function SidebarContent({
                   <span
                     className={cn(
                       "rounded-lg border border-neutral-border/50 bg-neutral-bg/90 p-2 text-neutral-fg-subtle transition-colors group-hover:text-neutral-fg",
-                      isActive && "border-primary/30 text-palette-primary",
+                      isActive &&
+                        "border-palette-primary/30 text-palette-primary",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
@@ -194,7 +195,7 @@ function SidebarContent({
                   </div>
                   {isActive && (
                     <span
-                      className="border-primary/40 absolute inset-0 rounded-2xl border"
+                      className="absolute inset-0 rounded-2xl border border-palette-primary/40"
                       aria-hidden
                     />
                   )}

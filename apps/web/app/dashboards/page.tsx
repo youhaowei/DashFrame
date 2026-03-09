@@ -99,7 +99,7 @@ export default function DashboardsPage() {
               >
                 <Surface
                   elevation="raised"
-                  className="hover:border-primary/50 relative flex h-full flex-col p-5 transition-all hover:shadow-md"
+                  className="relative flex h-full flex-col p-5 transition-all hover:border-palette-primary/50 hover:shadow-md"
                 >
                   <div className="mb-4 flex items-start justify-between">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-palette-primary/10 text-palette-primary">

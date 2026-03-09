@@ -156,8 +156,8 @@ const CategoryCard = memo(function CategoryCard({
       className={cn(
         "group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border",
         "bg-neutral-bg text-left transition-all duration-150",
-        "hover:border-primary/40 hover:shadow-sm",
-        "focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none",
+        "hover:border-palette-primary/40 hover:shadow-sm",
+        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
         isLoading && "cursor-not-allowed opacity-50",
       )}
     >
@@ -349,7 +349,7 @@ const ChartTypeGrid = memo(function ChartTypeGrid({
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
                   "transition-colors duration-100",
-                  "focus-visible:ring-primary hover:bg-neutral-bg-muted focus-visible:ring-2 focus-visible:outline-none",
+                  "hover:bg-neutral-bg-muted focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
                   isLoading && "cursor-not-allowed opacity-50",
                   hasSuggestion && "text-neutral-fg",
                   !hasSuggestion && "text-neutral-fg-subtle",

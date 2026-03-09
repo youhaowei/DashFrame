@@ -140,7 +140,7 @@ export function DuckDBTable({
   // Handle loading and error states
   if (dbError) {
     return (
-      <div className="border-destructive/50 rounded-lg border bg-palette-danger/10 p-4">
+      <div className="rounded-lg border border-palette-danger/50 bg-palette-danger/10 p-4">
         <p className="text-sm text-palette-danger">
           DuckDB Error: {dbError.message}
         </p>
