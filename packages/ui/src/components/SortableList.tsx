@@ -21,13 +21,18 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  cn,
+  ItemCard,
+  ScrollArea,
+  ScrollBar,
+  type ItemCardAction as ItemAction,
+  type ItemListProps,
+  type ListItem,
+} from "@stdui/react";
 import * as React from "react";
 import { useCallback, useState } from "react";
 import { DragHandleVerticalIcon, type LucideIcon } from "../lib/icons";
-import { cn } from "../lib/utils";
-import { ItemCard, type ItemAction } from "../primitives/item-card";
-import { ScrollArea, ScrollBar } from "../primitives/scroll-area";
-import type { ItemListProps, ListItem } from "./ItemList";
 
 /**
  * Base sortable item requires only an id.
@@ -144,11 +149,11 @@ function renderDragOverlayContent<T extends SortableListItem>(
     return (
       <div
         className={cn(
-          "flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5 shadow-lg",
+          "flex min-w-0 items-center gap-2 rounded-lg border bg-neutral-bg px-2 py-1.5 shadow-lg",
           itemClassName,
         )}
       >
-        <DragHandleVerticalIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <DragHandleVerticalIcon className="h-4 w-4 shrink-0 text-neutral-fg-subtle" />
         {renderItem(activeItem, items.indexOf(activeItem))}
       </div>
     );
@@ -241,9 +246,9 @@ export function SortableList<T extends SortableListItem>({
         )}
       >
         {emptyIcon && (
-          <div className="mb-3 text-muted-foreground">{emptyIcon}</div>
+          <div className="mb-3 text-neutral-fg-subtle">{emptyIcon}</div>
         )}
-        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+        <p className="text-sm text-neutral-fg-subtle">{emptyMessage}</p>
       </div>
     );
   }
@@ -424,7 +429,7 @@ function SortableItem<T extends SortableListItem>({
         ref={setNodeRef}
         style={sortableStyle}
         className={cn(
-          "flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5",
+          "flex min-w-0 items-center gap-2 rounded-lg border bg-neutral-bg px-2 py-1.5",
           isDragging && "opacity-50",
           className,
           itemClassName,
@@ -432,7 +437,7 @@ function SortableItem<T extends SortableListItem>({
       >
         {/* Drag handle */}
         <button
-          className="shrink-0 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          className="shrink-0 cursor-grab text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing"
           aria-label="Drag to reorder"
           {...attributes}
           {...listeners}
@@ -457,7 +462,7 @@ function SortableItem<T extends SortableListItem>({
       <div
         className={cn(
           "absolute top-0 left-0 z-10 flex h-full cursor-grab items-center pr-1 pl-2 active:cursor-grabbing",
-          "text-muted-foreground hover:text-foreground",
+          "text-neutral-fg-subtle hover:text-neutral-fg",
           "rounded-l-xl transition-colors",
           isDragging && "cursor-grabbing",
         )}

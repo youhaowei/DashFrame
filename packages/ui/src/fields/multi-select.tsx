@@ -1,10 +1,11 @@
 "use client";
 
-import { Field, FieldLabel } from "../primitives/field";
+import type { MultiSelectOption } from "@stdui/react";
 import {
+  Field,
+  FieldLabel,
   MultiSelect as MultiSelectPrimitive,
-  type MultiSelectOption,
-} from "../primitives/multi-select";
+} from "@stdui/react";
 
 interface MultiSelectProps {
   label?: string;

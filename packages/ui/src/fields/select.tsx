@@ -1,15 +1,16 @@
 "use client";
 
 import * as SelectPrimitiveParts from "@radix-ui/react-select";
-import { CheckIcon } from "../lib/icons";
-import { cn } from "../lib/utils";
-import { Field, FieldLabel } from "../primitives/field";
+import { CheckIcon } from "@stdui/icons";
 import {
+  cn,
+  Field,
+  FieldLabel,
   SelectContent,
   Select as SelectPrimitive,
   SelectTrigger,
   SelectValue,
-} from "../primitives/select";
+} from "@stdui/react";
 
 interface SelectOption {
   label: string;
@@ -55,8 +56,6 @@ export function Select({
       <SelectPrimitive value={value || undefined} onValueChange={onChange}>
         <SelectTrigger
           className={cn("w-full", error && "border-red-500 focus:ring-red-500")}
-          onClear={onClear}
-          value={value}
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
@@ -67,7 +66,7 @@ export function Select({
               value={option.value}
               disabled={option.disabled}
               className={cn(
-                "relative flex w-full cursor-default items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                "relative flex w-full cursor-default items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none select-none focus:bg-neutral-bg-emphasis focus:text-neutral-fg data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
               )}
             >
               <span className="absolute right-2 flex size-3.5 items-center justify-center">
@@ -77,14 +76,14 @@ export function Select({
               </span>
               <div className="flex items-start gap-2">
                 {option.icon && (
-                  <option.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <option.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-fg-subtle" />
                 )}
                 <div className="flex flex-col gap-0.5">
                   <SelectPrimitiveParts.ItemText>
                     {option.label}
                   </SelectPrimitiveParts.ItemText>
                   {option.description && (
-                    <span className="text-[10px] font-normal text-muted-foreground">
+                    <span className="text-[10px] font-normal text-neutral-fg-subtle">
                       {option.description}
                     </span>
                   )}

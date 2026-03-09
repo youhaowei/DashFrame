@@ -1,13 +1,11 @@
 "use client";
 
+import { ButtonGroup, cn, Toggle, type ItemAction } from "@stdui/react";
 import { useState } from "react";
 import type { LucideIcon } from "../lib/icons";
 import { GridIcon, ListIcon } from "../lib/icons";
-import { cn } from "../lib/utils";
-import { ButtonGroup, type ItemAction } from "./ButtonGroup";
-import { Toggle } from "./Toggle";
 
-export type { ItemAction } from "./button";
+export type { ItemAction } from "@stdui/react";
 
 export interface SelectableItem {
   id: string;
@@ -67,7 +65,7 @@ export function ItemSelector({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border/60 bg-card/70 p-4 shadow-sm",
+        "rounded-2xl border border-neutral-border/60 bg-neutral-bg/70 p-4 shadow-sm",
         className,
       )}
     >
@@ -76,7 +74,7 @@ export function ItemSelector({
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <h2 className="text-base font-semibold text-foreground">
+              <h2 className="text-base font-semibold text-neutral-fg">
                 {title}
               </h2>
               {/* View style toggle inline */}
@@ -103,7 +101,7 @@ export function ItemSelector({
               )}
             </div>
             {description && (
-              <p className="text-xs text-muted-foreground">{description}</p>
+              <p className="text-xs text-neutral-fg-subtle">{description}</p>
             )}
           </div>
           {actions.length > 0 && (
@@ -121,7 +119,7 @@ export function ItemSelector({
             {viewStyle === "compact" && (
               <div className="overflow-x-auto">
                 <Toggle
-                  variant="default"
+                  variant="outline"
                   value={activeItem?.id || items[0]?.id || ""}
                   options={items.map((item) => ({
                     value: item.id,
@@ -149,26 +147,26 @@ export function ItemSelector({
                       onClick={() => onItemSelect(item.id)}
                       aria-pressed={item.active}
                       className={cn(
-                        "min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        "min-w-[220px] shrink-0 rounded-2xl border px-4 py-3 text-left transition focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:outline-none",
                         item.active
-                          ? "border-primary/70 bg-primary/5"
-                          : "border-border/70 bg-card/70",
+                          ? "border-primary/70 bg-palette-primary/5"
+                          : "border-neutral-border/70 bg-neutral-bg/70",
                       )}
                     >
                       <div className="flex items-center gap-2">
                         {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="text-sm font-medium text-neutral-fg">
                           {item.label}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         {item.metadata && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-neutral-fg-subtle">
                             {item.metadata}
                           </span>
                         )}
                         {item.badge && (
-                          <span className="rounded-full bg-muted px-1 text-[10px] leading-4 font-semibold tracking-wide text-muted-foreground">
+                          <span className="rounded-full bg-neutral-bg-muted px-1 text-[10px] leading-4 font-semibold tracking-wide text-neutral-fg-subtle">
                             {item.badge}
                           </span>
                         )}

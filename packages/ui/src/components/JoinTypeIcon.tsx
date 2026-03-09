@@ -1,7 +1,7 @@
 "use client";
 
+import { cn } from "@stdui/react";
 import * as React from "react";
-import { cn } from "../lib/utils";
 
 export type JoinType = "inner" | "left" | "right" | "outer" | "full";
 
@@ -39,7 +39,7 @@ const sizes = {
  * @example
  * ```tsx
  * <JoinTypeIcon type="inner" size="md" />
- * <JoinTypeIcon type="left" size="sm" className="text-primary" />
+ * <JoinTypeIcon type="left" size="sm" className="text-palette-primary" />
  * ```
  */
 export function JoinTypeIcon({

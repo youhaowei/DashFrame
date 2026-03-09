@@ -1,7 +1,6 @@
 "use client";
 
-import { Field, FieldLabel } from "../primitives/field";
-import { Input as InputPrimitive } from "../primitives/input";
+import { Field, FieldLabel, Input as InputPrimitive } from "@stdui/react";
 
 interface InputProps {
   label?: string;
