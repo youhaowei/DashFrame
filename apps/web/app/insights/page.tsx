@@ -163,13 +163,13 @@ export default function InsightsPage() {
     switch (state) {
       case "with-viz":
         return (
-          <Badge variant="default" className="text-xs">
+          <Badge variant="soft" className="text-xs">
             {vizCount} viz{vizCount !== 1 ? "s" : ""}
           </Badge>
         );
       case "configured":
         return (
-          <Badge variant="secondary" className="text-xs">
+          <Badge variant="soft" className="text-xs">
             Configured
           </Badge>
         );
@@ -186,11 +186,11 @@ export default function InsightsPage() {
   const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
     switch (state) {
       case "with-viz":
-        return <ChartIcon className="h-5 w-5 text-primary" />;
+        return <ChartIcon className="h-5 w-5 text-palette-primary" />;
       case "configured":
-        return <SettingsIcon className="h-5 w-5 text-muted-foreground" />;
+        return <SettingsIcon className="h-5 w-5 text-neutral-fg-subtle" />;
       case "draft":
-        return <FileIcon className="h-5 w-5 text-muted-foreground" />;
+        return <FileIcon className="h-5 w-5 text-neutral-fg-subtle" />;
     }
   };
 
@@ -218,7 +218,7 @@ export default function InsightsPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-bg-muted">
             {getStateIcon(item.state)}
           </div>
 
@@ -228,11 +228,11 @@ export default function InsightsPage() {
               <h4 className="truncate font-medium">{item.insight.name}</h4>
               {getStateBadge(item.state, item.visualizationCount)}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-neutral-fg-subtle">
               {item.dataTable?.name || "Unknown table"}
               {item.sourceType && ` • ${item.sourceType}`}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-neutral-fg-subtle">
               Created{" "}
               {new Date(item.insight.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -246,7 +246,7 @@ export default function InsightsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="text"
+                variant="ghost"
                 icon={MoreIcon}
                 iconOnly
                 label="More options"
@@ -266,7 +266,7 @@ export default function InsightsPage() {
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="text-destructive"
+                className="text-palette-danger"
                 onClick={(e) =>
                   handleDeleteInsight(
                     item.insight.id,
@@ -285,14 +285,14 @@ export default function InsightsPage() {
   );
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-neutral-bg">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Insights</h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-neutral-fg-subtle">
                 {insights.length} insight{insights.length !== 1 ? "s" : ""}{" "}
                 total
               </p>
@@ -304,7 +304,7 @@ export default function InsightsPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
             <Input
               placeholder="Search insights..."
               value={searchQuery}
@@ -322,7 +322,7 @@ export default function InsightsPage() {
           {groupedInsights.withViz.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
                   With Visualizations ({groupedInsights.withViz.length})
                 </h2>
               </div>
@@ -336,7 +336,7 @@ export default function InsightsPage() {
           {groupedInsights.configured.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
                   Configured ({groupedInsights.configured.length})
                 </h2>
               </div>
@@ -350,16 +350,16 @@ export default function InsightsPage() {
           {groupedInsights.drafts.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-muted-foreground">
+                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
                   Drafts ({groupedInsights.drafts.length})
                 </h2>
                 <Button
-                  variant="text"
+                  variant="ghost"
                   icon={DeleteIcon}
                   label="Delete all"
                   size="sm"
                   color="danger"
-                  className="text-destructive hover:text-destructive"
+                  className="text-palette-danger hover:text-palette-danger"
                   onClick={handleDeleteAllDrafts}
                 />
               </div>
@@ -372,19 +372,19 @@ export default function InsightsPage() {
           {/* Empty State */}
           {filteredInsights.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <FileIcon className="h-8 w-8 text-muted-foreground" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
+                <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No insights found
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     No insights match &quot;{searchQuery}&quot;
                   </p>
                   <Button
-                    variant="outlined"
+                    variant="outline"
                     label="Clear search"
                     onClick={() => setSearchQuery("")}
                   />
@@ -394,7 +394,7 @@ export default function InsightsPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No insights yet
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     Create your first insight to start analyzing data
                   </p>
                   <Button

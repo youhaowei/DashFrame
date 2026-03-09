@@ -33,12 +33,12 @@ export function EmptyState({ onCreateClick }: EmptyStateProps) {
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center p-8">
-      <div className="w-full max-w-2xl rounded-3xl border border-border/40 bg-card/30 p-8 shadow-sm backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-3xl border border-neutral-border/40 bg-neutral-bg/30 p-8 shadow-sm backdrop-blur-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-primary/10 text-palette-primary">
             <SparklesIcon className="h-6 w-6" />
           </div>
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+          <h2 className="text-2xl font-semibold tracking-tight text-neutral-fg">
             Create your first visualization
           </h2>
         </div>

@@ -10,7 +10,7 @@ import type { Field, Visualization } from "@dashframe/types";
 import {
   ItemList,
   Section,
-  type ItemAction,
+  type ItemCardAction,
   type ListItem,
 } from "@dashframe/ui";
 import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@dashframe/ui/icons";
@@ -48,7 +48,7 @@ interface VisualizationsSectionProps {
 /** Extended ListItem that includes the full visualization object and actions */
 interface VisualizationListItem extends ListItem {
   visualization: Visualization;
-  actions?: ItemAction[];
+  actions?: ItemCardAction[];
 }
 
 /**
@@ -109,7 +109,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
   const items: VisualizationListItem[] = useMemo(
     () =>
       visualizations.map((viz) => {
-        const actions: ItemAction[] = [];
+        const actions: ItemCardAction[] = [];
 
         if (onDuplicateVisualization) {
           actions.push({
@@ -190,7 +190,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
                 {
                   label: "Create visualization",
                   icon: PlusIcon,
-                  variant: "outlined",
+                  variant: "outline",
                   onClick: handleCreateVisualization,
                 },
               ]

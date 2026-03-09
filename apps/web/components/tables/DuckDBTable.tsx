@@ -140,8 +140,8 @@ export function DuckDBTable({
   // Handle loading and error states
   if (dbError) {
     return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-        <p className="text-sm text-destructive">
+      <div className="border-destructive/50 rounded-lg border bg-palette-danger/10 p-4">
+        <p className="text-sm text-palette-danger">
           DuckDB Error: {dbError.message}
         </p>
       </div>
@@ -151,7 +151,7 @@ export function DuckDBTable({
   if (isLoading || !isInitialized) {
     return (
       <div className="flex h-32 items-center justify-center">
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm text-neutral-fg-subtle">
           Initializing DuckDB...
         </span>
       </div>

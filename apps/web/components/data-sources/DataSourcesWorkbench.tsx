@@ -276,7 +276,7 @@ export function DataSourcesWorkbench() {
   if (isLoading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading workspace…</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading workspace…</p>
       </div>
     );
   }
@@ -382,7 +382,7 @@ export function DataSourcesWorkbench() {
           <DialogFooter>
             <Button
               label="Cancel"
-              variant="outlined"
+              variant="outline"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,

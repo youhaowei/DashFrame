@@ -89,7 +89,7 @@ export function DeleteConfirmDialog({
 
         {hasAffectedVisualizations && (
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               For each visualization, choose to remove this {itemType} from its
               encoding or delete the visualization entirely:
             </p>
@@ -98,13 +98,13 @@ export function DeleteConfirmDialog({
                 ({ visualization, affectedChannels }) => (
                   <div
                     key={visualization.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border bg-muted/50 px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-neutral-bg-muted/50 px-3 py-2"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {visualization.name}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-neutral-fg-subtle">
                         Used in: {affectedChannels.join(", ")}
                       </p>
                     </div>
@@ -112,7 +112,7 @@ export function DeleteConfirmDialog({
                       <Button
                         label="Remove"
                         icon={CloseIcon}
-                        variant="outlined"
+                        variant="outline"
                         size="sm"
                         onClick={() =>
                           onRemoveFromVisualization(visualization.id)
@@ -136,7 +136,7 @@ export function DeleteConfirmDialog({
         )}
 
         <DialogFooter>
-          <Button label="Cancel" variant="outlined" onClick={onClose} />
+          <Button label="Cancel" variant="outline" onClick={onClose} />
           <Button
             label={`Delete ${itemType}`}
             color="danger"

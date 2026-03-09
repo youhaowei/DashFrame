@@ -253,7 +253,7 @@ export function DataPickerContent({
           <>
             <Button
               label="Back"
-              variant="text"
+              variant="ghost"
               size="sm"
               onClick={() => setSelectedSourceId(null)}
               icon={ArrowLeftIcon}
@@ -283,7 +283,7 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button label="Cancel" variant="outlined" onClick={onCancel} />
+          <Button label="Cancel" variant="outline" onClick={onCancel} />
         </div>
       )}
     </div>

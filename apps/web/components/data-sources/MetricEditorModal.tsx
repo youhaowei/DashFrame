@@ -196,18 +196,18 @@ export function MetricEditorModal({
           </div>
 
           {/* Formula Preview */}
-          <div className="rounded-lg bg-muted p-3">
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
+          <div className="rounded-lg bg-neutral-bg-muted p-3">
+            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
               Formula Preview
             </p>
-            <code className="font-mono text-sm text-foreground">
+            <code className="font-mono text-sm text-neutral-fg">
               {getFormulaPreview()}
             </code>
           </div>
         </div>
 
         <DialogFooter>
-          <Button label="Cancel" variant="outlined" onClick={handleCancel} />
+          <Button label="Cancel" variant="outline" onClick={handleCancel} />
           <Button
             label="Add Metric"
             onClick={handleSave}

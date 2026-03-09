@@ -90,7 +90,7 @@ export function InsightFieldEditorModal({
 
         {/* Search input */}
         <div className="relative">
-          <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
           <Input
             placeholder="Search fields..."
             value={searchQuery}
@@ -104,8 +104,8 @@ export function InsightFieldEditorModal({
         <div className="max-h-[300px] space-y-4 overflow-y-auto">
           {filteredFields.length === 0 ? (
             <div className="py-8 text-center">
-              <NumberTypeIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
+              <NumberTypeIcon className="mx-auto mb-2 h-8 w-8 text-neutral-fg-subtle" />
+              <p className="text-sm text-neutral-fg-subtle">
                 {availableFields.length === 0
                   ? "All fields have been added."
                   : "No fields match your search."}
@@ -116,7 +116,7 @@ export function InsightFieldEditorModal({
               const isBase = groupKey === "base";
               return (
                 <div key={groupKey}>
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-fg-subtle uppercase">
                     <DatabaseIcon className="h-3 w-3" />
                     {isBase ? "Base table" : "Joined table"}
                   </div>
@@ -151,15 +151,15 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
     <button
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent",
-        "focus:ring-2 focus:ring-primary focus:outline-none",
+        "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-neutral-bg-emphasis",
+        "focus:ring-primary focus:ring-2 focus:outline-none",
       )}
     >
-      <NumberTypeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <NumberTypeIcon className="h-4 w-4 shrink-0 text-neutral-fg-subtle" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{field.displayName}</p>
         {field.columnName && field.columnName !== field.name && (
-          <p className="truncate text-xs text-muted-foreground">
+          <p className="truncate text-xs text-neutral-fg-subtle">
             Column: {field.columnName}
           </p>
         )}
@@ -170,7 +170,7 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
         </Badge>
         {isJoined && (
           <Badge
-            variant="secondary"
+            variant="soft"
             className="bg-blue-500/10 text-[10px] text-blue-600"
           >
             joined

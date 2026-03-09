@@ -6,11 +6,11 @@ import { Card, CardContent, ChartIcon } from "@dashframe/ui";
 
 const WelcomeHeader = () => (
   <div className="mb-8 text-center">
-    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-      <ChartIcon className="h-6 w-6 text-primary" />
+    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-primary/10">
+      <ChartIcon className="h-6 w-6 text-palette-primary" />
     </div>
     <h2 className="mb-2 text-2xl font-bold">Welcome to DashFrame</h2>
-    <p className="text-base text-muted-foreground">
+    <p className="text-base text-neutral-fg-subtle">
       Create beautiful visualizations from your data.
     </p>
   </div>

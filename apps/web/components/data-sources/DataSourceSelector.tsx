@@ -75,7 +75,7 @@ export function DataSourceSelector({
     () => [
       {
         label: "Visualizations",
-        variant: "outlined",
+        variant: "outline",
         href: "/",
         icon: ChartIcon,
         tooltip: "View visualizations",
@@ -92,7 +92,9 @@ export function DataSourceSelector({
   if (isLoading) {
     return (
       <Surface elevation="raised" className="p-6">
-        <p className="text-sm text-muted-foreground">Preparing data sources…</p>
+        <p className="text-sm text-neutral-fg-subtle">
+          Preparing data sources…
+        </p>
       </Surface>
     );
   }
@@ -100,19 +102,19 @@ export function DataSourceSelector({
   if (sortedSources.length === 0) {
     return (
       <Surface elevation="inset" className="p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-primary/15 text-palette-primary">
           <DatabaseIcon className="h-12 w-12" />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">
+        <h2 className="text-lg font-semibold text-neutral-fg">
           Add your first data source
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-neutral-fg-subtle">
           Upload CSV files or connect to Notion to start analyzing your data.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Button
             label="View Visualizations"
-            variant="outlined"
+            variant="outline"
             asChild
             size="sm"
           >

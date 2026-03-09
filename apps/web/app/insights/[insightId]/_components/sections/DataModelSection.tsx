@@ -12,7 +12,7 @@ import {
   ItemList,
   JoinTypeIcon,
   Section,
-  type ItemAction,
+  type ItemCardAction,
   type ListItem,
 } from "@dashframe/ui";
 import {
@@ -170,7 +170,7 @@ export const DataModelSection = memo(function DataModelSection({
     );
 
     // Base table actions - "View source" is clearer than "Open in data sources"
-    const baseActions: ItemAction[] = dataTable.dataSourceId
+    const baseActions: ItemCardAction[] = dataTable.dataSourceId
       ? [
           {
             icon: ExternalLinkIcon,
@@ -193,10 +193,10 @@ export const DataModelSection = memo(function DataModelSection({
       actions: baseActions,
       content: (
         <div className="space-y-1.5 text-xs">
-          <div className="text-muted-foreground">
+          <div className="text-neutral-fg-subtle">
             {baseRowCount.toLocaleString()} rows • {baseFieldCount} fields
           </div>
-          <div className="flex items-center gap-1 text-muted-foreground/70">
+          <div className="flex items-center gap-1 text-neutral-fg-subtle/70">
             {baseDataSource && getFileTypeIcon(baseDataSource.type)}
             <span>{getDisplayFileName(dataTable)}</span>
           </div>
@@ -224,7 +224,7 @@ export const DataModelSection = memo(function DataModelSection({
       const tableName = joinTable?.name || "this table";
       const tableSourceId = joinTable?.dataSourceId;
 
-      const actions: ItemAction[] = [
+      const actions: ItemCardAction[] = [
         ...(tableSourceId
           ? [
               {
@@ -250,11 +250,11 @@ export const DataModelSection = memo(function DataModelSection({
         actions,
         content: (
           <div className="space-y-1.5 text-xs">
-            <div className="text-muted-foreground">
+            <div className="text-neutral-fg-subtle">
               {joinRowCount.toLocaleString()} rows • {joinFieldCount} fields
             </div>
             {joinTable && joinDataSource && (
-              <div className="flex items-center gap-1 text-muted-foreground/70">
+              <div className="flex items-center gap-1 text-neutral-fg-subtle/70">
                 {getFileTypeIcon(joinDataSource.type)}
                 <span>{getDisplayFileName(joinTable)}</span>
               </div>
@@ -292,7 +292,7 @@ export const DataModelSection = memo(function DataModelSection({
             label: "Add join",
             icon: PlusIcon,
             onClick: () => setIsJoinFlowOpen(true),
-            variant: "outlined",
+            variant: "outline",
           },
         ]}
       >

@@ -22,7 +22,7 @@ import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import {
   Badge,
   SelectField,
-  Tooltip,
+  TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@dashframe/ui";

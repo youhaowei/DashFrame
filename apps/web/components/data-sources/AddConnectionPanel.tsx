@@ -49,7 +49,7 @@ export function AddConnectionPanel({
   return (
     <div className="space-y-6">
       {error && (
-        <Alert variant="destructive">
+        <Alert color="danger">
           <AlertDescription>
             <pre className="overflow-auto text-xs">{error}</pre>
           </AlertDescription>

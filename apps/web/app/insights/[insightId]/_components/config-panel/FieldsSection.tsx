@@ -29,7 +29,7 @@ import { useCallback, useState } from "react";
  * The icon components (Hash, Calendar, etc.) are statically imported.
  */
 function FieldTypeIcon({ type }: { type: string }) {
-  const className = "text-muted-foreground h-3 w-3 shrink-0";
+  const className = "text-neutral-fg-subtle h-3 w-3 shrink-0";
   const normalizedType = type.toLowerCase();
 
   // Numeric types
@@ -38,7 +38,7 @@ function FieldTypeIcon({ type }: { type: string }) {
       normalizedType,
     )
   ) {
-    return <NumberTypeIcon className={className} title={type} />;
+    return <NumberTypeIcon className={className} />;
   }
 
   // Date/time types
@@ -46,16 +46,16 @@ function FieldTypeIcon({ type }: { type: string }) {
     ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
     normalizedType.includes("date")
   ) {
-    return <DateTypeIcon className={className} title={type} />;
+    return <DateTypeIcon className={className} />;
   }
 
   // Boolean types
   if (["boolean", "bool"].includes(normalizedType)) {
-    return <BooleanTypeIcon className={className} title={type} />;
+    return <BooleanTypeIcon className={className} />;
   }
 
   // Default to text/string
-  return <TextTypeIcon className={className} title={type} />;
+  return <TextTypeIcon className={className} />;
 }
 
 /** Extended sortable item with field data */
@@ -108,17 +108,17 @@ export function FieldsSection({
       <div className="border-b">
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
-            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50">
+            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50">
               <ChevronRightIcon
                 className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform",
+                  "h-4 w-4 text-neutral-fg-subtle transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <NumberTypeIcon className="h-4 w-4 text-muted-foreground" />
+              <NumberTypeIcon className="h-4 w-4 text-neutral-fg-subtle" />
               <span className="text-sm leading-none font-medium">Fields</span>
               <Badge
-                variant="secondary"
+                variant="soft"
                 className="h-5 px-1.5 text-xs leading-none tabular-nums"
               >
                 {selectedFields.length}
@@ -128,7 +128,7 @@ export function FieldsSection({
           <Button
             label="Add"
             icon={PlusIcon}
-            variant="text"
+            variant="ghost"
             size="sm"
             onClick={onAddClick}
           />
@@ -149,7 +149,7 @@ export function FieldsSection({
                 )}
               />
             ) : (
-              <p className="py-2 text-sm text-muted-foreground">
+              <p className="py-2 text-sm text-neutral-fg-subtle">
                 No fields selected.
               </p>
             )}
@@ -190,7 +190,7 @@ function FieldItemContent({
           e.stopPropagation();
           onRenameClick();
         }}
-        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
         aria-label={`Rename ${field.displayName}`}
       >
         <EditIcon className="h-3 w-3" />
@@ -200,7 +200,7 @@ function FieldItemContent({
           e.stopPropagation();
           onRemove();
         }}
-        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
         aria-label={`Remove ${field.displayName}`}
       >
         <CloseIcon className="h-3 w-3" />

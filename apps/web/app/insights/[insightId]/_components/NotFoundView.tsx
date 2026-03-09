@@ -24,7 +24,7 @@ export function NotFoundView({ type }: NotFoundViewProps) {
     <div className="flex h-screen items-center justify-center">
       <div className="text-center">
         <h2 className="text-xl font-semibold">{title}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+        <p className="mt-2 text-sm text-neutral-fg-subtle">{description}</p>
         <Button
           onClick={() => router.push("/insights")}
           className="mt-4"

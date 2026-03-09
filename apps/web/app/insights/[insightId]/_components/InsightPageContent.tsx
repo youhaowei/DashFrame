@@ -24,8 +24,8 @@ export default function InsightPageContent({
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Spinner size="lg" className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading insight...</p>
+          <Spinner size="lg" className="text-neutral-fg-subtle" />
+          <p className="text-sm text-neutral-fg-subtle">Loading insight...</p>
         </div>
       </div>
     );

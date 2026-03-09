@@ -53,7 +53,7 @@ export function DashboardSection({
           {title}
         </h2>
         <Button
-          variant="text"
+          variant="ghost"
           size="sm"
           icon={ArrowRightIcon}
           label="View all"

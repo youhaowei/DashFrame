@@ -164,7 +164,7 @@ export default function VisualizationsPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-bg-muted">
             {getTypeIcon(item.visualization.visualizationType)}
           </div>
 
@@ -174,18 +174,18 @@ export default function VisualizationsPage() {
               <h4 className="truncate font-medium">
                 {item.visualization.name}
               </h4>
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="soft" className="text-xs">
                 {getTypeLabel(item.visualization.visualizationType)}
               </Badge>
             </div>
             {item.insight && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-neutral-fg-subtle">
                 From: {item.insight.name}
                 {item.sourceType && ` • ${item.sourceType}`}
               </p>
             )}
             {item.visualization.encoding && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-neutral-fg-subtle">
                 {item.visualization.encoding.x &&
                   `X: ${item.visualization.encoding.x}`}
                 {item.visualization.encoding.x &&
@@ -195,7 +195,7 @@ export default function VisualizationsPage() {
                   `Y: ${item.visualization.encoding.y}`}
               </p>
             )}
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-neutral-fg-subtle">
               Created{" "}
               {new Date(item.visualization.createdAt).toLocaleDateString(
                 "en-US",
@@ -212,7 +212,7 @@ export default function VisualizationsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="text"
+                variant="ghost"
                 icon={MoreIcon}
                 iconOnly
                 label="More options"
@@ -232,7 +232,7 @@ export default function VisualizationsPage() {
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="text-destructive"
+                className="text-palette-danger"
                 onClick={(e) =>
                   handleDeleteVisualization(
                     item.visualization.id,
@@ -253,21 +253,21 @@ export default function VisualizationsPage() {
   // Show loading state
   if (isLoadingViz) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">Loading visualizations...</div>
+      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+        <div className="text-neutral-fg-subtle">Loading visualizations...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-neutral-bg">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Visualizations</h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-neutral-fg-subtle">
                 {visualizationsData.length} visualization
                 {visualizationsData.length !== 1 ? "s" : ""} created
               </p>
@@ -279,7 +279,7 @@ export default function VisualizationsPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
             <Input
               placeholder="Search visualizations..."
               value={searchQuery}
@@ -300,19 +300,19 @@ export default function VisualizationsPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <ChartIcon className="h-8 w-8 text-muted-foreground" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
+                <ChartIcon className="h-8 w-8 text-neutral-fg-subtle" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No visualizations found
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     No visualizations match &quot;{searchQuery}&quot;
                   </p>
                   <Button
-                    variant="outlined"
+                    variant="outline"
                     label="Clear search"
                     onClick={() => setSearchQuery("")}
                   />
@@ -322,7 +322,7 @@ export default function VisualizationsPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No visualizations yet
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     Create your first visualization to see your data come to
                     life
                   </p>

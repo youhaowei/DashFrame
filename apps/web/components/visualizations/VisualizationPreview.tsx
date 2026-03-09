@@ -12,8 +12,8 @@ const PREVIEW_HEIGHT = 200; // px
 
 function PreviewLoading() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-muted/30">
-      <Spinner size="lg" className="text-muted-foreground" />
+    <div className="flex h-full w-full items-center justify-center bg-neutral-bg-muted/30">
+      <Spinner size="lg" className="text-neutral-fg-subtle" />
     </div>
   );
 }
@@ -96,7 +96,7 @@ export function VisualizationPreview({
   if (error) {
     return (
       fallback ?? (
-        <div className="flex h-full w-full items-center justify-center bg-muted/50 text-xs text-muted-foreground">
+        <div className="flex h-full w-full items-center justify-center bg-neutral-bg-muted/50 text-xs text-neutral-fg-subtle">
           <span>Failed to load</span>
         </div>
       )
@@ -111,7 +111,7 @@ export function VisualizationPreview({
   if (!hasValidEncoding) {
     return (
       fallback ?? (
-        <div className="flex h-full w-full items-center justify-center bg-muted/50 text-xs text-muted-foreground">
+        <div className="flex h-full w-full items-center justify-center bg-neutral-bg-muted/50 text-xs text-neutral-fg-subtle">
           <span>Encoding missing</span>
         </div>
       )

@@ -26,12 +26,12 @@ export default function ToggleTestPage() {
         <h2 className="text-xl font-semibold">
           Default Variant - Default Size
         </h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Standard size with filled background style
         </p>
         <Card className="p-4">
           <Toggle
-            variant="default"
+            variant="soft"
             size="default"
             value={defaultVariantValue}
             onValueChange={setDefaultVariantValue}
@@ -54,7 +54,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Selected value: {defaultVariantValue}
           </p>
         </Card>
@@ -62,12 +62,12 @@ export default function ToggleTestPage() {
 
       <div className="space-y-2">
         <h2 className="text-xl font-semibold">Default Variant - Small Size</h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Small size with filled background style
         </p>
         <Card className="p-4">
           <Toggle
-            variant="default"
+            variant="soft"
             size="sm"
             value={smallDefaultVariant}
             onValueChange={setSmallDefaultVariant}
@@ -90,7 +90,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Selected value: {smallDefaultVariant}
           </p>
         </Card>
@@ -100,7 +100,7 @@ export default function ToggleTestPage() {
         <h2 className="text-xl font-semibold">
           Outline Variant - Default Size
         </h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Standard size with outline style
         </p>
         <Card className="p-4">
@@ -124,7 +124,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Selected value: {outlineVariantValue}
           </p>
         </Card>
@@ -132,7 +132,7 @@ export default function ToggleTestPage() {
 
       <div className="space-y-2">
         <h2 className="text-xl font-semibold">Outline Variant - Small Size</h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Small size with outline style (NEW)
         </p>
         <Card className="p-4">
@@ -156,7 +156,7 @@ export default function ToggleTestPage() {
               },
             ]}
           />
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Selected value: {smallOutlineVariant}
           </p>
         </Card>
@@ -164,7 +164,7 @@ export default function ToggleTestPage() {
 
       <div className="space-y-2">
         <h2 className="text-xl font-semibold">Theme Toggle Example</h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Example with small size theme toggle
         </p>
         <Card className="p-4">
@@ -193,7 +193,7 @@ export default function ToggleTestPage() {
 
       <div className="space-y-2">
         <h2 className="text-xl font-semibold">Disabled State Test</h2>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           Testing disabled state with small size
         </p>
         <Card className="p-4">

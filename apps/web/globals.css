@@ -1,4 +1,4 @@
-/* Import base theme from UI package */
+/* Import base theme from UI package (which imports @stdui/react/styles) */
 @import "../../packages/ui/src/globals.css";
 
 /* App-specific library imports */
@@ -12,7 +12,7 @@
 
 /* React Grid Layout drag placeholder */
 .react-grid-placeholder {
-  background: hsl(var(--muted)) !important;
+  background: var(--neutral-bg-muted) !important;
   opacity: 0.4 !important;
   border-radius: var(--radius) !important;
 }

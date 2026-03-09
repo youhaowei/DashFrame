@@ -36,7 +36,7 @@ export default function DataFramesPage() {
         header: ({ column }) => {
           return (
             <Button
-              variant="text"
+              variant="ghost"
               icon={ArrowUpDownIcon}
               label="Name"
               onClick={() =>
@@ -54,7 +54,7 @@ export default function DataFramesPage() {
         header: "Source",
         cell: ({ row }) => {
           return (
-            <span className="text-muted-foreground">
+            <span className="text-neutral-fg-subtle">
               {row.original.insightId ? "From Insight" : "Direct Load"}
             </span>
           );
@@ -66,7 +66,7 @@ export default function DataFramesPage() {
         cell: ({ row }) => {
           const { rowCount, columnCount } = row.original;
           return (
-            <span className="text-muted-foreground">
+            <span className="text-neutral-fg-subtle">
               {rowCount ?? "?"} rows × {columnCount ?? "?"} columns
             </span>
           );
@@ -78,7 +78,7 @@ export default function DataFramesPage() {
         cell: ({ row }) => {
           const storageType = row.original.storage?.type;
           return (
-            <span className="text-muted-foreground capitalize">
+            <span className="text-neutral-fg-subtle capitalize">
               {storageType === "indexeddb"
                 ? "Browser"
                 : (storageType ?? "Unknown")}
@@ -91,7 +91,7 @@ export default function DataFramesPage() {
         header: ({ column }) => {
           return (
             <Button
-              variant="text"
+              variant="ghost"
               icon={ArrowUpDownIcon}
               label="Created"
               onClick={() =>
@@ -101,7 +101,7 @@ export default function DataFramesPage() {
           );
         },
         cell: ({ row }) => (
-          <span className="text-muted-foreground">
+          <span className="text-neutral-fg-subtle">
             {new Date(row.original.createdAt).toLocaleDateString()}
           </span>
         ),
@@ -132,21 +132,21 @@ export default function DataFramesPage() {
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground">Loading data frames...</p>
+        <p className="text-neutral-fg-subtle">Loading data frames...</p>
       </div>
     );
   }
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      <header className="rounded-2xl border border-border/60 bg-card/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/60">
-        <h1 className="text-3xl font-bold text-foreground">Data Frames</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+      <header className="rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-neutral-bg/60">
+        <h1 className="text-3xl font-bold text-neutral-fg">Data Frames</h1>
+        <p className="mt-2 text-sm text-neutral-fg-subtle">
           View and manage processed data from your sources
         </p>
       </header>
 
-      <section className="flex flex-1 flex-col rounded-2xl border border-border/60 bg-card/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+      <section className="flex flex-1 flex-col rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-neutral-bg/60">
         <div className="flex-1 p-6">
           <DataGrid
             data={dataFrames ?? []}
@@ -179,7 +179,7 @@ export default function DataFramesPage() {
           </div>
           <DialogFooter>
             <Button
-              variant="outlined"
+              variant="outline"
               label="Cancel"
               onClick={() => setEditingFrame(null)}
             />

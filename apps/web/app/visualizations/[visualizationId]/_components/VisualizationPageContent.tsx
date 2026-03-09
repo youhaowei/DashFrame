@@ -521,8 +521,8 @@ export default function VisualizationPageContent({
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Spinner size="lg" className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
+          <Spinner size="lg" className="text-neutral-fg-subtle" />
+          <p className="text-sm text-neutral-fg-subtle">
             Loading visualization...
           </p>
         </div>
@@ -536,7 +536,7 @@ export default function VisualizationPageContent({
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -558,7 +558,7 @@ export default function VisualizationPageContent({
             <div className="flex items-center gap-4">
               <Button
                 label="Back"
-                variant="text"
+                variant="ghost"
                 size="sm"
                 onClick={() => router.back()}
                 icon={ArrowLeftIcon}
@@ -575,7 +575,7 @@ export default function VisualizationPageContent({
                 {getVizIcon(visualization.visualizationType)}
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
-              <p className="mb-4 text-sm text-muted-foreground">
+              <p className="mb-4 text-sm text-neutral-fg-subtle">
                 The data for this visualization is not available. Please refresh
                 from the source insight.
               </p>
@@ -696,7 +696,7 @@ export default function VisualizationPageContent({
           <div className="flex flex-wrap items-center gap-4">
             <Button
               label="Back"
-              variant="text"
+              variant="ghost"
               size="sm"
               onClick={() => router.back()}
               icon={ArrowLeftIcon}
@@ -709,11 +709,11 @@ export default function VisualizationPageContent({
                 className="w-full"
               />
             </div>
-            <Badge variant="secondary">{visualization.visualizationType}</Badge>
+            <Badge variant="soft">{visualization.visualizationType}</Badge>
           </div>
 
           {/* Metadata row */}
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-fg-subtle">
             <span>
               {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
               {dataFrameEntry?.columnCount ?? "?"} columns
@@ -725,7 +725,7 @@ export default function VisualizationPageContent({
                   onClick={() =>
                     router.push(`/insights/${visualization.insightId}`)
                   }
-                  className="text-primary hover:underline"
+                  className="text-palette-primary hover:underline"
                 >
                   From insight
                 </button>
@@ -737,7 +737,7 @@ export default function VisualizationPageContent({
           <div className="mt-3 flex items-center justify-end">
             <Button
               label="Delete"
-              variant="text"
+              variant="ghost"
               size="sm"
               color="danger"
               onClick={handleDelete}
@@ -772,10 +772,10 @@ export default function VisualizationPageContent({
                 <div className="flex justify-center">
                   <Button
                     label="Swap"
-                    variant="text"
+                    variant="ghost"
                     size="sm"
                     onClick={handleSwapAxes}
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-neutral-fg-subtle hover:text-neutral-fg"
                     tooltip="Swap X and Y axes"
                     icon={ArrowUpDownIcon}
                   />
@@ -849,7 +849,7 @@ export default function VisualizationPageContent({
 
               return (
                 <div className="mt-3">
-                  <p className="mb-2 text-xs text-muted-foreground">
+                  <p className="mb-2 text-xs text-neutral-fg-subtle">
                     Similar charts
                   </p>
                   <div className="flex flex-wrap gap-1">
@@ -859,7 +859,7 @@ export default function VisualizationPageContent({
                         <Button
                           key={altType}
                           label={meta.displayName}
-                          variant="outlined"
+                          variant="outline"
                           size="sm"
                           onClick={() => handleTypeChange(altType)}
                           className="text-xs"
@@ -878,14 +878,14 @@ export default function VisualizationPageContent({
             <div className="border-t pt-4">
               <h3 className="mb-2 text-sm font-semibold">Source</h3>
               <Card
-                className="cursor-pointer transition-colors hover:bg-muted/50"
+                className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
                 onClick={() =>
                   router.push(`/insights/${visualization.insightId}`)
                 }
               >
                 <CardContent className="p-3">
                   <p className="truncate text-sm font-medium">Source Insight</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-neutral-fg-subtle">
                     Click to view insight details
                   </p>
                 </CardContent>

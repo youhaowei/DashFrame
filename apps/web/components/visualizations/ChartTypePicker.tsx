@@ -17,15 +17,15 @@ import {
   type VisualizationType,
 } from "@dashframe/types";
 import {
+  Button,
   CHART_ICONS,
   cn,
   Toggle,
-  Tooltip,
+  TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@dashframe/ui";
 import { InfoIcon, SparklesIcon } from "@dashframe/ui/icons";
-import { Button } from "@dashframe/ui/primitives/button";
 import { Chart } from "@dashframe/visualization";
 import { memo, useCallback, useMemo, useState } from "react";
 
@@ -155,21 +155,21 @@ const CategoryCard = memo(function CategoryCard({
       }}
       className={cn(
         "group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border",
-        "bg-card text-left transition-all duration-150",
+        "bg-neutral-bg text-left transition-all duration-150",
         "hover:border-primary/40 hover:shadow-sm",
-        "focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+        "focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none",
         isLoading && "cursor-not-allowed opacity-50",
       )}
     >
       {/* Header: Category title + info icon with tooltip */}
       <div className="flex items-center gap-1.5 px-3 pt-3">
-        <span className="text-sm font-medium text-foreground">
+        <span className="text-sm font-medium text-neutral-fg">
           {tagDisplayName}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="cursor-help text-muted-foreground hover:text-foreground"
+              className="cursor-help text-neutral-fg-subtle hover:text-neutral-fg"
               onClick={(e) => e.stopPropagation()}
             >
               <InfoIcon className="h-3.5 w-3.5" />
@@ -212,12 +212,12 @@ const CategoryCard = memo(function CategoryCard({
 
       {/* Preview Section */}
       <div
-        className="mx-3 mt-2 overflow-hidden rounded-lg bg-muted/30"
+        className="mx-3 mt-2 overflow-hidden rounded-lg bg-neutral-bg-muted/30"
         style={{ height: `${PREVIEW_HEIGHT}px` }}
       >
         {isLoading ? (
           <div className="flex h-full w-full items-center justify-center">
-            <div className="h-full w-full animate-pulse rounded-lg bg-muted" />
+            <div className="h-full w-full animate-pulse rounded-lg bg-neutral-bg-muted" />
           </div>
         ) : (
           <Chart
@@ -235,19 +235,19 @@ const CategoryCard = memo(function CategoryCard({
       <div className="flex flex-1 flex-col px-3 pt-2 pb-3">
         {/* Chart type with icon */}
         <div className="flex items-center gap-1.5">
-          <ChartIcon size={14} className="text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">
+          <ChartIcon size={14} className="text-neutral-fg-subtle" />
+          <span className="text-xs text-neutral-fg-subtle">
             {currentMeta.displayName}
           </span>
         </div>
 
         {/* Suggestion title */}
-        <p className="mt-1 text-sm leading-tight font-medium text-foreground">
+        <p className="mt-1 text-sm leading-tight font-medium text-neutral-fg">
           {currentSuggestion.title}
         </p>
 
         {/* Encoding spec */}
-        <p className="mt-1 font-mono text-xs text-muted-foreground">
+        <p className="mt-1 font-mono text-xs text-neutral-fg-subtle">
           {formatEncodingSpec(currentSuggestion)}
         </p>
       </div>
@@ -349,10 +349,10 @@ const ChartTypeGrid = memo(function ChartTypeGrid({
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
                   "transition-colors duration-100",
-                  "hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none",
+                  "focus-visible:ring-primary hover:bg-neutral-bg-muted focus-visible:ring-2 focus-visible:outline-none",
                   isLoading && "cursor-not-allowed opacity-50",
-                  hasSuggestion && "text-foreground",
-                  !hasSuggestion && "text-muted-foreground",
+                  hasSuggestion && "text-neutral-fg",
+                  !hasSuggestion && "text-neutral-fg-subtle",
                 )}
               >
                 <ChartIcon size={20} />
@@ -363,7 +363,7 @@ const ChartTypeGrid = memo(function ChartTypeGrid({
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-[200px]">
               <p className="font-medium">{meta.displayName}</p>
-              <p className="text-xs text-muted-foreground">{meta.hint}</p>
+              <p className="text-xs text-neutral-fg-subtle">{meta.hint}</p>
             </TooltipContent>
           </Tooltip>
         );
@@ -510,7 +510,7 @@ export const ChartTypePicker = memo(function ChartTypePicker({
     if (isLoading) {
       // Show loading state while column analysis is pending
       return (
-        <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+        <div className="flex flex-col items-center justify-center py-8 text-center text-neutral-fg-subtle">
           <p className="text-sm">Loading suggestions...</p>
         </div>
       );
@@ -518,7 +518,7 @@ export const ChartTypePicker = memo(function ChartTypePicker({
 
     // No suggestions available
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+      <div className="flex flex-col items-center justify-center py-8 text-center text-neutral-fg-subtle">
         <p className="text-sm">No chart suggestions available</p>
         <p className="mt-1 text-xs">
           Add fields to your insight to see suggestions
@@ -535,7 +535,12 @@ export const ChartTypePicker = memo(function ChartTypePicker({
       {/* Regenerate button */}
       {hasSuggestions && onRegenerate && !isLoading && (
         <div className="flex justify-center">
-          <Button variant="text" size="sm" onClick={onRegenerate}>
+          <Button
+            label="Regenerate suggestions"
+            variant="ghost"
+            size="sm"
+            onClick={onRegenerate}
+          >
             <SparklesIcon className="mr-2 h-3 w-3" />
             Regenerate suggestions
           </Button>
@@ -544,7 +549,7 @@ export const ChartTypePicker = memo(function ChartTypePicker({
 
       {/* Create custom section - always visible */}
       <div className="border-t pt-3">
-        <p className="mb-3 text-sm text-muted-foreground">Create custom</p>
+        <p className="mb-3 text-sm text-neutral-fg-subtle">Create custom</p>
         <ChartTypeGrid
           insight={insight}
           columnAnalysis={columnAnalysis}

@@ -47,7 +47,7 @@ export function DataSourceTree({
   if (!dataSource) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <p className="text-sm text-muted-foreground">Data source not found</p>
+        <p className="text-sm text-neutral-fg-subtle">Data source not found</p>
       </div>
     );
   }
@@ -59,19 +59,19 @@ export function DataSourceTree({
           <div className="space-y-3">
             {/* Data Source Name */}
             <div>
-              <h2 className="text-lg font-semibold text-foreground">
+              <h2 className="text-lg font-semibold text-neutral-fg">
                 {dataSource.name}
               </h2>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-neutral-fg-subtle">
                 {dataSource.type === "csv" ? "CSV files" : "Data source"}
               </p>
             </div>
 
             {/* Tables Header */}
             <div className="flex items-center gap-2">
-              <FileIcon className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">Tables</h3>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <FileIcon className="h-4 w-4 text-neutral-fg-subtle" />
+              <h3 className="text-sm font-semibold text-neutral-fg">Tables</h3>
+              <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
                 {tables?.length ?? 0}
               </span>
             </div>
@@ -83,10 +83,10 @@ export function DataSourceTree({
           <div className="px-4 py-4">
             <Button
               label="Delete Table"
-              variant="outlined"
+              variant="outline"
               size="sm"
               onClick={() => onDeleteTable(selectedTableId)}
-              className="w-full text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              className="w-full text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
               icon={DeleteIcon}
             />
           </div>
@@ -117,10 +117,10 @@ export function DataSourceTree({
                 role="option"
                 className={cn(
                   "group w-full rounded-xl border p-3 text-left transition-all",
-                  "hover:border-border hover:bg-accent/50",
+                  "hover:border-neutral-border hover:bg-neutral-bg-emphasis/50",
                   isSelected
-                    ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border/60",
+                    ? "border-primary bg-palette-primary/5 shadow-sm"
+                    : "border-neutral-border/60",
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -128,8 +128,8 @@ export function DataSourceTree({
                     className={cn(
                       "mt-0.5 rounded p-1.5",
                       isSelected
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
+                        ? "bg-palette-primary/10 text-palette-primary"
+                        : "bg-neutral-bg-muted text-neutral-fg-subtle",
                     )}
                   >
                     <FileIcon className="h-4 w-4" />
@@ -138,13 +138,13 @@ export function DataSourceTree({
                     <p
                       className={cn(
                         "truncate text-sm font-medium",
-                        isSelected ? "text-primary" : "text-foreground",
+                        isSelected ? "text-palette-primary" : "text-neutral-fg",
                       )}
                     >
                       {table.name}
                     </p>
                     {entry && (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-xs text-neutral-fg-subtle">
                         {entry.rowCount ?? "?"} rows ×{" "}
                         {entry.columnCount ?? "?"} columns
                       </p>
