@@ -105,6 +105,9 @@ See `docs/backend-architecture.md` for full details on creating custom backends.
 
 ```
 apps/web/                  # Next.js 16 (App Router)
+libs/
+  stdui/                   # Git submodule → github.com/youhaowei/stdui.git
+                           # Design system: primitives, tokens, theme provider
 packages/
   types/                   # Pure type contracts (zero deps)
   core/                    # Backend selector (env-based)
@@ -114,10 +117,35 @@ packages/
   connector-csv/           # CSV file connector
   connector-notion/        # Notion API connector
   visualization/           # Vega-Lite chart rendering
-  ui/                      # Shared UI components (shadcn/ui primitives + custom)
+  ui/                      # Re-exports @stdui/react + DashFrame-specific components
                            # Includes Storybook for component development
   eslint-config/           # Shared ESLint 9 flat config
 ```
+
+### stdui Submodule
+
+`libs/stdui/` is a **git submodule** (`@stdui/react`) providing the design system. `@dashframe/ui` re-exports everything from `@stdui/react` plus DashFrame-specific components.
+
+**Token naming**: stdui uses semantic tokens (`bg-neutral-bg`, `text-neutral-fg`, `bg-palette-primary`), not shadcn naming (`bg-background`, `text-foreground`, `bg-primary`).
+
+**Theme**: `StduiProvider` (Zustand-based) replaces `next-themes`. Import from `@dashframe/ui`.
+
+**Committing submodule changes**: The submodule has its own git history. When modifying files in `libs/stdui/`:
+
+```bash
+# 1. Commit & push inside the submodule
+cd libs/stdui
+git add <files>
+git commit -m "fix: ..."
+git push origin main
+
+# 2. Back in DashFrame, update the submodule pointer
+cd /Users/youhaowei/Projects/DashFrame
+git add libs/stdui
+git commit -m "chore(deps): update stdui submodule"
+```
+
+**Always push the submodule before pushing DashFrame.** The pointer is a promise — the remote must have the commit it references. A `pre-push` hook enforces this, but proactively follow the order: push stdui first, then push DashFrame. Never leave the submodule pointer dirty.
 
 **Critical**: Packages export TypeScript source directly (`main: "src/index.ts"`), not compiled JS. Web app uses TypeScript path mappings for hot reload. See `tsconfig.json` files.
 
@@ -243,11 +271,11 @@ Before implementing any UI changes, follow this component-first approach:
 
 1. **Check existing components first**:
    - `@dashframe/ui` package exports all UI components (import from `@dashframe/ui`)
-   - shadcn/ui primitives (23 components) - Button, Card, Input, Select, Dialog, etc.
-   - Custom shared components (11 components) - ActionGroup, ItemSelector, Panel, Toggle, etc.
-   - Icons from react-icons (Lucide, Feather, Simple Icons)
+   - stdui primitives (from `@stdui/react`) - Button, Card, Input, Select, Dialog, etc.
+   - DashFrame-specific components - ItemSelector, VirtualTable, SortableList, etc.
+   - Icons from `@stdui/icons` (re-exported via `@dashframe/ui`)
    - See `docs/ui-components.md` for full inventory and `bun storybook` to browse components
-   - **IMPORTANT**: All UI elements on pages MUST use components from `@dashframe/ui`. If a needed component doesn't exist, add it to the UI package first before using it in pages.
+   - **IMPORTANT**: All UI elements on pages MUST use components from `@dashframe/ui`. If a needed component doesn't exist, add it to stdui or the UI package first before using it in pages.
 
 2. **Component decision principles**:
    - **Use shadcn/ui components** for standard UI patterns (buttons, cards, dialogs, forms, etc.)
