@@ -8,27 +8,27 @@ import {
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import {
+  CloudIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SpreadsheetIcon,
+  TableIcon,
+} from "@stdui/icons";
+import {
   Badge,
   Button,
   Card,
   CardContent,
-  DatabaseIcon,
-  DeleteIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-  MoreIcon,
-  PlusIcon,
-  TableIcon,
-} from "@dashframe/ui";
-import {
-  CloudIcon,
-  ExternalLinkIcon,
-  SearchIcon,
-  SpreadsheetIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -131,7 +131,7 @@ export default function DataSourcesPage() {
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* Icon */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-muted">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-bg-muted">
             {getTypeIcon(item.dataSource.type)}
           </div>
 
@@ -139,15 +139,15 @@ export default function DataSourcesPage() {
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <h4 className="truncate font-medium">{item.dataSource.name}</h4>
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="soft" className="text-xs">
                 {getTypeLabel(item.dataSource.type)}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-neutral-fg-subtle">
               <TableIcon className="mr-1 inline h-3 w-3" />
               {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-neutral-fg-subtle">
               Created{" "}
               {new Date(item.dataSource.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -161,7 +161,7 @@ export default function DataSourcesPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                variant="text"
+                variant="ghost"
                 icon={MoreIcon}
                 iconOnly
                 label="More options"
@@ -181,7 +181,7 @@ export default function DataSourcesPage() {
                 Open
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="text-destructive"
+                className="text-palette-danger"
                 onClick={(e) =>
                   handleDeleteDataSource(
                     item.dataSource.id,
@@ -202,20 +202,20 @@ export default function DataSourcesPage() {
   if (isLoading && dataSources.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading data sources…</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading data sources…</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-neutral-bg">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Data Sources</h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-neutral-fg-subtle">
                 {allDataSources.length} source
                 {allDataSources.length !== 1 ? "s" : ""} connected
               </p>
@@ -227,7 +227,7 @@ export default function DataSourcesPage() {
             />
           </div>
           <div className="relative">
-            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
             <Input
               placeholder="Search data sources..."
               value={searchQuery}
@@ -248,19 +248,19 @@ export default function DataSourcesPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <DatabaseIcon className="h-8 w-8 text-muted-foreground" />
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
+                <DatabaseIcon className="h-8 w-8 text-neutral-fg-subtle" />
               </div>
               {searchQuery ? (
                 <>
                   <h3 className="mb-2 text-lg font-semibold">
                     No data sources found
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     No data sources match &quot;{searchQuery}&quot;
                   </p>
                   <Button
-                    variant="outlined"
+                    variant="outline"
                     label="Clear search"
                     onClick={() => setSearchQuery("")}
                   />
@@ -270,7 +270,7 @@ export default function DataSourcesPage() {
                   <h3 className="mb-2 text-lg font-semibold">
                     No data sources yet
                   </h3>
-                  <p className="mb-4 text-sm text-muted-foreground">
+                  <p className="mb-4 text-sm text-neutral-fg-subtle">
                     Connect your first data source to start analyzing
                   </p>
                   <Button

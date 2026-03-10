@@ -1,5 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useState } from "react";
 import {
   ChartIcon,
   DatabaseIcon,
@@ -7,7 +5,9 @@ import {
   FileIcon,
   PlusIcon,
   RefreshIcon,
-} from "../lib/icons";
+} from "@stdui/icons";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 
 const meta = {
@@ -67,7 +67,7 @@ export const Default: Story = {
           {
             label: "Manage Data",
             onClick: () => alert("Manage"),
-            variant: "outlined",
+            variant: "outline",
           },
           {
             label: "New",
@@ -183,7 +183,7 @@ export const CompactView: Story = {
           {
             label: "Export",
             onClick: () => alert("Export"),
-            variant: "outlined",
+            variant: "outline",
           },
         ]}
       />
@@ -229,7 +229,7 @@ export const Insights: Story = {
             label: "Refresh",
             onClick: () => alert("Refresh"),
             icon: RefreshIcon,
-            variant: "outlined",
+            variant: "outline",
           },
           {
             label: "New Insight",
@@ -289,7 +289,7 @@ export const SingleItem: Story = {
           {
             label: "Settings",
             onClick: () => alert("Settings"),
-            variant: "outlined",
+            variant: "outline",
           },
         ]}
       />
@@ -327,7 +327,7 @@ export const ManyItems: Story = {
           {
             label: "Manage",
             onClick: () => alert("Manage"),
-            variant: "outlined",
+            variant: "outline",
           },
           {
             label: "New",
@@ -411,7 +411,7 @@ export const MultipleActions: Story = {
             label: "Refresh",
             onClick: () => alert("Refresh"),
             icon: RefreshIcon,
-            variant: "outlined",
+            variant: "outline",
           },
           {
             label: "Delete",
@@ -472,7 +472,7 @@ export const WithoutIcons: Story = {
           {
             label: "Compare",
             onClick: () => alert("Compare"),
-            variant: "outlined",
+            variant: "outline",
           },
         ]}
       />

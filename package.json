@@ -8,6 +8,7 @@
   "workspaces": [
     "apps/*",
     "packages/*",
+    "libs/stdui/packages/*",
     "e2e/*"
   ],
   "overrides": {

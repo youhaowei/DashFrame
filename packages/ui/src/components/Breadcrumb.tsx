@@ -1,7 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Fragment } from "react";
 import {
   BreadcrumbItem as BreadcrumbItemPrimitive,
   BreadcrumbLink,
@@ -9,7 +7,9 @@ import {
   BreadcrumbPage,
   Breadcrumb as BreadcrumbPrimitive,
   BreadcrumbSeparator,
-} from "../primitives/breadcrumb";
+} from "@stdui/react";
+import type { ReactNode } from "react";
+import { Fragment } from "react";
 
 export interface BreadcrumbItem {
   /** Item label */

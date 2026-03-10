@@ -4,8 +4,8 @@ import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, UUID } from "@dashframe/types";
-import { Spinner } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { Spinner } from "@stdui/react";
 import { useMemo } from "react";
 
 interface VisualizationRendererProps {
@@ -126,7 +126,7 @@ export function VisualizationRenderer({
     return (
       <div className={className} style={{ width, height }}>
         <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="flex items-center gap-2 text-neutral-fg-subtle">
             <Spinner size="sm" />
             <span className="text-sm">Loading visualization...</span>
           </div>

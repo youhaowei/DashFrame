@@ -8,6 +8,14 @@ import {
 } from "@dashframe/core";
 import type { DashboardItemType } from "@dashframe/types";
 import {
+  ArrowLeftIcon,
+  ChartIcon,
+  CheckIcon,
+  EditIcon,
+  FileIcon,
+  PlusIcon,
+} from "@stdui/icons";
+import {
   Button,
   Dialog,
   DialogContent,
@@ -19,15 +27,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
-import {
-  ArrowLeftIcon,
-  ChartIcon,
-  CheckIcon,
-  EditIcon,
-  FileIcon,
-  PlusIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -68,7 +68,7 @@ export default function DashboardDetailContent({
   if (isLoading || !dashboard) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading dashboard...</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading dashboard...</p>
       </div>
     );
   }
@@ -97,20 +97,20 @@ export default function DashboardDetailContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
         <div className="flex items-center gap-4">
           <Button
-            variant="text"
+            variant="ghost"
             icon={ArrowLeftIcon}
             iconOnly
             label="Back to dashboards"
             onClick={() => router.push("/dashboards")}
           />
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
               {dashboard.name}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               {dashboard.items.length} items
             </p>
           </div>
@@ -124,7 +124,7 @@ export default function DashboardDetailContent({
             />
           ) : (
             <Button
-              variant="outlined"
+              variant="outline"
               icon={EditIcon}
               label="Edit Dashboard"
               onClick={() => setIsEditable(true)}
@@ -142,7 +142,7 @@ export default function DashboardDetailContent({
       </div>
 
       {/* Grid Content */}
-      <div className="flex-1 overflow-y-auto bg-muted/10 p-6">
+      <div className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6">
         <DashboardGrid dashboard={dashboard} isEditable={isEditable} />
       </div>
 
@@ -159,8 +159,8 @@ export default function DashboardDetailContent({
                 <div
                   className={`cursor-pointer rounded-lg border p-4 transition-all ${
                     addType === "visualization"
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "hover:border-primary/50"
+                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                      : "hover:border-palette-primary/50"
                   }`}
                   onClick={() => setAddType("visualization")}
                 >
@@ -168,15 +168,15 @@ export default function DashboardDetailContent({
                     <ChartIcon className="h-4 w-4" />
                     Visualization
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-neutral-fg-subtle">
                     Add an existing chart or table
                   </p>
                 </div>
                 <div
                   className={`cursor-pointer rounded-lg border p-4 transition-all ${
                     addType === "markdown"
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "hover:border-primary/50"
+                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                      : "hover:border-palette-primary/50"
                   }`}
                   onClick={() => setAddType("markdown")}
                 >
@@ -184,7 +184,7 @@ export default function DashboardDetailContent({
                     <FileIcon className="h-4 w-4" />
                     Text / Markdown
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-neutral-fg-subtle">
                     Add rich text, notes, or headers
                   </p>
                 </div>
@@ -211,7 +211,7 @@ export default function DashboardDetailContent({
           </div>
           <div className="flex justify-end gap-2">
             <Button
-              variant="outlined"
+              variant="outline"
               label="Cancel"
               onClick={() => setIsAddOpen(false)}
             />

@@ -5,17 +5,10 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
-import {
-  ChartIcon,
-  LayersIcon,
-  Spinner,
-  Surface,
-  TableIcon,
-  Toggle,
-  VirtualTable,
-  type VirtualTableColumnConfig,
-} from "@dashframe/ui";
+import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { ChartIcon, LayersIcon, TableIcon } from "@stdui/icons";
+import { Spinner, Surface, Toggle } from "@stdui/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode
@@ -237,13 +230,13 @@ export function VisualizationDisplay({
           elevation="inset"
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-palette-primary/10 text-palette-primary">
             <Spinner size="lg" />
           </div>
-          <p className="text-lg font-semibold text-foreground">
+          <p className="text-lg font-semibold text-neutral-fg">
             Loading visualization...
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Please wait while the data is being loaded.
           </p>
         </Surface>
@@ -259,13 +252,13 @@ export function VisualizationDisplay({
           elevation="inset"
           className="w-full max-w-lg rounded-3xl p-10 text-center"
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-palette-primary/10 text-palette-primary">
             <ChartIcon className="h-6 w-6" />
           </div>
-          <p className="text-lg font-semibold text-foreground">
+          <p className="text-lg font-semibold text-neutral-fg">
             No visualization yet
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Use the controls on the left to create or select a visualization to
             preview.
           </p>
@@ -277,18 +270,21 @@ export function VisualizationDisplay({
   // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <div ref={headerRef} className="border-b border-border/60 px-4 py-2">
+      <div
+        ref={headerRef}
+        className="border-b border-neutral-border/60 px-4 py-2"
+      >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xl font-semibold text-foreground">
+            <p className="text-xl font-semibold text-neutral-fg">
               {activeViz.name}
             </p>
             <div className="flex items-center gap-2">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-neutral-fg-subtle">
                 {totalCount.toLocaleString()} rows · {columns.length} columns
               </p>
               {colorDisplayName && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
                   Color: {colorDisplayName}
                 </span>
               )}

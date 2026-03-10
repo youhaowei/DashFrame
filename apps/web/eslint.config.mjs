@@ -28,14 +28,17 @@ const stripDuplicateTypescriptPlugin = (config) => {
   };
 };
 
-const nextTypescriptWithoutDuplicatePlugin = nextTypescript.map(
+const nextTypescriptClean = nextTypescript.map(
+  stripDuplicateTypescriptPlugin,
+);
+const nextCoreWebVitalsClean = nextCoreWebVitals.map(
   stripDuplicateTypescriptPlugin,
 );
 
 export default defineConfig([
   ...sharedConfig,
-  ...nextCoreWebVitals,
-  ...nextTypescriptWithoutDuplicatePlugin,
+  ...nextCoreWebVitalsClean,
+  ...nextTypescriptClean,
   {
     rules: sharedRules,
   },

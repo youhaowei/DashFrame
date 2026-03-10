@@ -1,23 +1,22 @@
 "use client";
 
 import type { InsightMetric } from "@dashframe/types";
-import {
-  Badge,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  SortableList,
-  cn,
-  type SortableListItem,
-} from "@dashframe/ui";
+import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {
   CalculatorIcon,
   ChevronRightIcon,
   CloseIcon,
   EditIcon,
   PlusIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/icons";
+import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+} from "@stdui/react";
 import { useCallback, useState } from "react";
 
 /** Extended sortable item with metric data */
@@ -69,17 +68,17 @@ export function MetricsSection({
       <div className="border-b">
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger asChild>
-            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50">
+            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50">
               <ChevronRightIcon
                 className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform",
+                  "h-4 w-4 text-neutral-fg-subtle transition-transform",
                   isOpen && "rotate-90",
                 )}
               />
-              <CalculatorIcon className="h-4 w-4 text-muted-foreground" />
+              <CalculatorIcon className="h-4 w-4 text-neutral-fg-subtle" />
               <span className="text-sm leading-none font-medium">Metrics</span>
               <Badge
-                variant="secondary"
+                variant="soft"
                 className="h-5 px-1.5 text-xs leading-none tabular-nums"
               >
                 {metrics.length}
@@ -89,7 +88,7 @@ export function MetricsSection({
           <Button
             label="Add"
             icon={PlusIcon}
-            variant="text"
+            variant="ghost"
             size="sm"
             onClick={onAddClick}
           />
@@ -101,7 +100,7 @@ export function MetricsSection({
                 items={sortableItems}
                 onReorder={handleReorder}
                 gap={6}
-                itemClassName="bg-primary/5 border-primary/20"
+                itemClassName="bg-palette-primary/5 border-palette-primary/20"
                 renderItem={(item) => (
                   <MetricItemContent
                     metric={item.metric}
@@ -111,7 +110,7 @@ export function MetricsSection({
                 )}
               />
             ) : (
-              <p className="py-2 text-sm text-muted-foreground">
+              <p className="py-2 text-sm text-neutral-fg-subtle">
                 No metrics configured.
               </p>
             )}
@@ -135,9 +134,9 @@ function MetricItemContent({
 }: MetricItemContentProps) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <CalculatorIcon className="h-3 w-3 shrink-0 text-primary" />
+      <CalculatorIcon className="h-3 w-3 shrink-0 text-palette-primary" />
       <span
-        className="min-w-0 flex-1 cursor-pointer truncate text-sm text-primary hover:underline"
+        className="min-w-0 flex-1 cursor-pointer truncate text-sm text-palette-primary hover:underline"
         onClick={(e) => {
           e.stopPropagation();
           onEditClick();
@@ -146,7 +145,7 @@ function MetricItemContent({
       >
         {metric.name}
       </span>
-      <span className="shrink-0 text-xs text-primary/60">
+      <span className="shrink-0 text-xs text-palette-primary/60">
         {metric.aggregation}
       </span>
       <button
@@ -154,7 +153,7 @@ function MetricItemContent({
           e.stopPropagation();
           onEditClick();
         }}
-        className="shrink-0 rounded-full p-0.5 text-primary/60 hover:bg-primary/10 hover:text-primary"
+        className="shrink-0 rounded-full p-0.5 text-palette-primary/60 hover:bg-palette-primary/10 hover:text-palette-primary"
         aria-label={`Edit ${metric.name}`}
       >
         <EditIcon className="h-3 w-3" />
@@ -164,7 +163,7 @@ function MetricItemContent({
           e.stopPropagation();
           onRemove();
         }}
-        className="shrink-0 rounded-full p-0.5 text-primary/60 hover:bg-primary/10 hover:text-primary"
+        className="shrink-0 rounded-full p-0.5 text-palette-primary/60 hover:bg-palette-primary/10 hover:text-palette-primary"
         aria-label={`Remove ${metric.name}`}
       >
         <CloseIcon className="h-3 w-3" />

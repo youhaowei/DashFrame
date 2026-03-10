@@ -7,7 +7,8 @@ import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TRPCProvider } from "@/lib/trpc/Provider";
 import { DatabaseProvider } from "@dashframe/core";
-import { GeistMono, GeistSans, TooltipProvider } from "@dashframe/ui";
+import { GeistMono, GeistSans } from "@dashframe/ui";
+import { TooltipProvider } from "@stdui/react";
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import "../globals.css";
@@ -25,15 +26,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${GeistSans.variable} ${GeistMono.variable} bg-background font-sans text-foreground`}
+        className={`${GeistSans.variable} ${GeistMono.variable} bg-neutral-bg font-sans text-neutral-fg`}
         suppressHydrationWarning
       >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <ThemeProvider>
           <PostHogProvider>
             <PostHogPageView />
             <TooltipProvider>
@@ -56,10 +52,10 @@ export default function RootLayout({
                         />
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_80%,rgba(64,64,64,0.16),transparent_55%)] opacity-60 dark:opacity-40" />
                         <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.1),transparent,rgba(255,255,255,0.02))] dark:bg-[linear-gradient(120deg,rgba(0,0,0,0.05),transparent,rgba(0,0,0,0.2))]" />
-                        <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] dark:bg-background/75" />
+                        <div className="absolute inset-0 bg-neutral-bg/50 backdrop-blur-[2px] dark:bg-neutral-bg/75" />
                       </div>
 
-                      <div className="relative isolate flex min-h-screen flex-row bg-background text-foreground">
+                      <div className="relative isolate flex min-h-screen flex-row bg-neutral-bg text-neutral-fg">
                         <Navigation />
 
                         <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
@@ -71,9 +67,9 @@ export default function RootLayout({
                       <Toaster
                         toastOptions={{
                           style: {
-                            background: "var(--background)",
-                            color: "var(--foreground)",
-                            border: "1px solid var(--border)",
+                            background: "var(--neutral-bg)",
+                            color: "var(--neutral-fg)",
+                            border: "1px solid var(--neutral-border)",
                           },
                         }}
                       />

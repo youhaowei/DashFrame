@@ -10,16 +10,24 @@ import {
   useDataTables,
 } from "@dashframe/core";
 import type { UUID } from "@dashframe/types";
+import { Breadcrumb, VirtualTable } from "@dashframe/ui";
+import {
+  DatabaseIcon,
+  DeleteIcon,
+  ChevronLeftIcon as LuArrowLeft,
+  CloudIcon as LuCloud,
+  FileIcon as LuFileSpreadsheet,
+  MoreIcon as LuMoreHorizontal,
+  PlusIcon,
+  TableIcon,
+} from "@stdui/icons";
 import {
   Badge,
-  Breadcrumb,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  DatabaseIcon,
-  DeleteIcon,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -32,14 +40,7 @@ import {
   DropdownMenuTrigger,
   Input,
   ItemCard,
-  ChevronLeftIcon as LuArrowLeft,
-  CloudIcon as LuCloud,
-  FileIcon as LuFileSpreadsheet,
-  MoreIcon as LuMoreHorizontal,
-  PlusIcon,
-  TableIcon,
-  VirtualTable,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -170,7 +171,7 @@ export default function DataSourcePageContent({
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-muted-foreground">Loading data source…</p>
+          <p className="text-sm text-neutral-fg-subtle">Loading data source…</p>
         </div>
       </div>
     );
@@ -182,7 +183,7 @@ export default function DataSourcePageContent({
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data source not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             The data source you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -238,8 +239,10 @@ export default function DataSourcePageContent({
 
               {dataTables.length === 0 ? (
                 <div className="py-8 text-center">
-                  <TableIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">No tables yet</p>
+                  <TableIcon className="mx-auto mb-2 h-8 w-8 text-neutral-fg-subtle" />
+                  <p className="text-sm text-neutral-fg-subtle">
+                    No tables yet
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -271,7 +274,7 @@ export default function DataSourcePageContent({
                 <h2 className="text-xl font-semibold">
                   {tableDetails.dataTable?.name}
                 </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-sm text-neutral-fg-subtle">
                   {tableDetails.fields.length} fields •{" "}
                   {tableDetails.metrics.length} metrics
                 </p>
@@ -286,7 +289,7 @@ export default function DataSourcePageContent({
                   <DropdownMenuTrigger asChild>
                     <Button
                       label="More options"
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       iconOnly
                       icon={LuMoreHorizontal}
@@ -295,7 +298,7 @@ export default function DataSourcePageContent({
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={handleDeleteTable}
-                      className="text-destructive focus:text-destructive"
+                      className="text-palette-danger focus:text-palette-danger"
                     >
                       <DeleteIcon className="mr-2 h-4 w-4" />
                       Delete Table
@@ -312,7 +315,7 @@ export default function DataSourcePageContent({
               </CardHeader>
               <CardContent>
                 {tableDetails.fields.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-neutral-fg-subtle">
                     No fields defined
                   </p>
                 ) : (
@@ -320,7 +323,7 @@ export default function DataSourcePageContent({
                     {tableDetails.fields.map((field) => (
                       <div
                         key={field.id}
-                        className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
+                        className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
                       >
                         <span className="text-sm font-medium">
                           {field.name}
@@ -342,7 +345,7 @@ export default function DataSourcePageContent({
               </CardHeader>
               <CardContent>
                 {tableDetails.metrics.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-neutral-fg-subtle">
                     No metrics defined
                   </p>
                 ) : (
@@ -350,15 +353,12 @@ export default function DataSourcePageContent({
                     {tableDetails.metrics.map((metric) => (
                       <div
                         key={metric.id}
-                        className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2"
+                        className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
                       >
                         <span className="text-sm font-medium">
                           {metric.name}
                         </span>
-                        <Badge
-                          variant="secondary"
-                          className="font-mono text-xs"
-                        >
+                        <Badge variant="soft" className="font-mono text-xs">
                           {metric.aggregation}
                           {metric.columnName && `(${metric.columnName})`}
                         </Badge>
@@ -383,7 +383,7 @@ export default function DataSourcePageContent({
                           <div className="flex h-40 items-center justify-center">
                             <div className="flex flex-col items-center gap-2">
                               <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                              <p className="text-sm text-muted-foreground">
+                              <p className="text-sm text-neutral-fg-subtle">
                                 Loading data...
                               </p>
                             </div>
@@ -403,7 +403,7 @@ export default function DataSourcePageContent({
 
                       return (
                         <div className="flex h-40 items-center justify-center">
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-neutral-fg-subtle">
                             No data available
                           </p>
                         </div>
@@ -417,9 +417,9 @@ export default function DataSourcePageContent({
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
-              <TableIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
               <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-neutral-fg-subtle">
                 Choose a table from the sidebar to view its details
               </p>
             </div>
@@ -451,7 +451,7 @@ export default function DataSourcePageContent({
           <DialogFooter>
             <Button
               label="Cancel"
-              variant="outlined"
+              variant="outline"
               onClick={() =>
                 setDeleteConfirmState({
                   isOpen: false,

@@ -9,7 +9,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
@@ -101,12 +101,12 @@ export function CreateVisualizationModal({
           <div className="flex flex-col gap-3 pt-4">
             <Button
               onClick={handleEditInsight}
-              variant="outlined"
+              variant="outline"
               label="Edit this insight"
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Edit this insight</span>
-              <span className="text-xs font-normal text-muted-foreground">
+              <span className="text-xs font-normal text-neutral-fg-subtle">
                 Open and modify the existing insight
               </span>
             </Button>
@@ -116,7 +116,7 @@ export function CreateVisualizationModal({
               className="h-auto flex-col items-start gap-1 py-3"
             >
               <span className="font-medium">Create new based on this</span>
-              <span className="text-xs font-normal text-muted-foreground">
+              <span className="text-xs font-normal text-neutral-fg-subtle">
                 Chain a new insight from this data
               </span>
             </Button>

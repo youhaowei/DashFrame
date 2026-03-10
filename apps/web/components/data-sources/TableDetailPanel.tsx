@@ -3,20 +3,16 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
 import type { DataTable } from "@dashframe/types";
+import { VirtualTable } from "@dashframe/ui";
 import {
-  Button,
-  ButtonGroup,
   CloseIcon,
   DeleteIcon,
   EditIcon,
-  EmptyState,
   LayersIcon,
-  Panel,
   PlusIcon,
   SparklesIcon,
-  Toggle,
-  VirtualTable,
-} from "@dashframe/ui";
+} from "@stdui/icons";
+import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@stdui/react";
 import { useState } from "react";
 
 interface TableDetailPanelProps {
@@ -66,8 +62,8 @@ export function TableDetailPanel({
       return (
         <div className="flex h-full items-center justify-center">
           <div className="flex flex-col items-center gap-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent bg-muted" />
-            <p className="text-sm text-muted-foreground">Loading data...</p>
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent bg-neutral-bg-muted" />
+            <p className="text-sm text-neutral-fg-subtle">Loading data...</p>
           </div>
         </div>
       );
@@ -86,7 +82,7 @@ export function TableDetailPanel({
 
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-neutral-fg-subtle">
           No data preview available
         </p>
       </div>
@@ -112,10 +108,10 @@ export function TableDetailPanel({
         <div className="px-4 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold text-foreground">
+              <h1 className="text-xl font-semibold text-neutral-fg">
                 {dataTable.name}
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-neutral-fg-subtle">
                 {dataFrameEntry
                   ? `${dataFrameEntry.rowCount ?? "?"} rows × ${dataFrameEntry.columnCount ?? "?"} columns`
                   : "No data available"}
@@ -127,9 +123,9 @@ export function TableDetailPanel({
                   label: "Delete Table",
                   onClick: onDeleteTable,
                   icon: DeleteIcon,
-                  variant: "text",
+                  variant: "ghost",
                   className:
-                    "text-destructive hover:bg-destructive hover:text-destructive-foreground",
+                    "text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg",
                 },
                 {
                   label: "Create Visualization",
@@ -140,9 +136,9 @@ export function TableDetailPanel({
             />
           </div>
 
-          <div className="mt-4 border-t border-border/60 pt-4">
+          <div className="mt-4 border-t border-neutral-border/60 pt-4">
             <Toggle
-              variant="default"
+              variant="soft"
               value={activeTab}
               onValueChange={setActiveTab}
               options={[
@@ -167,13 +163,13 @@ export function TableDetailPanel({
       {activeTab === "fields" && (
         <div className="flex h-full flex-col gap-4 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               {dataTable.fields.length} field
               {dataTable.fields.length !== 1 ? "s" : ""}
             </p>
             <Button
               label="Add Field"
-              variant="outlined"
+              variant="outline"
               size="sm"
               onClick={onAddField}
               icon={PlusIcon}
@@ -183,7 +179,7 @@ export function TableDetailPanel({
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {dataTable.fields.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-neutral-fg-subtle">
                   No fields defined
                 </p>
               </div>
@@ -191,20 +187,20 @@ export function TableDetailPanel({
               dataTable.fields.map((field) => (
                 <div
                   key={field.id}
-                  className="flex items-center justify-between rounded-xl border border-border/60 p-3 transition-colors hover:border-border"
+                  className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="truncate text-sm font-medium text-foreground">
+                    <span className="truncate text-sm font-medium text-neutral-fg">
                       {field.name}
                     </span>
-                    <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
                       {field.type}
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
                       label="Edit field"
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       iconOnly
                       onClick={() => onEditField(field.id)}
@@ -213,11 +209,11 @@ export function TableDetailPanel({
                     />
                     <Button
                       label="Delete field"
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       iconOnly
                       onClick={() => onDeleteField(field.id)}
-                      className="h-8 w-8 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      className="h-8 w-8 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
                       icon={CloseIcon}
                     />
                   </div>
@@ -232,13 +228,13 @@ export function TableDetailPanel({
       {activeTab === "metrics" && (
         <div className="flex h-full flex-col gap-4 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               {dataTable.metrics.length} metric
               {dataTable.metrics.length !== 1 ? "s" : ""}
             </p>
             <Button
               label="Add Metric"
-              variant="outlined"
+              variant="outline"
               size="sm"
               onClick={onAddMetric}
               icon={PlusIcon}
@@ -248,7 +244,7 @@ export function TableDetailPanel({
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {dataTable.metrics.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-neutral-fg-subtle">
                   No metrics defined
                 </p>
               </div>
@@ -261,23 +257,23 @@ export function TableDetailPanel({
                 return (
                   <div
                     key={metric.id}
-                    className="flex items-center justify-between rounded-xl border border-border/60 p-3 transition-colors hover:border-border"
+                    className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
                   >
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <span className="truncate text-sm font-medium text-foreground">
+                      <span className="truncate text-sm font-medium text-neutral-fg">
                         {metric.name}
                       </span>
-                      <span className="shrink-0 rounded bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
+                      <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 font-mono text-xs text-neutral-fg-subtle">
                         {formula}
                       </span>
                     </div>
                     <Button
                       label="Delete metric"
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       iconOnly
                       onClick={() => onDeleteMetric(metric.id)}
-                      className="h-8 w-8 shrink-0 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                      className="h-8 w-8 shrink-0 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
                       icon={CloseIcon}
                     />
                   </div>
@@ -291,9 +287,9 @@ export function TableDetailPanel({
       {/* Preview Content */}
       {activeTab === "preview" && (
         <div className="flex h-full flex-col gap-4 p-4">
-          <p className="text-sm text-muted-foreground">{previewStatus}</p>
+          <p className="text-sm text-neutral-fg-subtle">{previewStatus}</p>
 
-          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60">
+          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-neutral-border/60">
             {renderPreviewContent()}
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { Section } from "@dashframe/ui";
+import { Section } from "@stdui/react";
 import { memo } from "react";
 
 interface SuggestedChartsSectionProps {
@@ -43,11 +43,11 @@ export const SuggestedChartsSection = memo(function SuggestedChartsSection({
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+              className="rounded-2xl border border-neutral-border bg-neutral-bg p-4 shadow-sm"
             >
-              <div className="mb-3 h-32 animate-pulse rounded-xl bg-muted" />
-              <div className="mb-2 h-5 w-3/4 animate-pulse rounded bg-muted-foreground/20" />
-              <div className="h-4 w-1/2 animate-pulse rounded bg-muted-foreground/10" />
+              <div className="mb-3 h-32 animate-pulse rounded-xl bg-neutral-bg-muted" />
+              <div className="mb-2 h-5 w-3/4 animate-pulse rounded bg-neutral-fg-subtle/20" />
+              <div className="h-4 w-1/2 animate-pulse rounded bg-neutral-fg-subtle/10" />
             </div>
           ))}
         </div>

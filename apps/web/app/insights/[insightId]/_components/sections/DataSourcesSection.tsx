@@ -3,14 +3,14 @@
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
 import type { DataTable, Field, Insight } from "@dashframe/types";
+import { JoinTypeIcon } from "@dashframe/ui";
+import { CloseIcon, DatabaseIcon, PlusIcon } from "@stdui/icons";
 import {
   ItemList,
-  JoinTypeIcon,
   Section,
-  type ItemAction,
+  type ItemCardAction,
   type ListItem,
-} from "@dashframe/ui";
-import { CloseIcon, DatabaseIcon, PlusIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataSourcesSectionProps {
@@ -72,7 +72,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
         : undefined;
       const joinRowCount = joinDataFrameEntry?.rowCount ?? 0;
 
-      const actions: ItemAction[] = [
+      const actions: ItemCardAction[] = [
         {
           icon: CloseIcon,
           label: "Remove join",
@@ -110,7 +110,7 @@ export const DataSourcesSection = memo(function DataSourcesSection({
             label: "Add join",
             icon: PlusIcon,
             onClick: () => setIsJoinFlowOpen(true),
-            variant: "outlined",
+            variant: "outline",
           },
         ]}
       >

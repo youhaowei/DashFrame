@@ -11,7 +11,7 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useState } from "react";
 
 interface FieldRenameDialogProps {
@@ -64,22 +64,22 @@ function FieldRenameForm({
 
       <div className="space-y-4 py-4">
         {/* Source info (read-only) */}
-        <div className="space-y-2 rounded-lg bg-muted px-3 py-3">
+        <div className="space-y-2 rounded-lg bg-neutral-bg-muted px-3 py-3">
           {tableName && (
             <div className="flex items-start justify-between gap-4">
-              <span className="shrink-0 text-sm text-muted-foreground">
+              <span className="shrink-0 text-sm text-neutral-fg-subtle">
                 Table
               </span>
-              <span className="min-w-0 text-right text-sm break-all text-foreground">
+              <span className="min-w-0 text-right text-sm break-all text-neutral-fg">
                 {tableName}
               </span>
             </div>
           )}
           <div className="flex items-start justify-between gap-4">
-            <span className="shrink-0 text-sm text-muted-foreground">
+            <span className="shrink-0 text-sm text-neutral-fg-subtle">
               Column
             </span>
-            <code className="min-w-0 text-right font-mono text-sm break-all text-foreground">
+            <code className="min-w-0 text-right font-mono text-sm break-all text-neutral-fg">
               {columnName}
             </code>
           </div>
@@ -100,7 +100,7 @@ function FieldRenameForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outlined" onClick={onClose} />
+        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
           label="Save"
           onClick={handleSave}

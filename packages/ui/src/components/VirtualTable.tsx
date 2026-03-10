@@ -1,9 +1,8 @@
 "use client";
 
+import { cn, Spinner } from "@stdui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "../lib/utils";
-import { Spinner } from "./Spinner";
 
 // ============================================================================
 // Types
@@ -531,14 +530,14 @@ export function VirtualTable({
   const fontSize = compact ? "text-[11px]" : "text-xs";
 
   const highlightHeaderStyles = {
-    primary: "bg-primary text-primary-foreground font-semibold",
+    primary: "bg-palette-primary text-palette-primary-fg font-semibold",
     base: "bg-blue-600 text-white font-semibold",
     join: "bg-emerald-600 text-white font-semibold",
     both: "bg-amber-500 text-white font-semibold",
   };
 
   const highlightCellStyles = {
-    primary: "bg-primary/15",
+    primary: "bg-palette-primary/15",
     base: "bg-blue-500/10",
     join: "bg-emerald-500/10",
     both: "bg-amber-500/10",
@@ -561,11 +560,11 @@ export function VirtualTable({
       {/* Loading indicator with animated spinner */}
       {isLoading && (
         <div
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-muted/50"
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-neutral-bg-muted/50"
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-center gap-2 rounded-lg bg-background/95 px-4 py-2 text-sm text-muted-foreground shadow-md">
+          <div className="flex items-center gap-2 rounded-lg bg-neutral-bg/95 px-4 py-2 text-sm text-neutral-fg-subtle shadow-md">
             <Spinner size="sm" aria-hidden="true" />
             <span>Loading data...</span>
           </div>
@@ -575,11 +574,11 @@ export function VirtualTable({
       {/* Table container */}
       <div
         ref={tableContainerRef}
-        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-border"
+        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-neutral-border"
       >
         {/* Header */}
         <div
-          className="sticky top-0 z-10 border-b border-border bg-muted"
+          className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted"
           style={{
             display: "grid",
             gridTemplateColumns,
@@ -605,12 +604,12 @@ export function VirtualTable({
                 type="button"
                 key={col.name}
                 className={cn(
-                  "cursor-pointer overflow-hidden text-left font-medium text-muted-foreground select-none",
-                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none",
+                  "cursor-pointer overflow-hidden text-left font-medium text-neutral-fg-subtle select-none",
+                  "focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
                   isHighlighted && highlightHeaderStyles[highlightVariant],
-                  !isHighlighted && "hover:bg-muted/80",
+                  !isHighlighted && "hover:bg-neutral-bg-muted/80",
                 )}
                 title={`Sort by ${columnLabel}`}
                 aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
@@ -631,7 +630,7 @@ export function VirtualTable({
 
         {/* Body */}
         <div
-          className="relative bg-card"
+          className="relative bg-neutral-bg"
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
             minWidth: "max-content",
@@ -645,7 +644,7 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="absolute border-b border-border"
+                  className="absolute border-b border-neutral-border"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
@@ -659,12 +658,12 @@ export function VirtualTable({
                     <div
                       key={col.name}
                       className={cn(
-                        "text-muted-foreground/50",
+                        "text-neutral-fg-subtle/50",
                         cellPadding,
                         fontSize,
                       )}
                     >
-                      <div className="h-3 w-16 animate-pulse rounded bg-muted/50" />
+                      <div className="h-3 w-16 animate-pulse rounded bg-neutral-bg-muted/50" />
                     </div>
                   ))}
                 </div>
@@ -675,7 +674,7 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="group absolute border-b border-border"
+                className="group absolute border-b border-neutral-border"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
@@ -702,7 +701,7 @@ export function VirtualTable({
                     <div
                       key={col.name}
                       className={cn(
-                        "text-foreground group-hover:bg-muted/50",
+                        "text-neutral-fg group-hover:bg-neutral-bg-muted/50",
                         cellPadding,
                         fontSize,
                         isHighlighted && highlightCellStyles[highlightVariant],
@@ -736,7 +735,7 @@ export function VirtualTable({
             role="status"
             aria-live="polite"
           >
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-neutral-fg-subtle">
               No data available
             </span>
           </div>

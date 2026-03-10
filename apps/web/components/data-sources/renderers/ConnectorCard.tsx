@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
   FieldError,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import dynamic from "next/dynamic";
 
 const ConnectorIcon = dynamic(
@@ -77,10 +77,10 @@ export function ConnectorCard({
 
         {/* File input for file connectors */}
         {isFileConnector && (
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-input bg-muted/50 p-6 text-center text-sm font-medium transition hover:border-primary hover:bg-muted">
-            <span className="text-foreground">Select {connector.name}</span>
+          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-neutral-border bg-neutral-bg-muted/50 p-6 text-center text-sm font-medium transition hover:border-palette-primary hover:bg-neutral-bg-muted">
+            <span className="text-neutral-fg">Select {connector.name}</span>
             {fileConnector?.helperText && (
-              <span className="mt-2 text-xs font-normal text-muted-foreground">
+              <span className="mt-2 text-xs font-normal text-neutral-fg-subtle">
                 {fileConnector.helperText}
               </span>
             )}

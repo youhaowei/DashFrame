@@ -29,7 +29,7 @@ export function HomeView() {
       {/* Welcome Header */}
       <div className="mb-8">
         <h1 className="mb-2 text-3xl font-bold">Welcome back to DashFrame</h1>
-        <p className="text-muted-foreground">
+        <p className="text-neutral-fg-subtle">
           {visualizations.length} visualization
           {visualizations.length !== 1 ? "s" : ""} · {insights.length} insight
           {insights.length !== 1 ? "s" : ""} · {dataSources.length} data source

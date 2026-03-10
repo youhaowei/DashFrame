@@ -6,7 +6,7 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { Alert, AlertDescription } from "@dashframe/ui";
+import { Alert, AlertDescription } from "@stdui/react";
 import { useMemo } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 
@@ -49,7 +49,7 @@ export function AddConnectionPanel({
   return (
     <div className="space-y-6">
       {error && (
-        <Alert variant="destructive">
+        <Alert color="danger">
           <AlertDescription>
             <pre className="overflow-auto text-xs">{error}</pre>
           </AlertDescription>

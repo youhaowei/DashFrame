@@ -1,38 +1,26 @@
-import { ThemeProvider } from "next-themes";
+import { StduiProvider, useTheme } from "@stdui/react/theme";
 import { useEffect, type ReactNode } from "react";
 
 interface ThemeWrapperProps {
-  /** Child elements to wrap with theme - optional when using createElement's third argument */
   children?: ReactNode;
-  /** Theme name: "light", "dark", or "system" */
   theme: string;
 }
 
-export function ThemeWrapper({ children, theme }: ThemeWrapperProps) {
+function ThemeSetter({ theme }: { theme: string }) {
+  const { setMode } = useTheme();
+
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
+    setMode(theme as "light" | "dark" | "system");
+  }, [theme, setMode]);
 
-    if (theme === "system") {
-      // Detect system theme
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light";
-      root.classList.add(systemTheme);
-    } else {
-      root.classList.add(theme);
-    }
-  }, [theme]);
+  return null;
+}
 
+export function ThemeWrapper({ children, theme }: ThemeWrapperProps) {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      forcedTheme={theme === "system" ? undefined : theme}
-      enableSystem
-    >
+    <StduiProvider defaultMode={theme as "light" | "dark" | "system"}>
+      <ThemeSetter theme={theme} />
       {children}
-    </ThemeProvider>
+    </StduiProvider>
   );
 }

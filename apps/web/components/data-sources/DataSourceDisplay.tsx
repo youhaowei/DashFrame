@@ -11,24 +11,28 @@ import {
 } from "@dashframe/core";
 import type { DataTable, Field } from "@dashframe/types";
 import {
+  InputField,
+  MultiSelectField,
+  VirtualTable,
+  type VirtualTableColumn,
+} from "@dashframe/ui";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DatabaseIcon,
+  LayersIcon,
+  RefreshIcon,
+} from "@stdui/icons";
+import {
   Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  ChevronDownIcon,
-  ChevronUpIcon,
   cn,
-  DatabaseIcon,
-  InputField,
-  LayersIcon,
-  MultiSelectField,
-  RefreshIcon,
   Surface,
-  VirtualTable,
-  type VirtualTableColumn,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -113,10 +117,10 @@ function PreviewContent({
   if (isPreviewCollapsed) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <p className="text-sm text-muted-foreground">Preview collapsed</p>
+        <p className="text-sm text-neutral-fg-subtle">Preview collapsed</p>
         <Button
           label="Expand preview"
-          variant="outlined"
+          variant="outline"
           size="sm"
           onClick={onExpandPreview}
         />
@@ -177,7 +181,7 @@ function LocalDataSourceView({
     if (isLoading) {
       return (
         <div className="flex flex-1 items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent bg-muted" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent bg-neutral-bg-muted" />
         </div>
       );
     }
@@ -237,23 +241,23 @@ function LocalDataSourceView({
                   key={table.id}
                   onClick={() => setSelectedTableId(table.id)}
                   className={cn(
-                    "w-full rounded-lg border border-border/60 p-3 text-left transition-colors hover:border-border hover:bg-accent/50",
-                    isSelected && "border-primary bg-primary/5",
+                    "w-full rounded-lg border border-neutral-border/60 p-3 text-left transition-colors hover:border-neutral-border hover:bg-neutral-bg-emphasis/50",
+                    isSelected && "border-palette-primary bg-palette-primary/5",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p
                         className={cn(
-                          "truncate text-sm font-medium text-foreground",
-                          isSelected && "text-primary",
+                          "truncate text-sm font-medium text-neutral-fg",
+                          isSelected && "text-palette-primary",
                         )}
                       >
                         {table.name}
                       </p>
                       {/* Show entry metadata if available */}
                       {isSelected && entry && (
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-1 text-xs text-neutral-fg-subtle">
                           {entry.rowCount ?? "?"} rows ×{" "}
                           {entry.columnCount ?? "?"} columns
                         </p>
@@ -490,11 +494,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return (
       <div className="flex h-full w-full items-center justify-center p-6">
         <Surface elevation="inset" className="w-full p-8 text-center">
-          <DatabaseIcon className="mx-auto h-12 w-12 text-muted-foreground/50" />
-          <p className="mt-4 text-base font-medium text-foreground">
+          <DatabaseIcon className="mx-auto h-12 w-12 text-neutral-fg-subtle/50" />
+          <p className="mt-4 text-base font-medium text-neutral-fg">
             No data source selected
           </p>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             Select a data source to view its tables and data.
           </p>
         </Surface>
@@ -524,7 +528,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <DatabaseIcon className="h-5 w-5 text-muted-foreground" />
+                    <DatabaseIcon className="h-5 w-5 text-neutral-fg-subtle" />
                     <CardTitle className="text-lg">
                       {selectedDataTable.name}
                     </CardTitle>
@@ -547,10 +551,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                           key={dataTable.id}
                           onClick={() => setSelectedDataTableId(dataTable.id)}
                           className={cn(
-                            "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-muted/50",
+                            "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-neutral-bg-muted/50",
                             selectedDataTableId === dataTable.id
-                              ? "border-primary bg-primary/5 font-medium text-foreground"
-                              : "border-border/40 text-muted-foreground",
+                              ? "border-palette-primary bg-palette-primary/5 font-medium text-neutral-fg"
+                              : "border-neutral-border/40 text-neutral-fg-subtle",
                           )}
                         >
                           {dataTable.name}
@@ -579,9 +583,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 {/* Properties Multiselect */}
                 {isFetchingSchema ? (
                   <div className="space-y-2">
-                    <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">
+                    <div className="flex h-9 items-center gap-2 rounded-md border border-neutral-border bg-neutral-bg px-3">
                       <RefreshIcon className="h-3 w-3 animate-spin" />
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-neutral-fg-subtle">
                         Loading...
                       </span>
                     </div>
@@ -595,7 +599,14 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                         value: p.id,
                         label: p.name,
                         description: `${p.type} → ${dfType}`,
-                        type: dfType,
+                        type: dfType as
+                          | "string"
+                          | "number"
+                          | "date"
+                          | "boolean"
+                          | "object"
+                          | "array"
+                          | undefined,
                       };
                     })}
                     value={selectedPropertyIds}
@@ -631,11 +642,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
           <Card>
             <CardContent className="py-12">
               <div className="flex flex-col items-center gap-2 text-center">
-                <DatabaseIcon className="h-8 w-8 text-muted-foreground/70" />
-                <p className="text-sm font-medium text-foreground">
+                <DatabaseIcon className="h-8 w-8 text-neutral-fg-subtle/70" />
+                <p className="text-sm font-medium text-neutral-fg">
                   No tables configured
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-neutral-fg-subtle">
                   Add databases from the left panel to get started
                 </p>
               </div>
@@ -654,7 +665,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                   dataSource.type === "notion" && (
                     <Button
                       label={isRefreshing ? "Refreshing..." : "Refresh"}
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       onClick={handleRefreshDataTable}
                       disabled={isRefreshing}
@@ -679,7 +690,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                 label={
                   isPreviewCollapsed ? "Expand preview" : "Collapse preview"
                 }
-                variant="text"
+                variant="ghost"
                 size="sm"
                 iconOnly
                 onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
@@ -705,7 +716,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   return (
     <div className="flex h-full w-full items-center justify-center p-6">
       <Surface elevation="inset" className="w-full p-8 text-center">
-        <p className="text-base font-medium text-foreground">
+        <p className="text-base font-medium text-neutral-fg">
           Unsupported data source type
         </p>
       </Surface>
@@ -715,8 +726,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-      <LayersIcon className="h-6 w-6 text-muted-foreground/70" />
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-neutral-fg-subtle">
+      <LayersIcon className="h-6 w-6 text-neutral-fg-subtle/70" />
       <p>{message}</p>
     </div>
   );

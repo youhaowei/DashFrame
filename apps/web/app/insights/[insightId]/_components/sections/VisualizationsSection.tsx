@@ -7,13 +7,13 @@ import type { Insight } from "@/lib/stores/types";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type { Field, Visualization } from "@dashframe/types";
+import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
 import {
   ItemList,
   Section,
-  type ItemAction,
+  type ItemCardAction,
   type ListItem,
-} from "@dashframe/ui";
-import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useMemo, useState } from "react";
 
@@ -48,7 +48,7 @@ interface VisualizationsSectionProps {
 /** Extended ListItem that includes the full visualization object and actions */
 interface VisualizationListItem extends ListItem {
   visualization: Visualization;
-  actions?: ItemAction[];
+  actions?: ItemCardAction[];
 }
 
 /**
@@ -109,7 +109,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
   const items: VisualizationListItem[] = useMemo(
     () =>
       visualizations.map((viz) => {
-        const actions: ItemAction[] = [];
+        const actions: ItemCardAction[] = [];
 
         if (onDuplicateVisualization) {
           actions.push({
@@ -190,7 +190,7 @@ export const VisualizationsSection = memo(function VisualizationsSection({
                 {
                   label: "Create visualization",
                   icon: PlusIcon,
-                  variant: "outlined",
+                  variant: "outline",
                   onClick: handleCreateVisualization,
                 },
               ]

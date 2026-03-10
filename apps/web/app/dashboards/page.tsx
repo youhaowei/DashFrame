@@ -1,10 +1,9 @@
 "use client";
 
 import { useDashboardMutations, useDashboards } from "@dashframe/core";
+import { DashboardIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
 import {
   Button,
-  DashboardIcon,
-  DeleteIcon,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -12,9 +11,8 @@ import {
   DialogTitle,
   Input,
   Label,
-  PlusIcon,
   Surface,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -41,23 +39,23 @@ export default function DashboardsPage() {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading dashboards...</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading dashboards...</p>
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
             <DashboardIcon className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
               Dashboards
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               Manage your dashboards and reports
             </p>
           </div>
@@ -72,13 +70,13 @@ export default function DashboardsPage() {
       <div className="flex-1 overflow-y-auto p-6">
         {dashboards.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-neutral-bg-muted text-neutral-fg-subtle">
               <DashboardIcon className="h-10 w-10" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground">
+            <h3 className="text-lg font-semibold text-neutral-fg">
               No dashboards yet
             </h3>
-            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+            <p className="mt-2 max-w-sm text-sm text-neutral-fg-subtle">
               Create your first dashboard to start organizing your
               visualizations.
             </p>
@@ -99,10 +97,10 @@ export default function DashboardsPage() {
               >
                 <Surface
                   elevation="raised"
-                  className="relative flex h-full flex-col p-5 transition-all hover:border-primary/50 hover:shadow-md"
+                  className="relative flex h-full flex-col p-5 transition-all hover:border-palette-primary/50 hover:shadow-md"
                 >
                   <div className="mb-4 flex items-start justify-between">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-palette-primary/10 text-palette-primary">
                       <DashboardIcon className="h-5 w-5" />
                     </div>
                     <div
@@ -112,20 +110,20 @@ export default function DashboardsPage() {
                       }}
                     >
                       <Button
-                        variant="text"
+                        variant="ghost"
                         icon={DeleteIcon}
                         iconOnly
                         label="Delete dashboard"
                         color="danger"
-                        className="-mt-2 -mr-2 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                        className="-mt-2 -mr-2 text-neutral-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 hover:text-palette-danger"
                         onClick={() => removeDashboard(dashboard.id)}
                       />
                     </div>
                   </div>
-                  <h3 className="mb-1 font-semibold text-foreground">
+                  <h3 className="mb-1 font-semibold text-neutral-fg">
                     {dashboard.name}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-neutral-fg-subtle">
                     {dashboard.items.length} items · Updated{" "}
                     {dashboard.updatedAt
                       ? new Date(dashboard.updatedAt).toLocaleDateString()
@@ -160,7 +158,7 @@ export default function DashboardsPage() {
           </div>
           <DialogFooter>
             <Button
-              variant="outlined"
+              variant="outline"
               label="Cancel"
               onClick={() => setIsCreateOpen(false)}
             />

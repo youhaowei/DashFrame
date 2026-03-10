@@ -18,13 +18,16 @@ import type {
   InsightJoinConfig,
 } from "@dashframe/types";
 import {
+  VirtualTable,
+  type VirtualTableColumn,
+  type VirtualTableColumnConfig,
+} from "@dashframe/ui";
+import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@stdui/icons";
+import {
   Alert,
-  AlertCircleIcon,
   AlertDescription,
-  ArrowLeftIcon,
   Button,
   Label,
-  MergeIcon,
   Select,
   SelectContent,
   SelectItem,
@@ -32,10 +35,7 @@ import {
   SelectValue,
   Spinner,
   Surface,
-  VirtualTable,
-  type VirtualTableColumn,
-  type VirtualTableColumnConfig,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -683,10 +683,10 @@ export default function JoinConfigureContent({
   // Loading state - wait for all stores to hydrate before rendering
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-neutral-bg">
         <div className="flex flex-col items-center gap-4">
-          <Spinner size="lg" className="text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
+          <Spinner size="lg" className="text-neutral-fg-subtle" />
+          <p className="text-sm text-neutral-fg-subtle">
             Loading join configuration...
           </p>
         </div>
@@ -697,11 +697,11 @@ export default function JoinConfigureContent({
   // Error states
   if (!insight) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Insight not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             The insight you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
@@ -716,11 +716,11 @@ export default function JoinConfigureContent({
 
   if (!baseTable) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Base table not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             The data table for this insight no longer exists.
           </p>
           <Button
@@ -735,11 +735,11 @@ export default function JoinConfigureContent({
 
   if (!joinTable) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
-          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
+          <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Join table not found</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
             The table you&apos;re trying to join with doesn&apos;t exist.
           </p>
           <Button
@@ -755,14 +755,14 @@ export default function JoinConfigureContent({
   const canJoin = leftFieldId && rightFieldId;
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col bg-neutral-bg">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-card/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Button
-                variant="text"
+                variant="ghost"
                 icon={ArrowLeftIcon}
                 label="Cancel"
                 size="sm"
@@ -772,7 +772,7 @@ export default function JoinConfigureContent({
                 <h1 className="text-xl font-semibold">
                   Join: {baseTable.name} + {joinTable.name}
                 </h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-neutral-fg-subtle">
                   Configure how to combine these datasets
                 </p>
               </div>
@@ -834,12 +834,12 @@ export default function JoinConfigureContent({
 
             {/* Matching column suggestions */}
             {columnSuggestions.length > 0 && (
-              <div className="mb-6 rounded-xl border border-border/60 bg-muted/50 p-4">
+              <div className="mb-6 rounded-xl border border-neutral-border/60 bg-neutral-bg-muted/50 p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <span className="text-sm font-medium">
                     Matching columns found
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-neutral-fg-subtle">
                     – click to select
                   </span>
                 </div>
@@ -849,17 +849,17 @@ export default function JoinConfigureContent({
                       key={pair.columnName}
                       type="button"
                       onClick={() => applySuggestion(pair)}
-                      className="group flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-primary/10"
+                      className="group flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-border bg-neutral-bg px-3 py-2 text-sm transition-colors hover:border-palette-primary/50 hover:bg-palette-primary/10"
                     >
-                      <span className="font-medium text-foreground group-hover:text-primary">
+                      <span className="font-medium text-neutral-fg group-hover:text-palette-primary">
                         {pair.leftField.columnName ?? pair.leftField.name}
                       </span>
-                      <span className="text-muted-foreground">↔</span>
-                      <span className="font-medium text-foreground group-hover:text-primary">
+                      <span className="text-neutral-fg-subtle">↔</span>
+                      <span className="font-medium text-neutral-fg group-hover:text-palette-primary">
                         {pair.rightField.columnName ?? pair.rightField.name}
                       </span>
                       {pair.matchingValues > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
+                        <span className="ml-1 text-xs text-neutral-fg-subtle">
                           ({pair.matchingValues.toLocaleString()} matching)
                         </span>
                       )}
@@ -886,7 +886,7 @@ export default function JoinConfigureContent({
                         {baseFields.map((field) => (
                           <SelectItem key={field.id} value={field.id}>
                             {field.name}
-                            <span className="ml-2 text-xs text-muted-foreground">
+                            <span className="ml-2 text-xs text-neutral-fg-subtle">
                               ({field.type})
                             </span>
                           </SelectItem>
@@ -908,7 +908,7 @@ export default function JoinConfigureContent({
                         {joinFields.map((field) => (
                           <SelectItem key={field.id} value={field.id}>
                             {field.name}
-                            <span className="ml-2 text-xs text-muted-foreground">
+                            <span className="ml-2 text-xs text-neutral-fg-subtle">
                               ({field.type})
                             </span>
                           </SelectItem>
@@ -932,25 +932,25 @@ export default function JoinConfigureContent({
                     <SelectContent>
                       <SelectItem value="inner">
                         Inner
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ml-2 text-xs text-neutral-fg-subtle">
                           (only matching rows)
                         </span>
                       </SelectItem>
                       <SelectItem value="left">
                         Left
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ml-2 text-xs text-neutral-fg-subtle">
                           (all base + matching)
                         </span>
                       </SelectItem>
                       <SelectItem value="right">
                         Right
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ml-2 text-xs text-neutral-fg-subtle">
                           (matching + all join)
                         </span>
                       </SelectItem>
                       <SelectItem value="outer">
                         Outer
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ml-2 text-xs text-neutral-fg-subtle">
                           (all rows from both)
                         </span>
                       </SelectItem>
@@ -1046,7 +1046,7 @@ export default function JoinConfigureContent({
                       x="45"
                       y="110"
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[9px]"
+                      className="fill-neutral-fg-subtle text-[9px]"
                     >
                       Base
                     </text>
@@ -1054,7 +1054,7 @@ export default function JoinConfigureContent({
                       x="155"
                       y="110"
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[9px]"
+                      className="fill-neutral-fg-subtle text-[9px]"
                     >
                       Join
                     </text>
@@ -1082,7 +1082,7 @@ export default function JoinConfigureContent({
                         <>Result: all rows from both tables</>
                       )}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-xs text-neutral-fg-subtle">
                       {joinAnalysis.matchingCount.toLocaleString()} of{" "}
                       {joinAnalysis.baseUniqueCount.toLocaleString()} base
                       values have matches
@@ -1095,7 +1095,7 @@ export default function JoinConfigureContent({
 
           {/* Error Display */}
           {error && (
-            <Alert variant="destructive">
+            <Alert color="danger">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -1106,13 +1106,13 @@ export default function JoinConfigureContent({
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Preview Result</h2>
                 {isComputingPreview && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 text-sm text-neutral-fg-subtle">
                     <Spinner size="sm" />
                     Computing preview...
                   </div>
                 )}
                 {!isComputingPreview && previewResult && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-neutral-fg-subtle">
                     {previewTotalCount.toLocaleString()} total rows
                     {previewTotalCount > PREVIEW_ROW_LIMIT &&
                       ` (showing first ${PREVIEW_ROW_LIMIT})`}
@@ -1129,25 +1129,25 @@ export default function JoinConfigureContent({
                   <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-blue-600" />
-                      <span className="text-muted-foreground">
+                      <span className="text-neutral-fg-subtle">
                         From {baseTable.name ?? "base table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-emerald-600" />
-                      <span className="text-muted-foreground">
+                      <span className="text-neutral-fg-subtle">
                         From {joinTable.name ?? "join table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-amber-500" />
-                      <span className="text-muted-foreground">
+                      <span className="text-neutral-fg-subtle">
                         In both tables
                       </span>
                     </div>
                   </div>
                   <div
-                    className="overflow-hidden rounded-xl border border-border/60"
+                    className="overflow-hidden rounded-xl border border-neutral-border/60"
                     style={{ maxHeight: 300 }}
                   >
                     <VirtualTable
@@ -1161,7 +1161,7 @@ export default function JoinConfigureContent({
                 </>
               )}
               {!isComputingPreview && !previewResult && (
-                <div className="flex h-40 items-center justify-center text-muted-foreground">
+                <div className="flex h-40 items-center justify-center text-neutral-fg-subtle">
                   {error
                     ? "Unable to generate preview"
                     : "Select join columns to see preview"}
@@ -1217,25 +1217,25 @@ function TablePreviewSection({
 
   return (
     <Surface elevation="raised" className="overflow-hidden rounded-2xl">
-      <div className="border-b border-border/60 px-4 py-3">
+      <div className="border-b border-neutral-border/60 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs tracking-wide text-muted-foreground uppercase">
+            <p className="text-xs tracking-wide text-neutral-fg-subtle uppercase">
               {title}
             </p>
             <p className="font-semibold">{table.name}</p>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-neutral-fg-subtle">
             {totalCount.toLocaleString()} rows · {colCount} columns
           </p>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-xs text-neutral-fg-subtle">
           Click a column header to select it for joining
         </p>
       </div>
       <div style={{ height: 260 }} className="overflow-hidden">
         {!isReady ? (
-          <div className="flex h-40 items-center justify-center text-muted-foreground">
+          <div className="flex h-40 items-center justify-center text-neutral-fg-subtle">
             <div className="flex flex-col items-center gap-2">
               <Spinner size="lg" />
               <span className="text-sm">Loading data...</span>

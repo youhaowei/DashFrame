@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 
 /**
  * Global confirm dialog component
@@ -39,7 +39,7 @@ export function ConfirmDialog() {
         <DialogFooter>
           <Button
             label={config.cancelLabel || "Cancel"}
-            variant="outlined"
+            variant="outline"
             onClick={handleCancel}
           />
           <Button

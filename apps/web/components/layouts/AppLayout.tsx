@@ -1,4 +1,5 @@
-import { Breadcrumb, cn, type BreadcrumbItem } from "@dashframe/ui";
+import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
+import { cn } from "@stdui/react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -57,12 +58,12 @@ export function AppLayout({
   return (
     <div
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-background",
+        "flex h-screen flex-col overflow-hidden bg-neutral-bg",
         className,
       )}
     >
       {/* Sticky Header */}
-      <header className="sticky top-0 z-10 shrink-0 border-b bg-card/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-8 py-4">
           <div className="flex items-center justify-between gap-6">
             {/* Breadcrumb navigation */}
@@ -86,7 +87,7 @@ export function AppLayout({
         )}
 
         {/* Main content */}
-        <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-neutral-bg">
           <div className={cn("flex-1 overflow-y-auto p-0", childrenClassName)}>
             {children}
           </div>
@@ -102,7 +103,7 @@ export function AppLayout({
 
       {/* Footer (optional) */}
       {footer && (
-        <footer className="sticky bottom-0 shrink-0 border-t bg-card/90 px-6 py-4 backdrop-blur-sm">
+        <footer className="sticky bottom-0 shrink-0 border-t bg-neutral-bg/90 px-6 py-4 backdrop-blur-sm">
           {footer}
         </footer>
       )}

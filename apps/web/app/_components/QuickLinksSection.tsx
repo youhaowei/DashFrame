@@ -1,6 +1,7 @@
 "use client";
 
-import { ChartIcon, DatabaseIcon, ItemList, SparklesIcon } from "@dashframe/ui";
+import { ChartIcon, DatabaseIcon, SparklesIcon } from "@stdui/icons";
+import { ItemList } from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 

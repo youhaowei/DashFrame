@@ -1,6 +1,6 @@
 # @dashframe/ui
 
-Shared UI component library for DashFrame, built with React, TypeScript, Tailwind CSS v4, and Radix UI.
+Shared UI component library for DashFrame. Re-exports `@stdui/react` (design system) plus DashFrame-specific components.
 
 ## Installation
 
@@ -19,14 +19,13 @@ This package is part of the DashFrame monorepo:
 ```
 packages/ui/
 ├── src/
-│   ├── primitives/       # shadcn/ui components (23 components)
-│   ├── components/       # Custom shared components (11 components)
+│   ├── components/       # DashFrame-specific components
+│   ├── fields/           # Form field wrappers
 │   ├── lib/
-│   │   ├── utils.ts     # cn() utility for className merging
-│   │   └── icons.tsx    # Icon exports from react-icons
-│   ├── globals.css      # Tailwind CSS v4 design tokens
-│   └── index.ts         # Barrel exports
-├── .storybook/          # Storybook v10 configuration
+│   │   └── icons.tsx     # Icon re-exports from @stdui/icons
+│   ├── globals.css       # Imports @stdui/react/styles + app fonts
+│   └── index.ts          # Barrel exports (stdui + DashFrame components)
+├── .storybook/           # Storybook v10 configuration
 └── package.json
 ```
 
@@ -37,130 +36,43 @@ import { Button, Card, Panel, Toggle, cn } from "@dashframe/ui";
 import { RefreshIcon } from "@dashframe/ui/icons";
 ```
 
+**Theme provider:**
+
+```typescript
+import { StduiProvider, useTheme } from "@dashframe/ui";
+
+// In your root layout
+<StduiProvider defaultMode="system" storageKey="dashframe">
+  {children}
+</StduiProvider>
+```
+
 **Storybook:** Run `bun storybook` to browse components at http://localhost:6006
 
-## Component Philosophy
+## Architecture
 
-1. **shadcn/ui First** - Use shadcn/ui for standard UI patterns before custom components
-2. **Composition Over Customization** - Combine existing components rather than creating variants
-3. **Extract When Patterns Emerge** - If you write similar JSX 3+ times, extract a shared component
-4. **Semantic Naming** - Name by purpose (what it does) not appearance (how it looks)
-5. **Accessibility-First** - Include semantic HTML, aria-labels, keyboard navigation
+`@dashframe/ui` is a thin re-export layer:
 
-## Component Inventory
+- **stdui primitives** (from `@stdui/react`) — Button, Card, Input, Select, Dialog, Badge, Tabs, etc.
+- **stdui theme** (from `@stdui/react/theme`) — StduiProvider, useTheme
+- **DashFrame components** — ItemSelector, VirtualTable, SortableList, Breadcrumb, JoinTypeIcon
 
-### shadcn/ui Primitives (`src/primitives/`)
-
-Standard UI components built on Radix UI:
-
-| Category         | Components                                                                |
-| ---------------- | ------------------------------------------------------------------------- |
-| **Actions**      | `button`, `dropdown-menu`                                                 |
-| **Forms**        | `checkbox`, `field`, `input`, `label`, `select`, `switch`, `multi-select` |
-| **Data Display** | `badge`, `table`, `tabs`, `separator`, `scroll-area`                      |
-| **Feedback**     | `alert`, `sonner` (toasts), `tooltip`                                     |
-| **Layout**       | `dialog`, `collapsible`, `navigation-menu`, `surface`                     |
-
-#### Surface Component
-
-Primitive for standardized elevation and visual depth:
-
-```tsx
-// Elevation variants: plain, raised (default), floating, inset
-<Surface elevation="raised" className="p-6">Content</Surface>
-<Surface elevation="inset" className="p-8 text-center">Empty state</Surface>
-<Surface elevation="floating" interactive className="p-4">Clickable card</Surface>
-```
-
-### Custom Shared Components (`src/components/`)
-
-DashFrame-specific reusable patterns:
-
-| Component              | Purpose                                                          |
-| ---------------------- | ---------------------------------------------------------------- |
-| **Card**               | Enhanced content grouping with headers/footers (uses Surface)    |
-| **Panel**              | Full-height layouts with fixed header/footer, scrollable content |
-| **ActionGroup**        | Universal button group with icons, variants, compact mode        |
-| **ItemSelector**       | Item selection with tabs, metadata, badges                       |
-| **CollapsibleSection** | Wrapper for collapsible content                                  |
-| **CollapseHandle**     | Visual affordance for collapsible areas                          |
-| **Toggle**             | View/mode switching                                              |
-| **Stack**              | Flexible vertical/horizontal layout                              |
-| **EmptyState**         | Standardized empty state pattern                                 |
-| **Container**          | Max-width content container                                      |
-| **Tooltip**            | Custom tooltip wrapper                                           |
-
-## Usage Examples
-
-### ActionGroup
-
-```tsx
-<ActionGroup
-  actions={[
-    { label: "Create", icon: Plus, onClick: handleCreate, variant: "default" },
-    {
-      label: "Delete",
-      icon: Trash2,
-      onClick: handleDelete,
-      variant: "destructive",
-    },
-  ]}
-  compact={false}
-/>
-```
-
-### ItemSelector
-
-```tsx
-<ItemSelector
-  items={dataSources}
-  selectedId={selectedId}
-  onSelect={setSelectedId}
-  getItemKey={(ds) => ds.id}
-  getItemLabel={(ds) => ds.name}
-  getItemMetadata={(ds) => ds.type}
-  getItemIcon={(ds) => getIcon(ds.type)}
-/>
-```
-
-### Panel with Sections
-
-```tsx
-<Panel header={<h2>Settings</h2>} footer={<Button>Save</Button>}>
-  <PanelSection title="General" description="Basic options">
-    <div>Settings content</div>
-  </PanelSection>
-  <PanelSection title="Advanced">
-    <div>Advanced options</div>
-  </PanelSection>
-</Panel>
-```
-
-### EmptyState
-
-```tsx
-<EmptyState
-  icon={Database}
-  title="No data sources"
-  description="Get started by adding your first data source"
-  action={{ label: "Add data source", onClick: handleCreate }}
-/>
-```
-
-### Stack Layout
-
-```tsx
-<Stack direction="vertical" spacing="lg">
-  <h1>Page Title</h1>
-  <Stack direction="horizontal" spacing="sm" align="center">
-    <Icon className="h-4 w-4" />
-    <span>Metadata</span>
-  </Stack>
-  <Card>Content</Card>
-</Stack>
-```
+All stdui components are re-exported via `export * from "@stdui/react"` in `index.ts`.
 
 ## Design Tokens
+
+stdui uses semantic OKLCH-based tokens. Use these class names in Tailwind:
+
+### Color Tokens
+
+| Purpose             | Class pattern                               | Example                          |
+| ------------------- | ------------------------------------------- | -------------------------------- |
+| Neutral backgrounds | `bg-neutral-bg`, `bg-neutral-bg-muted`      | Page background, card background |
+| Neutral text        | `text-neutral-fg`, `text-neutral-fg-subtle` | Body text, muted labels          |
+| Neutral borders     | `border-neutral-border`                     | Dividers, card borders           |
+| Neutral ring        | `ring-neutral-ring`                         | Focus rings                      |
+| Palette colors      | `bg-palette-primary`, `text-palette-danger` | Accent, error states             |
+| Surface             | `bg-neutral-bg-emphasis`                    | Hover/active backgrounds         |
 
 ### Spacing
 
@@ -190,11 +102,11 @@ DashFrame-specific reusable patterns:
 
 ### Typography
 
-- **No UPPERCASE** - Use sentence case (except acronyms)
+- **No UPPERCASE** — use sentence case (except acronyms)
 - Page titles: `text-2xl font-semibold`
 - Section headers: `text-lg font-medium`
 - Body text: `text-sm`
-- Metadata: `text-xs text-muted-foreground`
+- Metadata: `text-xs text-neutral-fg-subtle`
 
 ### Colors
 
@@ -202,119 +114,35 @@ Use semantic tokens, not hardcoded colors:
 
 ```tsx
 // Good
-<p className="text-muted-foreground">...</p>
+<p className="text-neutral-fg-subtle">...</p>
+<div className="border-palette-primary">...</div>
 
 // Avoid
 <p className="text-gray-500">...</p>
 ```
 
-## Decision Framework
+## Component Philosophy
 
-### When to Use What
+1. **stdui First** — use stdui primitives for standard UI patterns before custom components
+2. **Composition Over Customization** — combine existing components rather than creating variants
+3. **Extract When Patterns Emerge** — if you write similar JSX 3+ times, extract a shared component
+4. **Semantic Naming** — name by purpose (what it does) not appearance (how it looks)
+5. **Accessibility-First** — include semantic HTML, aria-labels, keyboard navigation
+
+## Decision Framework
 
 | Situation                                        | Use                         |
 | ------------------------------------------------ | --------------------------- |
-| Standard UI (buttons, inputs, modals)            | shadcn/ui primitives        |
-| DashFrame-specific patterns used across features | Custom shared components    |
+| Standard UI (buttons, inputs, modals)            | stdui primitives            |
+| DashFrame-specific patterns used across features | DashFrame shared components |
 | One-off domain-specific UI                       | Feature-specific components |
-
-### When to Extract to Shared
-
-Extract when:
-
-- Pattern is used 3+ times across features
-- Component encapsulates meaningful UI logic
-- Component has clear, semantic purpose
-
-## Accessibility
-
-- Icon-only buttons require `aria-label`
-- Form inputs need proper `<label>` elements
-- Loading states use `aria-busy`, `aria-live` regions
-- All interactive elements accessible via keyboard
-- Follow WCAG AA color contrast
-
-## Button Component
-
-High-level button with icon, loading, and iconOnly support:
-
-```tsx
-import { Button } from "@dashframe/ui";
-
-// With icon and label
-<Button label="Save" icon={SaveIcon} onClick={handleSave} />
-
-// Icon-only mode (square button, sr-only label)
-<Button label="Delete" icon={TrashIcon} iconOnly color="danger" />
-
-// Loading state
-<Button label="Saving..." loading />
-
-// Size variants: sm, md (default), lg
-<Button label="Small" size="sm" />
-
-// Styling non-button elements as buttons (links, etc.)
-import { buttonVariants } from "@dashframe/ui";
-<a className={buttonVariants({ variant: "link" })}>Styled link</a>
-```
-
-## CVA Variant Patterns
-
-Components using `class-variance-authority` follow a standardized structure.
-
-### Structure
-
-```typescript
-const componentVariants = cva(
-  "base-classes",           // Always-applied styles
-  {
-    variants: { ... },       // Independent variant axes
-    compoundVariants: [...], // Cross-variant combinations (optional)
-    defaultVariants: { ... } // Required defaults
-  }
-);
-```
-
-### className Handling
-
-Pass `className` into the CVA call for proper class merging:
-
-```typescript
-className={componentVariants({ variant, size, className })}
-```
-
-### Data Attributes
-
-Components emit data-\* attributes for each variant axis:
-
-```tsx
-<Component
-  data-slot="component-name"
-  data-variant={variant}
-  data-color={color}
-  data-size={size}
-/>
-```
-
-### Shared Tokens
-
-Import from `@dashframe/ui` for consistent colors/sizes:
-
-```typescript
-import { colorVariants, sizeScale } from "@dashframe/ui";
-
-// colorVariants: current, primary, secondary, warn, danger, success
-// sizeScale: ["sm", "md", "lg"]
-```
 
 ## Development
 
 ### Adding Components
 
-1. Create in `src/primitives/` (shadcn/ui) or `src/components/` (custom)
-2. Export from `src/index.ts`
-3. Add story with `.stories.tsx` suffix
-4. Document with JSDoc
+- **stdui primitives** — add to `libs/stdui/` (separate repo/submodule)
+- **DashFrame components** — add to `src/components/`, export from `src/index.ts`, add story
 
 ### Scripts
 
@@ -328,6 +156,6 @@ bun format           # Prettier check
 
 ## Dependencies
 
-**Production:** React 19, Radix UI (12 packages), react-icons, class-variance-authority, clsx, tailwind-merge, next-themes, sonner
+**Production:** React 19, `@stdui/react` (design system), sonner
 
 **Development:** Storybook v10, TypeScript 5.7, Tailwind CSS v4, PostCSS

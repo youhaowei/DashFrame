@@ -12,7 +12,8 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { ArrowLeftIcon, Button, SectionList } from "@dashframe/ui";
+import { ArrowLeftIcon } from "@stdui/icons";
+import { Button, SectionList } from "@stdui/react";
 import { useCallback, useMemo, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
@@ -253,7 +254,7 @@ export function DataPickerContent({
           <>
             <Button
               label="Back"
-              variant="text"
+              variant="ghost"
               size="sm"
               onClick={() => setSelectedSourceId(null)}
               icon={ArrowLeftIcon}
@@ -283,7 +284,7 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button label="Cancel" variant="outlined" onClick={onCancel} />
+          <Button label="Cancel" variant="outline" onClick={onCancel} />
         </div>
       )}
     </div>

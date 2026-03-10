@@ -11,7 +11,6 @@ import {
 } from "@dashframe/core";
 import {
   type LucideIcon,
-  Button,
   ChartIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -21,6 +20,14 @@ import {
   DashboardIcon,
   DatabaseIcon,
   DeleteIcon,
+  GithubIcon,
+  GridIcon,
+  MenuIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "@stdui/icons";
+import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -31,13 +38,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  GithubIcon,
-  GridIcon,
-  MenuIcon,
-  SettingsIcon,
-  SparklesIcon,
   cn,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -92,7 +94,7 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-border/60 px-4 py-4">
+      <div className="border-b border-neutral-border/60 px-4 py-4">
         <div
           className={cn(
             "flex items-center gap-3",
@@ -102,11 +104,11 @@ function SidebarContent({
           <Link
             href="/"
             className={cn(
-              "flex items-center gap-3 transition-colors hover:text-primary",
+              "flex items-center gap-3 transition-colors hover:text-palette-primary",
               isCollapsed && "justify-center",
             )}
           >
-            <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-palette-primary/10 text-palette-primary">
               <ChartIcon className="h-5 w-5" />
             </span>
             {!isCollapsed && (
@@ -127,12 +129,12 @@ function SidebarContent({
               {!isCollapsed && <ThemeToggle />}
               {onToggleCollapse && (
                 <Button
-                  variant="text"
+                  variant="ghost"
                   icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon}
                   iconOnly
                   label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                   onClick={onToggleCollapse}
-                  className="h-7 w-7 rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-colors hover:bg-background"
+                  className="h-7 w-7 rounded-full border border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-colors hover:bg-neutral-bg"
                   tooltip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 />
               )}
@@ -160,13 +162,15 @@ function SidebarContent({
               className={cn(
                 "group relative flex transition-all duration-200",
                 isCollapsed
-                  ? "h-10 w-10 items-center justify-center rounded-lg border border-transparent hover:bg-muted/50"
+                  ? "h-10 w-10 items-center justify-center rounded-lg border border-transparent hover:bg-neutral-bg-muted/50"
                   : "items-center gap-3 rounded-2xl border border-transparent px-3 py-2",
                 isActive && !isCollapsed
-                  ? "bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
+                  ? "bg-palette-primary/10 text-palette-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
                   : !isCollapsed &&
-                      "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                isActive && isCollapsed && "bg-primary/10 text-primary",
+                      "text-neutral-fg-subtle hover:bg-neutral-bg-muted/50 hover:text-neutral-fg",
+                isActive &&
+                  isCollapsed &&
+                  "bg-palette-primary/10 text-palette-primary",
               )}
               title={isCollapsed ? item.name : undefined}
             >
@@ -176,23 +180,24 @@ function SidebarContent({
                 <>
                   <span
                     className={cn(
-                      "rounded-lg border border-border/50 bg-background/90 p-2 text-muted-foreground transition-colors group-hover:text-foreground",
-                      isActive && "border-primary/30 text-primary",
+                      "rounded-lg border border-neutral-border/50 bg-neutral-bg/90 p-2 text-neutral-fg-subtle transition-colors group-hover:text-neutral-fg",
+                      isActive &&
+                        "border-palette-primary/30 text-palette-primary",
                     )}
                   >
                     <item.icon className="h-4 w-4" />
                   </span>
                   <div className="flex flex-1 flex-col">
-                    <span className="text-sm font-medium text-foreground">
+                    <span className="text-sm font-medium text-neutral-fg">
                       {item.name}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-neutral-fg-subtle">
                       {item.description}
                     </span>
                   </div>
                   {isActive && (
                     <span
-                      className="absolute inset-0 rounded-2xl border border-primary/40"
+                      className="absolute inset-0 rounded-2xl border border-palette-primary/40"
                       aria-hidden
                     />
                   )}
@@ -205,10 +210,10 @@ function SidebarContent({
 
       {/* Footer with Settings and GitHub */}
       {!isCollapsed && (
-        <div className="space-y-2 border-t border-border/60 px-4 py-4">
+        <div className="space-y-2 border-t border-neutral-border/60 px-4 py-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex w-full items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
+              <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
                 <SettingsIcon className="h-4 w-4" />
                 <span>Settings</span>
               </button>
@@ -216,7 +221,7 @@ function SidebarContent({
             <DropdownMenuContent align="start" side="top">
               <DropdownMenuItem
                 onClick={onClearData}
-                className="text-destructive focus:text-destructive"
+                className="text-palette-danger focus:text-palette-danger"
               >
                 <DeleteIcon className="mr-2 h-4 w-4" />
                 Clear all data
@@ -227,7 +232,7 @@ function SidebarContent({
             href="https://github.com/youhaowei/dashframe"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="flex items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg"
           >
             <GithubIcon className="h-4 w-4" />
             <span>Open source</span>
@@ -301,7 +306,7 @@ export function Navigation() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "bg-background/95/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r border-border/60 backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-background/80 lg:flex",
+          "bg-neutral-bg/95/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r border-neutral-border/60 backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-neutral-bg/80 lg:flex",
           sidebarWidth,
         )}
       >
@@ -316,7 +321,7 @@ export function Navigation() {
       <button
         type="button"
         onClick={() => setIsHidden((prev) => !prev)}
-        className="fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border/60 bg-background text-muted-foreground shadow-sm transition-all duration-300 hover:bg-muted hover:text-foreground lg:flex"
+        className="fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-all duration-300 hover:bg-neutral-bg-muted hover:text-neutral-fg lg:flex"
         style={{
           left: handleLeft,
           height: "3rem",
@@ -334,22 +339,22 @@ export function Navigation() {
 
       {/* Mobile Toggle Button */}
       <Button
-        variant="text"
+        variant="ghost"
         icon={MenuIcon}
         iconOnly
         label="Open menu"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 left-4 z-40 rounded-full bg-primary shadow-lg hover:bg-primary/90 lg:hidden"
+        className="fixed bottom-4 left-4 z-40 rounded-full bg-palette-primary shadow-lg hover:bg-palette-primary/90 lg:hidden"
       />
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-xs gap-0 border-0 p-0">
           <div className="flex h-screen flex-col">
-            <div className="flex items-center justify-between border-b border-border/60 p-4">
+            <div className="flex items-center justify-between border-b border-neutral-border/60 p-4">
               <span className="text-sm font-semibold">Menu</span>
               <Button
-                variant="text"
+                variant="ghost"
                 icon={CloseIcon}
                 iconOnly
                 label="Close menu"
@@ -375,7 +380,7 @@ export function Navigation() {
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="outlined"
+              variant="outline"
               label="Cancel"
               onClick={() => setShowClearConfirm(false)}
             />

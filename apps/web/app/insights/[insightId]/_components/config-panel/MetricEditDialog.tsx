@@ -20,7 +20,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useMemo, useState } from "react";
 
 interface MetricEditDialogProps {
@@ -163,7 +163,7 @@ function MetricEditForm({
               </SelectTrigger>
               <SelectContent>
                 {fieldsForSelect.length === 0 ? (
-                  <div className="p-2 text-center text-sm text-muted-foreground">
+                  <div className="p-2 text-center text-sm text-neutral-fg-subtle">
                     {aggregation === "sum" || aggregation === "avg"
                       ? "No numeric fields available"
                       : "No fields available"}
@@ -192,18 +192,18 @@ function MetricEditForm({
         </div>
 
         {/* Formula Preview */}
-        <div className="rounded-lg bg-muted p-3">
-          <p className="mb-1 text-xs font-medium text-muted-foreground">
+        <div className="rounded-lg bg-neutral-bg-muted p-3">
+          <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
             Formula preview
           </p>
-          <code className="font-mono text-sm text-foreground">
+          <code className="font-mono text-sm text-neutral-fg">
             {getFormulaPreview()}
           </code>
         </div>
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outlined" onClick={onClose} />
+        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
           label="Save"
           onClick={handleSave}

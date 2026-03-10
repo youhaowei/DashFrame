@@ -1,12 +1,12 @@
 "use client";
 
-import { ErrorState } from "@dashframe/ui";
 import {
   VisualizationProvider,
   createVgplotRenderer,
   registerRenderer,
   useVisualization,
 } from "@dashframe/visualization";
+import { ErrorState } from "@stdui/react";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useDuckDBContext } from "./DuckDBProvider";
 

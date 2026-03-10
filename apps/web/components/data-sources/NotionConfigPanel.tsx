@@ -13,7 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 
 export interface NotionConfigPanelProps {
   /**
@@ -103,14 +103,14 @@ export function NotionConfigPanel({
     <Card className="space-y-4">
       <div className="flex items-center justify-between px-4 pt-4">
         <div>
-          <p className="text-xs font-medium text-muted-foreground">
+          <p className="text-xs font-medium text-neutral-fg-subtle">
             Configure Notion insight
           </p>
-          <p className="text-sm text-foreground">
+          <p className="text-sm text-neutral-fg">
             Choose database and properties
           </p>
         </div>
-        <Button label="Close" variant="text" size="sm" onClick={onClose} />
+        <Button label="Close" variant="ghost" size="sm" onClick={onClose} />
       </div>
       <CardContent className="space-y-4">
         <div className="space-y-3">
@@ -136,7 +136,7 @@ export function NotionConfigPanel({
 
           {/* Loading State */}
           {isLoadingSchema && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-neutral-fg-subtle">
               Loading properties...
             </p>
           )}
@@ -145,18 +145,18 @@ export function NotionConfigPanel({
           {schema.length > 0 && !isLoadingSchema && (
             <div className="space-y-2">
               <Label>Select Properties</Label>
-              <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+              <div className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-neutral-border p-2">
                 {schema.map((prop) => (
                   <label
                     key={prop.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted"
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-neutral-bg-muted"
                   >
                     <Checkbox
                       checked={selectedPropertyIds.includes(prop.id)}
                       onCheckedChange={() => onToggleProperty(prop.id)}
                     />
                     <span className="flex-1">{prop.name}</span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-neutral-fg-subtle">
                       {prop.type}
                     </span>
                   </label>

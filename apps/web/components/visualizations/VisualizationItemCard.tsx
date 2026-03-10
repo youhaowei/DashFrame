@@ -1,6 +1,7 @@
 "use client";
 
 import type { Visualization } from "@dashframe/types";
+import { ChartIcon, DataPointIcon, MoreIcon, TableIcon } from "@stdui/icons";
 import {
   Button,
   cn,
@@ -8,14 +9,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  type ItemAction,
-} from "@dashframe/ui";
-import {
-  ChartIcon,
-  DataPointIcon,
-  MoreIcon,
-  TableIcon,
-} from "@dashframe/ui/icons";
+  type ItemCardAction,
+} from "@stdui/react";
 import * as React from "react";
 import { VisualizationPreview } from "./VisualizationPreview";
 
@@ -31,7 +26,7 @@ interface VisualizationItemCardProps {
   /** Additional CSS classes */
   className?: string;
   /** Optional list of actions to display in a dropdown menu */
-  actions?: ItemAction[];
+  actions?: ItemCardAction[];
 }
 
 /**
@@ -40,16 +35,16 @@ interface VisualizationItemCardProps {
 function getVizFallbackIcon(type: string) {
   switch (type) {
     case "bar":
-      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <ChartIcon className="h-10 w-10 text-neutral-fg-subtle/40" />;
     case "line":
     case "area":
-      return <ChartIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <ChartIcon className="h-10 w-10 text-neutral-fg-subtle/40" />;
     case "point":
     case "scatter":
-      return <DataPointIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <DataPointIcon className="h-10 w-10 text-neutral-fg-subtle/40" />;
     case "table":
     default:
-      return <TableIcon className="h-10 w-10 text-muted-foreground/40" />;
+      return <TableIcon className="h-10 w-10 text-neutral-fg-subtle/40" />;
   }
 }
 
@@ -110,16 +105,16 @@ export function VisualizationItemCard({
       onKeyDown={handleKeyDown}
       className={cn(
         "group w-full overflow-hidden rounded-lg border text-left transition-[border-color,background-color] duration-150",
-        onClick && "cursor-pointer hover:bg-accent/50",
+        onClick && "cursor-pointer hover:bg-neutral-bg-emphasis/50",
         active
-          ? "border-primary ring-2 ring-primary"
-          : "border-border/60 hover:border-border",
+          ? "border-palette-primary ring-2 ring-palette-primary"
+          : "border-neutral-border/60 hover:border-neutral-border",
         className,
       )}
     >
       {/* Preview Section */}
       <div
-        className="w-full overflow-hidden bg-muted/30"
+        className="w-full overflow-hidden bg-neutral-bg-muted/30"
         style={{ height: `${previewHeight}px` }}
       >
         <VisualizationPreview
@@ -135,7 +130,7 @@ export function VisualizationItemCard({
           <p
             className={cn(
               "min-w-0 flex-1 truncate text-sm font-medium transition-colors",
-              active ? "text-primary" : "text-foreground",
+              active ? "text-palette-primary" : "text-neutral-fg",
             )}
           >
             {visualization.name}
@@ -147,12 +142,12 @@ export function VisualizationItemCard({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    variant="text"
+                    variant="ghost"
                     icon={MoreIcon}
                     iconOnly
                     label="Actions"
                     size="sm"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-neutral-fg-subtle hover:text-neutral-fg"
                   />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -162,7 +157,7 @@ export function VisualizationItemCard({
                       onClick={action.onClick}
                       className={cn(
                         action.color === "danger" &&
-                          "text-destructive focus:text-destructive",
+                          "text-palette-danger focus:text-palette-danger",
                       )}
                     >
                       {action.icon && <action.icon className="h-4 w-4" />}
@@ -174,7 +169,7 @@ export function VisualizationItemCard({
             </div>
           )}
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
+        <p className="mt-1 truncate text-xs text-neutral-fg-subtle">
           Created {createdDate}
         </p>
       </div>

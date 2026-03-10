@@ -17,7 +17,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useState } from "react";
 
 interface FieldEditorModalProps {
@@ -114,7 +114,7 @@ function FieldEditorForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outlined" onClick={onClose} />
+        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
           label="Save Changes"
           onClick={handleSave}

@@ -1,5 +1,6 @@
 "use client";
 
+import { MoreIcon } from "@stdui/icons";
 import {
   Button,
   DropdownMenu,
@@ -8,7 +9,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  MoreIcon,
   Surface,
   Table,
   TableBody,
@@ -16,7 +16,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import {
   ColumnDef,
   SortingState,
@@ -61,7 +61,7 @@ export function DataGrid<TData>({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
-                        variant="text"
+                        variant="ghost"
                         icon={MoreIcon}
                         iconOnly
                         label="Open menu"
@@ -83,7 +83,7 @@ export function DataGrid<TData>({
                       {onDelete && (
                         <DropdownMenuItem
                           onClick={() => onDelete(row.original)}
-                          className="text-destructive"
+                          className="text-palette-danger"
                         >
                           Delete
                         </DropdownMenuItem>
@@ -118,8 +118,10 @@ export function DataGrid<TData>({
         elevation="inset"
         className="flex flex-col items-center justify-center rounded-lg p-12 text-center"
       >
-        <p className="text-base font-medium text-foreground">{emptyMessage}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
+        <p className="text-base font-medium text-neutral-fg">{emptyMessage}</p>
+        <p className="mt-1 text-sm text-neutral-fg-subtle">
+          {emptyDescription}
+        </p>
         {onCreate && (
           <Button label="Create New" onClick={onCreate} className="mt-4" />
         )}

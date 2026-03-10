@@ -1,7 +1,7 @@
+import { TooltipProvider } from "@stdui/react";
 import type { Preview } from "@storybook/nextjs-vite";
 import { createElement } from "react";
 import "../src/globals.css";
-import { TooltipProvider } from "../src/primitives/tooltip";
 import { ThemeWrapper } from "./ThemeWrapper";
 
 const preview: Preview = {
