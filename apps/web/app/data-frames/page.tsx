@@ -6,8 +6,8 @@ import {
   useDataFrames,
   type DataFrameEntry,
 } from "@dashframe/core";
+import { ArrowUpDownIcon } from "@stdui/icons";
 import {
-  ArrowUpDownIcon,
   Button,
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 

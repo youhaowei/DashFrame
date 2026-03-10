@@ -1,15 +1,14 @@
 "use client";
 
 import {
-  Card,
   ChartIcon,
   DarkModeIcon,
   GridIcon,
   LightModeIcon,
   ListIcon,
   TableIcon,
-  Toggle,
-} from "@dashframe/ui";
+} from "@stdui/icons";
+import { Card, Toggle } from "@stdui/react";
 import { useState } from "react";
 
 export default function ToggleTestPage() {

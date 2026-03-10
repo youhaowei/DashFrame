@@ -11,7 +11,7 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useState } from "react";
 
 interface FieldRenameDialogProps {

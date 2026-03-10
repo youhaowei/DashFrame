@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, LightbulbIcon } from "@dashframe/ui";
+import { LightbulbIcon } from "@stdui/icons";
+import { Button } from "@stdui/react";
 import { useEffect } from "react";
 
 interface ErrorProps {

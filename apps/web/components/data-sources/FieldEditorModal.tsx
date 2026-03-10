@@ -17,7 +17,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useState } from "react";
 
 interface FieldEditorModalProps {

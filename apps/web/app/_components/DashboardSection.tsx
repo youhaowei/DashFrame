@@ -1,12 +1,7 @@
 "use client";
 
-import {
-  Button,
-  ItemList,
-  type ListItem,
-  type LucideIcon,
-} from "@dashframe/ui";
-import { ArrowRightIcon } from "@dashframe/ui/icons";
+import { ArrowRightIcon, type LucideIcon } from "@stdui/icons";
+import { Button, ItemList, type ListItem } from "@stdui/react";
 import { useRouter } from "next/navigation";
 
 export interface DashboardSectionProps {

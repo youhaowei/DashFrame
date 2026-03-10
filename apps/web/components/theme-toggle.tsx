@@ -1,15 +1,14 @@
 "use client";
 
+import { DarkModeIcon, LightModeIcon } from "@stdui/icons";
 import {
   Button,
-  DarkModeIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  LightModeIcon,
-  useTheme,
-} from "@dashframe/ui";
+} from "@stdui/react";
+import { useTheme } from "@stdui/react/theme";
 import * as React from "react";
 
 export function ThemeToggle() {

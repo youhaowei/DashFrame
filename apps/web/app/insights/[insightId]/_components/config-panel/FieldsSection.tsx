@@ -1,16 +1,7 @@
 "use client";
 
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import {
-  Badge,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  SortableList,
-  cn,
-  type SortableListItem,
-} from "@dashframe/ui";
+import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {
   BooleanTypeIcon,
   ChevronRightIcon,
@@ -20,7 +11,15 @@ import {
   NumberTypeIcon,
   PlusIcon,
   TextTypeIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/icons";
+import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+} from "@stdui/react";
 import { useCallback, useState } from "react";
 
 /**

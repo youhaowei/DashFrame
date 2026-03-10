@@ -6,14 +6,14 @@
  */
 
 import type { ColumnAnalysis, ColumnSemantic } from "@dashframe/types";
-import type { LucideIcon } from "@dashframe/ui/icons";
 import {
+  type LucideIcon,
   BooleanTypeIcon,
   CalculatorIcon,
   DateTypeIcon,
   NumberTypeIcon,
   TextTypeIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/icons";
 
 /**
  * Get icon for a field based on its type string.

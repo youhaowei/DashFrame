@@ -4,8 +4,8 @@ import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, UUID } from "@dashframe/types";
-import { Spinner } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { Spinner } from "@stdui/react";
 import { useMemo } from "react";
 
 interface VisualizationRendererProps {

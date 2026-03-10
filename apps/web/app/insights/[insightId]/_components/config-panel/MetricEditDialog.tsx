@@ -20,7 +20,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useMemo, useState } from "react";
 
 interface MetricEditDialogProps {

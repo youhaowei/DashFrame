@@ -4,8 +4,8 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Visualization } from "@dashframe/types";
-import { Spinner } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { Spinner } from "@stdui/react";
 import { useMemo } from "react";
 
 const PREVIEW_HEIGHT = 200; // px

@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
   FieldError,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import dynamic from "next/dynamic";
 
 const ConnectorIcon = dynamic(

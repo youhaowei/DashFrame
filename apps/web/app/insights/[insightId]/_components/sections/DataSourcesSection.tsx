@@ -3,14 +3,14 @@
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
 import type { DataTable, Field, Insight } from "@dashframe/types";
+import { JoinTypeIcon } from "@dashframe/ui";
+import { CloseIcon, DatabaseIcon, PlusIcon } from "@stdui/icons";
 import {
   ItemList,
-  JoinTypeIcon,
   Section,
   type ItemCardAction,
   type ListItem,
-} from "@dashframe/ui";
-import { CloseIcon, DatabaseIcon, PlusIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataSourcesSectionProps {

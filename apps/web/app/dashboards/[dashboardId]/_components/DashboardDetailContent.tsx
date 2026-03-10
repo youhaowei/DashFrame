@@ -8,6 +8,14 @@ import {
 } from "@dashframe/core";
 import type { DashboardItemType } from "@dashframe/types";
 import {
+  ArrowLeftIcon,
+  ChartIcon,
+  CheckIcon,
+  EditIcon,
+  FileIcon,
+  PlusIcon,
+} from "@stdui/icons";
+import {
   Button,
   Dialog,
   DialogContent,
@@ -19,15 +27,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
-import {
-  ArrowLeftIcon,
-  ChartIcon,
-  CheckIcon,
-  EditIcon,
-  FileIcon,
-  PlusIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 

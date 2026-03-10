@@ -1,7 +1,7 @@
 "use client";
 
-import { Button, cn } from "@dashframe/ui";
-import { CheckIcon, CloseIcon } from "@dashframe/ui/icons";
+import { CheckIcon, CloseIcon } from "@stdui/icons";
+import { Button, cn } from "@stdui/react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 

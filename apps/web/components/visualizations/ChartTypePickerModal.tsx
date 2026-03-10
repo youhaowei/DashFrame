@@ -10,7 +10,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useCallback } from "react";
 import { ChartTypePicker } from "./ChartTypePicker";
 

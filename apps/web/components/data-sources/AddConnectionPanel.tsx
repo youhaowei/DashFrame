@@ -6,7 +6,7 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { Alert, AlertDescription } from "@dashframe/ui";
+import { Alert, AlertDescription } from "@stdui/react";
 import { useMemo } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 

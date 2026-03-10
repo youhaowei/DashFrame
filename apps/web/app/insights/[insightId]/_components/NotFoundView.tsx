@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@dashframe/ui";
+import { Button } from "@stdui/react";
 import { useRouter } from "next/navigation";
 
 interface NotFoundViewProps {

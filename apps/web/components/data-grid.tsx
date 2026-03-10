@@ -1,5 +1,6 @@
 "use client";
 
+import { MoreIcon } from "@stdui/icons";
 import {
   Button,
   DropdownMenu,
@@ -8,7 +9,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  MoreIcon,
   Surface,
   Table,
   TableBody,
@@ -16,7 +16,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import {
   ColumnDef,
   SortingState,

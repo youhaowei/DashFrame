@@ -1,6 +1,6 @@
 "use client";
 
-import { SparklesIcon } from "@dashframe/ui";
+import { SparklesIcon } from "@stdui/icons";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 

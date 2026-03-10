@@ -11,7 +11,8 @@ import {
   useVisualizations,
 } from "@dashframe/core";
 import type { DataTable, Insight, InsightMetric } from "@dashframe/types";
-import { InputField, Panel } from "@dashframe/ui";
+import { InputField } from "@dashframe/ui";
+import { Panel } from "@stdui/react";
 import { useCallback, useMemo, useState } from "react";
 import {
   DeleteConfirmDialog,

@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, ChartIcon } from "@dashframe/ui";
+import { ChartIcon } from "@stdui/icons";
+import { Button } from "@stdui/react";
 import { useEffect } from "react";
 
 interface ErrorProps {

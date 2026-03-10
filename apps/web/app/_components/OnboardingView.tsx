@@ -2,7 +2,8 @@
 
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { Card, CardContent, ChartIcon } from "@dashframe/ui";
+import { ChartIcon } from "@stdui/icons";
+import { Card, CardContent } from "@stdui/react";
 
 const WelcomeHeader = () => (
   <div className="mb-8 text-center">

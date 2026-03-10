@@ -8,27 +8,27 @@ import {
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import {
+  CloudIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SpreadsheetIcon,
+  TableIcon,
+} from "@stdui/icons";
+import {
   Badge,
   Button,
   Card,
   CardContent,
-  DatabaseIcon,
-  DeleteIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-  MoreIcon,
-  PlusIcon,
-  TableIcon,
-} from "@dashframe/ui";
-import {
-  CloudIcon,
-  ExternalLinkIcon,
-  SearchIcon,
-  SpreadsheetIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 

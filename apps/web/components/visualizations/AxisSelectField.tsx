@@ -19,14 +19,14 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { SelectField } from "@dashframe/ui";
+import { AlertCircleIcon, ArrowUpDownIcon } from "@stdui/icons";
 import {
   Badge,
-  SelectField,
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@dashframe/ui";
-import { AlertCircleIcon, ArrowUpDownIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useCallback, useMemo } from "react";
 
 interface AxisSelectFieldProps {

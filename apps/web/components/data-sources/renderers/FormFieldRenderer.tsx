@@ -12,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import type { ChangeEvent } from "react";
 
 /**

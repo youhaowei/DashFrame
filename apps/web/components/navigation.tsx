@@ -11,7 +11,6 @@ import {
 } from "@dashframe/core";
 import {
   type LucideIcon,
-  Button,
   ChartIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -21,6 +20,14 @@ import {
   DashboardIcon,
   DatabaseIcon,
   DeleteIcon,
+  GithubIcon,
+  GridIcon,
+  MenuIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "@stdui/icons";
+import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -31,13 +38,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  GithubIcon,
-  GridIcon,
-  MenuIcon,
-  SettingsIcon,
-  SparklesIcon,
   cn,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";

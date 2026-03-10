@@ -2,7 +2,7 @@
 
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { SparklesIcon } from "@dashframe/ui/icons";
+import { SparklesIcon } from "@stdui/icons";
 import { useCallback } from "react";
 
 interface EmptyStateProps {

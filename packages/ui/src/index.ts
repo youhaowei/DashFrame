@@ -1,22 +1,15 @@
 // =============================================================================
-// @dashframe/ui — Thin re-export layer
+// @dashframe/ui — DashFrame-specific UI components
 //
-// Most primitives, components, and utilities come from @stdui/react.
-// This file adds DashFrame-specific components, overrides, and field wrappers.
-// Icons are exported separately via the "./icons" export path.
+// stdui primitives and components: import from "@stdui/react"
+// Icons: import from "@stdui/icons"
+// Theme: import from "@stdui/react/theme"
+//
+// This package exports ONLY DashFrame-specific components, hooks, and utilities
+// that are not part of the stdui design system.
 // =============================================================================
 
-// -- Base: everything from stdui --
-// Includes: cn, colorVariants, sizeScale, stateVariant, Button, ButtonGroup,
-// Spinner, EmptyState, ErrorState, LoadingState, Stack, Container, Panel,
-// Section, SectionList, ItemList, CollapseHandle, CollapsibleSection, Toggle,
-// Tooltip, all primitives (Badge, Card, Dialog, Select, Tabs, Input, etc.)
-export * from "@stdui/react";
-
-// -- Icons (re-exported so `from "@dashframe/ui"` icon imports keep working) --
-export * from "./lib/icons";
-
-// -- DashFrame-specific components (not in stdui) --
+// -- DashFrame-specific components --
 
 export {
   VirtualTable,
@@ -62,7 +55,7 @@ export {
   getChartIcon,
 } from "./components/chart-icons";
 
-// Breadcrumb — DashFrame's version overrides stdui's Breadcrumb primitive
+// Breadcrumb — DashFrame's version (enhanced with Link integration)
 export {
   Breadcrumb,
   type BreadcrumbItem,
@@ -77,11 +70,6 @@ export {
   type UseContainerDimensionsOptions,
 } from "./hooks/useContainerDimensions";
 
-// -- Theme (from stdui subpath export, re-exported for convenience) --
-
-export { StduiProvider, useTheme } from "@stdui/react/theme";
-export type { ResolvedMode, ThemeMode } from "@stdui/react/theme";
-
 // -- Fonts --
 
 export { GeistMono, GeistSans } from "./lib/fonts";
@@ -91,10 +79,3 @@ export { GeistMono, GeistSans } from "./lib/fonts";
 export { Input as InputField } from "./fields/input";
 export { MultiSelect as MultiSelectField } from "./fields/multi-select";
 export { Select as SelectField } from "./fields/select";
-
-// -- Deprecated aliases --
-
-/** @deprecated Use ButtonGroup instead. ActionGroup will be removed in a future version. */
-export { ButtonGroup as ActionGroup } from "@stdui/react";
-/** @deprecated Use ButtonGroupProps instead. ActionGroupProps will be removed in a future version. */
-export type { ButtonGroupProps as ActionGroupProps } from "@stdui/react";

@@ -36,23 +36,16 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  ChartIcon,
-  DeleteIcon,
-  Input,
-  SelectField,
-  Spinner,
-} from "@dashframe/ui";
+import { SelectField } from "@dashframe/ui";
 import {
   AlertCircleIcon,
   ArrowLeftIcon,
   ArrowUpDownIcon,
+  ChartIcon,
   DataPointIcon,
-} from "@dashframe/ui/icons";
+  DeleteIcon,
+} from "@stdui/icons";
+import { Badge, Button, Card, CardContent, Input, Spinner } from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 

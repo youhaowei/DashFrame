@@ -13,7 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 
 export interface NotionConfigPanelProps {
   /**

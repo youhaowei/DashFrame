@@ -2,13 +2,9 @@
 
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import type { Insight } from "@dashframe/types";
-import {
-  Section,
-  Toggle,
-  VirtualTable,
-  type VirtualTableColumnConfig,
-} from "@dashframe/ui";
-import { MergeIcon, TableIcon } from "@dashframe/ui/icons";
+import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
+import { MergeIcon, TableIcon } from "@stdui/icons";
+import { Section, Toggle } from "@stdui/react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 type PreviewMode = "join" | "result";

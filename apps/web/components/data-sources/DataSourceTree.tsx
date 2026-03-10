@@ -1,14 +1,8 @@
 "use client";
 
 import { useDataFrames, useDataSources, useDataTables } from "@dashframe/core";
-import {
-  Button,
-  DeleteIcon,
-  EmptyState,
-  FileIcon,
-  Panel,
-  cn,
-} from "@dashframe/ui";
+import { DeleteIcon, FileIcon } from "@stdui/icons";
+import { Button, EmptyState, Panel, cn } from "@stdui/react";
 import { useMemo } from "react";
 
 interface DataSourceTreeProps {

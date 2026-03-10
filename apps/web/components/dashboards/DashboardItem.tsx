@@ -3,8 +3,8 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDashboardMutations } from "@dashframe/core";
 import type { DashboardItem as DashboardItemType } from "@dashframe/types";
-import { Button, cn, Surface } from "@dashframe/ui";
-import { DeleteIcon, DragHandleIcon, EditIcon } from "@dashframe/ui/icons";
+import { DeleteIcon, DragHandleIcon, EditIcon } from "@stdui/icons";
+import { Button, cn, Surface } from "@stdui/react";
 import { useState } from "react";
 import { MarkdownWidget } from "./MarkdownWidget";
 

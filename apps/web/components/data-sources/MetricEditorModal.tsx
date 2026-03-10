@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useEffect, useState } from "react";
 
 type AggregationType =

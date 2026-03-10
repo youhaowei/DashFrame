@@ -12,7 +12,8 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { ArrowLeftIcon, Button, SectionList } from "@dashframe/ui";
+import { ArrowLeftIcon } from "@stdui/icons";
+import { Button, SectionList } from "@stdui/react";
 import { useCallback, useMemo, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@stdui/icons";
 import {
   Badge,
   Dialog,
@@ -10,8 +11,7 @@ import {
   DialogTitle,
   Input,
   cn,
-} from "@dashframe/ui";
-import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useMemo, useState } from "react";
 
 interface InsightFieldEditorModalProps {

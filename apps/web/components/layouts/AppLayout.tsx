@@ -1,4 +1,5 @@
-import { Breadcrumb, cn, type BreadcrumbItem } from "@dashframe/ui";
+import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
+import { cn } from "@stdui/react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 

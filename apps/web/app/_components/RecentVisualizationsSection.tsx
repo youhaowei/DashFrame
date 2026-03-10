@@ -5,7 +5,7 @@ import { useMemo } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { useVisualizations } from "@dashframe/core";
-import { ChartIcon } from "@dashframe/ui";
+import { ChartIcon } from "@stdui/icons";
 import { DashboardSection } from "./DashboardSection";
 
 /**

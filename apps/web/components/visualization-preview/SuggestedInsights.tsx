@@ -1,8 +1,8 @@
 "use client";
 
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { Button, Card } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
+import { Button, Card } from "@stdui/react";
 
 /**
  * EncodingRow - Displays a single encoding channel

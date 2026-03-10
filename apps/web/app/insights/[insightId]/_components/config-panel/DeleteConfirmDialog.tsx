@@ -2,6 +2,7 @@
 
 import type { Visualization, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { AlertCircleIcon, CloseIcon, DeleteIcon } from "@stdui/icons";
 import {
   Button,
   Dialog,
@@ -10,8 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
-import { AlertCircleIcon, CloseIcon, DeleteIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 
 /** Information about a visualization that uses the item being deleted */
 export interface AffectedVisualization {

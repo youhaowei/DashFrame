@@ -2,7 +2,7 @@
 
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { Section } from "@dashframe/ui";
+import { Section } from "@stdui/react";
 import { memo } from "react";
 
 interface SuggestedChartsSectionProps {

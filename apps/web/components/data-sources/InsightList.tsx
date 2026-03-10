@@ -1,4 +1,5 @@
-import { ItemCard, LightbulbIcon } from "@dashframe/ui";
+import { LightbulbIcon } from "@stdui/icons";
+import { ItemCard } from "@stdui/react";
 
 /**
  * Display info for an insight in the list.

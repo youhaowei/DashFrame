@@ -2,7 +2,8 @@
 
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
-import { Spinner, cn, useContainerDimensions } from "@dashframe/ui";
+import { useContainerDimensions } from "@dashframe/ui";
+import { Spinner, cn } from "@stdui/react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
 
@@ -286,7 +287,7 @@ export function Chart({
       ref={containerRef}
       data-testid="visualization-chart"
       className={cn(
-        "flex min-h-0 items-center justify-center overflow-hidden bg-muted/30",
+        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
         className,
       )}
       style={{

@@ -22,7 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AddConnectionPanel } from "./AddConnectionPanel";

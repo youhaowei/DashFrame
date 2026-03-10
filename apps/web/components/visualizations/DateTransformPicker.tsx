@@ -5,6 +5,7 @@ import type {
   ChannelTransform,
   TemporalAggregation,
 } from "@dashframe/types";
+import { DateTypeIcon } from "@stdui/icons";
 import {
   Label,
   Select,
@@ -12,8 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@dashframe/ui";
-import { DateTypeIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useMemo } from "react";
 
 /**

@@ -1,10 +1,9 @@
 "use client";
 
 import { useDashboardMutations, useDashboards } from "@dashframe/core";
+import { DashboardIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
 import {
   Button,
-  DashboardIcon,
-  DeleteIcon,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -12,9 +11,8 @@ import {
   DialogTitle,
   Input,
   Label,
-  PlusIcon,
   Surface,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";

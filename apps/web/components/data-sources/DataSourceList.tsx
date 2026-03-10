@@ -1,4 +1,5 @@
-import { FileIcon, ItemCard } from "@dashframe/ui";
+import { FileIcon } from "@stdui/icons";
+import { ItemCard } from "@stdui/react";
 
 export interface DataSourceInfo {
   id: string;

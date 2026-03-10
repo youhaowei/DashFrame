@@ -3,20 +3,16 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
 import type { DataTable } from "@dashframe/types";
+import { VirtualTable } from "@dashframe/ui";
 import {
-  Button,
-  ButtonGroup,
   CloseIcon,
   DeleteIcon,
   EditIcon,
-  EmptyState,
   LayersIcon,
-  Panel,
   PlusIcon,
   SparklesIcon,
-  Toggle,
-  VirtualTable,
-} from "@dashframe/ui";
+} from "@stdui/icons";
+import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@stdui/react";
 import { useState } from "react";
 
 interface TableDetailPanelProps {

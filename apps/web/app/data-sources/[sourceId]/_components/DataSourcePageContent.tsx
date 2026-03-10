@@ -10,16 +10,24 @@ import {
   useDataTables,
 } from "@dashframe/core";
 import type { UUID } from "@dashframe/types";
+import { Breadcrumb, VirtualTable } from "@dashframe/ui";
+import {
+  DatabaseIcon,
+  DeleteIcon,
+  ChevronLeftIcon as LuArrowLeft,
+  CloudIcon as LuCloud,
+  FileIcon as LuFileSpreadsheet,
+  MoreIcon as LuMoreHorizontal,
+  PlusIcon,
+  TableIcon,
+} from "@stdui/icons";
 import {
   Badge,
-  Breadcrumb,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  DatabaseIcon,
-  DeleteIcon,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -32,14 +40,7 @@ import {
   DropdownMenuTrigger,
   Input,
   ItemCard,
-  ChevronLeftIcon as LuArrowLeft,
-  CloudIcon as LuCloud,
-  FileIcon as LuFileSpreadsheet,
-  MoreIcon as LuMoreHorizontal,
-  PlusIcon,
-  TableIcon,
-  VirtualTable,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";

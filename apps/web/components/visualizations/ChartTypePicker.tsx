@@ -16,17 +16,17 @@ import {
   type Field,
   type VisualizationType,
 } from "@dashframe/types";
+import { CHART_ICONS } from "@dashframe/ui";
+import { Chart } from "@dashframe/visualization";
+import { InfoIcon, SparklesIcon } from "@stdui/icons";
 import {
   Button,
-  CHART_ICONS,
   cn,
   Toggle,
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@dashframe/ui";
-import { InfoIcon, SparklesIcon } from "@dashframe/ui/icons";
-import { Chart } from "@dashframe/visualization";
+} from "@stdui/react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 /** Height of the chart preview area in pixels */

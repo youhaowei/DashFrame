@@ -8,13 +8,7 @@ import {
   useInsightMutations,
 } from "@dashframe/core";
 import type { DataTable, Insight } from "@dashframe/types";
-import {
-  ItemList,
-  JoinTypeIcon,
-  Section,
-  type ItemCardAction,
-  type ListItem,
-} from "@dashframe/ui";
+import { JoinTypeIcon } from "@dashframe/ui";
 import {
   CloseIcon,
   CloudIcon,
@@ -23,7 +17,13 @@ import {
   FileIcon,
   PlusIcon,
   TableIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/icons";
+import {
+  ItemList,
+  Section,
+  type ItemCardAction,
+  type ListItem,
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useMemo, useState } from "react";
 

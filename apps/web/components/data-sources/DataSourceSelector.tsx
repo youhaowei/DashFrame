@@ -1,18 +1,15 @@
 "use client";
 
 import { useDataSources, useDataTables } from "@dashframe/core";
+import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import {
-  Button,
   ChartIcon,
   DatabaseIcon,
   FileIcon,
-  ItemSelector,
   NotionIcon,
   PlusIcon,
-  Surface,
-  type ItemAction,
-  type SelectableItem,
-} from "@dashframe/ui";
+} from "@stdui/icons";
+import { Button, Surface, type ItemAction } from "@stdui/react";
 import Link from "next/link";
 import { useMemo } from "react";
 

@@ -1,4 +1,5 @@
-import { DatabaseIcon, ItemCard } from "@dashframe/ui";
+import { DatabaseIcon } from "@stdui/icons";
+import { ItemCard } from "@stdui/react";
 
 /**
  * Display info for a data table in lists.

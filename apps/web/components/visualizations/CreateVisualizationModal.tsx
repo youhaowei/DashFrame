@@ -9,7 +9,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 

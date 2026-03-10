@@ -18,13 +18,16 @@ import type {
   InsightJoinConfig,
 } from "@dashframe/types";
 import {
+  VirtualTable,
+  type VirtualTableColumn,
+  type VirtualTableColumnConfig,
+} from "@dashframe/ui";
+import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@stdui/icons";
+import {
   Alert,
-  AlertCircleIcon,
   AlertDescription,
-  ArrowLeftIcon,
   Button,
   Label,
-  MergeIcon,
   Select,
   SelectContent,
   SelectItem,
@@ -32,10 +35,7 @@ import {
   SelectValue,
   Spinner,
   Surface,
-  VirtualTable,
-  type VirtualTableColumn,
-  type VirtualTableColumnConfig,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

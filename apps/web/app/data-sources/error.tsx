@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, DatabaseIcon } from "@dashframe/ui";
+import { DatabaseIcon } from "@stdui/icons";
+import { Button } from "@stdui/react";
 import { useEffect } from "react";
 
 interface ErrorProps {

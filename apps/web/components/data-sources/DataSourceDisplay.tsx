@@ -11,24 +11,28 @@ import {
 } from "@dashframe/core";
 import type { DataTable, Field } from "@dashframe/types";
 import {
+  InputField,
+  MultiSelectField,
+  VirtualTable,
+  type VirtualTableColumn,
+} from "@dashframe/ui";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DatabaseIcon,
+  LayersIcon,
+  RefreshIcon,
+} from "@stdui/icons";
+import {
   Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  ChevronDownIcon,
-  ChevronUpIcon,
   cn,
-  DatabaseIcon,
-  InputField,
-  LayersIcon,
-  MultiSelectField,
-  RefreshIcon,
   Surface,
-  VirtualTable,
-  type VirtualTableColumn,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 

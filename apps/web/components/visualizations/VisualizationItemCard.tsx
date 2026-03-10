@@ -1,6 +1,7 @@
 "use client";
 
 import type { Visualization } from "@dashframe/types";
+import { ChartIcon, DataPointIcon, MoreIcon, TableIcon } from "@stdui/icons";
 import {
   Button,
   cn,
@@ -9,13 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   type ItemCardAction,
-} from "@dashframe/ui";
-import {
-  ChartIcon,
-  DataPointIcon,
-  MoreIcon,
-  TableIcon,
-} from "@dashframe/ui/icons";
+} from "@stdui/react";
 import * as React from "react";
 import { VisualizationPreview } from "./VisualizationPreview";
 

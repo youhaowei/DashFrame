@@ -10,23 +10,26 @@ import {
 } from "@dashframe/core";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import {
+  ChartIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  FileIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+} from "@stdui/icons";
+import {
   Badge,
   Button,
   Card,
   CardContent,
-  ChartIcon,
-  DeleteIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  FileIcon,
   Input,
-  MoreIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "@dashframe/ui";
-import { ExternalLinkIcon, SearchIcon } from "@dashframe/ui/icons";
+} from "@stdui/react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 

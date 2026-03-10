@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@dashframe/ui";
+} from "@stdui/react";
 
 /**
  * Global confirm dialog component

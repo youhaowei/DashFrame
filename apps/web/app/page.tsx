@@ -1,7 +1,7 @@
 "use client";
 
 import { useVisualizations } from "@dashframe/core";
-import { Spinner } from "@dashframe/ui";
+import { Spinner } from "@stdui/react";
 import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
 

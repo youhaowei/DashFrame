@@ -5,17 +5,10 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
-import {
-  ChartIcon,
-  LayersIcon,
-  Spinner,
-  Surface,
-  TableIcon,
-  Toggle,
-  VirtualTable,
-  type VirtualTableColumnConfig,
-} from "@dashframe/ui";
+import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
+import { ChartIcon, LayersIcon, TableIcon } from "@stdui/icons";
+import { Spinner, Surface, Toggle } from "@stdui/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode

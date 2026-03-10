@@ -8,22 +8,24 @@ import {
   useDataTableMutations,
   useDataTables,
 } from "@dashframe/core";
+import { InputField } from "@dashframe/ui";
+import {
+  ChevronDownIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  PlusIcon,
+  RefreshIcon,
+} from "@stdui/icons";
 import {
   Button,
-  ChevronDownIcon,
   cn,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  DatabaseIcon,
-  DeleteIcon,
-  InputField,
   Panel,
-  PlusIcon,
-  RefreshIcon,
   Spinner,
   Surface,
-} from "@dashframe/ui";
+} from "@stdui/react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
