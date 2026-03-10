@@ -18,26 +18,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Planning style**: Concise, no full code examples, only core changes. Name plans by feature.
 
-## Essential Commands
-
-### Workspace Commands (via Turborepo + Bun)
+## Commands
 
 ```bash
-bun dev           # Run Next.js dev + TypeScript watch mode for all packages
-bun build         # Build all packages and apps (dependencies first)
-bun check         # Run lint + typecheck + format check
-bun typecheck     # TypeScript checks across workspace
-bun lint          # ESLint 9 (flat config)
-bun format        # Prettier write (formats all files)
-bun format:check  # Prettier check (CI-safe, no writes)
-```
-
-Use `check` for comprehensive validation.
-
-### Targeting Specific Packages
-
-```bash
-bun check --filter @dashframe/web
+bun check           # lint + typecheck + format (use this before committing)
+bun typecheck       # TypeScript only
+bun lint            # ESLint 9 (flat config)
+bun format          # Prettier write
+bun format:check    # Prettier check (CI-safe)
+bun check --filter @dashframe/web  # Target specific package
 ```
 
 ## Core Architecture
@@ -201,38 +190,10 @@ Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** cr
 
 ### Rate Limiting in tRPC
 
-**All tRPC endpoints that call external APIs use rate limiting to prevent abuse.**
+All tRPC endpoints calling external APIs use rate limiting. Use `rateLimitedProcedure` (default 10 req/min) or `rateLimitMiddleware()` for custom limits. See `apps/web/lib/trpc/rate-limiter.ts`.
 
-- **Notion endpoints** are rate-limited per client IP (10-30 req/min depending on endpoint cost)
-- **In-memory storage**: Rate limits are per-instance, not shared across deployments
-- **Local development**: All requests share 'unknown' IP identifier - use `destroyAllRateLimiters()` in tests
-- **Testing**: Always call `destroyAllRateLimiters()` in test cleanup to prevent state leakage
-
-**When adding new tRPC endpoints**:
-
-```typescript
-// Default rate limiting (10 req/min)
-export const myEndpoint = rateLimitedProcedure
-  .input(z.object({ id: z.string() }))
-  .query(async ({ input }) => {
-    /* ... */
-  });
-
-// Custom rate limiting
-export const heavyEndpoint = publicProcedure
-  .use(
-    rateLimitMiddleware({
-      windowMs: 60000,
-      maxRequests: 30,
-      name: "heavyEndpoint",
-    }),
-  )
-  .query(async ({ input }) => {
-    /* ... */
-  });
-```
-
-See `apps/web/lib/trpc/rate-limiter.ts` and `middleware/rate-limit.ts` for implementation details.
+- **Testing**: Always call `destroyAllRateLimiters()` in test cleanup (in-memory, per-instance)
+- **Local dev**: All requests share 'unknown' IP identifier
 
 ### Other Gotchas
 
@@ -248,80 +209,33 @@ See `apps/web/lib/trpc/rate-limiter.ts` and `middleware/rate-limit.ts` for imple
 3. Next.js hot reload picks up changes immediately
 4. No manual rebuild needed
 
-### Before Committing
-
-Run the check meta-command:
-
-```bash
-bun check  # Runs lint + typecheck + format
-```
-
 ### When Adding Features
 
-1. **Write a spec first**: Create a feature spec in `docs/specs/<feature-name>.md` documenting:
-   - User flows and step-by-step interactions
-   - UI layout and visual design
-   - Decision rationale and trade-offs
-   - Error handling and edge cases
-   - See `docs/specs/create-visualization-flow.md` as reference example
-2. Check `docs/architecture.md` for vision and architecture alignment
-3. Follow functional converter pattern (no classes/inheritance)
-4. Use Zustand stores for state persistence (see `apps/web/lib/stores/`)
-5. Add tRPC router if calling external APIs (avoid CORS)
-6. Update `README.md` only for major user-facing features
-
-### Documentation
-
-- Update relevant docs in `docs/` for architecture, UI components, or new features
-- Add JSDoc comments for all new functions, types, and components
+1. **Write a spec first** in `docs/specs/<feature-name>.md` (see `create-visualization-flow.md` as reference)
+2. Check `docs/architecture.md` for alignment
+3. Add tRPC router if calling external APIs (avoid CORS)
+4. Run `bun check` before committing
 
 ### UI Component Guidelines
 
-**See `docs/ui-components.md` for comprehensive component documentation.**
+**See `docs/ui-components.md` for full inventory.** Use `bun storybook` to browse.
 
-Before implementing any UI changes, follow this component-first approach:
+**Import sources** (see stdui Submodule section above for examples):
 
-1. **Check existing components first**:
-   - stdui primitives (`@stdui/react`) - Button, Card, Input, Select, Dialog, Panel, Section, etc.
-   - stdui icons (`@stdui/icons`) - SearchIcon, DeleteIcon, PlusIcon, etc.
-   - DashFrame-specific (`@dashframe/ui`) - VirtualTable, SortableList, ItemSelector, Breadcrumb, chart-icons, field wrappers
-   - See `docs/ui-components.md` for full inventory and `bun storybook` to browse components
-   - **IMPORTANT**: All UI elements on pages MUST use stdui or `@dashframe/ui` components. If a needed component doesn't exist, add it to stdui or the UI package first.
+- `@stdui/react` — standard UI (Button, Card, Dialog, Panel, etc.)
+- `@stdui/icons` — icons (SearchIcon, DeleteIcon, etc.)
+- `@dashframe/ui` — DashFrame-specific (VirtualTable, SortableList, ItemSelector, Breadcrumb, chart-icons, field wrappers)
 
-2. **Component decision principles**:
-   - **Use stdui components** (`@stdui/react`) for standard UI patterns (buttons, cards, dialogs, forms, etc.)
-   - **Use DashFrame components** (`@dashframe/ui`) for domain-specific patterns (ItemSelector, VirtualTable, SortableList, etc.)
-   - **Create feature-specific components** for one-off, domain-specific UI
-   - **Extract to shared/** when patterns emerge across multiple features
+**All UI on pages MUST use stdui or `@dashframe/ui` components.** Add missing components to stdui or the UI package first.
 
-3. **Design token enforcement** (from `docs/ui-components.md`):
-   - **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
-   - **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
-   - **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)
-   - **No UPPERCASE text** - Use sentence case everywhere (except acronyms like CSV, API)
+**Design tokens**:
 
-4. **When to create reusable components**:
-   - Pattern appears or will appear in 3+ places
-   - Component encapsulates meaningful UI logic
-   - Component has clear, semantic purpose (not just styling wrapper)
-   - Add JSDoc documentation with usage examples
+- **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
+- **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
+- **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)
+- **No UPPERCASE text** — sentence case everywhere (except acronyms)
 
-5. **Avoid one-off customization**:
-   - Don't create custom `<div>` wrappers with Tailwind when a component exists
-   - Don't duplicate component logic - extract and reuse
-   - Don't break design token patterns - follow spacing/radius/icon guidelines
-   - Don't skip accessibility - use semantic HTML and aria-labels
-
-**Component extraction workflow**:
-
-- Recognize repeated pattern → Check if component exists in `@dashframe/ui` → Extract to `packages/ui/src/components/` if used 3+ times → Document with JSDoc → Export from `packages/ui/src/index.ts`
-
-**Storybook for UI Development**:
-
-- Run `bun storybook` to launch Storybook at <http://localhost:6006>
-- Browse all UI components with interactive examples
-- Located in `packages/ui/` with stories in `src/**/*.stories.tsx`
-- Configured with Storybook v10 using Next.js framework and Tailwind CSS v4
+**Component extraction**: If a pattern appears 3+ times → extract to `packages/ui/src/components/` → export from `index.ts`
 
 ### Architecture Principles
 
@@ -334,190 +248,29 @@ Before implementing any UI changes, follow this component-first approach:
 
 ## Testing
 
-### Test Commands
+**Vitest** for unit/integration, **Playwright** for E2E. **80% coverage target.**
 
 ```bash
-# Run all unit tests
-bun run test
-
-# Run tests in watch mode
-bun run test:watch
-
-# Run tests with coverage report
-bun run test:coverage
-
-# Run coverage for specific package
-bun run test:coverage --filter @dashframe/types
-
-# Run E2E tests
-cd e2e/web
-bun run test:e2e
-
-# Run E2E tests in UI mode
-cd e2e/web
-bun run test:ui
+bun run test                              # All unit tests
+bun run test:coverage                     # With coverage report
+bun run test:coverage --filter @dashframe/types  # Single package
+cd e2e/web && bun run test:e2e            # E2E tests
+cd e2e/web && bun run test:ui             # Playwright UI mode
 ```
 
-### Testing Philosophy
-
-DashFrame follows **test-driven development** for critical logic:
-
-- **80% coverage target**: Core functionality must have comprehensive test coverage
-- **Unit tests first**: Test pure functions, utilities, and business logic in isolation
-- **Integration tests**: Test how components work together (hooks, stores, data flows)
-- **E2E tests**: Test critical user workflows end-to-end (CSV upload, chart creation, dashboard building)
-- **Snapshot tests**: Catch visual regressions in chart configurations
-
-### Unit Testing Patterns
-
-DashFrame uses **Vitest** for unit and integration tests. Tests are colocated with source files using `.test.ts` or `.test.tsx` extensions.
-
-**Key Conventions:**
-
-- File header comment documenting what's tested
-- Nested `describe` blocks (one per function)
-- "should" format for test names
-- Mock factories for reusable test data
-- No `console.log` in committed tests
-- `beforeEach`/`afterEach` for cleanup
-
-### React Hook Testing
-
-Use `@testing-library/react` with Vitest:
-
-- **Always use `act()`** for state updates and async operations
-- **Use `waitFor()`** for async assertions
-- **Clear mocks** with `vi.clearAllMocks()` in `beforeEach`
-- **Mock external deps**: `@dashframe/core`, `next/navigation`, etc.
-
-### E2E Testing Patterns
-
-DashFrame uses **Playwright** with custom fixtures for E2E tests.
-
-#### E2E Directory Structure
-
-```
-e2e/web/
-├── tests/                       # Test specs
-│   ├── csv-to-chart.spec.ts     # CSV upload → chart workflow
-│   ├── json-to-chart.spec.ts    # JSON upload → chart workflow
-│   ├── error-handling.spec.ts   # Error cases (empty files, invalid formats)
-│   ├── chart-editing.spec.ts    # Chart type switching
-│   └── dashboard.spec.ts        # Dashboard creation & management
-├── lib/
-│   └── test-fixtures.ts         # Custom Playwright fixtures
-├── fixtures/                    # Test data files
-│   ├── sales_data.csv           # 5 rows: Date, Product, Category, Sales, Quantity
-│   ├── products_data.csv        # 4 rows: Product, Price, Supplier (for joins)
-│   └── users_data.json          # 5 users: id, name, email, age, department
-├── support/
-│   └── port-finder.ts           # Smart port allocation (3100-3120)
-└── playwright.config.ts
-```
-
-#### Custom Fixtures
-
-Tests use custom fixtures from `lib/test-fixtures.ts` for reusable actions:
-
-```typescript
-import { expect, test } from "../lib/test-fixtures";
-
-test("upload CSV and create chart", async ({
-  page,
-  homePage, // Navigate to home, verify loaded
-  uploadFile, // Upload from fixtures directory
-  waitForChart, // Wait for chart SVG to render
-}) => {
-  await homePage();
-  await uploadFile("sales_data.csv");
-  // ... rest of test
-});
-```
-
-**Available fixtures:**
-
-- `homePage()` - Navigate to home page and verify loaded
-- `uploadFile(fileName)` - Upload file from `fixtures/` directory
-- `uploadBuffer(name, content, mimeType)` - Upload in-memory content (for error testing)
-- `waitForChart()` - Wait for chart data and SVG to render
-
-#### Running Tests
-
-```bash
-cd e2e/web
-bun run test:e2e
-```
-
-- Builds to isolated `.next-e2e` directory
-- Auto-finds available port (3100-3120)
-- Local: parallel workers with separate servers for IndexedDB isolation
-- CI: single worker for reliability
-
-#### Filtering Tests
-
-```bash
-# Run specific test file
-bun run test:e2e csv-to-chart
-
-# Run tests matching pattern
-bun run test:e2e --grep "upload"
-
-# Run specific describe block
-bun run test:e2e --grep "Error Handling"
-```
-
-#### E2E Best Practices
-
-- **Use semantic selectors**: Prefer `getByRole`, `getByLabel`, `getByText`
-- **Use fixtures**: Add reusable actions to `lib/test-fixtures.ts`
-- **Wait for navigation**: Use `expect(page).toHaveURL()` with timeout
-- **Add test data**: Place files in `fixtures/` directory
-- **Use exact matching**: Add `{ exact: true }` when multiple elements match (e.g., headings)
-- **Handle UI variations**: Use conditional checks when button text varies between states
-
-#### CI Configuration
-
-E2E in CI (`.github/workflows/ci.yml`):
-
-- **Browser**: Chromium only
-- **Workers**: Single worker (avoids port conflicts)
-- **Retries**: 2 retries on failure
-- **Artifacts**: Results retained 7 days
-
-#### Debugging
-
-```bash
-bun run test:ui        # Playwright UI mode
-bun run test:headed    # See browser
-bun run test:debug     # Step through with debugger
-bun run test:html      # HTML report after run
-```
-
-**On failure, Playwright captures**: screenshots, videos, traces (on retry).
-
-### Snapshot Testing
-
-Use for chart configs, complex objects, and data transformation regression testing.
-
-```bash
-bun run test chart-suggestions.snapshot.test.ts  # Generate/update snapshots
-```
-
-Snapshots saved in `__snapshots__/`. Review changes carefully in PRs.
-
-### Coverage Requirements
-
-**Target: 80%** for branches, functions, lines, statements (configured in `vitest.config.ts`).
-
-**Testing priority:**
+### Testing Priority
 
 1. **HIGH**: Data operations, business logic (converters, chart suggestions)
 2. **MEDIUM**: React hooks, utilities
 3. **LOW**: UI components (prefer E2E)
 
-### Mock Strategies
+### Unit Test Conventions
 
-Common mocks for DashFrame tests:
+- Colocated with source: `*.test.ts` / `*.test.tsx`
+- Nested `describe` blocks, `"should ..."` test names
+- Mock factories for reusable test data
+
+### Common Mocks
 
 ```typescript
 vi.mock("@dashframe/core", () => ({
@@ -530,32 +283,25 @@ vi.mock("next/navigation", () => ({
 }));
 ```
 
-### Test File Organization
+### E2E Custom Fixtures
 
-- **Unit tests**: Colocated with source (`*.test.ts` or `*.test.tsx`)
-- **E2E tests**: `e2e/web/tests/*.spec.ts`
-- **Fixtures**: Custom Playwright fixtures in `e2e/web/lib/test-fixtures.ts`
-- **Test data**: `e2e/web/fixtures/` (CSV, JSON files)
+E2E tests use custom fixtures from `e2e/web/lib/test-fixtures.ts`:
 
-### Running Tests in CI
+- `homePage()` — navigate to home, verify loaded
+- `uploadFile(fileName)` — upload from `e2e/web/fixtures/`
+- `uploadBuffer(name, content, mimeType)` — upload in-memory content
+- `waitForChart()` — wait for chart SVG to render
 
-- **Unit tests**: Run on all PRs and main commits with coverage
-- **E2E**: Chromium only, single worker, 2 retries, artifacts for 7 days
+```typescript
+import { expect, test } from "../lib/test-fixtures";
 
-**Local pre-commit**: `bun check && bun run test:coverage`
-
-### Debugging Tests
-
-```bash
-bun run test suggest-charts.test.ts   # Single file
-bun run test --grep "bar chart"       # Pattern match
-bun run test --ui                     # Vitest UI
-cd e2e/web && bun run test:debug      # Playwright inspector
+test("upload CSV and create chart", async ({
+  homePage,
+  uploadFile,
+  waitForChart,
+}) => {
+  await homePage();
+  await uploadFile("sales_data.csv");
+  await waitForChart();
+});
 ```
-
-### Writing New Tests
-
-1. Start with unit tests for pure functions
-2. Add hook/integration tests
-3. Add E2E for critical user paths
-4. Run coverage to meet 80% threshold
