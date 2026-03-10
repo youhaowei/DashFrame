@@ -18,6 +18,7 @@ out
 .idea
 .vscode
 .claude_settings.json
+.claude/
 
 # Local caches
 corepack-home/
