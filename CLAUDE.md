@@ -28,8 +28,8 @@ bun build         # Build all packages and apps (dependencies first)
 bun check         # Run lint + typecheck + format check
 bun typecheck     # TypeScript checks across workspace
 bun lint          # ESLint 9 (flat config)
-bun format        # Prettier check
-bun format:write  # Prettier write
+bun format        # Prettier write (formats all files)
+bun format:check  # Prettier check (CI-safe, no writes)
 ```
 
 Use `check` for comprehensive validation.
@@ -89,7 +89,7 @@ See `docs/backend-architecture.md` for full details on creating custom backends.
 1. Create package in `packages/<source>/` with converter function
 2. Add tRPC router in `apps/web/lib/trpc/routers/<source>.ts`
 3. Extend `apps/web/lib/stores/` (types + actions)
-4. Update `apps/web/components/DataSourcesPanel.tsx`
+4. Update the data sources UI components in `apps/web/components/data-sources/`
 
 ## tRPC for External APIs
 
@@ -117,18 +117,22 @@ packages/
   connector-csv/           # CSV file connector
   connector-notion/        # Notion API connector
   visualization/           # Vega-Lite chart rendering
-  ui/                      # Re-exports @stdui/react + DashFrame-specific components
+  ui/                      # DashFrame-specific components only (VirtualTable,
+                           #   SortableList, Breadcrumb, ItemSelector, chart-icons)
                            # Includes Storybook for component development
   eslint-config/           # Shared ESLint 9 flat config
 ```
 
 ### stdui Submodule
 
-`libs/stdui/` is a **git submodule** (`@stdui/react`) providing the design system. `@dashframe/ui` re-exports everything from `@stdui/react` plus DashFrame-specific components.
+`libs/stdui/` is a **git submodule** providing the design system. Import directly:
+
+- **Components**: `import { Button, Card } from "@stdui/react"`
+- **Icons**: `import { SearchIcon } from "@stdui/icons"`
+- **Theme**: `import { StduiProvider, useTheme } from "@stdui/react/theme"`
+- **DashFrame-specific**: `import { VirtualTable, SortableList } from "@dashframe/ui"`
 
 **Token naming**: stdui uses semantic tokens (`bg-neutral-bg`, `text-neutral-fg`, `bg-palette-primary`), not shadcn naming (`bg-background`, `text-foreground`, `bg-primary`).
-
-**Theme**: `StduiProvider` (Zustand-based) replaces `next-themes`. Import from `@dashframe/ui`.
 
 **Committing submodule changes**: The submodule has its own git history. When modifying files in `libs/stdui/`:
 
@@ -278,16 +282,15 @@ bun check  # Runs lint + typecheck + format
 Before implementing any UI changes, follow this component-first approach:
 
 1. **Check existing components first**:
-   - `@dashframe/ui` package exports all UI components (import from `@dashframe/ui`)
-   - stdui primitives (from `@stdui/react`) - Button, Card, Input, Select, Dialog, etc.
-   - DashFrame-specific components - ItemSelector, VirtualTable, SortableList, etc.
-   - Icons from `@stdui/icons` (re-exported via `@dashframe/ui`)
+   - stdui primitives (`@stdui/react`) - Button, Card, Input, Select, Dialog, Panel, Section, etc.
+   - stdui icons (`@stdui/icons`) - SearchIcon, DeleteIcon, PlusIcon, etc.
+   - DashFrame-specific (`@dashframe/ui`) - VirtualTable, SortableList, ItemSelector, Breadcrumb, chart-icons, field wrappers
    - See `docs/ui-components.md` for full inventory and `bun storybook` to browse components
-   - **IMPORTANT**: All UI elements on pages MUST use components from `@dashframe/ui`. If a needed component doesn't exist, add it to stdui or the UI package first before using it in pages.
+   - **IMPORTANT**: All UI elements on pages MUST use stdui or `@dashframe/ui` components. If a needed component doesn't exist, add it to stdui or the UI package first.
 
 2. **Component decision principles**:
-   - **Use shadcn/ui components** for standard UI patterns (buttons, cards, dialogs, forms, etc.)
-   - **Use shared components** for DashFrame-specific patterns (ActionGroup, ItemSelector, Toggle, etc.)
+   - **Use stdui components** (`@stdui/react`) for standard UI patterns (buttons, cards, dialogs, forms, etc.)
+   - **Use DashFrame components** (`@dashframe/ui`) for domain-specific patterns (ItemSelector, VirtualTable, SortableList, etc.)
    - **Create feature-specific components** for one-off, domain-specific UI
    - **Extract to shared/** when patterns emerge across multiple features
 
