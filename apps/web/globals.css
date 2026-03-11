@@ -7,7 +7,7 @@
 @plugin "@tailwindcss/typography";
 
 /* Scan web app components for Tailwind classes */
-@source "./app/**/*.{ts,tsx}";
+@source "./src/**/*.{ts,tsx}";
 @source "./components/**/*.{ts,tsx}";
 
 /* React Grid Layout drag placeholder */
