@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -27,7 +25,7 @@ import type {
   UUID,
   VegaLiteSpec,
 } from "@dashframe/types";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
@@ -479,7 +477,7 @@ function convertToVisualizationEncoding(
  */
 export function InsightView({ insight }: InsightViewProps) {
   const insightId = insight.id;
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
@@ -909,7 +907,10 @@ export function InsightView({ insight }: InsightViewProps) {
       );
 
       // Navigate to the visualization
-      router.push(`/visualizations/${vizId}`);
+      navigate({
+        to: "/visualizations/$visualizationId",
+        params: { visualizationId: vizId },
+      });
     },
     [
       dataTable,
@@ -920,7 +921,7 @@ export function InsightView({ insight }: InsightViewProps) {
       updateInsight,
       insightId,
       createVisualizationLocal,
-      router,
+      navigate,
     ],
   );
 
@@ -943,9 +944,12 @@ export function InsightView({ insight }: InsightViewProps) {
         viz.encoding,
       );
 
-      router.push(`/visualizations/${newVizId}`);
+      navigate({
+        to: "/visualizations/$visualizationId",
+        params: { visualizationId: newVizId },
+      });
     },
-    [insightVisualizations, createVisualizationLocal, insightId, router],
+    [insightVisualizations, createVisualizationLocal, insightId, navigate],
   );
 
   // Handle deleting a visualization

@@ -1,8 +1,6 @@
-"use client";
-
 import { ChartIcon, DatabaseIcon, SparklesIcon } from "@stdui/icons";
 import { ItemList } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import {
@@ -17,7 +15,7 @@ import {
  * Self-contained section that fetches counts from Dexie.
  */
 export function QuickLinksSection() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: visualizations = [] } = useVisualizations();
   const { data: insights = [] } = useInsights();
@@ -52,7 +50,7 @@ export function QuickLinksSection() {
       <h2 className="mb-4 text-xl font-semibold">Quick Links</h2>
       <ItemList
         items={quickLinks}
-        onSelect={(id) => router.push(`/${id}`)}
+        onSelect={(id) => navigate({ to: `/${id}` })}
         orientation="grid"
         gap={12}
       />

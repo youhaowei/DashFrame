@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
@@ -41,9 +39,19 @@ import {
   Input,
   ItemCard,
 } from "@stdui/react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type ReactNode, useMemo, useState } from "react";
+
+/** Adapter: Breadcrumb expects `{ href }` but TanStack Router Link expects `{ to }` */
+function BreadcrumbLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return <Link to={href}>{children}</Link>;
+}
 
 interface DataSourcePageContentProps {
   sourceId: string;
@@ -75,7 +83,7 @@ function getSourceTypeIcon(type: string) {
 export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks
   const { data: allDataSources = [] } = useDataSources();
@@ -137,7 +145,7 @@ export default function DataSourcePageContent({
   const handleCreateInsight = (tableId: UUID) => {
     // Navigate to insights page with pre-selected table
     // The actual insight creation will happen there
-    router.push(`/insights?newInsight=true&tableId=${tableId}`);
+    navigate({ to: "/insights", search: { newInsight: true, tableId } });
   };
 
   // Handle delete table
@@ -188,7 +196,7 @@ export default function DataSourcePageContent({
           </p>
           <Button
             label="Go to Data Sources"
-            onClick={() => router.push("/data-sources")}
+            onClick={() => navigate({ to: "/data-sources" })}
             className="mt-4"
           />
         </div>
@@ -203,7 +211,7 @@ export default function DataSourcePageContent({
           <div className="container mx-auto px-6 py-4">
             <div className="mb-4">
               <Breadcrumb
-                LinkComponent={Link}
+                LinkComponent={BreadcrumbLink}
                 items={[
                   {
                     label: (

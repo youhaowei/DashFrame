@@ -1,7 +1,5 @@
-"use client";
-
 import { Button } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 
 interface NotFoundViewProps {
   type: "insight" | "dataTable";
@@ -11,7 +9,7 @@ interface NotFoundViewProps {
  * NotFoundView - Error view when insight or data table is not found
  */
 export function NotFoundView({ type }: NotFoundViewProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const title =
     type === "insight" ? "Insight not found" : "Data table not found";
@@ -26,7 +24,7 @@ export function NotFoundView({ type }: NotFoundViewProps) {
         <h2 className="text-xl font-semibold">{title}</h2>
         <p className="mt-2 text-sm text-neutral-fg-subtle">{description}</p>
         <Button
-          onClick={() => router.push("/insights")}
+          onClick={() => navigate({ to: "/insights" })}
           className="mt-4"
           label="Go to Insights"
         />

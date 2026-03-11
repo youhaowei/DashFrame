@@ -1,5 +1,3 @@
-"use client";
-
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {
@@ -24,7 +22,7 @@ import {
   type ItemCardAction,
   type ListItem,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataModelSectionProps {
@@ -116,7 +114,7 @@ export const DataModelSection = memo(function DataModelSection({
   allDataTables,
   combinedFieldCount,
 }: DataModelSectionProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allDataSources = [] } = useDataSources();
@@ -147,10 +145,10 @@ export const DataModelSection = memo(function DataModelSection({
   const handleOpenDataSource = useCallback(
     (sourceId: string | undefined) => {
       if (sourceId) {
-        router.push(`/data-sources/${sourceId}`);
+        navigate({ to: "/data-sources/$sourceId", params: { sourceId } });
       }
     },
-    [router],
+    [navigate],
   );
 
   // Build ItemList items for tables

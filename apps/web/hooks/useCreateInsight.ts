@@ -1,5 +1,5 @@
 import { getInsight, useInsightMutations } from "@dashframe/core";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 /**
@@ -35,7 +35,7 @@ import { useCallback } from "react";
  * ```
  */
 export function useCreateInsight() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { create: createInsight } = useInsightMutations();
 
   /**
@@ -52,11 +52,14 @@ export function useCreateInsight() {
       );
 
       // Navigate to insight page (action hub)
-      router.push(`/insights/${insightId}`);
+      navigate({
+        to: "/insights/$insightId",
+        params: { insightId },
+      });
 
       return insightId;
     },
-    [router, createInsight],
+    [navigate, createInsight],
   );
 
   /**
@@ -83,11 +86,14 @@ export function useCreateInsight() {
       );
 
       // Navigate to new insight
-      router.push(`/insights/${insightId}`);
+      navigate({
+        to: "/insights/$insightId",
+        params: { insightId },
+      });
 
       return insightId;
     },
-    [router, createInsight],
+    [navigate, createInsight],
   );
 
   return {

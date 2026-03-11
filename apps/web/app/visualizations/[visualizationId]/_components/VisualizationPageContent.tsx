@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
@@ -46,7 +44,7 @@ import {
   DeleteIcon,
 } from "@stdui/icons";
 import { Badge, Button, Card, CardContent, Input, Spinner } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 interface VisualizationPageContentProps {
@@ -84,7 +82,7 @@ function getVizIcon(type: string) {
 export default function VisualizationPageContent({
   visualizationId,
 }: VisualizationPageContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks for data
   const { data: visualizations = [], isLoading: isVizLoading } =
@@ -505,7 +503,7 @@ export default function VisualizationPageContent({
   const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
       await removeVisualization(visualizationId as UUID);
-      router.push("/insights");
+      navigate({ to: "/insights" });
     }
   };
 
@@ -534,7 +532,7 @@ export default function VisualizationPageContent({
           </p>
           <Button
             label="Go to Insights"
-            onClick={() => router.push("/insights")}
+            onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
         </div>
@@ -553,7 +551,7 @@ export default function VisualizationPageContent({
                 label="Back"
                 variant="ghost"
                 size="sm"
-                onClick={() => router.back()}
+                onClick={() => window.history.back()}
                 icon={ArrowLeftIcon}
               />
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
@@ -576,7 +574,10 @@ export default function VisualizationPageContent({
                 <Button
                   label="Go to Source Insight"
                   onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
+                    navigate({
+                      to: "/insights/$insightId",
+                      params: { insightId: visualization.insightId! },
+                    })
                   }
                 />
               )}
@@ -691,7 +692,7 @@ export default function VisualizationPageContent({
               label="Back"
               variant="ghost"
               size="sm"
-              onClick={() => router.back()}
+              onClick={() => window.history.back()}
               icon={ArrowLeftIcon}
             />
             <div className="min-w-[220px] flex-1">
@@ -716,7 +717,10 @@ export default function VisualizationPageContent({
                 <span>•</span>
                 <button
                   onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
+                    navigate({
+                      to: "/insights/$insightId",
+                      params: { insightId: visualization.insightId! },
+                    })
                   }
                   className="text-palette-primary hover:underline"
                 >
@@ -873,7 +877,10 @@ export default function VisualizationPageContent({
               <Card
                 className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
                 onClick={() =>
-                  router.push(`/insights/${visualization.insightId}`)
+                  navigate({
+                    to: "/insights/$insightId",
+                    params: { insightId: visualization.insightId! },
+                  })
                 }
               >
                 <CardContent className="p-3">

@@ -28,16 +28,14 @@ vi.mock("@dashframe/core", () => ({
   getInsight: mockGetInsight,
 }));
 
-const { mockPush, mockRouter } = vi.hoisted(() => {
-  const push = vi.fn();
+const { mockNavigate } = vi.hoisted(() => {
   return {
-    mockPush: push,
-    mockRouter: { push },
+    mockNavigate: vi.fn(),
   };
 });
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => mockRouter,
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
 }));
 
 /**
@@ -97,7 +95,10 @@ describe("useCreateInsight", () => {
         );
       });
 
-      expect(mockPush).toHaveBeenCalledWith("/insights/new-insight-456");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/insights/$insightId",
+        params: { insightId: "new-insight-456" },
+      });
     });
 
     it("should return the created insight ID", async () => {
@@ -272,7 +273,10 @@ describe("useCreateInsight", () => {
         await result.current.createInsightFromInsight("source-111", "Source");
       });
 
-      expect(mockPush).toHaveBeenCalledWith("/insights/derived-999");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/insights/$insightId",
+        params: { insightId: "derived-999" },
+      });
     });
 
     it("should return the derived insight ID", async () => {
@@ -334,7 +338,7 @@ describe("useCreateInsight", () => {
         await result.current.createInsightFromInsight("missing-456", "Missing");
       });
 
-      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it("should handle getInsight errors by propagating them", async () => {
@@ -415,8 +419,14 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockCreateInsight).toHaveBeenCalledTimes(2);
-      expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
-      expect(mockPush).toHaveBeenCalledWith("/insights/insight-2");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/insights/$insightId",
+        params: { insightId: "insight-1" },
+      });
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/insights/$insightId",
+        params: { insightId: "insight-2" },
+      });
     });
 
     it("should create insight chain (table → insight → derived)", async () => {
@@ -469,7 +479,7 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockCreateInsight).toHaveBeenCalledTimes(3);
-      expect(mockPush).toHaveBeenCalledTimes(3);
+      expect(mockNavigate).toHaveBeenCalledTimes(3);
     });
   });
 

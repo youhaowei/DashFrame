@@ -1,6 +1,4 @@
-"use client";
-
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
@@ -14,7 +12,7 @@ import { DashboardSection } from "./DashboardSection";
  * Self-contained section that fetches its own data from Dexie.
  */
 export function RecentVisualizationsSection() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: visualizations = [] } = useVisualizations();
 
@@ -39,7 +37,12 @@ export function RecentVisualizationsSection() {
       icon={ChartIcon}
       viewAllHref="/visualizations"
       items={recentVisualizations}
-      onItemSelect={(id) => router.push(`/visualizations/${id}`)}
+      onItemSelect={(id) =>
+        navigate({
+          to: "/visualizations/$visualizationId",
+          params: { visualizationId: id },
+        })
+      }
       gap={16}
     />
   );

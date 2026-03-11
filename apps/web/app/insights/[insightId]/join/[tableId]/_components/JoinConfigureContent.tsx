@@ -1,5 +1,3 @@
-"use client";
-
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
@@ -36,7 +34,7 @@ import {
   Spinner,
   Surface,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface JoinConfigureContentProps {
@@ -65,7 +63,7 @@ export default function JoinConfigureContent({
   insightId,
   tableId: joinTableId,
 }: JoinConfigureContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks for data access
   const { data: allInsights, isLoading: isInsightsLoading } = useInsights();
@@ -664,7 +662,7 @@ export default function JoinConfigureContent({
 
     setIsSubmitting(false);
     // Navigate back to the same insight
-    router.push(`/insights/${insightId}`);
+    navigate({ to: "/insights/$insightId", params: { insightId } });
   }, [
     leftFieldId,
     rightFieldId,
@@ -677,7 +675,7 @@ export default function JoinConfigureContent({
     insightId,
     updateInsight,
     previewResult,
-    router,
+    navigate,
   ]);
 
   // Loading state - wait for all stores to hydrate before rendering
@@ -706,7 +704,7 @@ export default function JoinConfigureContent({
           </p>
           <Button
             label="Go to Insights"
-            onClick={() => router.push("/insights")}
+            onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
         </Surface>
@@ -725,7 +723,7 @@ export default function JoinConfigureContent({
           </p>
           <Button
             label="Go to Insights"
-            onClick={() => router.push("/insights")}
+            onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
         </Surface>
@@ -744,7 +742,9 @@ export default function JoinConfigureContent({
           </p>
           <Button
             label="Back to Insight"
-            onClick={() => router.push(`/insights/${insightId}`)}
+            onClick={() =>
+              navigate({ to: "/insights/$insightId", params: { insightId } })
+            }
             className="mt-4"
           />
         </Surface>
@@ -766,7 +766,12 @@ export default function JoinConfigureContent({
                 icon={ArrowLeftIcon}
                 label="Cancel"
                 size="sm"
-                onClick={() => router.push(`/insights/${insightId}`)}
+                onClick={() =>
+                  navigate({
+                    to: "/insights/$insightId",
+                    params: { insightId },
+                  })
+                }
               />
               <div>
                 <h1 className="text-xl font-semibold">
