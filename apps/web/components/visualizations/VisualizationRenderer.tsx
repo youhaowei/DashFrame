@@ -1,5 +1,6 @@
 "use client";
 
+import { useChartData } from "@/hooks/useChartData";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
@@ -50,9 +51,8 @@ interface VisualizationRendererProps {
  * - Visualization page (full view)
  * - Dashboard cards (thumbnails)
  *
- * Charts query the base DataFrame table directly. The encoding contains
- * aggregation functions (e.g., "sum(revenue)") that vgplot converts to
- * DuckDB queries, enabling query pushdown without loading data into memory.
+ * Charts use useChartData to fetch inline data from DuckDB, then pass
+ * it to the Vega-Lite renderer for visualization.
  */
 export function VisualizationRenderer({
   visualizationId,
@@ -121,6 +121,11 @@ export function VisualizationRenderer({
   // Use pagination hook to ensure table is loaded in DuckDB
   const { isReady: isTableReady } = useDataFramePagination(dataFrameId);
 
+  // Fetch chart data from DuckDB
+  const { data: chartData, isLoading: isChartDataLoading } = useChartData(
+    isTableReady && tableName ? tableName : undefined,
+  );
+
   // Loading state
   if (!isTableReady || !tableName || !visualization) {
     return (
@@ -135,12 +140,14 @@ export function VisualizationRenderer({
     );
   }
 
-  // Render chart - vgplot will handle aggregations via encoding
+  // Render chart — Vega-Lite handles aggregations from inline data
   // Use key to force remount when visualization changes
   return (
     <Chart
       key={visualizationId}
       tableName={tableName}
+      data={chartData}
+      isLoading={isChartDataLoading}
       visualizationType={visualization.visualizationType}
       encoding={resolvedEncoding}
       className={className}

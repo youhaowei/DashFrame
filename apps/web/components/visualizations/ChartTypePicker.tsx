@@ -1,5 +1,6 @@
 "use client";
 
+import { useChartData } from "@/hooks/useChartData";
 import type { Insight } from "@/lib/stores/types";
 import {
   suggestByChartType,
@@ -86,6 +87,10 @@ const CategoryCard = memo(function CategoryCard({
   onSelect,
   getSuggestionForType,
 }: CategoryCardProps) {
+  // Fetch chart data from DuckDB for preview rendering
+  const { data: chartData, isLoading: isChartDataLoading } =
+    useChartData(tableName);
+
   const {
     tag,
     tagDisplayName,
@@ -222,6 +227,8 @@ const CategoryCard = memo(function CategoryCard({
         ) : (
           <Chart
             tableName={tableName}
+            data={chartData}
+            isLoading={isChartDataLoading}
             visualizationType={currentChartType}
             encoding={currentSuggestion.encoding}
             height={PREVIEW_HEIGHT}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useChartData } from "@/hooks/useChartData";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
@@ -59,6 +60,11 @@ export function VisualizationPreview({
   // Create/get the DuckDB view using the same hook as insight pages
   // This ensures views are created on-demand and properly cached
   const { viewName, isReady, error } = useInsightView(insight);
+
+  // Fetch chart data from DuckDB view
+  const { data: chartData, isLoading: isChartDataLoading } = useChartData(
+    isReady && viewName ? viewName : undefined,
+  );
 
   // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
   // - field:<uuid> → column name (e.g., "Product")
@@ -122,6 +128,8 @@ export function VisualizationPreview({
     <div className="h-full w-full overflow-hidden" style={{ height }}>
       <Chart
         tableName={viewName}
+        data={chartData}
+        isLoading={isChartDataLoading}
         visualizationType={visualization.visualizationType}
         encoding={resolvedEncoding}
         width="container"

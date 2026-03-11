@@ -1,5 +1,6 @@
 "use client";
 
+import { useChartData } from "@/hooks/useChartData";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
 import { Button, Card } from "@stdui/react";
@@ -65,6 +66,8 @@ export function SuggestedInsights({
   secondaryActions = false,
 }: SuggestedInsightsProps) {
   const { isReady: isVizReady } = useVisualization();
+  const { data: chartData, isLoading: isChartDataLoading } =
+    useChartData(tableName);
 
   if (suggestions.length === 0) {
     return (
@@ -114,6 +117,8 @@ export function SuggestedInsights({
               {isVizReady ? (
                 <Chart
                   tableName={tableName}
+                  data={chartData}
+                  isLoading={isChartDataLoading}
                   visualizationType={suggestion.chartType}
                   encoding={suggestion.encoding}
                   width="container"

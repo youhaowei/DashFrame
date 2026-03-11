@@ -1,5 +1,6 @@
 "use client";
 
+import { useChartData } from "@/hooks/useChartData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
@@ -143,14 +144,14 @@ export function VisualizationDisplay({
     return null;
   }, [insightViewName, isInsightViewReady]);
 
+  // Fetch chart data from DuckDB view
+  const { data: chartData, isLoading: isChartDataLoading } = useChartData(
+    tableName ?? undefined,
+  );
+
   // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
-  // This converts:
   // - field:<uuid> → column name (e.g., "category", "Product")
   // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)", "count(*)")
-  //
-  // vgplot will perform the aggregation when rendering, so we pass the actual SQL expression,
-  // not a pre-computed column alias. The insight view contains raw data (model mode),
-  // and vgplot uses the aggregation expressions to build GROUP BY queries.
   const resolvedEncoding = useMemo((): ChartEncoding => {
     if (!activeViz?.encoding || !dataTable || !insight) {
       return {};
@@ -325,6 +326,8 @@ export function VisualizationDisplay({
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
             tableName={tableName}
+            data={chartData}
+            isLoading={isChartDataLoading}
             visualizationType={activeViz.visualizationType}
             encoding={resolvedEncoding}
             className="h-full w-full"
@@ -355,6 +358,8 @@ export function VisualizationDisplay({
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
             <Chart
               tableName={tableName}
+              data={chartData}
+              isLoading={isChartDataLoading}
               visualizationType={activeViz.visualizationType}
               encoding={resolvedEncoding}
               className="h-full w-full"
