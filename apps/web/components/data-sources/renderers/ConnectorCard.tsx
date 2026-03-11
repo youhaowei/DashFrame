@@ -1,5 +1,3 @@
-"use client";
-
 import type { BaseConnector, FileSourceConnector } from "@dashframe/engine";
 import {
   Button,
@@ -10,11 +8,10 @@ import {
   CardTitle,
   FieldError,
 } from "@stdui/react";
-import dynamic from "next/dynamic";
+import { lazy, Suspense } from "react";
 
-const ConnectorIcon = dynamic(
-  () => import("./ConnectorIcon").then((mod) => mod.ConnectorIcon),
-  { ssr: false },
+const ConnectorIcon = lazy(() =>
+  import("./ConnectorIcon").then((mod) => ({ default: mod.ConnectorIcon })),
 );
 
 interface ConnectorCardProps {
@@ -64,7 +61,9 @@ export function ConnectorCard({
     <Card className="overflow-hidden">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
-          <ConnectorIcon svg={connector.icon} className="h-5 w-5" />
+          <Suspense fallback={null}>
+            <ConnectorIcon svg={connector.icon} className="h-5 w-5" />
+          </Suspense>
           {connector.name}
         </CardTitle>
         {connector.description && (

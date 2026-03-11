@@ -1,5 +1,3 @@
-"use client";
-
 import { flushEventQueue } from "@/lib/posthog/event-queue";
 import { getPostHogInstance, loadPostHog } from "@/lib/posthog/loader";
 import type { PostHog } from "posthog-js";
@@ -52,7 +50,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Skip if no API key configured
-    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    if (!import.meta.env.VITE_POSTHOG_KEY) {
       return;
     }
 
@@ -86,9 +84,8 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     }
 
     loadPostHog({
-      apiKey: process.env.NEXT_PUBLIC_POSTHOG_KEY,
-      apiHost:
-        process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
+      apiKey: import.meta.env.VITE_POSTHOG_KEY,
+      apiHost: import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com",
       personProfiles: "identified_only",
       capturePageview: false, // We'll capture manually for better SPA support
       capturePageleave: true,
@@ -127,7 +124,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // If PostHog is not configured, render children without context wrapper
-  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+  if (!import.meta.env.VITE_POSTHOG_KEY) {
     return <>{children}</>;
   }
 

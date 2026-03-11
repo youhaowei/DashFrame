@@ -1,7 +1,18 @@
 import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
 import { cn } from "@stdui/react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+
+/** Adapter: Breadcrumb expects `{ href }` but TanStack Router Link expects `{ to }` */
+function BreadcrumbLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return <Link to={href}>{children}</Link>;
+}
 
 export interface AppLayoutProps {
   /** Breadcrumb navigation items */
@@ -68,7 +79,7 @@ export function AppLayout({
           <div className="flex items-center justify-between gap-6">
             {/* Breadcrumb navigation */}
             {breadcrumbs && breadcrumbs.length > 0 && (
-              <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
+              <Breadcrumb LinkComponent={BreadcrumbLink} items={breadcrumbs} />
             )}
 
             {/* Additional header content */}

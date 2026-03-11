@@ -1,24 +1,27 @@
-"use client";
-
 import { useDeferredPostHog } from "@/hooks/useDeferredPostHog";
-import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef } from "react";
+import { useLocation } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 
 function PostHogPageViewTracker() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const location = useLocation();
   const { capture } = useDeferredPostHog();
 
   // Track which URLs we've already captured to prevent duplicate pageviews
   const capturedUrls = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    const pathname = location.pathname;
     if (!pathname) return;
 
     // Build the full URL
     let url = window.origin + pathname;
-    if (searchParams.toString()) {
-      url = url + `?${searchParams.toString()}`;
+    const searchString = location.search
+      ? new URLSearchParams(
+          location.search as Record<string, string>,
+        ).toString()
+      : "";
+    if (searchString) {
+      url = url + `?${searchString}`;
     }
 
     // Prevent duplicate captures for the same URL within the same navigation
@@ -36,21 +39,17 @@ function PostHogPageViewTracker() {
     // Clean up old URLs to prevent memory growth
     // Keep only the current URL in the set after capture
     capturedUrls.current = new Set([url]);
-  }, [pathname, searchParams, capture]);
+  }, [location, capture]);
 
   return null;
 }
 
 /**
- * Wraps PostHogPageViewTracker in a Suspense boundary for App Router compatibility.
- * Renders the tracker with a null fallback while loading. Exported for use by other parts of the app.
+ * Renders the PostHog page view tracker.
+ * Exported for use by other parts of the app.
  *
  * @returns JSX.Element
  */
 export function PostHogPageView() {
-  return (
-    <Suspense fallback={null}>
-      <PostHogPageViewTracker />
-    </Suspense>
-  );
+  return <PostHogPageViewTracker />;
 }

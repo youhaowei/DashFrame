@@ -1,5 +1,3 @@
-"use client";
-
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToastStore } from "@/lib/stores";
 import {
@@ -40,8 +38,7 @@ import {
   DropdownMenuTrigger,
   cn,
 } from "@stdui/react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 type NavItem = {
@@ -89,7 +86,7 @@ function SidebarContent({
   onToggleCollapse,
   onClearData,
 }: SidebarContentProps) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
 
   return (
     <div className="flex h-full flex-col">
@@ -102,7 +99,7 @@ function SidebarContent({
           )}
         >
           <Link
-            href="/"
+            to="/"
             className={cn(
               "flex items-center gap-3 transition-colors hover:text-palette-primary",
               isCollapsed && "justify-center",
@@ -158,7 +155,7 @@ function SidebarContent({
           return (
             <Link
               key={item.name}
-              href={item.href}
+              to={item.href}
               className={cn(
                 "group relative flex transition-all duration-200",
                 isCollapsed
@@ -244,7 +241,7 @@ function SidebarContent({
 }
 
 export function Navigation() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
@@ -290,7 +287,7 @@ export function Navigation() {
 
     setShowClearConfirm(false);
     showSuccess("All data cleared");
-    router.push("/");
+    navigate({ to: "/" });
   };
 
   let sidebarWidth = "w-72";

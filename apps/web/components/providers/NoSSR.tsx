@@ -1,12 +1,9 @@
-"use client";
-
-import dynamic from "next/dynamic";
-import React from "react";
+import React, { lazy } from "react";
 
 const ClientOnlyWrapper = (props: { children: React.ReactNode }) => (
   <React.Fragment>{props.children}</React.Fragment>
 );
 
-export const NoSSR = dynamic(() => Promise.resolve(ClientOnlyWrapper), {
-  ssr: false,
-});
+export const NoSSR = lazy(() =>
+  Promise.resolve({ default: ClientOnlyWrapper }),
+);
