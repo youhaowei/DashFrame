@@ -72,8 +72,14 @@ function useChartColors(): string {
 // ============================================================================
 
 export interface ChartProps {
-  /** DuckDB table name to render data from */
+  /** DuckDB table name (passed to renderer for reference, not used for data fetching) */
   tableName: string;
+
+  /** Inline data rows for the renderer. Fetched externally via useChartData. */
+  data?: Record<string, unknown>[];
+
+  /** True while data is being fetched */
+  isLoading?: boolean;
 
   /** Type of visualization */
   visualizationType: VisualizationType;
@@ -117,7 +123,7 @@ export interface ChartProps {
  * ## Prerequisites
  *
  * 1. Wrap your app with VisualizationProvider
- * 2. Register renderers (e.g., createVgplotRenderer) before rendering charts
+ * 2. Register renderers (e.g., createVegaLiteRenderer) before rendering charts
  *
  * ## Usage
  *
@@ -176,6 +182,8 @@ export interface ChartProps {
  */
 export function Chart({
   tableName,
+  data,
+  isLoading: isDataLoading,
   visualizationType,
   encoding,
   className,
@@ -234,8 +242,9 @@ export function Chart({
       return;
     }
 
-    // Build config with resolved dimensions
+    // Build config with resolved dimensions and inline data
     const config: ChartConfig = {
+      data: data ?? [],
       tableName,
       encoding,
       width: resolvedWidth,
@@ -270,6 +279,7 @@ export function Chart({
     };
   }, [
     tableName,
+    data,
     visualizationType,
     encoding,
     resolvedWidth,
@@ -298,6 +308,11 @@ export function Chart({
       <Spinner size="lg" className="text-muted-foreground" />
     </div>
   );
+
+  // Show loading while data is being fetched
+  if (isDataLoading) {
+    return renderLoading();
+  }
 
   // Handle unregistered type
   // If registryVersion is 0, renderers haven't been registered yet - show loading

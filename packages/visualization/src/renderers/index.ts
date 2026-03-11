@@ -5,6 +5,6 @@
  */
 
 export {
-  VGPLOT_SUPPORTED_TYPES,
-  createVgplotRenderer,
-} from "./vgplot-renderer";
+  VEGALITE_SUPPORTED_TYPES,
+  createVegaLiteRenderer,
+} from "./vegalite-renderer";

@@ -48,12 +48,15 @@ export interface ChartTheme {
 /**
  * Configuration passed to chart renderers.
  *
- * Charts receive a DuckDB table name reference rather than inline data,
- * enabling query pushdown for aggregations.
+ * Renderers receive inline data arrays — they never query DuckDB directly.
+ * The Chart component handles data fetching and passes the result here.
  */
 export interface ChartConfig {
-  /** DuckDB table name (usually DataFrame ID) */
-  tableName: string;
+  /** Inline data rows for the renderer */
+  data: Record<string, unknown>[];
+
+  /** DuckDB table name (used by Chart component for data fetching, not by renderer) */
+  tableName?: string;
 
   /** Column encoding mappings (x, y, color, size) - uses plain strings for rendering */
   encoding: ChartEncoding;
