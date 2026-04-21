@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Verify submodule commits are pushed before allowing DashFrame push.
+# Prevents pushing a submodule pointer that the remote can't resolve.
+
+for submodule_path in $(git submodule --quiet foreach 'echo $sm_path'); do
+  # Get the commit SHA that DashFrame's pointer references
+  pointer_sha=$(git ls-tree HEAD "$submodule_path" | awk '{print $3}')
+  [ -z "$pointer_sha" ] && continue
+
+  # Get the submodule's remote URL
+  remote_url=$(git config --file .gitmodules "submodule.${submodule_path}.url")
+  [ -z "$remote_url" ] && continue
+
+  # Check if that SHA exists on the remote
+  if ! git -C "$submodule_path" branch -r --contains "$pointer_sha" 2>/dev/null | grep -q 'origin/'; then
+    echo ""
+    echo "ERROR: Submodule '$submodule_path' pointer ($pointer_sha) has not been pushed."
+    echo ""
+    echo "  Push the submodule first:"
+    echo "    cd $submodule_path && git push origin main"
+    echo "    cd $(pwd)"
+    echo ""
+    exit 1
+  fi
+done
