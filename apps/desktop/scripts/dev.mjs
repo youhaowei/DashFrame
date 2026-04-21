@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const desktopDir = path.resolve(__dirname, "..");
+const desktopDir = path.resolve(import.meta.dirname, "..");
 const rendererDir = path.resolve(desktopDir, "..", "renderer");
 
 let viteProc = null;

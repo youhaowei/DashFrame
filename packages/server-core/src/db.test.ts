@@ -58,7 +58,7 @@ describe("openArtifactDb", () => {
         name: "csv-test",
         kind: "csv",
         storage: "parquet",
-        config: { originalPath: "/tmp/test.csv" },
+        config: { originalPath: "./fixtures/test.csv" },
       })
       .returning();
 

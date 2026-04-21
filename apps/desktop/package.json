@@ -2,10 +2,11 @@
   "name": "@dashframe/desktop",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build:main": "esbuild src/main.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/main.js",
-    "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.js",
+    "build:main": "esbuild src/main.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/main.js",
+    "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
     "build": "bun run build:main && bun run build:preload",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -13,6 +14,7 @@
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/server-core": "workspace:*",
     "electron": "^33.2.1"
   },
   "devDependencies": {

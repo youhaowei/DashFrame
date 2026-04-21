@@ -19,6 +19,7 @@
       "name": "@dashframe/desktop",
       "version": "0.0.0",
       "dependencies": {
+        "@dashframe/server-core": "workspace:*",
         "electron": "^33.2.1",
       },
       "devDependencies": {
