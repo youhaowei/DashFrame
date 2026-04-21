@@ -12,7 +12,7 @@
     "libs/wystack/packages/*"
   ],
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "bun run --filter @dashframe/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --write .",
