@@ -11,10 +11,16 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint"
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@wystack/db": "workspace:*"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
     "typescript": "5.7.2"
   }
 }
