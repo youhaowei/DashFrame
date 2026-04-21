@@ -17,8 +17,15 @@ out
 .DS_Store
 .idea
 .vscode
+.cursor/
+Support/
 .claude_settings.json
 .claude/
+CLAUDE.local.md
+
+# Local build/debug logs
+*-storybook.log
+debug-*.log
 
 # Local caches
 corepack-home/

@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Product Docs
+
+### Principles (summary)
+
+1. **Human-first, AI-optional** — click UI is primary; AI never acts autonomously; every artifact is yours to review and edit.
+2. **Transparent and editable** — every query, chart, dashboard, and connection is inspectable and editable; AI-built artifacts carry provenance in metadata.
+3. **Open and configurable** — curated data sources, any LLM endpoint, open file formats; extensibility where it matters, curation where it would overwhelm.
+
+### Long-term arc
+
+v0.2 (local-first reboot) → v0.3 (export + filters) → v0.5 (analyst-credible Tableau alt) → v1.0 GA → v2.0 (cloud tier) → v3.0+ (enterprise).
+
+License: **AGPL v3** (portfolio-wide across Workforce, WorkHub, DashFrame).
+
+**v0.2 direction**: DashFrame is rebooting from web (Next.js + DuckDB-WASM, implicit v0.1) to desktop (Electron + native DuckDB + WyStack/PGLite). The `feat/tanstack-start-migration` web branch is frozen. New work assumes the desktop architecture.
+
 ## Quick Reference
 
 **This project uses Bun** as the package manager and runtime. Use `bun` instead of `npm`, `yarn`, or `pnpm`.
@@ -132,8 +148,8 @@ git add <files>
 git commit -m "fix: ..."
 git push origin main
 
-# 2. Back in DashFrame, update the submodule pointer
-cd /Users/youhaowei/Projects/DashFrame
+# 2. Back in DashFrame (repo root), update the submodule pointer
+cd ../..
 git add libs/stdui
 git commit -m "chore(deps): update stdui submodule"
 ```
