@@ -2,40 +2,14 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
   "concurrency": "15",
-  "globalEnv": [
-    "NEXT_PUBLIC_CONVEX_URL",
-    "NEXT_PUBLIC_CONVEX_DEPLOYMENT",
-    "CONVEX_DEPLOYMENT",
-    "CONVEX_DEPLOY_KEY"
-  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "convex/**"],
-      "outputs": ["dist/**", "build/**", ".next/**"],
-      "env": [
-        "NEXT_PUBLIC_CONVEX_URL",
-        "NEXT_PUBLIC_CONVEX_DEPLOYMENT",
-        "CONVEX_DEPLOY_KEY"
-      ],
-      "passThroughEnv": [
-        "NEXT_PUBLIC_CONVEX_URL",
-        "NEXT_PUBLIC_CONVEX_DEPLOYMENT",
-        "CONVEX_DEPLOYMENT",
-        "CONVEX_DEPLOY_KEY"
-      ]
+      "outputs": ["dist/**", "build/**"]
     },
     "dev": {
       "cache": false,
       "persistent": true
-    },
-    "storybook": {
-      "cache": false,
-      "persistent": true
-    },
-    "build-storybook": {
-      "dependsOn": ["^build"],
-      "outputs": ["storybook-static/**"]
     },
     "lint": {},
     "test": {
@@ -56,16 +30,6 @@
     },
     "clean": {
       "cache": false
-    },
-    "test:e2e": {
-      "dependsOn": ["build"],
-      "cache": false,
-      "passThroughEnv": ["CI", "E2E_MODE", "E2E_PORT"]
-    },
-    "test:e2e:ci": {
-      "dependsOn": ["build"],
-      "cache": false,
-      "passThroughEnv": ["CI", "E2E_PORT"]
     }
   }
 }
