@@ -52,10 +52,14 @@ const viteUrl = await new Promise((resolve, reject) => {
   });
 });
 
-console.log(`\n[dev] Vite ready at ${viteUrl} — launching Electron...\n`);
+const cdpPort = process.env.CDP_PORT ?? "9222";
 
-// 3. Launch Electron with DEV_URL env
-electronProc = spawn("electron", ["."], {
+console.log(`\n[dev] Vite ready at ${viteUrl}`);
+console.log(`[dev] Electron CDP: http://localhost:${cdpPort} (agent-browser --cdp localhost:${cdpPort})`);
+console.log(`[dev] launching Electron...\n`);
+
+// 3. Launch Electron with DEV_URL env + CDP remote debugging
+electronProc = spawn("electron", [`--remote-debugging-port=${cdpPort}`, "."], {
   cwd: desktopDir,
   env: { ...process.env, DEV_URL: viteUrl },
   stdio: "inherit",
