@@ -54,7 +54,8 @@ export const dataSources = pgTable("data_sources", {
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
-    .defaultNow(),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 // insights — query definitions. `definition` holds the structured IR
@@ -69,7 +70,8 @@ export const insights = pgTable("insights", {
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
-    .defaultNow(),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 // visualizations — Vega-Lite inputs. Spec is derived on render from
@@ -88,7 +90,8 @@ export const visualizations = pgTable("visualizations", {
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
-    .defaultNow(),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 // dashboards — grid layout of Visualization tiles.
@@ -101,7 +104,8 @@ export const dashboards = pgTable("dashboards", {
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
-    .defaultNow(),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 // secrets — encrypted API keys / passwords keyed by source + name.
