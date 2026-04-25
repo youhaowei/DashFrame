@@ -1,4 +1,7 @@
 import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import { Router } from "@dashframe/transport";
+import { registerIpcMainTransport } from "@dashframe/transport/ipc/main";
+import type { ProjectInfo } from "@dashframe/types";
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 
@@ -32,23 +35,38 @@ function createWindow(): void {
   loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
-function registerIpc(handle: ProjectHandle): void {
-  ipcMain.handle("dashframe:project:info", () => ({
-    dir: handle.dir,
-    dbPath: handle.dbPath,
-    dataSourcesDir: handle.dataSourcesDir,
-    projectId: handle.meta.projectId,
-    name: handle.meta.name,
-    schemaVersion: handle.meta.schemaVersion,
-    createdAt: handle.meta.createdAt.toISOString(),
-    createdBy: handle.meta.createdBy,
-  }));
+/**
+ * Build the RPC `Router` for the desktop app. All future channels (queries,
+ * mutations, subscriptions) register here — `main.ts` should NOT grow new
+ * `ipcMain.handle` calls. Adding a route is a one-liner against the router;
+ * the IPC adapter dispatches automatically.
+ */
+function buildRouter(handle: ProjectHandle): Router {
+  const router = new Router();
+
+  router.invoke("project.info", (): ProjectInfo => {
+    return {
+      dir: handle.dir,
+      dbPath: handle.dbPath,
+      dataSourcesDir: handle.dataSourcesDir,
+      projectId: handle.meta.projectId,
+      name: handle.meta.name,
+      schemaVersion: handle.meta.schemaVersion,
+      createdAt: handle.meta.createdAt.toISOString(),
+      createdBy: handle.meta.createdBy,
+    };
+  });
+
+  return router;
 }
 
 await app.whenReady();
 const project = await openProject();
 console.log(`[dashframe] project ready at ${project.dir}`);
-registerIpc(project);
+
+const router = buildRouter(project);
+registerIpcMainTransport({ ipcMain, router });
+
 createWindow();
 
 app.on("activate", () => {

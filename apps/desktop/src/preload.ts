@@ -1,29 +1,18 @@
+/**
+ * Preload bridge. Exposes a single `dashframe.transport` object on the
+ * renderer's `window`. Renderer code uses `@dashframe/transport/ipc/renderer`
+ * to wrap the bridge in a typed `Transport`.
+ *
+ * Per Greptile P2 on PR #30: shared types live in `@dashframe/types`, NOT
+ * here, so the renderer can import them without a stale CJS preload bundle
+ * leaking into its module graph.
+ */
+import { createPreloadBridge } from "@dashframe/transport/ipc/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
-/**
- * IPC surface exposed to the renderer. Keep the shape narrow and serializable:
- * the main process owns the artifact DB, and the renderer only reads metadata
- * via named channels. Future channels (query, mutate) grow from here.
- */
-const api = {
+const bridge = createPreloadBridge(ipcRenderer);
+
+contextBridge.exposeInMainWorld("dashframe", {
   version: "0.2.0-alpha.0",
-  project: {
-    getInfo: (): Promise<ProjectInfo> =>
-      ipcRenderer.invoke("dashframe:project:info"),
-  },
-} as const;
-
-export interface ProjectInfo {
-  dir: string;
-  dbPath: string;
-  dataSourcesDir: string;
-  projectId: string;
-  name: string;
-  schemaVersion: number;
-  createdAt: string;
-  createdBy: string;
-}
-
-export type DashFrameApi = typeof api;
-
-contextBridge.exposeInMainWorld("dashframe", api);
+  transport: bridge,
+});

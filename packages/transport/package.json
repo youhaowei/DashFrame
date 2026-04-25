@@ -1,0 +1,31 @@
+{
+  "name": "@dashframe/transport",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./router": "./src/router.ts",
+    "./loopback": "./src/loopback.ts",
+    "./ipc/main": "./src/ipc/main.ts",
+    "./ipc/preload": "./src/ipc/preload.ts",
+    "./ipc/renderer": "./src/ipc/renderer.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "dependencies": {
+    "@dashframe/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@dashframe/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
+    "electron": "^33.2.1",
+    "typescript": "5.7.2"
+  }
+}
