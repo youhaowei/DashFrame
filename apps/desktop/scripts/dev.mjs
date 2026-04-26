@@ -14,8 +14,14 @@ function cleanup() {
   viteProc?.kill("SIGTERM");
 }
 
-process.on("SIGINT", () => { cleanup(); process.exit(0); });
-process.on("SIGTERM", () => { cleanup(); process.exit(0); });
+process.on("SIGINT", () => {
+  cleanup();
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  cleanup();
+  process.exit(0);
+});
 
 // 1. Build main + preload
 const build = spawn("bun", ["run", "build"], {
@@ -23,7 +29,9 @@ const build = spawn("bun", ["run", "build"], {
   stdio: "inherit",
 });
 await new Promise((resolve, reject) => {
-  build.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`build failed (${code})`)));
+  build.on("exit", (code) =>
+    code === 0 ? resolve() : reject(new Error(`build failed (${code})`)),
+  );
 });
 
 // 2. Start Vite in renderer; parse its stdout for the auto-assigned port
@@ -33,7 +41,10 @@ viteProc = spawn("bun", ["run", "dev"], {
 });
 
 const viteUrl = await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error("Vite did not report a Local URL within 15s")), 15_000);
+  const timeout = setTimeout(
+    () => reject(new Error("Vite did not report a Local URL within 15s")),
+    15_000,
+  );
   viteProc.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
@@ -53,7 +64,9 @@ const viteUrl = await new Promise((resolve, reject) => {
 const cdpPort = process.env.CDP_PORT ?? "9222";
 
 console.log(`\n[dev] Vite ready at ${viteUrl}`);
-console.log(`[dev] Electron CDP: http://localhost:${cdpPort} (agent-browser --cdp localhost:${cdpPort})`);
+console.log(
+  `[dev] Electron CDP: http://localhost:${cdpPort} (agent-browser --cdp localhost:${cdpPort})`,
+);
 console.log(`[dev] launching Electron...\n`);
 
 // 3. Launch Electron with DEV_URL env + CDP remote debugging
