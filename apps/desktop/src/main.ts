@@ -1,5 +1,5 @@
 import { openProject, type ProjectHandle } from "@dashframe/server-core";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
@@ -46,7 +46,21 @@ function registerIpc(handle: ProjectHandle): void {
 }
 
 await app.whenReady();
-const project = await openProject();
+
+let project: ProjectHandle;
+try {
+  project = await openProject();
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("[dashframe] failed to open project:", err);
+  dialog.showErrorBox(
+    "DashFrame failed to start",
+    `Could not open project: ${message}`,
+  );
+  app.exit(1);
+  throw err;
+}
+
 console.log(`[dashframe] project ready at ${project.dir}`);
 registerIpc(project);
 createWindow();
