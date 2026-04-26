@@ -65,7 +65,8 @@ export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
   if (!match) return null;
 
   // Convert underscores back to hyphens in UUID format
-  const uuidPart = match[1];
+  // Non-null: regex guarantees group 1 when match succeeds.
+  const uuidPart = match[1]!;
   // UUID format: 8-4-4-4-12 characters
   // With underscores: 8_4_4_4_12
   const parts = uuidPart.split("_");
