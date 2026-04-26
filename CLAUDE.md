@@ -29,7 +29,7 @@ See Notion links at end for evergreen specs (Project Model, Artifact Storage, Da
 
 ## Monorepo Structure
 
-```
+```text
 apps/
   desktop/       # Electron main (Bun runtime, native DuckDB, PGLite)
   renderer/      # Vite + TanStack Router + React 19 (render-only)
@@ -161,7 +161,7 @@ Token naming: semantic tokens (`bg-neutral-bg`, `text-neutral-fg`), not shadcn n
 
 ## Testing
 
-**Vitest** for unit/integration. No Playwright E2E in v0.2 (removed during bootstrap).
+**Bun test** for unit/integration in DashFrame packages (`bun:test` API). Some submodules (`@stdui/react`) still use Vitest. No Playwright E2E in v0.2 (removed during bootstrap).
 
 ```bash
 bun run test                              # All unit tests
