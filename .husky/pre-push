@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# Worktree pushes leak GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE into subprocesses; clear so
+# `git -C <submodule>` resolves the submodule repo, not the parent's GIT_DIR.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 # Verify submodule commits are pushed before allowing DashFrame push.
 # Prevents pushing a submodule pointer that the remote can't resolve.
 
