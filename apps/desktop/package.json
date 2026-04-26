@@ -8,7 +8,7 @@
     "build:main": "esbuild src/main.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/main.js",
     "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
     "build": "bun run build:main && bun run build:preload",
-    "dev": "node scripts/dev.mjs",
+    "dev": "bun scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "check": "bun run typecheck && bun run lint"
@@ -22,7 +22,6 @@
     "@dashframe/eslint-config": "workspace:*",
     "@types/node": "^22.10.1",
     "esbuild": "^0.28.0",
-    "typescript": "5.7.2",
-    "wait-on": "^9.0.5"
+    "typescript": "5.7.2"
   }
 }
