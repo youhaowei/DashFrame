@@ -9,12 +9,12 @@
  */
 
 import { PGlite } from "@electric-sql/pglite";
-import { syncSchema } from "@wystack/db";
-import { drizzlePglite } from "@wystack/db/pg";
+import { drizzle } from "drizzle-orm/pglite";
 
 import { schema } from "./schema";
+import { syncSchema } from "./sync-schema";
 
-export type ArtifactDb = ReturnType<typeof drizzlePglite<typeof schema>>;
+export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 
 export const ARTIFACT_DB_SCHEMA_VERSION = 1;
 
@@ -28,7 +28,7 @@ export async function openArtifactDb(
 ): Promise<ArtifactDb> {
   const client = new PGlite(options.path);
   await client.waitReady;
-  const db = drizzlePglite(client, { schema });
+  const db = drizzle(client, { schema });
   await syncSchema(db, schema);
   return db;
 }

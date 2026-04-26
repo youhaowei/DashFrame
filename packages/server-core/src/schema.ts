@@ -17,7 +17,7 @@ import {
   timestamp,
   unique,
   uuid,
-} from "@wystack/db/pg";
+} from "drizzle-orm/pg-core";
 
 // bytea isn't a first-class column type in drizzle-orm/pg-core yet; wrap it.
 const bytea = customType<{ data: Uint8Array; notNull: false; default: false }>({
