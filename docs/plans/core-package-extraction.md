@@ -116,7 +116,7 @@ apps/
 - [ ] Test: connector-csv works
 - [ ] Test: connector-notion works
 - [ ] Test: Engine interfaces work
-- [ ] Update docs/architecture.md
+- [ ] Update the current Notion architecture spec
 - [ ] Update README if needed
 
 ## Key Interfaces

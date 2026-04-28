@@ -18,31 +18,28 @@ This file serves as a brief entry point for automated agents and AI assistants w
    - Decision framework for component reuse
    - Real examples from the codebase
 
-3. **Review [`docs/architecture.md`](./docs/architecture.md)** for system design:
-   - Vision and domain model
-   - State management architecture
-   - Data flow patterns
-   - UI/UX guidelines
+3. **Use the Notion v0.2 specs for current architecture.** The legacy web/DuckDB-WASM/Dexie architecture snapshot was moved to Notion as [Deprecated — DashFrame Web Architecture](https://www.notion.so/34ed48ccaf5481a38fe9c1b39ac362ec). Treat v0.1 code as the product baseline to preserve/revive, not as the current architecture spec.
 
 ## Essential Quick Reference
 
 ### Core Technologies
 
 - **Monorepo**: Bun + Turborepo (`apps/*`, `packages/*`)
-- **Framework**: Next.js 16 (App Router) + React 19
-- **Styling**: Tailwind CSS v4 + shadcn/ui components
-- **State**: Zustand + Immer with localStorage persistence
+- **Apps**: v0.1 Next.js web app plus v0.2 Electron + Vite renderer shell
+- **Styling**: Tailwind CSS v4 + stdui components
+- **State**: Zustand + Immer; v0.1 Dexie path plus v0.2 server-core artifact DB
 - **Types**: TypeScript (strict mode)
 
 ### Key Commands
 
 ```bash
 bun check      # Run lint + typecheck + format (before committing)
-bun dev        # Run dev server + TypeScript watch mode
+bun dev        # Run repo dev tasks; check for existing sessions first
+bun dev:desktop # Run desktop dev orchestration intentionally
 bun build      # Build all packages and apps
 ```
 
-**⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested.**
+**Dev server discipline:** Do not blindly start long-running dev/watch commands. First check whether a dev server or Electron session is already running, avoid clobbering the user's session, and use an alternate port/session when needed. Scoped validation/build commands are okay when relevant to the task.
 
 ### Naming Conventions
 
@@ -52,18 +49,19 @@ bun build      # Build all packages and apps
 
 ### Development Workflow
 
-1. **Spec-first**: Create `docs/specs/<feature>.md` before implementing
-2. **Component-first**: Check `components/ui/` and `components/shared/` before writing custom JSX
-3. **Check before committing**: Run `bun check`
+1. **Spec-first**: Update/create the relevant Notion spec before implementing user-facing v0.2 work
+2. **Preserve v0.1**: Do not remove working web, DuckDB-WASM, connector, visualization, or dashboard markdown behavior unless explicitly scoped
+3. **Component-first**: Check stdui and `@dashframe/ui` before writing custom JSX
+4. **Check before committing**: Run `bun check`
 
 ## UI Component Quick Decision Tree
 
 ```
 Need UI?
   ↓
-1. Check components/ui/ (shadcn/ui) → Use if available
-2. Check components/shared/ (custom) → Use if pattern matches
-3. Pattern used 3+ times? → Extract to shared/
+1. Check `@stdui/react` → Use if available
+2. Check `@dashframe/ui` → Use if the pattern is DashFrame-specific
+3. Pattern used 3+ times? → Extract to stdui or `@dashframe/ui`
 4. Otherwise → Create feature-specific component
 ```
 

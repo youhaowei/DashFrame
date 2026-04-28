@@ -1,307 +1,172 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working on DashFrame.
+
+DashFrame is moving from the working v0.1 web app toward the v0.2 desktop
+architecture. Preserve the v0.1 product surface unless a Notion v0.2 spec
+explicitly replaces it.
 
 ## Quick Reference
 
-**This project uses Bun** as the package manager and runtime. Use `bun` instead of `npm`, `yarn`, or `pnpm`.
+This project uses Bun as the package manager and runtime. Use `bun` instead of
+`npm`, `yarn`, or `pnpm`.
 
-| Task           | Command                             |
-| -------------- | ----------------------------------- |
-| Validate all   | `bun check`                         |
-| Run unit tests | `bun run test`                      |
-| Run E2E tests  | `cd e2e/web && bun run test:e2e`    |
-| Filter package | `bun check --filter @dashframe/web` |
-| Storybook      | `bun storybook`                     |
+| Task            | Command                          |
+| --------------- | -------------------------------- |
+| Validate all    | `bun check`                      |
+| TypeScript only | `bun typecheck`                  |
+| Lint            | `bun lint`                       |
+| Unit tests      | `bun run test`                   |
+| E2E tests       | `cd e2e/web && bun run test:e2e` |
+| Desktop dev     | `bun dev:desktop`                |
+| Storybook       | `bun storybook`                  |
 
-**⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested.** User manages their own dev environment.
+Dev server discipline: do not blindly start long-running dev/watch commands.
+First check whether the user already has a dev server or Electron session
+running. Avoid clobbering it, and use an alternate port/session when needed.
+Scoped validation commands are fine.
 
-**Planning style**: Concise, no full code examples, only core changes. Name plans by feature.
+## Current Architecture Direction
 
-## Commands
+Use the Notion v0.2 specs as the source of truth for current architecture. The
+legacy local architecture snapshot was moved to Notion as deprecated history and
+`docs/architecture.md` should not be recreated as a canonical source.
 
-```bash
-bun check           # lint + typecheck + format (use this before committing)
-bun typecheck       # TypeScript only
-bun lint            # ESLint 9 (flat config)
-bun format          # Prettier write
-bun format:check    # Prettier check (CI-safe)
-bun check --filter @dashframe/web  # Target specific package
-```
+Current v0.2 direction:
 
-## Core Architecture
+- Desktop target: Electron main process plus Vite/React renderer.
+- Web target: keep the existing v0.1 web/DuckDB-WASM path available while v0.2
+  desktop work is revived on top of it.
+- Artifact DB: PGLite with DashFrame-owned Drizzle schemas and migrations.
+- Bulk data: project-owned Parquet files plus `contentHash` for imported
+  CSV/JSON/Parquet/Notion data.
+- Query engine: DuckDB-WASM remains the browser/local tier; Electron uses native
+  DuckDB through the main process data path.
+- WyStack: use `wystack-server` primitives for metadata/reactivity/transport
+  boundaries. Do not depend on a `wystack-db` wrapper layer.
+- `dashframe serve`: not a v0.2 deliverable. Keep future compatibility only.
+- Dashboards: visualization tiles and text/markdown tiles are in scope. Text and
+  markdown already exist in v0.1 and should be ported forward, not deferred.
+- AI/BYOK: out of scope for v0.2.
 
-**See `docs/architecture.md` for complete architecture details.**
-**See `docs/backend-architecture.md` for backend plugin system.**
+## Notion Source Of Truth
 
-### Key Concepts
+- [Principles](https://www.notion.so/342d48ccaf54816a8658f2fadee84359)
+- [Vision](https://www.notion.so/342d48ccaf54814c91a6f5e0b559a52e)
+- [PRD v0.2](https://www.notion.so/342d48ccaf5481589e21e8678cd6f8ce)
+- [Architecture Overview](https://www.notion.so/342d48ccaf5481408324cc4d4c5b4f17)
+- Project Model, Artifact Storage, Data Sources, Query Engine, Transport, Server
+  Runtime, Visualization, and Dashboards specs in Notion.
+- Deprecated web architecture snapshot:
+  [Deprecated - DashFrame Web Architecture](https://www.notion.so/34ed48ccaf5481a38fe9c1b39ac362ec)
 
-- **DataFrame as central abstraction**: `CSV/Notion → DataFrame → Vega-Lite → Chart`
-- **Pluggable backend architecture**: Env-based backend selection
-- **Functional utilities**: For data conversion and transformation or utilities, prefer pure functions over classes for simplicity and testability.
-- **OOP Design**: Use classes and inheritance when make sense for entities with behavior, for encapsulation and code organization.
-- **Entity hierarchy**: DataSource → Insight → DataFrame → Visualization
-- **tRPC for APIs**: Server-side proxy to avoid CORS issues
+In-repo docs:
 
-### Backend Plugin System
-
-DashFrame uses **build-time alias resolution** for backend selection:
-
-```bash
-# IndexDB backend with Dexie (default)
-NEXT_PUBLIC_STORAGE_IMPL=dexie
-
-# Custom backend implementations
-NEXT_PUBLIC_STORAGE_IMPL=custom
-```
-
-**How it works**:
-
-1. `@dashframe/core/backend.ts` exports from stub package `@dashframe/core-store`
-2. Webpack aliases `@dashframe/core-store` → `@dashframe/core-${NEXT_PUBLIC_STORAGE_IMPL}`
-3. TypeScript resolves `@dashframe/core-store` as a normal workspace package (no path aliases needed)
-4. Only the selected backend is bundled; unused backends are tree-shaken away
-
-**Package structure**:
-
-- `@dashframe/types` - Pure type contracts (repository interfaces)
-- `@dashframe/core-dexie` - Dexie/IndexedDB implementation (default)
-- `@dashframe/core-store` - Stub package (re-exports default backend for type resolution)
-- `@dashframe/core` - Re-exports from aliased backend (no direct dependencies)
-
-**Components import from `@dashframe/core` and remain backend-agnostic**. Switching backends requires only env var + rebuild.
-
-See `docs/backend-architecture.md` for full details on creating custom backends.
-
-### Adding New Data Sources
-
-1. Create package in `packages/<source>/` with converter function
-2. Add tRPC router in `apps/web/lib/trpc/routers/<source>.ts`
-3. Extend `apps/web/lib/stores/` (types + actions)
-4. Update the data sources UI components in `apps/web/components/data-sources/`
-
-## tRPC for External APIs
-
-**Why**: External APIs (like Notion) block direct browser requests with CORS.
-
-**Solution**: Server-side tRPC routers proxy API calls.
-
-**Flow**: `Component → tRPC hook → API route → tRPC router → External API`
-
-**Config**: Uses `superjson` transformer for Date, Set, Map support. See `lib/trpc/init.ts` and `routers/` for implementation.
+- `docs/ui-components.md` - component inventory and UI reuse guidance.
+- `docs/specs/` - legacy/reference specs only; new user-facing v0.2 specs go in
+  Notion.
+- `docs/backend-architecture.md` - legacy v0.1 Dexie/tRPC backend notes. Use
+  only for historical context.
 
 ## Monorepo Structure
 
-```
-apps/web/                  # Next.js 16 (App Router)
+```text
+apps/
+  web/                      # v0.1 Next.js app to preserve/revive
+  desktop/                  # v0.2 Electron main/preload
+  renderer/                 # v0.2 Vite/React renderer shell
 libs/
-  stdui/                   # Git submodule → github.com/youhaowei/stdui.git
-                           # Design system: primitives, tokens, theme provider
+  stdui/                    # Git submodule: design system
+  wystack/                  # Git submodule: server/client/runtime primitives
 packages/
-  types/                   # Pure type contracts (zero deps)
-  core/                    # Backend selector (env-based)
-  core-dexie/              # Dexie/IndexedDB backend
-  engine/                  # Abstract engine interfaces
-  engine-browser/          # DuckDB-WASM + IndexedDB
-  connector-csv/           # CSV file connector
-  connector-notion/        # Notion API connector
-  visualization/           # Vega-Lite chart rendering
-  ui/                      # DashFrame-specific components only (VirtualTable,
-                           #   SortableList, Breadcrumb, ItemSelector, chart-icons)
-                           # Includes Storybook for component development
-  eslint-config/           # Shared ESLint 9 flat config
+  types/                    # Pure type contracts
+  core/                     # Backend selector
+  core-dexie/               # v0.1 IndexedDB backend
+  engine/                   # Abstract engine interfaces
+  engine-browser/           # DuckDB-WASM + IndexedDB
+  connector-local/          # Local file connector
+  connector-notion/         # Notion API connector
+  visualization/            # Vega/VGPlot chart rendering
+  ui/                       # DashFrame-specific UI
+  server-core/              # v0.2 PGLite/Drizzle project/artifact DB
+  eslint-config/            # Shared ESLint config
 ```
 
-### stdui Submodule
+## Submodules
 
-`libs/stdui/` is a **git submodule** providing the design system. Import directly:
+`libs/stdui/` provides the design system. Import directly:
 
-- **Components**: `import { Button, Card } from "@stdui/react"`
-- **Icons**: `import { SearchIcon } from "@stdui/icons"`
-- **Theme**: `import { StduiProvider, useTheme } from "@stdui/react/theme"`
-- **DashFrame-specific**: `import { VirtualTable, SortableList } from "@dashframe/ui"`
+- Components: `import { Button, Card } from "@stdui/react"`
+- Icons: `import { SearchIcon } from "@stdui/icons"`
+- Theme: `import { StduiProvider, useTheme } from "@stdui/react/theme"`
+- DashFrame-specific components: `import { VirtualTable } from "@dashframe/ui"`
 
-**Token naming**: stdui uses semantic tokens (`bg-neutral-bg`, `text-neutral-fg`, `bg-palette-primary`), not shadcn naming (`bg-background`, `text-foreground`, `bg-primary`).
-
-**Committing submodule changes**: The submodule has its own git history. When modifying files in `libs/stdui/`:
-
-```bash
-# 1. Commit & push inside the submodule
-cd libs/stdui
-git add <files>
-git commit -m "fix: ..."
-git push origin main
-
-# 2. Back in DashFrame, update the submodule pointer
-cd /Users/youhaowei/Projects/DashFrame
-git add libs/stdui
-git commit -m "chore(deps): update stdui submodule"
-```
-
-**Always push the submodule before pushing DashFrame.** The pointer is a promise — the remote must have the commit it references. A `pre-push` hook enforces this, but proactively follow the order: push stdui first, then push DashFrame. Never leave the submodule pointer dirty.
-
-**Before committing in DashFrame**, check for dirty submodules:
+Before committing in DashFrame, check for dirty submodules:
 
 ```bash
 git submodule foreach --quiet 'if [ -n "$(git status --porcelain)" ]; then echo "$sm_path has uncommitted changes"; fi'
 ```
 
-If any submodule has uncommitted changes, commit and push them first (step 1 above), then commit the pointer update in DashFrame. This applies to `/commit`, manual commits, and any workflow that stages files.
+Always push submodule commits before pushing the DashFrame pointer update.
 
-**Critical**: Packages export TypeScript source directly (`main: "src/index.ts"`), not compiled JS. Web app uses TypeScript path mappings for hot reload. See `tsconfig.json` files.
+## v0.1 Web Notes
 
-## State Management & Persistence
+The v0.1 web app is still valuable and should not be deleted as part of v0.2
+bootstrap work.
 
-**Backend-agnostic data layer**. Currently uses **Dexie (IndexedDB)** for local-first deployment. Data model uses flat entities:
+- DataFrame is the central abstraction: source data becomes a DataFrame, then
+  visualizations consume it.
+- Existing persistence uses Dexie/IndexedDB through the backend-agnostic
+  `@dashframe/core` surface.
+- Components should import hooks from `@dashframe/core`, not directly from
+  `@dashframe/core-dexie`.
+- DuckDB-WASM packages and tests are part of the preserved baseline.
+- Existing dashboard text/markdown widgets are part of the preserved baseline.
 
-- **DataSource** - Connector type (e.g., "csv", "notion") + connection config
-- **DataTable** - Schema, fields, metrics. Links to DataSource
-- **Insight** - Analytics definition with selected fields, metrics, filters
-- **Visualization** - Vega-Lite spec. Links to Insight
-- **Dashboard** - Layout of visualization panels
+## v0.2 Server-Core Notes
 
-**Import pattern**: Always import hooks from `@dashframe/core` (not `@dashframe/core-dexie` directly):
+- Artifact definitions live in `artifacts.db`.
+- `project_meta` is a singleton row; schema version must be validated on open.
+- Imported source data should be materialized as project-owned Parquet/columnar
+  files with a content hash.
+- Secrets are artifact rows encrypted with a key stored outside the project
+  folder, normally via OS keychain in Electron.
+- Postgres connects per query for v0.2. Pooling is deferred until there is
+  performance evidence.
+- All writes should go through APIs; hand-editing project files is unsupported.
 
-```typescript
-import { useDataSources, useDataSourceMutations } from "@dashframe/core";
-```
+## UI Guidelines
 
-This keeps components backend-agnostic. The backend implementation is selected via `NEXT_PUBLIC_DATA_BACKEND` env var.
+Check `docs/ui-components.md` before implementing UI.
 
-## Critical Gotchas
-
-### Vega-Lite SSR
-
-**Must** dynamically import VegaChart with `ssr: false` - Vega-Lite uses Set objects that can't be serialized during Next.js SSR.
-
-```typescript
-const VegaChart = dynamic(() => import("./VegaChart"), { ssr: false });
-```
-
-### Naming Conventions
-
-- **User-facing**: `DashFrame` (PascalCase)
-- **Packages**: `@dashframe/*` (lowercase scope)
-- **Storage keys**: `dashframe:*` (lowercase prefix)
-
-### Tailwind CSS v4
-
-Uses PostCSS-only config via `@source` directives in `globals.css`. **Don't** create `tailwind.config.js`.
-
-### Rate Limiting in tRPC
-
-All tRPC endpoints calling external APIs use rate limiting. Use `rateLimitedProcedure` (default 10 req/min) or `rateLimitMiddleware()` for custom limits. See `apps/web/lib/trpc/rate-limiter.ts`.
-
-- **Testing**: Always call `destroyAllRateLimiters()` in test cleanup (in-memory, per-instance)
-- **Local dev**: All requests share 'unknown' IP identifier
-
-### Other Gotchas
-
-- **Notion API Keys**: Stored in IndexedDB. Treat as sensitive - don't commit to version control.
-- **Turborepo Cache**: Run `turbo build --force` if seeing stale builds
-
-## Development Best Practices
-
-### When Modifying Packages
-
-1. Make changes in `packages/*/src/`
-2. TypeScript watch mode auto-compiles (if `bun dev` running)
-3. Next.js hot reload picks up changes immediately
-4. No manual rebuild needed
-
-### When Adding Features
-
-1. **Write a spec first** in `docs/specs/<feature-name>.md` (see `create-visualization-flow.md` as reference)
-2. Check `docs/architecture.md` for alignment
-3. Add tRPC router if calling external APIs (avoid CORS)
-4. Run `bun check` before committing
-
-### UI Component Guidelines
-
-**See `docs/ui-components.md` for full inventory.** Use `bun storybook` to browse.
-
-**Import sources** (see stdui Submodule section above for examples):
-
-- `@stdui/react` — standard UI (Button, Card, Dialog, Panel, etc.)
-- `@stdui/icons` — icons (SearchIcon, DeleteIcon, etc.)
-- `@dashframe/ui` — DashFrame-specific (VirtualTable, SortableList, ItemSelector, Breadcrumb, chart-icons, field wrappers)
-
-**All UI on pages MUST use stdui or `@dashframe/ui` components.** Add missing components to stdui or the UI package first.
-
-**Design tokens**:
-
-- **Spacing**: `p-4` (compact), `p-6` (standard), `p-8` (spacious)
-- **Border radius**: `rounded-2xl` (main cards), `rounded-xl` (nested), `rounded-full` (badges)
-- **Icon sizing**: `h-4 w-4` (inline text), `h-5 w-5` (standalone)
-- **No UPPERCASE text** — sentence case everywhere (except acronyms)
-
-**Component extraction**: If a pattern appears 3+ times → extract to `packages/ui/src/components/` → export from `index.ts`
-
-### Architecture Principles
-
-- **DataFrame is the contract**: All sources convert to it, all visualizations consume it
-- **Zustand + Immer**: State management with automatic persistence
-- **Type safety everywhere**: Leverage TypeScript strict mode
-- **Fowler Coding Style**: Readability, maintainability, simplicity
-- **Test driven development**: Write tests for critical logic. Features with specs need test plans.
-- **Detect Code Smells Early**: Watch for complexity, duplication, poor separation. Flag tech debt.
+- Use `@stdui/react` for standard UI.
+- Use `@stdui/icons` for icons.
+- Use `@dashframe/ui` only for DashFrame-specific reusable components.
+- Add missing primitives to stdui or the UI package before duplicating patterns.
+- No uppercase UI text except acronyms.
 
 ## Testing
 
-**Vitest** for unit/integration, **Playwright** for E2E. **80% coverage target.**
+Vitest is used for unit/integration tests, Playwright for E2E.
 
 ```bash
-bun run test                              # All unit tests
-bun run test:coverage                     # With coverage report
-bun run test:coverage --filter @dashframe/types  # Single package
-cd e2e/web && bun run test:e2e            # E2E tests
-cd e2e/web && bun run test:ui             # Playwright UI mode
+bun run test
+bun run test:coverage
+bun run test:coverage --filter @dashframe/types
+cd e2e/web && bun run test:e2e
 ```
 
-### Testing Priority
+Testing priority:
 
-1. **HIGH**: Data operations, business logic (converters, chart suggestions)
-2. **MEDIUM**: React hooks, utilities
-3. **LOW**: UI components (prefer E2E)
+1. Data operations and business logic.
+2. React hooks and utilities.
+3. UI components, preferably through E2E for user workflows.
 
-### Unit Test Conventions
+## Rules
 
-- Colocated with source: `*.test.ts` / `*.test.tsx`
-- Nested `describe` blocks, `"should ..."` test names
-- Mock factories for reusable test data
-
-### Common Mocks
-
-```typescript
-vi.mock("@dashframe/core", () => ({
-  useDataSources: () => [],
-  useInsightMutations: () => ({ create: vi.fn() }),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
-```
-
-### E2E Custom Fixtures
-
-E2E tests use custom fixtures from `e2e/web/lib/test-fixtures.ts`:
-
-- `homePage()` — navigate to home, verify loaded
-- `uploadFile(fileName)` — upload from `e2e/web/fixtures/`
-- `uploadBuffer(name, content, mimeType)` — upload in-memory content
-- `waitForChart()` — wait for chart SVG to render
-
-```typescript
-import { expect, test } from "../lib/test-fixtures";
-
-test("upload CSV and create chart", async ({
-  homePage,
-  uploadFile,
-  waitForChart,
-}) => {
-  await homePage();
-  await uploadFile("sales_data.csv");
-  await waitForChart();
-});
-```
+- Plan first for non-trivial work.
+- Preserve v0.1 behavior unless a v0.2 Notion spec explicitly changes it.
+- Do not reset, force-push, or delete branches without explicit user approval.
+- Never delete archive refs such as `archive/web-v0.1-*`.
+- Check latest package versions before adding new dependencies.
+- Run relevant scoped checks before reporting completion.

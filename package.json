@@ -9,6 +9,7 @@
     "apps/*",
     "packages/*",
     "libs/stdui/packages/*",
+    "libs/wystack/packages/*",
     "e2e/*"
   ],
   "overrides": {
@@ -23,6 +24,7 @@
   },
   "scripts": {
     "dev": "turbo dev",
+    "dev:desktop": "bun run --filter @dashframe/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --write .",
@@ -33,7 +35,7 @@
     "test:e2e:ci": "turbo test:e2e:ci",
     "test:e2e:ui": "bun test:ui --filter @dashframe/web-e2e",
     "typecheck": "turbo typecheck",
-    "check": "turbo check",
+    "check": "turbo check --filter=!@stdui/* --filter=!@wystack/*",
     "clean": "turbo clean",
     "storybook": "turbo storybook",
     "build-storybook": "turbo build-storybook",

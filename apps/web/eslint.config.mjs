@@ -28,9 +28,7 @@ const stripDuplicateTypescriptPlugin = (config) => {
   };
 };
 
-const nextTypescriptClean = nextTypescript.map(
-  stripDuplicateTypescriptPlugin,
-);
+const nextTypescriptClean = nextTypescript.map(stripDuplicateTypescriptPlugin);
 const nextCoreWebVitalsClean = nextCoreWebVitals.map(
   stripDuplicateTypescriptPlugin,
 );
