@@ -59,16 +59,27 @@ const viteUrl = await new Promise((resolve, reject) => {
     cleanup();
     reject(error);
   }
+  // Buffer stdout across chunks — node stream chunk boundaries are arbitrary,
+  // so the "Local: http://..." banner can split across chunks. Match against
+  // the accumulated buffer (trimmed at line boundaries to bound memory).
+  let buffer = "";
   viteProc.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
+    if (settled) return;
+    buffer += text;
     // Match Vite banner: "  ➜  Local:   http://localhost:5174/"
-    const match = text.match(/Local:\s+(https?:\/\/[^\s/]+)/);
+    const match = buffer.match(/Local:\s+(https?:\/\/[^\s/]+)/);
     if (match) {
       settled = true;
       clearTimeout(timeout);
       resolve(match[1]);
+      buffer = "";
+      return;
     }
+    // Cap buffer size: keep only last 4KB so an unbounded stream without
+    // the banner doesn't grow without limit before the 15s timeout fires.
+    if (buffer.length > 4096) buffer = buffer.slice(-4096);
   });
   viteProc.on("error", fail);
   viteProc.on("exit", (code) => {
