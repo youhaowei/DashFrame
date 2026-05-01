@@ -14,6 +14,7 @@ import {
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
 } from "./schema";
+import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 describe("openProject", () => {
   let root: string;
@@ -37,6 +38,7 @@ describe("openProject", () => {
     expect(handle.meta.name).toBe("Analytics");
     expect(handle.meta.id).toBe(PROJECT_META_ID);
     expect(handle.meta.singletonKey).toBe(PROJECT_META_SINGLETON_KEY);
+    expect(handle.meta.version).toBe(DASHFRAME_PROJECT_VERSION);
     expect(handle.meta.schemaVersion).toBe(ARTIFACT_DB_SCHEMA_VERSION);
     expect(handle.meta.projectId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
@@ -88,6 +90,7 @@ describe("openProject", () => {
       await handle.db.insert(projectMeta).values({
         id: "duplicate",
         singletonKey: PROJECT_META_SINGLETON_KEY,
+        version: DASHFRAME_PROJECT_VERSION,
         name: "Duplicate",
         projectId: crypto.randomUUID(),
         schemaVersion: ARTIFACT_DB_SCHEMA_VERSION,

@@ -42,6 +42,7 @@ docs/
 
 ```bash
 bun install
+bun dev
 bun check
 bun run test
 bun dev:desktop

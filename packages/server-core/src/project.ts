@@ -7,8 +7,9 @@
  *     data/sources/         # Parquet files, one per imported DataSource
  *
  * On first open, `project_meta` is seeded with a freshly generated
- * `project_id`, `schema_version = ARTIFACT_DB_SCHEMA_VERSION`, and the current
- * OS user as `created_by`. Subsequent opens are no-ops on the metadata row.
+ * `project_id`, creator version, `schema_version = ARTIFACT_DB_SCHEMA_VERSION`,
+ * and the current OS user as `created_by`. Subsequent opens are no-ops on the
+ * metadata row.
  */
 
 import fs from "node:fs/promises";
@@ -31,6 +32,7 @@ import {
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
 } from "./schema";
+import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 export const ARTIFACTS_DB_FILENAME = "artifacts.db";
 export const DATA_SOURCES_DIRNAME = path.join("data", "sources");
@@ -51,6 +53,7 @@ export interface ProjectHandle {
 export interface ProjectMetaRow {
   id: string;
   singletonKey: number;
+  version: string;
   projectId: string;
   name: string;
   schemaVersion: number;
@@ -63,6 +66,8 @@ export interface OpenProjectOptions extends ResolveProjectDirOptions {
   name?: string;
   /** Creator identity stamp. Defaults to `os.userInfo().username`. */
   createdBy?: string;
+  /** DashFrame semver that created the project. */
+  version?: string;
 }
 
 export async function openProject(
@@ -78,6 +83,7 @@ export async function openProject(
   const meta = await ensureProjectMeta(db, {
     name: options.name ?? path.basename(dir),
     createdBy: options.createdBy ?? safeUsername(),
+    version: options.version ?? DASHFRAME_PROJECT_VERSION,
   });
 
   return { dir, dbPath, dataSourcesDir, db, meta };
@@ -85,7 +91,7 @@ export async function openProject(
 
 async function ensureProjectMeta(
   db: ArtifactDb,
-  seed: { name: string; createdBy: string },
+  seed: { name: string; createdBy: string; version: string },
 ): Promise<ProjectMetaRow> {
   const existing = await db
     .select()
@@ -107,6 +113,7 @@ async function ensureProjectMeta(
     .values({
       id: PROJECT_META_ID,
       singletonKey: PROJECT_META_SINGLETON_KEY,
+      version: seed.version,
       name: seed.name,
       projectId: crypto.randomUUID(),
       schemaVersion: ARTIFACT_DB_SCHEMA_VERSION,

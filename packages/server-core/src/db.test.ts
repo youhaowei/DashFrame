@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
 import {
+  type ArtifactProvenance,
   PROJECT_META_ID,
   dashboards,
   dataSources,
@@ -16,6 +17,10 @@ import {
 
 describe("openArtifactDb", () => {
   let dir: string;
+  const userProvenance = {
+    kind: "user",
+    id: "test-user",
+  } satisfies ArtifactProvenance;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-test-"));
@@ -45,6 +50,7 @@ describe("openArtifactDb", () => {
 
     await first.insert(schema.projectMeta).values({
       id: PROJECT_META_ID,
+      version: "0.2.0-alpha.0",
       projectId: crypto.randomUUID(),
       name: "test-project",
       schemaVersion: ARTIFACT_DB_SCHEMA_VERSION,
@@ -68,6 +74,7 @@ describe("openArtifactDb", () => {
         kind: "csv",
         storage: "parquet",
         config: { originalPath: "./fixtures/test.csv" },
+        createdBy: userProvenance,
       })
       .returning();
 
@@ -84,6 +91,57 @@ describe("openArtifactDb", () => {
     expect(await db.select().from(schema.secrets)).toHaveLength(0);
   });
 
+  test("declares required artifact provenance fields and parent indexes", async () => {
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+
+    let missingProvenanceRejected = false;
+    try {
+      await db.insert(dataSources).values({
+        name: "missing-provenance",
+        kind: "csv",
+        storage: "parquet",
+        config: {},
+      } as never);
+    } catch {
+      missingProvenanceRejected = true;
+    }
+    expect(missingProvenanceRejected).toBe(true);
+
+    const [source] = await db
+      .insert(dataSources)
+      .values({
+        name: "derived-source",
+        kind: "csv",
+        storage: "parquet",
+        config: {},
+        createdBy: userProvenance,
+        parentArtifactId: crypto.randomUUID(),
+      })
+      .returning();
+
+    expect(source!.createdBy).toEqual(userProvenance);
+    expect(source!.parentArtifactId).toBeTruthy();
+
+    const indexRows = await db.execute(sql`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'data_sources_parent_artifact_id_idx',
+          'insights_parent_artifact_id_idx',
+          'visualizations_parent_artifact_id_idx',
+          'dashboards_parent_artifact_id_idx'
+        )
+    `);
+
+    expect(indexRows.rows.map((row) => row.indexname).sort()).toEqual([
+      "dashboards_parent_artifact_id_idx",
+      "data_sources_parent_artifact_id_idx",
+      "insights_parent_artifact_id_idx",
+      "visualizations_parent_artifact_id_idx",
+    ]);
+  });
+
   // Regression: PostgreSQL has no native ON UPDATE trigger, so `defaultNow()`
   // alone leaves `updatedAt` frozen at insert time. `$onUpdate` makes Drizzle
   // stamp the column on every UPDATE. See Greptile finding P2 #2 on PR #30.
@@ -97,6 +155,7 @@ describe("openArtifactDb", () => {
           kind: "csv",
           storage: "parquet",
           config: { originalPath: "./fixtures/test.csv" },
+          createdBy: userProvenance,
         })
         .returning();
       const original = row!.updatedAt;
@@ -119,6 +178,7 @@ describe("openArtifactDb", () => {
         .values({
           name: "insight-test",
           definition: { sources: [], fields: [] },
+          createdBy: userProvenance,
         })
         .returning();
       const original = row!.updatedAt;
@@ -141,6 +201,7 @@ describe("openArtifactDb", () => {
         .values({
           name: "insight-for-viz",
           definition: { sources: [], fields: [] },
+          createdBy: userProvenance,
         })
         .returning();
       const [viz] = await db
@@ -150,6 +211,7 @@ describe("openArtifactDb", () => {
           name: "viz-test",
           chartType: "bar",
           encoding: {},
+          createdBy: userProvenance,
         })
         .returning();
       const original = viz!.updatedAt;
@@ -169,7 +231,11 @@ describe("openArtifactDb", () => {
       const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
       const [row] = await db
         .insert(dashboards)
-        .values({ name: "dashboard-test", layout: [] })
+        .values({
+          name: "dashboard-test",
+          layout: [],
+          createdBy: userProvenance,
+        })
         .returning();
       const original = row!.updatedAt;
 

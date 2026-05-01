@@ -35,6 +35,10 @@ import { DataModelSection } from "./sections/DataModelSection";
 import { DataPreviewSection } from "./sections/DataPreviewSection";
 import { VisualizationsSection } from "./sections/VisualizationsSection";
 
+function normalizeAggregateColumnName(columnName: string): string {
+  return columnName.trim().replace(/(?:^["'])|(?:["']$)/g, "");
+}
+
 /**
  * Remap column names in analysis results from original names to UUID aliases.
  *
@@ -821,7 +825,7 @@ export function InsightView({ insight }: InsightViewProps) {
       if (match) {
         return {
           aggregation: match[1].toLowerCase() as InsightMetric["aggregation"],
-          columnName: match[2],
+          columnName: normalizeAggregateColumnName(match[2]),
         };
       }
       return null;

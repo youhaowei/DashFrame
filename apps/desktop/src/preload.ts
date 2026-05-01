@@ -2,23 +2,23 @@ import { contextBridge, ipcRenderer } from "electron";
 
 /**
  * IPC surface exposed to the renderer. Keep the shape narrow and serializable:
- * the main process owns the artifact DB, and the renderer only reads metadata
- * via named channels. Future channels (query, mutate) grow from here.
+ * the main process owns filesystem access and the artifact DB. The renderer
+ * asks for actions via named channels instead of receiving raw project paths.
  */
 const api = {
   version: "0.2.0-alpha.0",
   project: {
     getInfo: (): Promise<ProjectInfo> =>
       ipcRenderer.invoke("dashframe:project:info"),
+    revealFolder: (): Promise<void> =>
+      ipcRenderer.invoke("dashframe:project:reveal"),
   },
 } as const;
 
 export interface ProjectInfo {
-  dir: string;
-  dbPath: string;
-  dataSourcesDir: string;
   projectId: string;
   name: string;
+  version: string;
   schemaVersion: number;
   createdAt: string;
   createdBy: string;

@@ -1,12 +1,10 @@
 /**
  * @dashframe/server-core — shared server runtime primitives.
  *
- * Used by the Electron main process and `dashframe serve` alike. Provides the
- * artifact database (PGLite) and project lifecycle (folder init + metadata
- * seed). Future: DuckDB workspace orchestration and WyStack transport wiring.
+ * Used by the Electron main process. Provides the artifact database (PGLite)
+ * and project lifecycle (folder init + metadata seed). Future: DuckDB
+ * workspace orchestration and WyStack transport wiring.
  */
-
-export const SERVER_CORE_VERSION = "0.2.0-alpha.0";
 
 export {
   ARTIFACT_DB_SCHEMA_VERSION,
@@ -22,6 +20,7 @@ export {
   type ProjectHandle,
   type ProjectMetaRow,
 } from "./project";
+
 export {
   DASHFRAME_HOME_DIRNAME,
   DEFAULT_PROJECT_DIRNAME,
@@ -30,3 +29,7 @@ export {
   type ResolveProjectDirOptions,
 } from "./project-dir";
 export { schema, type Schema } from "./schema";
+export {
+  DASHFRAME_PROJECT_VERSION,
+  DASHFRAME_PROJECT_VERSION as SERVER_CORE_VERSION,
+} from "./version";

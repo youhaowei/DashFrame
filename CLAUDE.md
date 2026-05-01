@@ -14,6 +14,7 @@ This project uses Bun as the package manager and runtime. Use `bun` instead of
 | Task            | Command                          |
 | --------------- | -------------------------------- |
 | Validate all    | `bun check`                      |
+| Web dev         | `bun dev`                        |
 | TypeScript only | `bun typecheck`                  |
 | Lint            | `bun lint`                       |
 | Unit tests      | `bun run test`                   |

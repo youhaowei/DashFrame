@@ -1,5 +1,5 @@
 import { openProject, type ProjectHandle } from "@dashframe/server-core";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
@@ -34,15 +34,16 @@ function createWindow(): void {
 
 function registerIpc(handle: ProjectHandle): void {
   ipcMain.handle("dashframe:project:info", () => ({
-    dir: handle.dir,
-    dbPath: handle.dbPath,
-    dataSourcesDir: handle.dataSourcesDir,
     projectId: handle.meta.projectId,
     name: handle.meta.name,
+    version: handle.meta.version,
     schemaVersion: handle.meta.schemaVersion,
     createdAt: handle.meta.createdAt.toISOString(),
     createdBy: handle.meta.createdBy,
   }));
+  ipcMain.handle("dashframe:project:reveal", () => {
+    shell.showItemInFolder(handle.dir);
+  });
 }
 
 await app.whenReady();

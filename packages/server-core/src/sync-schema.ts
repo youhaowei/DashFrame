@@ -9,12 +9,13 @@
  * Behavior:
  * - Topologically orders tables by FK dependency.
  * - Emits `CREATE TABLE IF NOT EXISTS <name> (cols..., PK..., UNIQUE..., FK...)`.
+ * - Emits `CREATE INDEX IF NOT EXISTS` for declared non-unique indexes.
  * - Reads SQL types, NOT NULL, PRIMARY KEY, UNIQUE, DEFAULT (including SQL
  *   expressions like `gen_random_uuid()`, `now()`), and ARRAY[].
  * - Emits named UNIQUE constraints and FOREIGN KEYs with ON DELETE / ON UPDATE.
  *
- * Does NOT do: ALTER TABLE, indexes (beyond UNIQUE), CHECK constraints, RLS,
- * generated columns, non-default schemas. Drift is a migration concern.
+ * Does NOT do: ALTER TABLE, CHECK constraints, RLS, generated columns,
+ * non-default schemas. Drift is a migration concern.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any, sonarjs/cognitive-complexity */
@@ -34,6 +35,11 @@ export async function syncSchema(
   const ordered = sortByFkDeps(tables);
   for (const table of ordered) {
     await db.execute(sql.raw(renderCreateTableIfNotExists(table)));
+  }
+  for (const table of ordered) {
+    for (const stmt of renderCreateIndexesIfNotExists(table)) {
+      await db.execute(sql.raw(stmt));
+    }
   }
 }
 
@@ -63,6 +69,17 @@ export function renderCreateTableIfNotExists(table: PgTable): string {
   }
 
   return `CREATE TABLE IF NOT EXISTS ${quoteIdent(cfg.name)} (\n  ${lines.join(",\n  ")}\n);`;
+}
+
+export function renderCreateIndexesIfNotExists(table: PgTable): string[] {
+  const cfg = getTableConfig(table);
+  return cfg.indexes.map((idx: any) => {
+    const indexCfg = idx.config;
+    const unique = indexCfg.unique ? "UNIQUE " : "";
+    const method = indexCfg.method ? ` USING ${indexCfg.method}` : "";
+    const cols = indexCfg.columns.map(renderIndexColumn).join(", ");
+    return `CREATE ${unique}INDEX IF NOT EXISTS ${quoteIdent(indexCfg.name)} ON ${quoteIdent(cfg.name)}${method} (${cols});`;
+  });
 }
 
 function renderColumn(col: any): string {
@@ -116,6 +133,16 @@ function renderDefault(value: unknown): string | null {
     return String(value);
   if (typeof value === "string") return `'${value.replace(/'/g, "''")}'`;
   return null;
+}
+
+function renderIndexColumn(col: any): string {
+  const name = quoteIdent(col.name);
+  const indexCfg = col.indexConfig ?? {};
+  const parts = [name];
+  if (indexCfg.order) parts.push(String(indexCfg.order).toUpperCase());
+  if (indexCfg.nulls)
+    parts.push(`NULLS ${String(indexCfg.nulls).toUpperCase()}`);
+  return parts.join(" ");
 }
 
 function quoteIdent(name: string): string {
