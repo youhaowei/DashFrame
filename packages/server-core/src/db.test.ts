@@ -36,7 +36,7 @@ describe("openArtifactDb", () => {
 
     expect(existsSync(dbPath)).toBe(true);
 
-    // Every declared table should accept a SELECT — if `ensureSchema` skipped
+    // Every declared table should accept a SELECT — if `syncSchema` skipped
     // one, this would throw "relation does not exist".
     for (const table of Object.values(schema)) {
       const rows = await db.select().from(table);
@@ -91,21 +91,45 @@ describe("openArtifactDb", () => {
     expect(await db.select().from(schema.secrets)).toHaveLength(0);
   });
 
+  test("rejects duplicate (sourceId, secretName) on secrets", async () => {
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const [source] = await db
+      .insert(schema.dataSources)
+      .values({
+        name: "csv-test",
+        kind: "csv",
+        storage: "parquet",
+        config: {},
+        createdBy: userProvenance,
+      })
+      .returning();
+
+    await db.insert(schema.secrets).values({
+      sourceId: source!.id,
+      secretName: "notion_token",
+      ciphertext: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(async () => {
+      await db.insert(schema.secrets).values({
+        sourceId: source!.id,
+        secretName: "notion_token",
+        ciphertext: new Uint8Array([4, 5, 6]),
+      });
+    }).toThrow();
+  });
+
   test("declares required artifact provenance fields and parent indexes", async () => {
     const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
 
-    let missingProvenanceRejected = false;
-    try {
+    await expect(async () => {
       await db.insert(dataSources).values({
         name: "missing-provenance",
         kind: "csv",
         storage: "parquet",
         config: {},
       } as never);
-    } catch {
-      missingProvenanceRejected = true;
-    }
-    expect(missingProvenanceRejected).toBe(true);
+    }).toThrow(/created_by/);
 
     const [source] = await db
       .insert(dataSources)

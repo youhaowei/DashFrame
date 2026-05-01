@@ -31,6 +31,7 @@ import {
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
+  type ProjectMetaRow,
 } from "./schema";
 import { DASHFRAME_PROJECT_VERSION } from "./version";
 
@@ -50,16 +51,7 @@ export interface ProjectHandle {
   meta: ProjectMetaRow;
 }
 
-export interface ProjectMetaRow {
-  id: string;
-  singletonKey: number;
-  version: string;
-  projectId: string;
-  name: string;
-  schemaVersion: number;
-  createdAt: Date;
-  createdBy: string;
-}
+export type { ProjectMetaRow };
 
 export interface OpenProjectOptions extends ResolveProjectDirOptions {
   /** Project display name used on first-run seed. Defaults to folder name. */
@@ -80,11 +72,17 @@ export async function openProject(
   await fs.mkdir(dataSourcesDir, { recursive: true });
 
   const db = await openArtifactDb({ path: dbPath });
-  const meta = await ensureProjectMeta(db, {
-    name: options.name ?? path.basename(dir),
-    createdBy: options.createdBy ?? safeUsername(),
-    version: options.version ?? DASHFRAME_PROJECT_VERSION,
-  });
+  let meta: ProjectMetaRow;
+  try {
+    meta = await ensureProjectMeta(db, {
+      name: options.name ?? path.basename(dir),
+      createdBy: options.createdBy ?? safeUsername(),
+      version: options.version ?? DASHFRAME_PROJECT_VERSION,
+    });
+  } catch (err) {
+    await db.$client.close().catch(() => {});
+    throw err;
+  }
 
   return { dir, dbPath, dataSourcesDir, db, meta };
 }

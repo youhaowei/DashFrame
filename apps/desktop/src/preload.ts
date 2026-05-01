@@ -6,7 +6,6 @@ import { contextBridge, ipcRenderer } from "electron";
  * asks for actions via named channels instead of receiving raw project paths.
  */
 const api = {
-  version: "0.2.0-alpha.0",
   project: {
     getInfo: (): Promise<ProjectInfo> =>
       ipcRenderer.invoke("dashframe:project:info"),

@@ -22,6 +22,11 @@ process.on("SIGTERM", () => {
   cleanup();
   process.exit(0);
 });
+process.on("unhandledRejection", (err) => {
+  console.error("[dev] startup failed:", err);
+  cleanup();
+  process.exit(1);
+});
 
 // 1. Build main + preload
 const build = spawn("bun", ["run", "build"], {

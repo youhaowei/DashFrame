@@ -85,8 +85,7 @@ describe("openProject", () => {
     const dir = join(root, "singleton");
     const handle = await openProject({ dir });
 
-    let duplicateRejected = false;
-    try {
+    await expect(async () => {
       await handle.db.insert(projectMeta).values({
         id: "duplicate",
         singletonKey: PROJECT_META_SINGLETON_KEY,
@@ -96,11 +95,7 @@ describe("openProject", () => {
         schemaVersion: ARTIFACT_DB_SCHEMA_VERSION,
         createdBy: "test",
       });
-    } catch {
-      duplicateRejected = true;
-    }
-
-    expect(duplicateRejected).toBe(true);
+    }).toThrow(/singleton_key|unique/i);
   });
 
   test("honors DASHFRAME_PROJECT_DIR via env override", async () => {

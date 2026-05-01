@@ -29,7 +29,4 @@ export {
   type ResolveProjectDirOptions,
 } from "./project-dir";
 export { schema, type Schema } from "./schema";
-export {
-  DASHFRAME_PROJECT_VERSION,
-  DASHFRAME_PROJECT_VERSION as SERVER_CORE_VERSION,
-} from "./version";
+export { DASHFRAME_PROJECT_VERSION } from "./version";
