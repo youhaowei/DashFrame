@@ -28,17 +28,32 @@ process.on("unhandledRejection", (err) => {
   process.exit(1);
 });
 
-// 1. Build main + preload
-const build = spawn("bun", ["run", "build"], {
-  cwd: desktopDir,
-  stdio: "inherit",
-});
-await new Promise((resolve, reject) => {
-  build.on("error", reject);
-  build.on("exit", (code) =>
-    code === 0 ? resolve() : reject(new Error(`build failed (${code})`)),
-  );
-});
+// 1. Build server-core first — desktop's main bundle marks workspace
+// packages as external, so @dashframe/server-core must exist as JS at
+// dist/index.js before main.ts is bundled. Electron 33 (Node 20) cannot
+// load .ts entry points at runtime.
+function awaitProc(child, label) {
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`${label} failed (${code})`)),
+    );
+  });
+}
+
+await awaitProc(
+  spawn("bun", ["run", "--filter", "@dashframe/server-core", "build"], {
+    cwd: path.resolve(desktopDir, "..", ".."),
+    stdio: "inherit",
+  }),
+  "server-core build",
+);
+
+// 2. Build desktop main + preload
+await awaitProc(
+  spawn("bun", ["run", "build"], { cwd: desktopDir, stdio: "inherit" }),
+  "desktop build",
+);
 
 // 2. Start Vite in renderer; parse its stdout for the auto-assigned port
 viteProc = spawn("bun", ["run", "dev"], {
