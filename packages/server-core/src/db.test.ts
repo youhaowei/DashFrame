@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
+import { type ArtifactDb, ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
 import {
   type ArtifactProvenance,
   PROJECT_META_ID,
@@ -17,6 +17,7 @@ import {
 
 describe("openArtifactDb", () => {
   let dir: string;
+  let openDbs: ArtifactDb[];
   const userProvenance = {
     kind: "user",
     id: "test-user",
@@ -24,15 +25,23 @@ describe("openArtifactDb", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-test-"));
+    openDbs = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(openDbs.map((db) => db.$client.close()));
     rmSync(dir, { recursive: true, force: true });
   });
 
+  async function openTestArtifactDb(path = join(dir, "artifacts.db")) {
+    const db = await openArtifactDb({ path });
+    openDbs.push(db);
+    return db;
+  }
+
   test("should create artifact db file and seed all tables on first open", async () => {
     const dbPath = join(dir, "artifacts.db");
-    const db = await openArtifactDb({ path: dbPath });
+    const db = await openTestArtifactDb(dbPath);
 
     expect(existsSync(dbPath)).toBe(true);
 
@@ -46,7 +55,7 @@ describe("openArtifactDb", () => {
 
   test("should be idempotent across re-opens", async () => {
     const dbPath = join(dir, "artifacts.db");
-    const first = await openArtifactDb({ path: dbPath });
+    const first = await openTestArtifactDb(dbPath);
 
     await first.insert(schema.projectMeta).values({
       id: PROJECT_META_ID,
@@ -58,14 +67,14 @@ describe("openArtifactDb", () => {
     });
 
     // Re-open should not error (CREATE TABLE IF NOT EXISTS) and should preserve rows.
-    const second = await openArtifactDb({ path: dbPath });
+    const second = await openTestArtifactDb(dbPath);
     const rows = await second.select().from(schema.projectMeta);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.name).toBe("test-project");
   });
 
   test("should enforce cascade delete from data_sources to secrets", async () => {
-    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const db = await openTestArtifactDb();
 
     const [source] = await db
       .insert(schema.dataSources)
@@ -92,7 +101,7 @@ describe("openArtifactDb", () => {
   });
 
   test("should reject duplicate (sourceId, secretName) on secrets", async () => {
-    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const db = await openTestArtifactDb();
     const [source] = await db
       .insert(schema.dataSources)
       .values({
@@ -120,7 +129,7 @@ describe("openArtifactDb", () => {
   });
 
   test("should declare required artifact provenance fields and parent indexes", async () => {
-    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const db = await openTestArtifactDb();
 
     await expect(
       db.insert(dataSources).values({
@@ -171,7 +180,7 @@ describe("openArtifactDb", () => {
   // stamp the column on every UPDATE. See Greptile finding P2 #2 on PR #30.
   describe("updatedAt is bumped on UPDATE via $onUpdate", () => {
     test("should bump data_sources", async () => {
-      const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+      const db = await openTestArtifactDb();
       const [row] = await db
         .insert(dataSources)
         .values({
@@ -196,7 +205,7 @@ describe("openArtifactDb", () => {
     });
 
     test("should bump insights", async () => {
-      const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+      const db = await openTestArtifactDb();
       const [row] = await db
         .insert(insights)
         .values({
@@ -219,7 +228,7 @@ describe("openArtifactDb", () => {
     });
 
     test("should bump visualizations", async () => {
-      const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+      const db = await openTestArtifactDb();
       const [insight] = await db
         .insert(insights)
         .values({
@@ -252,7 +261,7 @@ describe("openArtifactDb", () => {
     });
 
     test("should bump dashboards", async () => {
-      const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+      const db = await openTestArtifactDb();
       const [row] = await db
         .insert(dashboards)
         .values({
