@@ -69,7 +69,7 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.guard.outputs.present == 'true'
-        run: bunx playwright install --with-deps chromium
+        run: cd e2e/web && bun playwright install --with-deps chromium
 
       - name: Run E2E tests
         if: steps.guard.outputs.present == 'true'
