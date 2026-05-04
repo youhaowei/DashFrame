@@ -3,7 +3,6 @@ import * as net from "net";
 /**
  * Finds an available port starting from the given port number.
  * In CI, returns the start port without checking.
- * Locally, tries sequential ports until finding an available one.
  *
  * @param startPort - Port number to start searching from (default: 3100)
  * @returns Available port number
@@ -11,18 +10,38 @@ import * as net from "net";
 export async function findAvailablePort(
   startPort: number = 3100,
 ): Promise<number> {
-  // In CI, don't check for available ports - just use the start port
-  if (process.env.CI) {
-    return startPort;
-  }
+  if (process.env.CI) return startPort;
 
-  // Try sequential ports locally (avoid conflicts with dev:3000, worktrees, etc.)
   for (let port = startPort; port < startPort + 20; port++) {
     if (await isPortFree(port)) return port;
   }
-
-  // Fallback to start port if all ports busy
   return startPort;
+}
+
+/**
+ * Find a base port such that [base, base+count) are all free.
+ * Used by the local E2E config to reserve one port per worker without
+ * collision-by-assumption (P2 finding from PR #34 review).
+ */
+export async function findAvailablePortBlock(
+  startPort: number,
+  count: number,
+): Promise<number> {
+  if (process.env.CI) return startPort;
+
+  for (let base = startPort; base < startPort + 200; base++) {
+    let blockFree = true;
+    for (let i = 0; i < count; i++) {
+      if (!(await isPortFree(base + i))) {
+        blockFree = false;
+        break;
+      }
+    }
+    if (blockFree) return base;
+  }
+  throw new Error(
+    `Could not find ${count} contiguous free ports starting near ${startPort}`,
+  );
 }
 
 function isPortFree(port: number): Promise<boolean> {

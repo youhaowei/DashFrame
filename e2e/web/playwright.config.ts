@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import os from "os";
-import { findAvailablePort } from "./support/port-finder";
+import { findAvailablePortBlock } from "./support/port-finder";
 
 // Environment detection
 const isCI = !!process.env.CI;
@@ -10,9 +10,18 @@ const isCI = !!process.env.CI;
 // Local: Multiple workers for faster parallel execution (capped at 6)
 const WORKER_COUNT = isCI ? 1 : Math.min(os.cpus().length, 6);
 
-// Port configuration
-// Each worker gets its own port for IndexedDB isolation
-const BASE_PORT = await findAvailablePort(3100);
+// Port configuration. Each worker gets its own port for IndexedDB isolation
+// (different origins → different databases). Playwright re-evaluates this
+// config inside every worker process, so we stamp the picked block into
+// process.env on the orchestrator and let workers read it back — otherwise
+// each worker would re-roll its own port and miss the running webServers.
+const BASE_PORT = await (async () => {
+  const cached = process.env.E2E_BASE_PORT;
+  if (cached) return Number(cached);
+  const picked = await findAvailablePortBlock(3100, WORKER_COUNT);
+  process.env.E2E_BASE_PORT = String(picked);
+  return picked;
+})();
 
 // Export for use in test fixtures
 export { BASE_PORT, isCI, WORKER_COUNT };
