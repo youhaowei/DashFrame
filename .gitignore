@@ -18,7 +18,7 @@ out
 .idea
 .vscode
 .cursor/
-Support/
+/Support/
 .claude_settings.json
 .claude/
 CLAUDE.local.md
