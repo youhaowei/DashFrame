@@ -28,17 +28,28 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # Tags and other non-commit refs may not have a tree to inspect.
   git cat-file -e "$local_sha^{tree}" 2>/dev/null || continue
 
-  for submodule_path in $(git submodule --quiet foreach 'echo $sm_path'); do
+  # Enumerate submodules from .gitmodules so the guard works on fresh clones
+  # where submodules have not been `git submodule update --init`'d yet.
+  # `git submodule foreach` only iterates initialized ones and would silently
+  # skip unreachable pointers in the bootstrap path.
+  submodule_paths=$(git config --file .gitmodules --get-regexp 'submodule\..*\.path' 2>/dev/null | awk '{print $2}')
+  for submodule_path in $submodule_paths; do
+    [ -z "$submodule_path" ] && continue
+
     pointer_sha=$(git ls-tree "$local_sha" "$submodule_path" | awk '{print $3}')
     [ -z "$pointer_sha" ] && continue
 
     remote_url=$(git config --file .gitmodules "submodule.${submodule_path}.url")
     [ -z "$remote_url" ] && continue
 
-    # Query the configured remote directly. `git ls-remote <url> <sha>` only
-    # matches refs named like the SHA, so fetch the object instead; this accepts
-    # any pushed commit, including non-tip ancestors.
-    if ! git -C "$submodule_path" fetch --quiet "$remote_url" "$pointer_sha" 2>/dev/null; then
+    # Verify the gitlink SHA is reachable from the configured remote. We
+    # fetch the object into a scratch dir so this works even when the
+    # submodule isn't checked out locally — the previous foreach approach
+    # would have silently skipped it on a fresh clone.
+    scratch=$(mktemp -d)
+    if ! git -C "$scratch" init --quiet --bare 2>/dev/null ||
+       ! git -C "$scratch" fetch --quiet "$remote_url" "$pointer_sha" 2>/dev/null; then
+      rm -rf "$scratch"
       echo ""
       echo "ERROR: Submodule '$submodule_path' pointer ($pointer_sha) is not reachable from $remote_url."
       echo "       Referenced by push update $local_ref ($local_sha) -> $remote_ref."
@@ -49,5 +60,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       echo ""
       exit 1
     fi
+    rm -rf "$scratch"
   done
 done <"$tmp_updates"
