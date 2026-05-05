@@ -12,10 +12,11 @@
 import { test as base, expect } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
-import { BASE_PORT, isCI } from "../playwright.config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "..", "fixtures");
+const isCI = process.env.CI === "true";
+const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
 
 /**
  * Get the base URL for a worker based on its parallel index.
