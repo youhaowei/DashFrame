@@ -23,6 +23,7 @@
     "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write --loglevel=error"
   },
   "scripts": {
+    "setup": "git submodule update --init --recursive && bun install",
     "dev": "turbo dev --filter=@dashframe/web...",
     "dev:all": "turbo dev",
     "dev:desktop": "bun run --filter @dashframe/desktop dev",

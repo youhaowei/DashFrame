@@ -1,32 +1,53 @@
 #!/bin/sh
 
-# Verify submodule commits are pushed before allowing DashFrame push.
-# Prevents pushing a submodule pointer that the remote can't resolve.
+# Verify pushed submodule pointers are reachable from their configured remotes.
+# pre-push can push refs other than HEAD, so validate each local ref update from
+# stdin instead of assuming the current checkout is the commit being pushed.
 
-for submodule_path in $(git submodule --quiet foreach 'echo $sm_path'); do
-  # Get the commit SHA that DashFrame's pointer references
-  pointer_sha=$(git ls-tree HEAD "$submodule_path" | awk '{print $3}')
-  [ -z "$pointer_sha" ] && continue
+remote_name=${1:-origin}
 
-  # Get the submodule's remote URL
-  remote_url=$(git config --file .gitmodules "submodule.${submodule_path}.url")
-  [ -z "$remote_url" ] && continue
+zero_sha="0000000000000000000000000000000000000000"
+tmp_updates=$(mktemp)
+trap 'rm -f "$tmp_updates"' EXIT
 
-  # Refresh remote tracking refs so the reachability check below sees the
-  # live remote, not a stale local snapshot. Without this, a contributor
-  # who hasn't fetched recently can be falsely blocked even when the SHA
-  # is on origin.
-  git -C "$submodule_path" fetch --quiet origin 2>/dev/null || true
+cat >"$tmp_updates"
 
-  # Check if that SHA exists on the remote
-  if ! git -C "$submodule_path" branch -r --contains "$pointer_sha" 2>/dev/null | grep -q 'origin/'; then
-    echo ""
-    echo "ERROR: Submodule '$submodule_path' pointer ($pointer_sha) has not been pushed."
-    echo ""
-    echo "  Push the submodule first:"
-    echo "    cd $submodule_path && git push origin main"
-    echo "    cd $(pwd)"
-    echo ""
-    exit 1
+# Some older Git invocations provide no stdin for direct pushes; fall back to
+# HEAD so the hook still protects the common `git push` path.
+if [ ! -s "$tmp_updates" ]; then
+  current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+  current_sha=$(git rev-parse --verify HEAD 2>/dev/null || true)
+  if [ -n "$current_branch" ] && [ -n "$current_sha" ]; then
+    printf "%s %s refs/heads/%s %s\n" "$current_branch" "$current_sha" "$current_branch" "$zero_sha" >"$tmp_updates"
   fi
-done
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  [ "$local_sha" = "$zero_sha" ] && continue
+  # Tags and other non-commit refs may not have a tree to inspect.
+  git cat-file -e "$local_sha^{tree}" 2>/dev/null || continue
+
+  for submodule_path in $(git submodule --quiet foreach 'echo $sm_path'); do
+    pointer_sha=$(git ls-tree "$local_sha" "$submodule_path" | awk '{print $3}')
+    [ -z "$pointer_sha" ] && continue
+
+    remote_url=$(git config --file .gitmodules "submodule.${submodule_path}.url")
+    [ -z "$remote_url" ] && continue
+
+    # Query the configured remote directly. `git ls-remote <url> <sha>` only
+    # matches refs named like the SHA, so fetch the object instead; this accepts
+    # any pushed commit, including non-tip ancestors.
+    if ! git -C "$submodule_path" fetch --quiet "$remote_url" "$pointer_sha" 2>/dev/null; then
+      echo ""
+      echo "ERROR: Submodule '$submodule_path' pointer ($pointer_sha) is not reachable from $remote_url."
+      echo "       Referenced by push update $local_ref ($local_sha) -> $remote_ref."
+      echo ""
+      echo "  Push the submodule commit first, for example:"
+      echo "    cd $submodule_path && git push $remote_name HEAD"
+      echo "    cd $(pwd)"
+      echo ""
+      exit 1
+    fi
+  done
+done <"$tmp_updates"

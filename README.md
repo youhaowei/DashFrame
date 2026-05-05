@@ -41,7 +41,7 @@ docs/
 ## Commands
 
 ```bash
-bun install
+bun run setup
 bun dev
 bun check
 bun run test
