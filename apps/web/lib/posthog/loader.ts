@@ -100,7 +100,13 @@ export async function loadPostHog(
     loadedInstance = posthog;
 
     return { posthog };
-  })();
+  })().catch((err) => {
+    // Clear the cached promise so subsequent calls can retry — without this,
+    // a transient chunk/network failure would permanently disable analytics
+    // for the rest of the session.
+    loadingPromise = null;
+    throw err;
+  });
 
   return loadingPromise;
 }
