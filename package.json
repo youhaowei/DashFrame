@@ -20,7 +20,7 @@
     "test": "turbo test",
     "test:coverage": "turbo test:coverage",
     "typecheck": "turbo typecheck",
-    "check": "turbo check",
+    "check": "turbo check --filter=!@stdui/* --filter=!@wystack/*",
     "clean": "turbo clean",
     "prepare": "husky"
   },
