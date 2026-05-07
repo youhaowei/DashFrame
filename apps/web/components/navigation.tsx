@@ -220,7 +220,7 @@ function SidebarContent({
                 </button>
               }
             />
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" side="top">
               <DropdownMenuItem
                 onClick={onClearData}
                 className="text-palette-danger focus:text-palette-danger"
