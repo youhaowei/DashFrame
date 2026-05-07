@@ -111,6 +111,7 @@ class PostHogEventQueue {
     // Process events one by one, stopping on first error
     for (let i = 0; i < events.length; i++) {
       const event = events[i];
+      if (!event) continue;
       try {
         switch (event.type) {
           case "capture":

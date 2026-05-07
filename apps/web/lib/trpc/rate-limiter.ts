@@ -143,7 +143,8 @@ export function createRateLimiter(
     // Check if limit is exceeded
     if (entry.timestamps.length >= maxRequests) {
       // Calculate when the oldest request in the window will expire
-      const oldestTimestamp = entry.timestamps[0];
+      // Safe: length >= maxRequests >= 1, so index 0 exists
+      const oldestTimestamp = entry.timestamps[0]!;
       const resetMs = oldestTimestamp + windowMs - now;
 
       return {
@@ -158,7 +159,8 @@ export function createRateLimiter(
 
     // Calculate remaining requests and reset time
     const remaining = maxRequests - entry.timestamps.length;
-    const oldestTimestamp = entry.timestamps[0];
+    // Safe: just pushed `now` above, so timestamps is non-empty
+    const oldestTimestamp = entry.timestamps[0]!;
     const resetMs = oldestTimestamp + windowMs - now;
 
     return {

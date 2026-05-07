@@ -68,7 +68,7 @@ export function computeInsightPreview(
     // Compute metrics for each group
     aggregatedRows = groups.map((group) => {
       const groupKeys = extractGroupKeys(
-        group.rows[0],
+        group.rows[0]!,
         selectedFields,
         fieldMap,
       );

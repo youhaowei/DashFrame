@@ -569,7 +569,7 @@ export default function JoinConfigureContent({
         // Build columns from the result
         const columns: VirtualTableColumn[] =
           rows.length > 0
-            ? Object.keys(rows[0])
+            ? Object.keys(rows[0]!)
                 .filter((key) => !key.startsWith("_"))
                 .map((name) => ({ name }))
             : [];

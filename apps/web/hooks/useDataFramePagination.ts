@@ -71,7 +71,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         const rows = previewResult.toArray() as Record<string, unknown>[];
 
         if (rows.length > 0) {
-          const cols = Object.keys(rows[0])
+          const cols = Object.keys(rows[0]!)
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
           requestAnimationFrame(() => setColumns(cols));

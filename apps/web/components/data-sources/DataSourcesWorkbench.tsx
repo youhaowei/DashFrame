@@ -113,7 +113,7 @@ export function DataSourcesWorkbench() {
       return userSelectedDataSourceId;
     }
     // Otherwise, auto-select first source if available
-    return sortedSources.length > 0 ? sortedSources[0].id : null;
+    return sortedSources.length > 0 ? sortedSources[0]!.id : null;
   }, [userSelectedDataSourceId, dataSourcesMap, sortedSources]);
 
   // Derive effective selectedTableId using useMemo
@@ -132,7 +132,7 @@ export function DataSourcesWorkbench() {
       }
     }
     // Otherwise auto-select first table
-    return tables[0].id;
+    return tables[0]!.id;
   }, [
     selectedDataSourceId,
     userSelectedTableId,

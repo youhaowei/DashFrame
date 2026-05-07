@@ -94,7 +94,7 @@ function extractRawFieldsFromEncoding(encoding: SuggestionEncoding): string[] {
     const simpleMatch = value.match(
       /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
     );
-    if (simpleMatch) {
+    if (simpleMatch?.[1]) {
       // Remove quotes from column name if present
       fields.push(simpleMatch[1].replace(/(?:^["'])|(?:["']$)/g, ""));
       return;
@@ -102,7 +102,7 @@ function extractRawFieldsFromEncoding(encoding: SuggestionEncoding): string[] {
     // Pattern 2: date_trunc('period', "column") - DuckDB date functions
     // Use possessive-like pattern to avoid backtracking
     const dateTruncMatch = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
-    if (dateTruncMatch) {
+    if (dateTruncMatch?.[1]) {
       fields.push(dateTruncMatch[1]);
       return;
     }
@@ -233,7 +233,7 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
   const result = [...array];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
+    [result[i], result[j]] = [result[j]!, result[i]!];
   }
   return result;
 }
@@ -541,6 +541,7 @@ export function suggestCharts(
         if (i === j) continue;
         const xCol = numerical[i];
         const yCol = numerical[j];
+        if (!xCol || !yCol) continue;
         const encoding: SuggestionEncoding = {
           x: xCol.columnName,
           y: yCol.columnName,
@@ -632,7 +633,7 @@ export function suggestCharts(
 
     // Only add grouped bar if we found a genuinely useful color dimension
     if (colorCol && numerical.length > 0) {
-      const yCol = numerical[0];
+      const yCol = numerical[0]!;
       const xAxisType = getAxisType(xCol);
       const encoding: SuggestionEncoding = {
         x: xCol.columnName,
@@ -693,7 +694,7 @@ function normalizeColumnReference(value?: string): string | null {
   const match = value.match(
     /^(sum|avg|count|min|max|count_distinct)\((.+)\)$/i,
   );
-  if (match) return match[2];
+  if (match?.[2]) return match[2];
   return value;
 }
 
@@ -784,15 +785,15 @@ function _pickBestPair(
 
     let randomValue = options.random() * totalWeight;
     for (let i = 0; i < candidates.length; i++) {
-      randomValue -= weights[i];
+      randomValue -= weights[i]!;
       if (randomValue <= 0) {
-        return candidates[i].pair;
+        return candidates[i]!.pair;
       }
     }
   }
 
   // Default: return the best pair
-  return validPairs[0].pair;
+  return validPairs[0]!.pair;
 }
 
 function _pickBestTriple(
@@ -858,14 +859,14 @@ function _pickBestTriple(
 
     let randomValue = random() * totalWeight;
     for (let i = 0; i < candidates.length; i++) {
-      randomValue -= weights[i];
+      randomValue -= weights[i]!;
       if (randomValue <= 0) {
-        return candidates[i].triple;
+        return candidates[i]!.triple;
       }
     }
   }
 
-  return validTriples[0].triple;
+  return validTriples[0]!.triple;
 }
 
 function tablesUsedBySuggestion(
@@ -989,7 +990,7 @@ export function suggestByChartType(
       const match = value.match(
         /^(?:sum|avg|count|min|max|count_distinct|dateMonth|dateYear|dateDay)\(([^)]+)\)$/i,
       );
-      return match ? match[1] : value;
+      return match?.[1] ?? value;
     };
     const usedFields = [
       extractField(suggestion.encoding.x),
@@ -1014,8 +1015,8 @@ export function suggestByChartType(
       if (tagContext === "trend") {
         // Trend context: bar chart needs temporal X for showing change over time
         if (temporal.length > 0 && numerical.length > 0) {
-          const xCol = temporal[0];
-          const yCol = numerical[0];
+          const xCol = temporal[0]!;
+          const yCol = numerical[0]!;
           const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
             buildTemporalEncoding(xCol);
           const encoding: SuggestionEncoding = {
@@ -1045,8 +1046,8 @@ export function suggestByChartType(
       } else {
         // Default: categorical X-axis for comparing values across categories
         if (categorical.length > 0 && numerical.length > 0) {
-          const xCol = categorical[0];
-          const yCol = numerical[0];
+          const xCol = categorical[0]!;
+          const yCol = numerical[0]!;
           const encoding: SuggestionEncoding = {
             x: xCol.columnName,
             y: `sum(${yCol.columnName})`,
@@ -1071,8 +1072,8 @@ export function suggestByChartType(
     case "barX":
       // Horizontal Bar: numerical X + categorical Y
       if (categorical.length > 0 && numerical.length > 0) {
-        const yCol = categorical[0];
-        const xCol = numerical[0];
+        const yCol = categorical[0]!;
+        const xCol = numerical[0]!;
         const encoding: SuggestionEncoding = {
           x: `sum(${xCol.columnName})`,
           y: yCol.columnName,
@@ -1097,8 +1098,8 @@ export function suggestByChartType(
       // Line Chart: temporal X + numerical Y
       // Line charts require temporal data for meaningful visualization
       if (temporal.length > 0 && numerical.length > 0) {
-        const xCol = temporal[0];
-        const yCol = numerical[0];
+        const xCol = temporal[0]!;
+        const yCol = numerical[0]!;
         const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
           buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
@@ -1131,8 +1132,8 @@ export function suggestByChartType(
       // Area Chart: temporal X + numerical Y
       // Area charts require temporal data for meaningful visualization
       if (temporal.length > 0 && numerical.length > 0) {
-        const xCol = temporal[0];
-        const yCol = numerical[0];
+        const xCol = temporal[0]!;
+        const yCol = numerical[0]!;
         const { xExpr, xType, xTransform, aggregationLabel, xAxisLabel } =
           buildTemporalEncoding(xCol);
         const encoding: SuggestionEncoding = {
@@ -1163,8 +1164,8 @@ export function suggestByChartType(
       // Scatter Plot: 2 numerical columns
       // Only suggest scatter for small datasets - hexbin handles large ones
       if (numerical.length >= 2 && rowCount <= SCATTER_MAX_POINTS) {
-        const xCol = numerical[0];
-        const yCol = numerical[1];
+        const xCol = numerical[0]!;
+        const yCol = numerical[1]!;
         const encoding: SuggestionEncoding = {
           x: xCol.columnName,
           y: yCol.columnName,
@@ -1190,8 +1191,8 @@ export function suggestByChartType(
       // Hexbin: density visualization for 2 numerical columns
       // Always available, but especially useful for large datasets
       if (numerical.length >= 2) {
-        const xCol = numerical[0];
-        const yCol = numerical[1];
+        const xCol = numerical[0]!;
+        const yCol = numerical[1]!;
         const encoding: SuggestionEncoding = {
           x: xCol.columnName,
           y: yCol.columnName,

@@ -222,12 +222,12 @@ export default function VisualizationPageContent({
         // Build columns from result
         const columns: DataFrameColumn[] =
           rows.length > 0
-            ? Object.keys(rows[0])
+            ? Object.keys(rows[0]!)
                 .filter((key) => !key.startsWith("_"))
                 .map((name) => ({
                   name,
                   type:
-                    typeof rows[0][name] === "number"
+                    typeof rows[0]![name] === "number"
                       ? ("number" as const)
                       : ("string" as const),
                 }))

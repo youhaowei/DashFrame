@@ -18,8 +18,8 @@ import {
   TableRow,
 } from "@stdui/react";
 import {
-  ColumnDef,
-  SortingState,
+  type ColumnDef,
+  type SortingState,
   flexRender,
   getCoreRowModel,
   getSortedRowModel,

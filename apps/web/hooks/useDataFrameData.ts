@@ -57,7 +57,7 @@ function inferColumnType(values: unknown[]): ColumnType {
 function extractColumns(rows: DataFrameRow[]): DataFrameColumn[] {
   if (rows.length === 0) return [];
 
-  const firstRow = rows[0];
+  const firstRow = rows[0]!;
   const columnNames = Object.keys(firstRow);
 
   return columnNames.map((name) => ({

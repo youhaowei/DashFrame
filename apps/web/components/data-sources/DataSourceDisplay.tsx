@@ -322,7 +322,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   // Auto-select first DataTable if none selected
   useEffect(() => {
     if (dataTables.length > 0 && !selectedDataTableId) {
-      setSelectedDataTableId(dataTables[0].id);
+      setSelectedDataTableId(dataTables[0]!.id);
     }
   }, [dataTables, selectedDataTableId]);
 

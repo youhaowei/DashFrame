@@ -818,7 +818,7 @@ export function InsightView({ insight }: InsightViewProps) {
       const match = expr.match(
         /^(sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
       );
-      if (match) {
+      if (match?.[1] && match[2]) {
         return {
           aggregation: match[1].toLowerCase() as InsightMetric["aggregation"],
           columnName: match[2],

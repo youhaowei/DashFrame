@@ -89,7 +89,7 @@ function colorToHex(color: string): string {
   const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
 
   // Convert to hex
-  return `#${[r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
+  return `#${[r, g, b].map((x) => (x ?? 0).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // ============================================================================
@@ -182,12 +182,14 @@ function parseEncodingValue(
   const match = value.match(SQL_FUNCTION_PATTERN);
   if (match) {
     const [, funcName, columnName] = match;
-    // vgplot API uses camelCase (dateMonth, not datemonth)
-    const apiFunc = funcName as keyof VgplotAPI;
+    if (funcName && columnName) {
+      // vgplot API uses camelCase (dateMonth, not datemonth)
+      const apiFunc = funcName as keyof VgplotAPI;
 
-    // Call the appropriate vgplot function
-    if (typeof api[apiFunc] === "function") {
-      return (api[apiFunc] as (col: string) => unknown)(columnName);
+      // Call the appropriate vgplot function
+      if (typeof api[apiFunc] === "function") {
+        return (api[apiFunc] as (col: string) => unknown)(columnName);
+      }
     }
   }
 

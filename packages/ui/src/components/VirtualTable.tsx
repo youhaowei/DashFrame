@@ -205,8 +205,9 @@ export function VirtualTable({
       return staticColumns;
     }
     // Infer from first row
-    if (staticRows?.length) {
-      return Object.keys(staticRows[0])
+    const firstRow = staticRows?.[0];
+    if (firstRow) {
+      return Object.keys(firstRow)
         .filter((key) => !key.startsWith("_"))
         .map((name) => ({ name }));
     }
@@ -302,8 +303,9 @@ export function VirtualTable({
 
       setTotalCount(result.totalCount);
 
-      if (result.rows.length > 0 && inferredColumns.length === 0) {
-        const cols = Object.keys(result.rows[0])
+      const firstResultRow = result.rows[0];
+      if (firstResultRow && inferredColumns.length === 0) {
+        const cols = Object.keys(firstResultRow)
           .filter((key) => !key.startsWith("_"))
           .map((name) => ({ name }));
         setInferredColumns(cols);
@@ -315,7 +317,8 @@ export function VirtualTable({
           newData.push({} as Record<string, unknown>);
         }
         for (let i = 0; i < result.rows.length; i++) {
-          newData[offset + i] = result.rows[i];
+          const row = result.rows[i];
+          if (row) newData[offset + i] = row;
         }
         return newData;
       });
@@ -373,8 +376,9 @@ export function VirtualTable({
 
         setTotalCount(result.totalCount);
 
-        if (result.rows.length > 0 && inferredColumns.length === 0) {
-          const cols = Object.keys(result.rows[0])
+        const firstResetRow = result.rows[0];
+        if (firstResetRow && inferredColumns.length === 0) {
+          const cols = Object.keys(firstResetRow)
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
           setInferredColumns(cols);
@@ -460,8 +464,8 @@ export function VirtualTable({
     const virtualItems = rowVirtualizer.getVirtualItems();
     if (virtualItems.length === 0) return;
 
-    const firstVisibleIndex = virtualItems[0].index;
-    const lastVisibleIndex = virtualItems[virtualItems.length - 1].index;
+    const firstVisibleIndex = virtualItems[0]!.index;
+    const lastVisibleIndex = virtualItems[virtualItems.length - 1]!.index;
 
     const firstPage = Math.floor(firstVisibleIndex / pageSize);
     const lastPage = Math.floor(lastVisibleIndex / pageSize);

@@ -33,7 +33,7 @@ import type { ColumnAnalysis, DataFrameAnalysis } from "@dashframe/types";
  */
 export function mergeAnalyses(analyses: DataFrameAnalysis[]): ColumnAnalysis[] {
   if (analyses.length === 0) return [];
-  if (analyses.length === 1) return analyses[0].columns;
+  if (analyses.length === 1) return analyses[0]!.columns;
 
   // Track seen column names to avoid duplicates
   const seenColumns = new Set<string>();

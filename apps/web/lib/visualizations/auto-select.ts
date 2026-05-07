@@ -122,7 +122,7 @@ export function autoSelectEncoding(
       }
       // Last resort: first column
       if (!xColumn && analysis.length > 0) {
-        xColumn = analysis[0].columnName;
+        xColumn = analysis[0]!.columnName;
       }
     }
 
