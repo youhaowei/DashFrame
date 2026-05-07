@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import os from "os";
-import { findAvailablePortSync } from "./support/port-finder";
+import { findAvailablePort } from "./support/port-finder";
 
 // Environment detection
 const isCI = !!process.env.CI;
@@ -12,7 +12,7 @@ const WORKER_COUNT = isCI ? 1 : Math.min(os.cpus().length, 6);
 
 // Port configuration
 // Each worker gets its own port for IndexedDB isolation
-const BASE_PORT = findAvailablePortSync(3100);
+const BASE_PORT = await findAvailablePort(3100);
 
 // Export for use in test fixtures
 export { BASE_PORT, isCI, WORKER_COUNT };
