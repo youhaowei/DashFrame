@@ -26,12 +26,7 @@ import {
   Spinner,
   Surface,
 } from "@stdui/react";
-import {
-  useCallback,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 // Ticks once a minute on the client so relative-time strings refresh
@@ -140,7 +135,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     () => "",
   );
   const cached: CachedDatabases | null = useMemo(
-    () => (cachedSnapshot ? (JSON.parse(cachedSnapshot) as CachedDatabases) : null),
+    () =>
+      cachedSnapshot ? (JSON.parse(cachedSnapshot) as CachedDatabases) : null,
     [cachedSnapshot],
   );
   const effective = override ?? cached;
@@ -154,7 +150,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     setOverride(next);
     if (dataSourceId && typeof window !== "undefined") {
       try {
-        window.localStorage.setItem(cacheKeyFor(dataSourceId), JSON.stringify(next));
+        window.localStorage.setItem(
+          cacheKeyFor(dataSourceId),
+          JSON.stringify(next),
+        );
       } catch (error) {
         console.error("Failed to persist cached databases:", error);
       }
