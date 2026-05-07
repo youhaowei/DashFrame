@@ -159,17 +159,19 @@ export default function DataSourcesPage() {
 
           {/* Actions */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                icon={MoreIcon}
-                iconOnly
-                label="More options"
-                size="sm"
-                className="opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={() => {}}
-              />
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  icon={MoreIcon}
+                  iconOnly
+                  label="More options"
+                  size="sm"
+                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={() => {}}
+                />
+              }
+            />
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={(e) => {

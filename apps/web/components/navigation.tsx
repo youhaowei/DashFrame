@@ -212,13 +212,15 @@ function SidebarContent({
       {!isCollapsed && (
         <div className="space-y-2 border-t border-neutral-border/60 px-4 py-4">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
-                <SettingsIcon className="h-4 w-4" />
-                <span>Settings</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top">
+            <DropdownMenuTrigger
+              render={
+                <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
+                  <SettingsIcon className="h-4 w-4" />
+                  <span>Settings</span>
+                </button>
+              }
+            />
+            <DropdownMenuContent align="start">
               <DropdownMenuItem
                 onClick={onClearData}
                 className="text-palette-danger focus:text-palette-danger"

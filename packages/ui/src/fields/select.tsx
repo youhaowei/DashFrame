@@ -1,6 +1,6 @@
 "use client";
 
-import * as SelectPrimitiveParts from "@radix-ui/react-select";
+import { Select as SelectPrimitiveParts } from "@base-ui/react/select";
 import { CheckIcon } from "@stdui/icons";
 import {
   cn,
@@ -53,7 +53,10 @@ export function Select({
           {labelAddon}
         </div>
       )}
-      <SelectPrimitive value={value || undefined} onValueChange={onChange}>
+      <SelectPrimitive
+        value={value || undefined}
+        onValueChange={(v) => onChange(v ?? "")}
+      >
         <SelectTrigger
           className={cn("w-full", error && "border-red-500 focus:ring-red-500")}
         >

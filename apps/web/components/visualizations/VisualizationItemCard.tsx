@@ -140,16 +140,18 @@ export function VisualizationItemCard({
           {hasActions && (
             <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    icon={MoreIcon}
-                    iconOnly
-                    label="Actions"
-                    size="sm"
-                    className="text-neutral-fg-subtle hover:text-neutral-fg"
-                  />
-                </DropdownMenuTrigger>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      icon={MoreIcon}
+                      iconOnly
+                      label="Actions"
+                      size="sm"
+                      className="text-neutral-fg-subtle hover:text-neutral-fg"
+                    />
+                  }
+                />
                 <DropdownMenuContent align="end">
                   {actions.map((action, index) => (
                     <DropdownMenuItem

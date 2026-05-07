@@ -138,7 +138,10 @@ export function DateTransformPicker({
   if (compact) {
     return (
       <div className={className}>
-        <Select value={currentValue} onValueChange={handleChange}>
+        <Select
+          value={currentValue}
+          onValueChange={(v) => handleChange(v ?? "")}
+        >
           <SelectTrigger className="h-8 text-xs">
             <DateTypeIcon className="mr-1.5 h-3.5 w-3.5 text-neutral-fg-subtle" />
             <SelectValue placeholder="Date grouping" />
@@ -185,7 +188,10 @@ export function DateTransformPicker({
           <DateTypeIcon className="h-3.5 w-3.5" />
           Time series granularity
         </Label>
-        <Select value={temporalSelectValue} onValueChange={handleChange}>
+        <Select
+          value={temporalSelectValue}
+          onValueChange={(v) => handleChange(v ?? "")}
+        >
           <SelectTrigger className="h-8">
             <SelectValue placeholder="Select granularity" />
           </SelectTrigger>
@@ -223,7 +229,7 @@ export function DateTransformPicker({
               ? value.transform.groupBy
               : ""
           }
-          onValueChange={handleChange}
+          onValueChange={(v) => handleChange(v ?? "")}
         >
           <SelectTrigger className="h-8">
             <SelectValue placeholder="Select grouping" />

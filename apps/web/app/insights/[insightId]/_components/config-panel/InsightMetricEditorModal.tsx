@@ -191,7 +191,10 @@ export function InsightMetricEditorModal({
           {needsField && (
             <div className="space-y-2">
               <Label htmlFor="field">Field</Label>
-              <Select value={columnName} onValueChange={setColumnName}>
+              <Select
+                value={columnName}
+                onValueChange={(v) => setColumnName(v ?? "")}
+              >
                 <SelectTrigger id="field">
                   <SelectValue placeholder="Select a field" />
                 </SelectTrigger>

@@ -165,7 +165,7 @@ export function MetricEditorModal({
               <Label htmlFor="field">Field</Label>
               <Select
                 value={fieldColumnName}
-                onValueChange={setFieldColumnName}
+                onValueChange={(v) => setFieldColumnName(v ?? "")}
               >
                 <SelectTrigger id="field">
                   <SelectValue placeholder="Select a field" />

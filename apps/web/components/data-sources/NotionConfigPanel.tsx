@@ -119,7 +119,7 @@ export function NotionConfigPanel({
             <Label htmlFor="modal-database">Select Database</Label>
             <Select
               value={selectedDatabaseId || ""}
-              onValueChange={onSelectDatabase}
+              onValueChange={(v) => onSelectDatabase(v ?? "")}
             >
               <SelectTrigger id="modal-database">
                 <SelectValue placeholder="Choose a database..." />

@@ -67,24 +67,28 @@ export function MetricsSection({
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <div className="border-b">
         <div className="flex items-center justify-between px-4 py-3">
-          <CollapsibleTrigger asChild>
-            <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50">
-              <ChevronRightIcon
-                className={cn(
-                  "h-4 w-4 text-neutral-fg-subtle transition-transform",
-                  isOpen && "rotate-90",
-                )}
-              />
-              <CalculatorIcon className="h-4 w-4 text-neutral-fg-subtle" />
-              <span className="text-sm leading-none font-medium">Metrics</span>
-              <Badge
-                variant="soft"
-                className="h-5 px-1.5 text-xs leading-none tabular-nums"
-              >
-                {metrics.length}
-              </Badge>
-            </button>
-          </CollapsibleTrigger>
+          <CollapsibleTrigger
+            render={
+              <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50">
+                <ChevronRightIcon
+                  className={cn(
+                    "h-4 w-4 text-neutral-fg-subtle transition-transform",
+                    isOpen && "rotate-90",
+                  )}
+                />
+                <CalculatorIcon className="h-4 w-4 text-neutral-fg-subtle" />
+                <span className="text-sm leading-none font-medium">
+                  Metrics
+                </span>
+                <Badge
+                  variant="soft"
+                  className="h-5 px-1.5 text-xs leading-none tabular-nums"
+                >
+                  {metrics.length}
+                </Badge>
+              </button>
+            }
+          />
           <Button
             label="Add"
             icon={PlusIcon}

@@ -59,15 +59,17 @@ export function DataGrid<TData>({
               cell: ({ row }: { row: { original: TData } }) => {
                 return (
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        icon={MoreIcon}
-                        iconOnly
-                        label="Open menu"
-                        className="h-8 w-8 p-0"
-                      />
-                    </DropdownMenuTrigger>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          icon={MoreIcon}
+                          iconOnly
+                          label="Open menu"
+                          className="h-8 w-8 p-0"
+                        />
+                      }
+                    />
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
                       {onEdit && (

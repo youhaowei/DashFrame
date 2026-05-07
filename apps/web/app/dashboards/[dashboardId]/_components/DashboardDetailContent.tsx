@@ -194,7 +194,10 @@ export default function DashboardDetailContent({
             {addType === "visualization" && (
               <div className="space-y-2">
                 <Label>Select Visualization</Label>
-                <Select value={selectedVizId} onValueChange={setSelectedVizId}>
+                <Select
+                  value={selectedVizId}
+                  onValueChange={(v) => setSelectedVizId(v ?? "")}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a visualization..." />
                   </SelectTrigger>

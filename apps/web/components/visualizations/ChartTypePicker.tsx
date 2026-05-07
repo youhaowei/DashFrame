@@ -167,14 +167,16 @@ const CategoryCard = memo(function CategoryCard({
           {tagDisplayName}
         </span>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="cursor-help text-neutral-fg-subtle hover:text-neutral-fg"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <InfoIcon className="h-3.5 w-3.5" />
-            </span>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <span
+                className="cursor-help text-neutral-fg-subtle hover:text-neutral-fg"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <InfoIcon className="h-3.5 w-3.5" />
+              </span>
+            }
+          />
           <TooltipContent side="top" className="max-w-[200px]">
             <p className="text-xs">{tagDescription}</p>
           </TooltipContent>
@@ -341,26 +343,28 @@ const ChartTypeGrid = memo(function ChartTypeGrid({
 
         return (
           <Tooltip key={chartType}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => handleClick(chartType)}
-                disabled={isLoading}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
-                  "transition-colors duration-100",
-                  "hover:bg-neutral-bg-muted focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-                  isLoading && "cursor-not-allowed opacity-50",
-                  hasSuggestion && "text-neutral-fg",
-                  !hasSuggestion && "text-neutral-fg-subtle",
-                )}
-              >
-                <ChartIcon size={20} />
-                <span className="text-[10px] leading-tight">
-                  {meta.displayName}
-                </span>
-              </button>
-            </TooltipTrigger>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => handleClick(chartType)}
+                  disabled={isLoading}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-1 rounded-lg p-2",
+                    "transition-colors duration-100",
+                    "hover:bg-neutral-bg-muted focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+                    isLoading && "cursor-not-allowed opacity-50",
+                    hasSuggestion && "text-neutral-fg",
+                    !hasSuggestion && "text-neutral-fg-subtle",
+                  )}
+                >
+                  <ChartIcon size={20} />
+                  <span className="text-[10px] leading-tight">
+                    {meta.displayName}
+                  </span>
+                </button>
+              }
+            />
             <TooltipContent side="bottom" className="max-w-[200px]">
               <p className="font-medium">{meta.displayName}</p>
               <p className="text-xs text-neutral-fg-subtle">{meta.hint}</p>

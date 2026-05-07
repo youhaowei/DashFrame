@@ -337,20 +337,22 @@ export function AxisSelectField({
     if (isSameAsOtherAxis && onSwapAxes) {
       return (
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              variant="outline"
-              className="cursor-pointer border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onSwapAxes();
-              }}
-            >
-              <ArrowUpDownIcon className="mr-1 h-3 w-3" />
-              <span className="text-[10px]">Swap</span>
-            </Badge>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Badge
+                variant="outline"
+                className="cursor-pointer border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSwapAxes();
+                }}
+              >
+                <ArrowUpDownIcon className="mr-1 h-3 w-3" />
+                <span className="text-[10px]">Swap</span>
+              </Badge>
+            }
+          />
           <TooltipContent side="top" className="max-w-xs">
             <p className="text-sm">Swap X and Y axis values</p>
           </TooltipContent>
@@ -362,15 +364,17 @@ export function AxisSelectField({
     if (currentWarning) {
       return (
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              variant="outline"
-              className="border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-            >
-              <AlertCircleIcon className="mr-1 h-3 w-3" />
-              <span className="text-[10px]">{currentWarning.message}</span>
-            </Badge>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Badge
+                variant="outline"
+                className="border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              >
+                <AlertCircleIcon className="mr-1 h-3 w-3" />
+                <span className="text-[10px]">{currentWarning.message}</span>
+              </Badge>
+            }
+          />
           <TooltipContent side="top" className="max-w-xs">
             <p className="text-sm">{currentWarning.reason}</p>
           </TooltipContent>

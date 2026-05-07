@@ -59,7 +59,10 @@ export function FormFieldRenderer({ fieldDef, field }: FormFieldRendererProps) {
       {fieldDef.type === "select" ? (
         <>
           <FieldLabel>{fieldDef.label}</FieldLabel>
-          <Select value={field.state.value} onValueChange={field.handleChange}>
+          <Select
+            value={field.state.value}
+            onValueChange={(v) => field.handleChange(v ?? "")}
+          >
             <SelectTrigger>
               <SelectValue placeholder={fieldDef.placeholder} />
             </SelectTrigger>

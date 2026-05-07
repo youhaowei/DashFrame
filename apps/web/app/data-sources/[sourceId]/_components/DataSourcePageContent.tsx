@@ -286,15 +286,17 @@ export default function DataSourcePageContent({
                   icon={PlusIcon}
                 />
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      label="More options"
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      icon={LuMoreHorizontal}
-                    />
-                  </DropdownMenuTrigger>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        label="More options"
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        icon={LuMoreHorizontal}
+                      />
+                    }
+                  />
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={handleDeleteTable}
