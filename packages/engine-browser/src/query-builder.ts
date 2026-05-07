@@ -501,7 +501,7 @@ export class QueryBuilder {
   ): Promise<T[][]> {
     if (queries.length === 0) return [];
     if (queries.length === 1) {
-      const result = await conn.query(queries[0]);
+      const result = await conn.query(queries[0]!);
       return [result.toArray() as T[]];
     }
 
@@ -518,7 +518,7 @@ export class QueryBuilder {
     const partitioned: T[][] = queries.map(() => []);
     for (const row of rows) {
       const { _batch_idx, ...rest } = row;
-      partitioned[_batch_idx].push(rest as unknown as T);
+      partitioned[_batch_idx]!.push(rest as unknown as T);
     }
 
     return partitioned;

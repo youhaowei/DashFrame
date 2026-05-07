@@ -228,7 +228,7 @@ export function convertNotionToDataFrame(
         } else if (field.columnName) {
           // User field: extract from Notion property
           const property = page.properties[field.columnName];
-          row[field.name] = extractPropertyValue(property);
+          if (property) row[field.name] = extractPropertyValue(property);
         }
       });
 

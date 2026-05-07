@@ -31,7 +31,7 @@ type SupportedExtension = (typeof SUPPORTED_EXTENSIONS)[number];
  */
 function getFileExtension(filename: string): string {
   const parts = filename.split(".");
-  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
+  return parts.length > 1 ? (parts[parts.length - 1] ?? "").toLowerCase() : "";
 }
 
 /**

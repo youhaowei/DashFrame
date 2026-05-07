@@ -99,11 +99,10 @@ export async function csvToDataFrame(
     ? (csvData as string[][])
     : [csvData as string[]];
 
-  if (!data.length) {
+  const [header, ...rawRows] = data;
+  if (!header) {
     throw new Error("CSV data is empty");
   }
-
-  const [header, ...rawRows] = data;
   const rowsData = rawRows.filter((row) =>
     row.some((cell) => cell !== undefined && cell !== ""),
   );
@@ -128,7 +127,7 @@ export async function csvToDataFrame(
   const rows = rowsData.map((row) =>
     header.reduce<Record<string, unknown>>((acc, key, colIndex) => {
       const column = userColumns[colIndex];
-      acc[key] = parseValue(row[colIndex], column.type);
+      if (column) acc[key] = parseValue(row[colIndex], column.type);
       return acc;
     }, {}),
   );

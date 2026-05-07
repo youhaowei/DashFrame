@@ -606,7 +606,7 @@ function extractBaseName(name: string): string | null {
   const lower = name.toLowerCase();
   // Match patterns like user_id, userId, user-id
   const match = lower.match(/^(.+?)[-_]?id$/i);
-  return match ? match[1].replace(/[-_]/g, "") : null;
+  return match?.[1] ? match[1].replace(/[-_]/g, "") : null;
 }
 
 function isAlreadySuggested(

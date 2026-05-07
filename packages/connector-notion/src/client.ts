@@ -42,10 +42,9 @@ export async function listDatabases(apiKey: string): Promise<NotionDatabase[]> {
 
       // Extract title from database properties
       const titleProp = "title" in db ? db.title : [];
+      const first = titleProp[0];
       const title =
-        titleProp.length > 0 && titleProp[0].type === "text"
-          ? titleProp[0].text.content
-          : "Untitled";
+        first && first.type === "text" ? first.text.content : "Untitled";
 
       return {
         id: db.id,

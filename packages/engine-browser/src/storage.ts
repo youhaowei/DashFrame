@@ -87,5 +87,5 @@ export const generateArrowKey = (dataFrameId: string) =>
   `dashframe:arrow:${dataFrameId}`;
 export const extractDataFrameId = (arrowKey: string): string | null => {
   const match = arrowKey.match(/^dashframe:arrow:(.+)$/);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 };

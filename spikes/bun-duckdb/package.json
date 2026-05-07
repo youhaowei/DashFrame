@@ -1,0 +1,11 @@
+{
+  "name": "spike-bun-duckdb",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun run test.ts"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.5.0-r.1"
+  }
+}

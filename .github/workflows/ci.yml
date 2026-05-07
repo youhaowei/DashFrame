@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -37,29 +39,45 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: check # Run after checks pass
+    needs: check
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Skip if e2e/web absent
+        id: guard
+        run: |
+          if [ -d e2e/web ]; then
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "e2e/web not present yet — no tests to run"
+          fi
 
       - name: Setup Bun
+        if: steps.guard.outputs.present == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.5"
 
       - name: Install dependencies
+        if: steps.guard.outputs.present == 'true'
         run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
+        if: steps.guard.outputs.present == 'true'
         run: bunx playwright install --with-deps chromium
 
       - name: Run E2E tests
+        if: steps.guard.outputs.present == 'true'
         run: cd e2e/web && bun run test:e2e:ci
 
       - name: Upload test results
+        if: always() && steps.guard.outputs.present == 'true'
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: playwright-report
           path: e2e/web/test-results/

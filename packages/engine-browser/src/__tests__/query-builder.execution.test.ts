@@ -125,11 +125,11 @@ describe("QueryBuilder - Execution Methods", () => {
 
       const results = await qb.rows();
 
-      expect(results[0].id).toBe(1);
-      expect(results[0].name).toBe("Alice");
-      expect(results[0].balance).toBe(1234.56);
-      expect(results[0].active).toBe(true);
-      expect(results[0].metadata).toBe(null);
+      expect(results[0]?.id).toBe(1);
+      expect(results[0]?.name).toBe("Alice");
+      expect(results[0]?.balance).toBe(1234.56);
+      expect(results[0]?.active).toBe(true);
+      expect(results[0]?.metadata).toBe(null);
     });
   });
 
@@ -358,7 +358,7 @@ describe("QueryBuilder - Execution Methods", () => {
       await qb.run();
 
       // Verify COPY TO ARROW format is used
-      const callArg = mockQuery.mock.calls[0][0];
+      const callArg = mockQuery.mock.calls[0]?.[0];
       expect(callArg).toContain("COPY");
       expect(callArg).toContain("FORMAT ARROW");
       expect(callArg).toContain("output.arrow");
@@ -375,7 +375,7 @@ describe("QueryBuilder - Execution Methods", () => {
 
       await qb.run();
 
-      const callArg = mockQuery.mock.calls[0][0];
+      const callArg = mockQuery.mock.calls[0]?.[0];
       expect(callArg).toContain('"name"');
       expect(callArg).toContain('"age"');
       expect(callArg).toContain('"active" = TRUE');

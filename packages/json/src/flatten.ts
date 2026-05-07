@@ -119,7 +119,7 @@ function flattenArray(
 
   for (let i = 0; i < value.length; i++) {
     const key = buildKey(prefix, String(i), ctx.opts.separator);
-    flattenValue(value[i], key, currentDepth + 1);
+    flattenValue(value[i] as JsonValue, key, currentDepth + 1);
   }
 }
 
@@ -142,7 +142,7 @@ function flattenPlainObject(
 
   for (const key of keys) {
     const newPrefix = buildKey(prefix, key, ctx.opts.separator);
-    flattenValue(value[key], newPrefix, currentDepth + 1);
+    flattenValue(value[key] as JsonValue, newPrefix, currentDepth + 1);
   }
 }
 
@@ -259,7 +259,7 @@ export function flattenObjectArray(
   return flattenedObjects.map((obj) => {
     const normalized: FlattenedObject = {};
     for (const key of sortedKeys) {
-      normalized[key] = key in obj ? obj[key] : null;
+      normalized[key] = key in obj ? (obj[key] ?? null) : null;
     }
     return normalized;
   });
@@ -310,6 +310,7 @@ export function unflattenObject(
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
       const nextPart = parts[i + 1];
+      if (part === undefined || nextPart === undefined) continue;
 
       // Check if next part is a numeric index
       const isNextArray = /^\d+$/.test(nextPart);
@@ -321,7 +322,9 @@ export function unflattenObject(
     }
 
     const lastPart = parts[parts.length - 1];
-    current[lastPart] = value;
+    if (lastPart !== undefined) {
+      current[lastPart] = value;
+    }
   }
 
   return result;

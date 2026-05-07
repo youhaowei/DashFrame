@@ -208,7 +208,7 @@ export async function jsonToDataFrame(
 
   // Infer column types from flattened data
   const userColumns = columnNames.map((name) => {
-    const values = flattenedRows.map((row) => row[name]);
+    const values = flattenedRows.map((row) => row[name] ?? null);
     return {
       name,
       type: inferColumnType(values),
@@ -223,7 +223,7 @@ export async function jsonToDataFrame(
   const rows = flattenedRows.map((flatRow) => {
     const row: Record<string, unknown> = {};
     for (const col of userColumns) {
-      row[col.name] = parseValue(flatRow[col.name], col.type);
+      row[col.name] = parseValue(flatRow[col.name] ?? null, col.type);
     }
     return row;
   });
