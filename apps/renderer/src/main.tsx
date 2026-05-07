@@ -28,7 +28,7 @@ declare module "@tanstack/react-router" {
   }
 }
 
-function HelloView(): JSX.Element {
+function HelloView() {
   return (
     <main style={{ fontFamily: "system-ui", padding: "2rem" }}>
       <h1>DashFrame v0.2</h1>

@@ -19,14 +19,12 @@ function createWindow(): void {
     },
   });
 
-  if (isDev) {
-    void win.loadURL(DEV_URL);
-  } else {
-    // In production, renderer is bundled into apps/renderer/dist.
-    void win.loadFile(
-      path.join(__dirname, "..", "..", "renderer", "dist", "index.html"),
-    );
-  }
+  const loaded = isDev
+    ? win.loadURL(DEV_URL)
+    : win.loadFile(
+        path.join(__dirname, "..", "..", "renderer", "dist", "index.html"),
+      );
+  loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
 app.whenReady().then(() => {

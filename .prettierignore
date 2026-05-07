@@ -12,3 +12,6 @@ pnpm-lock.yaml
 
 # E2E generated files
 e2e/web/features/.generated
+
+# Submodules manage their own formatting — don't reformat from the host repo
+libs/
