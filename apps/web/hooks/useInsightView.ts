@@ -97,10 +97,31 @@ export function useInsightView(insight: Insight | null | undefined) {
     ? (createdViewsCache.get(configKey) ?? null)
     : null;
 
-  // Initialize state from cache if available
-  const [viewName, setViewName] = useState<string | null>(cachedViewName);
-  const [isReady, setIsReady] = useState(cachedViewName !== null);
+  // Resolved view set by the async effect. The publicly-returned viewName is
+  // derived during render so we don't have to synchronously reset it inside
+  // the effect when prerequisites aren't met.
+  const [resolvedViewName, setResolvedViewName] = useState<string | null>(
+    cachedViewName,
+  );
+  const [resolvedConfigKey, setResolvedConfigKey] = useState<string | null>(
+    cachedViewName ? configKey : null,
+  );
   const [error, setError] = useState<string | null>(null);
+
+  const prerequisitesReady =
+    Boolean(connection) &&
+    isInitialized &&
+    !isDuckDBLoading &&
+    Boolean(insightId) &&
+    Boolean(baseTableId) &&
+    Boolean(configKey);
+
+  // The resolved view is only valid for its own configKey. If configKey has
+  // changed, fall back to the module cache (populated by createView below).
+  const viewNameForCurrentKey =
+    resolvedConfigKey === configKey ? resolvedViewName : cachedViewName;
+  const viewName = prerequisitesReady ? viewNameForCurrentKey : null;
+  const isReady = prerequisitesReady && viewName !== null;
 
   useEffect(() => {
     if (
@@ -111,17 +132,12 @@ export function useInsightView(insight: Insight | null | undefined) {
       !baseTableId ||
       !configKey
     ) {
-      setIsReady(false);
-      setViewName(null);
       return;
     }
 
-    // Check module-level cache first (survives Strict Mode double-invoke)
-    const existingViewName = createdViewsCache.get(configKey);
-    if (existingViewName) {
-      // View already exists, just update state
-      setIsReady(true);
-      setViewName(existingViewName);
+    // Module-level cache is read during render (see `cachedViewName`), so
+    // there is nothing to synchronously sync here when it's already populated.
+    if (createdViewsCache.has(configKey)) {
       return;
     }
 
@@ -141,8 +157,8 @@ export function useInsightView(insight: Insight | null | undefined) {
         // Double-check cache in case another effect already created it
         if (createdViewsCache.has(configKey)) {
           const cached = createdViewsCache.get(configKey)!;
-          setViewName(cached);
-          setIsReady(true);
+          setResolvedViewName(cached);
+          setResolvedConfigKey(configKey);
           pendingRequests.delete(configKey);
           return;
         }
@@ -151,7 +167,7 @@ export function useInsightView(insight: Insight | null | undefined) {
         const baseTable = await getDataTable(baseTableId);
         if (!baseTable || !baseTable.dataFrameId) {
           setError("Base table not found");
-          setIsReady(false);
+          setResolvedViewName(null);
           pendingRequests.delete(configKey);
           return;
         }
@@ -160,7 +176,7 @@ export function useInsightView(insight: Insight | null | undefined) {
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
         if (!baseDataFrame) {
           setError("Base DataFrame not found");
-          setIsReady(false);
+          setResolvedViewName(null);
           pendingRequests.delete(configKey);
           return;
         }
@@ -210,7 +226,7 @@ export function useInsightView(insight: Insight | null | undefined) {
 
         if (!sql) {
           setError("Failed to build SQL for insight view");
-          setIsReady(false);
+          setResolvedViewName(null);
           pendingRequests.delete(configKey);
           return;
         }
@@ -225,13 +241,13 @@ export function useInsightView(insight: Insight | null | undefined) {
         createdViewsCache.set(configKey, newViewName);
         pendingRequests.delete(configKey);
 
-        setViewName(newViewName);
-        setIsReady(true);
+        setResolvedViewName(newViewName);
+        setResolvedConfigKey(configKey);
         setError(null);
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);
         setError(err instanceof Error ? err.message : "Failed to create view");
-        setIsReady(false);
+        setResolvedViewName(null);
         pendingRequests.delete(configKey);
       }
     };

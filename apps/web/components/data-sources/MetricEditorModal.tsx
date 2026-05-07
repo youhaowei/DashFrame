@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@stdui/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type AggregationType =
   | "sum"
@@ -42,9 +42,24 @@ export function MetricEditorModal({
   onSave,
   onClose,
 }: MetricEditorModalProps) {
-  const [name, setName] = useState("");
+  // Track whether the user has typed a name explicitly. While the name has
+  // not been customized, we compute it from aggregation + field instead of
+  // synchronizing via an effect.
+  const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [fieldColumnName, setFieldColumnName] = useState<string>("");
+
+  // Reset form whenever the modal transitions from closed to open by using
+  // `isOpen` as a "session" key compared during render.
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      setCustomName(null);
+      setAggregation("count");
+      setFieldColumnName("");
+    }
+  }
 
   // Auto-generate name based on aggregation and field
   const autoGenerateName = () => {
@@ -71,23 +86,8 @@ export function MetricEditorModal({
     return `${aggregationNames[aggregation]} ${field.name}`;
   };
 
-  // Update name when aggregation or field changes (if name is empty or auto-generated)
-  useEffect(() => {
-    const suggestedName = autoGenerateName();
-    if (suggestedName && (!name || name === autoGenerateName())) {
-      setName(suggestedName);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregation, fieldColumnName]);
-
-  // Reset form when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setName("");
-      setAggregation("count");
-      setFieldColumnName("");
-    }
-  }, [isOpen]);
+  const name = customName ?? autoGenerateName();
+  const setName = (next: string) => setCustomName(next);
 
   const handleSave = () => {
     if (!name.trim()) return;

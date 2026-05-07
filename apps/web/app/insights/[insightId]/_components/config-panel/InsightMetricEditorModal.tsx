@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@stdui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 type AggregationType =
   | "sum"
@@ -48,9 +48,20 @@ export function InsightMetricEditorModal({
   dataTable,
   onSave,
 }: InsightMetricEditorModalProps) {
-  const [name, setName] = useState("");
+  const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [columnName, setColumnName] = useState<string>("");
+
+  // Reset form when modal transitions from closed to open without an effect.
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      setCustomName(null);
+      setAggregation("count");
+      setColumnName("");
+    }
+  }
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -97,23 +108,8 @@ export function InsightMetricEditorModal({
     return `${aggregationNames[aggregation]} ${field.name}`;
   };
 
-  // Update name when aggregation or field changes
-  useEffect(() => {
-    const suggestedName = autoGenerateName();
-    if (suggestedName && (!name || name === autoGenerateName())) {
-      setName(suggestedName);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregation, columnName]);
-
-  // Reset form when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setName("");
-      setAggregation("count");
-      setColumnName("");
-    }
-  }, [isOpen]);
+  const name = customName ?? autoGenerateName();
+  const setName = (next: string) => setCustomName(next);
 
   const handleSave = () => {
     if (!name.trim()) return;

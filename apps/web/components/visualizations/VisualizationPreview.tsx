@@ -50,11 +50,10 @@ export function VisualizationPreview({
   // Fetch data tables for encoding resolution
   const { data: dataTables = [] } = useDataTables();
 
-  // Find the data table for this insight
-  const dataTable = useMemo(() => {
-    if (!insight?.baseTableId) return undefined;
-    return dataTables.find((t) => t.id === insight.baseTableId);
-  }, [insight?.baseTableId, dataTables]);
+  // Find the data table for this insight (React Compiler memoizes this).
+  const dataTable = !insight?.baseTableId
+    ? undefined
+    : dataTables.find((t) => t.id === insight.baseTableId);
 
   // Create/get the DuckDB view using the same hook as insight pages
   // This ensures views are created on-demand and properly cached

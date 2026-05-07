@@ -483,17 +483,23 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
+  const [lastSyncedName, setLastSyncedName] = useState(insight.name);
+  // Sync local name when insight prop changes from external source.
+  if (lastSyncedName !== insight.name) {
+    setLastSyncedName(insight.name);
+    setLocalName(insight.name);
+  }
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
-  // Chart suggestions state
+  // Chart suggestions state. Column analysis is keyed by the chart view it
+  // was computed against, so a stale result is ignored during render rather
+  // than reset via setState-in-effect.
   const [suggestionSeed, setSuggestionSeed] = useState(0);
-  const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
+  const [columnAnalysisState, setColumnAnalysisState] = useState<{
+    viewName: string;
+    columns: ColumnAnalysis[];
+  } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  // Sync local name when insight prop changes from external source
-  useEffect(() => {
-    setLocalName(insight.name);
-  }, [insight.name]);
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
@@ -554,6 +560,20 @@ export function InsightView({ insight }: InsightViewProps) {
   // For simple insights, returns the base table name
   const { viewName: chartTableName, isReady: isChartViewReady } =
     useInsightView(insight);
+
+  // Derived column-analysis: only return cached results if they match the
+  // currently-active chart view. Otherwise treat as empty.
+  const columnAnalysis: ColumnAnalysis[] =
+    chartTableName &&
+    isChartViewReady &&
+    columnAnalysisState?.viewName === chartTableName
+      ? columnAnalysisState.columns
+      : [];
+  const setColumnAnalysis = (columns: ColumnAnalysis[]) => {
+    if (chartTableName) {
+      setColumnAnalysisState({ viewName: chartTableName, columns });
+    }
+  };
 
   // Compute metadata
   const baseDataFrameEntry = useMemo(
@@ -639,10 +659,8 @@ export function InsightView({ insight }: InsightViewProps) {
   useEffect(() => {
     // Early returns for loading/unready states
     if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
-    if (!chartTableName || !isChartViewReady) {
-      setColumnAnalysis([]);
-      return;
-    }
+    // Empty/unready chart-view case is gated at render via columnAnalysisState.
+    if (!chartTableName || !isChartViewReady) return;
     if (!baseDataFrameEntry) return;
     if (isAnalyzing) return;
 
@@ -670,17 +688,19 @@ export function InsightView({ insight }: InsightViewProps) {
         )
       : getCachedSingleAnalysis(baseDataFrameEntry, fieldHash);
 
-    if (cachedColumns) {
-      // For non-joined, we need to remap; for joined, already remapped
-      const result = hasJoins
-        ? cachedColumns
-        : remapAnalysisColumnNames(cachedColumns, baseFields);
-      setColumnAnalysis(result);
-      return;
-    }
-
-    // No valid cache - run analysis and cache results
+    // No valid cache - run analysis and cache results.
+    // The cached-hit path also runs through this async function so the
+    // setColumnAnalysis call is not synchronous in the effect body.
     const runAnalysis = async () => {
+      if (cachedColumns) {
+        // For non-joined, we need to remap; for joined, already remapped
+        const result = hasJoins
+          ? cachedColumns
+          : remapAnalysisColumnNames(cachedColumns, baseFields);
+        setColumnAnalysis(result);
+        return;
+      }
+
       setIsAnalyzing(true);
       const ctx: AnalysisContext = { duckDBConnection, updateAnalysis };
 

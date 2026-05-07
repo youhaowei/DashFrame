@@ -11,13 +11,22 @@ import {
 import { useTheme } from "@stdui/react/theme";
 import * as React from "react";
 
+// Subscribe is a no-op: the snapshot transitions from server (false) to
+// client (true) once on hydration, which is exactly what we need to defer
+// rendering the interactive dropdown until after mount.
+const subscribeMounted = () => () => {};
+const getMountedSnapshot = () => true;
+const getMountedServerSnapshot = () => false;
+
 export function ThemeToggle() {
   const { setMode } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-
   // Defer rendering the interactive dropdown until after mount to avoid
   // Radix ID mismatches between server and client during hydration.
-  React.useEffect(() => setMounted(true), []);
+  const mounted = React.useSyncExternalStore(
+    subscribeMounted,
+    getMountedSnapshot,
+    getMountedServerSnapshot,
+  );
 
   if (!mounted) {
     return (

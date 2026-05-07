@@ -2,7 +2,7 @@
 
 import { CheckIcon, CloseIcon } from "@stdui/icons";
 import { Button, cn } from "@stdui/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface MarkdownWidgetProps {
@@ -20,11 +20,14 @@ export function MarkdownWidget({
   onCancel,
   className,
 }: MarkdownWidgetProps) {
+  // Reset edit buffer whenever the source `content` changes by using it as
+  // the state's identity — derive the current value during render.
   const [value, setValue] = useState(content);
-
-  useEffect(() => {
+  const [lastContent, setLastContent] = useState(content);
+  if (lastContent !== content) {
+    setLastContent(content);
     setValue(content);
-  }, [content]);
+  }
 
   if (isEditing) {
     return (

@@ -26,8 +26,22 @@ import {
   Spinner,
   Surface,
 } from "@stdui/react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
+
+// Ticks once a minute on the client so relative-time strings refresh
+// without calling Date.now() during render.
+const subscribeNow = (notify: () => void) => {
+  const id = setInterval(notify, 60_000);
+  return () => clearInterval(id);
+};
+const getNowSnapshot = () => Date.now();
+const getNowServerSnapshot = () => 0;
 
 interface CollapsibleSectionProps {
   title: string;
@@ -76,30 +90,84 @@ interface DataSourceControlsProps {
   dataSourceId: string | null;
 }
 
+type CachedDatabases = {
+  databases: NotionDatabase[];
+  timestamp: number;
+};
+
+const cacheKeyFor = (dataSourceId: string) =>
+  `dashframe:notion-databases:${dataSourceId}`;
+
+const readCache = (dataSourceId: string | null): CachedDatabases | null => {
+  if (!dataSourceId || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(cacheKeyFor(dataSourceId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedDatabases;
+    return parsed;
+  } catch (error) {
+    console.error("Failed to load cached databases:", error);
+    return null;
+  }
+};
+
+// Subscribe to storage events so other tabs/components updating the cache
+// flow back into render without a manual setState-in-effect.
+const subscribeStorage = (callback: () => void) => {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+};
+
 export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
-  const [availableDatabases, setAvailableDatabases] = useState<
-    NotionDatabase[]
-  >([]);
+  // Local override — set after a fresh fetch — wins over the cached read.
+  const [override, setOverride] = useState<CachedDatabases | null>(null);
+  const [overrideKey, setOverrideKey] = useState<string | null>(dataSourceId);
+  // Reset override when data source changes during render.
+  if (overrideKey !== dataSourceId) {
+    setOverrideKey(dataSourceId);
+    setOverride(null);
+  }
+
+  const cachedSnapshot = useSyncExternalStore(
+    subscribeStorage,
+    useCallback(() => {
+      // Stable JSON snapshot keyed by dataSourceId so the store returns
+      // referentially-equal values across renders when nothing changed.
+      const cached = readCache(dataSourceId);
+      return cached ? JSON.stringify(cached) : "";
+    }, [dataSourceId]),
+    () => "",
+  );
+  const cached: CachedDatabases | null = useMemo(
+    () => (cachedSnapshot ? (JSON.parse(cachedSnapshot) as CachedDatabases) : null),
+    [cachedSnapshot],
+  );
+  const effective = override ?? cached;
+  const availableDatabases = useMemo<NotionDatabase[]>(
+    () => effective?.databases ?? [],
+    [effective],
+  );
+  const lastFetchTime: number | null = effective?.timestamp ?? null;
+  const setAvailableDatabases = (databases: NotionDatabase[]) => {
+    const next = { databases, timestamp: Date.now() };
+    setOverride(next);
+    if (dataSourceId && typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(cacheKeyFor(dataSourceId), JSON.stringify(next));
+      } catch (error) {
+        console.error("Failed to persist cached databases:", error);
+      }
+    }
+  };
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
-  const [lastFetchTime, setLastFetchTime] = useState<number | null>(null);
   const [isDataTablesOpen, setIsDataTablesOpen] = useState(true);
 
-  // Hydrate cached database list from localStorage
-  useEffect(() => {
-    if (!dataSourceId) return;
-
-    try {
-      const cacheKey = `dashframe:notion-databases:${dataSourceId}`;
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const { databases, timestamp } = JSON.parse(cached);
-        setAvailableDatabases(databases);
-        setLastFetchTime(timestamp);
-      }
-    } catch (error) {
-      console.error("Failed to load cached databases:", error);
-    }
-  }, [dataSourceId]);
+  const now = useSyncExternalStore(
+    subscribeNow,
+    getNowSnapshot,
+    getNowServerSnapshot,
+  );
 
   // Get data source from Dexie
   const { data: dataSources } = useDataSources();
@@ -144,23 +212,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       const result = await listDatabasesMutation.mutateAsync({
         apiKey: dataSource.apiKey,
       });
-      const now = Date.now();
+      // Updates state and persists to localStorage in one go.
       setAvailableDatabases(result);
-      setLastFetchTime(now);
-
-      // Persist to localStorage
-      try {
-        const cacheKey = `dashframe:notion-databases:${dataSource.id}`;
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({
-            databases: result,
-            timestamp: now,
-          }),
-        );
-      } catch (error) {
-        console.error("Failed to cache databases:", error);
-      }
     } catch (error) {
       console.error("Failed to fetch Notion databases:", error);
       toast.error("Failed to load databases from Notion");
@@ -280,7 +333,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
                 <span className="text-[10px] text-neutral-fg-subtle">
                   synced{" "}
                   {(() => {
-                    const diff = Date.now() - lastFetchTime;
+                    const diff = now - lastFetchTime;
                     const minutes = Math.floor(diff / 1000 / 60);
                     const hours = Math.floor(minutes / 60);
                     if (hours > 0) return `${hours}h ago`;

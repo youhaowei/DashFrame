@@ -89,8 +89,9 @@ export function useInsightPageData(insightId: string): InsightPageData {
     [insights, insightId],
   );
 
-  // Find data source and table using flat schema (baseTableId directly on insight)
-  const dataTableInfo = useMemo<DataTableInfo | null>(() => {
+  // Find data source and table using flat schema (baseTableId directly on insight).
+  // React Compiler memoizes this expression based on its real dependencies.
+  const dataTableInfo: DataTableInfo | null = (() => {
     if (!insight?.baseTableId) return null;
 
     const dataTable = allDataTables.find((t) => t.id === insight.baseTableId);
@@ -106,30 +107,30 @@ export function useInsightPageData(insightId: string): InsightPageData {
       fields: dataTable.fields ?? [],
       metrics: dataTable.metrics ?? [],
     };
-  }, [insight?.baseTableId, allDataTables, dataSources]);
+  })();
 
-  // Resolve joined tables from insight.joins
-  const joinedTables = useMemo<JoinedTableInfo[]>(() => {
-    if (!insight?.joins?.length) return [];
+  // Resolve joined tables from insight.joins (memoized by React Compiler).
+  const joinedTables: JoinedTableInfo[] = !insight?.joins?.length
+    ? []
+    : insight.joins
+        .map((join, joinIndex) => {
+          const dataTable = allDataTables.find(
+            (t) => t.id === join.rightTableId,
+          );
+          if (!dataTable) return null;
 
-    return insight.joins
-      .map((join, joinIndex) => {
-        const dataTable = allDataTables.find((t) => t.id === join.rightTableId);
-        if (!dataTable) return null;
+          const dataSource = dataSources?.find(
+            (s) => s.id === dataTable.dataSourceId,
+          );
 
-        const dataSource = dataSources?.find(
-          (s) => s.id === dataTable.dataSourceId,
-        );
-
-        return {
-          joinIndex,
-          dataTable,
-          dataSource: dataSource ?? null,
-          fields: dataTable.fields ?? [],
-        };
-      })
-      .filter((t): t is JoinedTableInfo => t !== null);
-  }, [insight?.joins, allDataTables, dataSources]);
+          return {
+            joinIndex,
+            dataTable,
+            dataSource: dataSource ?? null,
+            fields: dataTable.fields ?? [],
+          };
+        })
+        .filter((t): t is JoinedTableInfo => t !== null);
 
   // Determine if insight is configured (has selected fields)
   const isConfigured = useMemo(() => {

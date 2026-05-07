@@ -33,7 +33,13 @@ import {
   cn,
   Surface,
 } from "@stdui/react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 
 interface DataSourceDisplayProps {
@@ -46,6 +52,15 @@ interface PreviewData {
   columns: VirtualTableColumn[];
   rowCount: number;
 }
+
+// External-clock store: ticks once a minute on the client so relative-time
+// strings stay fresh without calling Date.now() during render.
+const subscribeNow = (notify: () => void) => {
+  const id = setInterval(notify, 60_000);
+  return () => clearInterval(id);
+};
+const getNowSnapshot = () => Date.now();
+const getNowServerSnapshot = () => 0;
 
 // Helper to get preview description text
 function getPreviewDescription(
@@ -319,17 +334,14 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return allTables ?? [];
   }, [dataSource, allTables]);
 
-  // Auto-select first DataTable if none selected
-  useEffect(() => {
-    if (dataTables.length > 0 && !selectedDataTableId) {
-      setSelectedDataTableId(dataTables[0]!.id);
-    }
-  }, [dataTables, selectedDataTableId]);
-
-  // Get the selected DataTable
+  // Effective selection: fall back to the first table when none chosen or
+  // when the chosen id no longer exists. Derived during render — no effect.
   const selectedDataTable = useMemo(() => {
-    if (!selectedDataTableId) return null;
-    return dataTables.find((dt) => dt.id === selectedDataTableId) ?? null;
+    if (dataTables.length === 0) return null;
+    const explicit = selectedDataTableId
+      ? (dataTables.find((dt) => dt.id === selectedDataTableId) ?? null)
+      : null;
+    return explicit ?? dataTables[0] ?? null;
   }, [dataTables, selectedDataTableId]);
 
   // Fetch database schema when a table is selected
@@ -367,9 +379,15 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getSchemaMutation is a stable mutation hook, adding it would cause infinite loops
   }, [selectedDataTable, dataSource]);
 
+  const now = useSyncExternalStore(
+    subscribeNow,
+    getNowSnapshot,
+    getNowServerSnapshot,
+  );
+
   // Format relative time for "last fetched"
-  const formatRelativeTime = (timestamp: number) => {
-    const now = Date.now();
+  const formatRelativeTime = useCallback(
+    (timestamp: number) => {
     const diff = now - timestamp;
     const seconds = Math.floor(diff / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -380,7 +398,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     if (hours > 0) return `${hours}h ago`;
     if (minutes > 0) return `${minutes}m ago`;
     return "just now";
-  };
+    },
+    [now],
+  );
 
   // Handle syncing data with selected properties
   const handleSyncData = async () => {

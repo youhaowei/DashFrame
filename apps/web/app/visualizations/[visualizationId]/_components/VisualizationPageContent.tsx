@@ -103,28 +103,20 @@ export default function VisualizationPageContent({
     [visualizations, visualizationId],
   );
 
-  // Find the insight
-  const insight = useMemo(
-    () =>
-      visualization?.insightId
-        ? insights.find((i) => i.id === visualization.insightId)
-        : undefined,
-    [insights, visualization?.insightId],
-  );
+  // Find the insight (React Compiler memoizes this).
+  const insight = visualization?.insightId
+    ? insights.find((i) => i.id === visualization.insightId)
+    : undefined;
 
   // Get compiled insight with resolved dimensions (for AxisSelectField)
   const { data: compiledInsight } = useCompiledInsight(
     visualization?.insightId,
   );
 
-  // Find the data table
-  const dataTable = useMemo(
-    () =>
-      insight?.baseTableId
-        ? dataTables.find((t) => t.id === insight.baseTableId)
-        : undefined,
-    [dataTables, insight?.baseTableId],
-  );
+  // Find the data table (React Compiler memoizes this).
+  const dataTable = insight?.baseTableId
+    ? dataTables.find((t) => t.id === insight.baseTableId)
+    : undefined;
 
   // Get the dataFrameId from the dataTable
   const dataFrameId = dataTable?.dataFrameId;
@@ -165,11 +157,13 @@ export default function VisualizationPageContent({
   } | null>(null);
   const [isLoadingJoinedData, setIsLoadingJoinedData] = useState(false);
 
+  const hasJoins = Boolean(insight?.joins?.length);
+
   // Compute joined data using DuckDB when insight has joins
   useEffect(() => {
-    // Skip if no joins configured
-    if (!insight?.joins?.length) {
-      setJoinedData(null);
+    // Skip if no joins configured. The publicly-used `joinedData` is gated on
+    // `hasJoins` below, so we don't need to clear state here.
+    if (!hasJoins) {
       return;
     }
 
@@ -198,7 +192,7 @@ export default function VisualizationPageContent({
         await baseQueryBuilder.sql(); // Triggers table creation
 
         // Load join tables into DuckDB
-        for (const join of insight.joins ?? []) {
+        for (const join of insight?.joins ?? []) {
           const joinTable = dataTables.find((t) => t.id === join.rightTableId);
           if (joinTable?.dataFrameId) {
             const joinDataFrame = await getDexieDataFrame(
@@ -247,6 +241,7 @@ export default function VisualizationPageContent({
 
     computeJoinedData();
   }, [
+    hasJoins,
     insight?.joins,
     insight?.id,
     duckDBConnection,
@@ -298,7 +293,7 @@ export default function VisualizationPageContent({
   // Use joined data if available, then aggregated data, then source data
   const dataFrame = useMemo(() => {
     // Priority 1: DuckDB-computed joined data (when insight has joins)
-    if (joinedData) {
+    if (hasJoins && joinedData) {
       return joinedData;
     }
     // Priority 2: Aggregated preview (non-join case with metrics/dimensions)
@@ -310,7 +305,7 @@ export default function VisualizationPageContent({
     }
     // Priority 3: Raw source data
     return sourceDataFrame;
-  }, [joinedData, aggregatedPreview, sourceDataFrame]);
+  }, [hasJoins, joinedData, aggregatedPreview, sourceDataFrame]);
 
   // Include dataFrame check to prevent "Data not available" flash
   const isLoading =
@@ -319,35 +314,52 @@ export default function VisualizationPageContent({
     isLoadingJoinedData ||
     (visualization && !dataFrame);
 
-  // Local state
-  const [vizName, setVizName] = useState("");
+  // Local edit buffer for the visualization name. While the user has not
+  // typed an override, we render whatever is on the visualization itself.
+  const [vizNameOverride, setVizNameOverride] = useState<string | null>(null);
+  const [lastSyncedName, setLastSyncedName] = useState<string | undefined>(
+    visualization?.name,
+  );
+  if (lastSyncedName !== visualization?.name) {
+    setLastSyncedName(visualization?.name);
+    // The source of truth changed under us — drop the override.
+    setVizNameOverride(null);
+  }
+  const vizName = vizNameOverride ?? visualization?.name ?? "";
+  const setVizName = (next: string) => setVizNameOverride(next);
 
-  // Sync visualization name when data loads
-  useEffect(() => {
-    if (visualization?.name) {
-      setVizName(visualization.name);
-    }
-  }, [visualization?.name]);
-
-  // State for DuckDB-computed column analysis
-  const [columnAnalysis, setColumnAnalysis] = useState<ColumnAnalysis[]>([]);
+  // Holds the last successfully analyzed view + result so the "is this still
+  // valid for the current view?" check is just a string comparison during
+  // render. Returning [] when the analyzed view doesn't match avoids having
+  // to synchronously reset state inside the analysis effect.
+  const [analysisResult, setAnalysisResult] = useState<{
+    viewName: string;
+    columns: ColumnAnalysis[];
+  } | null>(null);
+  const columnAnalysis = useMemo<ColumnAnalysis[]>(
+    () =>
+      analysisViewName &&
+      isAnalysisViewReady &&
+      analysisResult?.viewName === analysisViewName
+        ? analysisResult.columns
+        : [],
+    [analysisResult, analysisViewName, isAnalysisViewReady],
+  );
 
   // Run DuckDB analysis on the insight view (has UUID-based column names)
   // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
   useEffect(() => {
     if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
-    if (!analysisViewName || !isAnalysisViewReady) {
-      setColumnAnalysis([]);
-      return;
-    }
+    if (!analysisViewName || !isAnalysisViewReady) return;
 
+    const targetView = analysisViewName;
     const runAnalysis = async () => {
       try {
-        const results = await analyzeView(duckDBConnection, analysisViewName);
-        setColumnAnalysis(results);
+        const results = await analyzeView(duckDBConnection, targetView);
+        setAnalysisResult({ viewName: targetView, columns: results });
       } catch (e) {
         console.error("[VisualizationPage] Analysis failed:", e);
-        setColumnAnalysis([]);
+        setAnalysisResult({ viewName: targetView, columns: [] });
       }
     };
     runAnalysis();
