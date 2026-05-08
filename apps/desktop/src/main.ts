@@ -47,37 +47,45 @@ function registerIpc(handle: ProjectHandle): void {
 }
 
 console.log("[dashframe] main process started, waiting for app ready...");
-await app.whenReady();
-console.log("[dashframe] app ready, opening project...");
-
-let project: ProjectHandle;
-try {
-  project = await openProject();
-} catch (err) {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error("[dashframe] failed to open project:", err);
-  dialog.showErrorBox(
-    "DashFrame failed to start",
-    `Could not open project: ${message}`,
-  );
-  app.exit(1);
-  throw err;
-}
-
-console.log(`[dashframe] project ready at ${project.dir}`);
-registerIpc(project);
-console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
-createWindow();
-console.log("[dashframe] window created");
-
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
+
+app
+  .whenReady()
+  .then(async () => {
+    console.log("[dashframe] app ready, opening project...");
+
+    let project: ProjectHandle;
+    try {
+      project = await openProject();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[dashframe] failed to open project:", err);
+      dialog.showErrorBox(
+        "DashFrame failed to start",
+        `Could not open project: ${message}`,
+      );
+      app.exit(1);
+      return;
+    }
+
+    console.log(`[dashframe] project ready at ${project.dir}`);
+    registerIpc(project);
+    console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
+    createWindow();
+    console.log("[dashframe] window created");
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  })
+  .catch((err) => {
+    console.error("[dashframe] startup failed:", err);
+    app.exit(1);
+  });
