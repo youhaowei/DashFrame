@@ -1,0 +1,111 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Design System/Border Radius" />
+
+# Border Radius
+
+DashFrame uses a systematic border radius scale based on CSS custom properties.
+
+## CSS Variables
+
+All radius values derive from a single `--radius` base value, making the entire system scalable:
+
+```css
+:root {
+  --radius: 0.625rem; /* 10px base */
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px); /* 6px */
+  --radius-md: calc(var(--radius) - 2px); /* 8px */
+  --radius-lg: var(--radius); /* 10px */
+  --radius-xl: calc(var(--radius) + 4px); /* 14px */
+}
+```
+
+## Scale Reference
+
+| Tailwind Class | CSS Variable  | Size | Usage                        |
+| -------------- | ------------- | ---- | ---------------------------- |
+| `rounded-sm`   | `--radius-sm` | 6px  | Form inputs, menu items      |
+| `rounded-md`   | `--radius-md` | 8px  | Buttons, dropdowns, tooltips |
+| `rounded-lg`   | `--radius-lg` | 10px | Cards, dialogs, alerts       |
+| `rounded-xl`   | `--radius-xl` | 14px | Surfaces, panels, badges     |
+| `rounded-full` | -             | 50%  | Switches, avatars, pills     |
+
+## Visual Hierarchy
+
+```
+rounded-sm (6px)  →  Form elements (sharp, action-oriented)
+rounded-md (8px)  →  Interactive overlays (buttons, menus)
+rounded-lg (10px) →  Content containers (cards, dialogs)
+rounded-xl (14px) →  Surface containers (panels, badges)
+rounded-full      →  Circular elements (toggles, avatars)
+```
+
+## Usage by Component Type
+
+### Form Inputs — `rounded-sm`
+
+Sharp corners signal editability and action-orientation.
+
+- `Input` - Text input fields
+- `Select` trigger - Dropdown triggers
+- `Checkbox` - Boolean toggles
+- Menu items - `SelectItem`, `DropdownMenuItem`, `NavigationMenuLink`
+
+### Interactive Overlays — `rounded-md`
+
+Medium radius for clickable/tappable elements.
+
+- `Button` - All button variants
+- `DropdownMenuContent` - Dropdown containers
+- `SelectContent` - Select dropdown panels
+- `Tooltip` - Hover tooltips
+- `NavigationMenuTrigger` - Nav menu triggers
+- `Skeleton` - Loading placeholders
+
+### Content Containers — `rounded-lg`
+
+Base radius for content-holding elements.
+
+- `ItemCard` - Clickable item cards
+- `Dialog` - Modal dialogs
+- `Alert` - Alert messages
+- `VirtualTable` container
+
+### Surface Containers — `rounded-xl`
+
+Larger radius for prominent containers.
+
+- `Surface` - Elevated container primitive
+- `Card` - Card component (uses Surface)
+- `Badge` - Status/label badges
+- `ItemSelector` - Selection panels
+
+### Circular — `rounded-full`
+
+For elements that should be perfectly round.
+
+- `Switch` - Toggle switches
+- `Avatar` - User avatars
+- Pills and tags
+- Icon buttons (when circular)
+
+---
+
+## Customization
+
+To adjust the entire radius scale, modify the base `--radius` value in `globals.css`:
+
+```css
+:root {
+  /* Sharper corners (8px base) */
+  --radius: 0.5rem;
+
+  /* Softer corners (12px base) */
+  --radius: 0.75rem;
+}
+```
+
+All derived values (`--radius-sm`, `--radius-md`, etc.) will automatically update.

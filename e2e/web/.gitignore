@@ -1,0 +1,12 @@
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+features/.generated/
+
+# TypeScript
+.tsbuild/
+*.tsbuildinfo
+
+# Logs
+*.log

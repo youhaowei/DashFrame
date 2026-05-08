@@ -1,0 +1,31 @@
+{
+  "name": "@dashframe/engine-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser implementation of DashFrame engine using DuckDB-WASM",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dashframe/engine": "workspace:*",
+    "@dashframe/types": "workspace:*",
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "apache-arrow": "^21.1.0",
+    "idb-keyval": "^6.2.2"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.16"
+  }
+}

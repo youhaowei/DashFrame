@@ -1,0 +1,542 @@
+
+> @dashframe/ui@0.1.0 build-storybook /Users/youhaowei/Projects/DashFrame/packages/ui
+> storybook build --output-dir=/tmp/chromatic--33777-0l5Wk6J8qfQ3
+
+
+[90m┌[39m  Building storybook v10.1.10
+[90m│[39m
+[32m◇[39m  Cleaning outputDir:
+[90m│[39m  [36m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3[39m
+[90m│[39m
+[32m◇[39m  Loading presets
+[90m│[39m
+[32m◇[39m  Building manager..
+[90m│[39m
+[34m●[39m  Building preview..
+[90m│[39m  [43mVite[49m [36mvite v6.4.1 [32mbuilding for production...[36m[39m
+[90m│[39m  [43mVite[49m transforming...
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/tooltip.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/tooltip.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/tooltip.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Tooltip/Tooltip.tsx (1:0): Error when using[39m
+[90m│[39m  [33msourcemap for reporting an error: Can't resolve original location of[39m
+[90m│[39m  [33merror.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Tooltip/Tooltip.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/components/Tooltip/Tooltip.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/CollapsibleSection.tsx (1:0): Error when using[39m
+[90m│[39m  [33msourcemap for reporting an error: Can't resolve original location of[39m
+[90m│[39m  [33merror.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/CollapsibleSection.tsx (1:0): Module level[39m
+[90m│[39m  [33mdirectives cause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/components/CollapsibleSection.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Panel.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Panel.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/components/Panel.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/ItemSelector.tsx (1:0): Error when using sourcemap[39m
+[90m│[39m  [33mfor reporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/ItemSelector.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/components/ItemSelector.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/label.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/label.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/label.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/dialog.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/dialog.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/dialog.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/scroll-area.tsx (1:0): Error when using sourcemap[39m
+[90m│[39m  [33mfor reporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/scroll-area.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/primitives/scroll-area.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/checkbox.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/checkbox.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/checkbox.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/separator.tsx (1:0): Error when using sourcemap[39m
+[90m│[39m  [33mfor reporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/separator.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/separator.tsx"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/field.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/field.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/field.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/collapsible.tsx (1:0): Error when using sourcemap[39m
+[90m│[39m  [33mfor reporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/collapsible.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/primitives/collapsible.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/dropdown-menu.tsx (1:0): Error when using[39m
+[90m│[39m  [33msourcemap for reporting an error: Can't resolve original location of[39m
+[90m│[39m  [33merror.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/dropdown-menu.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/primitives/dropdown-menu.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/select.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/select.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/select.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Toggle.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/components/Toggle.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/components/Toggle.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/multi-select.tsx (1:0): Error when using sourcemap[39m
+[90m│[39m  [33mfor reporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/multi-select.tsx (1:0): Module level directives[39m
+[90m│[39m  [33mcause errors when bundled, "use client" in[39m
+[90m│[39m  [33m"src/primitives/multi-select.tsx" was ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/sonner.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/sonner.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/sonner.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/table.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/table.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/table.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/switch.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/switch.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/switch.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/tabs.tsx (1:0): Error when using sourcemap for[39m
+[90m│[39m  [33mreporting an error: Can't resolve original location of error.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m [33msrc/primitives/tabs.tsx (1:0): Module level directives cause[39m
+[90m│[39m  [33merrors when bundled, "use client" in "src/primitives/tabs.tsx" was[39m
+[90m│[39m  [33mignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/sonner@2.0.7_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/sonner/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/sonner@2.0.7_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/sonner/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/next-themes@0.4.6_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next-themes/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/next-themes@0.4.6_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next-themes/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-tooltip@1.2.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react_5fd170ccd1b3e3455670c92b49bdfcd6/node_modules/@radix-ui/react-tooltip/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-tooltip@1.2.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react_5fd170ccd1b3e3455670c92b49bdfcd6/node_modules/@radix-ui/react-tooltip/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-label@2.1.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_f1d503932bd9d65dabd8f53395ff4883/node_modules/@radix-ui/react-label/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-label@2.1.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_f1d503932bd9d65dabd8f53395ff4883/node_modules/@radix-ui/react-label/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-checkbox@1.3.3_@types+react-dom@19.2.3_@types+react@19.2.7__@types+reac_66ce181bb32e72ab3fa88a526fd483c5/node_modules/@radix-ui/react-checkbox/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-checkbox@1.3.3_@types+react-dom@19.2.3_@types+react@19.2.7__@types+reac_66ce181bb32e72ab3fa88a526fd483c5/node_modules/@radix-ui/react-checkbox/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-dialog@1.1.15_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react_6dfccd9624a29e24d4bcca3b96ba3a18/node_modules/@radix-ui/react-dialog/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-dialog@1.1.15_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react_6dfccd9624a29e24d4bcca3b96ba3a18/node_modules/@radix-ui/react-dialog/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-collapsible@1.1.12_@types+react-dom@19.2.3_@types+react@19.2.7__@types+_9bed403fe51e3a7f04fe849254177327/node_modules/@radix-ui/react-collapsible/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-collapsible@1.1.12_@types+react-dom@19.2.3_@types+react@19.2.7__@types+_9bed403fe51e3a7f04fe849254177327/node_modules/@radix-ui/react-collapsible/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-dropdown-menu@2.1.16_@types+react-dom@19.2.3_@types+react@19.2.7__@type_51e36c76eea2d26e90ec3584138d47ad/node_modules/@radix-ui/react-dropdown-menu/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-dropdown-menu@2.1.16_@types+react-dom@19.2.3_@types+react@19.2.7__@type_51e36c76eea2d26e90ec3584138d47ad/node_modules/@radix-ui/react-dropdown-menu/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-scroll-area@1.2.10_@types+react-dom@19.2.3_@types+react@19.2.7__@types+_a97a365de5626125f3ace9d3e2d13968/node_modules/@radix-ui/react-scroll-area/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-scroll-area@1.2.10_@types+react-dom@19.2.3_@types+react@19.2.7__@types+_a97a365de5626125f3ace9d3e2d13968/node_modules/@radix-ui/react-scroll-area/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-select@2.2.6_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_c9708e721ec9d2eb0f1d48333ae90374/node_modules/@radix-ui/react-select/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-select@2.2.6_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_c9708e721ec9d2eb0f1d48333ae90374/node_modules/@radix-ui/react-select/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-navigation-menu@1.2.14_@types+react-dom@19.2.3_@types+react@19.2.7__@ty_e4dacdffd6a26b510e1ba34abeb67a2f/node_modules/@radix-ui/react-navigation-menu/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-navigation-menu@1.2.14_@types+react-dom@19.2.3_@types+react@19.2.7__@ty_e4dacdffd6a26b510e1ba34abeb67a2f/node_modules/@radix-ui/react-navigation-menu/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-switch@1.2.6_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_86805d46b28e7e2cb8011678259051bd/node_modules/@radix-ui/react-switch/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-switch@1.2.6_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_86805d46b28e7e2cb8011678259051bd/node_modules/@radix-ui/react-switch/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-presence@1.1.5_@types+react-dom@19.2.3_@types+react@19.2.7__@types+reac_a854ca95c1338f0b689e2e1899ae0fb5/node_modules/@radix-ui/react-presence/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-presence@1.1.5_@types+react-dom@19.2.3_@types+react@19.2.7__@types+reac_a854ca95c1338f0b689e2e1899ae0fb5/node_modules/@radix-ui/react-presence/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-portal@1.1.9_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_b18597ccc2d2784244d2aa14165c4243/node_modules/@radix-ui/react-portal/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-portal@1.1.9_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_b18597ccc2d2784244d2aa14165c4243/node_modules/@radix-ui/react-portal/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-popper@1.2.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_86f95f0aded9c2df67d8e3db614f2591/node_modules/@radix-ui/react-popper/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-popper@1.2.8_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@_86f95f0aded9c2df67d8e3db614f2591/node_modules/@radix-ui/react-popper/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-dismissable-layer@1.1.11_@types+react-dom@19.2.3_@types+react@19.2.7__@_3691668b2838b9f8aca5eaa9c1019f3a/node_modules/@radix-ui/react-dismissable-layer/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-dismissable-layer@1.1.11_@types+react-dom@19.2.3_@types+react@19.2.7__@_3691668b2838b9f8aca5eaa9c1019f3a/node_modules/@radix-ui/react-dismissable-layer/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-tabs@1.1.13_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_bbe36d27a60b4545786fe9185ce0e96b/node_modules/@radix-ui/react-tabs/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-tabs@1.1.13_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_bbe36d27a60b4545786fe9185ce0e96b/node_modules/@radix-ui/react-tabs/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-focus-guards@1.1.3_@types+react@19.2.7_react@19.2.1/node_modules/@radix-ui/react-focus-guards/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-focus-guards@1.1.3_@types+react@19.2.7_react@19.2.1/node_modules/@radix-ui/react-focus-guards/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-focus-scope@1.1.7_@types+react-dom@19.2.3_@types+react@19.2.7__@types+r_97c0f187ec076edb7ba986866ae46f50/node_modules/@radix-ui/react-focus-scope/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-focus-scope@1.1.7_@types+react-dom@19.2.3_@types+react@19.2.7__@types+r_97c0f187ec076edb7ba986866ae46f50/node_modules/@radix-ui/react-focus-scope/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-collection@1.1.7_@types+react-dom@19.2.3_@types+react@19.2.7__@types+re_8697ba31e9568cc40ba2b32564616706/node_modules/@radix-ui/react-collection/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-collection@1.1.7_@types+react-dom@19.2.3_@types+react@19.2.7__@types+re_8697ba31e9568cc40ba2b32564616706/node_modules/@radix-ui/react-collection/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-menu@2.1.16_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_52f284867f8a1e46cf5ec39fe9e7876d/node_modules/@radix-ui/react-menu/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-menu@2.1.16_@types+react-dom@19.2.3_@types+react@19.2.7__@types+react@1_52f284867f8a1e46cf5ec39fe9e7876d/node_modules/@radix-ui/react-menu/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m
+[33m▲[39m  [43mVite[49m
+[90m│[39m  [33m../../node_modules/.pnpm/@radix-ui+react-roving-focus@1.1.11_@types+react-dom@19.2.3_@types+react@19.2.7__@types_d9886401d1b853addf16931114c94215/node_modules/@radix-ui/react-roving-focus/dist/index.mjs[39m
+[90m│[39m  [33m(1:0): Module level directives cause errors when bundled, "use client"[39m
+[90m│[39m  [33min[39m
+[90m│[39m  [33m"../../node_modules/.pnpm/@radix-ui+react-roving-focus@1.1.11_@types+react-dom@19.2.3_@types+react@19.2.7__@types_d9886401d1b853addf16931114c94215/node_modules/@radix-ui/react-roving-focus/dist/index.mjs"[39m
+[90m│[39m  [33mwas ignored.[39m
+[90m│[39m  [43mVite[49m [32m✓[39m 567 modules transformed.
+[90m│[39m  [43mVite[49m rendering chunks...
+[90m│[39m  [43mVite[49m [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[32miframe.html[39m[1m[2m[22m
+[90m│[39m  [2m18.02 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[35miframe-xxibT8bu.css[39m[1m[2m[22m
+[90m│[39m  [2m69.89 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-BdQq_4o_.js[39m[1m[2m[22m
+[90m│[39m  [2m0.06 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-CwCRoJuj.js[39m[1m[2m[22m
+[90m│[39m  [2m0.14 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-CwNs2uoA.js[39m[1m[2m[22m
+[90m│[39m  [2m0.23 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-CoF0q844.js[39m[1m[2m[22m
+[90m│[39m  [2m0.46 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-C1T_uFsA.js[39m[1m[2m[22m
+[90m│[39m  [2m0.54 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36msurface-Buim3Jnq.js[39m[1m[2m[22m
+[90m│[39m  [2m0.55 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbutton-BTMOXErf.js[39m[1m[2m[22m
+[90m│[39m  [2m0.61 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mlabel-2-jqEW8o.js[39m[1m[2m[22m
+[90m│[39m  [2m0.65 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-hgWdjDch.js[39m[1m[2m[22m
+[90m│[39m  [2m0.70 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbadge-BuoTy4om.js[39m[1m[2m[22m
+[90m│[39m  [2m0.75 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mseparator-CyQLe29T.js[39m[1m[2m[22m
+[90m│[39m  [2m0.77 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36minput-BtmDKWVC.js[39m[1m[2m[22m
+[90m│[39m  [2m0.82 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mPanel-C6SQ0811.js[39m[1m[2m[22m
+[90m│[39m  [2m0.90 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mCollapseHandle-Cys_mOE2.js[39m[1m[2m[22m
+[90m│[39m  [2m1.08 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-Dbp-TSC5.js[39m[1m[2m[22m
+[90m│[39m  [2m1.17 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mpreload-helper-Ct5FWWRu.js[39m[1m[2m[22m
+[90m│[39m  [2m1.23 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbutton-B-kW9Fo7.js[39m[1m[2m[22m
+[90m│[39m  [2m1.66 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-CCjZ85I8.js[39m[1m[2m[22m
+[90m│[39m  [2m1.79 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mitem-card-Bam9gq2g.js[39m[1m[2m[22m
+[90m│[39m  [2m1.90 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mButtonGroup-NT_GiW7U.js[39m[1m[2m[22m
+[90m│[39m  [2m2.26 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mcollapsible-BpGNEY8X.js[39m[1m[2m[22m
+[90m│[39m  [2m2.36 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mToggle-Blw7Bc9w.js[39m[1m[2m[22m
+[90m│[39m  [2m2.47 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbutton.stories-DEY0ZJza.js[39m[1m[2m[22m
+[90m│[39m  [2m2.50 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mItemSelector-D1CGGb5-.js[39m[1m[2m[22m
+[90m│[39m  [2m2.54 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36minput.stories--__C6pMQ.js[39m[1m[2m[22m
+[90m│[39m  [2m3.11 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-CF-kI0bz.js[39m[1m[2m[22m
+[90m│[39m  [2m3.52 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mcard.stories-CjiSFQ2b.js[39m[1m[2m[22m
+[90m│[39m  [2m3.64 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mlabel.stories-8bUcmQFW.js[39m[1m[2m[22m
+[90m│[39m  [2m3.83 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mcheckbox-CUQVaL_3.js[39m[1m[2m[22m
+[90m│[39m  [2m3.92 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mSectionList.stories-Cq5az_rE.js[39m[1m[2m[22m
+[90m│[39m  [2m5.12 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbutton.stories-BjPazKZw.js[39m[1m[2m[22m
+[90m│[39m  [2m6.33 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36malert.stories-_lyVbQwI.js[39m[1m[2m[22m
+[90m│[39m  [2m6.81 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36msurface.stories-B8c3Ae1B.js[39m[1m[2m[22m
+[90m│[39m  [2m7.18 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mbadge.stories-BtoiuqiX.js[39m[1m[2m[22m
+[90m│[39m  [2m7.31 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mseparator.stories-DZNpB6yM.js[39m[1m[2m[22m
+[90m│[39m  [2m8.17 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mselect.stories-BBFR9Csa.js[39m[1m[2m[22m
+[90m│[39m  [2m8.41 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mmulti-select.stories-D-ZcyDRD.js[39m[1m[2m[22m
+[90m│[39m  [2m8.44 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mcollapsible.stories-CUOFX2lp.js[39m[1m[2m[22m
+[90m│[39m  [2m8.54 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mEmptyState.stories-DtAesRny.js[39m[1m[2m[22m
+[90m│[39m  [2m9.24 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mButtonGroup.stories-Bz3ItHwc.js[39m[1m[2m[22m
+[90m│[39m  [2m9.31 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mfield.stories-CVFXUBuB.js[39m[1m[2m[22m
+[90m│[39m  [2m9.59 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mitem-card.stories-Dy-BbSfk.js[39m[1m[2m[22m
+[90m│[39m  [2m11.61 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mToggle.stories-DgTqL2Cr.js[39m[1m[2m[22m
+[90m│[39m  [2m12.34 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mTooltip.stories-DFnWlOtc.js[39m[1m[2m[22m
+[90m│[39m  [2m12.60 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mcheckbox.stories-CpX5-AjU.js[39m[1m[2m[22m
+[90m│[39m  [2m12.76 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mdropdown-menu.stories-Cm_F8mQn.js[39m[1m[2m[22m
+[90m│[39m  [2m13.13 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mindex-BZJzpjKs.js[39m[1m[2m[22m
+[90m│[39m  [2m13.33 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mtooltip.stories-tKrlRhtK.js[39m[1m[2m[22m
+[90m│[39m  [2m13.43 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mCollapseHandle.stories--BDIfU8d.js[39m[1m[2m[22m
+[90m│[39m  [2m14.15 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mCollapsibleSection.stories-DQNjrSos.js[39m[1m[2m[22m
+[90m│[39m  [2m14.24 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mPanel.stories-a7-W2FS-.js[39m[1m[2m[22m
+[90m│[39m  [2m15.12 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mdialog.stories-B7YJOlsW.js[39m[1m[2m[22m
+[90m│[39m  [2m15.31 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mtable.stories-DsB09fM3.js[39m[1m[2m[22m
+[90m│[39m  [2m15.68 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mItemSelector.stories-Dew4epx5.js[39m[1m[2m[22m
+[90m│[39m  [2m16.19 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mCombination-B1OZpxUw.js[39m[1m[2m[22m
+[90m│[39m  [2m16.46 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mswitch.stories-DxzOk1m4.js[39m[1m[2m[22m
+[90m│[39m  [2m17.50 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mContainer.stories-DqXt440V.js[39m[1m[2m[22m
+[90m│[39m  [2m17.70 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mStack.stories-C4k7DdYl.js[39m[1m[2m[22m
+[90m│[39m  [2m20.24 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mtabs.stories-DNdbclsB.js[39m[1m[2m[22m
+[90m│[39m  [2m21.61 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mscroll-area.stories-B-qTcZSy.js[39m[1m[2m[22m
+[90m│[39m  [2m21.75 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mselect-Bq7UPG-L.js[39m[1m[2m[22m
+[90m│[39m  [2m22.42 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mdropdown-menu-CB6_9SoS.js[39m[1m[2m[22m
+[90m│[39m  [2m22.57 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[36mvite-inject-mocker-entry.js[39m[1m[2m[22m
+[90m│[39m  [2m28.76 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mmatchers-DMFSMG2O-HJu_DfWo.js[39m[1m[2m[22m
+[90m│[39m  [2m29.23 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mnavigation-menu.stories-DoN2xP1z.js[39m[1m[2m[22m
+[90m│[39m  [2m32.52 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36msonner.stories-hjRkuB1Y.js[39m[1m[2m[22m
+[90m│[39m  [2m43.06 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36mreact-18-DmhcBf0o.js[39m[1m[2m[22m
+[90m│[39m  [2m205.62 kB[22m[1m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36maxe-XDKS9rOx.js[39m[1m[33m[39m
+[90m│[39m  [33m578.73 kB[39m[22m
+[90m│[39m  [43mVite[49m
+[90m│[39m  [2m../../../../../../tmp/chromatic--33777-0l5Wk6J8qfQ3/[22m[2massets/[22m[36miframe-DjAcjrUB.js[39m
+[90m│[39m  [36m[39m[1m[33m1,321.65 kB[39m[22m
+[90m│[39m
+[33m▲[39m  [43mVite[49m[33m
+[90m│[39m  (!) Some chunks are larger than 500 kB after minification. Consider:
+[90m│[39m  - Using dynamic import() to code-split the application
+[90m│[39m  - Use build.rollupOptions.output.manualChunks to improve chunking:
+[90m│[39m  ]8;;https://rollupjs.org/configuration-options/#output-manualchunkshttps://rollupjs.org/configuration-options/#output-manualchunks]8;;
+[90m│[39m  - Adjust chunk size limit for this warning via
+[90m│[39m  build.chunkSizeWarningLimit.[39m
+[90m│[39m  [43mVite[49m [32m✓ built in 4.14s[39m
+[90m│[39m
+[32m◇[39m  Output directory: /tmp/chromatic--33777-0l5Wk6J8qfQ3
+[90m│[39m
+[90m└[39m  Storybook build completed successfully
+

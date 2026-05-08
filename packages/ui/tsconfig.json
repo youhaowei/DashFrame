@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*", ".storybook/**/*"],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@dashframe/core": ["../core/src"],
+      "@dashframe/engine-browser": ["../engine-browser/src"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "dist",
+    "types": ["node"]
+  }
+}

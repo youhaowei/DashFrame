@@ -1,0 +1,13 @@
+/* Base theme from stdui (includes @import "tailwindcss", token vars, @layer base) */
+@import "@stdui/react/styles";
+
+/* Scan DashFrame UI package for Tailwind classes */
+@source "./**/*.{ts,tsx}";
+
+/* -- DashFrame-specific theme extensions --------------------------------- */
+
+@theme inline {
+  /* Geist font family (loaded by Next.js in layout.tsx) */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
