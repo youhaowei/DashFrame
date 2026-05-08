@@ -1,10 +1,8 @@
-import { app, BrowserWindow } from "electron";
+import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const DEV_URL = "http://localhost:5173";
+const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
 
 function createWindow(): void {
@@ -12,7 +10,7 @@ function createWindow(): void {
     width: 1280,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -22,19 +20,56 @@ function createWindow(): void {
   const loaded = isDev
     ? win.loadURL(DEV_URL)
     : win.loadFile(
-        path.join(__dirname, "..", "..", "renderer", "dist", "index.html"),
+        path.join(
+          import.meta.dirname,
+          "..",
+          "..",
+          "renderer",
+          "dist",
+          "index.html",
+        ),
       );
   loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
-app.whenReady().then(() => {
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+function registerIpc(handle: ProjectHandle): void {
+  ipcMain.handle("dashframe:project:info", () => ({
+    projectId: handle.meta.projectId,
+    name: handle.meta.name,
+    version: handle.meta.version,
+    schemaVersion: handle.meta.schemaVersion,
+    createdAt: handle.meta.createdAt.toISOString(),
+    createdBy: handle.meta.createdBy,
+  }));
+  ipcMain.handle("dashframe:project:reveal", () => {
+    shell.showItemInFolder(handle.dir);
   });
+}
+
+await app.whenReady();
+
+let project: ProjectHandle;
+try {
+  project = await openProject();
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("[dashframe] failed to open project:", err);
+  dialog.showErrorBox(
+    "DashFrame failed to start",
+    `Could not open project: ${message}`,
+  );
+  app.exit(1);
+  throw err;
+}
+
+console.log(`[dashframe] project ready at ${project.dir}`);
+registerIpc(project);
+createWindow();
+
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });
 
 app.on("window-all-closed", () => {

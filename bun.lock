@@ -33,11 +33,14 @@
       "name": "@dashframe/desktop",
       "version": "0.0.0",
       "dependencies": {
+        "@dashframe/server-core": "workspace:*",
+        "@electric-sql/pglite": "^0.3.14",
         "electron": "^33.2.1",
       },
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
         "@types/node": "^22.10.1",
+        "esbuild": "^0.28.0",
         "typescript": "5.7.2",
       },
     },
