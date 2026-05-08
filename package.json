@@ -24,6 +24,7 @@
   },
   "scripts": {
     "dev": "turbo dev",
+    "dev:desktop": "bun --filter @dashframe/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --write .",
