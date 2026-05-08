@@ -46,7 +46,9 @@ function registerIpc(handle: ProjectHandle): void {
   });
 }
 
+console.log("[dashframe] main process started, waiting for app ready...");
 await app.whenReady();
+console.log("[dashframe] app ready, opening project...");
 
 let project: ProjectHandle;
 try {
@@ -64,7 +66,9 @@ try {
 
 console.log(`[dashframe] project ready at ${project.dir}`);
 registerIpc(project);
+console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
 createWindow();
+console.log("[dashframe] window created");
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
