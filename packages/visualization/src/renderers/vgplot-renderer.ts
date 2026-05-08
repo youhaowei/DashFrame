@@ -740,14 +740,17 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
       } catch (error) {
         console.error("[VgplotRenderer] Error rendering chart:", error);
 
-        container.innerHTML = `
-          <div style="color: red; padding: 16px; text-align: center; font-size: 12px;">
-            Failed to render chart: ${error instanceof Error ? error.message : "Unknown error"}
-          </div>
-        `;
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        container.replaceChildren();
+        const errDiv = document.createElement("div");
+        errDiv.style.cssText =
+          "color: red; padding: 16px; text-align: center; font-size: 12px;";
+        errDiv.textContent = `Failed to render chart: ${message}`;
+        container.appendChild(errDiv);
 
         return () => {
-          container.innerHTML = "";
+          container.replaceChildren();
         };
       }
     },
