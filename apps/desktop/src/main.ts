@@ -1,9 +1,30 @@
-import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import {
+  ARTIFACTS_DB_FILENAME,
+  openProject,
+  type ProjectHandle,
+} from "@dashframe/server-core";
+import type { Event as ElectronEvent } from "electron";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
+let project: ProjectHandle | null = null;
+let isClosingProject = false;
+
+async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
+  if (isClosingProject || !project) return;
+
+  event.preventDefault();
+  isClosingProject = true;
+  try {
+    await project.close();
+  } catch (err) {
+    console.error("[dashframe] error closing project DB:", err);
+  } finally {
+    app.quit();
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -42,7 +63,7 @@ function registerIpc(handle: ProjectHandle): void {
     createdBy: handle.meta.createdBy,
   }));
   ipcMain.handle("dashframe:project:reveal", () => {
-    shell.showItemInFolder(handle.dir);
+    shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
   });
 }
 
@@ -59,7 +80,6 @@ app
   .then(async () => {
     console.log("[dashframe] app ready, opening project...");
 
-    let project: ProjectHandle;
     try {
       project = await openProject();
     } catch (err) {
@@ -75,6 +95,8 @@ app
 
     console.log(`[dashframe] project ready at ${project.dir}`);
     registerIpc(project);
+    app.on("before-quit", closeProjectBeforeQuit);
+
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
     createWindow();
     console.log("[dashframe] window created");

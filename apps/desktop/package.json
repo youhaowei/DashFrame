@@ -14,6 +14,7 @@
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/desktop-types": "workspace:*",
     "@dashframe/server-core": "workspace:*",
     "@electric-sql/pglite": "^0.3.14",
     "electron": "^33.2.1"

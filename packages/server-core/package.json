@@ -18,10 +18,10 @@
     "build": "bun run build:js && bun run build:types",
     "build:js": "esbuild src/index.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/index.js",
     "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "bun test --timeout 30000",
+    "test": "vitest run",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
@@ -30,8 +30,8 @@
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
-    "@types/bun": "^1.2.0",
     "esbuild": "^0.28.0",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "^4.1.6"
   }
 }

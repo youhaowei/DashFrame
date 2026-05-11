@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
 import {
@@ -30,7 +30,7 @@ describe("openArtifactDb", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("creates artifact db file and seeds all tables on first open", async () => {
+  test("should create artifact db file and seed all tables on first open", async () => {
     const dbPath = join(dir, "artifacts.db");
     const db = await openArtifactDb({ path: dbPath });
 
@@ -44,7 +44,7 @@ describe("openArtifactDb", () => {
     }
   });
 
-  test("is idempotent across re-opens", async () => {
+  test("should be idempotent across re-opens", async () => {
     const dbPath = join(dir, "artifacts.db");
     const first = await openArtifactDb({ path: dbPath });
 
@@ -64,7 +64,7 @@ describe("openArtifactDb", () => {
     expect(rows[0]?.name).toBe("test-project");
   });
 
-  test("enforces cascade delete from data_sources to secrets", async () => {
+  test("should enforce cascade delete from data_sources to secrets", async () => {
     const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
 
     const [source] = await db
@@ -91,7 +91,7 @@ describe("openArtifactDb", () => {
     expect(await db.select().from(schema.secrets)).toHaveLength(0);
   });
 
-  test("rejects duplicate (sourceId, secretName) on secrets", async () => {
+  test("should reject duplicate (sourceId, secretName) on secrets", async () => {
     const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     const [source] = await db
       .insert(schema.dataSources)
@@ -110,26 +110,26 @@ describe("openArtifactDb", () => {
       ciphertext: new Uint8Array([1, 2, 3]),
     });
 
-    await expect(async () => {
-      await db.insert(schema.secrets).values({
+    await expect(
+      db.insert(schema.secrets).values({
         sourceId: source!.id,
         secretName: "notion_token",
         ciphertext: new Uint8Array([4, 5, 6]),
-      });
-    }).toThrow();
+      }),
+    ).rejects.toThrow();
   });
 
-  test("declares required artifact provenance fields and parent indexes", async () => {
+  test("should declare required artifact provenance fields and parent indexes", async () => {
     const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
 
-    await expect(async () => {
-      await db.insert(dataSources).values({
+    await expect(
+      db.insert(dataSources).values({
         name: "missing-provenance",
         kind: "csv",
         storage: "parquet",
         config: {},
-      } as never);
-    }).toThrow(/created_by/);
+      } as never),
+    ).rejects.toThrow(/created_by/);
 
     const [source] = await db
       .insert(dataSources)
@@ -170,7 +170,7 @@ describe("openArtifactDb", () => {
   // alone leaves `updatedAt` frozen at insert time. `$onUpdate` makes Drizzle
   // stamp the column on every UPDATE. See Greptile finding P2 #2 on PR #30.
   describe("updatedAt is bumped on UPDATE via $onUpdate", () => {
-    test("data_sources", async () => {
+    test("should bump data_sources", async () => {
       const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
       const [row] = await db
         .insert(dataSources)
@@ -184,7 +184,7 @@ describe("openArtifactDb", () => {
         .returning();
       const original = row!.updatedAt;
 
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 20));
 
       const [updated] = await db
         .update(dataSources)
@@ -195,7 +195,7 @@ describe("openArtifactDb", () => {
       expect(updated!.updatedAt.getTime()).toBeGreaterThan(original.getTime());
     });
 
-    test("insights", async () => {
+    test("should bump insights", async () => {
       const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
       const [row] = await db
         .insert(insights)
@@ -207,7 +207,7 @@ describe("openArtifactDb", () => {
         .returning();
       const original = row!.updatedAt;
 
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 20));
 
       const [updated] = await db
         .update(insights)
@@ -218,7 +218,7 @@ describe("openArtifactDb", () => {
       expect(updated!.updatedAt.getTime()).toBeGreaterThan(original.getTime());
     });
 
-    test("visualizations", async () => {
+    test("should bump visualizations", async () => {
       const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
       const [insight] = await db
         .insert(insights)
@@ -240,7 +240,7 @@ describe("openArtifactDb", () => {
         .returning();
       const original = viz!.updatedAt;
 
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 20));
 
       const [updated] = await db
         .update(visualizations)
@@ -251,7 +251,7 @@ describe("openArtifactDb", () => {
       expect(updated!.updatedAt.getTime()).toBeGreaterThan(original.getTime());
     });
 
-    test("dashboards", async () => {
+    test("should bump dashboards", async () => {
       const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
       const [row] = await db
         .insert(dashboards)
@@ -263,7 +263,7 @@ describe("openArtifactDb", () => {
         .returning();
       const original = row!.updatedAt;
 
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 20));
 
       const [updated] = await db
         .update(dashboards)

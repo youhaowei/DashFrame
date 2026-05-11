@@ -49,6 +49,8 @@ export interface ProjectHandle {
   db: ArtifactDb;
   /** The single `project_meta` row. */
   meta: ProjectMetaRow;
+  /** Flush pending writes and close the underlying PGlite connection. */
+  close(): Promise<void>;
 }
 
 export type { ProjectMetaRow };
@@ -84,7 +86,8 @@ export async function openProject(
     throw err;
   }
 
-  return { dir, dbPath, dataSourcesDir, db, meta };
+  const close = () => db.$client.close();
+  return { dir, dbPath, dataSourcesDir, db, meta, close };
 }
 
 async function ensureProjectMeta(

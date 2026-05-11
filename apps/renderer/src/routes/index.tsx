@@ -6,9 +6,9 @@ export const Route = createFileRoute("/")({
 
 function HelloView() {
   return (
-    <main style={{ fontFamily: "system-ui", padding: "2rem" }}>
+    <main className="p-8 font-sans">
       <h1>DashFrame v0.2</h1>
-      <p>hello — desktop shell boot</p>
+      <p>hello - desktop shell boot</p>
     </main>
   );
 }

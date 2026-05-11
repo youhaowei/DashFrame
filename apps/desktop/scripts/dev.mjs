@@ -28,10 +28,6 @@ process.on("unhandledRejection", (err) => {
   process.exit(1);
 });
 
-// 1. Build server-core first — desktop's main bundle marks workspace
-// packages as external, so @dashframe/server-core must exist as JS at
-// dist/index.js before main.ts is bundled. Electron 33 (Node 20) cannot
-// load .ts entry points at runtime.
 function awaitProc(child, label) {
   return new Promise((resolve, reject) => {
     child.on("error", reject);
@@ -41,6 +37,10 @@ function awaitProc(child, label) {
   });
 }
 
+// 1. Build server-core first — desktop's main bundle marks workspace
+// packages as external, so @dashframe/server-core must exist as JS at
+// dist/index.js before main.ts is bundled. Electron 33 (Node 20) cannot
+// load .ts entry points at runtime.
 await awaitProc(
   spawn("bun", ["run", "--filter", "@dashframe/server-core", "build"], {
     cwd: path.resolve(desktopDir, "..", ".."),
@@ -55,14 +55,15 @@ await awaitProc(
   "desktop build",
 );
 
-// 2. Start Vite in renderer; parse its stdout for the auto-assigned port
+// 3. Start Vite in renderer; parse its stdout for the auto-assigned port
 viteProc = spawn("bun", ["run", "dev"], {
   cwd: rendererDir,
-  stdio: ["ignore", "pipe", "inherit"],
+  stdio: ["ignore", "pipe", "pipe"],
 });
 
 const viteUrl = await new Promise((resolve, reject) => {
   let settled = false;
+  let stderr = "";
   const timeout = setTimeout(
     () => fail(new Error("Vite did not report a Local URL within 15s")),
     15_000,
@@ -74,6 +75,22 @@ const viteUrl = await new Promise((resolve, reject) => {
     cleanup();
     reject(error);
   }
+  viteProc.on("error", fail);
+  viteProc.on("exit", (code) => {
+    if (settled) return;
+    const detail =
+      code === 0
+        ? "Vite exited cleanly before reporting URL"
+        : `Vite failed before reporting URL (exit ${code})`;
+    const stderrDetail = stderr.trim() ? `\n${stderr.trim()}` : "";
+    fail(new Error(`${detail}${stderrDetail}`));
+  });
+  viteProc.stderr.on("data", (chunk) => {
+    const text = chunk.toString();
+    process.stderr.write(text);
+    stderr += text;
+    if (stderr.length > 4096) stderr = stderr.slice(-4096);
+  });
   // Buffer stdout across chunks — node stream chunk boundaries are arbitrary,
   // so the "Local: http://..." banner can split across chunks. Match against
   // the accumulated buffer (trimmed at line boundaries to bound memory).
@@ -96,10 +113,6 @@ const viteUrl = await new Promise((resolve, reject) => {
     // the banner doesn't grow without limit before the 15s timeout fires.
     if (buffer.length > 4096) buffer = buffer.slice(-4096);
   });
-  viteProc.on("error", fail);
-  viteProc.on("exit", (code) => {
-    if (!settled) fail(new Error(`Vite exited before reporting URL (${code})`));
-  });
 });
 
 const cdpPort = process.env.CDP_PORT ?? "9222";
@@ -110,7 +123,7 @@ console.log(
 );
 console.log(`[dev] launching Electron...\n`);
 
-// 3. Launch Electron with DEV_URL env + CDP remote debugging
+// 4. Launch Electron with DEV_URL env + CDP remote debugging
 electronProc = spawn("electron", [`--remote-debugging-port=${cdpPort}`, "."], {
   cwd: desktopDir,
   env: { ...process.env, DEV_URL: viteUrl },

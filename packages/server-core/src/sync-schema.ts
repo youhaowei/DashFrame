@@ -121,13 +121,24 @@ function renderDefault(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const obj = value as any;
   if (obj && Array.isArray(obj.queryChunks)) {
-    return obj.queryChunks
-      .map((chunk: any) => {
+    const rendered = obj.queryChunks
+      .map((chunk: any, index: number) => {
         const v = chunk?.value;
+        if (v === undefined) {
+          throw new Error(
+            `renderDefault: unexpected undefined chunk.value in obj.queryChunks[${index}]: ${JSON.stringify(chunk)}`,
+          );
+        }
         if (Array.isArray(v)) return v.join("");
-        return String(v ?? "");
+        return String(v);
       })
       .join("");
+    if (rendered.trim() === "") {
+      throw new Error(
+        `renderDefault: unexpected empty default from obj.queryChunks: ${JSON.stringify(obj.queryChunks)}`,
+      );
+    }
+    return rendered;
   }
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);

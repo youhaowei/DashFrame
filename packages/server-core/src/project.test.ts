@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { ARTIFACT_DB_SCHEMA_VERSION } from "./db";
 import {
@@ -27,7 +27,7 @@ describe("openProject", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("materializes folder layout and seeds project_meta on first open", async () => {
+  test("should materialize folder layout and seed project_meta on first open", async () => {
     const dir = join(root, "fresh");
     const handle = await openProject({ dir, name: "Analytics" });
 
@@ -46,13 +46,13 @@ describe("openProject", () => {
     expect(handle.meta.createdBy.length).toBeGreaterThan(0);
   });
 
-  test("defaults project name to folder basename", async () => {
+  test("should default project name to folder basename", async () => {
     const dir = join(root, "my-project");
     const handle = await openProject({ dir });
     expect(handle.meta.name).toBe("my-project");
   });
 
-  test("re-opening preserves the original project_meta row", async () => {
+  test("should preserve the original project_meta row on re-open", async () => {
     const dir = join(root, "persisted");
     const first = await openProject({ dir, name: "First" });
     const firstId = first.meta.projectId;
@@ -68,7 +68,7 @@ describe("openProject", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("rejects existing projects with an unsupported schema version", async () => {
+  test("should reject existing projects with an unsupported schema version", async () => {
     const dir = join(root, "future-schema");
     const first = await openProject({ dir, name: "Future" });
 
@@ -81,12 +81,12 @@ describe("openProject", () => {
     );
   });
 
-  test("database enforces a singleton project_meta row", async () => {
+  test("should enforce a singleton project_meta row", async () => {
     const dir = join(root, "singleton");
     const handle = await openProject({ dir });
 
-    await expect(async () => {
-      await handle.db.insert(projectMeta).values({
+    await expect(
+      handle.db.insert(projectMeta).values({
         id: "duplicate",
         singletonKey: PROJECT_META_SINGLETON_KEY,
         version: DASHFRAME_PROJECT_VERSION,
@@ -94,11 +94,11 @@ describe("openProject", () => {
         projectId: crypto.randomUUID(),
         schemaVersion: ARTIFACT_DB_SCHEMA_VERSION,
         createdBy: "test",
-      });
-    }).toThrow(/singleton_key|unique/i);
+      }),
+    ).rejects.toThrow(/singleton_key|unique/i);
   });
 
-  test("honors DASHFRAME_PROJECT_DIR via env override", async () => {
+  test("should honor DASHFRAME_PROJECT_DIR via env override", async () => {
     const dir = join(root, "from-env");
     const handle = await openProject({ env: { DASHFRAME_PROJECT_DIR: dir } });
     expect(handle.dir).toBe(dir);

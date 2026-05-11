@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
 import path from "node:path";
+import { describe, expect, test } from "vitest";
 
 import { PROJECT_DIR_ENV, resolveProjectDir } from "./project-dir";
 
 describe("resolveProjectDir", () => {
-  test("explicit dir wins over env and default", () => {
+  test("should prefer explicit dir over env and default", () => {
     const result = resolveProjectDir({
       dir: "/opt/custom",
       env: { [PROJECT_DIR_ENV]: "/opt/env-wins" },
@@ -13,7 +13,7 @@ describe("resolveProjectDir", () => {
     expect(result).toBe("/opt/custom");
   });
 
-  test("env overrides default", () => {
+  test("should use env var when explicit dir is absent", () => {
     const result = resolveProjectDir({
       env: { [PROJECT_DIR_ENV]: "/var/lib/dashframe" },
       homeDir: "/home/u",
@@ -21,12 +21,12 @@ describe("resolveProjectDir", () => {
     expect(result).toBe("/var/lib/dashframe");
   });
 
-  test("falls back to ~/.DashFrame/default-project when env absent", () => {
+  test("should fall back to ~/.DashFrame/default-project when env is absent", () => {
     const result = resolveProjectDir({ env: {}, homeDir: "/home/u" });
     expect(result).toBe(path.join("/home/u", ".DashFrame", "default-project"));
   });
 
-  test("trims whitespace-only env var and falls back", () => {
+  test("should treat whitespace-only env var as absent and fall back", () => {
     const result = resolveProjectDir({
       env: { [PROJECT_DIR_ENV]: "   " },
       homeDir: "/home/u",
@@ -34,7 +34,7 @@ describe("resolveProjectDir", () => {
     expect(result).toBe(path.join("/home/u", ".DashFrame", "default-project"));
   });
 
-  test("resolves relative env var to absolute", () => {
+  test("should resolve a relative env var to an absolute path", () => {
     const result = resolveProjectDir({
       env: { [PROJECT_DIR_ENV]: "tmp/relative" },
       homeDir: "/home/u",
