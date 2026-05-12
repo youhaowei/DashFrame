@@ -31,9 +31,7 @@ describe("openProject", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function openTestProject(
-    opts: Parameters<typeof openProject>[0] = {},
-  ) {
+  async function openTestProject(opts: Parameters<typeof openProject>[0] = {}) {
     const handle = await openProject(opts);
     openHandles.push(handle);
     return handle;
@@ -112,7 +110,9 @@ describe("openProject", () => {
 
   test("should honor DASHFRAME_PROJECT_DIR via env override", async () => {
     const dir = join(root, "from-env");
-    const handle = await openTestProject({ env: { DASHFRAME_PROJECT_DIR: dir } });
+    const handle = await openTestProject({
+      env: { DASHFRAME_PROJECT_DIR: dir },
+    });
     expect(handle.dir).toBe(dir);
     expect(existsSync(join(dir, ARTIFACTS_DB_FILENAME))).toBe(true);
   });

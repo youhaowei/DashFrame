@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { type ArtifactDb, ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
+import {
+  type ArtifactDb,
+  ARTIFACT_DB_SCHEMA_VERSION,
+  openArtifactDb,
+} from "./db";
 import {
   type ArtifactProvenance,
   PROJECT_META_ID,
