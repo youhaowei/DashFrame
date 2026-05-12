@@ -12,6 +12,12 @@ for submodule_path in $(git submodule --quiet foreach 'echo $sm_path'); do
   remote_url=$(git config --file .gitmodules "submodule.${submodule_path}.url")
   [ -z "$remote_url" ] && continue
 
+  # Refresh remote tracking refs so the reachability check below sees the
+  # live remote, not a stale local snapshot. Without this, a contributor
+  # who hasn't fetched recently can be falsely blocked even when the SHA
+  # is on origin.
+  git -C "$submodule_path" fetch --quiet origin 2>/dev/null || true
+
   # Check if that SHA exists on the remote
   if ! git -C "$submodule_path" branch -r --contains "$pointer_sha" 2>/dev/null | grep -q 'origin/'; then
     echo ""

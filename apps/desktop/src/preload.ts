@@ -1,7 +1,19 @@
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
-// Placeholder contextBridge. Expose future IPC surface here as the v0.2 desktop
-// shell grows (native DuckDB handles, file-system access, WyStack transport).
-contextBridge.exposeInMainWorld("dashframe", {
-  version: "0.2.0-alpha.0",
-});
+import type { DashFrameApi, ProjectInfo } from "@dashframe/desktop-types";
+
+/**
+ * IPC surface exposed to the renderer. Keep the shape narrow and serializable:
+ * the main process owns filesystem access and the artifact DB. The renderer
+ * asks for actions via named channels instead of receiving raw project paths.
+ */
+const api: DashFrameApi = {
+  project: {
+    getInfo: (): Promise<ProjectInfo> =>
+      ipcRenderer.invoke("dashframe:project:info"),
+    revealFolder: (): Promise<void> =>
+      ipcRenderer.invoke("dashframe:project:reveal"),
+  },
+} as const;
+
+contextBridge.exposeInMainWorld("dashframe", api);

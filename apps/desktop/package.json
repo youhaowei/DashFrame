@@ -5,18 +5,24 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "electron .",
-    "build": "tsc -p tsconfig.json",
+    "build:main": "esbuild src/main.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/main.js",
+    "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
+    "build": "bun run build:main && bun run build:preload",
+    "dev": "bun scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/desktop-types": "workspace:*",
+    "@dashframe/server-core": "workspace:*",
+    "@electric-sql/pglite": "^0.3.14",
     "electron": "^33.2.1"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "@types/node": "^22.10.1",
+    "esbuild": "^0.28.0",
     "typescript": "5.7.2"
   }
 }

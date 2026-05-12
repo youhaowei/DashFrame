@@ -1,0 +1,17 @@
+{
+  "name": "@dashframe/desktop-types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared IPC type contracts for the DashFrame desktop shell",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "bun run typecheck"
+  },
+  "devDependencies": {
+    "@dashframe/eslint-config": "workspace:*",
+    "typescript": "5.7.2"
+  }
+}
