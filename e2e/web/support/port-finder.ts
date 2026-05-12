@@ -1,24 +1,6 @@
 import * as net from "net";
 
 /**
- * Finds an available port starting from the given port number.
- * In CI, returns the start port without checking.
- *
- * @param startPort - Port number to start searching from (default: 3100)
- * @returns Available port number
- */
-export async function findAvailablePort(
-  startPort: number = 3100,
-): Promise<number> {
-  if (process.env.CI) return startPort;
-
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortFree(port)) return port;
-  }
-  return startPort;
-}
-
-/**
  * Find a base port such that [base, base+count) are all free.
  * Used by the local E2E config to reserve one port per worker without
  * collision-by-assumption (P2 finding from PR #34 review).

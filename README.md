@@ -153,32 +153,35 @@ DashFrame supports importing data directly from Notion databases:
 
 ## License
 
-DashFrame is MIT licensed.
+DashFrame is licensed under the AGPL-3.0-only license.
 
 You are welcome to:
 
 - use it locally or in production,
 - view and modify the code,
 - fork and redistribute it,
-- and build commercial or open-source products with it.
+- and build open-source products with it.
 
-The only requirement is to include the copyright notice and MIT license
-in copies or substantial portions of the software. See the full text in
-the [`LICENSE`](./LICENSE) file.
+You must:
+
+- include the copyright notice and AGPL-3.0-only license in copies or substantial portions of the software.
+- share derivative works under the same AGPL-3.0-only license.
+
+See the full text in the [`LICENSE`](./LICENSE) file.
 
 ### FAQ
 
 **Can I run DashFrame locally for my personal projects or learning?**  
-Yes — the MIT License permits personal and educational use.
+Yes — the AGPL-3.0-only License permits personal and educational use.
 
 **Can I use DashFrame at my company or in commercial products?**  
-Yes — commercial use is allowed under the MIT License.
+Commercial use is permitted under AGPL-3.0-only, but any modifications must be shared under the same license.
 
 **Can I host DashFrame or offer it as SaaS?**  
-Yes. You can host, resell, or integrate it, provided you keep the MIT license and copyright notice and comply with any third-party API terms.
+Yes. You can host and integrate it, provided you share the source code of your modifications under AGPL-3.0-only and comply with any third-party API terms.
 
 **Can I fork the project?**  
-Yes. MIT allows forking and redistribution as long as the license and copyright notice remain.
+Yes. AGPL-3.0-only allows forking and redistribution as long as the license and copyright notice remain and derivative works are shared under the same license.
 
 **Do I need to attribute DashFrame?**  
-MIT requires preserving the copyright notice and license. Additional attribution is appreciated but not required.
+AGPL-3.0-only requires preserving the copyright notice and license. Additional attribution is appreciated but not required.
