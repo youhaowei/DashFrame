@@ -8,6 +8,7 @@ import {
   ARTIFACTS_DB_FILENAME,
   DATA_SOURCES_DIRNAME,
   openProject,
+  type ProjectHandle,
 } from "./project";
 import {
   PROJECT_META_ID,
@@ -18,18 +19,27 @@ import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 describe("openProject", () => {
   let root: string;
+  let openHandles: ProjectHandle[];
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "dashframe-project-"));
+    openHandles = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(openHandles.map((h) => h.close()));
     rmSync(root, { recursive: true, force: true });
   });
 
+  async function openTestProject(opts: Parameters<typeof openProject>[0] = {}) {
+    const handle = await openProject(opts);
+    openHandles.push(handle);
+    return handle;
+  }
+
   test("should materialize folder layout and seed project_meta on first open", async () => {
     const dir = join(root, "fresh");
-    const handle = await openProject({ dir, name: "Analytics" });
+    const handle = await openTestProject({ dir, name: "Analytics" });
 
     expect(handle.dir).toBe(dir);
     expect(existsSync(join(dir, ARTIFACTS_DB_FILENAME))).toBe(true);
@@ -48,16 +58,16 @@ describe("openProject", () => {
 
   test("should default project name to folder basename", async () => {
     const dir = join(root, "my-project");
-    const handle = await openProject({ dir });
+    const handle = await openTestProject({ dir });
     expect(handle.meta.name).toBe("my-project");
   });
 
   test("should preserve the original project_meta row on re-open", async () => {
     const dir = join(root, "persisted");
-    const first = await openProject({ dir, name: "First" });
+    const first = await openTestProject({ dir, name: "First" });
     const firstId = first.meta.projectId;
 
-    const second = await openProject({
+    const second = await openTestProject({
       dir,
       name: "Second (should be ignored)",
     });
@@ -70,20 +80,20 @@ describe("openProject", () => {
 
   test("should reject existing projects with an unsupported schema version", async () => {
     const dir = join(root, "future-schema");
-    const first = await openProject({ dir, name: "Future" });
+    const first = await openTestProject({ dir, name: "Future" });
 
     await first.db
       .update(projectMeta)
       .set({ schemaVersion: ARTIFACT_DB_SCHEMA_VERSION + 1 });
 
-    await expect(openProject({ dir })).rejects.toThrow(
+    await expect(openTestProject({ dir })).rejects.toThrow(
       /Unsupported project schema version/,
     );
   });
 
   test("should enforce a singleton project_meta row", async () => {
     const dir = join(root, "singleton");
-    const handle = await openProject({ dir });
+    const handle = await openTestProject({ dir });
 
     await expect(
       handle.db.insert(projectMeta).values({
@@ -100,7 +110,9 @@ describe("openProject", () => {
 
   test("should honor DASHFRAME_PROJECT_DIR via env override", async () => {
     const dir = join(root, "from-env");
-    const handle = await openProject({ env: { DASHFRAME_PROJECT_DIR: dir } });
+    const handle = await openTestProject({
+      env: { DASHFRAME_PROJECT_DIR: dir },
+    });
     expect(handle.dir).toBe(dir);
     expect(existsSync(join(dir, ARTIFACTS_DB_FILENAME))).toBe(true);
   });

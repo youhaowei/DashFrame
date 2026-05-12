@@ -40,6 +40,16 @@ docs/
 - Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/dataframe`), directories, and persisted storage keys.
 - Keep new packages under the `@dashframe/*` scope so tooling and imports remain consistent.
 
+### Quick start
+
+```bash
+bun run setup
+bun dev
+bun check
+bun run test
+bun dev:desktop
+```
+
 ### Packages
 
 Each package is a TypeScript-first workspace member that exposes its source through `src/` and ships declarations from `dist/`. Every package follows the same `package.json` script contract:
