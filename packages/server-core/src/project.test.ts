@@ -27,7 +27,7 @@ describe("openProject", () => {
   });
 
   afterEach(async () => {
-    await Promise.all(openHandles.map((h) => h.close()));
+    await Promise.allSettled(openHandles.map((h) => h.close()));
     rmSync(root, { recursive: true, force: true });
   });
 

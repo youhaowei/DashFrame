@@ -33,7 +33,7 @@ describe("openArtifactDb", () => {
   });
 
   afterEach(async () => {
-    await Promise.all(openDbs.map((db) => db.$client.close()));
+    await Promise.allSettled(openDbs.map((db) => db.$client.close()));
     rmSync(dir, { recursive: true, force: true });
   });
 
