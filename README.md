@@ -153,32 +153,10 @@ DashFrame supports importing data directly from Notion databases:
 
 ## License
 
-DashFrame is MIT licensed.
+DashFrame is licensed under [AGPL-3.0-only](./LICENSE).
 
-You are welcome to:
+You are free to use, modify, and distribute DashFrame under the terms of the
+GNU Affero General Public License v3.0. Any modified version you deploy over a
+network must also be made available under AGPL-3.0.
 
-- use it locally or in production,
-- view and modify the code,
-- fork and redistribute it,
-- and build commercial or open-source products with it.
-
-The only requirement is to include the copyright notice and MIT license
-in copies or substantial portions of the software. See the full text in
-the [`LICENSE`](./LICENSE) file.
-
-### FAQ
-
-**Can I run DashFrame locally for my personal projects or learning?**  
-Yes — the MIT License permits personal and educational use.
-
-**Can I use DashFrame at my company or in commercial products?**  
-Yes — commercial use is allowed under the MIT License.
-
-**Can I host DashFrame or offer it as SaaS?**  
-Yes. You can host, resell, or integrate it, provided you keep the MIT license and copyright notice and comply with any third-party API terms.
-
-**Can I fork the project?**  
-Yes. MIT allows forking and redistribution as long as the license and copyright notice remain.
-
-**Do I need to attribute DashFrame?**  
-MIT requires preserving the copyright notice and license. Additional attribution is appreciated but not required.
+See the full text in the [`LICENSE`](./LICENSE) file.

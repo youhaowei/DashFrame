@@ -15,7 +15,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "..", "fixtures");
-const isCI = process.env.CI === "true";
+const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
 
 /**
