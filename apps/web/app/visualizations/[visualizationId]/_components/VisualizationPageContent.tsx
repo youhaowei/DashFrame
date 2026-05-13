@@ -5,6 +5,7 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import {
   computeInsightPreview,
@@ -30,6 +31,8 @@ import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   DataFrameColumn,
   DataFrameRow,
+  Field,
+  InsightMetric,
   Insight as InsightType,
   UUID,
   VisualizationEncoding,
@@ -47,11 +50,14 @@ import {
 } from "@stdui/icons";
 import { Badge, Button, Card, CardContent, Input, Spinner } from "@stdui/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
 }
+
+type EncodingField = "x" | "y" | "color" | "size";
+type AxisEncodingField = Extract<EncodingField, "x" | "y">;
 
 // Get icon for visualization type
 function getVizIcon(type: string) {
@@ -70,6 +76,55 @@ function getVizIcon(type: string) {
     default:
       return <ChartIcon className="h-5 w-5" />;
   }
+}
+
+function formatAggregationLabel(aggregation: InsightMetric["aggregation"]) {
+  switch (aggregation) {
+    case "avg":
+      return "Average";
+    case "count":
+      return "Count";
+    case "count_distinct":
+      return "Distinct count";
+    case "max":
+      return "Maximum";
+    case "min":
+      return "Minimum";
+    case "sum":
+      return "Sum";
+  }
+}
+
+function getMetricDisplayLabel(metric: InsightMetric, fields: Field[] = []) {
+  if (metric.aggregation === "count" && !metric.columnName) {
+    return metric.name || "Count of rows";
+  }
+
+  const sourceField = fields.find(
+    (field) =>
+      field.columnName === metric.columnName ||
+      field.name === metric.columnName ||
+      fieldIdToColumnAlias(field.id) === metric.columnName,
+  );
+  const sourceLabel = sourceField?.name ?? metric.columnName;
+
+  if (!sourceLabel || /^field_[0-9a-f_]+$/i.test(sourceLabel)) {
+    return formatAggregationLabel(metric.aggregation);
+  }
+
+  if (/^metric_[0-9a-f_]+$/i.test(sourceLabel)) {
+    return metric.name;
+  }
+
+  return `${formatAggregationLabel(metric.aggregation)} of ${sourceLabel}`;
+}
+
+function isGeneratedColumnLabel(label: string | undefined) {
+  return Boolean(label && /^(field|metric)_[0-9a-f_]+$/i.test(label));
+}
+
+function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
+  return field === "x" || field === "y";
 }
 
 /**
@@ -149,6 +204,20 @@ export default function VisualizationPageContent({
   // Get DuckDB view name for analysis (uses UUID-based column names)
   const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
     useInsightView(insightForView);
+  const { columns: modelColumns, columnDisplayNames: modelColumnDisplayNames } =
+    useInsightPagination({
+      insight: insightForView ?? ({} as InsightType),
+      showModelPreview: true,
+      enabled: !!insightForView,
+    });
+  const {
+    columns: renderedColumns,
+    columnDisplayNames: renderedColumnDisplayNames,
+  } = useInsightPagination({
+    insight: insightForView ?? ({} as InsightType),
+    showModelPreview: false,
+    enabled: !!insightForView,
+  });
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -307,6 +376,98 @@ export default function VisualizationPageContent({
     return sourceDataFrame;
   }, [hasJoins, joinedData, aggregatedPreview, sourceDataFrame]);
 
+  const sourceColumnNames = useMemo(() => {
+    if (sourceDataFrame?.columns?.length) {
+      return sourceDataFrame.columns.map((column) => column.name);
+    }
+    const sourceRow = sourceDataFrame?.rows[0];
+    return sourceRow
+      ? Object.keys(sourceRow).filter((name) => !name.startsWith("_"))
+      : [];
+  }, [sourceDataFrame]);
+
+  const axisColumnDisplayNames = useMemo(() => {
+    const displayNames = { ...modelColumnDisplayNames };
+    modelColumns.forEach((column, index) => {
+      const renderedColumn = renderedColumns[index];
+      const renderedLabel = renderedColumn
+        ? (renderedColumnDisplayNames[renderedColumn.name] ??
+          renderedColumn.name)
+        : undefined;
+      if (renderedLabel && !isGeneratedColumnLabel(renderedLabel)) {
+        displayNames[column.name] = renderedLabel;
+        return;
+      }
+
+      const sourceName = sourceColumnNames[index];
+      if (
+        sourceName &&
+        !isGeneratedColumnLabel(sourceName) &&
+        isGeneratedColumnLabel(displayNames[column.name])
+      ) {
+        displayNames[column.name] = sourceName;
+        return;
+      }
+      displayNames[column.name] ??= sourceName ?? column.name;
+    });
+    return displayNames;
+  }, [
+    modelColumnDisplayNames,
+    modelColumns,
+    renderedColumnDisplayNames,
+    renderedColumns,
+    sourceColumnNames,
+  ]);
+
+  const axisSourceColumns = useMemo(() => {
+    if (hasJoins && joinedData) return joinedData.columns;
+    if (sourceDataFrame?.columns?.length) return sourceDataFrame.columns;
+    const sourceRow = sourceDataFrame?.rows[0];
+    if (sourceRow) {
+      return Object.keys(sourceRow)
+        .filter((name) => !name.startsWith("_"))
+        .map((name) => ({ name, type: "unknown" as const }));
+    }
+    if (dataTable?.sourceSchema?.columns?.length) {
+      return dataTable.sourceSchema.columns.map((column) => ({
+        name: column.name,
+        type: "unknown" as const,
+      }));
+    }
+    if (modelColumns.length) {
+      return modelColumns.map((column) => ({
+        name: axisColumnDisplayNames[column.name] ?? column.name,
+        type: "unknown" as const,
+      }));
+    }
+    return dataFrame?.columns ?? [];
+  }, [
+    dataFrame,
+    dataTable,
+    hasJoins,
+    joinedData,
+    axisColumnDisplayNames,
+    modelColumns,
+    sourceDataFrame,
+  ]);
+
+  const compiledInsightForValidation = useMemo(() => {
+    if (!compiledInsight) return undefined;
+
+    const fieldsById = new Map<string, Field>();
+    for (const field of dataTable?.fields ?? []) {
+      fieldsById.set(field.id, field);
+    }
+    for (const field of compiledInsight.dimensions) {
+      fieldsById.set(field.id, field);
+    }
+
+    return {
+      ...compiledInsight,
+      dimensions: [...fieldsById.values()],
+    };
+  }, [compiledInsight, dataTable?.fields]);
+
   // Include dataFrame check to prevent "Data not available" flash
   const isLoading =
     isVizLoading ||
@@ -402,14 +563,14 @@ export default function VisualizationPageContent({
     compiledInsight.metrics.forEach((metric) => {
       const sqlAlias = metricIdToColumnAlias(metric.id);
       options.push({
-        label: metric.name,
+        label: getMetricDisplayLabel(metric, dataTable?.fields),
         value: `metric:${metric.id}`,
         icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
       });
     });
 
     return options;
-  }, [compiledInsight, columnAnalysis]);
+  }, [compiledInsight, columnAnalysis, dataTable?.fields]);
 
   // Validate encoding configuration - returns errors for X/Y if invalid
   const encodingErrors = useMemo(() => {
@@ -418,9 +579,9 @@ export default function VisualizationPageContent({
       visualization.encoding ?? {},
       visualization.visualizationType,
       columnAnalysis,
-      compiledInsight ?? undefined,
+      compiledInsightForValidation,
     );
-  }, [visualization, columnAnalysis, compiledInsight]);
+  }, [visualization, columnAnalysis, compiledInsightForValidation]);
 
   // Check if there are any encoding errors
   const hasEncodingErrors = !!(encodingErrors.x || encodingErrors.y);
@@ -440,12 +601,88 @@ export default function VisualizationPageContent({
     return "nominal";
   };
 
+  const resolveEncodingAnalysisAlias = useCallback(
+    (value: string) => {
+      const parsed = parseEncoding(value);
+      if (parsed?.type === "field") return fieldIdToColumnAlias(parsed.id);
+      if (parsed?.type === "metric") return metricIdToColumnAlias(parsed.id);
+
+      const field = dataTable?.fields?.find(
+        (candidate) =>
+          candidate.name === value || candidate.columnName === value,
+      );
+      return field ? fieldIdToColumnAlias(field.id) : value;
+    },
+    [dataTable?.fields],
+  );
+
+  useEffect(() => {
+    if (!visualization || columnAnalysis.length === 0) return;
+
+    const nextEncoding: VisualizationEncoding = {
+      ...visualization.encoding,
+    };
+    let changed = false;
+
+    const clearInvalidDateTransform = (axis: "x" | "y") => {
+      const value = nextEncoding[axis];
+      const transformKey = axis === "x" ? "xTransform" : "yTransform";
+      if (!value || !nextEncoding[transformKey]) return;
+
+      const analysisAlias = resolveEncodingAnalysisAlias(value);
+      const semantic = columnAnalysis.find(
+        (column) => column.columnName === analysisAlias,
+      )?.semantic;
+      if (semantic && semantic !== "temporal") {
+        delete nextEncoding[transformKey];
+        changed = true;
+      }
+    };
+
+    clearInvalidDateTransform("x");
+    clearInvalidDateTransform("y");
+
+    if (changed) {
+      void updateEncoding(visualizationId as UUID, nextEncoding);
+    }
+  }, [
+    columnAnalysis,
+    resolveEncodingAnalysisAlias,
+    updateEncoding,
+    visualization,
+    visualizationId,
+  ]);
+
+  const applyAxisAnalysisToEncoding = useCallback(
+    (
+      newEncoding: VisualizationEncoding,
+      field: EncodingField,
+      value: string,
+    ) => {
+      if (!isAxisEncodingField(field)) return;
+
+      const sqlAlias = resolveEncodingAnalysisAlias(value);
+      const colAnalysis = sqlAlias
+        ? columnAnalysis.find((column) => column.columnName === sqlAlias)
+        : undefined;
+      if (!colAnalysis) return;
+
+      const typeField = field === "x" ? "xType" : "yType";
+      newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
+      if (colAnalysis.semantic === "temporal") return;
+
+      if (field === "x") {
+        delete newEncoding.xTransform;
+      } else {
+        delete newEncoding.yTransform;
+      }
+    },
+    [columnAnalysis, resolveEncodingAnalysisAlias],
+  );
+
   // Handle encoding change
   // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
-  const handleEncodingChange = async (
-    field: "x" | "y" | "color" | "size",
-    value: string,
-  ) => {
+  const handleEncodingChange = async (field: EncodingField, value: string) => {
     if (!visualization) return;
 
     const newEncoding: VisualizationEncoding = {
@@ -453,27 +690,7 @@ export default function VisualizationPageContent({
       [field]: value,
     };
 
-    // Auto-detect type if changing x or y
-    if (field === "x" || field === "y") {
-      // Convert storage encoding to SQL alias to find in columnAnalysis
-      const parsed = parseEncoding(value);
-      let sqlAlias: string | undefined;
-      if (parsed) {
-        sqlAlias =
-          parsed.type === "field"
-            ? fieldIdToColumnAlias(parsed.id)
-            : metricIdToColumnAlias(parsed.id);
-      }
-
-      const colAnalysis = sqlAlias
-        ? columnAnalysis.find((c) => c.columnName === sqlAlias)
-        : undefined;
-
-      if (colAnalysis) {
-        const typeField = field === "x" ? "xType" : "yType";
-        newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
-      }
-    }
+    applyAxisAnalysisToEncoding(newEncoding, field, value);
 
     await updateEncoding(visualizationId as UUID, newEncoding);
   };
@@ -767,6 +984,9 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
+                  availableFields={dataTable?.fields}
+                  availableColumns={axisSourceColumns}
+                  columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.y}
                   onSwapAxes={canSwap ? handleSwapAxes : undefined}
                 />
@@ -797,6 +1017,9 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
+                  availableFields={dataTable?.fields}
+                  availableColumns={axisSourceColumns}
+                  columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.x}
                   onSwapAxes={canSwap ? handleSwapAxes : undefined}
                 />

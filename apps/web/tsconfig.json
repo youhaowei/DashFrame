@@ -3,19 +3,19 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "geist/font/mono": ["./src/next-shims/geist-mono.ts"],
+      "geist/font/sans": ["./src/next-shims/geist-sans.ts"],
+      "next/dynamic": ["./src/next-shims/dynamic.tsx"],
+      "next/link": ["./src/next-shims/link.tsx"],
+      "next/navigation": ["./src/next-shims/navigation.ts"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,
-    "jsx": "preserve",
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "jsx": "react-jsx",
     "allowJs": true,
     "incremental": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
 }

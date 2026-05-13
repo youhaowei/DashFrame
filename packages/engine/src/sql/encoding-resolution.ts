@@ -11,7 +11,8 @@
  * - Temporal aggregation: `date_trunc('month', "col")` for time series
  * - Categorical grouping: `monthname("col")` for seasonal analysis
  *
- * No legacy format support - invalid formats return undefined or { valid: false }.
+ * Prefixed encodings are preferred, but raw analyzed column names are preserved
+ * for existing saved visualizations.
  */
 
 import type { ChannelTransform, Field, InsightMetric } from "@dashframe/types";
@@ -44,7 +45,8 @@ export interface EncodingResolutionContext {
 
 /**
  * Resolve an encoding string to a SQL expression for chart rendering.
- * Returns undefined for invalid encoding formats or missing references.
+ * Returns undefined for missing prefixed references. Raw column names are
+ * returned as-is for existing saved visualizations.
  *
  * Optionally applies a date transform to the resolved value (for temporal fields).
  *
@@ -67,9 +69,9 @@ export interface EncodingResolutionContext {
  * resolveToSql("metric:xyz-456", context)
  * // Returns: "sum(revenue)"
  *
- * // Invalid format returns undefined
+ * // Raw column name passthrough
  * resolveToSql("sum(revenue)", context)
- * // Returns: undefined
+ * // Returns: "sum(revenue)"
  * ```
  */
 export function resolveToSql(
@@ -77,8 +79,9 @@ export function resolveToSql(
   context: EncodingResolutionContext,
   transform?: ChannelTransform,
 ): string | undefined {
+  if (!value) return undefined;
   const parsed = parseEncoding(value);
-  if (!parsed) return undefined; // Invalid format
+  if (!parsed) return value; // Compatibility: allow raw analyzed column names.
 
   let baseSql: string | undefined;
 
@@ -139,10 +142,10 @@ export interface ResolvedForAnalysis {
 
 /**
  * Resolve an encoding for validation against ColumnAnalysis.
- * Returns { valid: false } for invalid encoding formats.
+ * Raw column names are treated as valid existing column references.
  *
  * Key behaviors:
- * - Invalid formats (missing prefix) return { valid: false, isMetric: false }
+ * - Raw column names return { valid: true, isMetric: false, columnName: value }
  * - Missing field/metric references return { valid: true, isMetric: ..., columnName: undefined }
  * - Column names are returned as UUID-based aliases (field_<uuid> or metric_<uuid>)
  *   to match the column names in ColumnAnalysis from the insight view
@@ -161,19 +164,19 @@ export interface ResolvedForAnalysis {
  * resolveForAnalysis("metric:xyz-456", context)
  * // Returns: { columnName: "metric_xyz_456", isMetric: true, sqlExpression: "sum(revenue)", valid: true }
  *
- * // Invalid format
+ * // Raw column name
  * resolveForAnalysis("sum(revenue)", context)
- * // Returns: { isMetric: false, valid: false }
+ * // Returns: { columnName: "sum(revenue)", isMetric: false, valid: true }
  * ```
  */
 export function resolveForAnalysis(
   value: string | undefined,
   context: EncodingResolutionContext,
 ): ResolvedForAnalysis {
+  if (!value) return { isMetric: false, valid: false };
   const parsed = parseEncoding(value);
   if (!parsed) {
-    // Invalid format - no legacy support
-    return { isMetric: false, valid: false };
+    return { columnName: value, isMetric: false, valid: !!value };
   }
 
   switch (parsed.type) {

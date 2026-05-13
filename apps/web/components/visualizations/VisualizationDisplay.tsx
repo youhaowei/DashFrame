@@ -3,8 +3,15 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
-import { resolveEncodingToSql } from "@dashframe/engine";
-import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
+import { fieldIdToColumnAlias, resolveEncodingToSql } from "@dashframe/engine";
+import type {
+  ChartEncoding,
+  Field,
+  Insight,
+  InsightMetric,
+  Visualization,
+} from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { ChartIcon, LayersIcon, TableIcon } from "@stdui/icons";
@@ -13,6 +20,47 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
+
+function formatAggregationLabel(aggregation: InsightMetric["aggregation"]) {
+  switch (aggregation) {
+    case "avg":
+      return "Average";
+    case "count":
+      return "Count";
+    case "count_distinct":
+      return "Distinct count";
+    case "max":
+      return "Maximum";
+    case "min":
+      return "Minimum";
+    case "sum":
+      return "Sum";
+  }
+}
+
+function getMetricDisplayLabel(metric: InsightMetric, fields: Field[] = []) {
+  if (metric.aggregation === "count" && !metric.columnName) {
+    return metric.name || "Count of rows";
+  }
+
+  const sourceField = fields.find(
+    (field) =>
+      field.columnName === metric.columnName ||
+      field.name === metric.columnName ||
+      fieldIdToColumnAlias(field.id) === metric.columnName,
+  );
+  const sourceLabel = sourceField?.name ?? metric.columnName;
+
+  if (!sourceLabel || /^field_[0-9a-f_]+$/i.test(sourceLabel)) {
+    return formatAggregationLabel(metric.aggregation);
+  }
+
+  if (/^metric_[0-9a-f_]+$/i.test(sourceLabel)) {
+    return metric.name;
+  }
+
+  return `${formatAggregationLabel(metric.aggregation)} of ${sourceLabel}`;
+}
 
 export function VisualizationDisplay({
   visualizationId,
@@ -164,9 +212,49 @@ export function VisualizationDisplay({
 
     // Resolve prefixed IDs to SQL expressions
     const resolved = resolveEncodingToSql(activeViz.encoding, context);
+    const resolveColumnReference = (value: string | undefined) => {
+      if (!value) return undefined;
+      if (columns.some((column) => column.name === value)) return value;
+
+      const aliasedEntry = Object.entries(columnDisplayNames).find(
+        ([, displayName]) => displayName === value,
+      );
+      return aliasedEntry?.[0] ?? value;
+    };
+
+    const x = resolveColumnReference(resolved.x);
+    const y = resolveColumnReference(resolved.y);
+    const color = resolveColumnReference(resolved.color);
+    const size = resolveColumnReference(resolved.size);
+    const getEncodingDisplayLabel = (
+      encodingValue: string | undefined,
+      resolvedValue: string | undefined,
+    ) => {
+      if (!encodingValue || !resolvedValue) return undefined;
+
+      const parsed = parseEncoding(encodingValue);
+      if (parsed?.type === "field") {
+        const field = dataTable.fields?.find((f) => f.id === parsed.id);
+        return (
+          field?.name ?? columnDisplayNames[resolvedValue] ?? resolvedValue
+        );
+      }
+      if (parsed?.type === "metric") {
+        const metric = insight.metrics?.find((m) => m.id === parsed.id);
+        return metric
+          ? getMetricDisplayLabel(metric, dataTable.fields)
+          : (columnDisplayNames[resolvedValue] ?? resolvedValue);
+      }
+
+      return columnDisplayNames[resolvedValue] ?? encodingValue;
+    };
 
     return {
       ...resolved,
+      x,
+      y,
+      color,
+      size,
       xType: activeViz.encoding.xType,
       yType: activeViz.encoding.yType,
       // Pass through date transforms for temporal bar charts
@@ -174,14 +262,12 @@ export function VisualizationDisplay({
       xTransform: activeViz.encoding.xTransform,
       yTransform: activeViz.encoding.yTransform,
       // Include human-readable axis labels for chart display
-      xLabel: resolved.x ? columnDisplayNames[resolved.x] : undefined,
-      yLabel: resolved.y ? columnDisplayNames[resolved.y] : undefined,
-      colorLabel: resolved.color
-        ? columnDisplayNames[resolved.color]
-        : undefined,
-      sizeLabel: resolved.size ? columnDisplayNames[resolved.size] : undefined,
+      xLabel: getEncodingDisplayLabel(activeViz.encoding.x, x),
+      yLabel: getEncodingDisplayLabel(activeViz.encoding.y, y),
+      colorLabel: getEncodingDisplayLabel(activeViz.encoding.color, color),
+      sizeLabel: getEncodingDisplayLabel(activeViz.encoding.size, size),
     };
-  }, [activeViz, dataTable, insight, columnDisplayNames]);
+  }, [activeViz, dataTable, insight, columns, columnDisplayNames]);
 
   // Build column configs for VirtualTable to show human-readable headers
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
@@ -193,9 +279,27 @@ export function VisualizationDisplay({
 
   // Get human-readable display name for color encoding
   const colorDisplayName = useMemo(() => {
+    const colorEncoding = activeViz?.encoding?.color;
+    const parsed = parseEncoding(colorEncoding);
+    if (parsed?.type === "field") {
+      const field = dataTable?.fields?.find((f) => f.id === parsed.id);
+      return field?.name ?? columnDisplayNames[resolvedEncoding.color ?? ""];
+    }
+    if (parsed?.type === "metric") {
+      const metric = insight?.metrics?.find((m) => m.id === parsed.id);
+      return metric
+        ? getMetricDisplayLabel(metric, dataTable?.fields)
+        : undefined;
+    }
     if (!resolvedEncoding.color) return null;
     return columnDisplayNames[resolvedEncoding.color] ?? resolvedEncoding.color;
-  }, [resolvedEncoding.color, columnDisplayNames]);
+  }, [
+    activeViz?.encoding?.color,
+    dataTable?.fields,
+    insight?.metrics,
+    resolvedEncoding.color,
+    columnDisplayNames,
+  ]);
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
