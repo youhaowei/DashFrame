@@ -71,9 +71,9 @@ export function Select({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {options.map((option, index) => (
+          {options.map((option) => (
             <SelectItem
-              key={`${option.value}:${index}`}
+              key={option.value}
               value={option.value}
               label={option.label}
               disabled={option.disabled}

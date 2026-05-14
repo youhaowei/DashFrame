@@ -125,8 +125,7 @@ export function AxisSelectField({
     const options: Array<{ label: string; value: string }> = [];
     const addOption = (option: { label: string; value: string }) => {
       const existing = options.find(
-        (current) =>
-          current.value === option.value || current.label === option.label,
+        (current) => current.value === option.value,
       );
       if (!existing) {
         options.push(option);

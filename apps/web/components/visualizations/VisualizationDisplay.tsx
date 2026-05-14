@@ -169,10 +169,13 @@ export function VisualizationDisplay({
       if (!value) return undefined;
       if (columns.some((column) => column.name === value)) return value;
 
-      const aliasedEntry = Object.entries(columnDisplayNames).find(
+      // Only fall back to the reverse lookup when exactly one alias matches.
+      // columnDisplayNames is many-to-one in joined insights, so .find() can
+      // bind the wrong raw column.
+      const matches = Object.entries(columnDisplayNames).filter(
         ([, displayName]) => displayName === value,
       );
-      return aliasedEntry?.[0] ?? value;
+      return matches.length === 1 ? matches[0]![0] : value;
     };
 
     const x = resolveColumnReference(resolved.x);

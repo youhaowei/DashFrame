@@ -74,6 +74,36 @@ export interface EncodingResolutionContext {
  * // Returns: "sum(revenue)"
  * ```
  */
+function resolveFieldOrRawSql(
+  value: string,
+  context: EncodingResolutionContext,
+): string | undefined {
+  const parsed = parseEncoding(value);
+  // Compatibility: legacy saved viz that store raw analyzed column names
+  // flow through the transform pipeline like resolved fields.
+  if (!parsed) return value;
+  if (parsed.type === "field") {
+    const field = context.fields.find((f) => f.id === parsed.id);
+    return field ? fieldIdToColumnAlias(field.id) : undefined;
+  }
+  return undefined;
+}
+
+function applyTransform(
+  baseSql: string,
+  transform: ChannelTransform | undefined,
+): string {
+  if (transform?.type !== "date") return baseSql;
+  // 'none' aggregation = passthrough (preserves underlying column).
+  if (
+    transform.transform.kind === "temporal" &&
+    transform.transform.aggregation === "none"
+  ) {
+    return baseSql;
+  }
+  return applyDateTransformToSql(baseSql, transform.transform);
+}
+
 export function resolveToSql(
   value: string | undefined,
   context: EncodingResolutionContext,
@@ -81,42 +111,15 @@ export function resolveToSql(
 ): string | undefined {
   if (!value) return undefined;
   const parsed = parseEncoding(value);
-  if (!parsed) return value; // Compatibility: allow raw analyzed column names.
 
-  let baseSql: string | undefined;
-
-  switch (parsed.type) {
-    case "field": {
-      const field = context.fields.find((f) => f.id === parsed.id);
-      // Use UUID-based column alias to match the column names in the insight view
-      // The insight view uses field_<uuid> format for all columns
-      baseSql = field ? fieldIdToColumnAlias(field.id) : undefined;
-      break;
-    }
-    case "metric": {
-      const metric = context.metrics.find((m) => m.id === parsed.id);
-      baseSql = metric ? metricToSqlExpression(metric) : undefined;
-      // Note: Transforms are typically not applied to metrics (aggregations)
-      // as they're already wrapped in aggregation functions
-      return baseSql;
-    }
+  // Metrics: aggregations are already wrapped; transforms don't apply.
+  if (parsed?.type === "metric") {
+    const metric = context.metrics.find((m) => m.id === parsed.id);
+    return metric ? metricToSqlExpression(metric) : undefined;
   }
 
-  if (!baseSql) return undefined;
-
-  // Apply date transform if specified
-  if (transform?.type === "date") {
-    // Don't apply transform if aggregation is 'none'
-    if (
-      transform.transform.kind === "temporal" &&
-      transform.transform.aggregation === "none"
-    ) {
-      return baseSql;
-    }
-    return applyDateTransformToSql(baseSql, transform.transform);
-  }
-
-  return baseSql;
+  const baseSql = resolveFieldOrRawSql(value, context);
+  return baseSql ? applyTransform(baseSql, transform) : undefined;
 }
 
 // ============================================================================
