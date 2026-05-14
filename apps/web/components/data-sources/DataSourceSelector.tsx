@@ -10,7 +10,7 @@ import {
   PlusIcon,
 } from "@stdui/icons";
 import { Button, Surface, type ItemAction } from "@stdui/react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 interface DataSourceSelectorProps {
@@ -115,7 +115,7 @@ export function DataSourceSelector({
             asChild
             size="sm"
           >
-            <Link href="/">View Visualizations</Link>
+            <Link to="/">View Visualizations</Link>
           </Button>
           <Button
             label="Add Data Source"

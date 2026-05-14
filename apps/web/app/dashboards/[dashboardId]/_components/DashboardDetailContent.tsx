@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 interface DashboardDetailContentProps {
@@ -38,7 +38,7 @@ interface DashboardDetailContentProps {
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks
   const { data: dashboards = [], isLoading } = useDashboards();
@@ -60,9 +60,9 @@ export default function DashboardDetailContent({
   // Redirect if not found after loading completes
   useEffect(() => {
     if (!isLoading && !dashboard) {
-      router.push("/dashboards");
+      navigate({ to: "/dashboards" });
     }
-  }, [isLoading, dashboard, router]);
+  }, [isLoading, dashboard, navigate]);
 
   // Show loading state until we have the dashboard
   if (isLoading || !dashboard) {
@@ -104,7 +104,7 @@ export default function DashboardDetailContent({
             icon={ArrowLeftIcon}
             iconOnly
             label="Back to dashboards"
-            onClick={() => router.push("/dashboards")}
+            onClick={() => navigate({ to: "/dashboards" })}
           />
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">

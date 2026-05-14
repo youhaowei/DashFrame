@@ -1,12 +1,10 @@
-"use client";
-
 import { useDeferredPostHog } from "@/hooks/useDeferredPostHog";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useLocation } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef } from "react";
 
 function PostHogPageViewTracker() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useLocation({ select: (l) => l.pathname });
+  const searchStr = useLocation({ select: (l) => l.searchStr });
   const { capture } = useDeferredPostHog();
 
   // Track which URLs we've already captured to prevent duplicate pageviews
@@ -17,8 +15,8 @@ function PostHogPageViewTracker() {
 
     // Build the full URL
     let url = window.origin + pathname;
-    if (searchParams.toString()) {
-      url = url + `?${searchParams.toString()}`;
+    if (searchStr) {
+      url = url + (searchStr.startsWith("?") ? searchStr : `?${searchStr}`);
     }
 
     // Prevent duplicate captures for the same URL within the same navigation
@@ -36,7 +34,7 @@ function PostHogPageViewTracker() {
     // Clean up old URLs to prevent memory growth
     // Keep only the current URL in the set after capture
     capturedUrls.current = new Set([url]);
-  }, [pathname, searchParams, capture]);
+  }, [pathname, searchStr, capture]);
 
   return null;
 }

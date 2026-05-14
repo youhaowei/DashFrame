@@ -13,12 +13,11 @@ import {
   Label,
   Surface,
 } from "@stdui/react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 export default function DashboardsPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { data: dashboards = [], isLoading } = useDashboards();
   const { create: createDashboard, remove: removeDashboard } =
     useDashboardMutations();
@@ -33,7 +32,7 @@ export default function DashboardsPage() {
 
     setIsCreateOpen(false);
     setNewDashboardName("");
-    router.push(`/dashboards/${id}`);
+    navigate({ to: `/dashboards/${id}` } as never);
   };
 
   if (isLoading) {
@@ -92,7 +91,7 @@ export default function DashboardsPage() {
             {dashboards.map((dashboard) => (
               <Link
                 key={dashboard.id}
-                href={`/dashboards/${dashboard.id}`}
+                to={`/dashboards/${dashboard.id}` as never}
                 className="group block h-full"
               >
                 <Surface

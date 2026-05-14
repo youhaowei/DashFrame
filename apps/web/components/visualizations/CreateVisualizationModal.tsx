@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 
 interface CreateVisualizationModalProps {
@@ -29,7 +29,7 @@ export function CreateVisualizationModal({
   isOpen,
   onClose,
 }: CreateVisualizationModalProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { createInsightFromTable, createInsightFromInsight } =
     useCreateInsight();
 
@@ -50,10 +50,10 @@ export function CreateVisualizationModal({
   // User chose to edit the existing insight
   const handleEditInsight = useCallback(() => {
     if (!selectedInsight) return;
-    router.push(`/insights/${selectedInsight.id}`);
+    navigate({ to: `/insights/${selectedInsight.id}` } as never);
     setSelectedInsight(null);
     onClose();
-  }, [selectedInsight, router, onClose]);
+  }, [selectedInsight, navigate, onClose]);
 
   // User chose to create a new insight based on this one
   const handleCreateBasedOn = useCallback(() => {

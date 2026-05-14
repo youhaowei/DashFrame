@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
   Input,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 // Type for insight with joined details
@@ -70,7 +70,7 @@ function getInsightState(
  * - Drafts: Unconfigured insights (can be cleaned up)
  */
 export default function InsightsPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks
   const { data: allInsights = [] } = useInsights();
@@ -216,7 +216,7 @@ export default function InsightsPage() {
     <Card
       key={item.insight.id}
       className="group cursor-pointer transition-shadow hover:shadow-md"
-      onClick={() => router.push(`/insights/${item.insight.id}`)}
+      onClick={() => navigate({ to: `/insights/${item.insight.id}` } as never)}
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -264,7 +264,7 @@ export default function InsightsPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/insights/${item.insight.id}`);
+                  navigate({ to: `/insights/${item.insight.id}` } as never);
                 }}
               >
                 <ExternalLinkIcon className="mr-2 h-4 w-4" />

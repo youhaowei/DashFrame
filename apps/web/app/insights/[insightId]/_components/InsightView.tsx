@@ -27,7 +27,7 @@ import type {
   UUID,
   VegaLiteSpec,
 } from "@dashframe/types";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
@@ -479,7 +479,7 @@ function convertToVisualizationEncoding(
  */
 export function InsightView({ insight }: InsightViewProps) {
   const insightId = insight.id;
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
@@ -929,7 +929,7 @@ export function InsightView({ insight }: InsightViewProps) {
       );
 
       // Navigate to the visualization
-      router.push(`/visualizations/${vizId}`);
+      navigate({ to: `/visualizations/${vizId}` } as never);
     },
     [
       dataTable,
@@ -940,7 +940,7 @@ export function InsightView({ insight }: InsightViewProps) {
       updateInsight,
       insightId,
       createVisualizationLocal,
-      router,
+      navigate,
     ],
   );
 
@@ -963,9 +963,9 @@ export function InsightView({ insight }: InsightViewProps) {
         viz.encoding,
       );
 
-      router.push(`/visualizations/${newVizId}`);
+      navigate({ to: `/visualizations/${newVizId}` } as never);
     },
-    [insightVisualizations, createVisualizationLocal, insightId, router],
+    [insightVisualizations, createVisualizationLocal, insightId, navigate],
   );
 
   // Handle deleting a visualization
@@ -992,7 +992,7 @@ export function InsightView({ insight }: InsightViewProps) {
   return (
     <AppLayout
       breadcrumbs={[
-        { label: "Insights", href: "/insights" },
+        { label: "Insights", to: "/insights" },
         { label: localName || "Untitled" },
       ]}
       leftPanel={

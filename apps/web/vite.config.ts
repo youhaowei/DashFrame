@@ -65,12 +65,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": __dirname,
-      "next/dynamic": path.resolve(__dirname, "./src/next-shims/dynamic.tsx"),
-      "next/link": path.resolve(__dirname, "./src/next-shims/link.tsx"),
-      "next/navigation": path.resolve(
-        __dirname,
-        "./src/next-shims/navigation.ts",
-      ),
       "@dashframe/core-store": getStorageBackendPath(),
     },
   },

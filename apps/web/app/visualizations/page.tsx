@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
   Input,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 // Type for visualization with joined details
@@ -47,7 +47,7 @@ type VisualizationWithDetails = {
  * Click a visualization to open it in the detail view.
  */
 export default function VisualizationsPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks for data
   const { data: visualizations = [], isLoading: isLoadingViz } =
@@ -159,7 +159,9 @@ export default function VisualizationsPage() {
     <Card
       key={item.visualization.id}
       className="group cursor-pointer transition-shadow hover:shadow-md"
-      onClick={() => router.push(`/visualizations/${item.visualization.id}`)}
+      onClick={() =>
+        navigate({ to: `/visualizations/${item.visualization.id}` } as never)
+      }
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -227,7 +229,9 @@ export default function VisualizationsPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/visualizations/${item.visualization.id}`);
+                  navigate({
+                    to: `/visualizations/${item.visualization.id}`,
+                  } as never);
                 }}
               >
                 <ExternalLinkIcon className="mr-2 h-4 w-4" />

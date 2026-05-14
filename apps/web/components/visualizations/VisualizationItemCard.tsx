@@ -62,7 +62,7 @@ function getVizFallbackIcon(type: string) {
  * ```tsx
  * <VisualizationItemCard
  *   visualization={viz}
- *   onClick={() => router.push(`/visualizations/${viz.id}`)}
+ *   onClick={() => navigate({ to: `/visualizations/${viz.id}` } as never)}
  *   previewHeight={140}
  * />
  * ```

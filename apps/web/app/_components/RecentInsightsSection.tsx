@@ -1,7 +1,7 @@
 "use client";
 
 import { SparklesIcon } from "@stdui/icons";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { useInsights } from "@dashframe/core";
@@ -13,7 +13,7 @@ import { DashboardSection } from "./DashboardSection";
  * Self-contained section that fetches its own data from Dexie.
  */
 export function RecentInsightsSection() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: insights = [] } = useInsights();
 
@@ -37,7 +37,7 @@ export function RecentInsightsSection() {
       icon={SparklesIcon}
       viewAllHref="/insights"
       items={recentInsights}
-      onItemSelect={(id) => router.push(`/insights/${id}`)}
+      onItemSelect={(id) => navigate({ to: `/insights/${id}` } as never)}
     />
   );
 }
