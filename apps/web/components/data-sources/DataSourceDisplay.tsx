@@ -354,6 +354,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   useEffect(() => {
     const fetchSchema = async () => {
       if (
+        !NOTION_ENABLED ||
         !selectedDataTable ||
         !dataSource ||
         dataSource.type !== "notion" ||
