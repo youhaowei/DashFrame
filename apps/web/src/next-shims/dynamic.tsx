@@ -10,6 +10,9 @@ type Loader<TProps> = () => Promise<
 >;
 
 type DynamicOptions = {
+  // Accepted for Next compat. No-op in Vite — there's no SSR to opt out of.
+  // Callers passing `{ ssr: false }` (e.g. for Vega-Lite, which can't be
+  // serialized through Next's RSC) work the same either way here.
   ssr?: boolean;
   loading?: ComponentType;
 };

@@ -27,7 +27,15 @@ function searchParamsToObject(searchParams: URLSearchParams) {
 
 export function parseNextHref(href: string): ParsedHref {
   try {
-    const url = new URL(href, LOCAL_ORIGIN);
+    // Hash-only and search-only hrefs anchor to the current pathname
+    // (Next.js Link semantics). Resolving them against LOCAL_ORIGIN sets
+    // pathname to "/", which would route the user away from the current page.
+    const base =
+      typeof window !== "undefined" &&
+      (href.startsWith("#") || href.startsWith("?"))
+        ? new URL(window.location.pathname, LOCAL_ORIGIN).href
+        : LOCAL_ORIGIN;
+    const url = new URL(href, base);
     const isExternal = url.origin !== LOCAL_ORIGIN;
 
     if (isExternal) {
