@@ -10,10 +10,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // DuckDB-WASM requires SharedArrayBuffer, which needs cross-origin isolation
 // (COOP/COEP). Carries the CSP + security headers from the prior Next config
-// across to Vite's dev + preview servers.
-function securityHeadersPlugin(): Plugin {
+// across to Vite's dev + preview servers. Takes the resolved env so the CSP
+// allowlist picks up `NEXT_PUBLIC_POSTHOG_HOST` from `.env*` files — Vite
+// doesn't inject those into process.env during config resolution.
+function securityHeadersPlugin(
+  env: Record<string, string | undefined>,
+): Plugin {
   const headers = {
-    ...Object.fromEntries(getSecurityHeaders().map((h) => [h.key, h.value])),
+    ...Object.fromEntries(getSecurityHeaders(env).map((h) => [h.key, h.value])),
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
   };
@@ -67,7 +71,7 @@ export default defineConfig(({ mode }) => {
         generatedRouteTree: "./src/routeTree.gen.ts",
       }),
       react(),
-      securityHeadersPlugin(),
+      securityHeadersPlugin(env),
     ],
     resolve: {
       alias: {
