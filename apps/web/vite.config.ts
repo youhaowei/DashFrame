@@ -6,11 +6,25 @@ import { defineConfig } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function getStorageBackendPath() {
+  const storageImpl = process.env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
+  if (!/^[a-z0-9-]+$/i.test(storageImpl)) {
+    throw new Error(
+      `Invalid NEXT_PUBLIC_STORAGE_IMPL "${storageImpl}". Expected a package suffix like "dexie" or "custom".`,
+    );
+  }
+
+  return path.resolve(
+    __dirname,
+    `../../packages/core-${storageImpl}/src/index.ts`,
+  );
+}
+
 export default defineConfig({
   plugins: [
     tanstackRouter({
       target: "react",
-      autoCodeSplitting: false,
+      autoCodeSplitting: true,
       routesDirectory: "./src/routes",
       generatedRouteTree: "./src/routeTree.gen.ts",
     }),
@@ -33,10 +47,7 @@ export default defineConfig({
         __dirname,
         "./src/next-shims/geist-sans.ts",
       ),
-      "@dashframe/core-store": path.resolve(
-        __dirname,
-        "../../packages/core-dexie/src/index.ts",
-      ),
+      "@dashframe/core-store": getStorageBackendPath(),
     },
   },
   define: {
@@ -51,6 +62,9 @@ export default defineConfig({
     ),
     "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify(
       process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "",
+    ),
+    "process.env.NEXT_PUBLIC_STORAGE_IMPL": JSON.stringify(
+      process.env.NEXT_PUBLIC_STORAGE_IMPL ?? "dexie",
     ),
     "process.env.PORT": JSON.stringify(process.env.PORT ?? "3000"),
   },

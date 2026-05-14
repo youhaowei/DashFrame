@@ -3,14 +3,8 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
-import { fieldIdToColumnAlias, resolveEncodingToSql } from "@dashframe/engine";
-import type {
-  ChartEncoding,
-  Field,
-  Insight,
-  InsightMetric,
-  Visualization,
-} from "@dashframe/types";
+import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
+import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
@@ -20,47 +14,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
-
-function formatAggregationLabel(aggregation: InsightMetric["aggregation"]) {
-  switch (aggregation) {
-    case "avg":
-      return "Average";
-    case "count":
-      return "Count";
-    case "count_distinct":
-      return "Distinct count";
-    case "max":
-      return "Maximum";
-    case "min":
-      return "Minimum";
-    case "sum":
-      return "Sum";
-  }
-}
-
-function getMetricDisplayLabel(metric: InsightMetric, fields: Field[] = []) {
-  if (metric.aggregation === "count" && !metric.columnName) {
-    return metric.name || "Count of rows";
-  }
-
-  const sourceField = fields.find(
-    (field) =>
-      field.columnName === metric.columnName ||
-      field.name === metric.columnName ||
-      fieldIdToColumnAlias(field.id) === metric.columnName,
-  );
-  const sourceLabel = sourceField?.name ?? metric.columnName;
-
-  if (!sourceLabel || /^field_[0-9a-f_]+$/i.test(sourceLabel)) {
-    return formatAggregationLabel(metric.aggregation);
-  }
-
-  if (/^metric_[0-9a-f_]+$/i.test(sourceLabel)) {
-    return metric.name;
-  }
-
-  return `${formatAggregationLabel(metric.aggregation)} of ${sourceLabel}`;
-}
 
 export function VisualizationDisplay({
   visualizationId,

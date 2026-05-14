@@ -123,3 +123,13 @@ export {
   selectTemporalAggregation,
   temporalTransform,
 } from "./sql";
+
+// ============================================================================
+// Visualization Labels
+// ============================================================================
+
+export {
+  formatAggregationLabel,
+  getMetricDisplayLabel,
+  isGeneratedColumnLabel,
+} from "./visualization-labels";

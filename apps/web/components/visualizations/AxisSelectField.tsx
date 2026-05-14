@@ -14,6 +14,8 @@ import {
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  isGeneratedColumnLabel,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
@@ -21,7 +23,6 @@ import type {
   CompiledInsight,
   DataFrameColumn,
   Field,
-  InsightMetric,
   UUID,
   VisualizationType,
 } from "@dashframe/types";
@@ -35,55 +36,6 @@ import {
   TooltipTrigger,
 } from "@stdui/react";
 import { useCallback, useMemo } from "react";
-
-function formatAggregationLabel(aggregation: InsightMetric["aggregation"]) {
-  switch (aggregation) {
-    case "avg":
-      return "Average";
-    case "count":
-      return "Count";
-    case "count_distinct":
-      return "Distinct count";
-    case "max":
-      return "Maximum";
-    case "min":
-      return "Minimum";
-    case "sum":
-      return "Sum";
-  }
-}
-
-function getMetricDisplayLabel(
-  metric: InsightMetric,
-  compiledInsight: CompiledInsight,
-  availableFields: Field[] = compiledInsight.dimensions,
-) {
-  if (metric.aggregation === "count" && !metric.columnName) {
-    return metric.name || "Count of rows";
-  }
-
-  const sourceField = availableFields.find(
-    (field) =>
-      field.columnName === metric.columnName ||
-      field.name === metric.columnName ||
-      fieldIdToColumnAlias(field.id) === metric.columnName,
-  );
-  const sourceLabel = sourceField?.name ?? metric.columnName;
-
-  if (!sourceLabel || /^field_[0-9a-f_]+$/i.test(sourceLabel)) {
-    return formatAggregationLabel(metric.aggregation);
-  }
-
-  if (/^metric_[0-9a-f_]+$/i.test(sourceLabel)) {
-    return metric.name;
-  }
-
-  return `${formatAggregationLabel(metric.aggregation)} of ${sourceLabel}`;
-}
-
-function isGeneratedColumnLabel(label: string | undefined) {
-  return Boolean(label && /^(field|metric)_[0-9a-f_]+$/i.test(label));
-}
 
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */
@@ -203,7 +155,7 @@ export function AxisSelectField({
     // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
       addOption({
-        label: getMetricDisplayLabel(metric, compiledInsight, selectableFields),
+        label: getMetricDisplayLabel(metric, selectableFields),
         value: metricEncoding(metric.id as UUID),
       });
     });
