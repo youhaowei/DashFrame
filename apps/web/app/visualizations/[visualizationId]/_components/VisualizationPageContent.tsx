@@ -167,14 +167,12 @@ export default function VisualizationPageContent({
       showModelPreview: true,
       enabled: !!insightForView,
     });
-  const {
-    columns: renderedColumns,
-    columnDisplayNames: renderedColumnDisplayNames,
-  } = useInsightPagination({
-    insight: insightForView ?? ({} as InsightType),
-    showModelPreview: false,
-    enabled: !!insightForView,
-  });
+  const { columnDisplayNames: renderedColumnDisplayNames } =
+    useInsightPagination({
+      insight: insightForView ?? ({} as InsightType),
+      showModelPreview: false,
+      enabled: !!insightForView,
+    });
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -333,48 +331,24 @@ export default function VisualizationPageContent({
     return sourceDataFrame;
   }, [hasJoins, joinedData, aggregatedPreview, sourceDataFrame]);
 
-  const sourceColumnNames = useMemo(() => {
-    if (sourceDataFrame?.columns?.length) {
-      return sourceDataFrame.columns.map((column) => column.name);
-    }
-    const sourceRow = sourceDataFrame?.rows[0];
-    return sourceRow
-      ? Object.keys(sourceRow).filter((name) => !name.startsWith("_"))
-      : [];
-  }, [sourceDataFrame]);
-
   const axisColumnDisplayNames = useMemo(() => {
     const displayNames = { ...modelColumnDisplayNames };
-    modelColumns.forEach((column, index) => {
-      const renderedColumn = renderedColumns[index];
-      const renderedLabel = renderedColumn
-        ? (renderedColumnDisplayNames[renderedColumn.name] ??
-          renderedColumn.name)
-        : undefined;
+    // Merge in any better labels from the rendered (query-mode) view via
+    // stable-identifier lookup. `modelColumns` and `renderedColumns` come
+    // from different pipelines with different counts and orderings; positional
+    // pairing would mismatch labels (e.g., a "Date" column receiving the
+    // "Sum of Revenue" label). Both display-name maps share the same
+    // `field_<uuid>` key space, so the name-based lookup is safe.
+    modelColumns.forEach((column) => {
+      const renderedLabel = renderedColumnDisplayNames[column.name];
       if (renderedLabel && !isGeneratedColumnLabel(renderedLabel)) {
         displayNames[column.name] = renderedLabel;
         return;
       }
-
-      const sourceName = sourceColumnNames[index];
-      if (
-        sourceName &&
-        !isGeneratedColumnLabel(sourceName) &&
-        isGeneratedColumnLabel(displayNames[column.name])
-      ) {
-        displayNames[column.name] = sourceName;
-        return;
-      }
-      displayNames[column.name] ??= sourceName ?? column.name;
+      displayNames[column.name] ??= column.name;
     });
     return displayNames;
-  }, [
-    modelColumnDisplayNames,
-    modelColumns,
-    renderedColumnDisplayNames,
-    renderedColumns,
-    sourceColumnNames,
-  ]);
+  }, [modelColumnDisplayNames, modelColumns, renderedColumnDisplayNames]);
 
   const axisSourceColumns = useMemo(() => {
     if (hasJoins && joinedData) return joinedData.columns;

@@ -2,7 +2,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { fileURLToPath } from "url";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 
 import { getSecurityHeaders } from "./lib/security-headers";
 
@@ -37,8 +37,7 @@ function securityHeadersPlugin(): Plugin {
   };
 }
 
-function getStorageBackendPath() {
-  const storageImpl = process.env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
+function getStorageBackendPath(storageImpl: string) {
   if (!/^[a-z0-9-]+$/i.test(storageImpl)) {
     throw new Error(
       `Invalid NEXT_PUBLIC_STORAGE_IMPL "${storageImpl}". Expected a package suffix like "dexie" or "custom".`,
@@ -51,47 +50,52 @@ function getStorageBackendPath() {
   );
 }
 
-export default defineConfig({
-  plugins: [
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-      routesDirectory: "./src/routes",
-      generatedRouteTree: "./src/routeTree.gen.ts",
-    }),
-    react(),
-    securityHeadersPlugin(),
-  ],
-  resolve: {
-    alias: {
-      "@": __dirname,
-      "@dashframe/core-store": getStorageBackendPath(),
+export default defineConfig(({ mode }) => {
+  // Vite doesn't auto-inject `.env*` files into process.env during config
+  // resolution; loadEnv reads them so the documented `.env.production`
+  // backend selection (NEXT_PUBLIC_STORAGE_IMPL=custom) actually applies.
+  // Empty prefix = load all keys, not just `VITE_*`.
+  const env = { ...process.env, ...loadEnv(mode, __dirname, "") };
+  const storageImpl = env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
+
+  return {
+    plugins: [
+      tanstackRouter({
+        target: "react",
+        autoCodeSplitting: true,
+        routesDirectory: "./src/routes",
+        generatedRouteTree: "./src/routeTree.gen.ts",
+      }),
+      react(),
+      securityHeadersPlugin(),
+    ],
+    resolve: {
+      alias: {
+        "@": __dirname,
+        "@dashframe/core-store": getStorageBackendPath(storageImpl),
+      },
     },
-  },
-  define: {
-    "process.env.NODE_ENV": JSON.stringify(
-      process.env.NODE_ENV ?? "development",
-    ),
-    "process.env.NEXT_PUBLIC_DEBUG": JSON.stringify(
-      process.env.NEXT_PUBLIC_DEBUG ?? "",
-    ),
-    "process.env.NEXT_PUBLIC_POSTHOG_KEY": JSON.stringify(
-      process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "",
-    ),
-    "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify(
-      process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "",
-    ),
-    "process.env.NEXT_PUBLIC_STORAGE_IMPL": JSON.stringify(
-      process.env.NEXT_PUBLIC_STORAGE_IMPL ?? "dexie",
-    ),
-    "process.env.PORT": JSON.stringify(process.env.PORT ?? "3000"),
-  },
-  server: {
-    port: 3000,
-    strictPort: false,
-  },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-  },
+    define: {
+      "process.env.NODE_ENV": JSON.stringify(env.NODE_ENV ?? mode),
+      "process.env.NEXT_PUBLIC_DEBUG": JSON.stringify(
+        env.NEXT_PUBLIC_DEBUG ?? "",
+      ),
+      "process.env.NEXT_PUBLIC_POSTHOG_KEY": JSON.stringify(
+        env.NEXT_PUBLIC_POSTHOG_KEY ?? "",
+      ),
+      "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify(
+        env.NEXT_PUBLIC_POSTHOG_HOST ?? "",
+      ),
+      "process.env.NEXT_PUBLIC_STORAGE_IMPL": JSON.stringify(storageImpl),
+      "process.env.PORT": JSON.stringify(env.PORT ?? "3000"),
+    },
+    server: {
+      port: 3000,
+      strictPort: false,
+    },
+    build: {
+      outDir: "dist",
+      emptyOutDir: true,
+    },
+  };
 });
