@@ -71,14 +71,6 @@ export default defineConfig({
         __dirname,
         "./src/next-shims/navigation.ts",
       ),
-      "geist/font/mono": path.resolve(
-        __dirname,
-        "./src/next-shims/geist-mono.ts",
-      ),
-      "geist/font/sans": path.resolve(
-        __dirname,
-        "./src/next-shims/geist-sans.ts",
-      ),
       "@dashframe/core-store": getStorageBackendPath(),
     },
   },

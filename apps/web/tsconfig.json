@@ -4,8 +4,6 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"],
-      "geist/font/mono": ["./src/next-shims/geist-mono.ts"],
-      "geist/font/sans": ["./src/next-shims/geist-sans.ts"],
       "next/dynamic": ["./src/next-shims/dynamic.tsx"],
       "next/link": ["./src/next-shims/link.tsx"],
       "next/navigation": ["./src/next-shims/navigation.ts"]

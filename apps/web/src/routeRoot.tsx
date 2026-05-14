@@ -7,16 +7,13 @@ import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TRPCProvider } from "@/lib/trpc/Provider";
 import { DatabaseProvider } from "@dashframe/core";
-import { GeistMono, GeistSans } from "@dashframe/ui";
 import { TooltipProvider } from "@stdui/react";
 import { Outlet } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 
 export function RouteRoot() {
   return (
-    <div
-      className={`${GeistSans.variable} ${GeistMono.variable} bg-neutral-bg font-sans text-neutral-fg`}
-    >
+    <div className="bg-neutral-bg font-sans text-neutral-fg">
       <ThemeProvider>
         <PostHogProvider>
           <PostHogPageView />
