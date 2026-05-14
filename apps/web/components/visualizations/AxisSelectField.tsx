@@ -159,28 +159,25 @@ export function AxisSelectField({
       });
     });
 
-    columnAnalysis.forEach((column, index) => {
+    // Resolve labels via stable identifiers only. columnAnalysis,
+    // selectableFields, and availableColumns come from different pipelines
+    // (DuckDB view analysis vs. compiled insight vs. raw data frame) and are
+    // NOT guaranteed to share an order — joins and hidden columns can shift
+    // the alignment. Match by fieldId; if that fails, surface the generated
+    // alias rather than guessing positionally.
+    columnAnalysis.forEach((column) => {
       const fieldId =
         column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
       const matchedField = fieldId
         ? selectableFields.find((field) => field.id === fieldId)
         : undefined;
-      const fieldLabel =
-        matchedField?.name ??
-        (/^field_/.test(column.columnName)
-          ? selectableFields[index]?.name
-          : undefined);
       const mappedLabel = columnDisplayNames?.[column.columnName];
       const value = matchedField
         ? fieldEncoding(matchedField.id as UUID)
         : column.columnName;
-      const fallbackLabel =
-        /^field_/.test(column.columnName) && availableColumns?.[index]
-          ? availableColumns[index].name
-          : column.columnName;
-      let labelToDisplay = fallbackLabel;
-      if (fieldLabel && !isGeneratedColumnLabel(fieldLabel)) {
-        labelToDisplay = fieldLabel;
+      let labelToDisplay = column.columnName;
+      if (matchedField?.name && !isGeneratedColumnLabel(matchedField.name)) {
+        labelToDisplay = matchedField.name;
       }
       if (mappedLabel && !isGeneratedColumnLabel(mappedLabel)) {
         labelToDisplay = mappedLabel;
@@ -231,8 +228,21 @@ export function AxisSelectField({
         map.set(column.columnName, column.columnName);
       }
     }
-    (availableColumns ?? []).forEach((column, index) => {
-      const analyzedColumn = columnAnalysis[index]?.columnName;
+    // Bridge raw data-frame column names to their generated SQL aliases via
+    // a stable identifier (the field's underlying columnName), not array
+    // position. Positional pairing breaks when joins or hidden columns
+    // reorder one pipeline relative to the other.
+    (availableColumns ?? []).forEach((column) => {
+      const matchedField = selectableFields.find(
+        (field) =>
+          field.columnName === column.name || field.name === column.name,
+      );
+      const analyzedColumn = matchedField
+        ? columnAnalysis.find((c) => {
+            const fid = c.fieldId ?? extractUUIDFromColumnAlias(c.columnName);
+            return fid === matchedField.id;
+          })?.columnName
+        : undefined;
       map.set(column.name, analyzedColumn ?? column.name);
     });
     compiledInsight.metrics.forEach((metric) => {
