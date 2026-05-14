@@ -16,7 +16,7 @@ import { Route as DataSourcesSourceIdRouteImport } from "./routes/data-sources/$
 import { Route as DataSourcesIndexRouteImport } from "./routes/data-sources/index";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as InsightsInsightIdRouteImport } from "./routes/insights/$insightId";
-import { Route as InsightsInsightIdJoinTableIdRouteImport } from "./routes/insights/$insightId/join/$tableId";
+import { Route as InsightsInsightIdJoinTableIdRouteImport } from "./routes/insights/$insightId_.join.$tableId";
 import { Route as InsightsIndexRouteImport } from "./routes/insights/index";
 import { Route as VisualizationsVisualizationIdRouteImport } from "./routes/visualizations/$visualizationId";
 import { Route as VisualizationsIndexRouteImport } from "./routes/visualizations/index";
@@ -74,9 +74,9 @@ const DashboardsDashboardIdRoute = DashboardsDashboardIdRouteImport.update({
 } as any);
 const InsightsInsightIdJoinTableIdRoute =
   InsightsInsightIdJoinTableIdRouteImport.update({
-    id: "/join/$tableId",
-    path: "/join/$tableId",
-    getParentRoute: () => InsightsInsightIdRoute,
+    id: "/insights/$insightId_/join/$tableId",
+    path: "/insights/$insightId/join/$tableId",
+    getParentRoute: () => rootRouteImport,
   } as any);
 
 export interface FileRoutesByFullPath {
@@ -84,7 +84,7 @@ export interface FileRoutesByFullPath {
   "/data-frames": typeof DataFramesRoute;
   "/dashboards/$dashboardId": typeof DashboardsDashboardIdRoute;
   "/data-sources/$sourceId": typeof DataSourcesSourceIdRoute;
-  "/insights/$insightId": typeof InsightsInsightIdRouteWithChildren;
+  "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/visualizations/$visualizationId": typeof VisualizationsVisualizationIdRoute;
   "/dashboards/": typeof DashboardsIndexRoute;
   "/data-sources/": typeof DataSourcesIndexRoute;
@@ -97,7 +97,7 @@ export interface FileRoutesByTo {
   "/data-frames": typeof DataFramesRoute;
   "/dashboards/$dashboardId": typeof DashboardsDashboardIdRoute;
   "/data-sources/$sourceId": typeof DataSourcesSourceIdRoute;
-  "/insights/$insightId": typeof InsightsInsightIdRouteWithChildren;
+  "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/visualizations/$visualizationId": typeof VisualizationsVisualizationIdRoute;
   "/dashboards": typeof DashboardsIndexRoute;
   "/data-sources": typeof DataSourcesIndexRoute;
@@ -111,13 +111,13 @@ export interface FileRoutesById {
   "/data-frames": typeof DataFramesRoute;
   "/dashboards/$dashboardId": typeof DashboardsDashboardIdRoute;
   "/data-sources/$sourceId": typeof DataSourcesSourceIdRoute;
-  "/insights/$insightId": typeof InsightsInsightIdRouteWithChildren;
+  "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/visualizations/$visualizationId": typeof VisualizationsVisualizationIdRoute;
   "/dashboards/": typeof DashboardsIndexRoute;
   "/data-sources/": typeof DataSourcesIndexRoute;
   "/insights/": typeof InsightsIndexRoute;
   "/visualizations/": typeof VisualizationsIndexRoute;
-  "/insights/$insightId/join/$tableId": typeof InsightsInsightIdJoinTableIdRoute;
+  "/insights/$insightId_/join/$tableId": typeof InsightsInsightIdJoinTableIdRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
@@ -158,7 +158,7 @@ export interface FileRouteTypes {
     | "/data-sources/"
     | "/insights/"
     | "/visualizations/"
-    | "/insights/$insightId/join/$tableId";
+    | "/insights/$insightId_/join/$tableId";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -166,12 +166,13 @@ export interface RootRouteChildren {
   DataFramesRoute: typeof DataFramesRoute;
   DashboardsDashboardIdRoute: typeof DashboardsDashboardIdRoute;
   DataSourcesSourceIdRoute: typeof DataSourcesSourceIdRoute;
-  InsightsInsightIdRoute: typeof InsightsInsightIdRouteWithChildren;
+  InsightsInsightIdRoute: typeof InsightsInsightIdRoute;
   VisualizationsVisualizationIdRoute: typeof VisualizationsVisualizationIdRoute;
   DashboardsIndexRoute: typeof DashboardsIndexRoute;
   DataSourcesIndexRoute: typeof DataSourcesIndexRoute;
   InsightsIndexRoute: typeof InsightsIndexRoute;
   VisualizationsIndexRoute: typeof VisualizationsIndexRoute;
+  InsightsInsightIdJoinTableIdRoute: typeof InsightsInsightIdJoinTableIdRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -246,38 +247,28 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof DashboardsDashboardIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/insights/$insightId/join/$tableId": {
-      id: "/insights/$insightId/join/$tableId";
-      path: "/join/$tableId";
+    "/insights/$insightId_/join/$tableId": {
+      id: "/insights/$insightId_/join/$tableId";
+      path: "/insights/$insightId/join/$tableId";
       fullPath: "/insights/$insightId/join/$tableId";
       preLoaderRoute: typeof InsightsInsightIdJoinTableIdRouteImport;
-      parentRoute: typeof InsightsInsightIdRoute;
+      parentRoute: typeof rootRouteImport;
     };
   }
 }
-
-interface InsightsInsightIdRouteChildren {
-  InsightsInsightIdJoinTableIdRoute: typeof InsightsInsightIdJoinTableIdRoute;
-}
-
-const InsightsInsightIdRouteChildren: InsightsInsightIdRouteChildren = {
-  InsightsInsightIdJoinTableIdRoute: InsightsInsightIdJoinTableIdRoute,
-};
-
-const InsightsInsightIdRouteWithChildren =
-  InsightsInsightIdRoute._addFileChildren(InsightsInsightIdRouteChildren);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DataFramesRoute: DataFramesRoute,
   DashboardsDashboardIdRoute: DashboardsDashboardIdRoute,
   DataSourcesSourceIdRoute: DataSourcesSourceIdRoute,
-  InsightsInsightIdRoute: InsightsInsightIdRouteWithChildren,
+  InsightsInsightIdRoute: InsightsInsightIdRoute,
   VisualizationsVisualizationIdRoute: VisualizationsVisualizationIdRoute,
   DashboardsIndexRoute: DashboardsIndexRoute,
   DataSourcesIndexRoute: DataSourcesIndexRoute,
   InsightsIndexRoute: InsightsIndexRoute,
   VisualizationsIndexRoute: VisualizationsIndexRoute,
+  InsightsInsightIdJoinTableIdRoute: InsightsInsightIdJoinTableIdRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
