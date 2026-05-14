@@ -1,5 +1,3 @@
-"use client";
-
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import {
   useDashboardMutations,

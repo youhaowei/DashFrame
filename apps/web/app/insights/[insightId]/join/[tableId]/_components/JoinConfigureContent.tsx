@@ -1,5 +1,3 @@
-"use client";
-
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionProperty } from "@dashframe/connector-notion";

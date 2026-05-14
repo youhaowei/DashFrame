@@ -1,5 +1,3 @@
-"use client";
-
 import { MoreIcon } from "@stdui/icons";
 import {
   Button,

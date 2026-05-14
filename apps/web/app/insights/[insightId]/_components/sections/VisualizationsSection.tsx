@@ -1,5 +1,3 @@
-"use client";
-
 import { ChartTypePicker } from "@/components/visualizations/ChartTypePicker";
 import { ChartTypePickerModal } from "@/components/visualizations/ChartTypePickerModal";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";

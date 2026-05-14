@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
 import { Button, Card } from "@stdui/react";

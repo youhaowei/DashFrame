@@ -1,5 +1,3 @@
-"use client";
-
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@stdui/react";
 import {
   DataPickerContent,

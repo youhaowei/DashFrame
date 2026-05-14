@@ -1,5 +1,3 @@
-"use client";
-
 import type { Visualization, VisualizationEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { AlertCircleIcon, CloseIcon, DeleteIcon } from "@stdui/icons";

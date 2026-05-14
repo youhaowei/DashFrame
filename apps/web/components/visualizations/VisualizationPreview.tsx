@@ -1,5 +1,3 @@
-"use client";
-
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";

@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useInsightView } from "@/hooks/useInsightView";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";

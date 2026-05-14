@@ -1,5 +1,3 @@
-"use client";
-
 import { Button } from "@stdui/react";
 import { useNavigate } from "@tanstack/react-router";
 

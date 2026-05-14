@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataSources, useDataTables } from "@dashframe/core";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import {

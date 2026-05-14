@@ -1,5 +1,3 @@
-"use client";
-
 import superjson from "superjson";
 import { createJSONStorage } from "zustand/middleware";
 

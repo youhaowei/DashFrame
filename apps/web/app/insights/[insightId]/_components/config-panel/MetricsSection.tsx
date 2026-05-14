@@ -1,5 +1,3 @@
-"use client";
-
 import type { InsightMetric } from "@dashframe/types";
 import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {

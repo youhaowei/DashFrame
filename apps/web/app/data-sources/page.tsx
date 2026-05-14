@@ -1,5 +1,3 @@
-"use client";
-
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
   useDataSourceMutations,

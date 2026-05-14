@@ -1,5 +1,3 @@
-"use client";
-
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToastStore } from "@/lib/stores";
 import {

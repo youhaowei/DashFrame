@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {

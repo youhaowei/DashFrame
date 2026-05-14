@@ -1,5 +1,3 @@
-"use client";
-
 import type { ColumnType, Field } from "@dashframe/types";
 import {
   Button,

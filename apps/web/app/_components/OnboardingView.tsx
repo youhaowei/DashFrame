@@ -1,5 +1,3 @@
-"use client";
-
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { ChartIcon } from "@stdui/icons";

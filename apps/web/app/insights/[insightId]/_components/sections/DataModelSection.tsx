@@ -1,5 +1,3 @@
-"use client";
-
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {

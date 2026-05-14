@@ -1,5 +1,3 @@
-"use client";
-
 import type { FormField } from "@dashframe/engine";
 import {
   Field,

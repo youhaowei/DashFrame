@@ -1,5 +1,3 @@
-"use client";
-
 import { useInsight } from "@dashframe/core";
 import { Spinner } from "@stdui/react";
 import { InsightView } from "./InsightView";

@@ -1,5 +1,3 @@
-"use client";
-
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDashboardMutations } from "@dashframe/core";
 import type { DashboardItem as DashboardItemType } from "@dashframe/types";

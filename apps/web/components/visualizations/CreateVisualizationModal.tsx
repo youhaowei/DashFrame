@@ -1,5 +1,3 @@
-"use client";
-
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import {

@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRightIcon, type LucideIcon } from "@stdui/icons";
 import { Button, ItemList, type ListItem } from "@stdui/react";
 import { useNavigate } from "@tanstack/react-router";

@@ -1,5 +1,3 @@
-"use client";
-
 import type { Visualization } from "@dashframe/types";
 import { ChartIcon, DataPointIcon, MoreIcon, TableIcon } from "@stdui/icons";
 import {

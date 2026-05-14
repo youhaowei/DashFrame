@@ -1,5 +1,3 @@
-"use client";
-
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import type { DataTable, Insight } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";

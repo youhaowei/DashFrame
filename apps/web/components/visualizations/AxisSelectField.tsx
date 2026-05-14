@@ -1,5 +1,3 @@
-"use client";
-
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import {
   getColumnWarning,

@@ -1,5 +1,3 @@
-"use client";
-
 import { SparklesIcon } from "@stdui/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";

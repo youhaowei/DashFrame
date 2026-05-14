@@ -1,5 +1,3 @@
-"use client";
-
 import { useDashboardMutations, useDashboards } from "@dashframe/core";
 import { DashboardIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
 import {

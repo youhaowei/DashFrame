@@ -1,5 +1,3 @@
-"use client";
-
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/connector-notion";
 import {

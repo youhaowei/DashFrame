@@ -1,5 +1,3 @@
-"use client";
-
 import { toast as sonnerToast } from "sonner";
 import { create } from "zustand";
 
