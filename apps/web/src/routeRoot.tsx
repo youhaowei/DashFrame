@@ -18,6 +18,12 @@ export function RouteRoot() {
         <PostHogProvider>
           <PostHogPageView />
           <TooltipProvider>
+            {/* TRPCProvider points at `/api/trpc`, which Vite does not serve.
+             * The only consumers are Notion connector mutations, hidden behind
+             * `showNotion: false`. Any call will 404 until the Notion path is
+             * relocated to apps/server-core (or the WyStack reactive API).
+             * Tracked: https://www.notion.so/360d48ccaf5481749ae1f0eeed29361b
+             */}
             <TRPCProvider>
               <DatabaseProvider>
                 <DuckDBProvider>
