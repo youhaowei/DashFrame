@@ -1,5 +1,3 @@
-"use client";
-
 import type { Insight } from "@/lib/stores/types";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";

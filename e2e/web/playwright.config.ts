@@ -32,11 +32,15 @@ export { BASE_PORT, isCI, WORKER_COUNT };
  * - CI: Single server, build included in command
  * - Local: Multiple servers for parallel workers
  */
+function webServerCommand(port: number) {
+  return `cd ../../apps/web && bun run build && bun run start --port ${port} --strictPort`;
+}
+
 function getWebServerConfig() {
   if (isCI) {
     // CI: Single server with build
     return {
-      command: `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT}`,
+      command: webServerCommand(BASE_PORT),
       url: `http://localhost:${BASE_PORT}`,
       reuseExistingServer: false,
       timeout: 180_000,
@@ -50,8 +54,8 @@ function getWebServerConfig() {
   return Array.from({ length: WORKER_COUNT }, (_, i) => ({
     command:
       i === 0
-        ? `cd ../../apps/web && NEXT_DIST_DIR=.next-e2e bun run build && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT}`
-        : `cd ../../apps/web && while [ ! -f .next-e2e/BUILD_ID ]; do sleep 1; done && NEXT_DIST_DIR=.next-e2e bun run start -p ${BASE_PORT + i}`,
+        ? webServerCommand(BASE_PORT)
+        : `cd ../../apps/web && while [ ! -f dist/index.html ]; do sleep 1; done && bun run start --port ${BASE_PORT + i} --strictPort`,
     url: `http://localhost:${BASE_PORT + i}`,
     reuseExistingServer: true,
     timeout: 180_000,

@@ -1,5 +1,3 @@
-"use client";
-
 import { DataGrid } from "@/components/data-grid";
 import {
   useDataFrameMutations,

@@ -1,5 +1,3 @@
-"use client";
-
 import { useVisualizations } from "@dashframe/core";
 import { Spinner } from "@stdui/react";
 import { HomeView } from "./_components/HomeView";

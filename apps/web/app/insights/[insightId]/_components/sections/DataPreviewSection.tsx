@@ -1,5 +1,3 @@
-"use client";
-
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import type { Insight } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";

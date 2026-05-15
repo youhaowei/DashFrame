@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {

@@ -1,5 +1,3 @@
-"use client";
-
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { ChartIcon } from "@stdui/icons";
@@ -30,7 +28,10 @@ export function OnboardingView() {
             onTableSelect={createInsightFromTable}
             onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
             showInsights={true}
-            showNotion={true}
+            // Notion connector is hidden until the integration moves off
+            // web tRPC (see: https://www.notion.so/360d48ccaf5481749ae1f0eeed29361b).
+            // The `/api/trpc` endpoint isn't served by Vite.
+            showNotion={false}
           />
         </CardContent>
       </Card>

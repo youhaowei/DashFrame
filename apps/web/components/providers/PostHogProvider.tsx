@@ -1,5 +1,3 @@
-"use client";
-
 import { flushEventQueue } from "@/lib/posthog/event-queue";
 import { getPostHogInstance, loadPostHog } from "@/lib/posthog/loader";
 import type { PostHog } from "posthog-js";

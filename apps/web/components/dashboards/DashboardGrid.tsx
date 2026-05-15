@@ -1,5 +1,3 @@
-"use client";
-
 import { useDashboardMutations } from "@dashframe/core";
 import type { Dashboard } from "@dashframe/types";
 import { useCallback, useMemo, useRef } from "react";

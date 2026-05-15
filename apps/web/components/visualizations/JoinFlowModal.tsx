@@ -1,8 +1,6 @@
-"use client";
-
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import type { DataTable, Insight } from "@dashframe/types";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 interface JoinFlowModalProps {
@@ -28,25 +26,27 @@ export function JoinFlowModal({
   isOpen,
   onOpenChange,
 }: JoinFlowModalProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // When selecting an insight, use its DataFrame for the join
   const handleInsightSelect = useCallback(
     (insightId: string, _insightName: string) => {
       onOpenChange(false);
       // Navigate to join page with insight's DataFrame
-      router.push(`/insights/${insight.id}/join/insight/${insightId}`);
+      navigate({
+        to: `/insights/${insight.id}/join/insight/${insightId}`,
+      } as never);
     },
-    [insight.id, router, onOpenChange],
+    [insight.id, navigate, onOpenChange],
   );
 
   // When selecting a table, navigate to join configuration
   const handleTableSelect = useCallback(
     (tableId: string, _tableName: string) => {
       onOpenChange(false);
-      router.push(`/insights/${insight.id}/join/${tableId}`);
+      navigate({ to: `/insights/${insight.id}/join/${tableId}` } as never);
     },
-    [insight.id, router, onOpenChange],
+    [insight.id, navigate, onOpenChange],
   );
 
   return (

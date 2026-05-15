@@ -1,12 +1,11 @@
 "use client";
 
-import { Select as SelectPrimitiveParts } from "@base-ui/react/select";
-import { CheckIcon } from "@stdui/icons";
 import {
   cn,
   Field,
   FieldLabel,
   SelectContent,
+  SelectItem,
   Select as SelectPrimitive,
   SelectTrigger,
   SelectValue,
@@ -45,6 +44,12 @@ export function Select({
   onClear,
   error,
 }: SelectProps) {
+  const selectedOption = options.find((option) => option.value === value);
+  const items = options.map((option) => ({
+    label: option.label,
+    value: option.value,
+  }));
+
   return (
     <Field className={className}>
       {(label || labelAddon) && (
@@ -54,37 +59,32 @@ export function Select({
         </div>
       )}
       <SelectPrimitive
-        value={value || undefined}
-        onValueChange={(v) => onChange(v ?? "")}
+        items={items}
+        value={value}
+        onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
           className={cn("w-full", error && "border-red-500 focus:ring-red-500")}
         >
-          <SelectValue placeholder={placeholder} />
+          <SelectValue placeholder={placeholder}>
+            {selectedOption?.label}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
-            <SelectPrimitiveParts.Item
+            <SelectItem
               key={option.value}
               value={option.value}
+              label={option.label}
               disabled={option.disabled}
-              className={cn(
-                "relative flex w-full cursor-default items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none select-none focus:bg-neutral-bg-emphasis focus:text-neutral-fg data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-              )}
+              className={cn("pr-8 focus:bg-neutral-bg-emphasis")}
             >
-              <span className="absolute right-2 flex size-3.5 items-center justify-center">
-                <SelectPrimitiveParts.ItemIndicator>
-                  <CheckIcon className="size-4" />
-                </SelectPrimitiveParts.ItemIndicator>
-              </span>
               <div className="flex items-start gap-2">
                 {option.icon && (
                   <option.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-fg-subtle" />
                 )}
                 <div className="flex flex-col gap-0.5">
-                  <SelectPrimitiveParts.ItemText>
-                    {option.label}
-                  </SelectPrimitiveParts.ItemText>
+                  <span>{option.label}</span>
                   {option.description && (
                     <span className="text-[10px] font-normal text-neutral-fg-subtle">
                       {option.description}
@@ -92,7 +92,7 @@ export function Select({
                   )}
                 </div>
               </div>
-            </SelectPrimitiveParts.Item>
+            </SelectItem>
           ))}
         </SelectContent>
       </SelectPrimitive>

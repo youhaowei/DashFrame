@@ -1,5 +1,3 @@
-"use client";
-
 import { ChartTypePicker } from "@/components/visualizations/ChartTypePicker";
 import { ChartTypePickerModal } from "@/components/visualizations/ChartTypePickerModal";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
@@ -14,7 +12,7 @@ import {
   type ItemCardAction,
   type ListItem,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface VisualizationsSectionProps {
@@ -77,14 +75,14 @@ export const VisualizationsSection = memo(function VisualizationsSection({
   suggestionSeed = 0,
   onRegenerate,
 }: VisualizationsSectionProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleSelectVisualization = useCallback(
     (vizId: string) => {
-      router.push(`/visualizations/${vizId}`);
+      navigate({ to: `/visualizations/${vizId}` } as never);
     },
-    [router],
+    [navigate],
   );
 
   const handleCreateVisualization = useCallback(() => {

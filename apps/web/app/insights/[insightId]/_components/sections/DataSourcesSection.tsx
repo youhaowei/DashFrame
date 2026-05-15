@@ -1,5 +1,3 @@
-"use client";
-
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { useDataFrames, useInsightMutations } from "@dashframe/core";
 import type { DataTable, Field, Insight } from "@dashframe/types";

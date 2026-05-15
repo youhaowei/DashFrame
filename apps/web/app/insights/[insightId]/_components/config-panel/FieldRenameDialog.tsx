@@ -1,5 +1,3 @@
-"use client";
-
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
   Button,

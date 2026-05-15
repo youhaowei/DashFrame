@@ -1,15 +1,12 @@
-"use client";
-
-import { ChartIcon, DatabaseIcon, SparklesIcon } from "@stdui/icons";
-import { ItemList } from "@stdui/react";
-import { useRouter } from "next/navigation";
-import { useMemo } from "react";
-
 import {
   useDataSources,
   useInsights,
   useVisualizations,
 } from "@dashframe/core";
+import { ChartIcon, DatabaseIcon, SparklesIcon } from "@stdui/icons";
+import { ItemList } from "@stdui/react";
+import { useNavigate } from "@tanstack/react-router";
+import { useMemo } from "react";
 
 /**
  * QuickLinksSection - Navigation links to main app sections
@@ -17,7 +14,7 @@ import {
  * Self-contained section that fetches counts from Dexie.
  */
 export function QuickLinksSection() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: visualizations = [] } = useVisualizations();
   const { data: insights = [] } = useInsights();
@@ -29,19 +26,19 @@ export function QuickLinksSection() {
         id: "visualizations",
         title: "All Visualizations",
         subtitle: `${visualizations.length} total`,
-        icon: ChartIcon,
+        icon: <ChartIcon className="h-4 w-4" />,
       },
       {
         id: "insights",
         title: "All Insights",
         subtitle: `${insights.length} total`,
-        icon: SparklesIcon,
+        icon: <SparklesIcon className="h-4 w-4" />,
       },
       {
         id: "data-sources",
         title: "Data Sources",
         subtitle: `${dataSources.length} connected`,
-        icon: DatabaseIcon,
+        icon: <DatabaseIcon className="h-4 w-4" />,
       },
     ],
     [visualizations.length, insights.length, dataSources.length],
@@ -52,7 +49,7 @@ export function QuickLinksSection() {
       <h2 className="mb-4 text-xl font-semibold">Quick Links</h2>
       <ItemList
         items={quickLinks}
-        onSelect={(id) => router.push(`/${id}`)}
+        onSelect={(id) => navigate({ to: `/${id}` })}
         orientation="grid"
         gap={12}
       />

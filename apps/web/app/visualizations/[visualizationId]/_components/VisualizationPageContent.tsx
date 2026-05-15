@@ -1,10 +1,9 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import {
   computeInsightPreview,
@@ -25,11 +24,17 @@ import {
   useVisualizationMutations,
   useVisualizations,
 } from "@dashframe/core";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import {
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  isGeneratedColumnLabel,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   DataFrameColumn,
   DataFrameRow,
+  Field,
   Insight as InsightType,
   UUID,
   VisualizationEncoding,
@@ -46,12 +51,15 @@ import {
   DeleteIcon,
 } from "@stdui/icons";
 import { Badge, Button, Card, CardContent, Input, Spinner } from "@stdui/react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
 }
+
+type EncodingField = "x" | "y" | "color" | "size";
+type AxisEncodingField = Extract<EncodingField, "x" | "y">;
 
 // Get icon for visualization type
 function getVizIcon(type: string) {
@@ -72,6 +80,10 @@ function getVizIcon(type: string) {
   }
 }
 
+function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
+  return field === "x" || field === "y";
+}
+
 /**
  * Visualization Detail Page
  *
@@ -84,7 +96,7 @@ function getVizIcon(type: string) {
 export default function VisualizationPageContent({
   visualizationId,
 }: VisualizationPageContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks for data
   const { data: visualizations = [], isLoading: isVizLoading } =
@@ -149,6 +161,18 @@ export default function VisualizationPageContent({
   // Get DuckDB view name for analysis (uses UUID-based column names)
   const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
     useInsightView(insightForView);
+  const { columns: modelColumns, columnDisplayNames: modelColumnDisplayNames } =
+    useInsightPagination({
+      insight: insightForView ?? ({} as InsightType),
+      showModelPreview: true,
+      enabled: !!insightForView,
+    });
+  const { columnDisplayNames: renderedColumnDisplayNames } =
+    useInsightPagination({
+      insight: insightForView ?? ({} as InsightType),
+      showModelPreview: false,
+      enabled: !!insightForView,
+    });
 
   // State for DuckDB-computed joined data (when insight has joins)
   const [joinedData, setJoinedData] = useState<{
@@ -307,6 +331,74 @@ export default function VisualizationPageContent({
     return sourceDataFrame;
   }, [hasJoins, joinedData, aggregatedPreview, sourceDataFrame]);
 
+  const axisColumnDisplayNames = useMemo(() => {
+    const displayNames = { ...modelColumnDisplayNames };
+    // Merge in any better labels from the rendered (query-mode) view via
+    // stable-identifier lookup. `modelColumns` and `renderedColumns` come
+    // from different pipelines with different counts and orderings; positional
+    // pairing would mismatch labels (e.g., a "Date" column receiving the
+    // "Sum of Revenue" label). Both display-name maps share the same
+    // `field_<uuid>` key space, so the name-based lookup is safe.
+    modelColumns.forEach((column) => {
+      const renderedLabel = renderedColumnDisplayNames[column.name];
+      if (renderedLabel && !isGeneratedColumnLabel(renderedLabel)) {
+        displayNames[column.name] = renderedLabel;
+        return;
+      }
+      displayNames[column.name] ??= column.name;
+    });
+    return displayNames;
+  }, [modelColumnDisplayNames, modelColumns, renderedColumnDisplayNames]);
+
+  const axisSourceColumns = useMemo(() => {
+    if (hasJoins && joinedData) return joinedData.columns;
+    if (sourceDataFrame?.columns?.length) return sourceDataFrame.columns;
+    const sourceRow = sourceDataFrame?.rows[0];
+    if (sourceRow) {
+      return Object.keys(sourceRow)
+        .filter((name) => !name.startsWith("_"))
+        .map((name) => ({ name, type: "unknown" as const }));
+    }
+    if (dataTable?.sourceSchema?.columns?.length) {
+      return dataTable.sourceSchema.columns.map((column) => ({
+        name: column.name,
+        type: "unknown" as const,
+      }));
+    }
+    if (modelColumns.length) {
+      return modelColumns.map((column) => ({
+        name: axisColumnDisplayNames[column.name] ?? column.name,
+        type: "unknown" as const,
+      }));
+    }
+    return dataFrame?.columns ?? [];
+  }, [
+    dataFrame,
+    dataTable,
+    hasJoins,
+    joinedData,
+    axisColumnDisplayNames,
+    modelColumns,
+    sourceDataFrame,
+  ]);
+
+  const compiledInsightForValidation = useMemo(() => {
+    if (!compiledInsight) return undefined;
+
+    const fieldsById = new Map<string, Field>();
+    for (const field of dataTable?.fields ?? []) {
+      fieldsById.set(field.id, field);
+    }
+    for (const field of compiledInsight.dimensions) {
+      fieldsById.set(field.id, field);
+    }
+
+    return {
+      ...compiledInsight,
+      dimensions: [...fieldsById.values()],
+    };
+  }, [compiledInsight, dataTable?.fields]);
+
   // Include dataFrame check to prevent "Data not available" flash
   const isLoading =
     isVizLoading ||
@@ -402,14 +494,14 @@ export default function VisualizationPageContent({
     compiledInsight.metrics.forEach((metric) => {
       const sqlAlias = metricIdToColumnAlias(metric.id);
       options.push({
-        label: metric.name,
+        label: getMetricDisplayLabel(metric, dataTable?.fields),
         value: `metric:${metric.id}`,
         icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
       });
     });
 
     return options;
-  }, [compiledInsight, columnAnalysis]);
+  }, [compiledInsight, columnAnalysis, dataTable?.fields]);
 
   // Validate encoding configuration - returns errors for X/Y if invalid
   const encodingErrors = useMemo(() => {
@@ -418,9 +510,9 @@ export default function VisualizationPageContent({
       visualization.encoding ?? {},
       visualization.visualizationType,
       columnAnalysis,
-      compiledInsight ?? undefined,
+      compiledInsightForValidation,
     );
-  }, [visualization, columnAnalysis, compiledInsight]);
+  }, [visualization, columnAnalysis, compiledInsightForValidation]);
 
   // Check if there are any encoding errors
   const hasEncodingErrors = !!(encodingErrors.x || encodingErrors.y);
@@ -440,12 +532,88 @@ export default function VisualizationPageContent({
     return "nominal";
   };
 
+  const resolveEncodingAnalysisAlias = useCallback(
+    (value: string) => {
+      const parsed = parseEncoding(value);
+      if (parsed?.type === "field") return fieldIdToColumnAlias(parsed.id);
+      if (parsed?.type === "metric") return metricIdToColumnAlias(parsed.id);
+
+      const field = dataTable?.fields?.find(
+        (candidate) =>
+          candidate.name === value || candidate.columnName === value,
+      );
+      return field ? fieldIdToColumnAlias(field.id) : value;
+    },
+    [dataTable?.fields],
+  );
+
+  useEffect(() => {
+    if (!visualization || columnAnalysis.length === 0) return;
+
+    const nextEncoding: VisualizationEncoding = {
+      ...visualization.encoding,
+    };
+    let changed = false;
+
+    const clearInvalidDateTransform = (axis: "x" | "y") => {
+      const value = nextEncoding[axis];
+      const transformKey = axis === "x" ? "xTransform" : "yTransform";
+      if (!value || !nextEncoding[transformKey]) return;
+
+      const analysisAlias = resolveEncodingAnalysisAlias(value);
+      const semantic = columnAnalysis.find(
+        (column) => column.columnName === analysisAlias,
+      )?.semantic;
+      if (semantic && semantic !== "temporal") {
+        delete nextEncoding[transformKey];
+        changed = true;
+      }
+    };
+
+    clearInvalidDateTransform("x");
+    clearInvalidDateTransform("y");
+
+    if (changed) {
+      void updateEncoding(visualizationId as UUID, nextEncoding);
+    }
+  }, [
+    columnAnalysis,
+    resolveEncodingAnalysisAlias,
+    updateEncoding,
+    visualization,
+    visualizationId,
+  ]);
+
+  const applyAxisAnalysisToEncoding = useCallback(
+    (
+      newEncoding: VisualizationEncoding,
+      field: EncodingField,
+      value: string,
+    ) => {
+      if (!isAxisEncodingField(field)) return;
+
+      const sqlAlias = resolveEncodingAnalysisAlias(value);
+      const colAnalysis = sqlAlias
+        ? columnAnalysis.find((column) => column.columnName === sqlAlias)
+        : undefined;
+      if (!colAnalysis) return;
+
+      const typeField = field === "x" ? "xType" : "yType";
+      newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
+      if (colAnalysis.semantic === "temporal") return;
+
+      if (field === "x") {
+        delete newEncoding.xTransform;
+      } else {
+        delete newEncoding.yTransform;
+      }
+    },
+    [columnAnalysis, resolveEncodingAnalysisAlias],
+  );
+
   // Handle encoding change
   // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
-  const handleEncodingChange = async (
-    field: "x" | "y" | "color" | "size",
-    value: string,
-  ) => {
+  const handleEncodingChange = async (field: EncodingField, value: string) => {
     if (!visualization) return;
 
     const newEncoding: VisualizationEncoding = {
@@ -453,27 +621,7 @@ export default function VisualizationPageContent({
       [field]: value,
     };
 
-    // Auto-detect type if changing x or y
-    if (field === "x" || field === "y") {
-      // Convert storage encoding to SQL alias to find in columnAnalysis
-      const parsed = parseEncoding(value);
-      let sqlAlias: string | undefined;
-      if (parsed) {
-        sqlAlias =
-          parsed.type === "field"
-            ? fieldIdToColumnAlias(parsed.id)
-            : metricIdToColumnAlias(parsed.id);
-      }
-
-      const colAnalysis = sqlAlias
-        ? columnAnalysis.find((c) => c.columnName === sqlAlias)
-        : undefined;
-
-      if (colAnalysis) {
-        const typeField = field === "x" ? "xType" : "yType";
-        newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
-      }
-    }
+    applyAxisAnalysisToEncoding(newEncoding, field, value);
 
     await updateEncoding(visualizationId as UUID, newEncoding);
   };
@@ -517,7 +665,7 @@ export default function VisualizationPageContent({
   const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
       await removeVisualization(visualizationId as UUID);
-      router.push("/insights");
+      navigate({ to: "/insights" });
     }
   };
 
@@ -546,7 +694,7 @@ export default function VisualizationPageContent({
           </p>
           <Button
             label="Go to Insights"
-            onClick={() => router.push("/insights")}
+            onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
         </div>
@@ -565,7 +713,7 @@ export default function VisualizationPageContent({
                 label="Back"
                 variant="ghost"
                 size="sm"
-                onClick={() => router.back()}
+                onClick={() => window.history.back()}
                 icon={ArrowLeftIcon}
               />
               <h1 className="text-lg font-semibold">{visualization.name}</h1>
@@ -588,7 +736,9 @@ export default function VisualizationPageContent({
                 <Button
                   label="Go to Source Insight"
                   onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
+                    navigate({
+                      to: `/insights/${visualization.insightId}`,
+                    } as never)
                   }
                 />
               )}
@@ -703,7 +853,7 @@ export default function VisualizationPageContent({
               label="Back"
               variant="ghost"
               size="sm"
-              onClick={() => router.back()}
+              onClick={() => window.history.back()}
               icon={ArrowLeftIcon}
             />
             <div className="min-w-[220px] flex-1">
@@ -728,7 +878,9 @@ export default function VisualizationPageContent({
                 <span>•</span>
                 <button
                   onClick={() =>
-                    router.push(`/insights/${visualization.insightId}`)
+                    navigate({
+                      to: `/insights/${visualization.insightId}`,
+                    } as never)
                   }
                   className="text-palette-primary hover:underline"
                 >
@@ -767,6 +919,9 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
+                  availableFields={dataTable?.fields}
+                  availableColumns={axisSourceColumns}
+                  columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.y}
                   onSwapAxes={canSwap ? handleSwapAxes : undefined}
                 />
@@ -797,6 +952,9 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
+                  availableFields={dataTable?.fields}
+                  availableColumns={axisSourceColumns}
+                  columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.x}
                   onSwapAxes={canSwap ? handleSwapAxes : undefined}
                 />
@@ -885,7 +1043,9 @@ export default function VisualizationPageContent({
               <Card
                 className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
                 onClick={() =>
-                  router.push(`/insights/${visualization.insightId}`)
+                  navigate({
+                    to: `/insights/${visualization.insightId}`,
+                  } as never)
                 }
               >
                 <CardContent className="p-3">

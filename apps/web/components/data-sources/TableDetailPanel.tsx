@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
 import type { DataTable } from "@dashframe/types";

@@ -1,5 +1,3 @@
-"use client";
-
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   useDataFrames,

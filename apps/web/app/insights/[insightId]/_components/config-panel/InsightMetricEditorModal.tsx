@@ -1,5 +1,3 @@
-"use client";
-
 import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
 import {
   Button,

@@ -1,5 +1,3 @@
-"use client";
-
 import type { BaseConnector } from "@dashframe/engine";
 import { useForm } from "@tanstack/react-form";
 import { useCallback, useMemo, useState } from "react";

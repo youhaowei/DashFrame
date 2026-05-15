@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFrames, useDataSources, useDataTables } from "@dashframe/core";
 import { DeleteIcon, FileIcon } from "@stdui/icons";
 import { Button, EmptyState, Panel, cn } from "@stdui/react";

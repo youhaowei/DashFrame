@@ -1,5 +1,3 @@
-"use client";
-
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Section } from "@stdui/react";

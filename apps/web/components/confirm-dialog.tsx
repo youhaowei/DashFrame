@@ -1,5 +1,3 @@
-"use client";
-
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {
   Button,

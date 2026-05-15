@@ -1,5 +1,3 @@
-"use client";
-
 import { getConnectors } from "@/lib/connectors/registry";
 import type {
   FileSourceConnector,

@@ -1,5 +1,3 @@
-"use client";
-
 import { sanitizeSvg } from "@/lib/connectors/svg-sanitization";
 
 interface ConnectorIconProps {
