@@ -1,5 +1,3 @@
-"use client";
-
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionDatabase } from "@dashframe/connector-notion";
 import {
@@ -28,6 +26,8 @@ import {
 } from "@stdui/react";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+
+import { NOTION_ENABLED, NotionDeferredBanner } from "./NotionDeferredBanner";
 
 // Ticks once a minute on the client so relative-time strings refresh
 // without calling Date.now() during render.
@@ -287,6 +287,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     </CollapsibleSection>
   );
 
+  const isNotionDeferred = dataSource.type === "notion" && !NOTION_ENABLED;
+
   return (
     <Panel footer={actionsFooter}>
       {/* Name field at top */}
@@ -298,8 +300,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         />
       </div>
 
+      {isNotionDeferred && <NotionDeferredBanner />}
+
       {/* API Key for Notion */}
-      {dataSource.type === "notion" && (
+      {dataSource.type === "notion" && !isNotionDeferred && (
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
             <InputField
@@ -317,7 +321,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       )}
 
       {/* Data Tables section for Notion */}
-      {dataSource.type === "notion" && (
+      {dataSource.type === "notion" && !isNotionDeferred && (
         <Collapsible
           open={isDataTablesOpen}
           onOpenChange={setIsDataTablesOpen}

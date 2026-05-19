@@ -4,10 +4,6 @@
 /* Scan DashFrame UI package for Tailwind classes */
 @source "./**/*.{ts,tsx}";
 
-/* -- DashFrame-specific theme extensions --------------------------------- */
-
-@theme inline {
-  /* Geist font family (loaded by Next.js in layout.tsx) */
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* Fonts: stdui has no opinion on typography. Tailwind's defaults for
+ * `font-sans` (system-ui, -apple-system, ...) and `font-mono` (ui-monospace,
+ * SFMono-Regular, ...) apply automatically — no overrides needed. */

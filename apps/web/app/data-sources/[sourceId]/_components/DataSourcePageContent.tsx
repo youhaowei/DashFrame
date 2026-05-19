@@ -1,5 +1,3 @@
-"use client";
-
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
@@ -41,8 +39,7 @@ import {
   Input,
   ItemCard,
 } from "@stdui/react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 interface DataSourcePageContentProps {
@@ -75,7 +72,7 @@ function getSourceTypeIcon(type: string) {
 export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks
   const { data: allDataSources = [] } = useDataSources();
@@ -137,7 +134,10 @@ export default function DataSourcePageContent({
   const handleCreateInsight = (tableId: UUID) => {
     // Navigate to insights page with pre-selected table
     // The actual insight creation will happen there
-    router.push(`/insights?newInsight=true&tableId=${tableId}`);
+    navigate({
+      to: "/insights",
+      search: { newInsight: "true", tableId },
+    } as never);
   };
 
   // Handle delete table
@@ -188,7 +188,7 @@ export default function DataSourcePageContent({
           </p>
           <Button
             label="Go to Data Sources"
-            onClick={() => router.push("/data-sources")}
+            onClick={() => navigate({ to: "/data-sources" })}
             className="mt-4"
           />
         </div>
@@ -212,9 +212,9 @@ export default function DataSourcePageContent({
                         Back
                       </span>
                     ),
-                    href: "/data-sources",
+                    to: "/data-sources",
                   },
-                  { label: "Data Sources", href: "/data-sources" },
+                  { label: "Data Sources", to: "/data-sources" },
                   { label: sourceName || "Untitled Source" },
                 ]}
               />

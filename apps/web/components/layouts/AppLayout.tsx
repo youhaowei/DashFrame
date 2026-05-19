@@ -1,6 +1,6 @@
 import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
 import { cn } from "@stdui/react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 export interface AppLayoutProps {
@@ -36,7 +36,7 @@ export interface AppLayoutProps {
  * ```tsx
  * <AppLayout
  *   breadcrumbs={[
- *     { label: "Insights", href: "/insights" },
+ *     { label: "Insights", to: "/insights" },
  *     { label: "My Insight" },
  *   ]}
  *   leftPanel={<Controls />}

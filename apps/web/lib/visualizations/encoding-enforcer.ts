@@ -18,6 +18,7 @@
  */
 
 import {
+  metricIdToColumnAlias,
   resolveForAnalysis,
   type EncodingResolutionContext,
 } from "@dashframe/engine";
@@ -71,6 +72,7 @@ const BLOCKED_SEMANTICS = new Set([
  */
 function isBlockedSemantic(col: ColumnAnalysis): boolean {
   if (BLOCKED_SEMANTICS.has(col.semantic)) return true;
+  if (/^(field|metric)_/.test(col.columnName)) return false;
   if (looksLikeIdentifier(col.columnName)) return true;
   return false;
 }
@@ -602,8 +604,7 @@ export function getValidColumnsForChannel(
   const metricsAllowed = isMetricAllowedOnChannel(channel, chartType);
   if (metricsAllowed && compiledInsight?.metrics) {
     for (const metric of compiledInsight.metrics) {
-      // Use metric name as the column name (will be resolved to SQL expression later)
-      validColumns.push(metric.name);
+      validColumns.push(metricIdToColumnAlias(metric.id));
     }
   }
 

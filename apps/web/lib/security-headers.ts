@@ -51,9 +51,11 @@
  *   },
  * };
  */
-export function getSecurityHeaders() {
+export function getSecurityHeaders(
+  env: Record<string, string | undefined> = process.env,
+) {
   // Check if we're in development mode for environment-specific CSP rules
-  const isDevelopment = process.env.NODE_ENV === "development";
+  const isDevelopment = env.NODE_ENV === "development";
 
   /**
    * PostHog Analytics Host Configuration
@@ -74,7 +76,7 @@ export function getSecurityHeaders() {
    *
    * @see {@link https://posthog.com/docs/libraries/js PostHog JavaScript Documentation}
    */
-  const customPostHogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
+  const customPostHogHost = env.NEXT_PUBLIC_POSTHOG_HOST;
   const postHogHosts = [
     // Wildcard patterns for PostHog SaaS domains
     "https://*.posthog.com",

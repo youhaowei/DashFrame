@@ -4,3 +4,8 @@ name = "DashFrame"
 
 [setup]
 script = "bun install"
+
+[[actions]]
+name = "Preview Web"
+icon = "run"
+command = "bun run --cwd apps/web dev"

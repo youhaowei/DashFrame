@@ -1,5 +1,3 @@
-"use client";
-
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
   useDataSourceMutations,
@@ -29,7 +27,7 @@ import {
   DropdownMenuTrigger,
   Input,
 } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 // Type for data source with table count
@@ -45,7 +43,7 @@ type DataSourceWithTables = {
  * Click a data source to see its tables and details.
  */
 export default function DataSourcesPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Dexie hooks
   const { data: dataSources = [], isLoading } = useDataSources();
@@ -126,7 +124,9 @@ export default function DataSourcesPage() {
     <Card
       key={item.dataSource.id}
       className="group cursor-pointer transition-shadow hover:shadow-md"
-      onClick={() => router.push(`/data-sources/${item.dataSource.id}`)}
+      onClick={() =>
+        navigate({ to: `/data-sources/${item.dataSource.id}` } as never)
+      }
     >
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
@@ -176,7 +176,9 @@ export default function DataSourcesPage() {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  router.push(`/data-sources/${item.dataSource.id}`);
+                  navigate({
+                    to: `/data-sources/${item.dataSource.id}`,
+                  } as never);
                 }}
               >
                 <ExternalLinkIcon className="mr-2 h-4 w-4" />

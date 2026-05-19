@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";

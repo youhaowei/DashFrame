@@ -1,5 +1,3 @@
-"use client";
-
 import type { Field, Metric } from "@dashframe/types";
 import {
   Button,

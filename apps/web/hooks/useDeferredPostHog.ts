@@ -1,5 +1,3 @@
-"use client";
-
 import { usePostHogContext } from "@/components/providers/PostHogProvider";
 import { queueCapture, queueIdentify } from "@/lib/posthog/event-queue";
 import { useCallback } from "react";

@@ -1,8 +1,6 @@
-"use client";
-
 import { ArrowRightIcon, type LucideIcon } from "@stdui/icons";
 import { Button, ItemList, type ListItem } from "@stdui/react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 
 export interface DashboardSectionProps {
   /** Section title displayed in header */
@@ -36,7 +34,7 @@ export function DashboardSection({
   gap = 12,
   hideWhenEmpty = true,
 }: DashboardSectionProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   if (hideWhenEmpty && items.length === 0) return null;
 
@@ -52,7 +50,7 @@ export function DashboardSection({
           size="sm"
           icon={ArrowRightIcon}
           label="View all"
-          onClick={() => router.push(viewAllHref)}
+          onClick={() => navigate({ to: viewAllHref } as never)}
         />
       </div>
       <ItemList

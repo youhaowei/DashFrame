@@ -1,5 +1,3 @@
-"use client";
-
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@stdui/icons";
 import {

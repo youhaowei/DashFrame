@@ -1,5 +1,3 @@
-"use client";
-
 import { clearInsightViewCache } from "@/hooks/useInsightView";
 import { initializeDuckDB } from "@/lib/duckdb/init";
 import { clearAllTableCaches } from "@dashframe/engine-browser";

@@ -1,5 +1,3 @@
-"use client";
-
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import {
   getColumnWarning,
@@ -11,14 +9,22 @@ import {
   getValidColumnsForChannel,
   isColumnValidForChannel,
 } from "@/lib/visualizations/encoding-enforcer";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import {
+  extractUUIDFromColumnAlias,
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  isGeneratedColumnLabel,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   CompiledInsight,
+  DataFrameColumn,
+  Field,
   UUID,
   VisualizationType,
 } from "@dashframe/types";
-import { fieldEncoding, metricEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding, parseEncoding } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { AlertCircleIcon, ArrowUpDownIcon } from "@stdui/icons";
 import {
@@ -50,6 +56,12 @@ interface AxisSelectFieldProps {
   columnAnalysis: ColumnAnalysis[];
   /** Compiled insight with resolved dimensions and metrics */
   compiledInsight: CompiledInsight;
+  /** Available fields for display labels, including metric source columns */
+  availableFields?: Field[];
+  /** Raw data frame columns used when the insight has no selected dimensions */
+  availableColumns?: DataFrameColumn[];
+  /** Display labels keyed by generated SQL column alias */
+  columnDisplayNames?: Record<string, string>;
   /** The column selected for the other axis - used to detect same-column warnings */
   otherAxisColumn?: string;
   /** Callback to swap X and Y axis values - shown when selecting the other axis's column */
@@ -80,42 +92,156 @@ export function AxisSelectField({
   chartType,
   columnAnalysis,
   compiledInsight,
+  availableFields,
+  availableColumns,
+  columnDisplayNames,
   otherAxisColumn,
   onSwapAxes,
 }: AxisSelectFieldProps) {
+  const selectableFields = useMemo(() => {
+    const fieldsById = new Map<string, Field>();
+    for (const field of availableFields ?? []) {
+      fieldsById.set(field.id, field);
+    }
+    for (const field of compiledInsight.dimensions) {
+      fieldsById.set(field.id, field);
+    }
+    return [...fieldsById.values()];
+  }, [availableFields, compiledInsight.dimensions]);
+
+  const effectiveCompiledInsight = useMemo(
+    () => ({
+      ...compiledInsight,
+      dimensions: selectableFields,
+    }),
+    [compiledInsight, selectableFields],
+  );
+
   // Compute all available column options from compiled insight
   // Values use encoding format (field:<uuid>, metric:<uuid>) for storage
   const allOptions = useMemo(() => {
     const options: Array<{ label: string; value: string }> = [];
+    const addOption = (option: { label: string; value: string }) => {
+      const existing = options.find(
+        (current) => current.value === option.value,
+      );
+      if (!existing) {
+        options.push(option);
+        return;
+      }
+
+      if (
+        isGeneratedColumnLabel(existing.label) &&
+        !isGeneratedColumnLabel(option.label)
+      ) {
+        existing.label = option.label;
+      }
+    };
 
     // Add dimensions (resolved Field objects)
     // Use field:<uuid> encoding format for value
-    compiledInsight.dimensions.forEach((field) => {
-      options.push({
-        label: field.name,
+    selectableFields.forEach((field) => {
+      const alias = fieldIdToColumnAlias(field.id);
+      const displayLabel = columnDisplayNames?.[alias] ?? field.name;
+      addOption({
+        label: displayLabel,
         value: fieldEncoding(field.id as UUID),
       });
     });
 
     // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
-      options.push({
-        label: metric.name,
+      addOption({
+        label: getMetricDisplayLabel(metric, selectableFields),
         value: metricEncoding(metric.id as UUID),
       });
     });
 
+    // Resolve labels via stable identifiers only. columnAnalysis,
+    // selectableFields, and availableColumns come from different pipelines
+    // (DuckDB view analysis vs. compiled insight vs. raw data frame) and are
+    // NOT guaranteed to share an order — joins and hidden columns can shift
+    // the alignment. Match by fieldId; if that fails, surface the generated
+    // alias rather than guessing positionally.
+    columnAnalysis.forEach((column) => {
+      const fieldId =
+        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
+      const matchedField = fieldId
+        ? selectableFields.find((field) => field.id === fieldId)
+        : undefined;
+      const mappedLabel = columnDisplayNames?.[column.columnName];
+      const value = matchedField
+        ? fieldEncoding(matchedField.id as UUID)
+        : column.columnName;
+      let labelToDisplay = column.columnName;
+      if (matchedField?.name && !isGeneratedColumnLabel(matchedField.name)) {
+        labelToDisplay = matchedField.name;
+      }
+      if (mappedLabel && !isGeneratedColumnLabel(mappedLabel)) {
+        labelToDisplay = mappedLabel;
+      }
+      addOption({
+        label: labelToDisplay,
+        value,
+      });
+    });
+
+    // If analysis is not ready, keep the axis picker usable by exposing raw
+    // data frame columns. Rendering maps these labels back to generated SQL
+    // aliases when possible.
+    for (const column of availableColumns ?? []) {
+      addOption({
+        label: column.name,
+        value: column.name,
+      });
+    }
+
     return options;
-  }, [compiledInsight]);
+  }, [
+    availableColumns,
+    columnAnalysis,
+    columnDisplayNames,
+    compiledInsight,
+    selectableFields,
+  ]);
 
   // Build mapping from storage encoding (field:<uuid>) to SQL alias (field_<uuid>)
   // This allows us to work with columnAnalysis which uses SQL alias format
   const encodingToSqlAlias = useMemo(() => {
     const map = new Map<string, string>();
-    compiledInsight.dimensions.forEach((field) => {
+    selectableFields.forEach((field) => {
       const enc = fieldEncoding(field.id as UUID);
       const alias = fieldIdToColumnAlias(field.id);
       map.set(enc, alias);
+    });
+    for (const column of columnAnalysis) {
+      const fieldId =
+        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
+      const matchedField = fieldId
+        ? selectableFields.find((field) => field.id === fieldId)
+        : undefined;
+      if (matchedField) {
+        map.set(fieldEncoding(matchedField.id as UUID), column.columnName);
+      } else {
+        map.set(column.columnName, column.columnName);
+      }
+    }
+    // Bridge raw data-frame column names to their generated SQL aliases via
+    // a stable identifier (the field's underlying columnName), not array
+    // position. Positional pairing breaks when joins or hidden columns
+    // reorder one pipeline relative to the other.
+    (availableColumns ?? []).forEach((column) => {
+      const matchedField = selectableFields.find(
+        (field) =>
+          field.columnName === column.name || field.name === column.name,
+      );
+      const analyzedColumn = matchedField
+        ? columnAnalysis.find((c) => {
+            const fid = c.fieldId ?? extractUUIDFromColumnAlias(c.columnName);
+            return fid === matchedField.id;
+          })?.columnName
+        : undefined;
+      map.set(column.name, analyzedColumn ?? column.name);
     });
     compiledInsight.metrics.forEach((metric) => {
       const enc = metricEncoding(metric.id as UUID);
@@ -123,13 +249,18 @@ export function AxisSelectField({
       map.set(enc, alias);
     });
     return map;
-  }, [compiledInsight]);
+  }, [
+    availableColumns,
+    columnAnalysis,
+    compiledInsight.metrics,
+    selectableFields,
+  ]);
 
   // Reverse mapping: SQL alias to storage encoding
   const sqlAliasToEncoding = useMemo(() => {
     const map = new Map<string, string>();
     for (const [enc, alias] of encodingToSqlAlias.entries()) {
-      map.set(alias, enc);
+      map.set(alias, map.get(alias) ?? enc);
     }
     return map;
   }, [encodingToSqlAlias]);
@@ -139,7 +270,7 @@ export function AxisSelectField({
   const toSqlAlias = useCallback(
     (encodingValue: string | undefined): string | undefined => {
       if (!encodingValue) return undefined;
-      return encodingToSqlAlias.get(encodingValue);
+      return encodingToSqlAlias.get(encodingValue) ?? encodingValue;
     },
     [encodingToSqlAlias],
   );
@@ -191,7 +322,7 @@ export function AxisSelectField({
       axis,
       chartType,
       columnAnalysis,
-      compiledInsight,
+      effectiveCompiledInsight,
     );
     const validAliasSet = new Set(validColumnAliases);
 
@@ -201,10 +332,42 @@ export function AxisSelectField({
       return alias && validAliasSet.has(alias);
     });
 
+    const validOptionsAreOnlyMetrics =
+      validOptions.length > 0 &&
+      validOptions.every((opt) => parseEncoding(opt.value)?.type === "metric");
+    const shouldUseDimensionFallback =
+      axis === "x" &&
+      (chartType === "line" || chartType === "areaY") &&
+      validOptionsAreOnlyMetrics;
+    const optionsForRanking =
+      validOptions.length > 0 && !shouldUseDimensionFallback
+        ? validOptions
+        : allOptions;
+
     // Get SQL aliases for ranking
-    const validAliases = validOptions
-      .map((opt) => toSqlAlias(opt.value))
-      .filter((a): a is string => !!a);
+    const validAliases = Array.from(
+      new Set(
+        (shouldUseDimensionFallback ? [] : validOptions)
+          .map((opt) => toSqlAlias(opt.value))
+          .filter((a): a is string => !!a),
+      ),
+    );
+
+    if (validAliases.length === 0) {
+      return optionsForRanking.map((opt) => {
+        const sqlAlias = toSqlAlias(opt.value);
+        return {
+          label: opt.label,
+          value: opt.value,
+          description: undefined,
+          icon: getColumnIcon(
+            sqlAlias ?? opt.value,
+            columnAnalysis,
+            metricAliases,
+          ),
+        };
+      });
+    }
 
     // Rank the valid options using SQL aliases
     const ranked = getRankedColumnOptions(
@@ -266,7 +429,7 @@ export function AxisSelectField({
     axis,
     chartType,
     columnAnalysis,
-    compiledInsight,
+    effectiveCompiledInsight,
     metricAliases,
     onSwapAxes,
     otherAxisAlias,
@@ -284,10 +447,10 @@ export function AxisSelectField({
       axis,
       chartType,
       columnAnalysis,
-      compiledInsight,
+      effectiveCompiledInsight,
     );
     return result.suitable ? null : result.reason;
-  }, [value, axis, chartType, columnAnalysis, compiledInsight]);
+  }, [value, axis, chartType, columnAnalysis, effectiveCompiledInsight]);
 
   // Check if current value is same as other axis (for swap action)
   const isSameAsOtherAxis =

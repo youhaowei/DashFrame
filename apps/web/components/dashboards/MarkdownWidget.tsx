@@ -1,5 +1,3 @@
-"use client";
-
 import { CheckIcon, CloseIcon } from "@stdui/icons";
 import { Button, cn } from "@stdui/react";
 import { useState } from "react";

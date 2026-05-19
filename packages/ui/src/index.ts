@@ -70,10 +70,6 @@ export {
   type UseContainerDimensionsOptions,
 } from "./hooks/useContainerDimensions";
 
-// -- Fonts --
-
-export { GeistMono, GeistSans } from "./lib/fonts";
-
 // -- Field wrappers (primitives + Field component, not in stdui) --
 
 export { Input as InputField } from "./fields/input";

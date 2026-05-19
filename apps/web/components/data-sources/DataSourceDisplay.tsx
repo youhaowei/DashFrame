@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { trpc } from "@/lib/trpc/Provider";
 import type { NotionProperty } from "@dashframe/connector-notion";
@@ -41,6 +39,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
+
+import { NOTION_ENABLED, NotionDeferredBanner } from "./NotionDeferredBanner";
 
 interface DataSourceDisplayProps {
   dataSourceId: string | null;
@@ -300,6 +300,12 @@ function LocalDataSourceView({
   );
 }
 
+// Dispatches per data-source type (local / notion / file) with branch-y
+// guards on selection, loading, empty states. The branch count exceeds
+// sonar's default budget by design; extracting per-type subviews is the
+// real cleanup (tracked: Deprecate-Next ticket touches this when app/
+// pages move into src/routes/).
+// eslint-disable-next-line sonarjs/cognitive-complexity
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [selectedDataTableId, setSelectedDataTableId] = useState<string | null>(
     null,
@@ -348,6 +354,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   useEffect(() => {
     const fetchSchema = async () => {
       if (
+        !NOTION_ENABLED ||
         !selectedDataTable ||
         !dataSource ||
         dataSource.type !== "notion" ||
@@ -535,7 +542,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  // For Notion sources, show DataTables
+  // For Notion sources, show DataTables (or a deferred banner — see
+  // NotionDeferredBanner — while the integration moves off web tRPC).
+  const showNotionBanner = dataSource.type === "notion" && !NOTION_ENABLED;
+  if (showNotionBanner) return <NotionDeferredBanner />;
+
   if (dataSource.type === "notion") {
     const hasDataTables = dataTables.length > 0;
 

@@ -92,9 +92,9 @@ describe("encoding-resolution", () => {
       expect(result).toBeUndefined();
     });
 
-    it("should return undefined for invalid encoding format", () => {
+    it("should pass through raw analyzed column names", () => {
       const result = resolveToSql("sum(revenue)", context);
-      expect(result).toBeUndefined();
+      expect(result).toBe("sum(revenue)");
     });
 
     it("should return undefined for non-existent field ID", () => {
@@ -156,10 +156,11 @@ describe("encoding-resolution", () => {
       });
     });
 
-    it("should return valid=false for invalid encoding format", () => {
+    it("should treat raw analyzed column names as valid fields", () => {
       const result = resolveForAnalysis("sum(revenue)", context);
-      expect(result.valid).toBe(false);
+      expect(result.valid).toBe(true);
       expect(result.isMetric).toBe(false);
+      expect(result.columnName).toBe("sum(revenue)");
     });
 
     it("should return valid=false for undefined input", () => {

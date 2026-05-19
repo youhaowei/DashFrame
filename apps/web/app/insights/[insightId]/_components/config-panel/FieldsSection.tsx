@@ -1,5 +1,3 @@
-"use client";
-
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {

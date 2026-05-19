@@ -259,11 +259,16 @@ export function SortableList<T extends SortableListItem>({
   // Render icon - handles both LucideIcon components and React nodes
   const renderIcon = (icon: ListItem["icon"]) => {
     if (!icon) return null;
+    if (React.isValidElement(icon)) return icon;
 
-    // If it's a component (LucideIcon), render it
-    if (typeof icon === "function") {
-      const Icon = icon as LucideIcon;
-      return <Icon className="h-4 w-4" />;
+    // Lucide icons can be function components or forwardRef component objects.
+    if (
+      typeof icon === "function" ||
+      (typeof icon === "object" && "$$typeof" in icon)
+    ) {
+      return React.createElement(icon as React.ElementType, {
+        className: "h-4 w-4",
+      });
     }
 
     // Otherwise it's already a React node

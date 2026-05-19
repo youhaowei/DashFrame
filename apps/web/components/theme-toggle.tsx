@@ -1,5 +1,3 @@
-"use client";
-
 import { DarkModeIcon, LightModeIcon } from "@stdui/icons";
 import {
   Button,

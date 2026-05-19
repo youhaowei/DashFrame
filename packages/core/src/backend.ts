@@ -5,14 +5,14 @@
  * that gets aliased at build time to the chosen storage implementation.
  *
  * The alias is configured in:
- * - apps/web/next.config.mjs (webpack alias)
+ * - apps/web/vite.config.ts (Vite alias)
  *
- * Storage selection is controlled by NEXT_PUBLIC_DATA_BACKEND env var:
+ * Storage selection is controlled by the NEXT_PUBLIC_STORAGE_IMPL env var:
  * - "dexie" (default) → @dashframe/core-dexie
  * - "custom" → @dashframe/core-custom
  *
  * TypeScript sees hook declarations from @dashframe/core-dexie (via types.d.ts).
- * Webpack replaces the runtime implementation based on the env var.
+ * Vite replaces the runtime implementation based on the env var.
  * Only the selected storage implementation is bundled; others are tree-shaken away.
  */
 

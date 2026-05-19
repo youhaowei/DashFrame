@@ -28,16 +28,14 @@ vi.mock("@dashframe/core", () => ({
   getInsight: mockGetInsight,
 }));
 
-const { mockPush, mockRouter } = vi.hoisted(() => {
+const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();
-  return {
-    mockPush: push,
-    mockRouter: { push },
-  };
+  const navigate = (opts: { to: string }) => push(opts.to);
+  return { mockPush: push, mockNavigate: navigate };
 });
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => mockRouter,
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
 }));
 
 /**

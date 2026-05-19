@@ -1,5 +1,3 @@
-"use client";
-
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
