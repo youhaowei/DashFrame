@@ -51,12 +51,20 @@ export {
   BaseConnector,
   FileSourceConnector,
   RemoteApiConnector,
+  createFieldsFromColumns,
+  createSourceSchema,
+  detectPrimaryKeyColumn,
+  inferStringColumnType,
   isFileConnector,
   isRemoteApiConnector,
+  parsePrimitiveBoolean,
+  parsePrimitiveValueByType,
+  parseStringValueByType,
 } from "./connector";
 
 export type {
   AnyConnector,
+  ConnectorColumn,
   ConnectorQueryResult,
   FileParseResult,
   FormField,
@@ -64,6 +72,7 @@ export type {
   QueryOptions,
   RemoteDatabase,
   SourceType,
+  SystemFieldInput,
   ValidationResult,
 } from "./connector";
 
