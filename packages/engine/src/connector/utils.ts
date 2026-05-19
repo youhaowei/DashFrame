@@ -26,8 +26,6 @@ export function inferStringColumnType(value: string | undefined): ColumnType {
   if (
     normalized === "true" ||
     normalized === "false" ||
-    normalized === "1" ||
-    normalized === "0" ||
     normalized === "yes" ||
     normalized === "no" ||
     normalized === "y" ||
