@@ -26,6 +26,10 @@ export {
   browserDataFrameFactory,
 } from "./dataframe";
 
+export { createArrowIPCBufferFromRows } from "./arrow";
+
+export type { ArrowColumn } from "./arrow";
+
 // ============================================================================
 // Storage Implementation
 // ============================================================================
