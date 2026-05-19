@@ -103,6 +103,17 @@ export default defineConfig(({ mode }) => {
   const env = { ...process.env, ...loadEnv(mode, __dirname, "") };
   const storageImpl = env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
 
+  // Resolve PORT once: portless injects it, Claude Preview sets it too.
+  // Validate to a usable TCP port (1–65535) so the dev server config and
+  // the client-injected `process.env.PORT` never disagree — a raw `"0"`,
+  // non-numeric, or out-of-range value would otherwise leave them split.
+  // Falls back to 3000 for a plain `vite` invocation.
+  const rawPort = Number(env.PORT);
+  const port =
+    Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535
+      ? rawPort
+      : 3000;
+
   return {
     plugins: [
       tanstackRouter({
@@ -132,10 +143,10 @@ export default defineConfig(({ mode }) => {
         env.NEXT_PUBLIC_POSTHOG_HOST ?? "",
       ),
       "process.env.NEXT_PUBLIC_STORAGE_IMPL": JSON.stringify(storageImpl),
-      "process.env.PORT": JSON.stringify(env.PORT ?? "3000"),
+      "process.env.PORT": JSON.stringify(String(port)),
     },
     server: {
-      port: 3000,
+      port,
       strictPort: false,
     },
     build: {

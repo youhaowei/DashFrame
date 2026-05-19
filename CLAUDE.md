@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **This project uses Bun** as the package manager and runtime. Use `bun` instead of `npm`, `yarn`, or `pnpm`.
 
-| Task           | Command                             |
-| -------------- | ----------------------------------- |
-| Validate all   | `bun check`                         |
-| Run unit tests | `bun run test`                      |
-| Run E2E tests  | `cd e2e/web && bun run test:e2e`    |
-| Filter package | `bun check --filter @dashframe/web` |
-| Storybook      | `bun storybook`                     |
+| Task            | Command                             |
+| --------------- | ----------------------------------- |
+| Validate all    | `bun check`                         |
+| Run unit tests  | `bun run test`                      |
+| Run E2E tests   | `cd e2e/web && bun run test:e2e`    |
+| Run desktop app | `bun run dev:desktop`               |
+| Filter package  | `bun check --filter @dashframe/web` |
+| Storybook       | `bun storybook`                     |
 
 **⚠️ NEVER run `bun build` or `bun dev` unless explicitly requested.** User manages their own dev environment.
 
@@ -41,7 +42,7 @@ bun check --filter @dashframe/web  # Target specific package
 - **Functional utilities**: For data conversion and transformation or utilities, prefer pure functions over classes for simplicity and testability.
 - **OOP Design**: Use classes and inheritance when make sense for entities with behavior, for encapsulation and code organization.
 - **Entity hierarchy**: DataSource → Insight → DataFrame → Visualization
-- **tRPC for APIs**: Server-side proxy to avoid CORS issues
+- **tRPC for APIs**: Server-side proxy to avoid CORS issues (web app only — the desktop app uses Electron IPC)
 
 ### Backend Plugin System
 
@@ -58,7 +59,7 @@ NEXT_PUBLIC_STORAGE_IMPL=custom
 **How it works**:
 
 1. `@dashframe/core/backend.ts` exports from stub package `@dashframe/core-store`
-2. Webpack aliases `@dashframe/core-store` → `@dashframe/core-${NEXT_PUBLIC_STORAGE_IMPL}`
+2. Vite aliases `@dashframe/core-store` → `@dashframe/core-${NEXT_PUBLIC_STORAGE_IMPL}` (configured in `apps/web/vite.config.ts`)
 3. TypeScript resolves `@dashframe/core-store` as a normal workspace package (no path aliases needed)
 4. Only the selected backend is bundled; unused backends are tree-shaken away
 
@@ -80,6 +81,24 @@ See `docs/backend-architecture.md` for full details on creating custom backends.
 3. Extend `apps/web/lib/stores/` (types + actions)
 4. Update the data sources UI components in `apps/web/components/data-sources/`
 
+## Desktop App (Electron)
+
+The desktop app is the primary surface (v0.2 reboot). Three-process model:
+
+- **Main** (`apps/desktop/src/main.ts`) — Node.js process. Owns the filesystem and project DB lifecycle via `@dashframe/server-core`. Registers `ipcMain` handlers.
+- **Preload** (`apps/desktop/src/preload.ts`) — context-isolated bridge. Exposes a narrow `window.dashframe` API; no direct DB or filesystem access.
+- **Renderer** (`apps/renderer/`) — React + Vite + TanStack Router UI. No Node.js access; reaches the main process only through `window.dashframe`.
+
+**IPC contract**: `@dashframe/desktop-types` defines the `DashFrameApi` interface shared by preload and renderer. Add a new IPC call there first, then implement it in both `main.ts` (handler) and `preload.ts` (bridge).
+
+**Boundary rule**: `contextIsolation: true`, `nodeIntegration: false`. The renderer **cannot** import `@dashframe/server-core` — it is bundled into the main process only.
+
+**Project storage**: `server-core` uses PGLite + Drizzle. `openProject()` initializes the artifact DB at `~/.DashFrame/<name>/artifacts.db`.
+
+**Dev**: `bun run dev:desktop` runs `apps/desktop/scripts/dev.mjs` — builds `server-core`, bundles main + preload (esbuild), starts the renderer Vite server, then launches Electron with `DEV_URL`.
+
+**Build**: esbuild — `main.ts` → ESM, `preload.ts` → CJS.
+
 ## tRPC for External APIs
 
 **Why**: External APIs (like Notion) block direct browser requests with CORS.
@@ -93,22 +112,33 @@ See `docs/backend-architecture.md` for full details on creating custom backends.
 ## Monorepo Structure
 
 ```
-apps/web/                  # Next.js 16 (App Router)
+apps/
+  desktop/                 # Electron main + preload (project lifecycle, IPC, windowing)
+  renderer/                # Electron renderer UI — React + Vite + TanStack Router
+  server/                  # Headless CLI stub (`dashframe serve`, v0.2 — not yet implemented)
+  web/                     # Standalone web SPA — Vite + TanStack Router
 libs/
   stdui/                   # Git submodule → github.com/youhaowei/stdui.git
                            # Design system: primitives, tokens, theme provider
 packages/
   types/                   # Pure type contracts (zero deps)
-  core/                    # Backend selector (env-based)
-  core-dexie/              # Dexie/IndexedDB backend
-  engine/                  # Abstract engine interfaces
-  engine-browser/          # DuckDB-WASM + IndexedDB
-  connector-csv/           # CSV file connector
+  core/                    # Backend selector (env-aliased)
+  core-store/              # Stub package for backend type resolution
+  core-dexie/              # Dexie/IndexedDB backend (default)
+  server-core/             # Project + artifact DB lifecycle (PGLite + Drizzle)
+  desktop-types/           # IPC contract shared by preload + renderer
+  engine/                  # Abstract query engine interfaces
+  engine-browser/          # DuckDB-WASM + IndexedDB engine
   connector-notion/        # Notion API connector
+  connector-local/         # Local file connector
+  csv/                     # CSV connector
+  json/                    # JSON → Arrow transform
   visualization/           # Vega-Lite chart rendering
-  ui/                      # DashFrame-specific components only (VirtualTable,
+  ui/                      # DashFrame-specific components (VirtualTable,
                            #   SortableList, Breadcrumb, ItemSelector, chart-icons)
                            # Includes Storybook for component development
+  transport/               # Reserved (empty) — future renderer↔server transport
+  app/                     # Reserved (empty)
   eslint-config/           # Shared ESLint 9 flat config
 ```
 
@@ -166,17 +196,9 @@ If any submodule has uncommitted changes, commit and push them first (step 1 abo
 import { useDataSources, useDataSourceMutations } from "@dashframe/core";
 ```
 
-This keeps components backend-agnostic. The backend implementation is selected via `NEXT_PUBLIC_DATA_BACKEND` env var.
+This keeps components backend-agnostic. The backend implementation is selected via the `NEXT_PUBLIC_STORAGE_IMPL` env var.
 
 ## Critical Gotchas
-
-### Vega-Lite SSR
-
-**Must** dynamically import VegaChart with `ssr: false` - Vega-Lite uses Set objects that can't be serialized during Next.js SSR.
-
-```typescript
-const VegaChart = dynamic(() => import("./VegaChart"), { ssr: false });
-```
 
 ### Naming Conventions
 
@@ -205,8 +227,8 @@ All tRPC endpoints calling external APIs use rate limiting. Use `rateLimitedProc
 ### When Modifying Packages
 
 1. Make changes in `packages/*/src/`
-2. TypeScript watch mode auto-compiles (if `bun dev` running)
-3. Next.js hot reload picks up changes immediately
+2. TypeScript watch mode auto-compiles (if a dev server is running)
+3. Vite HMR picks up changes immediately
 4. No manual rebuild needed
 
 ### When Adding Features
@@ -278,8 +300,8 @@ vi.mock("@dashframe/core", () => ({
   useInsightMutations: () => ({ create: vi.fn() }),
 }));
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
 }));
 ```
 
