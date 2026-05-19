@@ -74,7 +74,12 @@ export function parsePrimitiveBoolean(
   if (typeof raw === "boolean") return raw;
   if (typeof raw === "string") {
     const normalized = raw.toLowerCase().trim();
-    return normalized === "true" || normalized === "1";
+    return (
+      normalized === "true" ||
+      normalized === "1" ||
+      normalized === "yes" ||
+      normalized === "y"
+    );
   }
   return typeof raw === "number" && raw === 1;
 }
