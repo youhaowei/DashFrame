@@ -22,7 +22,19 @@ export type SystemFieldInput = {
 export function inferStringColumnType(value: string | undefined): ColumnType {
   if (!value?.length) return "unknown";
   if (!Number.isNaN(Number(value))) return "number";
-  if (value === "true" || value === "false") return "boolean";
+  const normalized = value.toLowerCase().trim();
+  if (
+    normalized === "true" ||
+    normalized === "false" ||
+    normalized === "1" ||
+    normalized === "0" ||
+    normalized === "yes" ||
+    normalized === "no" ||
+    normalized === "y" ||
+    normalized === "n"
+  ) {
+    return "boolean";
+  }
   const date = Date.parse(value);
   if (!Number.isNaN(date)) return "date";
   return "string";
@@ -41,8 +53,14 @@ export function parseStringValueByType(
       const numeric = Number(raw);
       return Number.isNaN(numeric) ? null : numeric;
     }
-    case "boolean":
-      return raw === "true";
+    case "boolean": {
+      const normalized = raw.toLowerCase().trim();
+      if (normalized === "true" || normalized === "1") return true;
+      if (normalized === "false" || normalized === "0") return false;
+      if (normalized === "yes" || normalized === "y") return true;
+      if (normalized === "no" || normalized === "n") return false;
+      return null;
+    }
     case "date": {
       const date = new Date(raw);
       return Number.isNaN(date.getTime()) ? null : date;
@@ -93,7 +111,9 @@ export function parsePrimitiveValueByType(
   }
 }
 
-export function detectPrimaryKeyColumn(columns: { name: string }[]): string | undefined {
+export function detectPrimaryKeyColumn(
+  columns: { name: string }[],
+): string | undefined {
   return columns.find((col) => /^_?id$/i.test(col.name))?.name;
 }
 

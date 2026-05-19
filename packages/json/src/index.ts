@@ -178,15 +178,8 @@ export async function jsonToDataFrame(
     return row;
   });
 
-  // Build source schema
-  const columns = userColumns.map((col) => ({
-    name: col.name,
-    type: col.type,
-  }));
-
-  const sourceSchema: SourceSchema = createSourceSchema(columns);
-
-  const fields: Field[] = createFieldsFromColumns(columns, dataTableId);
+  const sourceSchema: SourceSchema = createSourceSchema(userColumns);
+  const fields: Field[] = createFieldsFromColumns(userColumns, dataTableId);
   const ipcBuffer = createArrowIPCBufferFromRows(rows, userColumns);
 
   // Step 8: Create DataFrame with IndexedDB storage
