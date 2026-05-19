@@ -135,7 +135,9 @@ export default defineConfig(({ mode }) => {
       "process.env.PORT": JSON.stringify(env.PORT ?? "3000"),
     },
     server: {
-      port: 3000,
+      // Honor PORT when set (portless injects it; Claude Preview sets it
+      // too). Falls back to 3000 for a plain `vite` invocation.
+      port: Number(env.PORT) || 3000,
       strictPort: false,
     },
     build: {
