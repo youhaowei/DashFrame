@@ -84,6 +84,19 @@ export function parsePrimitiveBoolean(
   return typeof raw === "number" && raw === 1;
 }
 
+function parsePrimitiveDate(raw: boolean | number | string): Date | null {
+  if (typeof raw === "number") {
+    const timestamp = Math.abs(raw) < 1_000_000_000_000 ? raw * 1000 : raw;
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof raw === "string") {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
 export function parsePrimitiveValueByType(
   raw: boolean | number | string | null,
   type: ColumnType,
@@ -102,13 +115,8 @@ export function parsePrimitiveValueByType(
     }
     case "boolean":
       return parsePrimitiveBoolean(raw);
-    case "date": {
-      if (typeof raw === "string") {
-        const date = new Date(raw);
-        return Number.isNaN(date.getTime()) ? null : date;
-      }
-      return null;
-    }
+    case "date":
+      return parsePrimitiveDate(raw);
     default:
       return String(raw);
   }
