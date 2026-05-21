@@ -1,23 +1,18 @@
 import type {
-  ColumnType,
   DataFrame,
   Field,
   SourceSchema,
-  TableColumn,
   UUID,
 } from "@dashframe/engine-browser";
-import { DataFrame as DataFrameClass } from "@dashframe/engine-browser";
 import {
-  Bool,
-  Float64,
-  Table,
-  tableToIPC,
-  TimestampMillisecond,
-  Utf8,
-  vectorFromArray,
-  type DataType,
-  type Vector,
-} from "apache-arrow";
+  createArrowIPCBufferFromRows,
+  createFieldsFromColumns,
+  createSourceSchema,
+  DataFrame as DataFrameClass,
+  detectPrimaryKeyColumn,
+  inferStringColumnType,
+  parseStringValueByType,
+} from "@dashframe/engine-browser";
 
 /**
  * Represents CSV data as an array of string arrays.
@@ -25,45 +20,6 @@ import {
  * Can be either a 2D array or a 1D array (for single row data).
  */
 export type CSVData = string[][] | string[];
-
-/**
- * Infer column type from a sample value
- */
-const inferType = (value: string): ColumnType => {
-  if (!value?.length) return "unknown";
-  if (!Number.isNaN(Number(value))) return "number";
-  if (value === "true" || value === "false") return "boolean";
-  const date = Date.parse(value);
-  if (!Number.isNaN(date)) return "date";
-  return "string";
-};
-
-/**
- * Parse a raw CSV cell value into the appropriate typed value.
- * For date columns, returns Date objects (not ISO strings) so Arrow can
- * properly serialize them as TimestampMillisecond type.
- */
-const parseValue = (raw: string | undefined, type: ColumnType): unknown => {
-  if (raw === undefined || raw === "") {
-    return null;
-  }
-
-  switch (type) {
-    case "number": {
-      const numeric = Number(raw);
-      return Number.isNaN(numeric) ? null : numeric;
-    }
-    case "boolean":
-      return raw === "true";
-    case "date": {
-      // Return Date object for proper Arrow timestamp serialization
-      const date = new Date(raw);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-    default:
-      return raw;
-  }
-};
 
 /**
  * CSV conversion result.
@@ -115,74 +71,24 @@ export async function csvToDataFrame(
       ] ?? "";
     return {
       name,
-      type: inferType(sampleValue),
+      type: inferStringColumnType(sampleValue),
     };
   });
 
-  // Detect ID column by name pattern (matches: id, _id, ID, Id, etc.)
-  const detectedIdColumn = userColumns.find((col) => /^_?id$/i.test(col.name));
-  const primaryKey = detectedIdColumn?.name;
+  const primaryKey = detectPrimaryKeyColumn(userColumns);
 
   // Create rows with parsed values
   const rows = rowsData.map((row) =>
     header.reduce<Record<string, unknown>>((acc, key, colIndex) => {
       const column = userColumns[colIndex];
-      if (column) acc[key] = parseValue(row[colIndex], column.type);
+      if (column) acc[key] = parseStringValueByType(row[colIndex], column.type);
       return acc;
     }, {}),
   );
 
-  // Build source schema
-  const columns: TableColumn[] = userColumns.map((col) => ({
-    name: col.name,
-    type: col.type,
-  }));
-
-  const sourceSchema: SourceSchema = {
-    columns,
-    version: 1,
-    lastSyncedAt: Date.now(),
-  };
-
-  // Auto-generate fields from columns
-  const fields: Field[] = columns.map((col) => ({
-    id: crypto.randomUUID(),
-    name: col.name,
-    tableId: dataTableId,
-    columnName: col.name,
-    type: col.type as ColumnType,
-  }));
-
-  // Convert to Arrow table with explicit types
-  // Using vectorFromArray with type hints ensures dates become TimestampMillisecond
-  // instead of being inferred as VARCHAR strings.
-
-  const arrowColumns: Record<string, Vector<DataType>> = {};
-  for (const col of userColumns) {
-    const values = rows.map((row) => row[col.name]);
-
-    // Create typed Arrow vectors based on column type
-    switch (col.type) {
-      case "number":
-        arrowColumns[col.name] = vectorFromArray(values, new Float64());
-        break;
-      case "boolean":
-        arrowColumns[col.name] = vectorFromArray(values, new Bool());
-        break;
-      case "date":
-        // TimestampMillisecond ensures DuckDB recognizes this as temporal
-        arrowColumns[col.name] = vectorFromArray(
-          values,
-          new TimestampMillisecond(),
-        );
-        break;
-      default:
-        arrowColumns[col.name] = vectorFromArray(values, new Utf8());
-    }
-  }
-
-  const arrowTable = new Table(arrowColumns);
-  const ipcBuffer = tableToIPC(arrowTable);
+  const sourceSchema: SourceSchema = createSourceSchema(userColumns);
+  const fields: Field[] = createFieldsFromColumns(userColumns, dataTableId);
+  const ipcBuffer = createArrowIPCBufferFromRows(rows, userColumns);
 
   // Create DataFrame with IndexedDB storage
   const dataFrame = await DataFrameClass.create(

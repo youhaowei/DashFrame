@@ -20,3 +20,15 @@ export {
 } from "./base";
 
 export type { AnyConnector } from "./base";
+
+export {
+  createFieldsFromColumns,
+  createSourceSchema,
+  detectPrimaryKeyColumn,
+  inferStringColumnType,
+  parsePrimitiveBoolean,
+  parsePrimitiveValueByType,
+  parseStringValueByType,
+} from "./utils";
+
+export type { ConnectorColumn, SystemFieldInput } from "./utils";

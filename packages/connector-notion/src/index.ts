@@ -5,6 +5,10 @@ import type {
   UUID,
 } from "@dashframe/engine-browser";
 import {
+  createFieldsFromColumns,
+  createSourceSchema,
+} from "@dashframe/engine-browser";
+import {
   getDatabaseSchema,
   listDatabases,
   queryDatabase,
@@ -93,27 +97,6 @@ export function generateFieldsFromNotionSchema(
   schema: NotionProperty[],
   dataTableId: UUID,
 ): { fields: Field[]; sourceSchema: SourceSchema } {
-  // System fields (computed)
-  const systemFields: Field[] = [
-    {
-      id: crypto.randomUUID(),
-      name: "_notionId",
-      tableId: dataTableId,
-      columnName: undefined, // Computed from page.id
-      type: "string",
-      isIdentifier: true, // Mark as identifier to exclude from chart suggestions
-    },
-  ];
-
-  // User fields from schema
-  const userFields: Field[] = schema.map((prop) => ({
-    id: crypto.randomUUID(),
-    name: prop.name,
-    tableId: dataTableId,
-    columnName: prop.name,
-    type: mapNotionTypeToColumnType(prop.type),
-  }));
-
   // Source schema with native Notion types
   const columns: TableColumn[] = schema.map((prop) => ({
     name: prop.name,
@@ -121,14 +104,26 @@ export function generateFieldsFromNotionSchema(
     // Note: Foreign key detection from relation properties not yet implemented
   }));
 
-  const sourceSchema: SourceSchema = {
-    columns,
-    version: 1,
-    lastSyncedAt: Date.now(),
-  };
+  const fields: Field[] = createFieldsFromColumns(
+    schema.map((prop) => ({
+      name: prop.name,
+      type: mapNotionTypeToColumnType(prop.type),
+    })),
+    dataTableId,
+    [
+      {
+        name: "_notionId",
+        type: "string",
+        columnName: undefined,
+        isIdentifier: true,
+      },
+    ],
+  );
+
+  const sourceSchema: SourceSchema = createSourceSchema(columns);
 
   return {
-    fields: [...systemFields, ...userFields],
+    fields,
     sourceSchema,
   };
 }
