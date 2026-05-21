@@ -56,3 +56,7 @@ convex/.env.local
 
 # Coverage
 coverage
+
+# WyStack Agent Kit workspace (.wystack.json is tracked; the rest is local state)
+.wystack/
+.clawpatch/
