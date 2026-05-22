@@ -16,6 +16,7 @@
   "dependencies": {
     "@dashframe/desktop-types": "workspace:*",
     "@dashframe/server-core": "workspace:*",
+    "@dashframe/transport": "workspace:*",
     "@electric-sql/pglite": "^0.3.14",
     "electron": "^33.2.1"
   },

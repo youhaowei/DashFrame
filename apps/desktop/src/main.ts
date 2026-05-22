@@ -1,11 +1,9 @@
-import {
-  ARTIFACTS_DB_FILENAME,
-  openProject,
-  type ProjectHandle,
-} from "@dashframe/server-core";
+import { openProject, type ProjectHandle } from "@dashframe/server-core";
 import type { Event as ElectronEvent } from "electron";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import path from "node:path";
+
+import { registerDesktopIpc } from "./ipc";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
@@ -53,20 +51,6 @@ function createWindow(): void {
   loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
-function registerIpc(handle: ProjectHandle): void {
-  ipcMain.handle("dashframe:project:info", () => ({
-    projectId: handle.meta.projectId,
-    name: handle.meta.name,
-    version: handle.meta.version,
-    schemaVersion: handle.meta.schemaVersion,
-    createdAt: handle.meta.createdAt.toISOString(),
-    createdBy: handle.meta.createdBy,
-  }));
-  ipcMain.handle("dashframe:project:reveal", () => {
-    shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
-  });
-}
-
 console.log("[dashframe] main process started, waiting for app ready...");
 
 app.on("window-all-closed", () => {
@@ -94,7 +78,7 @@ app
     }
 
     console.log(`[dashframe] project ready at ${project.dir}`);
-    registerIpc(project);
+    registerDesktopIpc(project);
     app.on("before-quit", closeProjectBeforeQuit);
 
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);

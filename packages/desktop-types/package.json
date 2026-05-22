@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "bun run typecheck"
   },
+  "dependencies": {
+    "@dashframe/transport": "workspace:*"
+  },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "typescript": "5.7.2"

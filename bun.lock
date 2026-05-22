@@ -35,6 +35,7 @@
       "dependencies": {
         "@dashframe/desktop-types": "workspace:*",
         "@dashframe/server-core": "workspace:*",
+        "@dashframe/transport": "workspace:*",
         "@electric-sql/pglite": "^0.3.14",
         "electron": "^33.2.1",
       },
@@ -418,6 +419,9 @@
     "packages/desktop-types": {
       "name": "@dashframe/desktop-types",
       "version": "0.0.0",
+      "dependencies": {
+        "@dashframe/transport": "workspace:*",
+      },
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
         "typescript": "5.7.2",
@@ -430,6 +434,7 @@
         "@dashframe/types": "workspace:*",
       },
       "devDependencies": {
+        "@types/bun": "^1.2.0",
         "typescript": "^5.6.0",
       },
     },
@@ -478,6 +483,7 @@
       "name": "@dashframe/server-core",
       "version": "0.0.0",
       "dependencies": {
+        "@dashframe/transport": "workspace:*",
         "@electric-sql/pglite": "^0.3.14",
         "drizzle-orm": "^0.45.1",
       },
@@ -486,6 +492,16 @@
         "esbuild": "^0.28.0",
         "typescript": "5.7.2",
         "vitest": "^4.1.6",
+      },
+    },
+    "packages/transport": {
+      "name": "@dashframe/transport",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@dashframe/eslint-config": "workspace:*",
+        "@types/bun": "^1.2.0",
+        "esbuild": "^0.28.0",
+        "typescript": "5.7.2",
       },
     },
     "packages/types": {
@@ -734,6 +750,8 @@
     "@dashframe/server": ["@dashframe/server@workspace:apps/server"],
 
     "@dashframe/server-core": ["@dashframe/server-core@workspace:packages/server-core"],
+
+    "@dashframe/transport": ["@dashframe/transport@workspace:packages/transport"],
 
     "@dashframe/types": ["@dashframe/types@workspace:packages/types"],
 

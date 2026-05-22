@@ -1,13 +1,14 @@
 {
-  "name": "@dashframe/server-core",
+  "name": "@dashframe/transport",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "JSON-frame transport protocol and adapters for DashFrame",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     }
   },
@@ -19,20 +20,15 @@
     "build:js": "esbuild src/index.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/index.js",
     "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src",
-    "test": "vitest run",
+    "test": "bun test src",
     "check": "bun run typecheck && bun run lint && bun run test"
-  },
-  "dependencies": {
-    "@dashframe/transport": "workspace:*",
-    "@electric-sql/pglite": "^0.3.14",
-    "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
     "esbuild": "^0.28.0",
-    "typescript": "5.7.2",
-    "vitest": "^4.1.6"
+    "typescript": "5.7.2"
   }
 }

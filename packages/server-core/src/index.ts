@@ -29,4 +29,12 @@ export {
   type ResolveProjectDirOptions,
 } from "./project-dir";
 export { schema, type Schema } from "./schema";
+export {
+  attachTransportDispatcher,
+  type TransportDispatcher,
+  type TransportProcedure,
+  type TransportProcedureContext,
+  type TransportProcedureResult,
+  type TransportRegistry,
+} from "./transport";
 export { DASHFRAME_PROJECT_VERSION } from "./version";
