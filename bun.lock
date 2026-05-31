@@ -36,6 +36,7 @@
         "@dashframe/desktop-types": "workspace:*",
         "@dashframe/server-core": "workspace:*",
         "@electric-sql/pglite": "^0.3.14",
+        "@wystack/server": "workspace:*",
         "electron": "^33.2.1",
       },
       "devDependencies": {
@@ -50,7 +51,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@dashframe/desktop-types": "workspace:*",
+        "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
+        "@wystack/client": "workspace:*",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
       },

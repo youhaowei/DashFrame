@@ -15,7 +15,9 @@
     "@dashframe/desktop-types": "workspace:*",
     "@tanstack/react-router": "^1.95.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "@wystack/client": "workspace:*",
+    "@tanstack/react-query": "^5.90.0"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",

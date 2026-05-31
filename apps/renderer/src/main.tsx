@@ -1,8 +1,11 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { WyStackProvider } from "@wystack/client";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { routeTree } from "./routeTree.gen";
+import { ipcClient } from "./wystack";
 
 const router = createRouter({ routeTree });
 
@@ -12,6 +15,8 @@ declare module "@tanstack/react-router" {
   }
 }
 
+const queryClient = new QueryClient();
+
 const container = document.getElementById("root");
 if (!container) {
   throw new Error("Root container #root not found");
@@ -19,6 +24,10 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <QueryClientProvider client={queryClient}>
+      <WyStackProvider client={ipcClient}>
+        <RouterProvider router={router} />
+      </WyStackProvider>
+    </QueryClientProvider>
   </StrictMode>,
 );

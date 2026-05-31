@@ -30,6 +30,42 @@
     },
     "clean": {
       "cache": false
+    },
+    "@wystack/transport#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/server#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/client#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/db#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/types#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/version#build": {
+      "outputs": ["dist/**"]
+    },
+    "@wystack/log#build": {
+      "outputs": ["dist/**"]
+    },
+    "@dashframe/desktop#typecheck": {
+      "dependsOn": [
+        "@dashframe/server-core#build",
+        "@dashframe/desktop-types#build"
+      ]
+    },
+    "@dashframe/renderer#typecheck": {
+      "dependsOn": ["@dashframe/desktop-types#build"]
+    },
+    "@dashframe/desktop#test": {
+      "dependsOn": []
+    },
+    "@dashframe/renderer#test": {
+      "dependsOn": []
     }
   }
 }
