@@ -13,12 +13,15 @@
   },
   "dependencies": {
     "@dashframe/desktop-types": "workspace:*",
+    "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.95.0",
+    "@wystack/client": "workspace:*",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
+    "@dashframe/server": "workspace:*",
     "@tanstack/router-plugin": "^1.95.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

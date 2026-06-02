@@ -37,16 +37,34 @@ function awaitProc(child, label) {
   });
 }
 
-// 1. Build server-core first — desktop's main bundle marks workspace
-// packages as external, so @dashframe/server-core must exist as JS at
-// dist/index.js before main.ts is bundled. Electron 33 (Node 20) cannot
-// load .ts entry points at runtime.
+// Desktop's main bundle marks workspace packages as external, so every
+// workspace dep main.ts reaches must exist as JS before it is bundled —
+// Electron 33 (Node 20) cannot load .ts entry points at runtime. Build the
+// dependency chain in order: wystack framework → server-core → server app.
+const repoRoot = path.resolve(desktopDir, "..", "..");
+
+// 1a. Build the @wystack/* packages main consumes via @dashframe/server.
+await awaitProc(
+  spawn("bun", ["run", "build:wystack"], { cwd: repoRoot, stdio: "inherit" }),
+  "wystack build",
+);
+
+// 1b. Build @dashframe/server-core (PGLite + Drizzle project DB).
 await awaitProc(
   spawn("bun", ["run", "--filter", "@dashframe/server-core", "build"], {
-    cwd: path.resolve(desktopDir, "..", ".."),
+    cwd: repoRoot,
     stdio: "inherit",
   }),
   "server-core build",
+);
+
+// 1c. Build @dashframe/server (the WyStack server app main starts on loopback).
+await awaitProc(
+  spawn("bun", ["run", "--filter", "@dashframe/server", "build"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  }),
+  "server build",
 );
 
 // 2. Build desktop main + preload

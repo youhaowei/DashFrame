@@ -3,6 +3,10 @@ import {
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
+import {
+  createDashframeServer,
+  type DashframeServer,
+} from "@dashframe/server/app";
 import type { Event as ElectronEvent } from "electron";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
@@ -10,6 +14,7 @@ import path from "node:path";
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
 let project: ProjectHandle | null = null;
+let server: DashframeServer | null = null;
 let isClosingProject = false;
 
 async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
@@ -17,6 +22,11 @@ async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
 
   event.preventDefault();
   isClosingProject = true;
+  try {
+    server?.stop();
+  } catch (err) {
+    console.error("[dashframe] error stopping server:", err);
+  }
   try {
     await project.close();
   } catch (err) {
@@ -53,7 +63,7 @@ function createWindow(): void {
   loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
-function registerIpc(handle: ProjectHandle): void {
+function registerIpc(handle: ProjectHandle, srv: DashframeServer): void {
   ipcMain.handle("dashframe:project:info", () => ({
     projectId: handle.meta.projectId,
     name: handle.meta.name,
@@ -65,6 +75,10 @@ function registerIpc(handle: ProjectHandle): void {
   ipcMain.handle("dashframe:project:reveal", () => {
     shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
   });
+  // The renderer connects to this loopback WyStack server as a localhost web
+  // client — same client + transport as the cloud web client (per the Data
+  // Path & Transport Deployment spec). It needs the ephemeral port main bound.
+  ipcMain.handle("dashframe:server:info", () => ({ url: srv.url }));
 }
 
 console.log("[dashframe] main process started, waiting for app ready...");
@@ -94,7 +108,22 @@ app
     }
 
     console.log(`[dashframe] project ready at ${project.dir}`);
-    registerIpc(project);
+
+    try {
+      server = await createDashframeServer({ db: project.db });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[dashframe] failed to start server:", err);
+      dialog.showErrorBox(
+        "DashFrame failed to start",
+        `Could not start the local server: ${message}`,
+      );
+      app.exit(1);
+      return;
+    }
+    console.log(`[dashframe] loopback server ready at ${server.url}`);
+
+    registerIpc(project, server);
     app.on("before-quit", closeProjectBeforeQuit);
 
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
