@@ -12,7 +12,7 @@ function HelloView() {
   return (
     <main className="p-8 font-sans">
       <h1>DashFrame v0.2</h1>
-      <p>hello - desktop shell boot</p>
+      <p>Hello — desktop shell boot.</p>
 
       {/* Smoke proof (YW-69): a projectInfo query round-trips renderer → loopback
           WyStack HTTP server → PGLite and back. The data-testid node is the

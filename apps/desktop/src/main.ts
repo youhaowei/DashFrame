@@ -110,7 +110,14 @@ app
     console.log(`[dashframe] project ready at ${project.dir}`);
 
     try {
-      server = await createDashframeServer({ db: project.db });
+      // In dev the renderer is served from the Vite dev server, whose origin
+      // must be allowed for CORS. Vite may fall back to another port if 5173 is
+      // taken (dev.mjs parses the actual URL into DEV_URL), so derive the origin
+      // from DEV_URL rather than assuming 5173. Packaged builds load from
+      // `file://` (origin `null`) — that CORS case is deferred (see YW-69 /
+      // Data Path & Transport Deployment spec open questions).
+      const corsOrigin = isDev ? new URL(DEV_URL).origin : undefined;
+      server = await createDashframeServer({ db: project.db, corsOrigin });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[dashframe] failed to start server:", err);

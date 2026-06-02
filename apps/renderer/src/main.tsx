@@ -41,4 +41,16 @@ async function bootstrap(): Promise<void> {
 
 bootstrap().catch((err: unknown) => {
   console.error("[dashframe] renderer bootstrap failed:", err);
+  // Without a visible fallback the window stays blank on a startup failure
+  // (e.g. the loopback server never came up), giving the user no feedback.
+  const message = err instanceof Error ? err.message : String(err);
+  createRoot(container).render(
+    <StrictMode>
+      <main className="p-8 font-sans" data-testid="bootstrap-error">
+        <h1>DashFrame failed to start</h1>
+        <p>Could not reach the local server. Please restart the app.</p>
+        <pre>{message}</pre>
+      </main>
+    </StrictMode>,
+  );
 });
