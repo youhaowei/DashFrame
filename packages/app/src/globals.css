@@ -6,9 +6,14 @@
 @import "react-resizable/css/styles.css";
 @plugin "@tailwindcss/typography";
 
-/* Scan web app components for Tailwind classes */
+/* Scan the shared renderer's sources for Tailwind classes. Paths resolve
+ * relative to this file (packages/app/src). Covers routeRoot + routes too,
+ * which carry layout classes (the original web globals only scanned app +
+ * components because routes were thin wrappers). */
 @source "./app/**/*.{ts,tsx}";
 @source "./components/**/*.{ts,tsx}";
+@source "./routes/**/*.{ts,tsx}";
+@source "./routeRoot.tsx";
 
 /* React Grid Layout drag placeholder */
 .react-grid-placeholder {
