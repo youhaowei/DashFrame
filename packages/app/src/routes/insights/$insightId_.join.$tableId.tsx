@@ -1,5 +1,5 @@
+import JoinConfigureContent from "@/app/insights/[insightId]/join/[tableId]/_components/JoinConfigureContent";
 import { createFileRoute } from "@tanstack/react-router";
-import JoinConfigureContent from "../../../app/insights/[insightId]/join/[tableId]/_components/JoinConfigureContent";
 
 // Dot-notation file name keeps this a sibling of `$insightId.tsx` rather than
 // nesting under it. The parent renders `InsightPageContent` without an

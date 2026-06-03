@@ -1,0 +1,18 @@
+/* Import base theme from UI package (which imports @stdui/react/styles) */
+@import "../../ui/src/globals.css";
+
+/* App-specific library imports */
+@import "react-grid-layout/css/styles.css";
+@import "react-resizable/css/styles.css";
+@plugin "@tailwindcss/typography";
+
+/* Scan web app components for Tailwind classes */
+@source "./app/**/*.{ts,tsx}";
+@source "./components/**/*.{ts,tsx}";
+
+/* React Grid Layout drag placeholder */
+.react-grid-placeholder {
+  background: var(--neutral-bg-muted) !important;
+  opacity: 0.4 !important;
+  border-radius: var(--radius) !important;
+}

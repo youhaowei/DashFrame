@@ -1,6 +1,6 @@
-import { useDeferredPostHog } from "@/hooks/useDeferredPostHog";
 import { useLocation } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef } from "react";
+import { useDeferredPostHog } from "../../hooks/useDeferredPostHog";
 
 function PostHogPageViewTracker() {
   const pathname = useLocation({ select: (l) => l.pathname });

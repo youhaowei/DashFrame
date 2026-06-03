@@ -94,6 +94,21 @@ app
   .then(async () => {
     console.log("[dashframe] app ready, opening project...");
 
+    // DuckDB-WASM (the data pipeline in @dashframe/app) needs SharedArrayBuffer,
+    // which requires cross-origin isolation. In dev the renderer's Vite server
+    // sets COOP/COEP; for the packaged file:// renderer there's no HTTP layer,
+    // so inject the headers on every response here.
+    const { session } = await import("electron");
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Cross-Origin-Opener-Policy": ["same-origin"],
+          "Cross-Origin-Embedder-Policy": ["require-corp"],
+        },
+      });
+    });
+
     try {
       project = await openProject();
     } catch (err) {

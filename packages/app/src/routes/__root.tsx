@@ -1,5 +1,11 @@
-import { createRootRoute, Link } from "@tanstack/react-router";
-import { RouteRoot } from "../routeRoot";
+import { createRootRouteWithContext, Link } from "@tanstack/react-router";
+
+import { RouteRoot, type AppRouterContext } from "../routeRoot";
+
+function RootComponent() {
+  const { providerWrapper } = Route.useRouteContext();
+  return <RouteRoot providerWrapper={providerWrapper} />;
+}
 
 function NotFound() {
   return (
@@ -15,7 +21,7 @@ function NotFound() {
   );
 }
 
-export const Route = createRootRoute({
-  component: RouteRoot,
+export const Route = createRootRouteWithContext<AppRouterContext>()({
+  component: RootComponent,
   notFoundComponent: NotFound,
 });

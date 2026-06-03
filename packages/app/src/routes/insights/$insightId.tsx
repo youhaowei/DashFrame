@@ -1,5 +1,5 @@
+import InsightPageContent from "@/app/insights/[insightId]/_components/InsightPageContent";
 import { createFileRoute } from "@tanstack/react-router";
-import InsightPageContent from "../../../app/insights/[insightId]/_components/InsightPageContent";
 
 export const Route = createFileRoute("/insights/$insightId")({
   component: InsightRoute,

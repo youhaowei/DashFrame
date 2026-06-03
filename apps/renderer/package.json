@@ -12,6 +12,8 @@
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/app": "workspace:*",
+    "@dashframe/core-dexie": "workspace:*",
     "@dashframe/desktop-types": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.95.0",
@@ -22,7 +24,7 @@
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "@dashframe/server": "workspace:*",
-    "@tanstack/router-plugin": "^1.95.0",
+    "@tanstack/router-plugin": "^1.167.35",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",

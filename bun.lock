@@ -58,6 +58,8 @@
       "name": "@dashframe/renderer",
       "version": "0.0.0",
       "dependencies": {
+        "@dashframe/app": "workspace:*",
+        "@dashframe/core-dexie": "workspace:*",
         "@dashframe/desktop-types": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
@@ -68,7 +70,7 @@
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
         "@dashframe/server": "workspace:*",
-        "@tanstack/router-plugin": "^1.95.0",
+        "@tanstack/router-plugin": "^1.167.35",
         "@types/react": "^19.2.7",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^4.3.4",
@@ -100,6 +102,7 @@
       "name": "@dashframe/web",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/app": "workspace:*",
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/core": "workspace:*",
@@ -341,6 +344,72 @@
       },
       "devDependencies": {
         "typescript": "^5.8.3",
+      },
+    },
+    "packages/app": {
+      "name": "@dashframe/app",
+      "version": "0.1.0",
+      "dependencies": {
+        "@dashframe/connector-local": "workspace:*",
+        "@dashframe/connector-notion": "workspace:*",
+        "@dashframe/core": "workspace:*",
+        "@dashframe/core-dexie": "workspace:*",
+        "@dashframe/csv": "workspace:*",
+        "@dashframe/engine": "workspace:*",
+        "@dashframe/engine-browser": "workspace:*",
+        "@dashframe/types": "workspace:*",
+        "@dashframe/ui": "workspace:*",
+        "@dashframe/visualization": "workspace:*",
+        "@duckdb/duckdb-wasm": "1.32.0",
+        "@radix-ui/react-checkbox": "^1.3.3",
+        "@radix-ui/react-collapsible": "^1.1.12",
+        "@radix-ui/react-dialog": "^1.1.15",
+        "@radix-ui/react-dropdown-menu": "^2.1.16",
+        "@radix-ui/react-label": "^2.1.8",
+        "@radix-ui/react-navigation-menu": "^1.2.14",
+        "@radix-ui/react-scroll-area": "^1.2.10",
+        "@radix-ui/react-select": "^2.2.6",
+        "@radix-ui/react-separator": "^1.1.8",
+        "@radix-ui/react-slot": "^1.2.4",
+        "@radix-ui/react-switch": "^1.2.6",
+        "@radix-ui/react-tabs": "^1.1.13",
+        "@radix-ui/react-tooltip": "^1.2.8",
+        "@stdui/icons": "workspace:*",
+        "@stdui/react": "workspace:*",
+        "@tailwindcss/typography": "^0.5.19",
+        "@tanstack/react-form": "^1.0.0",
+        "@tanstack/react-query": "^5.0.0",
+        "@tanstack/react-router": "^1.169.2",
+        "@tanstack/react-table": "^8.21.3",
+        "@tanstack/react-virtual": "^3.13.12",
+        "@uwdata/vgplot": "^0.21.1",
+        "apache-arrow": "^21.1.0",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "dompurify": "^3.2.4",
+        "idb-keyval": "^6.2.2",
+        "immer": "^11.0.1",
+        "papaparse": "5.5.3",
+        "react": "19.2.4",
+        "react-dom": "19.2.4",
+        "react-grid-layout": "^1.5.2",
+        "react-markdown": "^10.1.0",
+        "react-resizable": "^3.0.5",
+        "sonner": "^2.0.7",
+        "superjson": "^2.0.0",
+        "tailwind-merge": "^3.4.0",
+        "zod": "^4.1.12",
+        "zustand": "^5.0.8",
+      },
+      "devDependencies": {
+        "@dashframe/eslint-config": "workspace:*",
+        "@testing-library/react": "^16.3.0",
+        "@types/papaparse": "5.3.16",
+        "@types/react": "19.2.7",
+        "@types/react-dom": "19.2.3",
+        "@types/react-grid-layout": "^1.3.6",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "typescript": "5.7.2",
       },
     },
     "packages/connector-local": {
@@ -719,6 +788,8 @@
     "@csstools/css-parser-algorithms": ["@csstools/css-parser-algorithms@3.0.5", "", { "peerDependencies": { "@csstools/css-tokenizer": "^3.0.4" } }, "sha512-DaDeUkXZKjdGhgYaHNJTV9pV7Y9B3b644jCLs9Upc3VeNGg6LWARAT6O+Q+/COo+2gg/bM5rhpMAtf70WqfBdQ=="],
 
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@3.0.4", "", {}, "sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw=="],
+
+    "@dashframe/app": ["@dashframe/app@workspace:packages/app"],
 
     "@dashframe/connector-local": ["@dashframe/connector-local@workspace:packages/connector-local"],
 
@@ -1928,7 +1999,7 @@
 
     "doctrine": ["doctrine@2.1.0", "", { "dependencies": { "esutils": "^2.0.2" } }, "sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw=="],
 
-    "dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
+    "dom-accessibility-api": ["dom-accessibility-api@0.5.16", "", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
 
     "dompurify": ["dompurify@3.4.2", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-lHeS9SA/IKeIFFyYciHBr2n0v1VMPlSj843HdLOwjb2OxNwdq9Xykxqhk+FE42MzAdHvInbAolSE4mhahPpjXA=="],
 
@@ -3446,7 +3517,7 @@
 
     "@testing-library/dom/aria-query": ["aria-query@5.3.0", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A=="],
 
-    "@testing-library/dom/dom-accessibility-api": ["dom-accessibility-api@0.5.16", "", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
+    "@testing-library/jest-dom/dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
     "@ts-morph/common/minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
 

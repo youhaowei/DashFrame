@@ -373,7 +373,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
         // Default: select all properties
         // Note: Previously used DataTable.dimensions, now we select all by default
-        setSelectedPropertyIds(schema.map((p) => p.id));
+        setSelectedPropertyIds(schema.map((p: { id: string }) => p.id));
       } catch (error) {
         console.error("Failed to fetch database schema:", error);
         toast.error("Failed to load database fields");
@@ -443,7 +443,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       // Update preview data for display
       setNotionPreviewData({
         rows: result.rows,
-        columns: result.columns.map((c) => ({ name: c.name, type: c.type })),
+        columns: result.columns.map((c: { name: string; type: string }) => ({
+          name: c.name,
+          type: c.type,
+        })),
         rowCount: result.rowCount,
       });
 
@@ -497,7 +500,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       // Update preview data for display
       setNotionPreviewData({
         rows: result.rows,
-        columns: result.columns.map((c) => ({ name: c.name, type: c.type })),
+        columns: result.columns.map((c: { name: string; type: string }) => ({
+          name: c.name,
+          type: c.type,
+        })),
         rowCount: result.rowCount,
       });
 
