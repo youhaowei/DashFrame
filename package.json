@@ -25,9 +25,9 @@
   "scripts": {
     "setup": "git submodule update --init --recursive && bun install && bun run build:wystack",
     "build:wystack": "bun run --cwd libs/wystack build",
-    "dev": "turbo dev --filter=@dashframe/web...",
+    "dev": "bun --filter @dashframe/desktop dev",
+    "dev:web": "turbo dev --filter=@dashframe/web...",
     "dev:all": "turbo dev",
-    "dev:desktop": "bun --filter @dashframe/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --write .",
