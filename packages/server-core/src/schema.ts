@@ -79,6 +79,50 @@ export const dataSources = pgTable(
   (t) => [index("data_sources_parent_artifact_id_idx").on(t.parentArtifactId)],
 );
 
+// data_tables — renderer-facing table metadata. Bulk rows remain outside
+// PGLite; `dataFrameId` links to the browser-side DataFrame metadata row.
+export const dataTables = pgTable(
+  "data_tables",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dataSourceId: uuid("data_source_id")
+      .notNull()
+      .references(() => dataSources.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    table: text("table").notNull(),
+    sourceSchema: jsonb("source_schema"),
+    fields: jsonb("fields").notNull(),
+    metrics: jsonb("metrics").notNull(),
+    dataFrameId: uuid("data_frame_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+  },
+  (t) => [index("data_tables_data_source_id_idx").on(t.dataSourceId)],
+);
+
+// data_frames — browser DataFrame metadata only. Arrow bytes remain in the
+// renderer's IndexedDB storage via @dashframe/engine-browser.
+export const dataFrames = pgTable(
+  "data_frames",
+  {
+    id: uuid("id").primaryKey(),
+    storage: jsonb("storage").notNull(),
+    fieldIds: jsonb("field_ids").notNull(),
+    primaryKey: jsonb("primary_key"),
+    name: text("name").notNull(),
+    insightId: uuid("insight_id"),
+    rowCount: integer("row_count"),
+    columnCount: integer("column_count"),
+    analysis: jsonb("analysis"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("data_frames_insight_id_idx").on(t.insightId)],
+);
+
 // insights — query definitions. `definition` holds the structured IR
 // (sources, fields, filters, aggregates, group-by, joins, sort, limit).
 export const insights = pgTable(
@@ -135,7 +179,8 @@ export const dashboards = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
-    layout: jsonb("layout").notNull(), // [{ tileType, refId?, markdown?, x, y, w, h }]
+    description: text("description"),
+    layout: jsonb("layout").notNull(), // domain DashboardItem[]: [{ id, type, visualizationId?, content?, x, y, width, height }]
     createdBy: jsonb("created_by").$type<ArtifactProvenance>().notNull(),
     parentArtifactId: uuid("parent_artifact_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -171,6 +216,8 @@ export const secrets = pgTable(
 export const schema = {
   projectMeta,
   dataSources,
+  dataTables,
+  dataFrames,
   insights,
   visualizations,
   dashboards,

@@ -1,12 +1,6 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToastStore } from "@/lib/stores";
-import {
-  useDashboardMutations,
-  useDataFrameMutations,
-  useDataSourceMutations,
-  useInsightMutations,
-  useVisualizationMutations,
-} from "@dashframe/core";
+import { clearAllData } from "@dashframe/core";
 import {
   type LucideIcon,
   ChartIcon,
@@ -250,42 +244,9 @@ export function Navigation() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const { showSuccess } = useToastStore();
-  const { remove: removeDataSource } = useDataSourceMutations();
-  const { remove: removeInsight } = useInsightMutations();
-  const { clear: clearDataFrames } = useDataFrameMutations();
-  const { remove: removeVisualization } = useVisualizationMutations();
-  const { remove: removeDashboard } = useDashboardMutations();
 
   const handleClearAllData = async () => {
-    // Get all items first
-    const { db } = await import("@dashframe/core-dexie");
-    const allDataSources = await db.dataSources.toArray();
-    const allInsights = await db.insights.toArray();
-    const allVisualizations = await db.visualizations.toArray();
-    const allDashboards = await db.dashboards.toArray();
-
-    // Remove all data sources (this will cascade delete data tables)
-    for (const source of allDataSources) {
-      await removeDataSource(source.id);
-    }
-
-    // Remove all insights
-    for (const insight of allInsights) {
-      await removeInsight(insight.id);
-    }
-
-    // Remove all visualizations
-    for (const viz of allVisualizations) {
-      await removeVisualization(viz.id);
-    }
-
-    // Remove all dashboards
-    for (const dashboard of allDashboards) {
-      await removeDashboard(dashboard.id);
-    }
-
-    // Clear data frames
-    await clearDataFrames();
+    await clearAllData();
 
     setShowClearConfirm(false);
     showSuccess("All data cleared");

@@ -16,7 +16,6 @@
     "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
     "@dashframe/core": "workspace:*",
-    "@dashframe/core-dexie": "workspace:*",
     "@dashframe/csv": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",

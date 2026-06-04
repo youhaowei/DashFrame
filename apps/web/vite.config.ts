@@ -87,26 +87,10 @@ function securityHeadersPlugin(
   };
 }
 
-function getStorageBackendPath(storageImpl: string) {
-  if (!/^[a-z0-9-]+$/i.test(storageImpl)) {
-    throw new Error(
-      `Invalid NEXT_PUBLIC_STORAGE_IMPL "${storageImpl}". Expected a package suffix like "dexie" or "custom".`,
-    );
-  }
-
-  return path.resolve(
-    __dirname,
-    `../../packages/core-${storageImpl}/src/index.ts`,
-  );
-}
-
 export default defineConfig(({ mode }) => {
   // Vite doesn't auto-inject `.env*` files into process.env during config
-  // resolution; loadEnv reads them so the documented `.env.production`
-  // backend selection (NEXT_PUBLIC_STORAGE_IMPL=custom) actually applies.
-  // Empty prefix = load all keys, not just `VITE_*`.
+  // resolution. Empty prefix = load all keys, not just `VITE_*`.
   const env = { ...process.env, ...loadEnv(mode, __dirname, "") };
-  const storageImpl = env.NEXT_PUBLIC_STORAGE_IMPL || "dexie";
 
   // Resolve PORT once: portless injects it, Claude Preview sets it too.
   // Validate to a usable TCP port (1–65535) so the dev server config and
@@ -118,6 +102,7 @@ export default defineConfig(({ mode }) => {
     Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535
       ? rawPort
       : 3000;
+  const wystackUrl = env.VITE_WYSTACK_URL?.trim();
 
   return {
     plugins: [
@@ -139,7 +124,6 @@ export default defineConfig(({ mode }) => {
         // imports point at packages/app/src. Web-only files (PostHog, tRPC,
         // security-headers) use relative imports, not `@/`.
         "@": appSrcDir,
-        "@dashframe/core-store": getStorageBackendPath(storageImpl),
       },
     },
     define: {
@@ -153,12 +137,20 @@ export default defineConfig(({ mode }) => {
       "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify(
         env.NEXT_PUBLIC_POSTHOG_HOST ?? "",
       ),
-      "process.env.NEXT_PUBLIC_STORAGE_IMPL": JSON.stringify(storageImpl),
       "process.env.PORT": JSON.stringify(String(port)),
     },
     server: {
       port,
       strictPort: false,
+      proxy: wystackUrl
+        ? {
+            "/api": {
+              target: wystackUrl,
+              changeOrigin: true,
+              ws: true,
+            },
+          }
+        : undefined,
     },
     build: {
       outDir: "dist",

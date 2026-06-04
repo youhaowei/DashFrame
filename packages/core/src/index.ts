@@ -1,34 +1,19 @@
 /**
  * @dashframe/core
  *
- * Core package with environment-based backend selection.
+ * Core package.
  *
- * This package selects the backend implementation based on the
- * NEXT_PUBLIC_DATA_BACKEND environment variable:
- * - "dexie" (default) → @dashframe/core-dexie (IndexedDB)
- * - Custom backends can be added by implementing the repository interfaces
- *
- * Components import from @dashframe/core and remain backend-agnostic.
- * To switch backends, just change the environment variable and rebuild.
- *
- * @example
- * ```bash
- * # Use Dexie backend (default)
- * NEXT_PUBLIC_DATA_BACKEND=dexie bun dev
- *
- * # Use custom backend
- * NEXT_PUBLIC_DATA_BACKEND=custom bun dev
- * ```
+ * Renderer app-data is now backed by WyStack through @dashframe/app-data.
+ * Components continue importing hooks and imperative helpers from
+ * @dashframe/core, but the Dexie/core-store backend selector is no longer in
+ * the bundle path.
  */
 
 // ============================================================================
 // Backend Implementation Exports
 // ============================================================================
 
-// The backend module selects the implementation based on
-// NEXT_PUBLIC_DATA_BACKEND environment variable.
-// See ./backend.ts for the selection logic.
-export * from "./backend";
+export * from "@dashframe/app-data";
 
 // ============================================================================
 // Chart Renderer Types (Defined in Core)

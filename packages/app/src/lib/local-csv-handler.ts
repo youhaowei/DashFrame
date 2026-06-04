@@ -1,8 +1,15 @@
-import { db, getDataSourceByType, getDataTable } from "@dashframe/core";
+import {
+  addDataFrameEntry,
+  addDataSource,
+  addDataTable,
+  getDataSourceByType,
+  getDataTable,
+  replaceDataFrame,
+  updateDataTable,
+} from "@dashframe/core";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
-import { deleteArrowData } from "@dashframe/engine-browser";
 import type { Metric } from "@dashframe/types";
 
 const ensureCountMetric = (
@@ -37,13 +44,13 @@ export interface LocalCSVResult {
 }
 
 /**
- * Handle CSV upload using Dexie database (no Convex, no auth required)
+ * Handle CSV upload using the shared app-data layer.
  *
  * Flow:
- * 1. Ensure "Local Files" data source exists in Dexie
+ * 1. Ensure "Local Files" data source exists
  * 2. Parse CSV → DataFrame (stored in IndexedDB via Arrow IPC)
  * 3. Add DataTable to local data source
- * 4. Store DataFrame reference in Dexie
+ * 4. Store DataFrame reference metadata
  * 5. Link DataFrame to DataTable
  *
  * @param file - The CSV file object
@@ -59,17 +66,16 @@ export async function handleLocalCSVUpload(
   // 1. Ensure local data source exists (uses "local" connector type)
   let dataSource = await getDataSourceByType("local");
   if (!dataSource) {
-    const id = crypto.randomUUID();
-    await db.dataSources.add({
+    const id = await addDataSource({
+      type: "local",
+      name: "Local Files",
+    });
+    dataSource = {
       id,
       type: "local",
       name: "Local Files",
       createdAt: Date.now(),
-    });
-    dataSource = await getDataSourceByType("local");
-    if (!dataSource) {
-      throw new Error("Failed to create local data source");
-    }
+    };
   }
 
   const tableName = file.name.replace(/\.csv$/i, "");
@@ -88,7 +94,7 @@ export async function handleLocalCSVUpload(
     // 3a. Override existing table instead of creating a new one
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
-    await db.dataTables.update(dataTableId, {
+    await updateDataTable(dataTableId, {
       name: tableName,
       table: file.name,
       sourceSchema,
@@ -99,26 +105,14 @@ export async function handleLocalCSVUpload(
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
       // Replace the DataFrame data (delete old Arrow data, store new)
-      const oldEntity = await db.dataFrames.get(overrideTable.dataFrameId);
-      if (oldEntity?.storage?.type === "indexeddb") {
-        await deleteArrowData(oldEntity.storage.key);
-      }
-
-      const newSerialization = dataFrame.toJSON();
-      await db.dataFrames.update(overrideTable.dataFrameId, {
-        storage: newSerialization.storage,
-        fieldIds: newSerialization.fieldIds,
-        primaryKey: newSerialization.primaryKey,
-        createdAt: newSerialization.createdAt,
+      await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
         rowCount,
         columnCount,
       });
       dataFrameId = overrideTable.dataFrameId;
     } else {
       // Create new DataFrame entry
-      const serialization = dataFrame.toJSON();
-      await db.dataFrames.add({
-        ...serialization,
+      await addDataFrameEntry(dataFrame, {
         name: tableName,
         rowCount,
         columnCount,
@@ -127,9 +121,9 @@ export async function handleLocalCSVUpload(
     }
 
     // Ensure the DataTable points to the updated DataFrame
-    await db.dataTables.update(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, { dataFrameId });
   } else {
-    // 3b. Add DataTable to Dexie
+    // 3b. Add DataTable
     const defaultMetrics: Metric[] = [
       {
         id: crypto.randomUUID(),
@@ -140,21 +134,15 @@ export async function handleLocalCSVUpload(
       },
     ];
 
-    await db.dataTables.add({
+    await addDataTable(dataSource.id, tableName, file.name, {
       id: dataTableId,
-      dataSourceId: dataSource.id,
-      name: tableName,
-      table: file.name,
       sourceSchema,
       fields,
       metrics: defaultMetrics,
-      createdAt: Date.now(),
     });
 
-    // 4. Create DataFrame entry in Dexie
-    const serialization = dataFrame.toJSON();
-    await db.dataFrames.add({
-      ...serialization,
+    // 4. Create DataFrame entry
+    await addDataFrameEntry(dataFrame, {
       name: tableName,
       rowCount,
       columnCount,
@@ -162,7 +150,7 @@ export async function handleLocalCSVUpload(
     dataFrameId = dataFrame.id;
 
     // 5. Link DataFrame to DataTable
-    await db.dataTables.update(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, { dataFrameId });
   }
 
   // Note: Column analysis is run lazily in InsightView when first needed
@@ -195,17 +183,16 @@ export async function handleFileConnectorResult(
   // 1. Ensure local data source exists (uses "local" connector type)
   let dataSource = await getDataSourceByType("local");
   if (!dataSource) {
-    const id = crypto.randomUUID();
-    await db.dataSources.add({
+    const id = await addDataSource({
+      type: "local",
+      name: "Local Files",
+    });
+    dataSource = {
       id,
       type: "local",
       name: "Local Files",
       createdAt: Date.now(),
-    });
-    dataSource = await getDataSourceByType("local");
-    if (!dataSource) {
-      throw new Error("Failed to create local data source");
-    }
+    };
   }
 
   const tableName = fileName.replace(/\.(csv|xlsx?|json)$/i, "");
@@ -220,7 +207,7 @@ export async function handleFileConnectorResult(
     // Override existing table
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
 
-    await db.dataTables.update(dataTableId, {
+    await updateDataTable(dataTableId, {
       name: tableName,
       table: fileName,
       sourceSchema,
@@ -230,25 +217,13 @@ export async function handleFileConnectorResult(
 
     // Update or create linked DataFrame
     if (overrideTable.dataFrameId) {
-      const oldEntity = await db.dataFrames.get(overrideTable.dataFrameId);
-      if (oldEntity?.storage?.type === "indexeddb") {
-        await deleteArrowData(oldEntity.storage.key);
-      }
-
-      const newSerialization = dataFrame.toJSON();
-      await db.dataFrames.update(overrideTable.dataFrameId, {
-        storage: newSerialization.storage,
-        fieldIds: newSerialization.fieldIds,
-        primaryKey: newSerialization.primaryKey,
-        createdAt: newSerialization.createdAt,
+      await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
         rowCount,
         columnCount,
       });
       dataFrameId = overrideTable.dataFrameId;
     } else {
-      const serialization = dataFrame.toJSON();
-      await db.dataFrames.add({
-        ...serialization,
+      await addDataFrameEntry(dataFrame, {
         name: tableName,
         rowCount,
         columnCount,
@@ -256,7 +231,7 @@ export async function handleFileConnectorResult(
       dataFrameId = dataFrame.id;
     }
 
-    await db.dataTables.update(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, { dataFrameId });
   } else {
     // Add new DataTable
     const defaultMetrics: Metric[] = [
@@ -269,21 +244,15 @@ export async function handleFileConnectorResult(
       },
     ];
 
-    await db.dataTables.add({
+    await addDataTable(dataSource.id, tableName, fileName, {
       id: dataTableId,
-      dataSourceId: dataSource.id,
-      name: tableName,
-      table: fileName,
       sourceSchema,
       fields,
       metrics: defaultMetrics,
-      createdAt: Date.now(),
     });
 
     // Create DataFrame entry
-    const serialization = dataFrame.toJSON();
-    await db.dataFrames.add({
-      ...serialization,
+    await addDataFrameEntry(dataFrame, {
       name: tableName,
       rowCount,
       columnCount,
@@ -291,7 +260,7 @@ export async function handleFileConnectorResult(
     dataFrameId = dataFrame.id;
 
     // Link DataFrame to DataTable
-    await db.dataTables.update(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, { dataFrameId });
   }
 
   // Note: Column analysis is run lazily in InsightView when first needed
