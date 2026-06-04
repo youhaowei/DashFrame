@@ -1,5 +1,3 @@
-import { flushEventQueue } from "@/lib/posthog/event-queue";
-import { getPostHogInstance, loadPostHog } from "@/lib/posthog/loader";
 import type { PostHog } from "posthog-js";
 import {
   createContext,
@@ -9,6 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushEventQueue } from "../../lib/posthog/event-queue";
+import { getPostHogInstance, loadPostHog } from "../../lib/posthog/loader";
 
 /**
  * Context value for the deferred PostHog provider.

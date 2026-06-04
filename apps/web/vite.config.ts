@@ -8,6 +8,11 @@ import { getSecurityHeaders } from "./lib/security-headers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// The shared renderer (@dashframe/app). Both web and the Electron renderer host
+// it: route tree generated from its routes dir, `@` aliased to its src.
+const appSrcDir = path.resolve(__dirname, "../../packages/app/src");
+const appRoutesDir = path.resolve(appSrcDir, "routes");
+
 // DuckDB-WASM requires SharedArrayBuffer, which needs cross-origin isolation
 // (COOP/COEP). Carries the CSP + security headers from the prior Next config
 // across to:
@@ -119,7 +124,10 @@ export default defineConfig(({ mode }) => {
       tanstackRouter({
         target: "react",
         autoCodeSplitting: true,
-        routesDirectory: "./src/routes",
+        // The full app lives in the shared @dashframe/app package; both web and
+        // the Electron renderer point their router at it. The generated tree
+        // stays host-local.
+        routesDirectory: appRoutesDir,
         generatedRouteTree: "./src/routeTree.gen.ts",
       }),
       react(),
@@ -127,7 +135,10 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       alias: {
-        "@": __dirname,
+        // `@` now resolves into the shared package — the moved files' `@/...`
+        // imports point at packages/app/src. Web-only files (PostHog, tRPC,
+        // security-headers) use relative imports, not `@/`.
+        "@": appSrcDir,
         "@dashframe/core-store": getStorageBackendPath(storageImpl),
       },
     },

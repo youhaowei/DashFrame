@@ -1,5 +1,5 @@
+import DashboardDetailContent from "@/app/dashboards/[dashboardId]/_components/DashboardDetailContent";
 import { createFileRoute } from "@tanstack/react-router";
-import DashboardDetailContent from "../../../app/dashboards/[dashboardId]/_components/DashboardDetailContent";
 
 export const Route = createFileRoute("/dashboards/$dashboardId")({
   component: DashboardDetailRoute,

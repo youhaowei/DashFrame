@@ -3,6 +3,10 @@ import {
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
+import {
+  createDashframeServer,
+  type DashframeServer,
+} from "@dashframe/server/app";
 import type { Event as ElectronEvent } from "electron";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
@@ -10,6 +14,7 @@ import path from "node:path";
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
 let project: ProjectHandle | null = null;
+let server: DashframeServer | null = null;
 let isClosingProject = false;
 
 async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
@@ -17,6 +22,11 @@ async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
 
   event.preventDefault();
   isClosingProject = true;
+  try {
+    server?.stop();
+  } catch (err) {
+    console.error("[dashframe] error stopping server:", err);
+  }
   try {
     await project.close();
   } catch (err) {
@@ -53,7 +63,7 @@ function createWindow(): void {
   loaded.catch((err) => console.error("[dashframe] window load failed:", err));
 }
 
-function registerIpc(handle: ProjectHandle): void {
+function registerIpc(handle: ProjectHandle, srv: DashframeServer): void {
   ipcMain.handle("dashframe:project:info", () => ({
     projectId: handle.meta.projectId,
     name: handle.meta.name,
@@ -65,6 +75,10 @@ function registerIpc(handle: ProjectHandle): void {
   ipcMain.handle("dashframe:project:reveal", () => {
     shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
   });
+  // The renderer connects to this loopback WyStack server as a localhost web
+  // client — same client + transport as the cloud web client (per the Data
+  // Path & Transport Deployment spec). It needs the ephemeral port main bound.
+  ipcMain.handle("dashframe:server:info", () => ({ url: srv.url }));
 }
 
 console.log("[dashframe] main process started, waiting for app ready...");
@@ -80,6 +94,21 @@ app
   .then(async () => {
     console.log("[dashframe] app ready, opening project...");
 
+    // DuckDB-WASM (the data pipeline in @dashframe/app) needs SharedArrayBuffer,
+    // which requires cross-origin isolation. In dev the renderer's Vite server
+    // sets COOP/COEP; for the packaged file:// renderer there's no HTTP layer,
+    // so inject the headers on every response here.
+    const { session } = await import("electron");
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Cross-Origin-Opener-Policy": ["same-origin"],
+          "Cross-Origin-Embedder-Policy": ["require-corp"],
+        },
+      });
+    });
+
     try {
       project = await openProject();
     } catch (err) {
@@ -94,7 +123,29 @@ app
     }
 
     console.log(`[dashframe] project ready at ${project.dir}`);
-    registerIpc(project);
+
+    try {
+      // In dev the renderer is served from the Vite dev server, whose origin
+      // must be allowed for CORS. Vite may fall back to another port if 5173 is
+      // taken (dev.mjs parses the actual URL into DEV_URL), so derive the origin
+      // from DEV_URL rather than assuming 5173. Packaged builds load from
+      // `file://` (origin `null`) — that CORS case is deferred (see YW-69 /
+      // Data Path & Transport Deployment spec open questions).
+      const corsOrigin = isDev ? new URL(DEV_URL).origin : undefined;
+      server = await createDashframeServer({ db: project.db, corsOrigin });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[dashframe] failed to start server:", err);
+      dialog.showErrorBox(
+        "DashFrame failed to start",
+        `Could not start the local server: ${message}`,
+      );
+      app.exit(1);
+      return;
+    }
+    console.log(`[dashframe] loopback server ready at ${server.url}`);
+
+    registerIpc(project, server);
     app.on("before-quit", closeProjectBeforeQuit);
 
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);

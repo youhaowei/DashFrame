@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { DashFrameApi, ProjectInfo } from "@dashframe/desktop-types";
+import type {
+  DashFrameApi,
+  ProjectInfo,
+  ServerInfo,
+} from "@dashframe/desktop-types";
 
 /**
  * IPC surface exposed to the renderer. Keep the shape narrow and serializable:
@@ -14,6 +18,8 @@ const api: DashFrameApi = {
     revealFolder: (): Promise<void> =>
       ipcRenderer.invoke("dashframe:project:reveal"),
   },
+  getServerInfo: (): Promise<ServerInfo> =>
+    ipcRenderer.invoke("dashframe:server:info"),
 } as const;
 
 contextBridge.exposeInMainWorld("dashframe", api);

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../../packages/app/src/*"]
+      "@/*": ["./src/*"]
     },
     "lib": ["dom", "dom.iterable", "esnext"],
     "isolatedModules": true,
@@ -11,6 +11,6 @@
     "allowJs": true,
     "incremental": true
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "src/routes/**"]
 }

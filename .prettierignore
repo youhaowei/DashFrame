@@ -16,6 +16,7 @@ e2e/web/test-results
 
 # TanStack Router generates this with its own style; regenerated on dev start
 apps/renderer/src/routeTree.gen.ts
+apps/web/src/routeTree.gen.ts
 
 # Submodules manage their own formatting — don't reformat from the host repo
 libs/

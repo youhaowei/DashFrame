@@ -1,5 +1,5 @@
+import DataSourcePageContent from "@/app/data-sources/[sourceId]/_components/DataSourcePageContent";
 import { createFileRoute } from "@tanstack/react-router";
-import DataSourcePageContent from "../../../app/data-sources/[sourceId]/_components/DataSourcePageContent";
 
 export const Route = createFileRoute("/data-sources/$sourceId")({
   component: DataSourceRoute,
