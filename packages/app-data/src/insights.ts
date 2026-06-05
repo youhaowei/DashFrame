@@ -92,7 +92,7 @@ export function useInsightMutations(): InsightMutations {
 export function useInsight(id: UUID): UseQueryResult<Insight | null> {
   const result = useQuery(api.getInsight, { args: { id } });
   return {
-    data: (result.data as Insight | null | undefined) ?? null,
+    data: result.data as Insight | null | undefined,
     isLoading: result.isLoading,
   };
 }
@@ -104,7 +104,10 @@ export function useCompiledInsight(
     args: loose({ id }),
     skip: !id,
   });
-  const tables = useQuery(api.listDataTables, { args: loose({}) });
+  const tables = useQuery(api.listDataTables, {
+    args: loose({}),
+    skip: !id,
+  });
 
   const compiled = useMemo((): CompiledInsight | null | undefined => {
     if (!id) return null;
@@ -139,7 +142,9 @@ export function useCompiledInsight(
 
   return {
     data: compiled,
-    isLoading: compiled === undefined || insight.isLoading || tables.isLoading,
+    isLoading:
+      Boolean(id) &&
+      (compiled === undefined || insight.isLoading || tables.isLoading),
   };
 }
 

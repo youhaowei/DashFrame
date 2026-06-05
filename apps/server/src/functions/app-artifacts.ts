@@ -59,6 +59,9 @@ type InsightDefinition = {
   joins?: InsightJoinConfig[];
 };
 
+type DataTableArrayKind = "fields" | "metrics";
+type DataTableArrayItem = { id: string };
+
 function dateFromEpoch(value: unknown): Date | undefined {
   return typeof value === "number" ? new Date(value) : undefined;
 }
@@ -85,6 +88,136 @@ function withDefaultCountMetric(
     },
     ...metrics,
   ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requireRecordWithId(value: unknown, label: string): { id: string } {
+  if (!isRecord(value) || typeof value.id !== "string") {
+    throw new Error(`${label} must be an object with an id`);
+  }
+  return value as { id: string };
+}
+
+function requireInsightMetric(value: unknown): InsightMetric {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.sourceTable !== "string" ||
+    typeof value.aggregation !== "string"
+  ) {
+    throw new Error(
+      "metric must include id, name, sourceTable, and aggregation",
+    );
+  }
+  return value as unknown as InsightMetric;
+}
+
+function patchDataTableItems(
+  kind: DataTableArrayKind,
+  mode: string,
+  items: DataTableArrayItem[],
+  itemId: string | undefined,
+  value: unknown,
+): DataTableArrayItem[] {
+  if (mode === "add") return [...items, requireRecordWithId(value, kind)];
+  if (mode === "update") {
+    if (!itemId) throw new Error("itemId is required for update");
+    if (!isRecord(value)) throw new Error(`${kind} update must be an object`);
+    if (!items.some((item) => item.id === itemId)) {
+      throw new Error(`${kind} item ${itemId} not found`);
+    }
+    return items.map((item) =>
+      item.id === itemId ? { ...item, ...value } : item,
+    );
+  }
+  if (mode === "delete") {
+    if (!itemId) throw new Error("itemId is required for delete");
+    if (!items.some((item) => item.id === itemId)) {
+      throw new Error(`${kind} item ${itemId} not found`);
+    }
+    return items.filter((item) => item.id !== itemId);
+  }
+  throw new Error(`Unsupported patch mode ${mode}`);
+}
+
+function patchInsightDefinition(
+  current: Insight,
+  args: {
+    mode: string;
+    fieldId?: string;
+    metricId?: string;
+    metric?: unknown;
+    updates?: unknown;
+  },
+): Pick<InsightDefinition, "selectedFields" | "metrics"> {
+  if (args.mode === "addField") {
+    if (!args.fieldId) throw new Error("fieldId is required for addField");
+    return {
+      selectedFields: current.selectedFields.includes(args.fieldId)
+        ? current.selectedFields
+        : [...current.selectedFields, args.fieldId],
+      metrics: current.metrics,
+    };
+  }
+  if (args.mode === "removeField") {
+    if (!args.fieldId) throw new Error("fieldId is required for removeField");
+    if (!current.selectedFields.includes(args.fieldId)) {
+      throw new Error(`Field ${args.fieldId} is not selected`);
+    }
+    return {
+      selectedFields: current.selectedFields.filter(
+        (id) => id !== args.fieldId,
+      ),
+      metrics: current.metrics,
+    };
+  }
+  if (args.mode === "addMetric") {
+    return {
+      selectedFields: current.selectedFields,
+      metrics: [...current.metrics, requireInsightMetric(args.metric)],
+    };
+  }
+  return patchInsightMetricDefinition(current, args);
+}
+
+function patchInsightMetricDefinition(
+  current: Insight,
+  args: { mode: string; metricId?: string; updates?: unknown },
+): Pick<InsightDefinition, "selectedFields" | "metrics"> {
+  if (args.mode === "updateMetric") {
+    if (!args.metricId)
+      throw new Error("metricId is required for updateMetric");
+    if (!isRecord(args.updates) || Object.keys(args.updates).length === 0) {
+      throw new Error("updates are required for updateMetric");
+    }
+    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
+      throw new Error(`Metric ${args.metricId} not found`);
+    }
+    return {
+      selectedFields: current.selectedFields,
+      metrics: current.metrics.map((metric) =>
+        metric.id === args.metricId
+          ? { ...metric, ...(args.updates as Partial<InsightMetric>) }
+          : metric,
+      ),
+    };
+  }
+  if (args.mode === "removeMetric") {
+    if (!args.metricId)
+      throw new Error("metricId is required for removeMetric");
+    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
+      throw new Error(`Metric ${args.metricId} not found`);
+    }
+    return {
+      selectedFields: current.selectedFields,
+      metrics: current.metrics.filter((metric) => metric.id !== args.metricId),
+    };
+  }
+  throw new Error(`Unsupported insight patch mode ${args.mode}`);
 }
 
 function rowToDataSource(row: DataSourceRow): DataSource {
@@ -231,6 +364,27 @@ const getDataSourceByType = query({
       .where(eq("kind", type))
       .first()) as DataSourceRow | undefined;
     return row ? rowToDataSource(row) : null;
+  },
+});
+
+const getOrCreateDataSourceByType = mutation({
+  args: { type: text, name: text },
+  handler: async (ctx, { type, name }): Promise<DataSource> => {
+    const existing = (await ctx.db
+      .from(dataSources)
+      .where(eq("kind", type))
+      .first()) as DataSourceRow | undefined;
+    if (existing) return rowToDataSource(existing);
+
+    const [row] = (await ctx.db.into(dataSources).insert({
+      name,
+      kind: type,
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" },
+    })) as DataSourceRow[];
+    if (!row) throw new Error("insert returned no row");
+    return rowToDataSource(row);
   },
 });
 
@@ -415,19 +569,8 @@ const patchDataTableArray = mutation({
     if (kind !== "fields" && kind !== "metrics") {
       throw new Error(`Unsupported data table array ${kind}`);
     }
-    const items = (table[kind] ?? []) as Array<{ id: string }>;
-    let next: Array<{ id: string }>;
-    if (mode === "add") {
-      next = [...items, value as { id: string }];
-    } else if (mode === "update") {
-      next = items.map((item) =>
-        item.id === itemId ? { ...item, ...(value as object) } : item,
-      );
-    } else if (mode === "delete") {
-      next = items.filter((item) => item.id !== itemId);
-    } else {
-      throw new Error(`Unsupported patch mode ${mode}`);
-    }
+    const items = (table[kind] ?? []) as DataTableArrayItem[];
+    const next = patchDataTableItems(kind, mode, items, itemId, value);
     await ctx.db
       .from(dataTables)
       .where(eq("id", dataTableId))
@@ -620,27 +763,7 @@ const patchInsight = mutation({
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
     const current = await loadInsight(ctx, args.id);
-    let selectedFields = current.selectedFields;
-    let metrics = current.metrics;
-    if (
-      args.mode === "addField" &&
-      args.fieldId &&
-      !selectedFields.includes(args.fieldId)
-    ) {
-      selectedFields = [...selectedFields, args.fieldId];
-    } else if (args.mode === "removeField" && args.fieldId) {
-      selectedFields = selectedFields.filter((id) => id !== args.fieldId);
-    } else if (args.mode === "addMetric") {
-      metrics = [...metrics, args.metric as InsightMetric];
-    } else if (args.mode === "updateMetric" && args.metricId) {
-      metrics = metrics.map((metric) =>
-        metric.id === args.metricId
-          ? { ...metric, ...(args.updates as Partial<InsightMetric>) }
-          : metric,
-      );
-    } else if (args.mode === "removeMetric" && args.metricId) {
-      metrics = metrics.filter((metric) => metric.id !== args.metricId);
-    }
+    const { selectedFields, metrics } = patchInsightDefinition(current, args);
     await ctx.db
       .from(insights)
       .where(eq("id", args.id))
@@ -774,6 +897,7 @@ export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
   getDataSourceByType,
+  getOrCreateDataSourceByType,
   addDataSource,
   updateDataSource,
   removeDataSource,

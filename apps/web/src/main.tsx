@@ -24,6 +24,18 @@ declare module "@tanstack/react-router" {
   }
 }
 
+function renderBootstrapError(error: unknown) {
+  console.error("Failed to start DashFrame web app", error);
+  const container = document.getElementById("root");
+  if (!container) return;
+
+  createRoot(container).render(
+    <div role="alert" className="p-6 text-sm text-red-700">
+      DashFrame failed to start. Check the WyStack server connection and reload.
+    </div>,
+  );
+}
+
 async function bootstrap() {
   const url = await resolveWyStackUrl();
   const { Provider } = createWyStackRuntime(url);
@@ -50,4 +62,4 @@ async function bootstrap() {
   );
 }
 
-void bootstrap();
+bootstrap().catch(renderBootstrapError);

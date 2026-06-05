@@ -85,6 +85,16 @@ export async function getDataSourceByType(
   return result as DataSource | null;
 }
 
+export async function getOrCreateDataSourceByType(
+  type: string,
+  name: string,
+): Promise<DataSource> {
+  return (await getWyStackClient().mutate(api.getOrCreateDataSourceByType, {
+    type,
+    name,
+  })) as DataSource;
+}
+
 export async function getAllDataSources(): Promise<DataSource[]> {
   const result = await getWyStackClient().query(api.listDataSources, {});
   return result as DataSource[];

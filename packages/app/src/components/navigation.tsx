@@ -243,14 +243,20 @@ export function Navigation() {
   const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  const { showSuccess } = useToastStore();
+  const { showError, showSuccess } = useToastStore();
 
   const handleClearAllData = async () => {
-    await clearAllData();
-
-    setShowClearConfirm(false);
-    showSuccess("All data cleared");
-    navigate({ to: "/" });
+    try {
+      await clearAllData();
+      setShowClearConfirm(false);
+      showSuccess("All data cleared");
+      navigate({ to: "/" });
+    } catch (error) {
+      showError("Failed to clear data", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   let sidebarWidth = "w-72";

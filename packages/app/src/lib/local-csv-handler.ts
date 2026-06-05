@@ -1,9 +1,8 @@
 import {
   addDataFrameEntry,
-  addDataSource,
   addDataTable,
-  getDataSourceByType,
   getDataTable,
+  getOrCreateDataSourceByType,
   replaceDataFrame,
   updateDataTable,
 } from "@dashframe/core";
@@ -64,19 +63,7 @@ export async function handleLocalCSVUpload(
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
   // 1. Ensure local data source exists (uses "local" connector type)
-  let dataSource = await getDataSourceByType("local");
-  if (!dataSource) {
-    const id = await addDataSource({
-      type: "local",
-      name: "Local Files",
-    });
-    dataSource = {
-      id,
-      type: "local",
-      name: "Local Files",
-      createdAt: Date.now(),
-    };
-  }
+  const dataSource = await getOrCreateDataSourceByType("local", "Local Files");
 
   const tableName = file.name.replace(/\.csv$/i, "");
   const dataTableId = options?.overrideTableId ?? crypto.randomUUID();
@@ -181,19 +168,7 @@ export async function handleFileConnectorResult(
   const dataFrame = parseResult.dataFrame as BrowserDataFrame;
 
   // 1. Ensure local data source exists (uses "local" connector type)
-  let dataSource = await getDataSourceByType("local");
-  if (!dataSource) {
-    const id = await addDataSource({
-      type: "local",
-      name: "Local Files",
-    });
-    dataSource = {
-      id,
-      type: "local",
-      name: "Local Files",
-      createdAt: Date.now(),
-    };
-  }
+  const dataSource = await getOrCreateDataSourceByType("local", "Local Files");
 
   const tableName = fileName.replace(/\.(csv|xlsx?|json)$/i, "");
   const dataTableId = options?.overrideTableId ?? dataFrame.id;

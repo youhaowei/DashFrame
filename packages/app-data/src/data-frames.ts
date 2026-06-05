@@ -55,6 +55,14 @@ export interface DataFrameMutations {
   updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
 }
 
+async function deleteArrowDataBestEffort(key: string): Promise<void> {
+  try {
+    await deleteArrowData(key);
+  } catch (error) {
+    console.warn("Failed to delete Arrow data", error);
+  }
+}
+
 export function useDataFrames(): UseDataFramesResult {
   const result = useQuery(api.listDataFrames);
   return {
@@ -129,9 +137,6 @@ export async function replaceDataFrame(
   metadata?: { rowCount?: number; columnCount?: number },
 ): Promise<void> {
   const oldEntity = await getDataFrameEntry(id);
-  if (oldEntity?.storage?.type === "indexeddb") {
-    await deleteArrowData(oldEntity.storage.key);
-  }
   const serialization = newDataFrame.toJSON();
   await updateDataFrameEntry(id, {
     storage: serialization.storage,
@@ -141,24 +146,27 @@ export async function replaceDataFrame(
     rowCount: metadata?.rowCount,
     columnCount: metadata?.columnCount,
   });
+  if (oldEntity?.storage?.type === "indexeddb") {
+    await deleteArrowDataBestEffort(oldEntity.storage.key);
+  }
 }
 
 export async function removeDataFrame(id: UUID): Promise<void> {
   const entity = await getDataFrameEntry(id);
-  if (entity?.storage?.type === "indexeddb") {
-    await deleteArrowData(entity.storage.key);
-  }
   await getWyStackClient().mutate(api.removeDataFrameEntry, { id });
+  if (entity?.storage?.type === "indexeddb") {
+    await deleteArrowDataBestEffort(entity.storage.key);
+  }
 }
 
 export async function clearAllData(): Promise<void> {
   const entities = await getAllDataFrames();
+  await getWyStackClient().mutate(api.clearAllData, {});
   for (const entity of entities) {
     if (entity.storage?.type === "indexeddb") {
-      await deleteArrowData(entity.storage.key);
+      await deleteArrowDataBestEffort(entity.storage.key);
     }
   }
-  await getWyStackClient().mutate(api.clearAllData, {});
 }
 
 export async function updateMetadata(

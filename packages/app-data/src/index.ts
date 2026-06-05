@@ -34,6 +34,7 @@ export {
   getAllDataSources,
   getDataSource,
   getDataSourceByType,
+  getOrCreateDataSourceByType,
   removeDataSource,
   updateDataSource,
   useDataSourceMutations,

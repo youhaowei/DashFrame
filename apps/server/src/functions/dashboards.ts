@@ -59,6 +59,64 @@ function rowToDashboard(row: DashboardRow): DashboardResult {
   };
 }
 
+function parseDashboardType(value: string): DashboardItem["type"] {
+  if (value === "visualization" || value === "markdown") return value;
+  throw new Error(`Unsupported dashboard item type ${value}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parsePosition(
+  value: unknown,
+): Pick<DashboardItem, "x" | "y" | "width" | "height"> {
+  if (!isRecord(value)) {
+    throw new Error("Dashboard item position must be an object");
+  }
+  const input = value;
+  const keys = ["x", "y", "width", "height"] as const;
+  for (const key of keys) {
+    if (typeof input[key] !== "number") {
+      throw new Error(`Dashboard item position.${key} must be a number`);
+    }
+  }
+  const { x, y, width, height } = input;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof width !== "number" ||
+    typeof height !== "number"
+  ) {
+    throw new Error("Dashboard item position must include numeric bounds");
+  }
+  return {
+    x,
+    y,
+    width,
+    height,
+  };
+}
+
+function sanitizeDashboardUpdates(
+  updates: unknown,
+): Partial<Omit<DashboardItem, "id" | "type">> {
+  if (!isRecord(updates)) {
+    throw new Error("Dashboard item updates must be an object");
+  }
+  const input = updates;
+  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
+  if (typeof input.visualizationId === "string") {
+    next.visualizationId = input.visualizationId;
+  }
+  if (typeof input.content === "string") next.content = input.content;
+  if (typeof input.x === "number") next.x = input.x;
+  if (typeof input.y === "number") next.y = input.y;
+  if (typeof input.width === "number") next.width = input.width;
+  if (typeof input.height === "number") next.height = input.height;
+  return next;
+}
+
 const listDashboards = query({
   args: {},
   handler: async (ctx): Promise<DashboardResult[]> => {
@@ -142,18 +200,12 @@ const addDashboardItem = mutation({
   handler: async (ctx, args): Promise<{ itemId: string }> => {
     const items = await loadItems(ctx, args.dashboardId);
     const itemId = crypto.randomUUID();
-    const position = args.position as {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
     items.push({
       id: itemId,
-      type: args.type as DashboardItem["type"],
+      type: parseDashboardType(args.type),
       visualizationId: args.visualizationId,
       content: args.content,
-      ...position,
+      ...parsePosition(args.position),
     });
     await ctx.db
       .from(dashboards)
@@ -170,7 +222,10 @@ const updateDashboardItem = mutation({
     { dashboardId, itemId, updates },
   ): Promise<{ ok: true }> => {
     const items = await loadItems(ctx, dashboardId);
-    const patch = updates as Partial<Omit<DashboardItem, "id" | "type">>;
+    const patch = sanitizeDashboardUpdates(updates);
+    if (!items.some((it) => it.id === itemId)) {
+      throw new Error(`Dashboard item ${itemId} not found`);
+    }
     const next = items.map((it) =>
       it.id === itemId ? { ...it, ...patch } : it,
     );

@@ -60,5 +60,6 @@ coverage
 
 # WyStack Agent Kit workspace (.wystack.json is tracked; the rest is local state)
 .wystack/
+.wystack.*.bak
 .wystack.*.bak/
 .clawpatch/
