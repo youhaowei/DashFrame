@@ -88,6 +88,14 @@ export function getSecurityHeaders(
     // Custom host if configured via NEXT_PUBLIC_POSTHOG_HOST
     customPostHogHost ? customPostHogHost : null,
   ].filter(Boolean);
+  let wystackHost: string | null = null;
+  if (env.VITE_WYSTACK_URL) {
+    try {
+      wystackHost = new URL(env.VITE_WYSTACK_URL).origin;
+    } catch {
+      wystackHost = null;
+    }
+  }
 
   /**
    * Content Security Policy (CSP)
@@ -205,7 +213,11 @@ export function getSecurityHeaders(
      *   Why needed: PostHog SDK sends analytics events to PostHog servers via fetch/XHR.
      *   Supports custom NEXT_PUBLIC_POSTHOG_HOST for self-hosted deployments.
      */
-    ["connect-src 'self' blob: https://cdn.jsdelivr.net", ...postHogHosts]
+    [
+      "connect-src 'self' blob: https://cdn.jsdelivr.net",
+      ...postHogHosts,
+      wystackHost,
+    ]
       .filter(Boolean)
       .join(" "),
 

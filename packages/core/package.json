@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@dashframe/types": "workspace:*",
-    "@dashframe/core-store": "workspace:*"
+    "@dashframe/app-data": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

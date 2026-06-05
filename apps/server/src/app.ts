@@ -32,13 +32,34 @@
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createRoutes, createWyStack } from "@wystack/server";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 
 import { functions } from "./functions";
 
-/** Dev origin the renderer is served from (Vite). */
-const DEV_RENDERER_ORIGIN = "http://localhost:5173";
+type CorsOrigin =
+  | string
+  | string[]
+  | ((
+      origin: string,
+      c: Context,
+    ) => Promise<string | undefined | null> | string | undefined | null);
+
+/** Allow localhost Vite/preview origins when a caller has not pinned CORS. */
+function allowLocalhostOrigin(origin: string): string | undefined {
+  try {
+    const url = new URL(origin);
+    if (
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    ) {
+      return origin;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
 export interface DashframeServerOptions {
   /** Project artifact DB — a Drizzle/PGLite instance (e.g. `ProjectHandle.db`). */
@@ -48,10 +69,11 @@ export interface DashframeServerOptions {
   /** Bind port. Default `0` — the OS assigns an ephemeral port. */
   port?: number;
   /**
-   * Allowed CORS origin(s) for the renderer. Defaults to the Vite dev origin.
+   * Allowed CORS origin(s) for the renderer. Defaults to local Vite/preview
+   * origins (`localhost` / `127.0.0.1`) for dev and smoke verification.
    * Production (renderer from `file://`) is not yet handled — see file header.
    */
-  corsOrigin?: string | string[];
+  corsOrigin?: CorsOrigin;
 }
 
 export interface DashframeServer {
@@ -72,7 +94,7 @@ export async function createDashframeServer(
 ): Promise<DashframeServer> {
   const hostname = opts.hostname ?? "127.0.0.1";
   const requestedPort = opts.port ?? 0;
-  const corsOrigin = opts.corsOrigin ?? DEV_RENDERER_ORIGIN;
+  const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
 
   const app = await createWyStack({ db: opts.db, functions });
 

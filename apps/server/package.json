@@ -32,8 +32,10 @@
   },
   "dependencies": {
     "@dashframe/server-core": "workspace:*",
+    "@dashframe/types": "workspace:*",
     "@hono/node-server": "^1.19.12",
     "@hono/node-ws": "^1.3.0",
+    "@wystack/db": "workspace:*",
     "@wystack/server": "workspace:*",
     "hono": "^4.12.9"
   },

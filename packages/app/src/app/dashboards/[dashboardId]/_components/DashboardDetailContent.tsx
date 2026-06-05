@@ -39,7 +39,11 @@ export default function DashboardDetailContent({
   const navigate = useNavigate();
 
   // Dexie hooks
-  const { data: dashboards = [], isLoading } = useDashboards();
+  const {
+    data: dashboards = [],
+    isLoading,
+    isFetching = false,
+  } = useDashboards();
   const { data: visualizations = [] } = useVisualizations();
   const { addItem } = useDashboardMutations();
 
@@ -55,15 +59,20 @@ export default function DashboardDetailContent({
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
-  // Redirect if not found after loading completes
+  // Redirect if not found — but only once any in-flight fetch has settled.
+  // Guard on isFetching as well as isLoading: TanStack Query sets isLoading=false
+  // when stale cached data exists even while a background refetch runs.  Without
+  // the isFetching guard, navigating to /dashboards/<id> right after creation
+  // sees stale cache → isLoading=false, dashboard=undefined → instant redirect
+  // before the mutation invalidation re-fetch completes.
   useEffect(() => {
-    if (!isLoading && !dashboard) {
+    if (!isLoading && !isFetching && !dashboard) {
       navigate({ to: "/dashboards" });
     }
-  }, [isLoading, dashboard, navigate]);
+  }, [isLoading, isFetching, dashboard, navigate]);
 
-  // Show loading state until we have the dashboard
-  if (isLoading || !dashboard) {
+  // Show loading state until we have the dashboard (or any fetch is in progress)
+  if (isLoading || isFetching || !dashboard) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-neutral-fg-subtle">Loading dashboard...</p>

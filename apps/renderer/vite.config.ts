@@ -12,13 +12,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appSrcDir = path.resolve(__dirname, "../../packages/app/src");
 const appRoutesDir = path.resolve(appSrcDir, "routes");
 
-// Phase 1 backend: same Dexie/IndexedDB store as web. @dashframe/core resolves
-// its backend through the @dashframe/core-store stub, aliased to core-dexie.
-const coreStorePath = path.resolve(
-  __dirname,
-  "../../packages/core-dexie/src/index.ts",
-);
-
 // DuckDB-WASM needs SharedArrayBuffer → cross-origin isolation (COOP/COEP). In
 // the web app these come from its security-headers plugin; the renderer dev
 // server needs them too. Packaged file:// isolation is set in the Electron main
@@ -57,7 +50,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": appSrcDir,
-      "@dashframe/core-store": coreStorePath,
     },
   },
   server: {

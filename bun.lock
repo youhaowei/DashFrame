@@ -59,7 +59,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dashframe/app": "workspace:*",
-        "@dashframe/core-dexie": "workspace:*",
+        "@dashframe/core": "workspace:*",
         "@dashframe/desktop-types": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
@@ -88,8 +88,10 @@
       },
       "dependencies": {
         "@dashframe/server-core": "workspace:*",
+        "@dashframe/types": "workspace:*",
         "@hono/node-server": "^1.19.12",
         "@hono/node-ws": "^1.3.0",
+        "@wystack/db": "workspace:*",
         "@wystack/server": "workspace:*",
         "hono": "^4.12.9",
       },
@@ -108,7 +110,6 @@
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/core": "workspace:*",
-        "@dashframe/core-dexie": "workspace:*",
         "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
@@ -355,7 +356,6 @@
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/core": "workspace:*",
-        "@dashframe/core-dexie": "workspace:*",
         "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
@@ -414,6 +414,23 @@
         "typescript": "5.7.2",
       },
     },
+    "packages/app-data": {
+      "name": "@dashframe/app-data",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dashframe/engine-browser": "workspace:*",
+        "@dashframe/server": "workspace:*",
+        "@dashframe/types": "workspace:*",
+        "@tanstack/react-query": "^5.90.0",
+        "@wystack/client": "workspace:*",
+        "react": "^19.2.4",
+      },
+      "devDependencies": {
+        "@dashframe/eslint-config": "workspace:*",
+        "@types/react": "^19.2.7",
+        "typescript": "5.7.2",
+      },
+    },
     "packages/connector-local": {
       "name": "@dashframe/connector-local",
       "version": "0.1.0",
@@ -448,7 +465,7 @@
       "name": "@dashframe/core",
       "version": "0.1.0",
       "dependencies": {
-        "@dashframe/core-store": "workspace:*",
+        "@dashframe/app-data": "workspace:*",
         "@dashframe/types": "workspace:*",
       },
       "devDependencies": {
@@ -792,6 +809,8 @@
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@3.0.4", "", {}, "sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw=="],
 
     "@dashframe/app": ["@dashframe/app@workspace:packages/app"],
+
+    "@dashframe/app-data": ["@dashframe/app-data@workspace:packages/app-data"],
 
     "@dashframe/connector-local": ["@dashframe/connector-local@workspace:packages/connector-local"],
 

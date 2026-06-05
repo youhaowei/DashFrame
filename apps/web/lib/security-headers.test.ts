@@ -145,6 +145,18 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("https://cdn.jsdelivr.net");
     });
 
+    it("should include configured WyStack host in connect-src", () => {
+      const headers = getSecurityHeaders({
+        VITE_WYSTACK_URL: "http://127.0.0.1:4100/api",
+      });
+      const cspHeader = headers.find(
+        (h) => h.key === "Content-Security-Policy",
+      );
+
+      expect(cspHeader?.value).toContain("connect-src");
+      expect(cspHeader?.value).toContain("http://127.0.0.1:4100");
+    });
+
     it("should include PostHog hosts in script-src and connect-src", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(

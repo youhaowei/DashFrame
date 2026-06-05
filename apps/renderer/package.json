@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@dashframe/app": "workspace:*",
-    "@dashframe/core-dexie": "workspace:*",
+    "@dashframe/core": "workspace:*",
     "@dashframe/desktop-types": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.95.0",

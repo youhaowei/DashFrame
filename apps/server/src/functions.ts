@@ -11,6 +11,9 @@
 import { schema } from "@dashframe/server-core";
 import { query } from "@wystack/server";
 
+import { appArtifactFunctions } from "./functions/app-artifacts";
+import { dashboardFunctions } from "./functions/dashboards";
+
 const { projectMeta } = schema;
 
 /** Shape returned by `projectInfo`. Mirrors the persisted `project_meta` row. */
@@ -52,6 +55,8 @@ const projectInfo = query<Record<string, never>, ProjectInfoResult>({
  */
 export const functions = {
   projectInfo,
+  ...appArtifactFunctions,
+  ...dashboardFunctions,
 };
 
 /** Public type surface — what the renderer imports to type its client. */
