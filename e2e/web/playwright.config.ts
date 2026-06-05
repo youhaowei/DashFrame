@@ -1,14 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
-import os from "os";
 import { findAvailablePortBlock } from "./support/port-finder";
 
 // Environment detection
 const isCI = !!process.env.CI;
 
 // Worker configuration
-// CI: 1 worker (serial execution for reliability)
-// Local: Multiple workers for faster parallel execution (capped at 6)
-const WORKER_COUNT = isCI ? 1 : Math.min(os.cpus().length, 6);
+// The app now stores shared metadata in the WyStack project database. Keep E2E
+// serial so tests share one API server predictably; IndexedDB still holds Arrow
+// bytes and is cleared by the fixtures.
+const WORKER_COUNT = 1;
 
 // Port configuration. Each worker gets its own port for IndexedDB isolation
 // (different origins → different databases). Playwright re-evaluates this
@@ -22,9 +22,12 @@ const BASE_PORT = await (async () => {
   process.env.E2E_BASE_PORT = String(picked);
   return picked;
 })();
+const API_PORT = Number(process.env.E2E_API_PORT ?? BASE_PORT + 1000);
+const API_URL = `http://127.0.0.1:${API_PORT}`;
+process.env.E2E_WYSTACK_URL = API_URL;
 
 // Export for use in test fixtures
-export { BASE_PORT, isCI, WORKER_COUNT };
+export { API_URL, BASE_PORT, isCI, WORKER_COUNT };
 
 /**
  * Generate webServer configuration.
@@ -32,36 +35,55 @@ export { BASE_PORT, isCI, WORKER_COUNT };
  * - CI: Single server, build included in command
  * - Local: Multiple servers for parallel workers
  */
+function apiServerCommand(port: number) {
+  return `cd ../.. && bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --project /tmp/dashframe-e2e-${port}`;
+}
+
 function webServerCommand(port: number) {
-  return `cd ../../apps/web && bun run build && bun run start --port ${port} --strictPort`;
+  return `cd ../../apps/web && VITE_WYSTACK_URL=${API_URL} bun run build && bun run start --port ${port} --strictPort`;
 }
 
 function getWebServerConfig() {
   if (isCI) {
-    // CI: Single server with build
-    return {
-      command: webServerCommand(BASE_PORT),
-      url: `http://localhost:${BASE_PORT}`,
-      reuseExistingServer: false,
+    // CI: Single API server + single web server with build.
+    return [
+      {
+        command: apiServerCommand(BASE_PORT),
+        url: `${API_URL}/api/projectInfo`,
+        reuseExistingServer: false,
+        timeout: 180_000,
+        stdout: "pipe" as const,
+        stderr: "pipe" as const,
+      },
+      {
+        command: webServerCommand(BASE_PORT),
+        url: `http://localhost:${BASE_PORT}`,
+        reuseExistingServer: false,
+        timeout: 180_000,
+        stdout: "pipe" as const,
+        stderr: "pipe" as const,
+      },
+    ];
+  }
+
+  return [
+    {
+      command: apiServerCommand(BASE_PORT),
+      url: `${API_URL}/api/projectInfo`,
+      reuseExistingServer: true,
       timeout: 180_000,
       stdout: "pipe" as const,
       stderr: "pipe" as const,
-    };
-  }
-
-  // Local: Multiple servers for parallel workers
-  // First server builds, others wait for build to complete
-  return Array.from({ length: WORKER_COUNT }, (_, i) => ({
-    command:
-      i === 0
-        ? webServerCommand(BASE_PORT)
-        : `cd ../../apps/web && while [ ! -f dist/index.html ]; do sleep 1; done && bun run start --port ${BASE_PORT + i} --strictPort`,
-    url: `http://localhost:${BASE_PORT + i}`,
-    reuseExistingServer: true,
-    timeout: 180_000,
-    stdout: "pipe" as const,
-    stderr: "pipe" as const,
-  }));
+    },
+    {
+      command: webServerCommand(BASE_PORT),
+      url: `http://localhost:${BASE_PORT}`,
+      reuseExistingServer: true,
+      timeout: 180_000,
+      stdout: "pipe" as const,
+      stderr: "pipe" as const,
+    },
+  ];
 }
 
 export default defineConfig({

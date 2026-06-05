@@ -17,6 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "..", "fixtures");
 const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
+const WYSTACK_URL = process.env.E2E_WYSTACK_URL;
 
 /**
  * Get the base URL for a worker based on its parallel index.
@@ -76,6 +77,19 @@ export const test = base.extend<DashFrameFixtures, DashFrameWorkerFixtures>({
   clearIndexedDB: [
     async ({ browser }, use, workerInfo) => {
       const workerBaseURL = getWorkerBaseURL(workerInfo.parallelIndex);
+      if (WYSTACK_URL) {
+        const response = await fetch(`${WYSTACK_URL}/api/clearAllData`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        if (!response.ok) {
+          throw new Error(
+            `Failed to clear WyStack test data: ${response.status} ${await response.text()}`,
+          );
+        }
+      }
+
       const page = await browser.newPage();
       try {
         await page.goto(workerBaseURL);
