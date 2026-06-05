@@ -9,8 +9,6 @@ export async function findAvailablePortBlock(
   startPort: number,
   count: number,
 ): Promise<number> {
-  if (process.env.CI) return startPort;
-
   for (let base = startPort; base < startPort + 200; base++) {
     let blockFree = true;
     for (let i = 0; i < count; i++) {

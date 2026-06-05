@@ -10,19 +10,20 @@ const isCI = !!process.env.CI;
 // bytes and is cleared by the fixtures.
 const WORKER_COUNT = 1;
 
-// Port configuration. Each worker gets its own port for IndexedDB isolation
-// (different origins → different databases). Playwright re-evaluates this
-// config inside every worker process, so we stamp the picked block into
-// process.env on the orchestrator and let workers read it back — otherwise
-// each worker would re-roll its own port and miss the running webServers.
+// Port configuration. Each worker gets its own web port for IndexedDB isolation
+// (different origins → different databases), and the shared WyStack API gets
+// the next port in the same free block. Playwright re-evaluates this config
+// inside every worker process, so we stamp the picked block into process.env on
+// the orchestrator and let workers read it back — otherwise each worker would
+// re-roll its own ports and miss the running webServers.
 const BASE_PORT = await (async () => {
   const cached = process.env.E2E_BASE_PORT;
   if (cached) return Number(cached);
-  const picked = await findAvailablePortBlock(3100, WORKER_COUNT);
+  const picked = await findAvailablePortBlock(3100, WORKER_COUNT + 1);
   process.env.E2E_BASE_PORT = String(picked);
   return picked;
 })();
-const API_PORT = Number(process.env.E2E_API_PORT ?? BASE_PORT + 1000);
+const API_PORT = Number(process.env.E2E_API_PORT ?? BASE_PORT + WORKER_COUNT);
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 process.env.E2E_WYSTACK_URL = API_URL;
 
