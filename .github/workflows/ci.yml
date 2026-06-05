@@ -67,6 +67,15 @@ jobs:
         if: steps.guard.outputs.present == 'true'
         run: bun install --frozen-lockfile
 
+      # The web E2E target runs a production `vite build`, which resolves
+      # @wystack/* via their `import`/`default` conditions → `dist/*.js`. Those
+      # dist files only exist after the submodule is built. (Typecheck/lint jobs
+      # consume wystack *source* via the `bun` condition, so they don't need
+      # this — but the bundler build does.)
+      - name: Build WyStack submodule
+        if: steps.guard.outputs.present == 'true'
+        run: bun run build:wystack
+
       - name: Install Playwright browsers
         if: steps.guard.outputs.present == 'true'
         run: cd e2e/web && bun playwright install --with-deps chromium chromium-headless-shell
