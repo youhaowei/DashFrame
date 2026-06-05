@@ -40,7 +40,7 @@ function apiServerCommand(port: number) {
 }
 
 function webServerCommand(port: number) {
-  return `cd ../../apps/web && VITE_WYSTACK_URL=${API_URL} bun run build && bun run start --port ${port} --strictPort`;
+  return `cd ../../apps/web && VITE_WYSTACK_URL=${API_URL} bun run build && VITE_WYSTACK_URL=${API_URL} bun run start --port ${port} --strictPort`;
 }
 
 function getWebServerConfig() {
