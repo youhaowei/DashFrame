@@ -859,36 +859,16 @@ const removeVisualization = mutation({
 const clearAllData = mutation({
   args: {},
   handler: async (ctx): Promise<{ ok: true }> => {
-    for (const row of (await ctx.db.from(dashboards).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(dashboards).where(eq("id", row.id)).delete();
-    }
-    for (const row of (await ctx.db.from(visualizations).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(visualizations).where(eq("id", row.id)).delete();
-    }
-    for (const row of (await ctx.db.from(insights).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(insights).where(eq("id", row.id)).delete();
-    }
-    for (const row of (await ctx.db.from(dataTables).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(dataTables).where(eq("id", row.id)).delete();
-    }
-    for (const row of (await ctx.db.from(dataSources).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(dataSources).where(eq("id", row.id)).delete();
-    }
-    for (const row of (await ctx.db.from(dataFrames).all()) as Array<{
-      id: string;
-    }>) {
-      await ctx.db.from(dataFrames).where(eq("id", row.id)).delete();
-    }
+    // One unconditional DELETE FROM per table (TrackedDb.delete() with no
+    // .where() clears the whole table). Idempotent and a single statement
+    // each — no per-row round-trips, no partial-clear retry hazard. FK-child
+    // tables first so cascade order is satisfied even without DB-level FKs.
+    await ctx.db.from(dashboards).delete();
+    await ctx.db.from(visualizations).delete();
+    await ctx.db.from(insights).delete();
+    await ctx.db.from(dataFrames).delete();
+    await ctx.db.from(dataTables).delete();
+    await ctx.db.from(dataSources).delete();
     return { ok: true };
   },
 });

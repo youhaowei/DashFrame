@@ -51,6 +51,12 @@ interface DashFrameWorkerFixtures {
   clearIndexedDB: void;
 }
 
+// Test-scoped auto fixtures
+interface DashFrameAutoFixtures {
+  /** Clears the WyStack server DB before each test for isolation */
+  clearServerDB: void;
+}
+
 interface DashFrameFixtures {
   /** The worker's assigned base URL */
   workerBaseURL: string;
@@ -68,28 +74,19 @@ interface DashFrameFixtures {
 // Custom test with fixtures
 // ─────────────────────────────────────────────────────────────
 
-export const test = base.extend<DashFrameFixtures, DashFrameWorkerFixtures>({
+export const test = base.extend<
+  DashFrameFixtures & DashFrameAutoFixtures,
+  DashFrameWorkerFixtures
+>({
   /**
    * Clear IndexedDB once when worker starts.
-   * Removes any pre-existing data from local development.
+   * Removes any pre-existing Arrow/DuckDB data from local development.
    * Worker-scoped + auto means it runs once per worker, before any tests.
+   * WyStack server DB isolation is handled by clearServerDB (test-scoped).
    */
   clearIndexedDB: [
     async ({ browser }, use, workerInfo) => {
       const workerBaseURL = getWorkerBaseURL(workerInfo.parallelIndex);
-      if (WYSTACK_URL) {
-        const response = await fetch(`${WYSTACK_URL}/api/clearAllData`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: "{}",
-        });
-        if (!response.ok) {
-          throw new Error(
-            `Failed to clear WyStack test data: ${response.status} ${await response.text()}`,
-          );
-        }
-      }
-
       const page = await browser.newPage();
       try {
         await page.goto(workerBaseURL);
@@ -113,6 +110,32 @@ export const test = base.extend<DashFrameFixtures, DashFrameWorkerFixtures>({
       await use();
     },
     { scope: "worker", auto: true },
+  ],
+
+  /**
+   * Clear WyStack server DB before each test.
+   * Ensures every test starts with an empty server-side database so
+   * onboarding view (and other empty-state UI) renders correctly regardless
+   * of what previous tests created.  Test-scoped + auto = runs before every
+   * individual test.
+   */
+  clearServerDB: [
+    async ({}, use) => {
+      if (WYSTACK_URL) {
+        const response = await fetch(`${WYSTACK_URL}/api/clearAllData`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        if (!response.ok) {
+          throw new Error(
+            `Failed to clear WyStack server DB before test: ${response.status} ${await response.text()}`,
+          );
+        }
+      }
+      await use();
+    },
+    { scope: "test", auto: true },
   ],
 
   /**

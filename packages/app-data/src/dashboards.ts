@@ -42,6 +42,7 @@ export function useDashboards(): UseDashboardsResult {
   return {
     data: result.data as Dashboard[] | undefined,
     isLoading: result.isLoading,
+    isFetching: result.isFetching,
   };
 }
 

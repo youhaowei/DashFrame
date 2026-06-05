@@ -15,7 +15,14 @@ import { syncSchema } from "./sync-schema";
 
 export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 
-export const ARTIFACT_DB_SCHEMA_VERSION = 1;
+// Bump on any artifact-schema change. syncSchema is CREATE TABLE IF NOT EXISTS
+// (no ALTER), so existing project DBs do NOT pick up column additions. The
+// version check in openProject() rejects a stale DB with an explicit
+// "Unsupported project schema version" error instead of letting a later query
+// fail on a missing column. Pre-release policy is wipe-and-recreate, not a
+// migration ladder.
+// v2 (YW-103): added dashboards.description; added data_tables, data_frames.
+export const ARTIFACT_DB_SCHEMA_VERSION = 2;
 
 export interface OpenArtifactDbOptions {
   /** Filesystem path to the database file, e.g. "~/.DashFrame/default-project/artifacts.db". */
