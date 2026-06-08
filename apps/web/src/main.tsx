@@ -1,7 +1,7 @@
 import "@dashframe/app/globals.css";
 
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import { createWyStackRuntime, resolveWyStackUrl } from "@dashframe/core";
+import { createWyStackRuntime, resolveWyStackConfig } from "@dashframe/core";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -37,8 +37,8 @@ function renderBootstrapError(error: unknown) {
 }
 
 async function bootstrap() {
-  const url = await resolveWyStackUrl();
-  const { Provider } = createWyStackRuntime(url);
+  const config = await resolveWyStackConfig();
+  const { Provider } = createWyStackRuntime(config);
 
   // WyStack Provider wraps PostHog so every data hook (and PostHogPageView's
   // router hooks) sees both contexts. The composed wrapper rides the

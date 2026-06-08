@@ -23,18 +23,30 @@ export interface WyStackRuntime {
   Provider: FC<{ children: ReactNode }>;
 }
 
+export interface WyStackRuntimeConfig {
+  url: string;
+  token?: string;
+}
+
 /**
- * Mint the client for `url`, wire the imperative singleton, and return the
+ * Mint the client for `config`, wire the imperative singleton, and return the
  * bound Provider. Call once per host, before rendering.
  */
-export function createWyStackRuntime(url: string): WyStackRuntime {
-  const instance = createWyStack<Functions>({ url });
+export function createWyStackRuntime(
+  config: string | WyStackRuntimeConfig,
+): WyStackRuntime {
+  const runtimeConfig = typeof config === "string" ? { url: config } : config;
+  const token = runtimeConfig.token;
+  const instance = createWyStack<Functions>({
+    url: runtimeConfig.url,
+    getToken: token ? () => token : undefined,
+  });
   setWyStackClient(instance.client);
   return { Provider: instance.Provider };
 }
 
 /**
- * Resolve the WyStack server URL for the current surface, in priority order:
+ * Resolve the WyStack server connection for the current surface, in priority order:
  *   1. Electron loopback — `window.dashframe.getServerInfo()` (async IPC).
  *   2. Web dev proxy — `VITE_WYSTACK_URL` configures Vite's `/api` proxy, but
  *      the browser still talks same-origin to preserve COOP/COEP behavior.
@@ -43,18 +55,26 @@ export function createWyStackRuntime(url: string): WyStackRuntime {
  *
  * Async because the Electron branch awaits IPC; the others resolve immediately.
  */
-export async function resolveWyStackUrl(): Promise<string> {
+export async function resolveWyStackConfig(): Promise<WyStackRuntimeConfig> {
   const desktop = (
-    globalThis as { dashframe?: { getServerInfo(): Promise<{ url: string }> } }
+    globalThis as {
+      dashframe?: { getServerInfo(): Promise<WyStackRuntimeConfig> };
+    }
   ).dashframe;
   if (desktop) {
-    const { url } = await desktop.getServerInfo();
-    return url;
+    return desktop.getServerInfo();
   }
 
   const override = import.meta.env?.VITE_WYSTACK_URL;
-  if (override && import.meta.env?.DEV) return globalThis.location.origin;
-  if (override) return override;
+  if (override && import.meta.env?.DEV) {
+    return { url: globalThis.location.origin };
+  }
+  if (override) return { url: override };
 
-  return globalThis.location.origin;
+  return { url: globalThis.location.origin };
+}
+
+export async function resolveWyStackUrl(): Promise<string> {
+  const { url } = await resolveWyStackConfig();
+  return url;
 }

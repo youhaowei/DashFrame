@@ -11,8 +11,8 @@
  * is only known after main binds its ephemeral port, so we resolve it via IPC
  * first and mint the client inside an async bootstrap, before React renders.
  *
- * No auth: the loopback token mechanism is an open spec decision and out of
- * scope for the v0.2 integration smoke (YW-69).
+ * Auth: Electron main returns a per-launch loopback token via IPC. The client
+ * sends it as a Bearer token for HTTP and as the first WS auth frame.
  */
 import type { Functions } from "@dashframe/server/functions";
 import { createWyStack, type WyStackInstance } from "@wystack/client";
@@ -24,6 +24,6 @@ export type DashframeApi = WyStackInstance<Functions>;
  * rendering; pass the result down through React.
  */
 export async function createDashframeClient(): Promise<DashframeApi> {
-  const { url } = await window.dashframe.getServerInfo();
-  return createWyStack<Functions>({ url });
+  const { url, token } = await window.dashframe.getServerInfo();
+  return createWyStack<Functions>({ url, getToken: () => token });
 }

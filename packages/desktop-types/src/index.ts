@@ -15,6 +15,11 @@ export interface ServerInfo {
    * would produce a double `/api/api` path and break every query.
    */
   url: string;
+  /**
+   * Per-launch loopback bearer token minted by Electron main. The renderer
+   * supplies it through WyStack's getToken hook for HTTP and WS auth.
+   */
+  token: string;
 }
 
 export interface DashFrameApi {

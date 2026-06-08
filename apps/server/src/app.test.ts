@@ -15,6 +15,53 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createDashframeServer, type DashframeServer } from "./app";
 import type { ProjectInfoResult } from "./functions";
 
+function bearer(token: string): { Authorization: string } {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function waitForWsAuth(
+  url: string,
+  token: string | null,
+): Promise<"authenticated" | number> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ws.close();
+      reject(new Error("Timed out waiting for WebSocket auth result"));
+    }, 5_000);
+
+    function finish(result: "authenticated" | number) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    }
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "auth", token }));
+    };
+    ws.onmessage = (event) => {
+      const message = JSON.parse(String(event.data)) as { type?: string };
+      if (message.type === "authenticated") {
+        finish("authenticated");
+        ws.close();
+      }
+    };
+    ws.onclose = (event) => {
+      finish(event.code);
+    };
+    ws.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error("WebSocket failed"));
+    };
+  });
+}
+
 describe("createDashframeServer", () => {
   let root: string;
   let project: ProjectHandle | null;
@@ -53,5 +100,68 @@ describe("createDashframeServer", () => {
     // 30s timeout: PGLite cold-start (WASM instantiate + schema sync) takes
     // ~20s+ on a cold CI runner vs <1s warm locally. Matches server-core's
     // vitest testTimeout for the same reason — the default 5s flakes in CI.
+  }, 30_000);
+
+  test("requires the loopback token for HTTP and allows packaged Origin null", async () => {
+    project = await openProject({ dir: join(root, "proj"), name: "Auth Co" });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "launch-token",
+      corsOrigin: "null",
+    });
+
+    const url = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
+
+    const noAuth = await fetch(url);
+    expect(noAuth.status).toBe(401);
+
+    const wrongAuth = await fetch(url, {
+      headers: bearer("wrong-token"),
+    });
+    expect(wrongAuth.status).toBe(401);
+
+    const preflight = await fetch(`${server.url}/api/projectInfo`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "null",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization",
+      },
+    });
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("null");
+    expect(preflight.headers.get("access-control-allow-headers")).toContain(
+      "Authorization",
+    );
+
+    const ok = await fetch(url, {
+      headers: {
+        ...bearer("launch-token"),
+        Origin: "null",
+      },
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("access-control-allow-origin")).toBe("null");
+
+    const body = (await ok.json()) as { data: ProjectInfoResult };
+    expect(body.data.name).toBe("Auth Co");
+  }, 30_000);
+
+  test("requires the loopback token for WebSocket auth", async () => {
+    project = await openProject({ dir: join(root, "proj"), name: "Ws Co" });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "launch-token",
+    });
+
+    await expect(
+      waitForWsAuth(`${server.url.replace(/^http/, "ws")}/api/ws`, "wrong"),
+    ).resolves.toBe(4001);
+
+    await expect(
+      waitForWsAuth(
+        `${server.url.replace(/^http/, "ws")}/api/ws`,
+        "launch-token",
+      ),
+    ).resolves.toBe("authenticated");
   }, 30_000);
 });
