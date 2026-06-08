@@ -18,6 +18,8 @@ interface CliOptions {
   project?: string;
   name?: string;
   corsOrigin?: string | string[];
+  token?: string;
+  help?: boolean;
 }
 
 const DEFAULT_WEB_PROJECT_DIR = path.join(
@@ -26,16 +28,24 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   "web-project",
 );
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`dashframe serve
 
 Options:
-  --host <host>           Bind host (default: 127.0.0.1)
-  --port <port>           Bind port (default: 0, OS-assigned)
   --project <dir>         Project directory (default: DASHFRAME_PROJECT_DIR or ~/.DashFrame/web-project)
+  --bind <addr>           Bind address as host[:port] (default: 127.0.0.1:0)
+  --token <token>         Require Bearer token auth for HTTP and WebSocket clients
+  --host <host>           Bind host alias (default: 127.0.0.1)
+  --port <port>           Bind port alias (default: 0, OS-assigned)
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
   --help                  Show this help
+
+Security boundary:
+  The server exposes the selected local DashFrame project over HTTP and WebSocket.
+  The default bind is loopback-only. Binding to 0.0.0.0 or another network
+  interface makes the project reachable from that network. Use --token for any
+  non-loopback bind, and do not treat it as TLS or multi-user authorization.
 `);
 }
 
@@ -47,7 +57,10 @@ function readValue(args: string[], index: number, flag: string): string {
   return value;
 }
 
-function parsePort(raw: string): number {
+export function parsePort(raw: string): number {
+  if (!raw.trim()) {
+    throw new Error(`Invalid --port "${raw}"`);
+  }
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid --port "${raw}"`);
@@ -72,53 +85,100 @@ function appendCorsOrigins(
   return [...existing, ...values];
 }
 
-function parseArgs(args: string[]): CliOptions {
+function applyBind(opts: CliOptions, raw: string): void {
+  if (!raw.trim()) {
+    throw new Error("--bind requires a non-empty address");
+  }
+
+  if (raw.startsWith(":")) {
+    opts.port = parsePort(raw.slice(1));
+    return;
+  }
+
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]");
+    if (end === -1) {
+      throw new Error(`Invalid --bind "${raw}"`);
+    }
+    opts.hostname = raw.slice(1, end);
+    const suffix = raw.slice(end + 1);
+    if (suffix) {
+      if (!suffix.startsWith(":")) {
+        throw new Error(`Invalid --bind "${raw}"`);
+      }
+      opts.port = parsePort(suffix.slice(1));
+    }
+    return;
+  }
+
+  const colon = raw.lastIndexOf(":");
+  if (colon > 0 && raw.indexOf(":") === colon) {
+    opts.hostname = raw.slice(0, colon);
+    opts.port = parsePort(raw.slice(colon + 1));
+    return;
+  }
+
+  opts.hostname = raw;
+}
+
+export function parseArgs(args: string[]): CliOptions {
   const opts: CliOptions = {};
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]!;
-    if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    }
+  const normalizedArgs = args[0] === "serve" ? args.slice(1) : args;
 
-    if (arg === "--host") {
-      opts.hostname = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--port") {
-      opts.port = parsePort(readValue(args, i, arg));
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--project") {
-      opts.project = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--name") {
-      opts.name = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--cors-origin") {
-      opts.corsOrigin = appendCorsOrigins(
-        opts.corsOrigin,
-        readValue(args, i, arg),
-      );
-      i += 1;
-      continue;
-    }
-
-    throw new Error(`Unknown argument "${arg}"`);
+  let i = 0;
+  while (i < normalizedArgs.length) {
+    i = parseArgAt(opts, normalizedArgs, i);
+    i += 1;
   }
 
   return opts;
+}
+
+function parseArgAt(opts: CliOptions, args: string[], index: number): number {
+  const arg = args[index]!;
+
+  switch (arg) {
+    case "--help":
+    case "-h":
+      opts.help = true;
+      return index;
+    case "--bind":
+      applyBind(opts, readValue(args, index, arg));
+      return index + 1;
+    case "--host":
+      opts.hostname = readValue(args, index, arg);
+      return index + 1;
+    case "--port":
+      opts.port = parsePort(readValue(args, index, arg));
+      return index + 1;
+    case "--project":
+      opts.project = readValue(args, index, arg);
+      return index + 1;
+    case "--name":
+      opts.name = readValue(args, index, arg);
+      return index + 1;
+    case "--cors-origin":
+      opts.corsOrigin = appendCorsOrigins(
+        opts.corsOrigin,
+        readValue(args, index, arg),
+      );
+      return index + 1;
+    case "--token":
+      opts.token = readValue(args, index, arg);
+      return index + 1;
+    default:
+      throw new Error(`Unknown argument "${arg}"`);
+  }
+}
+
+function isLoopback(hostname: string | undefined): boolean {
+  return (
+    hostname === undefined ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1"
+  );
 }
 
 function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
@@ -134,23 +194,41 @@ function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
   process.on("SIGTERM", () => void close());
 }
 
-const opts = parseArgs(process.argv.slice(2));
-const project = await openProject({
-  dir:
-    opts.project ??
-    process.env.DASHFRAME_PROJECT_DIR ??
-    DEFAULT_WEB_PROJECT_DIR,
-  name: opts.name,
-});
-const server = await createDashframeServer({
-  db: project.db,
-  hostname: opts.hostname,
-  port: opts.port,
-  corsOrigin: opts.corsOrigin,
-});
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  const opts = parseArgs(args);
+  if (opts.help) {
+    printHelp();
+    return;
+  }
 
-closeOnSignal(project, server);
+  if (!opts.token && !isLoopback(opts.hostname)) {
+    console.warn(
+      "[dashframe] warning: non-loopback bind without --token exposes this project to the network",
+    );
+  }
 
-console.log(`[dashframe] project: ${project.dir}`);
-console.log(`[dashframe] server: ${server.url}`);
-console.log("[dashframe] ready");
+  const project = await openProject({
+    dir:
+      opts.project ??
+      process.env.DASHFRAME_PROJECT_DIR ??
+      DEFAULT_WEB_PROJECT_DIR,
+    name: opts.name,
+  });
+  const server = await createDashframeServer({
+    db: project.db,
+    hostname: opts.hostname,
+    port: opts.port,
+    corsOrigin: opts.corsOrigin,
+    authToken: opts.token,
+  });
+
+  closeOnSignal(project, server);
+
+  console.log(`[dashframe] project: ${project.dir}`);
+  console.log(`[dashframe] listening: ${server.url}`);
+  console.log("[dashframe] ready");
+}
+
+if (import.meta.main) {
+  await main();
+}
