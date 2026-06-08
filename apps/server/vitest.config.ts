@@ -1,6 +1,9 @@
-import path from "node:path";
+import path, { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vitest/config";
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
@@ -13,19 +16,19 @@ export default defineConfig({
   resolve: {
     alias: {
       "@dashframe/server-core": path.resolve(
-        __dirname,
+        configDir,
         "../../packages/server-core/src",
       ),
       "@wystack/db": path.resolve(
-        __dirname,
+        configDir,
         "../../libs/wystack/packages/db/src",
       ),
       "@wystack/server": path.resolve(
-        __dirname,
+        configDir,
         "../../libs/wystack/packages/server/src",
       ),
       "@wystack/transport": path.resolve(
-        __dirname,
+        configDir,
         "../../libs/wystack/packages/transport/src",
       ),
     },
