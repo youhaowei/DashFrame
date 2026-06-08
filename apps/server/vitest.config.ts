@@ -8,7 +8,6 @@ const configDir = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     environment: "node",
-    globals: true,
     include: ["**/*.test.{ts,tsx}"],
     // PGLite cold-start can exceed Vitest's default 5s timeout in CI.
     testTimeout: 30_000,
