@@ -1,7 +1,7 @@
 import "@dashframe/app/globals.css";
 
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import { createWyStackRuntime, resolveWyStackUrl } from "@dashframe/core";
+import { createWyStackRuntime, resolveWyStackConfig } from "@dashframe/core";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -41,8 +41,8 @@ function renderBootstrapError(error: unknown) {
 // — the same channel the web host uses for PostHog. The renderer has no
 // analytics, so the Provider is the whole wrapper here.
 async function bootstrap() {
-  const url = await resolveWyStackUrl();
-  const { Provider } = createWyStackRuntime(url);
+  const config = await resolveWyStackConfig();
+  const { Provider } = createWyStackRuntime(config);
   const providerWrapper: ProviderWrapper = ({ children }) => (
     <Provider>{children}</Provider>
   );

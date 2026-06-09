@@ -23,17 +23,18 @@
  * desktop main runs under Electron's embedded Node 20, where `Bun.serve` does
  * not exist — hence the Node adapter, never `/bun`.)
  *
- * No auth is wired here. The loopback token mechanism is an open spec decision
- * (Data Path & Transport Deployment § Open Questions) and out of scope for the
- * v0.2 integration smoke (YW-69) — single-user trunk treats auth as a no-op.
- * Production CORS (renderer loaded from `file://`) defers with that auth item;
- * dev allows only the Vite origin below.
+ * Loopback auth is optional at the factory level because `dashframe serve`
+ * still owns its separate remote-bind auth decision. Electron desktop passes a
+ * per-launch bearer token, which protects both HTTP calls and WyStack's WS auth
+ * frame. Packaged desktop also allows the renderer's `file://` Origin (`null`)
+ * through CORS; the bearer token remains the authority.
  */
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createRoutes, createWyStack } from "@wystack/server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import { functions } from "./functions";
 
@@ -71,9 +72,14 @@ export interface DashframeServerOptions {
   /**
    * Allowed CORS origin(s) for the renderer. Defaults to local Vite/preview
    * origins (`localhost` / `127.0.0.1`) for dev and smoke verification.
-   * Production (renderer from `file://`) is not yet handled — see file header.
    */
   corsOrigin?: CorsOrigin;
+  /**
+   * Optional bearer token required for every HTTP request and WS auth frame.
+   * Desktop mints this per launch; standalone `dashframe serve` can remain
+   * unauthenticated until its remote-bind auth policy is decided.
+   */
+  authToken?: string;
 }
 
 export interface DashframeServer {
@@ -95,6 +101,9 @@ export async function createDashframeServer(
   const hostname = opts.hostname ?? "127.0.0.1";
   const requestedPort = opts.port ?? 0;
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
+  const resolveContext = opts.authToken
+    ? createTokenResolver(opts.authToken)
+    : undefined;
 
   const app = await createWyStack({ db: opts.db, functions });
 
@@ -103,8 +112,15 @@ export async function createDashframeServer(
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({
     app: honoApp,
   });
-  honoApp.use("*", cors({ origin: corsOrigin }));
-  honoApp.route("/", createRoutes({ app }, upgradeWebSocket));
+  honoApp.use(
+    "*",
+    cors({
+      origin: corsOrigin,
+      allowHeaders: ["Authorization", "Content-Type"],
+      allowMethods: ["GET", "POST", "OPTIONS"],
+    }),
+  );
+  honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
@@ -135,6 +151,27 @@ function listen(
     // never sees a throw. Surface it so startup fails loudly instead.
     server.on("error", reject);
   });
+}
+
+function createTokenResolver(
+  expectedToken: string,
+): (req: Request) => Promise<Record<string, unknown>> {
+  return async (req) => {
+    const auth = req.headers.get("authorization") ?? "";
+    const token = auth.startsWith("Bearer ")
+      ? auth.slice("Bearer ".length)
+      : "";
+    if (!tokenMatches(token, expectedToken)) {
+      throw new Error("Unauthorized");
+    }
+    return {};
+  };
+}
+
+function tokenMatches(actual: string, expected: string): boolean {
+  const actualBytes = createHash("sha256").update(actual).digest();
+  const expectedBytes = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(actualBytes, expectedBytes);
 }
 
 export type { Functions } from "./functions";

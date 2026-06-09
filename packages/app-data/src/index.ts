@@ -17,8 +17,9 @@
 export { getWyStackClient, setWyStackClient } from "./client";
 export {
   createWyStackRuntime,
-  resolveWyStackUrl,
+  resolveWyStackConfig,
   type WyStackRuntime,
+  type WyStackRuntimeConfig,
 } from "./runtime";
 
 // Dashboards
