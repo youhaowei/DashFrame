@@ -18,6 +18,9 @@ interface CliOptions {
   project?: string;
   name?: string;
   corsOrigin?: string | string[];
+  token?: string;
+  insecure?: boolean;
+  help?: boolean;
 }
 
 const DEFAULT_WEB_PROJECT_DIR = path.join(
@@ -26,16 +29,26 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   "web-project",
 );
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`dashframe serve
 
 Options:
-  --host <host>           Bind host (default: 127.0.0.1)
-  --port <port>           Bind port (default: 0, OS-assigned)
   --project <dir>         Project directory (default: DASHFRAME_PROJECT_DIR or ~/.DashFrame/web-project)
+  --bind <addr>           Bind address as host[:port] (default: 127.0.0.1:0)
+  --token <token>         Require Bearer token auth for HTTP and WebSocket clients
+  --host <host>           Bind host alias (default: 127.0.0.1)
+  --port <port>           Bind port alias (default: 0, OS-assigned)
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
+  --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
   --help                  Show this help
+
+Security boundary:
+  The server exposes the selected local DashFrame project over HTTP and WebSocket.
+  The default bind is loopback-only and safe to run without a token. Binding to
+  0.0.0.0 or another network interface makes the project reachable from that
+  network, so a non-loopback bind requires --token; pass --insecure to opt out
+  deliberately. A token is not TLS and not multi-user authorization.
 `);
 }
 
@@ -47,7 +60,10 @@ function readValue(args: string[], index: number, flag: string): string {
   return value;
 }
 
-function parsePort(raw: string): number {
+export function parsePort(raw: string): number {
+  if (!raw.trim()) {
+    throw new Error(`Invalid --port "${raw}"`);
+  }
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`Invalid --port "${raw}"`);
@@ -72,53 +88,131 @@ function appendCorsOrigins(
   return [...existing, ...values];
 }
 
-function parseArgs(args: string[]): CliOptions {
+function applyBind(opts: CliOptions, raw: string): void {
+  if (!raw.trim()) {
+    throw new Error("--bind requires a non-empty address");
+  }
+
+  // A full-form IPv6 literal (e.g. `::1`, `fe80::1`) has multiple colons and
+  // must be bracketed to disambiguate the host from a `:port` suffix. Catch it
+  // before the port-only branch below, which would otherwise misread `::1:4000`
+  // as port `:1:4000`.
+  if (!raw.startsWith("[") && raw.indexOf(":") !== raw.lastIndexOf(":")) {
+    throw new Error(
+      `Invalid --bind "${raw}": bracket IPv6 addresses as [host]:port, e.g. [::1]:4000`,
+    );
+  }
+
+  if (raw.startsWith(":")) {
+    opts.port = parsePort(raw.slice(1));
+    return;
+  }
+
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]");
+    if (end === -1) {
+      throw new Error(`Invalid --bind "${raw}"`);
+    }
+    opts.hostname = raw.slice(1, end);
+    const suffix = raw.slice(end + 1);
+    if (suffix) {
+      if (!suffix.startsWith(":")) {
+        throw new Error(`Invalid --bind "${raw}"`);
+      }
+      opts.port = parsePort(suffix.slice(1));
+    }
+    return;
+  }
+
+  const colon = raw.lastIndexOf(":");
+  if (colon > 0 && raw.indexOf(":") === colon) {
+    opts.hostname = raw.slice(0, colon);
+    opts.port = parsePort(raw.slice(colon + 1));
+    return;
+  }
+
+  opts.hostname = raw;
+}
+
+export function parseArgs(args: string[]): CliOptions {
   const opts: CliOptions = {};
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]!;
-    if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    }
+  const normalizedArgs = args[0] === "serve" ? args.slice(1) : args;
 
-    if (arg === "--host") {
-      opts.hostname = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--port") {
-      opts.port = parsePort(readValue(args, i, arg));
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--project") {
-      opts.project = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--name") {
-      opts.name = readValue(args, i, arg);
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--cors-origin") {
-      opts.corsOrigin = appendCorsOrigins(
-        opts.corsOrigin,
-        readValue(args, i, arg),
-      );
-      i += 1;
-      continue;
-    }
-
-    throw new Error(`Unknown argument "${arg}"`);
+  let i = 0;
+  while (i < normalizedArgs.length) {
+    i = parseArgAt(opts, normalizedArgs, i);
+    i += 1;
   }
 
   return opts;
+}
+
+function parseArgAt(opts: CliOptions, args: string[], index: number): number {
+  const arg = args[index]!;
+
+  switch (arg) {
+    case "--help":
+    case "-h":
+      opts.help = true;
+      return index;
+    case "--bind":
+      applyBind(opts, readValue(args, index, arg));
+      return index + 1;
+    case "--host":
+      opts.hostname = readValue(args, index, arg);
+      return index + 1;
+    case "--port":
+      opts.port = parsePort(readValue(args, index, arg));
+      return index + 1;
+    case "--project":
+      opts.project = readValue(args, index, arg);
+      return index + 1;
+    case "--name":
+      opts.name = readValue(args, index, arg);
+      return index + 1;
+    case "--cors-origin":
+      opts.corsOrigin = appendCorsOrigins(
+        opts.corsOrigin,
+        readValue(args, index, arg),
+      );
+      return index + 1;
+    case "--token":
+      opts.token = readValue(args, index, arg);
+      return index + 1;
+    case "--insecure":
+      opts.insecure = true;
+      return index;
+    default:
+      throw new Error(`Unknown argument "${arg}"`);
+  }
+}
+
+function isLoopback(hostname: string | undefined): boolean {
+  return (
+    hostname === undefined ||
+    hostname === "localhost" ||
+    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
+    hostname.startsWith("127.") ||
+    hostname === "::1"
+  );
+}
+
+/**
+ * Fail-closed auth gate. Loopback binds are reachable only from this machine,
+ * so a token is optional there. A non-loopback bind exposes the project to the
+ * network and must carry `--token`; `--insecure` is the deliberate opt-out.
+ * Throws (rather than warns) so a forgotten token never silently exposes data.
+ */
+export function assertBindIsSafe(opts: CliOptions): void {
+  if (isLoopback(opts.hostname) || opts.token || opts.insecure) {
+    return;
+  }
+  throw new Error(
+    `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
+      `exposes this project to the network. Pass --token <token>, or ` +
+      `--insecure to opt out deliberately.`,
+  );
 }
 
 function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
@@ -134,23 +228,50 @@ function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
   process.on("SIGTERM", () => void close());
 }
 
-const opts = parseArgs(process.argv.slice(2));
-const project = await openProject({
-  dir:
-    opts.project ??
-    process.env.DASHFRAME_PROJECT_DIR ??
-    DEFAULT_WEB_PROJECT_DIR,
-  name: opts.name,
-});
-const server = await createDashframeServer({
-  db: project.db,
-  hostname: opts.hostname,
-  port: opts.port,
-  corsOrigin: opts.corsOrigin,
-});
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  const opts = parseArgs(args);
+  if (opts.help) {
+    printHelp();
+    return;
+  }
 
-closeOnSignal(project, server);
+  assertBindIsSafe(opts);
 
-console.log(`[dashframe] project: ${project.dir}`);
-console.log(`[dashframe] server: ${server.url}`);
-console.log("[dashframe] ready");
+  if (opts.insecure && !opts.token && !isLoopback(opts.hostname)) {
+    console.warn(
+      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
+    );
+  }
+
+  const project = await openProject({
+    dir:
+      opts.project ??
+      process.env.DASHFRAME_PROJECT_DIR ??
+      DEFAULT_WEB_PROJECT_DIR,
+    name: opts.name,
+  });
+  const server = await createDashframeServer({
+    db: project.db,
+    hostname: opts.hostname,
+    port: opts.port,
+    corsOrigin: opts.corsOrigin,
+    authToken: opts.token,
+  });
+
+  closeOnSignal(project, server);
+
+  console.log(`[dashframe] project: ${project.dir}`);
+  console.log(`[dashframe] listening: ${server.url}`);
+  console.log("[dashframe] ready");
+}
+
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (err) {
+    // Operator-facing CLI: print a one-line reason and exit non-zero rather
+    // than dumping a stack trace for expected failures like the auth gate.
+    console.error(`[dashframe] ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+}
