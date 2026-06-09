@@ -19,6 +19,7 @@ interface CliOptions {
   name?: string;
   corsOrigin?: string | string[];
   token?: string;
+  insecure?: boolean;
   help?: boolean;
 }
 
@@ -39,13 +40,15 @@ Options:
   --port <port>           Bind port alias (default: 0, OS-assigned)
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
+  --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
   --help                  Show this help
 
 Security boundary:
   The server exposes the selected local DashFrame project over HTTP and WebSocket.
-  The default bind is loopback-only. Binding to 0.0.0.0 or another network
-  interface makes the project reachable from that network. Use --token for any
-  non-loopback bind, and do not treat it as TLS or multi-user authorization.
+  The default bind is loopback-only and safe to run without a token. Binding to
+  0.0.0.0 or another network interface makes the project reachable from that
+  network, so a non-loopback bind requires --token; pass --insecure to opt out
+  deliberately. A token is not TLS and not multi-user authorization.
 `);
 }
 
@@ -167,6 +170,9 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
     case "--token":
       opts.token = readValue(args, index, arg);
       return index + 1;
+    case "--insecure":
+      opts.insecure = true;
+      return index;
     default:
       throw new Error(`Unknown argument "${arg}"`);
   }
@@ -178,6 +184,23 @@ function isLoopback(hostname: string | undefined): boolean {
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     hostname === "::1"
+  );
+}
+
+/**
+ * Fail-closed auth gate. Loopback binds are reachable only from this machine,
+ * so a token is optional there. A non-loopback bind exposes the project to the
+ * network and must carry `--token`; `--insecure` is the deliberate opt-out.
+ * Throws (rather than warns) so a forgotten token never silently exposes data.
+ */
+export function assertBindIsSafe(opts: CliOptions): void {
+  if (isLoopback(opts.hostname) || opts.token || opts.insecure) {
+    return;
+  }
+  throw new Error(
+    `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
+      `exposes this project to the network. Pass --token <token>, or ` +
+      `--insecure to opt out deliberately.`,
   );
 }
 
@@ -201,9 +224,11 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     return;
   }
 
-  if (!opts.token && !isLoopback(opts.hostname)) {
+  assertBindIsSafe(opts);
+
+  if (opts.insecure && !opts.token && !isLoopback(opts.hostname)) {
     console.warn(
-      "[dashframe] warning: non-loopback bind without --token exposes this project to the network",
+      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
     );
   }
 
@@ -230,5 +255,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (err) {
+    // Operator-facing CLI: print a one-line reason and exit non-zero rather
+    // than dumping a stack trace for expected failures like the auth gate.
+    console.error(`[dashframe] ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 }
