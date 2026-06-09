@@ -93,6 +93,16 @@ function applyBind(opts: CliOptions, raw: string): void {
     throw new Error("--bind requires a non-empty address");
   }
 
+  // A full-form IPv6 literal (e.g. `::1`, `fe80::1`) has multiple colons and
+  // must be bracketed to disambiguate the host from a `:port` suffix. Catch it
+  // before the port-only branch below, which would otherwise misread `::1:4000`
+  // as port `:1:4000`.
+  if (!raw.startsWith("[") && raw.indexOf(":") !== raw.lastIndexOf(":")) {
+    throw new Error(
+      `Invalid --bind "${raw}": bracket IPv6 addresses as [host]:port, e.g. [::1]:4000`,
+    );
+  }
+
   if (raw.startsWith(":")) {
     opts.port = parsePort(raw.slice(1));
     return;
@@ -182,7 +192,8 @@ function isLoopback(hostname: string | undefined): boolean {
   return (
     hostname === undefined ||
     hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
+    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
+    hostname.startsWith("127.") ||
     hostname === "::1"
   );
 }
