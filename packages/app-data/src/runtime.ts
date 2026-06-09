@@ -56,13 +56,25 @@ export function createWyStackRuntime(
  * Async because the Electron branch awaits IPC; the others resolve immediately.
  */
 export async function resolveWyStackConfig(): Promise<WyStackRuntimeConfig> {
+  // The Electron IPC contract (`@dashframe/desktop-types` ServerInfo) guarantees
+  // `token` is always present on the desktop surface — type it as required here
+  // rather than widening to the optional `WyStackRuntimeConfig`, so a silent
+  // token-drop (version skew, IPC regression) fails closed instead of producing
+  // an unauthenticated client. app-data also serves the web surface, so we
+  // mirror the contract locally instead of depending on the Electron package.
   const desktop = (
     globalThis as {
-      dashframe?: { getServerInfo(): Promise<WyStackRuntimeConfig> };
+      dashframe?: { getServerInfo(): Promise<{ url: string; token: string }> };
     }
   ).dashframe;
   if (desktop) {
-    return desktop.getServerInfo();
+    const info = await desktop.getServerInfo();
+    if (!info.token) {
+      throw new Error(
+        "Desktop getServerInfo returned no loopback token — refusing to start an unauthenticated client.",
+      );
+    }
+    return info;
   }
 
   const override = import.meta.env?.VITE_WYSTACK_URL;
@@ -72,9 +84,4 @@ export async function resolveWyStackConfig(): Promise<WyStackRuntimeConfig> {
   if (override) return { url: override };
 
   return { url: globalThis.location.origin };
-}
-
-export async function resolveWyStackUrl(): Promise<string> {
-  const { url } = await resolveWyStackConfig();
-  return url;
 }

@@ -91,8 +91,6 @@ export interface DashframeServer {
   url: string;
   /** Bound port (resolved when `port: 0`). */
   port: number;
-  /** Per-launch bearer token, present when auth is enabled. */
-  authToken?: string;
   /** Stop the HTTP+WS host. */
   stop(): void;
 }
@@ -130,7 +128,6 @@ export async function createDashframeServer(
   return {
     url: `http://${hostname}:${port}`,
     port,
-    authToken: opts.authToken,
     stop: () => server.close(),
   };
 }
