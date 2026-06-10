@@ -2,7 +2,7 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
 
-DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, as described in the [Data Engine architecture overview](docs/architecture.md), and provides a Next.js builder shell to iterate on visuals.
+DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, and provides a builder shell to iterate on visuals. Architecture and design docs are maintained in a separate Obsidian vault (not in this repo).
 
 ## Stack
 
@@ -30,8 +30,6 @@ packages/
   connector-notion/ # Notion API connector
   visualization/    # Chart rendering system
   ui/               # Shared UI primitives/components
-docs/
-  architecture.md   # Architecture overview
 ```
 
 ## Naming Conventions
@@ -148,8 +146,8 @@ DashFrame supports importing data directly from Notion databases:
 
 - Run `bun check` before committing to validate lint + typecheck + format
 - Follow the shared ESLint + Prettier configs (`bun lint` / `bun format`)
-- Keep architecture notes in `docs/`
-- Prefer incremental commits per module (app, docs, packages)
+- Architecture and design notes live in the project's Obsidian vault, not in this repo (release/versioning process stays in `docs/versioning.md`)
+- Prefer incremental commits per module (app, packages)
 
 ## License
 
