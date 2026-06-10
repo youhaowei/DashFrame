@@ -178,7 +178,7 @@ describe("command vocabulary", () => {
   });
 
   describe("each command maps to the right write", () => {
-    it("CreateDataSource writes kind/name/config", async () => {
+    it("should write kind/name/config for CreateDataSource", async () => {
       const sourceId = id();
       await commit(
         cmd("CreateDataSource", {
@@ -194,7 +194,7 @@ describe("command vocabulary", () => {
       expect((row?.config as { apiKey?: string }).apiKey).toBe("secret-key");
     });
 
-    it("SetDataSourceConfig (decomposed from updateDataSource) replaces only config, not name", async () => {
+    it("should replace only config (not name) for SetDataSourceConfig, decomposed from updateDataSource", async () => {
       const sourceId = id();
       await commit(
         cmd("CreateDataSource", {
@@ -210,7 +210,7 @@ describe("command vocabulary", () => {
       expect(row?.name).toBe("Original");
     });
 
-    it("RenameNode (decomposed from updateDataSource) renames without touching config", async () => {
+    it("should rename without touching config for RenameNode, decomposed from updateDataSource", async () => {
       const sourceId = id();
       await commit(
         cmd("CreateDataSource", {
@@ -226,7 +226,7 @@ describe("command vocabulary", () => {
       expect((row?.config as { apiKey?: string }).apiKey).toBe("keep");
     });
 
-    it("AddField then RemoveField (decomposed from patchDataTableArray) edit the jsonb array", async () => {
+    it("should edit the jsonb array via AddField then RemoveField, decomposed from patchDataTableArray", async () => {
       const sourceId = id();
       const tableId = id();
       const fieldId = id();
@@ -260,7 +260,7 @@ describe("command vocabulary", () => {
       expect(row?.fields).toEqual([]);
     });
 
-    it("AddField rejects a duplicate field id (no illegal two-items-one-id state)", async () => {
+    it("should reject a duplicate field id in AddField (no illegal two-items-one-id state)", async () => {
       const sourceId = id();
       const tableId = id();
       const fieldId = id();
@@ -306,7 +306,7 @@ describe("command vocabulary", () => {
       ]);
     });
 
-    it("RefreshDataTable stamps dataFrameId and lastFetchedAt", async () => {
+    it("should stamp dataFrameId and lastFetchedAt for RefreshDataTable", async () => {
       const sourceId = id();
       const tableId = id();
       const frameId = id();
@@ -325,7 +325,7 @@ describe("command vocabulary", () => {
       expect(row?.lastFetchedAt).toBeInstanceOf(Date);
     });
 
-    it("SetDataTableSchema replaces the source schema slice", async () => {
+    it("should replace the source schema slice for SetDataTableSchema", async () => {
       const sourceId = id();
       const tableId = id();
       const sourceSchema = { columns: [{ name: "amount", type: "number" }] };
@@ -346,7 +346,7 @@ describe("command vocabulary", () => {
       expect(row?.sourceSchema).toEqual(sourceSchema);
     });
 
-    it("UpdateField merges updates by id without rebinding the id", async () => {
+    it("should merge updates by id without rebinding the id for UpdateField", async () => {
       const sourceId = id();
       const tableId = id();
       const fieldId = id();
@@ -382,7 +382,7 @@ describe("command vocabulary", () => {
       expect(fields[0]?.name).toBe("Total");
     });
 
-    it("UpdateMetric merges updates by id", async () => {
+    it("should merge updates by id for UpdateMetric", async () => {
       const sourceId = id();
       const tableId = id();
       const metricId = id();
@@ -414,7 +414,7 @@ describe("command vocabulary", () => {
       expect(metrics[0]?.name).toBe("Total Sum");
     });
 
-    it("SetDataTableSchema throws on a missing id (no silent no-op)", async () => {
+    it("should throw on a missing id for SetDataTableSchema (no silent no-op)", async () => {
       await expect(
         commit(
           cmd("SetDataTableSchema", { id: id(), sourceSchema: {} as never }),
@@ -422,7 +422,7 @@ describe("command vocabulary", () => {
       ).rejects.toThrow(/not found/);
     });
 
-    it("RefreshDataTable throws on a missing id (no silent no-op)", async () => {
+    it("should throw on a missing id for RefreshDataTable (no silent no-op)", async () => {
       await expect(
         commit(cmd("RefreshDataTable", { id: id(), dataFrameId: id() })),
       ).rejects.toThrow(/not found/);
