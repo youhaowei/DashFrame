@@ -195,10 +195,25 @@ const createDataTable = mutation({
   },
 });
 
+/**
+ * Throw if no DataTable with `id` exists. An UPDATE on a missing id touches 0
+ * rows and would otherwise return `{ ok: true }` — a silent no-op the caller
+ * reads as success. This matches the by-id invariant every other handler here
+ * enforces (`setDataSourceConfig`, `renameNode`, `patchDataTableCollection`).
+ */
+async function requireDataTable(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  id: string,
+): Promise<void> {
+  const row = await ctx.db.from(dataTables).where(eq("id", id)).first();
+  if (!row) throw new Error(`Data table ${id} not found`);
+}
+
 /** SetDataTableSchema — replaces the discovered source schema slice. */
 const setDataTableSchema = mutation({
   args: { id: uuid, sourceSchema: jsonb },
   handler: async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
+    await requireDataTable(ctx, id);
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
@@ -211,6 +226,7 @@ const setDataTableSchema = mutation({
 const refreshDataTable = mutation({
   args: { id: uuid, dataFrameId: uuid },
   handler: async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
+    await requireDataTable(ctx, id);
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
@@ -305,8 +321,10 @@ async function patchDataTableCollection(
     if (!items.some((item) => item.id === op.itemId)) {
       throw new Error(`${kind} item ${op.itemId} not found`);
     }
+    // Pin `id` last so a stray `updates.id` cannot rebind the item — that would
+    // recreate the un-addressable two-items-one-id state the Add-guard prevents.
     next = items.map((item) =>
-      item.id === op.itemId ? { ...item, ...op.updates } : item,
+      item.id === op.itemId ? { ...item, ...op.updates, id: item.id } : item,
     );
   } else {
     if (!items.some((item) => item.id === op.itemId)) {

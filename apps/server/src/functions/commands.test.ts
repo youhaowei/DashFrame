@@ -324,6 +324,109 @@ describe("command vocabulary", () => {
       expect(row?.dataFrameId).toBe(frameId);
       expect(row?.lastFetchedAt).toBeInstanceOf(Date);
     });
+
+    it("SetDataTableSchema replaces the source schema slice", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const sourceSchema = { columns: [{ name: "amount", type: "number" }] };
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("SetDataTableSchema", {
+          id: tableId,
+          sourceSchema: sourceSchema as never,
+        }),
+      );
+      const [row] = await tablesById(tableId);
+      expect(row?.sourceSchema).toEqual(sourceSchema);
+    });
+
+    it("UpdateField merges updates by id without rebinding the id", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: fieldId,
+            name: "Amount",
+            tableId,
+            columnName: "amount",
+            type: "number",
+          },
+        }),
+        // A stray `id` in updates must NOT rebind the field — pinned id wins.
+        cmd("UpdateField", {
+          nodeId: tableId,
+          fieldId,
+          updates: { name: "Total", id: id() } as never,
+        }),
+      );
+      const [row] = await tablesById(tableId);
+      const fields = row?.fields as { id: string; name: string }[];
+      expect(fields).toHaveLength(1);
+      expect(fields[0]?.id).toBe(fieldId);
+      expect(fields[0]?.name).toBe("Total");
+    });
+
+    it("UpdateMetric merges updates by id", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("AddMetric", {
+          nodeId: tableId,
+          metric: {
+            id: metricId,
+            name: "Sum",
+            expression: "sum(amount)",
+          } as never,
+        }),
+        cmd("UpdateMetric", {
+          nodeId: tableId,
+          metricId,
+          updates: { name: "Total Sum" } as never,
+        }),
+      );
+      const [row] = await tablesById(tableId);
+      const metrics = row?.metrics as { id: string; name: string }[];
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]?.name).toBe("Total Sum");
+    });
+
+    it("SetDataTableSchema throws on a missing id (no silent no-op)", async () => {
+      await expect(
+        commit(
+          cmd("SetDataTableSchema", { id: id(), sourceSchema: {} as never }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("RefreshDataTable throws on a missing id (no silent no-op)", async () => {
+      await expect(
+        commit(cmd("RefreshDataTable", { id: id(), dataFrameId: id() })),
+      ).rejects.toThrow(/not found/);
+    });
   });
 
   describe("atomicity", () => {
