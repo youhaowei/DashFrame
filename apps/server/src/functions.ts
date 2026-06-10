@@ -12,6 +12,7 @@ import { schema } from "@dashframe/server-core";
 import { query } from "@wystack/server";
 
 import { appArtifactFunctions } from "./functions/app-artifacts";
+import { commandFunctions } from "./functions/commands";
 import { dashboardFunctions } from "./functions/dashboards";
 
 const { projectMeta } = schema;
@@ -56,6 +57,7 @@ const projectInfo = query<Record<string, never>, ProjectInfoResult>({
 export const functions = {
   projectInfo,
   ...appArtifactFunctions,
+  ...commandFunctions,
   ...dashboardFunctions,
 };
 

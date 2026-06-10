@@ -367,26 +367,11 @@ const getDataSourceByType = query({
   },
 });
 
-const getOrCreateDataSourceByType = mutation({
-  args: { type: text, name: text },
-  handler: async (ctx, { type, name }): Promise<DataSource> => {
-    const existing = (await ctx.db
-      .from(dataSources)
-      .where(eq("kind", type))
-      .first()) as DataSourceRow | undefined;
-    if (existing) return rowToDataSource(existing);
-
-    const [row] = (await ctx.db.into(dataSources).insert({
-      name,
-      kind: type,
-      storage: "live",
-      config: {},
-      createdBy: { kind: "user" },
-    })) as DataSourceRow[];
-    if (!row) throw new Error("insert returned no row");
-    return rowToDataSource(row);
-  },
-});
+// NOTE: the racy `getOrCreateDataSourceByType` (check-then-insert keyed on
+// `kind`, no unique constraint → concurrent ingests double-insert, PR #46
+// Greptile P1) was REPLACED by the `GetOrCreateDataSource` command in
+// `./commands.ts`, which keys idempotency on a client-minted primary key. See
+// that file's traceability table.
 
 const addDataSource = mutation({
   args: {
@@ -877,7 +862,6 @@ export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
   getDataSourceByType,
-  getOrCreateDataSourceByType,
   addDataSource,
   updateDataSource,
   removeDataSource,
