@@ -10,6 +10,15 @@
 // ============================================================================
 
 /**
+ * Suggest-mode sensitivity hint attached by the PII classifier.
+ * Advisory only — never writes `Field.sensitivity`; the user confirms.
+ */
+export type SensitivityHint = {
+  /** Legible reasons the column is suspected sensitive */
+  reasons: string[];
+};
+
+/**
  * Common fields shared by all column analysis types.
  */
 export type ColumnAnalysisBase = {
@@ -25,6 +34,8 @@ export type ColumnAnalysisBase = {
   nullCount: number;
   /** Sample of distinct values for preview/pattern detection */
   sampleValues: unknown[];
+  /** Suspected-sensitive hint from the suggest-mode classifier */
+  sensitivityHint?: SensitivityHint;
 };
 
 // ============================================================================

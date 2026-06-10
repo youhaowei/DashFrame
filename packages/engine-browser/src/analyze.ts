@@ -11,13 +11,22 @@ import type {
   StringAnalysis,
   UnknownAnalysis,
 } from "@dashframe/types";
-import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
+import {
+  CARDINALITY_THRESHOLDS,
+  suggestSensitivityReasons,
+} from "@dashframe/types";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { debugLog } from "./debug";
 import { Insight } from "./insight";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
-export { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
+export {
+  CARDINALITY_THRESHOLDS,
+  looksLikeIdentifier,
+  suggestSensitivityFromAnalysis,
+  suggestSensitivityFromName,
+  suggestSensitivityReasons,
+} from "@dashframe/types";
 export type {
   ColumnAnalysis,
   ColumnCategory,
@@ -556,7 +565,18 @@ export async function analyzeDataFrame(
     }
   });
 
-  return analyses;
+  // Attach suggest-mode sensitivity hints (YW-129). Advisory only — the
+  // classifier proposes, the user confirms; Field.sensitivity is never
+  // written here.
+  return analyses.map((analysis) => {
+    const fieldId = extractUUIDFromColumnAlias(analysis.columnName);
+    const field = fieldId ? fields?.[fieldId] : undefined;
+    const displayName = field?.name ?? analysis.columnName;
+    const reasons = suggestSensitivityReasons({ name: displayName, analysis });
+    return reasons.length > 0
+      ? { ...analysis, sensitivityHint: { reasons } }
+      : analysis;
+  });
 }
 
 // ============================================================================

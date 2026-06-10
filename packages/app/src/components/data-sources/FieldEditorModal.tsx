@@ -1,4 +1,5 @@
-import type { ColumnType, Field } from "@dashframe/types";
+import type { ColumnType, Field, FieldSensitivity } from "@dashframe/types";
+import { getFieldSensitivity } from "@dashframe/types";
 import {
   Button,
   Checkbox,
@@ -43,15 +44,30 @@ function FieldEditorForm({
   const [name, setName] = useState(field.name);
   const [type, setType] = useState<ColumnType>(field.type);
   const [isIdentifier, setIsIdentifier] = useState(field.isIdentifier ?? false);
+  const [sensitivity, setSensitivity] = useState<FieldSensitivity>(
+    getFieldSensitivity(field),
+  );
 
   const handleSave = () => {
     if (!name.trim()) return;
 
-    onSave(field.id, {
+    const updates: Partial<Field> = {
       name: name.trim(),
       type,
       isIdentifier,
-    });
+    };
+    // Only write sensitivity when changed, so an untouched field keeps its
+    // existing reason/source (e.g. a confirmed classifier suggestion).
+    if (sensitivity !== getFieldSensitivity(field)) {
+      updates.sensitivity = sensitivity;
+      updates.sensitivitySource = "user";
+      updates.sensitivityReason =
+        sensitivity === "cleared"
+          ? "Cleared by you"
+          : "Marked sensitive by you";
+    }
+
+    onSave(field.id, updates);
     onClose();
   };
 
@@ -93,6 +109,31 @@ function FieldEditorForm({
               <SelectItem value="unknown">Unknown</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Privacy Sensitivity */}
+        <div className="space-y-2">
+          <Label htmlFor="field-sensitivity">Privacy</Label>
+          <Select
+            value={sensitivity}
+            onValueChange={(v) => setSensitivity(v as FieldSensitivity)}
+          >
+            <SelectTrigger id="field-sensitivity">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unclassified">
+                Unclassified (treated as sensitive)
+              </SelectItem>
+              <SelectItem value="sensitive">Sensitive</SelectItem>
+              <SelectItem value="cleared">Not sensitive</SelectItem>
+            </SelectContent>
+          </Select>
+          {field.sensitivityReason && (
+            <p className="text-xs text-neutral-fg-subtle">
+              {field.sensitivityReason}
+            </p>
+          )}
         </div>
 
         {/* Is Identifier */}

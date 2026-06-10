@@ -1,6 +1,10 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
-import type { DataTable } from "@dashframe/types";
+import type { DataTable, FieldSensitivity } from "@dashframe/types";
+import {
+  getFieldSensitivity,
+  suggestSensitivityFromName,
+} from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
 import {
   CloseIcon,
@@ -19,6 +23,15 @@ interface TableDetailPanelProps {
   onCreateVisualization: () => void;
   onEditField: (fieldId: string) => void;
   onDeleteField: (fieldId: string) => void;
+  /**
+   * One-click sensitivity marking. `reasons` carries classifier suggestions
+   * when the user confirms one (keeps the marking legible).
+   */
+  onSetFieldSensitivity: (
+    fieldId: string,
+    sensitivity: FieldSensitivity,
+    reasons?: string[],
+  ) => void;
   onAddField: () => void;
   onAddMetric: () => void;
   onDeleteMetric: (metricId: string) => void;
@@ -31,6 +44,7 @@ export function TableDetailPanel({
   onCreateVisualization,
   onEditField,
   onDeleteField,
+  onSetFieldSensitivity,
   onAddField,
   onAddMetric,
   onDeleteMetric,
@@ -182,41 +196,92 @@ export function TableDetailPanel({
                 </p>
               </div>
             ) : (
-              dataTable.fields.map((field) => (
-                <div
-                  key={field.id}
-                  className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="truncate text-sm font-medium text-neutral-fg">
-                      {field.name}
-                    </span>
-                    <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
-                      {field.type}
-                    </span>
+              dataTable.fields.map((field) => {
+                const sensitivity = getFieldSensitivity(field);
+                const suggestedReasons =
+                  sensitivity === "unclassified"
+                    ? suggestSensitivityFromName(field.name)
+                    : [];
+
+                return (
+                  <div
+                    key={field.id}
+                    className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <span className="truncate text-sm font-medium text-neutral-fg">
+                        {field.name}
+                      </span>
+                      <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
+                        {field.type}
+                      </span>
+                      {sensitivity === "sensitive" && (
+                        <span
+                          title={field.sensitivityReason}
+                          className="shrink-0 rounded bg-palette-danger/10 px-2 py-0.5 text-xs font-medium text-palette-danger"
+                        >
+                          Sensitive
+                        </span>
+                      )}
+                      {sensitivity === "unclassified" &&
+                        (suggestedReasons.length > 0 ? (
+                          <button
+                            type="button"
+                            title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
+                            onClick={() =>
+                              onSetFieldSensitivity(
+                                field.id,
+                                "sensitive",
+                                suggestedReasons,
+                              )
+                            }
+                            className="shrink-0 cursor-pointer rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-100 dark:bg-amber-950 dark:hover:bg-amber-900"
+                          >
+                            Likely sensitive
+                          </button>
+                        ) : (
+                          <span
+                            title="Treated as sensitive until cleared"
+                            className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle"
+                          >
+                            Unclassified
+                          </span>
+                        ))}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {sensitivity !== "cleared" && (
+                        <Button
+                          label="Mark safe"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            onSetFieldSensitivity(field.id, "cleared")
+                          }
+                          className="h-8"
+                        />
+                      )}
+                      <Button
+                        label="Edit field"
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        onClick={() => onEditField(field.id)}
+                        className="h-8 w-8"
+                        icon={EditIcon}
+                      />
+                      <Button
+                        label="Delete field"
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        onClick={() => onDeleteField(field.id)}
+                        className="h-8 w-8 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
+                        icon={CloseIcon}
+                      />
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      label="Edit field"
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      onClick={() => onEditField(field.id)}
-                      className="h-8 w-8"
-                      icon={EditIcon}
-                    />
-                    <Button
-                      label="Delete field"
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      onClick={() => onDeleteField(field.id)}
-                      className="h-8 w-8 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
-                      icon={CloseIcon}
-                    />
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
