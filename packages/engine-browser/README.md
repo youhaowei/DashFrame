@@ -299,4 +299,4 @@ export * from "@dashframe/engine";
 
 - `@dashframe/engine` - Abstract interfaces this package implements
 - `@dashframe/core` - Core types (UUID, Field, Metric)
-- `reference/architecture.md` (Obsidian vault) - High-level architecture overview
+- `reference/architecture.md` (project docs) - High-level architecture overview

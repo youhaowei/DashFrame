@@ -314,4 +314,4 @@ export type {
 ## See Also
 
 - `@dashframe/core` - Type definitions this package implements
-- `reference/architecture.md` (Obsidian vault) - High-level architecture overview
+- `reference/architecture.md` (project docs) - High-level architecture overview

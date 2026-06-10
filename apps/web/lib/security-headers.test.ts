@@ -252,7 +252,7 @@ describe("Security Headers", () => {
     it("should include unsafe-eval in production mode (required for Apache Arrow)", () => {
       // Note: 'unsafe-eval' is intentionally included in production because
       // Apache Arrow (used by DuckDB for data serialization) requires it for
-      // dynamic code generation. See reference/architecture.md (Obsidian vault) for security rationale.
+      // dynamic code generation. See reference/architecture.md (project docs) for security rationale.
       (process.env as Record<string, string>).NODE_ENV = "production";
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
