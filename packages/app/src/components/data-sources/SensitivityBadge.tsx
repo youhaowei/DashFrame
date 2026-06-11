@@ -1,6 +1,6 @@
 import type { Field } from "@dashframe/types";
 import { getFieldSensitivity } from "@dashframe/types";
-import { Badge, ButtonPrimitive } from "@wystack/ui";
+import { Badge } from "@wystack/ui";
 
 interface SensitivityBadgeProps {
   field: Field;
@@ -41,17 +41,27 @@ export function SensitivityBadge({
   }
 
   if (suggestedReasons.length > 0) {
+    // Clickable confirm affordance. Built from the composed Badge (not a raw
+    // primitive — those are construction blocks internal to @wystack/ui) made
+    // interactive via role/tabIndex + keyboard activation.
     return (
-      <ButtonPrimitive
-        type="button"
+      <Badge
         variant="soft"
         color="warning"
+        role="button"
+        tabIndex={0}
         title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
         onClick={onConfirmSuggestion}
-        className="h-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onConfirmSuggestion();
+          }
+        }}
+        className="shrink-0 cursor-pointer"
       >
         Likely sensitive
-      </ButtonPrimitive>
+      </Badge>
     );
   }
 
