@@ -26,7 +26,7 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * The cache-write gate (YW-130) keeps sensitive columns memory-only by
+   * The cache-write gate (see #67) keeps sensitive columns memory-only by
    * excluding them from the on-disk Parquet cache (Stage 4); the engine's own
    * working database is in-memory by default so a session leaves nothing at
    * rest unless a query is explicitly cached.

@@ -68,7 +68,7 @@ describe("ParquetCache — content-hash key + gate seam (Stage 4)", () => {
     expect(conn.runs).toHaveLength(0);
   });
 
-  it("writes only the gate-narrowed column subset (YW-130 seam)", async () => {
+  it("writes only the gate-narrowed column subset (sensitivity-gate seam)", async () => {
     // Gate excludes a sensitive column "b" — only "a" reaches the COPY.
     const narrowGate: CacheWriteGate = {
       shouldWrite: ({ columns }) => ({

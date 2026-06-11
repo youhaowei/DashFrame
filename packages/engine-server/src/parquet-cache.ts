@@ -3,12 +3,12 @@
  *
  * The physical cache the spec pins to the native path. Keyed by the compiled
  * `{ sql, params }` content hash (Stage 1) — definition changes change the
- * hash, so the key is self-isolating and carries no `draftId` (YW-128).
+ * hash, so the key is self-isolating and carries no `draftId`.
  *
  * Every write threads through a single `CacheWriteGate.shouldWrite` seam — the
- * explicit position where YW-130's sensitivity gate will plug in (sensitive
+ * explicit position where the sensitivity gate will plug in (sensitive
  * columns excluded from the on-disk write, in-memory DuckDB only). The gate
- * logic is OUT of scope for YW-151: this ships the pass-through gate
+ * logic is out of scope for this release: this ships the pass-through gate
  * (`identityCacheWriteGate`) so the seam exists and is exercised, but every
  * write is currently allowed. The audit invariant the gate will enforce —
  * "grep the cache dir → zero sensitive bytes" — has its single chokepoint here.
@@ -24,7 +24,7 @@ import { hashCompiledQuery } from "./compile";
 
 /**
  * The cache-write gate seam. The single function every Parquet write passes
- * through. YW-130 replaces the pass-through implementation with the sensitivity
+ * through. Issue #67 replaces the pass-through implementation with the sensitivity
  * gate; the cache never writes around it.
  */
 export interface CacheWriteGate {
@@ -44,8 +44,8 @@ export interface CacheWriteGate {
 }
 
 /**
- * Pass-through gate: writes every result, all columns, to disk. The YW-151
- * default. YW-130 swaps in the sensitivity-aware gate behind this same
+ * Pass-through gate: writes every result, all columns, to disk. The current
+ * default. Issue #67 swaps in the sensitivity-aware gate behind this same
  * interface without touching the cache.
  */
 export const identityCacheWriteGate: CacheWriteGate = {
@@ -57,7 +57,7 @@ export interface ParquetCacheOptions {
   cacheDir: string;
   /**
    * The write-path gate. Defaults to pass-through (`identityCacheWriteGate`).
-   * YW-130 supplies a sensitivity-aware gate here.
+   * Issue #67 supplies a sensitivity-aware gate here.
    */
   gate?: CacheWriteGate;
 }
@@ -86,7 +86,7 @@ export class ParquetCache {
    * threading the write through the gate. Returns the written path, or `null`
    * when the gate declined the disk write (memory-only result).
    *
-   * `columns` is the result's column set; the gate may narrow it (YW-130
+   * `columns` is the result's column set; the gate may narrow it (see #67
    * excludes sensitive columns). When the gate returns no columns, nothing is
    * written — the audit invariant holds by construction.
    */
@@ -108,7 +108,7 @@ export class ParquetCache {
     // `values`. This avoids text-scanning the SQL for `?` (which would also
     // rewrite question marks inside string literals/comments and corrupt the
     // query — e.g. `SELECT '?' AS marker, ? AS v`). The gate's column narrowing
-    // (the YW-130 seam) is unchanged — it still shapes `selectList`, the only
+    // (the sensitivity-gate seam, see #67) is unchanged — it still shapes `selectList`, the only
     // thing that decides what lands on disk.
     await conn.run(
       `COPY (SELECT ${selectList} FROM (${query.sql})) TO ${quoteLiteral(

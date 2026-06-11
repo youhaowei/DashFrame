@@ -6,7 +6,7 @@
  * its URL + a stop handle. Callers supply the project's Drizzle DB and the
  * bind address:
  *   - desktop (Electron main): bind 127.0.0.1, port 0 → ephemeral loopback port.
- *   - `dashframe serve` (YW-73): bind a chosen addr/port standalone.
+ *   - `dashframe serve`: bind a chosen addr/port standalone.
  *
  * Why this inlines the Node adapter instead of calling `@wystack/server/node`'s
  * `serve()`: the renderer (a localhost web client) is a *different origin* from
@@ -93,7 +93,7 @@ export interface DashframeServerOptions {
    * Optional native engine for the dedicated Arrow IPC data path. When supplied
    * (desktop / `dashframe serve` with the native engine), `POST /data/arrow`
    * streams `application/vnd.apache.arrow.stream` for a compiled query — the
-   * binary path that never rides WyStack RPC (YW-151). Web try-it omits it: the
+   * binary path that never rides WyStack RPC. Web try-it omits it: the
    * result already lives in renderer WASM, so there is no server data path.
    */
   arrowEngine?: ArrowQueryRunner;
