@@ -41,7 +41,10 @@ let nextId = 0;
  * mark/measure helpers cost nothing.
  */
 export const usePerfStore = create<PerfState & PerfActions>()((set) => ({
-  enabled: Boolean(import.meta.env.DEV),
+  // Optional-chain so importing this package from a non-Vite runtime (a Bun/
+  // Node script, a standalone test runner) where `import.meta.env` is undefined
+  // doesn't throw at module load.
+  enabled: Boolean(import.meta.env?.DEV),
   samples: [],
 
   setEnabled: (enabled) => set({ enabled }),

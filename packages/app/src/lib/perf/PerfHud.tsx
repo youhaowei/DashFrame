@@ -15,9 +15,10 @@ import { type BudgetVerdict, type PerfStage, STAGE_BUDGET_MS } from "./stages";
  * local-only; nothing is persisted or transmitted.
  */
 export function PerfHud() {
-  // Hard gate: never render in production. The whole component (and its store
-  // wiring) drops out of the prod bundle.
-  if (!import.meta.env.DEV) return null;
+  // Hard gate: never render in production. Vite constant-folds `import.meta.env
+  // .DEV` to `false` in prod so the whole component (and its store wiring) drops
+  // out of the bundle; the optional chain keeps non-Vite imports from throwing.
+  if (!import.meta.env?.DEV) return null;
   return <PerfHudInner />;
 }
 

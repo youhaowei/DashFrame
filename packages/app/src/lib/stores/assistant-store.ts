@@ -1,7 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-
-import { superjsonStorage } from "./storage";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 /**
  * How the assistant sidebar is presented:
@@ -41,8 +39,14 @@ function clampWidth(width: number): number {
 
 /**
  * Assistant sidebar preferences. The docked/undocked preference and rail width
- * persist locally (localStorage via superjson); open/closed also persists so the
+ * persist locally (plain localStorage JSON); open/closed also persists so the
  * panel survives a reload in whatever state the user left it.
+ *
+ * Uses a plain JSON storage rather than the shared superjson adapter: this
+ * store holds only primitives (no Map/Set/Date), and the superjson adapter only
+ * revives values carrying a `meta` marker — so a plain persisted object reads
+ * back un-rehydrated and the preferences silently reset to defaults. Plain JSON
+ * round-trips correctly here.
  *
  * `skipHydration: true` keeps SSR deterministic — the `StoreHydration` provider
  * rehydrates client-side after mount.
@@ -64,7 +68,7 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
     }),
     {
       name: "dashframe:assistant",
-      storage: superjsonStorage,
+      storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       // Persist only durable preferences + last-open state; actions are derived.
       partialize: (s) => ({ isOpen: s.isOpen, dock: s.dock, width: s.width }),

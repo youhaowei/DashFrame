@@ -75,4 +75,23 @@ describe("useAssistantStore", () => {
     expect(raw).not.toContain("toggleDock");
     expect(raw).not.toContain("setWidth");
   });
+
+  it("re-hydrates persisted preferences from a prior session", async () => {
+    // The load-bearing contract: a payload left by a prior session is read back
+    // on rehydrate. Seed storage directly (no intervening setState, which would
+    // re-persist) to faithfully simulate a fresh page load.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: { isOpen: true, dock: "floating", width: 512 },
+        version: 0,
+      }),
+    );
+
+    await useAssistantStore.persist.rehydrate();
+
+    expect(useAssistantStore.getState().dock).toBe("floating");
+    expect(useAssistantStore.getState().width).toBe(512);
+    expect(useAssistantStore.getState().isOpen).toBe(true);
+  });
 });
