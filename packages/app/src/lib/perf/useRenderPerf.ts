@@ -22,17 +22,31 @@ export function useRenderPerf(label: string): void {
     // Open at commit; the unique-span marks helper keeps overlapping commits
     // from colliding on a shared mark name.
     const span = perfMark(PerfStage.Render, label);
+
+    // `requestAnimationFrame` is absent in some non-visual runtimes (jsdom
+    // shims, SSR). `AppLayout`/`AssistantRegion` call this hook unconditionally
+    // and are exercised under jsdom, so fall back to a timer rather than
+    // throwing from the effect.
+    const schedule: (cb: () => void) => number =
+      typeof requestAnimationFrame === "function"
+        ? (cb) => requestAnimationFrame(() => cb())
+        : (cb) => setTimeout(cb, 0) as unknown as number;
+    const cancel: (handle: number) => void =
+      typeof cancelAnimationFrame === "function"
+        ? cancelAnimationFrame
+        : (handle) => clearTimeout(handle);
+
     let measured = false;
     let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
+    const raf1 = schedule(() => {
+      raf2 = schedule(() => {
         perfMeasure(span);
         measured = true;
       });
     });
     return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
+      cancel(raf1);
+      if (raf2) cancel(raf2);
       // If we re-rendered/unmounted before the paint callback measured the span,
       // discard its start mark so it doesn't leak into the entries buffer.
       if (!measured) perfCancel(span);

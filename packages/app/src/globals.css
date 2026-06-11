@@ -14,6 +14,10 @@
 @source "./components/**/*.{ts,tsx}";
 @source "./routes/**/*.{ts,tsx}";
 @source "./routeRoot.tsx";
+/* lib/ carries class-bearing UI too — e.g. the dev perf HUD (lib/perf/PerfHud),
+ * whose unique utilities (flex-col-reverse, max-h-72) would otherwise not be
+ * generated and the panel would render unstyled. */
+@source "./lib/**/*.{ts,tsx}";
 
 /* React Grid Layout drag placeholder */
 .react-grid-placeholder {
