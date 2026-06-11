@@ -168,3 +168,19 @@ export {
   suggestSensitivityFromName,
   suggestSensitivityReasons,
 } from "./sensitivity";
+
+// =============================================================================
+// Preview-diff Types
+// =============================================================================
+
+export type {
+  ArtifactKind,
+  DownstreamEdge,
+  DownstreamFlag,
+  PreviewCompute,
+  PreviewDiff,
+  PreviewDirectNode,
+  PreviewDownstreamNode,
+  PreviewIntent,
+  RenamedTarget,
+} from "./preview-diff";
