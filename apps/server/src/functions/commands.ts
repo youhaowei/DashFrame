@@ -1260,7 +1260,10 @@ async function deleteDataSourceDependents(
  *     independent value without its Insight).
  *
  * **Cascade path:**
- *   - Deleting a Visualization: only the Visualization is removed.
+ *   - Deleting a Visualization:
+ *       • The Visualization is removed.
+ *       • Dashboards that contain this visualization via a layout item's
+ *         `visualizationId` are returned as `orphanedNodes` (reference edge).
  *   - Deleting a Dashboard: only the Dashboard is removed.
  *   - Deleting an Insight:
  *       • Owned Visualizations cascade-delete via the DB schema FK.
@@ -1287,11 +1290,27 @@ const deleteNode = mutation({
     ctx,
     { id },
   ): Promise<{ ok: true; orphanedNodes: OrphanedNode[] }> => {
-    // --- Visualization (leaf — no owned children, no reference children) ----
+    // --- Visualization -------------------------------------------------------
+    // No owned children. Reference boundary: Dashboards that contain this
+    // visualization via a layout item's `visualizationId` are orphaned when the
+    // visualization is deleted — surface them in orphanedNodes for drift-repair.
     const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
     if (viz) {
+      const allDashboards = (await ctx.db
+        .from(dashboards)
+        .all()) as DashboardRow[];
+      const affectedDashboards = allDashboards.filter((d) => {
+        const items = ((d.layout as DashboardItem[]) ?? []) as DashboardItem[];
+        return items.some((it) => it.visualizationId === id);
+      });
       await ctx.db.from(visualizations).where(eq("id", id)).delete();
-      return { ok: true, orphanedNodes: [] };
+      return {
+        ok: true,
+        orphanedNodes: affectedDashboards.map((d) => ({
+          id: d.id,
+          kind: "dashboard" as const,
+        })),
+      };
     }
 
     // --- Dashboard (leaf — no owned children, no reference children) --------

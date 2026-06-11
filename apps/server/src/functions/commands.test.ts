@@ -1619,6 +1619,55 @@ describe("command vocabulary", () => {
       });
     });
 
+    it("should surface dashboards that reference a deleted Visualization in orphanedNodes (reference boundary)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: vizId }));
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      // The dashboard is surfaced as an orphaned node (its viz item is now stale).
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]).toMatchObject({
+        id: dashId,
+        kind: "dashboard",
+      });
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
+    });
+
     it("should delete a Dashboard by id", async () => {
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
