@@ -129,6 +129,9 @@ describe("ParquetCache — content-hash key + gate seam (Stage 4)", () => {
       expect(Number(rows[0]?.v)).toBe(42);
     } finally {
       conn.disconnectSync();
+      // Close the instance too — it holds native handles and background
+      // threads that outlive the connection and would leak past the suite.
+      instance.closeSync();
     }
   });
 });

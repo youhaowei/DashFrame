@@ -133,6 +133,14 @@ function toNumber(value: unknown): number | null {
   // BIGINT id or count — or a high-precision DECIMAL's integer part — beyond
   // that would round SILENTLY through Number(). Fail closed on unsafe integer
   // parts instead of corrupting results in transit.
+  //
+  // Policy: the guard covers the INTEGER part only — magnitude (IDs, money).
+  // Fractional digits beyond Float64's precision round to nearest; that is
+  // the accepted semantics of the f64 physical type the renderer-parity
+  // design encodes to, and failing closed on every >15-significant-digit
+  // fraction would break legitimate DECIMAL(38,20) columns over
+  // sub-precision noise. Exact decimal semantics would require a DECIMAL128
+  // Arrow column type on both ends — out of scope here.
   const s = String(value);
   const integerPart = INTEGER_STRING.test(s) ? s : s.match(DECIMAL_STRING)?.[1];
   if (integerPart != null) {
