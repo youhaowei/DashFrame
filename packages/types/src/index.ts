@@ -11,7 +11,18 @@ export type {
   TableColumn,
 } from "./column";
 
-export type { Field, SourceSchema } from "./field";
+export type {
+  Field,
+  FieldSensitivity,
+  FieldSensitivitySource,
+  SourceSchema,
+} from "./field";
+
+export {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "./field";
 
 export type { AggregationType, InsightMetric, Metric } from "./metric";
 
@@ -150,6 +161,12 @@ export {
   getLegacyCategory,
   looksLikeIdentifier,
 } from "./column-analysis";
+
+export {
+  suggestSensitivityFromAnalysis,
+  suggestSensitivityFromName,
+  suggestSensitivityReasons,
+} from "./sensitivity";
 
 // =============================================================================
 // Preview-diff Types (YW-124)
