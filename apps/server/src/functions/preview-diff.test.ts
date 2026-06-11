@@ -772,4 +772,246 @@ describe("PreviewDiff builder", () => {
       }
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Fix 1 regression: RenameNode kind-resolution precedence
+  //
+  // Scenario: id X exists canonically as a dataTable. The batch contains
+  // CreateDataSource({id: X}) followed by RenameNode({id: X}). Under the old
+  // code, idToKind registered X as "dataSource" (from the CreateDataSource),
+  // and RenameNode short-circuited to "dataSource" without consulting canonical.
+  // Fix inverts precedence: resolveKindCanonical probes canonical first; idToKind
+  // is only the last-resort fallback for genuinely-in-batch-only ids.
+  // --------------------------------------------------------------------------
+
+  describe("RenameNode canonical-precedence regression (Fix 1)", () => {
+    it("attaches rename to the canonical dataTable kind even when an earlier batch command registered the same id as dataSource", async () => {
+      // X exists in canonical as a dataTable (seeded before the batch).
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId, { name: "CanonicalTable" });
+
+      // Batch: CreateDataSource({id: tableId}) — registers tableId as "dataSource"
+      // in idToKind — then RenameNode({id: tableId}). The fix must resolve the
+      // rename to "dataTable" (canonical) not "dataSource" (stale in-batch entry).
+      const diff = await preview(
+        cmd("CreateDataSource", {
+          id: tableId,
+          type: "csv",
+          name: "WrongKind",
+        }),
+        cmd("RenameNode", { id: tableId, name: "NewName" }),
+      );
+
+      // The rename must attach to the CANONICAL kind (dataTable), not the stale
+      // in-batch registration from CreateDataSource.
+      const renameNode = diff.directNodes.find(
+        (n) => n.nodeId === tableId && n.kind === "dataTable",
+      );
+      expect(renameNode).toBeDefined();
+      expect(renameNode!.kind).toBe("dataTable");
+      // The rename intent must be on the dataTable node.
+      const renameIntent = renameNode!.intent.find(
+        (i) => i.command === "RenameNode",
+      );
+      expect(renameIntent).toBeDefined();
+
+      // Downstream walk must fan out from the dataTable (not dataSource).
+      // There is an insight that references this table via baseTableId — it
+      // must appear in affectedDownstream via the dataTable->insight edge.
+      const insightId = await seedInsight({ baseTableId: tableId });
+      const diff2 = await preview(
+        cmd("CreateDataSource", {
+          id: tableId,
+          type: "csv",
+          name: "WrongKind",
+        }),
+        cmd("RenameNode", { id: tableId, name: "NewName" }),
+      );
+      const insightHit = diff2.affectedDownstream.find(
+        (n) => n.nodeId === insightId,
+      );
+      expect(insightHit).toMatchObject({
+        kind: "insight",
+        edge: "dataTable->insight",
+      });
+    });
+
+    it("still resolves rename to an in-batch-created id when no canonical row exists (create-then-rename)", async () => {
+      // The fix must not break the original in-batch use case: a fresh id minted
+      // by CreateDataSource in the batch, then renamed in the same batch.
+      const freshId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: freshId, type: "csv", name: "Fresh" }),
+        cmd("RenameNode", { id: freshId, name: "Renamed" }),
+      );
+
+      // freshId is not in canonical; idToKind fallback must kick in → dataSource.
+      const node = diff.directNodes.find((n) => n.nodeId === freshId);
+      expect(node).toBeDefined();
+      expect(node!.kind).toBe("dataSource");
+      expect(diff.directNodes).toHaveLength(1); // merged into one node
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Preview-then-commit equivalence (Fix 3)
+  //
+  // This is the load-bearing contract: preview tells the truth. For every
+  // directNode that preview marks "create" or "update", the committed row's
+  // actual state must match the proposedDefinition for the keys preview claimed.
+  // For every node preview marks "noop", the canonical row must be byte-identical
+  // before and after commit. Nothing commit changed must be absent from preview.
+  // --------------------------------------------------------------------------
+
+  describe("preview-then-commit equivalence", () => {
+    // Import applyCommands lazily (same pattern as commands.test.ts).
+    let applyCommands: typeof import("@wystack/server").applyCommands;
+    beforeEach(async () => {
+      ({ applyCommands } = await import("@wystack/server"));
+    });
+
+    it("proposed definitions in preview match the committed row state for a representative batch", async () => {
+      // Representative batch: GetOrCreate (hits existing — noop), CreateDataTable
+      // (genuine mint), RenameNode (update on existing source), AddField (update).
+      const existingSourceId = await seedSource({ name: "Existing" });
+
+      const newSourceId = id();
+      const newTableId = id();
+
+      const batch = [
+        // noop: source already exists
+        cmd("GetOrCreateDataSource", {
+          id: existingSourceId,
+          type: "csv",
+          name: "IgnoredName",
+        }),
+        // create: fresh source
+        cmd("CreateDataSource", {
+          id: newSourceId,
+          type: "csv",
+          name: "NewSource",
+        }),
+        // create: fresh table
+        cmd("CreateDataTable", {
+          id: newTableId,
+          dataSourceId: newSourceId,
+          name: "NewTable",
+          table: "new.csv",
+        }),
+        // update: rename the existing source
+        cmd("RenameNode", { id: existingSourceId, name: "RenamedSource" }),
+      ] as ReturnType<typeof cmd>[];
+
+      // 1. Preview — capture the diff.
+      const diff = await buildPreviewDiff(app, db, batch);
+
+      // Basic shape assertions.
+      // After the rename, existingSource is no longer noop — it gets renamed.
+      // GetOrCreate is the first command (noop), RenameNode is the second (update).
+      // They merge into one node; the final change is "update" (noop+update=update).
+      const existingNode = diff.directNodes.find(
+        (n) => n.nodeId === existingSourceId,
+      );
+      expect(existingNode).toBeDefined();
+      // noop + update merges to update
+      expect(existingNode!.change).toBe("update");
+
+      const newSourceNode = diff.directNodes.find(
+        (n) => n.nodeId === newSourceId,
+      );
+      expect(newSourceNode).toBeDefined();
+      expect(newSourceNode!.change).toBe("create");
+      expect(newSourceNode!.proposedDefinition).toMatchObject({
+        name: "NewSource",
+      });
+
+      const newTableNode = diff.directNodes.find(
+        (n) => n.nodeId === newTableId,
+      );
+      expect(newTableNode).toBeDefined();
+      expect(newTableNode!.change).toBe("create");
+      expect(newTableNode!.proposedDefinition).toMatchObject({
+        name: "NewTable",
+        table: "new.csv",
+      });
+
+      // 2. Commit the same batch against the same DB (preview rolled it back).
+      await applyCommands(app, batch, { mode: "commit" });
+
+      // 3. Equivalence: read committed rows and compare to proposedDefinition.
+      const sources = await db.select().from(dataSources);
+      const tables = await db.select().from(dataTables);
+
+      // existingSource: preview said "update" with name="RenamedSource"
+      const committedExisting = sources.find((r) => r.id === existingSourceId);
+      expect(committedExisting).toBeDefined();
+      expect(committedExisting!.name).toBe(
+        existingNode!.proposedDefinition.name,
+      );
+
+      // newSource: preview said "create" with name="NewSource"
+      const committedNewSource = sources.find((r) => r.id === newSourceId);
+      expect(committedNewSource).toBeDefined();
+      expect(committedNewSource!.name).toBe(
+        newSourceNode!.proposedDefinition.name,
+      );
+
+      // newTable: preview said "create" with name="NewTable", table="new.csv"
+      const committedNewTable = tables.find((r) => r.id === newTableId);
+      expect(committedNewTable).toBeDefined();
+      expect(committedNewTable!.name).toBe(
+        newTableNode!.proposedDefinition.name,
+      );
+      expect(committedNewTable!.table).toBe(
+        newTableNode!.proposedDefinition.table,
+      );
+
+      // Noop check: existingSource canonical state before preview was "Existing".
+      // After the merged update (rename) the committed row is "RenamedSource",
+      // which preview correctly declared as the proposed value. The original "before"
+      // slice must have captured the pre-batch name.
+      expect((existingNode!.before as { name?: string }).name).toBe("Existing");
+
+      // Nothing commit changed is absent from preview's directNodes.
+      // All three touched ids must appear in directNodes.
+      const previewedIds = diff.directNodes.map((n) => n.nodeId);
+      expect(previewedIds).toContain(existingSourceId);
+      expect(previewedIds).toContain(newSourceId);
+      expect(previewedIds).toContain(newTableId);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Cheap contract tests (Fix 4)
+  // --------------------------------------------------------------------------
+
+  describe("contract: empty batch and idempotent re-preview", () => {
+    it("empty batch produces all-empty diff without throwing", async () => {
+      const diff = await buildPreviewDiff(app, db, []);
+
+      expect(diff.mode).toBe("preview");
+      expect(diff.directNodes).toEqual([]);
+      expect(diff.affectedDownstream).toEqual([]);
+      // tablesWritten may be empty but must not throw
+      expect(Array.isArray(diff.tablesWritten)).toBe(true);
+    });
+
+    it("same batch previewed twice against the same canonical state produces deeply equal diffs", async () => {
+      const sourceId = await seedSource({ name: "Stable" });
+      await seedTable(sourceId); // creates a downstream node so affectedDownstream is non-empty
+
+      const batch = [
+        cmd("RenameNode", { id: sourceId, name: "Renamed" }),
+      ] as ReturnType<typeof cmd>[];
+
+      const diff1 = await buildPreviewDiff(app, db, batch);
+      const diff2 = await buildPreviewDiff(app, db, batch);
+
+      // Deep equality — idempotent re-preview produces identical metadata.
+      expect(diff2.directNodes).toEqual(diff1.directNodes);
+      expect(diff2.affectedDownstream).toEqual(diff1.affectedDownstream);
+      expect(diff2.tablesWritten).toEqual(diff1.tablesWritten);
+      expect(diff2.mode).toBe(diff1.mode);
+    });
+  });
 });

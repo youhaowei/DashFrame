@@ -111,11 +111,21 @@ export interface PreviewDirectNode {
 }
 
 /**
- * How a downstream node is affected — the flag, not a recompute. `recompute`:
- * an upstream definition changed, so this node's result would change.
- * `orphaned`: an upstream node it depends on is being removed. `stale`: an
- * upstream change leaves this node's cached/derived data out of date but still
- * structurally valid.
+ * How a downstream node is affected — the flag carried on each
+ * `PreviewDownstreamNode`, not the compute itself.
+ *
+ * - `recompute`: an upstream definition changed, so this node's result would
+ *   change on the next evaluation. The most severe flag; the renderer should
+ *   prompt the user to re-run.
+ * - `stale`: an upstream change leaves this node's cached/derived data out of
+ *   date but still structurally valid. The renderer shows it as stale.
+ * - `orphaned`: an upstream node this node depends on is being REMOVED. The
+ *   reference will dangle after commit. **RESERVED — not yet emitted.** The
+ *   preview vocabulary has no delete command yet, so no path through
+ *   `buildPreviewDiff` currently produces `orphaned`. Renderer authors MUST
+ *   NOT build UI affordances that only fire on `orphaned` — they will never
+ *   trigger until a delete command is added to the vocabulary and the DAG walk
+ *   is extended to emit this flag.
  */
 export type DownstreamFlag = "recompute" | "orphaned" | "stale";
 

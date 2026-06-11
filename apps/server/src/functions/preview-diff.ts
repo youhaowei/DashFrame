@@ -171,7 +171,7 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     summary: (a) => `Remove metric ${String(a.metricId)}`,
   },
   renameNode: {
-    kind: "dataTable", // resolved at build time — rename is polymorphic (see resolveKind)
+    kind: "dataTable", // resolved at build time — rename is polymorphic (see resolveKindCanonical)
     targetId: byId,
     change: "update",
     summary: (a) => `Rename to "${String(a.name)}"`,
@@ -383,9 +383,18 @@ async function buildDirectNodes(
   // node key = `${kind}:${id}` so two kinds sharing an id can't collide.
   const byKey = new Map<string, PreviewDirectNode>();
   const order: string[] = [];
-  // Kind already established for an id by an EARLIER command in this batch —
-  // consulted ONLY by the polymorphic RenameNode (its target may have been
-  // created in-batch, so not yet in canonical state — preview rolled back).
+  // Kind established in-batch for an id by an EARLIER fixed-kind command —
+  // consulted as FALLBACK ONLY by the polymorphic RenameNode when canonical
+  // lookup finds nothing (the id was minted in this batch and is invisible
+  // post-rollback). Canonical tables are the authority; `idToKind` is the
+  // last resort for the genuinely-created-in-batch case.
+  //
+  // Precedence (RenameNode only):
+  //   1. resolveKindCanonical — probes canonical tables (dataTable → dataSource
+  //      → insight) in the same order the renameNode handler does. First hit wins.
+  //   2. idToKind    — only when canonical finds nothing (id minted in this batch,
+  //      invisible post-rollback). This handles in-batch create-then-rename.
+  //
   // Every other command's kind is FIXED by its descriptor: two different kinds
   // legitimately sharing one client-minted id (PKs are per table) must land in
   // two distinct `${kind}:${id}` nodes, not collapse into whichever came first.
@@ -396,11 +405,22 @@ async function buildDirectNodes(
     const descriptor = COMMAND_DESCRIPTORS[command.path];
     const args = (command.args ?? {}) as Record<string, unknown>;
     const nodeId = descriptor.targetId(args) as UUID;
-    const kind =
-      command.path === "renameNode"
-        ? (idToKind.get(nodeId) ??
-          (await resolveKind(db, command.path, descriptor, nodeId)))
-        : descriptor.kind;
+    let kind: ArtifactKind;
+    if (command.path === "renameNode") {
+      // Canonical is the authority: probe canonical tables (dataTable →
+      // dataSource → insight) in the same order the renameNode handler does.
+      // First canonical hit wins. Only when canonical finds nothing (id was
+      // minted in this batch and is invisible post-rollback) do we fall back to
+      // `idToKind` (the kind established by the earlier in-batch create). This
+      // avoids the previous inversion where a stale in-batch registration could
+      // shadow a canonical row of a DIFFERENT kind sharing the same UUID.
+      kind =
+        (await resolveKindCanonical(db, nodeId)) ??
+        idToKind.get(nodeId) ??
+        descriptor.kind;
+    } else {
+      kind = descriptor.kind;
+    }
     idToKind.set(nodeId, kind);
     const key = `${kind}:${nodeId}`;
 
@@ -431,24 +451,22 @@ async function buildDirectNodes(
 }
 
 /**
- * RenameNode is polymorphic — its descriptor kind ("dataTable") is a default.
- * Resolve the real kind by probing the canonical tables in the same order the
- * `renameNode` handler does (dataTable → dataSource → insight). Every other
- * command's kind is fixed by its descriptor.
+ * Probe canonical tables in the same order the `renameNode` handler does
+ * (dataTable → dataSource → insight) and return the matching kind, or `null`
+ * when the id is not found in any canonical table (e.g. minted in the current
+ * batch and invisible after the preview rollback).
+ *
+ * Returning `null` lets the caller distinguish "definitely found in canonical"
+ * from "not there yet" without conflating the two via a default value.
  */
-async function resolveKind(
+async function resolveKindCanonical(
   db: ArtifactDb,
-  path: CommandPath,
-  descriptor: CommandDescriptor,
   nodeId: string,
-): Promise<ArtifactKind> {
-  if (path !== "renameNode") return descriptor.kind;
+): Promise<ArtifactKind | null> {
   if (await rowExists(db, "dataTable", nodeId)) return "dataTable";
   if (await rowExists(db, "dataSource", nodeId)) return "dataSource";
   if (await rowExists(db, "insight", nodeId)) return "insight";
-  // Not yet persisted (created earlier in the same batch but rolled back, or a
-  // bad id). Fall back to the descriptor default; the batch would have thrown.
-  return descriptor.kind;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
