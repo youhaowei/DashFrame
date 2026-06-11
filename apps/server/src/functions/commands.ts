@@ -774,6 +774,12 @@ async function patchDataTableCollection(
         ? { ...op, item: requireInsightMetricShape(op.item) }
         : op;
     const next = applyCollectionOp(items, kind, normalizedOp);
+    // Re-validate the merged metric after an update so corrupting fields like
+    // `sourceTable` or `aggregation` to null are caught here — same as AddMetric.
+    if (kind === "metrics" && op.mode === "update") {
+      const merged = next.find((item) => item.id === op.itemId);
+      requireInsightMetricShape(merged);
+    }
     const nextDefinition = { ...definition, [kind]: next };
     await ctx.db
       .from(insights)

@@ -1164,6 +1164,14 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/non-negative integer/);
+      await expect(
+        commit(
+          cmd("RemoveJoin", {
+            id: insightId,
+            joinIndex: "0" as unknown as number,
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
     });
   });
 
@@ -1328,6 +1336,86 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/sourceTable/);
+    });
+  });
+
+  describe("UpdateMetric on Insight node — merged shape re-validated", () => {
+    /** Seed an Insight carrying one valid InsightMetric; returns the ids. */
+    async function makeInsightWithMetric() {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddMetric", {
+          nodeId: insightId,
+          metric: {
+            id: metricId,
+            name: "Total Revenue",
+            sourceTable: tableId,
+            aggregation: "sum",
+          },
+        }),
+      );
+      return { tableId, insightId, metricId };
+    }
+
+    it("should reject an update that corrupts sourceTable to null, leaving the stored metric unchanged", async () => {
+      // Regression: the update path merged blind jsonb updates into a stored
+      // InsightMetric without re-validating the result — `{ sourceTable: null }`
+      // would persist a metric the read path (requireInsightMetric) rejects.
+      const { tableId, insightId, metricId } = await makeInsightWithMetric();
+
+      await expect(
+        commit(
+          cmd("UpdateMetric", {
+            nodeId: insightId,
+            metricId,
+            updates: { sourceTable: null } as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceTable/);
+
+      // The stored metric must be untouched — no partial write before the throw.
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: { id: string; sourceTable: string; aggregation: string }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      expect(def.metrics[0]?.sourceTable).toBe(tableId);
+      expect(def.metrics[0]?.aggregation).toBe("sum");
+    });
+
+    it("should accept a valid partial update and keep the InsightMetric shape intact", async () => {
+      const { tableId, insightId, metricId } = await makeInsightWithMetric();
+
+      await commit(
+        cmd("UpdateMetric", {
+          nodeId: insightId,
+          metricId,
+          updates: { name: "Revenue (Total)", aggregation: "avg" } as never,
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: {
+          id: string;
+          name: string;
+          sourceTable: string;
+          aggregation: string;
+        }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      const stored = def.metrics[0]!;
+      expect(stored.id).toBe(metricId);
+      expect(stored.name).toBe("Revenue (Total)");
+      expect(stored.sourceTable).toBe(tableId); // untouched key survives the merge
+      expect(stored.aggregation).toBe("avg");
     });
   });
 
