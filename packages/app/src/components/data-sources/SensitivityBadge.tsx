@@ -1,6 +1,6 @@
 import type { Field } from "@dashframe/types";
 import { getFieldSensitivity } from "@dashframe/types";
-import { Badge } from "@wystack/ui";
+import { Badge, ButtonPrimitive } from "@wystack/ui";
 
 interface SensitivityBadgeProps {
   field: Field;
@@ -42,16 +42,16 @@ export function SensitivityBadge({
 
   if (suggestedReasons.length > 0) {
     return (
-      <button
+      <ButtonPrimitive
         type="button"
+        variant="soft"
+        color="warning"
         title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
         onClick={onConfirmSuggestion}
-        className="shrink-0 cursor-pointer"
+        className="h-auto shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
       >
-        <Badge variant="soft" color="warning" className="hover:opacity-80">
-          Likely sensitive
-        </Badge>
-      </button>
+        Likely sensitive
+      </ButtonPrimitive>
     );
   }
 
