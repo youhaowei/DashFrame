@@ -10,18 +10,11 @@ import {
 } from "@dashframe/engine-server";
 import { openProject } from "@dashframe/server-core";
 import { createDashframeServer } from "@dashframe/server/app";
+import { tableFromIPC } from "apache-arrow";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-
-// apache-arrow resolves from the engine-server package (its direct dep); the
-// desktop app doesn't depend on it directly, so resolve it from there.
-const requireFromEngineServer = createRequire(
-  new URL("../../../packages/engine-server/package.json", import.meta.url),
-);
-const { tableFromIPC } = requireFromEngineServer("apache-arrow");
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), "engine-verify-"));
 const token = randomBytes(32).toString("base64url");

@@ -20,7 +20,11 @@ import {
   type DuckDBValue,
 } from "@duckdb/node-api";
 
-import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
+import {
+  duckdbColumnsToArrowIpc,
+  duckdbTypeIdToColumnType,
+  type ResultColumn,
+} from "./arrow-encode";
 
 export interface NativeDuckDBEngineOptions {
   /**
@@ -103,7 +107,7 @@ export class NativeDuckDBEngine implements QueryEngine {
 
     const columns: TableColumn[] = columnNames.map((name, i) => ({
       name,
-      type: String(columnTypes[i]?.typeId ?? "unknown"),
+      type: duckdbTypeIdToColumnType(columnTypes[i]?.typeId),
     }));
 
     return { columns, rows, rowCount: rows.length };

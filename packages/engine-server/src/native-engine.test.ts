@@ -29,6 +29,23 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(result.rows.map((r) => Number(r.n))).toEqual([0, 1, 2]);
   });
 
+  it("query() returns normalized column types, not raw DuckDB type ids", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    // Same normalization the Arrow path (queryArrow → arrow-encode) applies:
+    // semantic ColumnType names, never numeric DuckDB type-id strings. A caller
+    // branching on column.type must see "number"/"string", not "4"/"17".
+    const result = await engine.query(
+      "SELECT 1::int AS i, 'a' AS s, 1.5::double AS d",
+    );
+    expect(result.columns).toEqual([
+      { name: "i", type: "number" },
+      { name: "s", type: "string" },
+      { name: "d", type: "number" },
+    ]);
+  });
+
   it("does not corrupt a literal '?' when binding positional params (native binding, not text scan)", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
