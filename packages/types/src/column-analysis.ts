@@ -220,7 +220,7 @@ export type DataFrameAnalysis = {
  * DataFrameAnalysis before writing it to the DB.
  *
  * The returned object is safe to persist. In-memory callers (e.g. the
- * suggest-mode PII classifier in YW-129) continue to use the original
+ * suggest-mode PII classifier) continue to use the original
  * object — do not call this helper before passing analysis to runtime-only
  * consumers.
  */

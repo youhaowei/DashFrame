@@ -45,8 +45,8 @@ export async function syncSchema(
 
 /**
  * Install (or replace) the `strip_data_frames_sample_values` trigger on the
- * `data_frames` table.  This is the **non-bypassable DB-floor** for the
- * artifact-DB write gate (YW-131).
+ * `data_frames` table.  This is the **non-bypassable DB-floor** component of
+ * the artifact-DB write gate.
  *
  * Why a DB trigger (in addition to the Proxy gate):
  * - The Proxy gate catches ORM builder paths at construction time.  However,

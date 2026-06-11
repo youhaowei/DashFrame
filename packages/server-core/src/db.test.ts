@@ -181,7 +181,7 @@ describe("openArtifactDb", () => {
   });
 
   // ============================================================================
-  // Artifact-DB write gate — profiles only by construction (YW-131)
+  // Artifact-DB write gate — profiles only by construction
   //
   // Contract: a raw `sampleValues` array written via ANY Drizzle path (insert
   // or update) against `data_frames` is stripped to `[]` before the bytes
@@ -189,7 +189,7 @@ describe("openArtifactDb", () => {
   // caller can bypass it — violating writes are unrepresentable, not policed
   // by callers.
   // ============================================================================
-  describe("write gate — no raw sampleValues can land in data_frames (YW-131)", () => {
+  describe("write gate — no raw sampleValues can land in data_frames", () => {
     function makeAnalysis(sampleValues: unknown[] = ["pii@example.com"]) {
       return {
         rowCount: 1,
@@ -397,7 +397,7 @@ describe("openArtifactDb", () => {
             analysis: sql`jsonb_set(analysis, '{columns,0,sampleValues}', '["raw"]')`,
           })
           .where(eq(dataFrames.id, id)),
-      ).toThrow(/write gate \(YW-131\)/);
+      ).toThrow(/Artifact-DB write gate/);
 
       // And the row is untouched — nothing raw landed.
       const rows = await db.select().from(dataFrames);

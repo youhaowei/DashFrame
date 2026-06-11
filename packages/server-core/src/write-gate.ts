@@ -1,5 +1,5 @@
 /**
- * Artifact-DB write gate — profiles only, by construction (YW-131).
+ * Artifact-DB write gate — profiles only, by construction.
  *
  * Two-layer enforcement design
  * ─────────────────────────────
@@ -30,9 +30,10 @@
  *   "artifact DB contains zero raw sampleValues" physically unbreakable.
  *
  * Why a Proxy at this layer (Layer 1 detail):
- * - YW-118 stripped sampleValues in specific mutation handlers; a future
- *   handler could accidentally skip the call.  The gate below makes that
- *   omission impossible — the strip fires on the Drizzle instance itself.
+ * - The earlier per-handler approach stripped sampleValues in specific mutation
+ *   handlers; a future handler could accidentally skip the call.  The gate
+ *   below makes that omission impossible — the strip fires on the Drizzle
+ *   instance itself.
  * - Drizzle has no middleware/hook API, so a Proxy on the returned builder
  *   objects is the lowest-cost intercept point available.
  *
@@ -87,7 +88,7 @@ type MaybeWithAnalysis = Record<string, unknown>;
  * than forward it unmodified (which would silently defeat the privacy
  * invariant), we THROW.  A loud, unenforceable invariant is safer than a quiet
  * one: the caller must pass a plain analysis object so the gate can strip it.
- * This is the deliberate fail-closed decision for YW-131.
+ * This is the deliberate fail-closed design decision for this gate.
  */
 function stripDataFrameAnalysis<T extends MaybeWithAnalysis>(value: T): T {
   if (!("analysis" in value) || value.analysis == null) return value;
@@ -96,7 +97,7 @@ function stripDataFrameAnalysis<T extends MaybeWithAnalysis>(value: T): T {
   // construction.  Throw with the gate name and the safe alternative.
   if (is(value.analysis, SQL)) {
     throw new Error(
-      "Artifact-DB write gate (YW-131): the `analysis` column was given a raw " +
+      "Artifact-DB write gate: the `analysis` column was given a raw " +
         "SQL expression, which the gate cannot statically strip of sampleValues. " +
         "Pass a plain DataFrameAnalysis object so the gate can enforce the " +
         "profiles-only invariant. (Raw SQL writes to data_frames.analysis are " +

@@ -1,5 +1,5 @@
 /**
- * Tests for the privacy-floor write boundary in app-artifacts (YW-118).
+ * Tests for the privacy-floor write boundary in app-artifacts.
  *
  * Contract: any DataFrameAnalysis written through putDataFrameEntry or
  * updateDataFrameEntry lands in the artifact DB with zero raw sampleValues.
@@ -71,7 +71,7 @@ function makeDataFrameEntry(id: string, analysis?: DataFrameAnalysis) {
   };
 }
 
-describe("privacy floor — no raw sampleValues persist in artifact DB (YW-118)", () => {
+describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let app: WyStackApp;
