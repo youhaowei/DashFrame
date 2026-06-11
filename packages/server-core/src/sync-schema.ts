@@ -83,7 +83,7 @@ BEGIN
   IF NEW.analysis IS NULL THEN
     RETURN NEW;
   END IF;
-  IF jsonb_typeof(NEW.analysis->'columns') <> 'array' THEN
+  IF jsonb_typeof(NEW.analysis->'columns') IS DISTINCT FROM 'array' THEN
     RETURN NEW;
   END IF;
   len := jsonb_array_length(NEW.analysis->'columns');
