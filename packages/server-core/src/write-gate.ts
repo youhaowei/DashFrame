@@ -68,9 +68,37 @@ function stripMaybeArray<T extends MaybeWithAnalysis>(
 // ---- builder proxies --------------------------------------------------------
 
 /**
+ * Wraps a post-`.values()` Drizzle insert builder so that `.onConflictDoUpdate`
+ * also strips sampleValues from the `set` payload.  All other methods are
+ * forwarded unchanged.
+ */
+function proxyInsertBuilderAfterValues(builder: unknown): unknown {
+  return new Proxy(builder as object, {
+    get(target, prop, receiver) {
+      if (prop === "onConflictDoUpdate") {
+        return function (
+          config: { set?: MaybeWithAnalysis; [k: string]: unknown },
+          ...rest: unknown[]
+        ) {
+          const safeConfig =
+            config?.set != null
+              ? { ...config, set: stripDataFrameAnalysis(config.set) }
+              : config;
+          // @ts-expect-error — dynamic forwarding; Drizzle type varies by driver
+          return target.onConflictDoUpdate.call(target, safeConfig, ...rest);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+/**
  * Wraps a Drizzle insert builder so `.values(...)` applies the strip before
- * forwarding to the real builder.  All other builder methods (`.returning`,
- * `.onConflictDoNothing`, etc.) are forwarded unchanged.
+ * forwarding to the real builder, and the returned builder is further proxied
+ * so `.onConflictDoUpdate({ set: … })` also has sampleValues stripped.
+ * All other builder methods (`.returning`, `.onConflictDoNothing`, etc.) are
+ * forwarded unchanged.
  */
 function proxyInsertBuilder(builder: unknown): unknown {
   return new Proxy(builder as object, {
@@ -83,8 +111,8 @@ function proxyInsertBuilder(builder: unknown): unknown {
           const safe = stripMaybeArray(values);
           // @ts-expect-error — dynamic forwarding; Drizzle type varies by driver
           const next = target.values.call(target, safe, ...rest);
-          // Continue proxying so chained methods (e.g. .returning()) are fine.
-          return next;
+          // Proxy the returned builder so chained .onConflictDoUpdate is also gated.
+          return proxyInsertBuilderAfterValues(next);
         };
       }
       return Reflect.get(target, prop, receiver);

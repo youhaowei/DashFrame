@@ -289,6 +289,40 @@ describe("openArtifactDb", () => {
       expect(rows.find((r) => r.id === id)?.analysis).toBeNull();
     });
 
+    test("should strip sampleValues in onConflictDoUpdate set clause", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert a clean frame first.
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Upsert Gate Frame",
+      });
+
+      // Attempt a conflict-update that carries raw sampleValues in the set clause.
+      await db
+        .insert(dataFrames)
+        .values({
+          id,
+          storage: { type: "indexeddb", key: "k" },
+          fieldIds: [],
+          name: "Upsert Gate Frame",
+        })
+        .onConflictDoUpdate({
+          target: dataFrames.id,
+          set: { analysis: makeAnalysis(["secret@example.com"]) },
+        });
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // The conflict-update path must also strip raw values.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
     test("should not interfere with writes to other tables (dataSources)", async () => {
       const db = await openTestArtifactDb();
 
