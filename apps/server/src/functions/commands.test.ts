@@ -1881,6 +1881,88 @@ describe("command vocabulary", () => {
       ).toHaveLength(1);
     });
 
+    it("should surface orphaned Insights when a DataTable they JOIN against is deleted (join-dependency boundary)", async () => {
+      // An Insight that uses a DataTable only as a JOIN target (not as its
+      // primary source) is still orphaned when that table is deleted. Verify
+      // that findOrphanedInsights checks joins[*].rightTableId.
+      const { tableId: primaryTableId } = await makeTable();
+      const { tableId: joinTableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: primaryTableId },
+        }),
+        // Add a join that references joinTableId as the right-hand side.
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "inner",
+            rightTableId: joinTableId,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: joinTableId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes.map((n) => n.id)).toContain(insightId);
+    });
+
+    it("should surface an Insight only once when it sources AND joins against tables from the same DataSource", async () => {
+      // Dedup: an Insight whose primary source AND one of its joins both point
+      // at tables owned by a deleted DataSource must appear exactly once.
+      const sourceId = id();
+      const table1Id = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: table1Id,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: table1Id },
+        }),
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "left",
+            rightTableId: table2Id,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string }[];
+      };
+      expect(
+        value.orphanedNodes.filter((n) => n.id === insightId),
+      ).toHaveLength(1);
+    });
+
     // -------------------------------------------------------------------------
     // Arrow / DataFrame metadata cleanup
     // -------------------------------------------------------------------------

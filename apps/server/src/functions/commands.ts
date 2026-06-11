@@ -1145,32 +1145,40 @@ export interface OrphanedNode {
 }
 
 /**
- * Walk all Insights whose `definition.source.sourceId` (or legacy
- * `definition.baseTableId`) equals `sourceId`. These are the reference-boundary
- * nodes that must be routed to drift-repair when `sourceId` is deleted.
+ * Walk all Insights whose primary source OR any join dependency equals
+ * `sourceId`. These are the reference-boundary nodes that must be routed to
+ * drift-repair when `sourceId` is deleted.
  *
- * The check covers both:
- *   • The new `source.sourceId` field written by CreateInsight / SetInsightSource.
- *   • The legacy `baseTableId` field for Insights written before the polymorphic
- *     source was introduced (YW-157 transition window).
+ * The check covers:
+ *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
+ *   • The legacy `baseTableId` field for pre-composition rows (YW-157).
+ *   • Any `joins[*].rightTableId` — an Insight that JOINs against the deleted
+ *     node is just as broken as one that sources it directly.
  *
  * Because insights.definition is a jsonb column with no stored FK, this is a
  * full-table scan filtered in application code (PGLite single-connection, the
  * table is small in practice). A future index on a promoted column would speed
  * this up; the read is intentionally bounded to the delete path.
  */
+function isOrphanedBy(row: InsightRow, sourceId: string): boolean {
+  const def = row.definition as StoredInsightDefinition;
+  // Primary source check.
+  const primaryMatch = def.source
+    ? def.source.sourceId === sourceId
+    : def.baseTableId === sourceId;
+  if (primaryMatch) return true;
+  // Join-dependency check — an Insight JOINing against the deleted node
+  // is also orphaned (its rightTableId no longer resolves).
+  const joins = (def.joins ?? []) as { rightTableId?: string }[];
+  return joins.some((j) => j.rightTableId === sourceId);
+}
+
 async function findOrphanedInsights(
   ctx: { db: import("@wystack/db").TrackedDb },
   sourceId: string,
 ): Promise<{ id: string }[]> {
   const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
-  return allInsights.filter((row) => {
-    const def = row.definition as StoredInsightDefinition;
-    // New polymorphic source field takes precedence.
-    if (def.source) return def.source.sourceId === sourceId;
-    // Fall back to legacy baseTableId for pre-composition rows.
-    return def.baseTableId === sourceId;
-  });
+  return allInsights.filter((row) => isOrphanedBy(row, sourceId));
 }
 
 /**
@@ -1200,25 +1208,34 @@ async function deleteInsightDataFrames(
  * DataSource delete. Extracted to keep `deleteNode`'s handler within the
  * cognitive-complexity budget.
  *
- * Returns the deduplicated set of Insights that SOURCE any of `ownedTables`
- * (these are the reference-boundary orphans). As a side-effect, deletes the
- * DataFrame metadata rows for each DataTable's Arrow result so the client-side
- * `removeDataFrame` hook can clean up Arrow bytes.
+ * Returns the deduplicated set of Insights that SOURCE or JOIN any of
+ * `ownedTables` (these are the reference-boundary orphans). As a side-effect,
+ * deletes the DataFrame metadata rows for each DataTable's Arrow result so the
+ * client-side `removeDataFrame` hook can clean up Arrow bytes.
+ *
+ * The full insights table is fetched once (not once-per-table) so that N owned
+ * tables do not produce N round-trips.
  */
 async function deleteDataSourceDependents(
   ctx: { db: import("@wystack/db").TrackedDb },
   ownedTables: (typeof dataTables.$inferSelect)[],
 ): Promise<OrphanedNode[]> {
+  // Fetch all insights once — avoids O(N) full-table scans inside the loop.
+  const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
+  const ownedTableIds = new Set(ownedTables.map((t) => t.id));
+
   // Detect reference-boundary Insights across ALL owned tables (deduplicated).
   const seen = new Set<string>();
   const orphanedNodes: OrphanedNode[] = [];
-  for (const t of ownedTables) {
-    const orphans = await findOrphanedInsights(ctx, t.id);
-    for (const r of orphans) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        orphanedNodes.push({ id: r.id, kind: "insight" });
-      }
+  for (const row of allInsights) {
+    if (seen.has(row.id)) continue;
+    // Check primary source and all join dependencies against every owned table.
+    const orphaned = [...ownedTableIds].some((tableId) =>
+      isOrphanedBy(row, tableId),
+    );
+    if (orphaned) {
+      seen.add(row.id);
+      orphanedNodes.push({ id: row.id, kind: "insight" });
     }
   }
 
