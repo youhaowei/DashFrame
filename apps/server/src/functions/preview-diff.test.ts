@@ -652,6 +652,65 @@ describe("PreviewDiff builder", () => {
       expect(child).toMatchObject({ edge: "parentArtifact", via: sourceId });
     });
 
+    it("descendants of an upgraded node walk with the upgraded via/edge, not the stale one", async () => {
+      // Regression for the stale-provenance bug (PRRT_kwDOQKlCpM6I6IKg):
+      //
+      // Setup: a batch touches BOTH a source and a table. The insight is
+      // reachable via TWO paths:
+      //   weak:   source -> (parentArtifactId) -> insight   (flag: stale)
+      //   strong: table  -> (baseTableId)      -> insight   (flag: recompute)
+      //
+      // The insight's dataFrame is downstream of the insight only.
+      //
+      // BFS visits the source first (earlier in `direct`), emits the insight
+      // via the weak (parentArtifact / stale) path and enqueues it. Then it
+      // visits the table, reaches the insight via the stronger path (recompute)
+      // and upgrades the emitted entry's flag/edge/via.
+      //
+      // Bug: the frontier entry for the insight was enqueued with the OLD via
+      // (sourceId). When dequeued, `current.via` was stale even though the
+      // emitted entry had been upgraded. The insight's descendants (dataFrame)
+      // therefore walked with the wrong via.
+      //
+      // Fix: frontier carries identifiers only; via is read from viaOf at
+      // dequeue time, so descendants always see the post-upgrade provenance.
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      // Insight reachable weak (parentArtifactId→source) AND strong (baseTableId→table).
+      const insightId = await seedInsight(
+        { baseTableId: tableId },
+        { parentArtifactId: sourceId },
+      );
+      const frameId = await seedFrame(insightId);
+
+      // Touch BOTH source and table so BFS sees both paths to the insight.
+      const diff = await preview(
+        cmd("RenameNode", { id: sourceId, name: "S2" }),
+        cmd("RenameNode", { id: tableId, name: "T2" }),
+      );
+
+      // The insight must be flagged with the STRONGER path (baseTableId→table).
+      const insightHit = diff.affectedDownstream.find(
+        (n) => n.nodeId === insightId,
+      );
+      expect(insightHit).toBeDefined();
+      expect(insightHit!.flag).toBe("recompute");
+      expect(insightHit!.edge).toBe("dataTable->insight");
+      expect(insightHit!.via).toBe(tableId);
+
+      // The dataFrame is downstream of the insight. Its via must propagate the
+      // UPGRADED insight provenance (the tableId that delivered the strongest
+      // path to the insight), not the stale sourceId from before the upgrade.
+      // The bug: the frontier entry for the insight carried via=sourceId (stale)
+      // even after the emitted entry was upgraded to via=tableId; the dataFrame
+      // was therefore emitted with via=sourceId instead of via=tableId.
+      const frameHit = diff.affectedDownstream.find(
+        (n) => n.nodeId === frameId,
+      );
+      expect(frameHit).toBeDefined();
+      expect(frameHit!.via).toBe(tableId);
+    });
+
     it("should flag each downstream node once even when reached by two paths", async () => {
       // Two visualizations (vizId1, vizId2) both reference the same insight and
       // both appear in the same dashboard layout. Touching the insight fans out to

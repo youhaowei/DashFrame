@@ -633,6 +633,40 @@ function flagStrength(flag: DownstreamFlag): number {
  * (recompute > stale). The edge semantics live in `DOWNSTREAM_EDGES`; this
  * loop is generic.
  */
+/**
+ * Attempt to upgrade an already-emitted downstream node to a stronger path.
+ * Returns true when an upgrade was applied (so the caller can also update viaOf).
+ */
+function tryUpgrade(
+  existing: PreviewDownstreamNode,
+  hit: { edge: DownstreamEdge; flag: DownstreamFlag },
+  via: UUID,
+): boolean {
+  if (flagStrength(hit.flag) <= flagStrength(existing.flag)) return false;
+  existing.flag = hit.flag;
+  existing.edge = hit.edge;
+  existing.via = via;
+  return true;
+}
+
+/**
+ * Seed the BFS state maps for the direct (touched) nodes before the walk begins.
+ * Direct nodes are their own `via` — they ARE the provenance root for their
+ * subtrees. Returns the initial frontier (identifier-only entries).
+ */
+function seedWalkState(
+  direct: PreviewDirectNode[],
+  visited: Map<string, PreviewDownstreamNode>,
+  viaOf: Map<string, UUID>,
+): Array<{ id: string; kind: ArtifactKind }> {
+  for (const node of direct) {
+    const key = `${node.kind}:${node.nodeId}`;
+    visited.set(key, null!);
+    viaOf.set(key, node.nodeId);
+  }
+  return direct.map((d) => ({ id: d.nodeId, kind: d.kind }));
+}
+
 async function walkDownstream(
   db: ArtifactDb,
   direct: PreviewDirectNode[],
@@ -643,16 +677,26 @@ async function walkDownstream(
   // visited maps kind:id to the emitted out-entry so we can upgrade its flag if
   // a later path reaches it via a stronger edge (recompute > stale).
   const visited = new Map<string, PreviewDownstreamNode>();
-  for (const node of direct) visited.set(`${node.kind}:${node.nodeId}`, null!);
 
-  // Frontier of touched nodes — id + kind so classifyDownstream can exact-match
-  // the edge label (e.g. "dataSource->dataTable") without ambiguity, and `via`
-  // echoed so the renderer can explain the lineage chain.
-  const frontier: Array<{ id: string; kind: ArtifactKind; via: UUID }> =
-    direct.map((d) => ({ id: d.nodeId, kind: d.kind, via: d.nodeId }));
+  // viaOf maps kind:id to the node's current `via` value — the single source of
+  // truth for lineage provenance. Direct seeds are their own via. Downstream
+  // nodes record the via of the frontier node that first reached them; upgrades
+  // (stronger path) update this map, NOT a stale frontier copy.
+  //
+  // The frontier carries only identifiers (id + kind). Reading viaOf at dequeue
+  // time (not at enqueue time) guarantees that any upgrade that arrived while the
+  // node was queued is visible to its descendants — fixing the stale-provenance
+  // bug where the already-queued frontier entry carried an old via after an
+  // upgrade mutated the emitted object.
+  const viaOf = new Map<string, UUID>();
+  const frontier = seedWalkState(direct, visited, viaOf);
 
   while (frontier.length > 0) {
     const current = frontier.shift()!;
+    // Read the current via from the single source of truth, not from a snapshot
+    // that may have been captured before a stronger path upgraded it.
+    const currentVia = viaOf.get(`${current.kind}:${current.id}`)!;
+
     // A node is downstream of `current` if it DEPENDS ON current (FK/IR) or its
     // parentArtifactId points at current. One pass over the graph finds both.
     for (const row of graph) {
@@ -661,16 +705,11 @@ async function walkDownstream(
       const key = `${row.kind}:${row.id}`;
       const existing = visited.get(key);
       if (existing !== undefined) {
-        // Already emitted — upgrade the whole hit (flag + edge + via) if this
-        // path is stronger, so the lineage explanation stays consistent with
-        // the recorded edge.
-        if (
-          existing !== null &&
-          flagStrength(hit.flag) > flagStrength(existing.flag)
-        ) {
-          existing.flag = hit.flag;
-          existing.edge = hit.edge;
-          existing.via = current.via;
+        // Already emitted — upgrade if this path is stronger. Updating viaOf
+        // ensures that when this node is dequeued, it propagates the upgraded
+        // via to its own descendants (one source of truth, not a stale copy).
+        if (existing !== null && tryUpgrade(existing, hit, currentVia)) {
+          viaOf.set(key, currentVia);
         }
         continue;
       }
@@ -678,12 +717,14 @@ async function walkDownstream(
         nodeId: row.id as UUID,
         kind: row.kind,
         edge: hit.edge,
-        via: current.via,
+        via: currentVia,
         flag: hit.flag,
       };
       visited.set(key, emitted);
+      viaOf.set(key, currentVia);
       out.push(emitted);
-      frontier.push({ id: row.id, kind: row.kind, via: current.via });
+      // Queue the identifier only — via is resolved from viaOf at dequeue time.
+      frontier.push({ id: row.id, kind: row.kind });
     }
   }
 
