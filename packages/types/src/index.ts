@@ -18,7 +18,11 @@ export type {
   SourceSchema,
 } from "./field";
 
-export { getFieldSensitivity, isFieldRestricted } from "./field";
+export {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "./field";
 
 export type { AggregationType, InsightMetric, Metric } from "./metric";
 
@@ -146,7 +150,6 @@ export type {
   DateSemantic,
   NumberAnalysis,
   NumberSemantic,
-  SensitivityHint,
   StringAnalysis,
   StringSemantic,
   UnknownAnalysis,

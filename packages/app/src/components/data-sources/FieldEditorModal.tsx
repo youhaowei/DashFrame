@@ -1,5 +1,5 @@
 import type { ColumnType, Field, FieldSensitivity } from "@dashframe/types";
-import { getFieldSensitivity } from "@dashframe/types";
+import { buildSensitivityUpdate, getFieldSensitivity } from "@dashframe/types";
 import {
   Button,
   Checkbox,
@@ -59,12 +59,7 @@ function FieldEditorForm({
     // Only write sensitivity when changed, so an untouched field keeps its
     // existing reason/source (e.g. a confirmed classifier suggestion).
     if (sensitivity !== getFieldSensitivity(field)) {
-      updates.sensitivity = sensitivity;
-      updates.sensitivitySource = "user";
-      updates.sensitivityReason =
-        sensitivity === "cleared"
-          ? "Cleared by you"
-          : "Marked sensitive by you";
+      Object.assign(updates, buildSensitivityUpdate(sensitivity));
     }
 
     onSave(field.id, updates);

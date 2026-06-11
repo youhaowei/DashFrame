@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { StringAnalysis } from "./column-analysis";
-import { getFieldSensitivity, isFieldRestricted } from "./field";
+import {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "./field";
 import {
   suggestSensitivityFromAnalysis,
   suggestSensitivityFromName,
@@ -57,8 +61,18 @@ describe("suggestSensitivityFromName", () => {
     "filename",
     "country",
     "order_total",
+    "secretary",
   ])("does not flag %s", (name) => {
     expect(suggestSensitivityFromName(name)).toEqual([]);
+  });
+
+  it("does not double-fire the physical-address rule on email/IP addresses", () => {
+    expect(suggestSensitivityFromName("email_address")).toEqual([
+      "Column name suggests email addresses",
+    ]);
+    expect(suggestSensitivityFromName("ip_address")).toEqual([
+      "Column name suggests IP addresses",
+    ]);
   });
 });
 
@@ -93,6 +107,14 @@ describe("suggestSensitivityFromAnalysis", () => {
       ],
     });
     expect(reasons.join(" ")).toContain("phone numbers");
+  });
+
+  it("does not flag date-shaped strings as phone numbers", () => {
+    const reasons = suggestSensitivityFromAnalysis({
+      ...baseString,
+      sampleValues: ["2023-01-15", "2022-12-31", "15.01.2023", "1/15/2023"],
+    });
+    expect(reasons).toEqual([]);
   });
 
   it("does not flag short numeric-ish codes as phone numbers", () => {
@@ -146,5 +168,37 @@ describe("suggestSensitivityReasons", () => {
 
   it("returns no reasons for an innocuous column", () => {
     expect(suggestSensitivityReasons({ name: "order_total" })).toEqual([]);
+  });
+});
+
+describe("buildSensitivityUpdate", () => {
+  it("records a confirmed classifier suggestion with its reasons", () => {
+    expect(
+      buildSensitivityUpdate("sensitive", ["reason a", "reason b"]),
+    ).toEqual({
+      sensitivity: "sensitive",
+      sensitivityReason: "reason a; reason b",
+      sensitivitySource: "classifier",
+    });
+  });
+
+  it.each([
+    ["sensitive", "Marked sensitive by you"],
+    ["cleared", "Cleared by you"],
+    ["unclassified", "Reset to unclassified by you"],
+  ] as const)("records a manual %s marking as user-sourced", (s, reason) => {
+    expect(buildSensitivityUpdate(s)).toEqual({
+      sensitivity: s,
+      sensitivityReason: reason,
+      sensitivitySource: "user",
+    });
+  });
+
+  it("ignores reasons when clearing — clearing is always a user decision", () => {
+    expect(buildSensitivityUpdate("cleared", ["reason"])).toEqual({
+      sensitivity: "cleared",
+      sensitivityReason: "Cleared by you",
+      sensitivitySource: "user",
+    });
   });
 });

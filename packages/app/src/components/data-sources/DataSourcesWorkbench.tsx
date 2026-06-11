@@ -12,6 +12,7 @@ import type {
   RemoteDatabase,
 } from "@dashframe/engine";
 import type { Field, FieldSensitivity, Metric } from "@dashframe/types";
+import { buildSensitivityUpdate } from "@dashframe/types";
 import {
   Button,
   Dialog,
@@ -208,18 +209,11 @@ export function DataSourcesWorkbench() {
     reasons?: string[],
   ) => {
     if (!selectedTableId) return;
-    const fromSuggestion = sensitivity === "sensitive" && reasons?.length;
-    let sensitivityReason = "Marked sensitive by you";
-    if (fromSuggestion) {
-      sensitivityReason = reasons.join("; ");
-    } else if (sensitivity === "cleared") {
-      sensitivityReason = "Cleared by you";
-    }
-    await tableMutations.updateField(selectedTableId, fieldId, {
-      sensitivity,
-      sensitivitySource: fromSuggestion ? "classifier" : "user",
-      sensitivityReason,
-    });
+    await tableMutations.updateField(
+      selectedTableId,
+      fieldId,
+      buildSensitivityUpdate(sensitivity, reasons),
+    );
     toast.success(
       sensitivity === "cleared"
         ? "Field marked as not sensitive"

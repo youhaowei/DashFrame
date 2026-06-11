@@ -77,6 +77,40 @@ export function isFieldRestricted(field: Pick<Field, "sensitivity">): boolean {
 }
 
 /**
+ * Build the Field update for a sensitivity marking, with the legible
+ * reason/source the marking contract requires. Single source for the
+ * persisted reason strings — UI surfaces must not hand-roll them.
+ *
+ * @param reasons - Classifier suggestion reasons when the user is confirming
+ *   a suggestion; their presence records the marking as classifier-sourced.
+ */
+export function buildSensitivityUpdate(
+  sensitivity: FieldSensitivity,
+  reasons?: string[],
+): Pick<Field, "sensitivity" | "sensitivityReason" | "sensitivitySource"> {
+  if (sensitivity === "sensitive" && reasons?.length) {
+    return {
+      sensitivity,
+      sensitivityReason: reasons.join("; "),
+      sensitivitySource: "classifier",
+    };
+  }
+  let sensitivityReason: string;
+  switch (sensitivity) {
+    case "sensitive":
+      sensitivityReason = "Marked sensitive by you";
+      break;
+    case "cleared":
+      sensitivityReason = "Cleared by you";
+      break;
+    case "unclassified":
+      sensitivityReason = "Reset to unclassified by you";
+      break;
+  }
+  return { sensitivity, sensitivityReason, sensitivitySource: "user" };
+}
+
+/**
  * Source schema wrapper - tracks schema version and sync time.
  */
 export type SourceSchema = {

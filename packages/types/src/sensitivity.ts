@@ -19,6 +19,8 @@ import type { ColumnAnalysis } from "./column-analysis";
 /** A name pattern and the legible reason it produces when it matches. */
 type NameRule = {
   pattern: RegExp;
+  /** Names matching this are exempt from the rule (false-positive guards) */
+  exclude?: RegExp;
   reason: string;
 };
 
@@ -40,6 +42,8 @@ const NAME_RULES: NameRule[] = [
   },
   {
     pattern: /address|street|zip[ _-]?code|postal|postcode/i,
+    // "email_address", "ip_address", etc. are covered by their own rules
+    exclude: /(e[ _-]?mail|ip|mac|web|url)[ _-]?address/i,
     reason: "Column name suggests physical addresses",
   },
   {
@@ -60,7 +64,7 @@ const NAME_RULES: NameRule[] = [
   // Credentials
   {
     pattern:
-      /password|passwd|secret|api[ _-]?key|private[ _-]?key|auth[ _-]?token|access[ _-]?token/i,
+      /password|passwd|secret(?!ar)|api[ _-]?key|private[ _-]?key|auth[ _-]?token|access[ _-]?token/i,
     reason: "Column name suggests credentials or secrets",
   },
   // Personal attributes
@@ -81,6 +85,10 @@ const NAME_RULES: NameRule[] = [
 // Sample-value phone detection: digits with common separators, 7+ digits.
 const PHONE_PATTERN = /^\+?[\d\s().-]{7,20}$/;
 const MIN_PHONE_DIGITS = 7;
+// Date-shaped strings (2023-01-15, 15.01.2023) would otherwise pass the
+// phone pattern and flag every string-typed date column on import.
+const DATE_SHAPE_PATTERN =
+  /^(\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})$/;
 /** Fraction of samples that must match a value pattern to count as a signal. */
 const SAMPLE_MATCH_THRESHOLD = 0.8;
 /** Average string length above which free-text is flagged as a PII risk. */
@@ -88,6 +96,7 @@ const FREE_TEXT_MIN_AVG_LENGTH = 20;
 
 function looksLikePhone(value: string): boolean {
   if (!PHONE_PATTERN.test(value)) return false;
+  if (DATE_SHAPE_PATTERN.test(value)) return false;
   const digits = value.replace(/\D/g, "");
   return digits.length >= MIN_PHONE_DIGITS;
 }
@@ -97,9 +106,9 @@ function looksLikePhone(value: string): boolean {
  * time, before any column analysis exists.
  */
 export function suggestSensitivityFromName(name: string): string[] {
-  return NAME_RULES.filter((rule) => rule.pattern.test(name)).map(
-    (rule) => rule.reason,
-  );
+  return NAME_RULES.filter(
+    (rule) => rule.pattern.test(name) && !rule.exclude?.test(name),
+  ).map((rule) => rule.reason);
 }
 
 /**

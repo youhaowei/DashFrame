@@ -8,7 +8,18 @@ export type {
   TableColumn,
 } from "./column";
 
-export type { Field, SourceSchema } from "./field";
+export type {
+  Field,
+  FieldSensitivity,
+  FieldSensitivitySource,
+  SourceSchema,
+} from "./field";
+
+export {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "./field";
 
 export type { AggregationType, InsightMetric, Metric } from "./metric";
 
