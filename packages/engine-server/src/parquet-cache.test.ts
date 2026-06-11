@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { DuckDBConnection } from "@duckdb/node-api";
+import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashCompiledQuery, type CompiledQuery } from "./compile";
@@ -101,5 +101,34 @@ describe("ParquetCache — content-hash key + gate seam (Stage 4)", () => {
     expect(
       identityCacheWriteGate.shouldWrite({ query, columns: ["x", "y"] }),
     ).toEqual({ columns: ["x", "y"] });
+  });
+
+  it("binds positional params natively — a literal '?' in the SQL is not corrupted", async () => {
+    // Real DuckDB round-trip: the inner SELECT has a literal '?' in a string
+    // AND a real placeholder. Text-scanning every '?' would consume the literal
+    // as a placeholder and shift binding; native binding fills only the real
+    // placeholder, so marker stays '?' and v binds to 42.
+    const instance = await DuckDBInstance.create(":memory:");
+    const conn = await instance.connect();
+    try {
+      const paramQuery: CompiledQuery = {
+        sql: "SELECT '?' AS marker, ? AS v",
+        params: [42],
+      };
+      const cache = new ParquetCache({ cacheDir });
+
+      const written = await cache.write(conn, paramQuery, ["marker", "v"]);
+      expect(written).toBe(cache.pathFor(paramQuery));
+
+      const reader = await conn.runAndReadAll(
+        `SELECT * FROM read_parquet('${written}')`,
+      );
+      const rows = reader.getRowObjectsJson();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.marker).toBe("?");
+      expect(Number(rows[0]?.v)).toBe(42);
+    } finally {
+      conn.disconnectSync();
+    }
   });
 });

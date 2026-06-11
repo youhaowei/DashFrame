@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { DuckDBConnection } from "@duckdb/node-api";
+import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 
 import type { CompiledQuery } from "./compile";
 import { hashCompiledQuery } from "./compile";
@@ -103,11 +103,18 @@ export class ParquetCache {
     await fs.mkdir(this.cacheDir, { recursive: true });
     const target = this.pathFor(query);
     const selectList = decision.columns.map(quoteIdent).join(", ");
-    const bound = bindParams(query.sql, query.params);
+    // Bind the compiled query's positional params natively: DuckDB accepts the
+    // `?` placeholders inside the COPY wrapper's inner SELECT and fills them from
+    // `values`. This avoids text-scanning the SQL for `?` (which would also
+    // rewrite question marks inside string literals/comments and corrupt the
+    // query — e.g. `SELECT '?' AS marker, ? AS v`). The gate's column narrowing
+    // (the YW-130 seam) is unchanged — it still shapes `selectList`, the only
+    // thing that decides what lands on disk.
     await conn.run(
-      `COPY (SELECT ${selectList} FROM (${bound})) TO ${quoteLiteral(
+      `COPY (SELECT ${selectList} FROM (${query.sql})) TO ${quoteLiteral(
         target,
       )} (FORMAT PARQUET)`,
+      query.params as DuckDBValue[],
     );
     return target;
   }
@@ -119,22 +126,4 @@ function quoteIdent(name: string): string {
 
 function quoteLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
-}
-
-/**
- * Inline positional params into the SQL for the COPY wrapper. The compiled
- * query already routed values through `buildInsightSQL`; here we only need a
- * runnable statement for the cache write. Strings are quoted, numbers/booleans
- * inlined, null → NULL.
- */
-function bindParams(sql: string, params: readonly unknown[]): string {
-  let i = 0;
-  return sql.replace(/\?/g, () => {
-    const value = params[i++];
-    if (value == null) return "NULL";
-    if (typeof value === "number" || typeof value === "boolean") {
-      return String(value);
-    }
-    return quoteLiteral(String(value));
-  });
 }
