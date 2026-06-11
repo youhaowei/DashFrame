@@ -80,6 +80,63 @@ describe("duckdbColumnsToArrowIpc roundtrip", () => {
     ).toThrow(/duplicate column name 'v'/);
   });
 
+  it("accepts a column aliased to an inherited Object.prototype name (no false duplicate)", () => {
+    // `SELECT 1 AS "toString"` is legal SQL; an `in`/prototype-chain duplicate
+    // check would reject it on the very first column.
+    const ipc = duckdbColumnsToArrowIpc([
+      { name: "toString", typeId: INTEGER, values: [1] },
+      { name: "constructor", typeId: VARCHAR, values: ["x"] },
+    ]);
+    const table = tableFromIPC(ipc);
+    expect(table.getChild("toString")?.get(0)).toBe(1);
+    expect(table.getChild("constructor")?.get(0)).toBe("x");
+  });
+
+  it("pins zone-less timestamps to UTC regardless of the host timezone", () => {
+    // DuckDB serializes TIMESTAMP without a zone ("2024-01-01 12:00:00");
+    // host-local Date.parse would shift it by the machine's UTC offset.
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      const ipc = duckdbColumnsToArrowIpc([
+        { name: "ts", typeId: TIMESTAMP, values: ["2024-01-01 12:00:00"] },
+      ]);
+      const ts = tableFromIPC(ipc).getChild("ts");
+      expect(Number(ts?.get(0))).toBe(Date.UTC(2024, 0, 1, 12, 0, 0));
+    } finally {
+      process.env.TZ = previousTz;
+    }
+  });
+
+  it("does not double-shift timestamps that already carry a zone offset", () => {
+    // TIMESTAMP_TZ values arrive with an offset; appending Z would shift them.
+    const ipc = duckdbColumnsToArrowIpc([
+      { name: "ts", typeId: TIMESTAMP, values: ["2024-01-01 12:00:00+05"] },
+    ]);
+    const ts = tableFromIPC(ipc).getChild("ts");
+    expect(Number(ts?.get(0))).toBe(Date.UTC(2024, 0, 1, 7, 0, 0));
+  });
+
+  it("rejects fractional decimal strings whose integer part exceeds Float64's exact range", () => {
+    // DECIMAL(38,2) can carry 9007199254740993.01 — Number() silently rounds
+    // the integer part. The fail-closed guard must cover fractional strings.
+    expect(() =>
+      duckdbColumnsToArrowIpc([
+        { name: "amount", typeId: DECIMAL, values: ["9007199254740993.01"] },
+      ]),
+    ).toThrow(/exceeds Float64's exact range/);
+  });
+
+  it("passes small fractional decimal strings through as numbers", () => {
+    const ipc = duckdbColumnsToArrowIpc([
+      { name: "amount", typeId: DECIMAL, values: ["1.5", "-2.25", null] },
+    ]);
+    const amount = tableFromIPC(ipc).getChild("amount");
+    expect(amount?.get(0)).toBe(1.5);
+    expect(amount?.get(1)).toBe(-2.25);
+    expect(amount?.get(2)).toBeNull();
+  });
+
   it("rejects integer strings beyond Float64's exact range instead of rounding silently", () => {
     // 2^53 + 1 — Number() would round this to 2^53 with no error.
     const unsafe = "9007199254740993";
