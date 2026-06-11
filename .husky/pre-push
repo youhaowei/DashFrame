@@ -1,5 +1,16 @@
 #!/bin/sh
 
+# If the pusher was invoked with --git-dir or GIT_DIR set, git exports an
+# absolute GIT_DIR into the hook environment. `git init`/`git fetch` honor
+# GIT_DIR over -C, so the scratch-repo commands below would re-initialize
+# THIS repo as bare (core.bare=true) and break every worktree operation.
+# Capture the repo root FIRST while the env is still intact so that pushes
+# launched with explicit repo context (--git-dir / absolute hooksPath) still
+# resolve the correct working tree. Then cd + unset so scratch commands are safe.
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 # Verify pushed submodule pointers are reachable from their configured remotes.
 # pre-push can push refs other than HEAD, so validate each local ref update from
 # stdin instead of assuming the current checkout is the commit being pushed.
