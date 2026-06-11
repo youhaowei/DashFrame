@@ -54,15 +54,12 @@ import { eq, jsonb, text, uuid } from "@wystack/db";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 
+import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
+
 const { dataSources, dataTables, insights } = schema;
 
 type DataSourceRow = typeof dataSources.$inferSelect;
 type DataTableRow = typeof dataTables.$inferSelect;
-
-type DataSourceConfig = {
-  apiKey?: string;
-  connectionString?: string;
-};
 
 // ---------------------------------------------------------------------------
 // DataSource commands
@@ -89,6 +86,10 @@ const getOrCreateDataSource = mutation({
       .from(dataSources)
       .where(eq("id", id))
       .first()) as DataSourceRow | undefined;
+    // On the get path `type` and `name` are IGNORED — the existing row wins,
+    // even if the caller passed a different type for the same id. The canonical
+    // caller derives the id FROM the type so a mismatch can't happen there; the
+    // spec leaves conflict semantics open for other callers (Spec Open Q).
     if (existing) return { id: existing.id };
 
     const [row] = (await ctx.db.into(dataSources).insert({
@@ -239,44 +240,30 @@ const refreshDataTable = mutation({
 // Fields & Metrics commands — target a DataFrame-producing node via {nodeId}
 // ---------------------------------------------------------------------------
 
-type NodeKind = "dataTable" | "insight";
+type ResolvedNode =
+  | { kind: "dataTable"; row: DataTableRow }
+  | { kind: "insight" };
 
 /**
- * Resolve which kind of node `nodeId` is. A leaf node is a DataTable (fields and
- * metrics live in its jsonb columns); a derived node is an Insight (YW-123, not
- * yet wired for collection edits). One lookup decides the dispatch so the
- * command shape (`{ nodeId, ... }`) never needs to know the kind up front.
+ * Resolve which kind of node `nodeId` is, returning the row it already fetched
+ * for the DataTable case so callers don't pay a second lookup. A leaf node is a
+ * DataTable (fields and metrics live in its jsonb columns); a derived node is
+ * an Insight (YW-123, not yet wired for collection edits). One lookup decides
+ * the dispatch so the command shape (`{ nodeId, ... }`) never needs to know the
+ * kind up front.
  */
-async function resolveNodeKind(
+async function resolveNode(
   ctx: { db: import("@wystack/db").TrackedDb },
   nodeId: string,
-): Promise<NodeKind> {
+): Promise<ResolvedNode> {
   const table = (await ctx.db
     .from(dataTables)
     .where(eq("id", nodeId))
     .first()) as DataTableRow | undefined;
-  if (table) return "dataTable";
+  if (table) return { kind: "dataTable", row: table };
   const insight = await ctx.db.from(insights).where(eq("id", nodeId)).first();
-  if (insight) return "insight";
+  if (insight) return { kind: "insight" };
   throw new Error(`Node ${nodeId} not found`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireFieldRecord(value: unknown): Field {
-  if (!isRecord(value) || typeof value.id !== "string") {
-    throw new Error("field must be an object with an id");
-  }
-  return value as unknown as Field;
-}
-
-function requireMetricRecord(value: unknown): Metric {
-  if (!isRecord(value) || typeof value.id !== "string") {
-    throw new Error("metric must be an object with an id");
-  }
-  return value as unknown as Metric;
 }
 
 /**
@@ -284,6 +271,13 @@ function requireMetricRecord(value: unknown): Metric {
  * jsonb array and persist it. Add appends; Update merges by id; Remove drops by
  * id. Update/Remove on a missing id throw so a bad batch fails loudly (and rolls
  * back). Insight nodes are rejected until YW-123 wires their definition arrays.
+ *
+ * Concurrency: this read-modify-write is safe on PGLite (single-connection —
+ * batches serialize at the event loop). A future multi-connection Postgres
+ * backend makes it a lost-update vector (two batches read the same array, the
+ * later write clobbers the earlier); that tier needs SELECT FOR UPDATE, a
+ * raised transaction isolation level at the `applyCommands` call, or a
+ * jsonb-native append.
  */
 async function patchDataTableCollection(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -294,18 +288,13 @@ async function patchDataTableCollection(
     | { mode: "update"; itemId: string; updates: Record<string, unknown> }
     | { mode: "remove"; itemId: string },
 ): Promise<void> {
-  const nodeKind = await resolveNodeKind(ctx, nodeId);
-  if (nodeKind === "insight") {
+  const node = await resolveNode(ctx, nodeId);
+  if (node.kind === "insight") {
     throw new Error(
       `Field/metric edits on Insight node ${nodeId} are not supported yet (YW-123)`,
     );
   }
-  const row = (await ctx.db
-    .from(dataTables)
-    .where(eq("id", nodeId))
-    .first()) as DataTableRow | undefined;
-  if (!row) throw new Error(`Data table ${nodeId} not found`);
-  const items = ((row[kind] ?? []) as { id: string }[]).slice();
+  const items = ((node.row[kind] ?? []) as { id: string }[]).slice();
 
   let next: { id: string }[];
   if (op.mode === "add") {
@@ -344,7 +333,7 @@ const addField = mutation({
   handler: async (ctx, { nodeId, field }): Promise<{ ok: true }> => {
     await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "add",
-      item: requireFieldRecord(field),
+      item: requireRecordWithId(field, "field") as unknown as Field,
     });
     return { ok: true };
   },
@@ -381,7 +370,7 @@ const addMetric = mutation({
   handler: async (ctx, { nodeId, metric }): Promise<{ ok: true }> => {
     await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "add",
-      item: requireMetricRecord(metric),
+      item: requireRecordWithId(metric, "metric") as unknown as Metric,
     });
     return { ok: true };
   },

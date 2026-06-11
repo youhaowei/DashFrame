@@ -95,9 +95,14 @@ export async function getDataSourceByType(
  * `GetOrCreateDataSource` command is idempotent (the loser reads the winner's
  * row or conflicts on the PK and its batch rolls back — never two rows).
  *
- * UUIDv5-style: SHA-1(namespace + type) formatted as a v5 UUID. Stable across
- * runs and processes for a given type, which is exactly the idempotency key we
- * need. (A per-`type` singleton matches today's connector model — local, notion.
+ * Custom SHA-1 deterministic UUID: SHA-1 over the UTF-8 string
+ * `namespace + type`, with v5 version and RFC 4122 variant bits set. NOT
+ * RFC 4122 §4.3-conformant (that hashes a 16-byte UUID namespace, not a
+ * string), so a standard UUIDv5 library will NOT reproduce these ids — this
+ * derivation is the only minter, and the id space is stable once shipped (do
+ * not change the rule without a migration). Stable across runs and processes
+ * for a given type, which is exactly the idempotency key we need. (A per-`type`
+ * singleton matches today's connector model — local, notion.
  * Multi-source-per-type uses `CreateDataSource` with a fresh random id instead.)
  */
 const DATA_SOURCE_NAMESPACE = "dashframe:data-source:";
@@ -119,6 +124,9 @@ export async function getOrCreateDataSourceByType(
   name: string,
 ): Promise<DataSource> {
   const id = await deterministicDataSourceId(type);
+  // Single-command `.mutate()` is the degenerate one-command batch: it runs
+  // WITHOUT the applyCommands transaction, so atomicity here rests on the PK
+  // backstop (same deterministic id), not on the batch envelope.
   await getWyStackClient().mutate(api.getOrCreateDataSource, {
     id,
     type,

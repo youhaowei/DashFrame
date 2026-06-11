@@ -22,6 +22,8 @@ import type {
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
+import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
+
 const {
   dashboards,
   dataFrames,
@@ -43,11 +45,6 @@ type DataFrameEntry = DataFrameJSON & {
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
-};
-
-type DataSourceConfig = {
-  apiKey?: string;
-  connectionString?: string;
 };
 
 type InsightDefinition = {
@@ -88,17 +85,6 @@ function withDefaultCountMetric(
     },
     ...metrics,
   ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireRecordWithId(value: unknown, label: string): { id: string } {
-  if (!isRecord(value) || typeof value.id !== "string") {
-    throw new Error(`${label} must be an object with an id`);
-  }
-  return value as { id: string };
 }
 
 function requireInsightMetric(value: unknown): InsightMetric {
@@ -519,6 +505,10 @@ const updateDataTable = mutation({
   },
 });
 
+// NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
+// The command path (`refreshDataTableCmd` in commands.ts) enforces existence
+// and throws instead — divergent semantics for the same intent, bounded by the
+// YW-157 caller migration window.
 const refreshDataTable = mutation({
   args: { id: uuid, dataFrameId: uuid },
   handler: async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
