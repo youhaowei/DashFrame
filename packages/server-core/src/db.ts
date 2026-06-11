@@ -12,6 +12,7 @@ import { drizzle } from "drizzle-orm/pglite";
 
 import { schema } from "./schema";
 import { syncSchema } from "./sync-schema";
+import { applyDataFrameWriteGate } from "./write-gate";
 
 export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -23,6 +24,8 @@ export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 // migration ladder.
 // v2 (YW-103): added dashboards.description; added data_tables, data_frames.
 // v3 (YW-118): strip raw sampleValues from data_frames.analysis (privacy floor).
+// Schema version is not bumped for YW-131: the write gate is a runtime wrapper,
+// not a schema change.  Existing v3 databases are already clean (migrated by YW-118).
 export const ARTIFACT_DB_SCHEMA_VERSION = 3;
 
 export interface OpenArtifactDbOptions {
@@ -37,5 +40,9 @@ export async function openArtifactDb(
   await client.waitReady;
   const db = drizzle(client, { schema });
   await syncSchema(db, schema);
-  return db;
+  // Apply the artifact-DB write gate (YW-131): wraps the Drizzle instance so
+  // every insert/update against `data_frames` has sampleValues stripped before
+  // the bytes reach PGLite.  The invariant is enforced by construction — no
+  // caller can bypass it through normal Drizzle ORM calls.
+  return applyDataFrameWriteGate(db);
 }
