@@ -57,7 +57,10 @@ describe("addDashboardItem — markdown widget persistence", () => {
       position,
     })) as { itemId: string };
 
-    expect(typeof itemId).toBe("string");
+    // itemId is minted with crypto.randomUUID() server-side.
+    expect(itemId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
 
     // The item should appear in the dashboard's items list.
     const dashboardList = (await call("listDashboards", {})) as Array<{
@@ -116,9 +119,11 @@ describe("addDashboardItem — markdown widget persistence", () => {
     }>;
 
     const dashboard = dashboardList.find((d) => d.id === dashboardId);
+    expect(dashboard).toBeDefined();
     expect(dashboard!.items).toHaveLength(2);
 
     const second = dashboard!.items.find((i) => i.id === secondId);
+    expect(second).toBeDefined();
     expect(second!.y).toBe(4);
   });
 });
