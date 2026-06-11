@@ -15,7 +15,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TICKET_PATTERN = /\b(YW|TASK)-\d+\b/g;
-const SOURCE_ROOTS = ["packages", "apps"];
+// First-party source roots. `libs/*` are git submodules (separate repos with
+// their own conventions) and `spikes` is throwaway exploration, so both are
+// intentionally excluded; `e2e` holds first-party Playwright source/tests that
+// must follow the no-ticket-refs convention like any other source.
+const SOURCE_ROOTS = ["packages", "apps", "e2e"];
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx"]);
 
 const repoRoot = join(fileURLToPath(import.meta.url), "../..");
