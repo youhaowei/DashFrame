@@ -279,23 +279,39 @@ async function buildDirectNodes(
     const existing = byKey.get(key);
     if (existing) {
       existing.intent.push(intent);
-      // A later create downgrades nothing; a create anywhere in the group means
-      // the node is minted by this batch.
-      if (descriptor.change === "create") existing.change = "create";
+      // A later create dominates: if any command in the group mints the node,
+      // the node is new to this batch — clear the before-slice too.
+      if (descriptor.change === "create") {
+        existing.change = "create";
+        existing.before = null;
+      }
       Object.assign(existing.proposedDefinition, args);
       continue;
     }
 
-    const before =
-      descriptor.change === "create"
-        ? null
-        : await readBefore(db, kind, nodeId);
+    // Idempotent commands (e.g. getOrCreateDataSource) are declared as
+    // "create" but may hit an existing row. Read before-slice in that case so
+    // the preview shows the canonical row rather than a misleading null.
+    let change = descriptor.change;
+    let before: Record<string, unknown> | null;
+    if (descriptor.change === "create") {
+      const existingRow = await readBefore(db, kind, nodeId);
+      if (existingRow !== null) {
+        // Row exists — this is a no-op / idempotent get: show as update.
+        change = "update";
+        before = existingRow;
+      } else {
+        before = null;
+      }
+    } else {
+      before = await readBefore(db, kind, nodeId);
+    }
 
     order.push(key);
     byKey.set(key, {
       nodeId,
       kind,
-      change: descriptor.change,
+      change,
       intent: [intent],
       before,
       proposedDefinition: { ...args },
@@ -473,10 +489,24 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
 }
 
 /**
+ * Numeric ordering for downstream flags — higher = stronger impact.
+ * recompute (active work needed) > stale (cached result out of date) >
+ * orphaned (reference dangling, no recompute path).
+ */
+function flagStrength(flag: DownstreamFlag): number {
+  if (flag === "recompute") return 3;
+  if (flag === "stale") return 2;
+  if (flag === "orphaned") return 1;
+  return 0;
+}
+
+/**
  * Walk the implicit artifact DAG outward from every directly-touched node,
  * flagging the blast radius. Breadth-first over a frontier; a global
- * visited-set (keyed by kind:id) guards re-flagging when two paths reach one
- * node. The edge semantics live in `DOWNSTREAM_EDGES`; this loop is generic.
+ * visited-map (keyed by kind:id) guards re-flagging when two paths reach one
+ * node, but allows upgrading the recorded flag when a stronger path arrives
+ * (recompute > stale). The edge semantics live in `DOWNSTREAM_EDGES`; this
+ * loop is generic.
  */
 async function walkDownstream(
   db: ArtifactDb,
@@ -485,34 +515,47 @@ async function walkDownstream(
   const graph = await loadGraph(db);
 
   const out: PreviewDownstreamNode[] = [];
-  const visited = new Set<string>();
-  for (const node of direct) visited.add(`${node.kind}:${node.nodeId}`);
+  // visited maps kind:id to the emitted out-entry so we can upgrade its flag if
+  // a later path reaches it via a stronger edge (recompute > stale).
+  const visited = new Map<string, PreviewDownstreamNode>();
+  for (const node of direct) visited.set(`${node.kind}:${node.nodeId}`, null!);
 
-  // Frontier of touched ids → `via` (the direct node the lineage started from,
-  // echoed so the renderer can explain the chain).
-  const frontier: Array<{ id: string; via: UUID }> = direct.map((d) => ({
-    id: d.nodeId,
-    via: d.nodeId,
-  }));
+  // Frontier of touched nodes — id + kind so classifyDownstream can exact-match
+  // the edge label (e.g. "dataSource->dataTable") without ambiguity, and `via`
+  // echoed so the renderer can explain the lineage chain.
+  const frontier: Array<{ id: string; kind: ArtifactKind; via: UUID }> =
+    direct.map((d) => ({ id: d.nodeId, kind: d.kind, via: d.nodeId }));
 
   while (frontier.length > 0) {
     const current = frontier.shift()!;
     // A node is downstream of `current` if it DEPENDS ON current (FK/IR) or its
     // parentArtifactId points at current. One pass over the graph finds both.
     for (const row of graph) {
-      const hit = classifyDownstream(row, current.id);
+      const hit = classifyDownstream(row, current.id, current.kind);
       if (!hit) continue;
       const key = `${row.kind}:${row.id}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-      out.push({
+      const existing = visited.get(key);
+      if (existing !== undefined) {
+        // Already emitted — upgrade the flag if this path is stronger.
+        if (
+          existing !== null &&
+          flagStrength(hit.flag) > flagStrength(existing.flag)
+        ) {
+          existing.flag = hit.flag;
+          existing.edge = hit.edge;
+        }
+        continue;
+      }
+      const emitted: PreviewDownstreamNode = {
         nodeId: row.id as UUID,
         kind: row.kind,
         edge: hit.edge,
         via: current.via,
         flag: hit.flag,
-      });
-      frontier.push({ id: row.id, via: current.via });
+      };
+      visited.set(key, emitted);
+      out.push(emitted);
+      frontier.push({ id: row.id, kind: row.kind, via: current.via });
     }
   }
 
@@ -520,20 +563,24 @@ async function walkDownstream(
 }
 
 /**
- * Is `row` downstream of `parentId`, and by which edge? Prefers the typed FK/IR
- * edge (it carries the kind-specific flag); falls back to the cross-cutting
- * parentArtifactId pointer (always `stale` lineage). Returns null when unrelated.
+ * Is `row` downstream of `parentId` (of kind `parentKind`), and by which edge?
+ * Prefers the typed FK/IR edge (it carries the kind-specific flag); falls back
+ * to the cross-cutting parentArtifactId pointer (always `stale` lineage).
+ * Returns null when unrelated.
+ *
+ * `parentKind` is required for exact edge matching: we look up
+ * `${parentKind}->${row.kind}` so that a future second incoming edge to an
+ * existing target kind doesn't silently resolve to the wrong label.
  */
 function classifyDownstream(
   row: GraphRow,
   parentId: string,
+  parentKind: ArtifactKind,
 ): { edge: DownstreamEdge; flag: DownstreamFlag } | null {
   if (row.dependsOn.includes(parentId)) {
-    // The from-kind is whichever of row's dependencies is `parentId`; we know it
-    // by the edge label keyed on (parent's kind → row.kind). The parent's kind
-    // is implied by the matching DOWNSTREAM_EDGES row for row.kind, so resolve
-    // by row.kind's incoming edges.
-    const edge = DOWNSTREAM_EDGES.find((e) => e.edge.endsWith(`->${row.kind}`));
+    const edge = DOWNSTREAM_EDGES.find(
+      (e) => e.edge === `${parentKind}->${row.kind}`,
+    );
     if (edge) return edge;
   }
   if (row.parentArtifactId === parentId) {

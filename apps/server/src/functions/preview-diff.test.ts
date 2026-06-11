@@ -399,18 +399,31 @@ describe("PreviewDiff builder", () => {
     });
 
     it("should flag each downstream node once even when reached by two paths", async () => {
-      // A dashboard reached both transitively (viz->dashboard) and could be
-      // reached again — the visited-set must not double-emit.
+      // Two visualizations (vizId1, vizId2) both reference the same insight and
+      // both appear in the same dashboard layout. Touching the insight fans out to
+      // vizId1 (insight->visualization) and then vizId1->dashboard, then vizId2
+      // (insight->visualization) and then vizId2->dashboard again. The
+      // visited-set must emit the dashboard exactly once.
       const sourceId = await seedSource();
       const tableId = await seedTable(sourceId);
       const insightId = await seedInsight({ baseTableId: tableId });
-      const vizId = await seedVisualization(insightId);
+      const vizId1 = await seedVisualization(insightId);
+      const vizId2 = await seedVisualization(insightId);
       const dashId = await seedDashboard([
         {
           id: id(),
           type: "visualization",
-          visualizationId: vizId,
+          visualizationId: vizId1,
           x: 0,
+          y: 0,
+          width: 4,
+          height: 4,
+        },
+        {
+          id: id(),
+          type: "visualization",
+          visualizationId: vizId2,
+          x: 4,
           y: 0,
           width: 4,
           height: 4,
@@ -418,7 +431,7 @@ describe("PreviewDiff builder", () => {
       ]);
 
       const diff = await preview(
-        cmd("RenameNode", { id: sourceId, name: "X" }),
+        cmd("RenameNode", { id: insightId, name: "X" }),
       );
 
       const dashHits = diff.affectedDownstream.filter(
