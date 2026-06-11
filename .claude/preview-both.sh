@@ -31,7 +31,7 @@ trap cleanup EXIT INT TERM
 # 1. Desktop in the background. dev handles its own build + launch and
 #    its own child-process cleanup on SIGTERM.
 echo "[preview-both] starting desktop (Electron native window)…"
-bun run dev &
+(cd "${ROOT}" && bun run dev) &
 desktop_pid=$!
 
 # 2. Web in the foreground through portless-shim — Preview iframes this. The
