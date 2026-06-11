@@ -81,11 +81,19 @@ export default function DashboardDetailContent({
   }
 
   const handleAddItem = async () => {
+    // Compute the bottom of the current layout so the new widget is appended
+    // below all existing items. Using Infinity here would serialize to null in
+    // JSON and cause the server-side position validator to reject the mutation.
+    const bottomY = dashboard.items.reduce(
+      (max, item) => Math.max(max, item.y + item.height),
+      0,
+    );
+
     await addItem(dashboardId, {
       type: addType,
       position: {
         x: 0,
-        y: Infinity, // Put at bottom
+        y: bottomY,
         width: addType === "visualization" ? 6 : 4,
         height: addType === "visualization" ? 6 : 4,
       },
