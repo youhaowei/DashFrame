@@ -371,6 +371,26 @@ function seedNode(
 }
 
 /**
+ * Probe in-batch kind registrations in the same order the renameNode handler
+ * probes live tables (dataTables → dataSources → insights). Used as the
+ * fallback for RenameNode when resolveKindCanonical returns null (id minted
+ * in this batch, invisible post-rollback). Must match renameNode probe order.
+ */
+function resolveKindInBatch(
+  inBatchByKind: {
+    dataTable: Set<string>;
+    dataSource: Set<string>;
+    insight: Set<string>;
+  },
+  nodeId: string,
+): ArtifactKind | undefined {
+  if (inBatchByKind.dataTable.has(nodeId)) return "dataTable";
+  if (inBatchByKind.dataSource.has(nodeId)) return "dataSource";
+  if (inBatchByKind.insight.has(nodeId)) return "insight";
+  return undefined;
+}
+
+/**
  * Group the batch by target node. Multiple commands targeting the same node
  * merge into one direct node (their intents accumulate in batch order). Each
  * command resolves to an EFFECT (create/update/noop) against the node's state
@@ -383,22 +403,28 @@ async function buildDirectNodes(
   // node key = `${kind}:${id}` so two kinds sharing an id can't collide.
   const byKey = new Map<string, PreviewDirectNode>();
   const order: string[] = [];
-  // Kind established in-batch for an id by an EARLIER fixed-kind command —
-  // consulted as FALLBACK ONLY by the polymorphic RenameNode when canonical
-  // lookup finds nothing (the id was minted in this batch and is invisible
-  // post-rollback). Canonical tables are the authority; `idToKind` is the
-  // last resort for the genuinely-created-in-batch case.
+  // Ids minted in-batch by a fixed-kind command, tracked PER KIND so the
+  // RenameNode fallback can probe them in the same order the renameNode handler
+  // does (dataTables → dataSources → insight) rather than yielding the last
+  // writer. Canonical tables are the authority; these sets are the last resort
+  // for genuinely-created-in-batch ids that are invisible post-rollback.
   //
   // Precedence (RenameNode only):
-  //   1. resolveKindCanonical — probes canonical tables (dataTable → dataSource
-  //      → insight) in the same order the renameNode handler does. First hit wins.
-  //   2. idToKind    — only when canonical finds nothing (id minted in this batch,
-  //      invisible post-rollback). This handles in-batch create-then-rename.
+  //   1. resolveKindCanonical — probes canonical tables in the same order the
+  //      renameNode handler does. First hit wins.
+  //   2. inBatchByKind — only when canonical finds nothing (id minted in this
+  //      batch, invisible post-rollback). Must mirror renameNode probe order:
+  //      dataTables first, then dataSources, then insights. See comment on
+  //      resolveKindCanonical.
   //
   // Every other command's kind is FIXED by its descriptor: two different kinds
   // legitimately sharing one client-minted id (PKs are per table) must land in
   // two distinct `${kind}:${id}` nodes, not collapse into whichever came first.
-  const idToKind = new Map<string, ArtifactKind>();
+  const inBatchByKind = {
+    dataTable: new Set<string>(),
+    dataSource: new Set<string>(),
+    insight: new Set<string>(),
+  };
 
   for (const command of batch) {
     if (!isKnownPath(command.path)) continue; // non-vocabulary path — not grouped
@@ -411,17 +437,27 @@ async function buildDirectNodes(
       // dataSource → insight) in the same order the renameNode handler does.
       // First canonical hit wins. Only when canonical finds nothing (id was
       // minted in this batch and is invisible post-rollback) do we fall back to
-      // `idToKind` (the kind established by the earlier in-batch create). This
-      // avoids the previous inversion where a stale in-batch registration could
-      // shadow a canonical row of a DIFFERENT kind sharing the same UUID.
+      // inBatchByKind, probing in the SAME order as renameNode (dataTable →
+      // dataSource → insight) — must match renameNode probe order. Last-writer
+      // idToKind diverged when a batch created both kinds under the same id in
+      // the reverse order (e.g. CreateDataTable then CreateDataSource): the
+      // last-writer entry was "dataSource" but the handler finds the dataTable
+      // first. Per-kind sets preserve both registrations; probing in handler
+      // order resolves to the same result as the real handler (#64).
       kind =
         (await resolveKindCanonical(db, nodeId)) ??
-        idToKind.get(nodeId) ??
+        resolveKindInBatch(inBatchByKind, nodeId) ??
         descriptor.kind;
     } else {
       kind = descriptor.kind;
     }
-    idToKind.set(nodeId, kind);
+    // Register fixed-kind commands in the per-kind set (renameNode is
+    // polymorphic — its resolved kind is NOT registered here to avoid
+    // poisoning a subsequent rename's fallback with a non-canonical kind).
+    if (command.path !== "renameNode") {
+      const k = kind as keyof typeof inBatchByKind;
+      if (k in inBatchByKind) inBatchByKind[k].add(nodeId);
+    }
     const key = `${kind}:${nodeId}`;
 
     const intent: PreviewIntent = {

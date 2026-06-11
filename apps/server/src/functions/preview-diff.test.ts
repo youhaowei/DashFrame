@@ -1038,6 +1038,77 @@ describe("PreviewDiff builder", () => {
       expect(previewedIds).toContain(newSourceId);
       expect(previewedIds).toContain(newTableId);
     });
+
+    it("preview kind resolution matches publish when both kinds share a colliding in-batch-only id (dataTable probe-order)", async () => {
+      // Regression: a batch that creates BOTH a dataTable and a dataSource under
+      // the same colliding id, then renames via that id. The renameNode handler
+      // probes dataTables before dataSources; the preview fallback must match
+      // that probe order when the id is invisible in canonical (in-batch-only).
+      //
+      // This is the class of divergence that prior rounds missed: the last-writer
+      // idToKind approach returned "dataSource" (if CreateDataSource came last)
+      // but the real handler would rename the dataTable (#64).
+      const collidingId = id();
+      const existingSourceId2 = id();
+
+      // The dataTable is created first, then the dataSource under the same id.
+      // The handler finds the dataTable first (probe order: dataTables first).
+      const batch = [
+        cmd("CreateDataSource", {
+          id: existingSourceId2,
+          type: "csv",
+          name: "RefSource",
+        }),
+        cmd("CreateDataTable", {
+          id: collidingId,
+          dataSourceId: existingSourceId2,
+          name: "CollidingTable",
+          table: "t.csv",
+        }),
+        cmd("CreateDataSource", {
+          id: collidingId,
+          type: "csv",
+          name: "CollidingSource",
+        }),
+        // RenameNode on collidingId: handler finds the dataTable first.
+        cmd("RenameNode", { id: collidingId, name: "RenamedCollider" }),
+      ] as ReturnType<typeof cmd>[];
+
+      // 1. Preview — what kind does the preview think the rename targets?
+      const diff = await buildPreviewDiff(app, db, batch);
+
+      // The rename node for collidingId must resolve to "dataTable" (same as
+      // the renameNode handler which probes dataTables before dataSources).
+      const renameNode = diff.directNodes.find(
+        (n) => n.nodeId === collidingId && n.kind === "dataTable",
+      );
+      expect(renameNode).toBeDefined();
+      expect(renameNode!.kind).toBe("dataTable");
+
+      // 2. Commit the same batch.
+      await applyCommands(app, batch, { mode: "commit" });
+
+      // 3. Equivalence: the renameNode handler must have renamed the dataTable,
+      //    not the dataSource — confirming preview matches publish.
+      const tables = await db.select().from(dataTables);
+      const sources = await db.select().from(dataSources);
+      const committedTable = tables.find((r) => r.id === collidingId);
+      const committedSource = sources.find((r) => r.id === collidingId);
+
+      // The dataTable was renamed (handler found it first).
+      expect(committedTable).toBeDefined();
+      expect(committedTable!.name).toBe("RenamedCollider");
+      // The dataSource keeps its original name (handler short-circuited after
+      // finding the dataTable).
+      expect(committedSource).toBeDefined();
+      expect(committedSource!.name).toBe("CollidingSource");
+
+      // Preview must agree: the rename node's proposedDefinition carries the
+      // final name for the dataTable kind, not the dataSource kind.
+      expect(renameNode!.proposedDefinition).toMatchObject({
+        name: "RenamedCollider",
+      });
+    });
   });
 
   // --------------------------------------------------------------------------
