@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # No branch filter on pull_request: stacked PRs target a feature branch as
+  # their base (e.g. a PR based on another PR's branch), and a [main] filter
+  # silently skipped CI for them — making the "CI green" merge gate vacuous
+  # on stacks. CI must run for PRs targeting any base branch.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,6 +35,9 @@ jobs:
       - name: Format check
         run: |
           bun format:check || (bun format && git diff && exit 1)
+
+      - name: No ticket refs in source
+        run: bun run check:ticket-refs
 
       - name: Run checks
         run: bun check

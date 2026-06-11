@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type {
   BooleanAnalysis,
   ColumnAnalysis,
+  DataFrameAnalysis,
   DateAnalysis,
   NumberAnalysis,
   StringAnalysis,
@@ -18,6 +19,7 @@ import {
   CARDINALITY_THRESHOLDS,
   getLegacyCategory,
   looksLikeIdentifier,
+  stripSampleValues,
 } from "./column-analysis";
 
 describe("column-analysis", () => {
@@ -619,6 +621,124 @@ describe("column-analysis", () => {
       analyses.forEach((analysis) => {
         expect(typeof getLegacyCategory(analysis)).toBe("string");
       });
+    });
+  });
+
+  describe("stripSampleValues()", () => {
+    it("should return empty sampleValues on every column", () => {
+      const analysis: DataFrameAnalysis = {
+        rowCount: 3,
+        analyzedAt: 1000,
+        fieldHash: "hash",
+        columns: [
+          {
+            columnName: "email",
+            dataType: "string",
+            semantic: "email",
+            cardinality: 3,
+            uniqueness: 1,
+            nullCount: 0,
+            sampleValues: ["alice@example.com", "bob@example.com"],
+          },
+          {
+            columnName: "age",
+            dataType: "number",
+            semantic: "numerical",
+            cardinality: 3,
+            uniqueness: 1,
+            nullCount: 0,
+            sampleValues: [25, 31, 47],
+            min: 25,
+            max: 47,
+          },
+        ],
+      };
+
+      const stripped = stripSampleValues(analysis);
+
+      for (const col of stripped.columns) {
+        expect(col.sampleValues).toEqual([]);
+      }
+    });
+
+    it("should preserve all non-sampleValues profile fields", () => {
+      const analysis: DataFrameAnalysis = {
+        rowCount: 10,
+        analyzedAt: 2000,
+        fieldHash: "abc",
+        columns: [
+          {
+            columnName: "score",
+            dataType: "number",
+            semantic: "numerical",
+            cardinality: 10,
+            uniqueness: 1,
+            nullCount: 0,
+            sampleValues: [1, 2, 3],
+            min: 1,
+            max: 100,
+            stdDev: 30,
+          },
+        ],
+      };
+
+      const stripped = stripSampleValues(analysis);
+
+      expect(stripped.rowCount).toBe(10);
+      expect(stripped.fieldHash).toBe("abc");
+      const col = stripped.columns[0];
+      expect(col?.cardinality).toBe(10);
+      if (col?.dataType === "number") {
+        expect(col.min).toBe(1);
+        expect(col.max).toBe(100);
+        expect(col.stdDev).toBe(30);
+      }
+    });
+
+    it("should not mutate the original analysis", () => {
+      const original: DataFrameAnalysis = {
+        rowCount: 1,
+        analyzedAt: 0,
+        fieldHash: "h",
+        columns: [
+          {
+            columnName: "name",
+            dataType: "string",
+            semantic: "text",
+            cardinality: 1,
+            uniqueness: 1,
+            nullCount: 0,
+            sampleValues: ["Alice"],
+          },
+        ],
+      };
+
+      stripSampleValues(original);
+
+      // Original must be untouched — stripSampleValues is a pure transform.
+      expect(original.columns[0]?.sampleValues).toEqual(["Alice"]);
+    });
+
+    it("should handle columns with already-empty sampleValues", () => {
+      const analysis: DataFrameAnalysis = {
+        rowCount: 0,
+        analyzedAt: 0,
+        fieldHash: "empty",
+        columns: [
+          {
+            columnName: "col",
+            dataType: "string",
+            semantic: "categorical",
+            cardinality: 0,
+            uniqueness: 0,
+            nullCount: 0,
+            sampleValues: [],
+          },
+        ],
+      };
+
+      const stripped = stripSampleValues(analysis);
+      expect(stripped.columns[0]?.sampleValues).toEqual([]);
     });
   });
 });

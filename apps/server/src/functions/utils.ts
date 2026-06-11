@@ -1,7 +1,7 @@
 /**
  * Helpers shared between the legacy coarse handlers (`app-artifacts.ts`) and
  * the command vocabulary (`commands.ts`) while both write paths coexist
- * (transition window, see #66).
+ * (transition window while legacy coarse handlers and the command vocabulary coexist).
  */
 
 export type DataSourceConfig = {

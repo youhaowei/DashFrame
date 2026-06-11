@@ -3,7 +3,7 @@ version = 1
 name = "DashFrame"
 
 [setup]
-script = "bun install"
+script = "bun run setup"
 
 [[actions]]
 name = "Preview Web"

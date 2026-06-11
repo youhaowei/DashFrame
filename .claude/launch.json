@@ -1,0 +1,36 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "./.claude/portless-shim.sh",
+      "runtimeArgs": ["bunx", "vite"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "renderer",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--filter", "@dashframe/renderer", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "desktop",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev:desktop"],
+      "port": 5173
+    },
+    {
+      "name": "web + desktop",
+      "runtimeExecutable": "./.claude/preview-both.sh",
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "storybook",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--filter", "@dashframe/ui", "storybook"],
+      "port": 6006
+    }
+  ]
+}

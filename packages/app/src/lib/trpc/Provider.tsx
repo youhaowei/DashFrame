@@ -3,20 +3,20 @@
  *
  * The web app's real tRPC client (the Notion connector proxy) is NOT part of
  * the shared package — it stays host-specific in apps/web and is slated for
- * removal entirely (see #69).
+ * removal entirely once Notion is rewired onto the WyStack/server path.
  *
  * The Notion path is dead in v0.2 (gated behind `showNotion` / `NOTION_ENABLED`,
  * both default-false), so nothing here is ever invoked at runtime. This stub
  * exists only so the static `@/lib/trpc/Provider` imports in the moved
  * data-source components and routeRoot resolve. Any actual call throws.
  *
- * When Notion is rewired (see #69) onto the WyStack/server path, delete this.
+ * When Notion is rewired onto the WyStack/server path, delete this.
  */
 import type { ReactNode } from "react";
 
 function notWired(): never {
   throw new Error(
-    "Notion tRPC connector is not wired in v0.2 (see #69). " +
+    "Notion tRPC connector is not wired in v0.2. " +
       "The Notion data-source path is disabled behind showNotion/NOTION_ENABLED.",
   );
 }

@@ -20,7 +20,11 @@ out
 .cursor/
 Support/
 .claude_settings.json
-.claude/
+# Ignore .claude/ except the shared dev-server wiring (needed in every worktree)
+.claude/*
+!.claude/launch.json
+!.claude/portless-shim.sh
+!.claude/preview-both.sh
 CLAUDE.local.md
 
 # Local build/debug logs
