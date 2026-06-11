@@ -212,6 +212,11 @@ export async function initializeDuckDB(): Promise<DuckDBInstance> {
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     const instantiation = db.instantiate(mainModuleUrl, pthreadWorkerUrl);
+    // If the timeout wins the race we abandon this promise; terminating the DB
+    // below makes the worker handshake reject. Swallow that losing-side
+    // rejection so it doesn't surface as an unhandled rejection (which Electron
+    // reports as a visible error in the renderer and main process).
+    instantiation.catch(() => {});
 
     await Promise.race([
       instantiation,
@@ -237,15 +242,18 @@ export async function initializeDuckDB(): Promise<DuckDBInstance> {
     return { db, connection };
   } catch (err) {
     // Tear the worker down so a failed attempt doesn't leak a wedged worker.
-    try {
-      db.terminate();
-    } catch {
-      worker.terminate();
-    }
+    // db.terminate() is async; await it and swallow any rejection so cleanup
+    // never masks the original error.
+    await db.terminate().catch(() => {});
+    // The pthread blob URL is only kept alive for a *successful* coi init (the
+    // running DB spawns from it). On failure it's revoked here so retries don't
+    // accumulate leaked blob URLs.
+    if (pthreadWorkerUrl) URL.revokeObjectURL(pthreadWorkerUrl);
     throw err;
   } finally {
-    // The main worker has captured its script; the blob URL can go. (The
-    // pthread blob URL is kept alive — duckdb spawns from it on demand.)
+    // The main worker has captured its script; the blob URL can go. (On the
+    // success path the pthread blob URL is kept alive — duckdb spawns from it on
+    // demand; the failure path revokes it in the catch above.)
     URL.revokeObjectURL(mainWorkerBlobUrl);
     if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
