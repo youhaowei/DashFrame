@@ -7,12 +7,15 @@
  * token — proving native engine selection, Arrow bytes over the wire, and
  * token auth end-to-end. Mirrors what Electron main wires, minus the window.
  */
-import { NativeDuckDBEngine, selectEngineBinding } from "@dashframe/engine-server";
-import { createDashframeServer } from "@dashframe/server/app";
+import {
+  NativeDuckDBEngine,
+  selectEngineBinding,
+} from "@dashframe/engine-server";
 import { openProject } from "@dashframe/server-core";
-import { createRequire } from "node:module";
+import { createDashframeServer } from "@dashframe/server/app";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -71,7 +74,9 @@ const bytes = new Uint8Array(await res.arrayBuffer());
 console.log(`[verify] Arrow IPC bytes received: ${bytes.byteLength}`);
 
 const table = tableFromIPC(bytes);
-console.log(`[verify] decoded Arrow table: ${table.numRows} rows, columns=[${table.schema.fields.map((f) => f.name).join(", ")}]`);
+console.log(
+  `[verify] decoded Arrow table: ${table.numRows} rows, columns=[${table.schema.fields.map((f) => f.name).join(", ")}]`,
+);
 console.log("[verify] first 3 rows:");
 for (let i = 0; i < Math.min(3, table.numRows); i++) {
   const row = table.get(i);
@@ -79,10 +84,13 @@ for (let i = 0; i < Math.min(3, table.numRows); i++) {
 }
 
 if (table.numRows !== 5) throw new Error("unexpected row count");
-if (table.getChild("label")?.get(0) !== "order-0") throw new Error("unexpected Arrow value");
+if (table.getChild("label")?.get(0) !== "order-0")
+  throw new Error("unexpected Arrow value");
 
 server.stop();
 await engine.dispose();
 await project.close();
 await fs.rm(dir, { recursive: true, force: true });
-console.log("\n[verify] PASS — native engine selected, Arrow IPC streamed over loopback HTTP, token auth enforced, result decoded.");
+console.log(
+  "\n[verify] PASS — native engine selected, Arrow IPC streamed over loopback HTTP, token auth enforced, result decoded.",
+);
