@@ -29,10 +29,15 @@
  * frame. Packaged desktop also allows the renderer's `file://` Origin (`null`)
  * through CORS; the bearer token remains the authority.
  */
+// Import from the transport-only subpath, NOT the package barrel: the barrel
+// re-exports NativeDuckDBEngine, whose module top-level-imports the native
+// `@duckdb/node-api` addon. The `dashframe serve` path imports this app without
+// passing `arrowEngine`, so pulling the native binding eagerly would break
+// startup on platforms without it. arrow-data-path has no native dependency.
 import {
   createArrowDataPath,
   type ArrowQueryRunner,
-} from "@dashframe/engine-server";
+} from "@dashframe/engine-server/arrow-data-path";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createRoutes, createWyStack } from "@wystack/server";

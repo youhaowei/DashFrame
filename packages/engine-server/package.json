@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "bun": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./arrow-data-path": {
+      "types": "./dist/arrow-data-path.d.ts",
+      "bun": "./src/arrow-data-path.ts",
+      "default": "./dist/arrow-data-path.js"
     }
   },
   "files": [
@@ -17,7 +22,7 @@
   ],
   "scripts": {
     "build": "bun run build:js && bun run build:types",
-    "build:js": "esbuild src/index.ts --bundle --platform=node --packages=external --format=esm --outfile=dist/index.js",
+    "build:js": "esbuild src/index.ts src/arrow-data-path.ts --bundle --platform=node --packages=external --format=esm --outdir=dist",
     "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
