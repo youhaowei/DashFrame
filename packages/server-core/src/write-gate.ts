@@ -19,9 +19,30 @@
  * is handed to any caller.  From that point on the invariant "artifact DB
  * contains zero raw sampleValues" is physically unbreakable for the
  * in-process session.
+ *
+ * Coverage — the gate is fail-closed by design.  Every Drizzle ORM write path
+ * to `data_frames` is gated, including paths with no caller today, because the
+ * gate exists to constrain FUTURE callers:
+ * - `.insert(dataFrames).values(...)`              → sampleValues stripped
+ * - `.insert(...).onConflictDoUpdate({ set })`     → set payload stripped
+ * - `.update(dataFrames).set(...)`                 → set payload stripped
+ * - `db.transaction(async (tx) => ...)`            → `tx` is itself gated, so
+ *   transactional and nested-transaction (savepoint) writes are stripped too.
+ *   This composes with WyStack's TrackedDb, which calls `db.transaction(...)`
+ *   on the underlying Drizzle instance and hands the resulting `tx` to its own
+ *   wrapper — TrackedDb receives a gated `tx`, not a raw one.
+ * - A `sql\`…\`` expression supplied as the `analysis` value (e.g.
+ *   `.set({ analysis: sql\`…\` })`) cannot be statically stripped, so the gate
+ *   THROWS rather than letting it through silently.  See
+ *   `stripDataFrameAnalysis` for the rationale.
+ *
+ * Raw SQL (`db.execute(sql\`…\`)`) is NOT intercepted — it is not a typed ORM
+ * write path and not a public API.  Existing raw-SQL paths are the v2→v3
+ * migration in `project.ts` (which clears sampleValues itself) and `syncSchema`
+ * (DDL only).  Neither writes raw analysis values.
  */
 
-import { getTableName } from "drizzle-orm";
+import { getTableName, is, SQL } from "drizzle-orm";
 
 import type { ArtifactDb } from "./db";
 import { dataFrames } from "./schema";
@@ -38,9 +59,30 @@ type MaybeWithAnalysis = Record<string, unknown>;
  * Strip raw sampleValues from a `data_frames` row value before it hits
  * PGLite.  Non-analysis columns are untouched.  Handles both single-row
  * objects and arrays of rows (Drizzle's `.values()` accepts both).
+ *
+ * Fail-closed on SQL expressions: if the `analysis` value is a Drizzle SQL
+ * expression (e.g. `sql\`jsonb_set(analysis, '{columns,0,sampleValues}', …)\``)
+ * the gate cannot statically inspect or rewrite it — the strip is a plain-object
+ * transform, and a SQL fragment is opaque until PGLite evaluates it.  Rather
+ * than forward it unmodified (which would silently defeat the privacy
+ * invariant), we THROW.  A loud, unenforceable invariant is safer than a quiet
+ * one: the caller must pass a plain analysis object so the gate can strip it.
+ * This is the deliberate fail-closed decision for YW-131.
  */
 function stripDataFrameAnalysis<T extends MaybeWithAnalysis>(value: T): T {
   if (!("analysis" in value) || value.analysis == null) return value;
+
+  // Fail closed: a SQL expression in the analysis column is unstrippable by
+  // construction.  Throw with the gate name and the safe alternative.
+  if (is(value.analysis, SQL)) {
+    throw new Error(
+      "Artifact-DB write gate (YW-131): the `analysis` column was given a raw " +
+        "SQL expression, which the gate cannot statically strip of sampleValues. " +
+        "Pass a plain DataFrameAnalysis object so the gate can enforce the " +
+        "profiles-only invariant. (Raw SQL writes to data_frames.analysis are " +
+        "not a supported path.)",
+    );
+  }
 
   const analysis = value.analysis as {
     columns?: Array<Record<string, unknown>>;
@@ -141,36 +183,42 @@ function proxyUpdateBuilder(builder: unknown): unknown {
   });
 }
 
-// ---- db proxy ---------------------------------------------------------------
+// ---- db / tx proxy ----------------------------------------------------------
+
+/** Does `table` resolve to the guarded `data_frames` table? */
+function isDataFramesTable(table: unknown): boolean {
+  return (
+    table != null &&
+    typeof table === "object" &&
+    getTableName(table as Parameters<typeof getTableName>[0]) ===
+      DATA_FRAMES_TABLE
+  );
+}
 
 /**
- * Return a proxy of `db` that enforces the artifact-DB write gate.
+ * Core gate: wrap any Drizzle write handle — the root `db` or a transaction
+ * `tx` — so insert/update against `data_frames` are stripped and nested
+ * transactions stay gated.
  *
- * Called once in `openArtifactDb`; callers receive the gated instance and
- * can never bypass the strip through normal Drizzle ORM calls.
- *
- * Raw SQL (`db.execute(sql\`…\`)`) is NOT intercepted — existing raw-SQL
- * paths are the v2→v3 migration in `project.ts`, which explicitly clears
- * sampleValues itself, and `syncSchema`, which only issues DDL.  No raw-SQL
- * path writes raw analysis values, and raw SQL is not a public API.
+ * This is recursive by `.transaction`: the handle passed to a transaction
+ * callback is itself run through `gateHandle`, so a write inside a transaction,
+ * or inside a nested transaction (savepoint), is gated exactly like a top-level
+ * write.  The underlying `target.transaction` owns atomicity, commit, and
+ * rollback — the gate only substitutes the callback's handle and forwards the
+ * return value untouched, so rollback-on-throw and the resolved value are
+ * preserved exactly.
  */
-export function applyDataFrameWriteGate(db: ArtifactDb): ArtifactDb {
-  return new Proxy(db, {
+function gateHandle<T extends object>(handle: T): T {
+  return new Proxy(handle, {
     get(target, prop, receiver) {
       // Intercept `.insert(table)` — only gate data_frames, pass others through.
       if (prop === "insert") {
         return function (table: unknown, ...rest: unknown[]) {
           // @ts-expect-error — dynamic call; prop is "insert"
           const builder = target.insert.call(target, table, ...rest);
-          if (
-            table != null &&
-            typeof table === "object" &&
-            getTableName(table as Parameters<typeof getTableName>[0]) ===
-              DATA_FRAMES_TABLE
-          ) {
-            return proxyInsertBuilder(builder);
-          }
-          return builder;
+          return isDataFramesTable(table)
+            ? proxyInsertBuilder(builder)
+            : builder;
         };
       }
 
@@ -179,19 +227,40 @@ export function applyDataFrameWriteGate(db: ArtifactDb): ArtifactDb {
         return function (table: unknown, ...rest: unknown[]) {
           // @ts-expect-error — dynamic call; prop is "update"
           const builder = target.update.call(target, table, ...rest);
-          if (
-            table != null &&
-            typeof table === "object" &&
-            getTableName(table as Parameters<typeof getTableName>[0]) ===
-              DATA_FRAMES_TABLE
-          ) {
-            return proxyUpdateBuilder(builder);
-          }
-          return builder;
+          return isDataFramesTable(table)
+            ? proxyUpdateBuilder(builder)
+            : builder;
+        };
+      }
+
+      // Intercept `.transaction(callback, opts?)` — Drizzle hands the callback a
+      // fresh, UNWRAPPED transaction handle.  Gate that handle before user code
+      // runs so transactional (and nested-transaction) writes can't bypass the
+      // strip.  The underlying transaction still owns atomicity/rollback; we
+      // forward its return value and let throws propagate unchanged.
+      if (prop === "transaction") {
+        return function (
+          callback: (tx: unknown) => unknown,
+          ...rest: unknown[]
+        ) {
+          const gatedCallback = (tx: object) => callback(gateHandle(tx));
+          // @ts-expect-error — dynamic forwarding; Drizzle type varies by driver
+          return target.transaction.call(target, gatedCallback, ...rest);
         };
       }
 
       return Reflect.get(target, prop, receiver);
     },
-  }) as ArtifactDb;
+  });
+}
+
+/**
+ * Return a proxy of `db` that enforces the artifact-DB write gate.
+ *
+ * Called once in `openArtifactDb`; callers receive the gated instance and
+ * can never bypass the strip through normal Drizzle ORM calls — including
+ * transactions, nested transactions, and upserts.
+ */
+export function applyDataFrameWriteGate(db: ArtifactDb): ArtifactDb {
+  return gateHandle(db) as ArtifactDb;
 }

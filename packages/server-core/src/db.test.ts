@@ -323,6 +323,110 @@ describe("openArtifactDb", () => {
       expect(analysis.columns[0]!.sampleValues).toEqual([]);
     });
 
+    test("should strip sampleValues on a transactional insert", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Drizzle hands the tx callback an unwrapped handle; the gate must wrap
+      // it so writes inside the transaction are stripped just like top-level ones.
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(dataFrames)
+          .values({
+            id,
+            storage: { type: "indexeddb", key: "k" },
+            fieldIds: [],
+            name: "Tx Gate Frame",
+            analysis: makeAnalysis(["pii-in-tx@example.com"]),
+          })
+          .returning();
+      });
+
+      const rows = await db.select().from(dataFrames);
+      const analysis = rows.find((r) => r.id === id)!.analysis as ReturnType<
+        typeof makeAnalysis
+      >;
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should strip sampleValues inside a nested transaction (savepoint)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // The gate must recurse: the handle passed to a nested transaction is
+      // itself gated, so a write at savepoint depth is still stripped.
+      await db.transaction(async (tx) => {
+        await tx.transaction(async (inner) => {
+          await inner
+            .insert(dataFrames)
+            .values({
+              id,
+              storage: { type: "indexeddb", key: "k" },
+              fieldIds: [],
+              name: "Nested Tx Gate Frame",
+              analysis: makeAnalysis(["nested-pii@example.com"]),
+            })
+            .returning();
+        });
+      });
+
+      const rows = await db.select().from(dataFrames);
+      const analysis = rows.find((r) => r.id === id)!.analysis as ReturnType<
+        typeof makeAnalysis
+      >;
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should throw on a sql`` analysis value (fail closed, not silent)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Sql Expr Frame",
+      });
+
+      // A SQL expression cannot be statically stripped, so the gate must throw
+      // rather than forward raw values to PGLite. The error names the gate.
+      expect(() =>
+        db
+          .update(dataFrames)
+          .set({
+            analysis: sql`jsonb_set(analysis, '{columns,0,sampleValues}', '["raw"]')`,
+          })
+          .where(eq(dataFrames.id, id)),
+      ).toThrow(/write gate \(YW-131\)/);
+
+      // And the row is untouched — nothing raw landed.
+      const rows = await db.select().from(dataFrames);
+      expect(rows.find((r) => r.id === id)?.analysis).toBeNull();
+    });
+
+    test("should persist nothing when a transaction throws (rollback intact)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // A write inside a tx that throws must roll back — the gate wraps the
+      // handle but does not alter the transaction's atomicity semantics.
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.insert(dataFrames).values({
+            id,
+            storage: { type: "indexeddb", key: "k" },
+            fieldIds: [],
+            name: "Rolled-Back Frame",
+            analysis: makeAnalysis(["should-not-persist@example.com"]),
+          });
+          throw new Error("force rollback");
+        }),
+      ).rejects.toThrow("force rollback");
+
+      const rows = await db.select().from(dataFrames);
+      expect(rows.find((r) => r.id === id)).toBeUndefined();
+    });
+
     test("should not interfere with writes to other tables (dataSources)", async () => {
       const db = await openTestArtifactDb();
 
