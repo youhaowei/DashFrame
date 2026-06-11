@@ -11,7 +11,8 @@
     "dev": "bun scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint"
+    "check": "bun run typecheck && bun run lint",
+    "verify:engine": "bun scripts/verify-native-engine.mjs"
   },
   "dependencies": {
     "@dashframe/desktop-types": "workspace:*",

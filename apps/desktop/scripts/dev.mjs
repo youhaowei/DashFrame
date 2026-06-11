@@ -62,7 +62,7 @@ await awaitProc(
 // 1c. Build @dashframe/engine-server (native DuckDB engine + Arrow data path).
 // @dashframe/server imports createArrowDataPath from it and its `types` export
 // points at dist/index.d.ts, so the server build below needs its emitted JS +
-// declarations present in a clean checkout (YW-151).
+// declarations present in a clean checkout.
 await awaitProc(
   spawn("bun", ["run", "--filter", "@dashframe/engine-server", "build"], {
     cwd: repoRoot,

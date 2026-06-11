@@ -1,11 +1,8 @@
 /**
- * Run-the-app verification for YW-151.
- *
- * Boots the real DashFrame loopback server (createDashframeServer) backed by a
- * real native DuckDB engine + a real on-disk PGLite project, then exercises the
- * dedicated Arrow IPC data path over actual HTTP with the loopback bearer
- * token — proving native engine selection, Arrow bytes over the wire, and
- * token auth end-to-end. Mirrors what Electron main wires, minus the window.
+ * End-to-end smoke check for the desktop engine seam: boots the real loopback
+ * server backed by native DuckDB and an on-disk PGLite project, then exercises
+ * the Arrow IPC data path over HTTP with the loopback bearer token — proving
+ * engine selection, Arrow bytes over the wire, and token auth.
  */
 import {
   NativeDuckDBEngine,
@@ -26,7 +23,7 @@ const requireFromEngineServer = createRequire(
 );
 const { tableFromIPC } = requireFromEngineServer("apache-arrow");
 
-const dir = await fs.mkdtemp(path.join(os.tmpdir(), "yw151-verify-"));
+const dir = await fs.mkdtemp(path.join(os.tmpdir(), "engine-verify-"));
 const token = randomBytes(32).toString("base64url");
 
 const binding = selectEngineBinding("desktop");
