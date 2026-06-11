@@ -85,6 +85,7 @@ import type {
   InsightMetric,
   InsightSort,
   Metric,
+  RenamedTarget,
   SourceSchema,
   UUID,
   VegaLiteSpec,
@@ -269,12 +270,16 @@ const createDataSource = mutation({
     ctx,
     { id, type, name, apiKey, connectionString },
   ): Promise<{ id: string }> => {
+    const config: DataSourceConfig = {};
+    if (apiKey !== undefined) config.apiKey = apiKey;
+    if (connectionString !== undefined)
+      config.connectionString = connectionString;
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
       name,
       kind: type,
       storage: "live",
-      config: { apiKey, connectionString },
+      config,
       createdBy: { kind: "user" },
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
@@ -1162,37 +1167,56 @@ const removeDashboardItem = mutation({
 // ---------------------------------------------------------------------------
 
 /**
+ * The `renameNode` handler's result. `renamed` reports the artifact the rename
+ * actually resolved to — which table the SET ran against. The preview builder
+ * reads this instead of re-deriving the resolution (public issue #64). `value`
+ * on the matching `CommandResult` carries this through `applyCommands` verbatim.
+ */
+export interface RenameNodeResult {
+  ok: true;
+  renamed: RenamedTarget;
+}
+
+/**
  * RenameNode — the single `name` mutation, carved out of every coarse
- * update(blob). Polymorphic over all artifact node kinds that carry a `name`
- * column. One lookup per table decides the target; the SET is identical.
+ * update(blob). Polymorphic over the three artifact NODE kinds
+ * (DataSource / DataTable / Insight); presentation artifacts (e.g. views)
+ * rename through their own surfaces. One lookup decides the table; the SET
+ * is identical across them. The result reports the resolved target so the
+ * preview reads the decision rather than re-deriving it.
  */
 const renameNode = mutation({
   args: { id: uuid, name: text },
-  handler: async (ctx, { id, name }): Promise<{ ok: true }> => {
+  handler: async (ctx, { id, name }): Promise<RenameNodeResult> => {
+    // Probe order (dataTables → dataSources → insights) is load-bearing: the
+    // preview builder reads `renamed` to learn which artifact this rename hit
+    // rather than re-deriving the resolution (public issue #64). The reported
+    // `kind` is the table the SET actually ran against — the single source of
+    // truth the preview consumes.
     const table = await ctx.db.from(dataTables).where(eq("id", id)).first();
     if (table) {
       await ctx.db.from(dataTables).where(eq("id", id)).update({ name });
-      return { ok: true };
+      return { ok: true, renamed: { kind: "dataTable", id } };
     }
     const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
     if (source) {
       await ctx.db.from(dataSources).where(eq("id", id)).update({ name });
-      return { ok: true };
+      return { ok: true, renamed: { kind: "dataSource", id } };
     }
     const insight = await ctx.db.from(insights).where(eq("id", id)).first();
     if (insight) {
       await ctx.db.from(insights).where(eq("id", id)).update({ name });
-      return { ok: true };
+      return { ok: true, renamed: { kind: "insight", id } };
     }
     const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
     if (viz) {
       await ctx.db.from(visualizations).where(eq("id", id)).update({ name });
-      return { ok: true };
+      return { ok: true, renamed: { kind: "visualization", id } };
     }
     const dash = await ctx.db.from(dashboards).where(eq("id", id)).first();
     if (dash) {
       await ctx.db.from(dashboards).where(eq("id", id)).update({ name });
-      return { ok: true };
+      return { ok: true, renamed: { kind: "dashboard", id } };
     }
     throw new Error(`Node ${id} not found`);
   },

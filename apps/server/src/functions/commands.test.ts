@@ -283,6 +283,33 @@ describe("command vocabulary", () => {
       expect((row?.config as { apiKey?: string }).apiKey).toBe("keep");
     });
 
+    it("should report the resolved target on the RenameNode result so the preview can read it (not re-derive)", async () => {
+      // The handler probes dataTables → dataSources → insights and renames the
+      // first hit. Its result must carry which artifact it resolved to — this is
+      // the contract the preview builder consumes instead of re-deriving kind.
+      const sourceId = id();
+      const tableId = id();
+      const result = await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("RenameNode", { id: sourceId, name: "RenamedSource" }),
+        cmd("RenameNode", { id: tableId, name: "RenamedTable" }),
+      );
+
+      // results[2] is the source rename, results[3] the table rename (positional).
+      expect(result.results[2]!.value).toMatchObject({
+        renamed: { kind: "dataSource", id: sourceId },
+      });
+      expect(result.results[3]!.value).toMatchObject({
+        renamed: { kind: "dataTable", id: tableId },
+      });
+    });
+
     it("should edit the jsonb array via AddField then RemoveField, decomposed from patchDataTableArray", async () => {
       const sourceId = id();
       const tableId = id();
