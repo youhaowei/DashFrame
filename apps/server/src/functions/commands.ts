@@ -84,6 +84,7 @@ import { schema } from "@dashframe/server-core";
 import type {
   Field,
   InsightJoinConfig,
+  InsightMetric,
   InsightSort,
   Metric,
   SourceSchema,
@@ -433,7 +434,8 @@ const createInsight = mutation({
       baseTableId: source.sourceId,
       source,
       selectedFields: (args.selectedFields as UUID[] | undefined) ?? [],
-      metrics: (args.metrics as unknown[] | undefined) ?? [],
+      // Stored as InsightMetric (sourceTable), the shape the read path expects.
+      metrics: (args.metrics as InsightMetric[] | undefined) ?? [],
     };
     const [row] = (await ctx.db.into(insights).insert({
       id: args.id,
@@ -1604,7 +1606,10 @@ export interface CommandPayloads {
     name: string;
     source: InsightSourceInput;
     selectedFields?: UUID[];
-    metrics?: Metric[];
+    // Insight metrics carry `sourceTable`, not the DataTable `Metric.tableId`.
+    // The read path (requireInsightMetric in app-artifacts.ts) enforces
+    // `sourceTable`, so the typed face must guide callers to the right shape.
+    metrics?: InsightMetric[];
   };
   SetInsightSource: { id: UUID; source: InsightSourceInput };
   SelectFields: { id: UUID; fieldIds: UUID[] };
