@@ -1,10 +1,14 @@
 import type { FC, ReactNode } from "react";
 
+import { AssistantRegion } from "@/components/assistant/AssistantRegion";
+import { ArtifactContextProvider } from "@/components/assistant/artifact-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
+import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PerfHud } from "@/lib/perf";
 import { DatabaseProvider } from "@dashframe/core";
 import { Outlet } from "@tanstack/react-router";
 import { TooltipProvider } from "@wystack/ui";
@@ -62,15 +66,19 @@ export function RouteRoot({
                     <div className="absolute inset-0 bg-neutral-bg/50 backdrop-blur-[2px] dark:bg-neutral-bg/75" />
                   </div>
 
-                  <div className="relative isolate flex min-h-screen flex-row bg-neutral-bg text-neutral-fg">
-                    <Navigation />
-
-                    <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
-                      <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-                        <Outlet />
+                  <StoreHydration>
+                    <ArtifactContextProvider>
+                      {/* Three-region shell:
+                          LEFT nav · CENTER artifact (hero) · RIGHT assistant. */}
+                      <div className="relative isolate flex min-h-screen flex-row bg-neutral-bg text-neutral-fg">
+                        <Navigation />
+                        <AssistantRegion>
+                          <Outlet />
+                        </AssistantRegion>
                       </div>
-                    </main>
-                  </div>
+                      <PerfHud />
+                    </ArtifactContextProvider>
+                  </StoreHydration>
                   <Toaster
                     toastOptions={{
                       style: {

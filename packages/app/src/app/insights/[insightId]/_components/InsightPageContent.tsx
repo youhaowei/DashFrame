@@ -1,3 +1,5 @@
+import { useBindArtifact } from "@/components/assistant/artifact-context";
+import { useRenderPerf } from "@/lib/perf";
 import { useInsight } from "@dashframe/core";
 import { Spinner } from "@wystack/ui";
 import { InsightView } from "./InsightView";
@@ -17,6 +19,14 @@ export default function InsightPageContent({
   insightId,
 }: InsightPageContentProps) {
   const { data: insight, isLoading } = useInsight(insightId);
+
+  // Instrument the artifact render boundary and bind the assistant to this
+  // insight (cleared on unmount). Both run unconditionally — hooks before the
+  // loading/not-found early returns.
+  useRenderPerf(`insight:${insightId}`);
+  useBindArtifact(
+    insight ? { kind: "insight", id: insightId, title: insight.name } : null,
+  );
 
   if (isLoading) {
     return (
