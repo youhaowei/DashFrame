@@ -13,7 +13,13 @@
  *     Node built-in `require()`; esbuild's __require shim throws on those when
  *     they're inlined into an ESM bundle. Left external, Node loads them
  *     natively (CJS-from-ESM interop is fine). Native/WASM deps (pglite,
- *     postgres) must never be bundled at all.
+ *     postgres, @duckdb/node-api) must never be bundled at all — the DuckDB
+ *     bindings are a native `.node` addon. The filter externalizes them
+ *     automatically (non-`@dashframe`/`@wystack` bare specifier); they resolve
+ *     at runtime from apps/desktop, hence the direct `@duckdb/node-api` dep.
+ *     If this app later packages with asar, add `@duckdb/node-api` (and its
+ *     `@duckdb/node-bindings*` platform packages) to electron-builder
+ *     `asarUnpack` — a native addon cannot be loaded from inside an asar.
  *
  * The filter auto-handles new transitive npm deps and new workspace packages
  * without editing an allowlist — but externalized npm deps must resolve at

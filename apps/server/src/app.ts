@@ -29,6 +29,10 @@
  * frame. Packaged desktop also allows the renderer's `file://` Origin (`null`)
  * through CORS; the bearer token remains the authority.
  */
+import {
+  createArrowDataPath,
+  type ArrowQueryRunner,
+} from "@dashframe/engine-server";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createRoutes, createWyStack } from "@wystack/server";
@@ -80,6 +84,14 @@ export interface DashframeServerOptions {
    * unauthenticated until its remote-bind auth policy is decided.
    */
   authToken?: string;
+  /**
+   * Optional native engine for the dedicated Arrow IPC data path. When supplied
+   * (desktop / `dashframe serve` with the native engine), `POST /data/arrow`
+   * streams `application/vnd.apache.arrow.stream` for a compiled query — the
+   * binary path that never rides WyStack RPC (YW-151). Web try-it omits it: the
+   * result already lives in renderer WASM, so there is no server data path.
+   */
+  arrowEngine?: ArrowQueryRunner;
 }
 
 export interface DashframeServer {
@@ -120,6 +132,19 @@ export async function createDashframeServer(
       allowMethods: ["GET", "POST", "OPTIONS"],
     }),
   );
+  // Mount the dedicated Arrow IPC data path *before* the WyStack catch-all
+  // route, so `/data/arrow` is served by the binary path, not WyStack. This is
+  // the hard metadata/data boundary: WyStack frames never carry Arrow bytes.
+  if (opts.arrowEngine) {
+    honoApp.route(
+      "/data",
+      createArrowDataPath({
+        engine: opts.arrowEngine,
+        authToken: opts.authToken,
+      }),
+    );
+  }
+
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
