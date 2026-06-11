@@ -29,6 +29,33 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(result.rows.map((r) => Number(r.n))).toEqual([0, 1, 2]);
   });
 
+  it("does not corrupt a literal '?' when binding positional params (native binding, not text scan)", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    // A literal question mark in a string AND a real placeholder. Text-scanning
+    // every `?` would consume the literal as a placeholder and shift binding,
+    // corrupting both columns. Native binding only fills the real placeholder.
+    const ipc = await engine.queryArrow("SELECT '?' AS marker, ? AS v", [42]);
+    const table = tableFromIPC(ipc);
+
+    expect(table.numRows).toBe(1);
+    expect(table.getChild("marker")?.toArray()).toEqual(["?"]);
+    expect([...table.getChild("v")!.toArray()].map(Number)).toEqual([42]);
+  });
+
+  it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {
+    engine = new NativeDuckDBEngine();
+    // Two callers race before the first await resolves; both must converge on
+    // the same connection rather than each creating a DuckDBInstance.
+    await Promise.all([engine.initialize(), engine.initialize()]);
+    expect(engine.isReady()).toBe(true);
+
+    // A query still works on the single surviving connection.
+    const result = await engine.query("SELECT 1 AS one");
+    expect(result.rows.map((r) => Number(r.one))).toEqual([1]);
+  });
+
   it("produces Arrow IPC that roundtrips through apache-arrow", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();

@@ -98,6 +98,35 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
     expect(table.getChild("label")?.toArray()).toEqual(["a", "b", "c"]);
   });
 
+  it("returns an opaque 500 when the engine throws (no DuckDB internals leaked)", async () => {
+    const leakyMessage =
+      "Binder Error: Referenced column 'secret' not found in FROM clause! Candidate bindings: internal_table.ssn";
+    const throwingEngine: ArrowQueryRunner = {
+      queryArrow: async () => {
+        throw new Error(leakyMessage);
+      },
+    };
+    const app = createArrowDataPath({
+      engine: throwingEngine,
+      authToken: TOKEN,
+    });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ sql: "SELECT secret FROM internal_table" }),
+    });
+
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain("secret");
+    expect(text).not.toContain("internal_table");
+    expect(text).not.toContain("Binder Error");
+    expect(JSON.parse(text)).toEqual({ error: "Query execution failed" });
+  });
+
   it("rejects a body with no sql", async () => {
     const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
     const res = await app.request("/arrow", {

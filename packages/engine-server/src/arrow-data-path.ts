@@ -74,10 +74,16 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       );
     }
 
-    const arrow = await options.engine.queryArrow(
-      compiled.sql,
-      compiled.params,
-    );
+    let arrow: Uint8Array;
+    try {
+      arrow = await options.engine.queryArrow(compiled.sql, compiled.params);
+    } catch {
+      // Keep engine errors opaque. queryArrow throws for any SQL error (syntax,
+      // type mismatch, missing table); the raw DuckDB message would otherwise
+      // reach the client through Hono's default error handler, leaking
+      // engine-layer internals over the loopback data channel.
+      return c.json({ error: "Query execution failed" }, 500);
+    }
     return new Response(arrow, {
       status: 200,
       headers: { "Content-Type": ARROW_STREAM_CONTENT_TYPE },

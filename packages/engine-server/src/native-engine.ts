@@ -17,27 +17,10 @@ import type { TableColumn } from "@dashframe/types";
 import {
   DuckDBInstance,
   type DuckDBConnection as Connection,
+  type DuckDBValue,
 } from "@duckdb/node-api";
 
 import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
-
-/**
- * Inline positional params into the SQL string. Mirrors the approach in
- * `ParquetCache.write` — strings are quoted, numbers/booleans inlined, null →
- * NULL. The compiled query already routed values through `buildInsightSQL`;
- * substitution here is a safe rendering step, not a trust boundary.
- */
-function bindParams(sql: string, params: readonly unknown[]): string {
-  let i = 0;
-  return sql.replace(/\?/g, () => {
-    const value = params[i++];
-    if (value == null) return "NULL";
-    if (typeof value === "number" || typeof value === "boolean") {
-      return String(value);
-    }
-    return `'${String(value).replace(/'/g, "''")}'`;
-  });
-}
 
 export interface NativeDuckDBEngineOptions {
   /**
@@ -55,6 +38,13 @@ export class NativeDuckDBEngine implements QueryEngine {
   private readonly databasePath: string;
   private instance: DuckDBInstance | null = null;
   private connection: Connection | null = null;
+  /**
+   * Memoized in-flight initialization. The first caller installs the promise;
+   * concurrent callers await the SAME one instead of each racing to create a
+   * second `DuckDBInstance` (which would leak the loser's native handle,
+   * background threads, and any file lock on the database path).
+   */
+  private initPromise: Promise<void> | null = null;
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
     this.databasePath = options.databasePath ?? ":memory:";
@@ -62,8 +52,24 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async initialize(): Promise<void> {
     if (this.connection) return;
-    this.instance = await DuckDBInstance.create(this.databasePath);
-    this.connection = await this.instance.connect();
+    // Guard against concurrent initialize() calls: the `await` below yields the
+    // event loop, so a plain `if (this.connection)` check (which is null until
+    // both awaits resolve) would let two callers both create an instance. Latch
+    // the first call's promise and hand it to everyone else.
+    this.initPromise ??= (async () => {
+      const instance = await DuckDBInstance.create(this.databasePath);
+      const connection = await instance.connect();
+      this.instance = instance;
+      this.connection = connection;
+    })();
+    try {
+      await this.initPromise;
+    } catch (err) {
+      // A failed init must not be cached — clear the latch so a later call can
+      // retry rather than re-await a permanently-rejected promise.
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   isReady(): boolean {
@@ -98,16 +104,20 @@ export class NativeDuckDBEngine implements QueryEngine {
    * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
    * `application/vnd.apache.arrow.stream`.
    *
-   * Params are inlined into the SQL string using the same `bindParams` approach
-   * as `ParquetCache.write` — the compiled query has already routed values
-   * through `buildInsightSQL`, so inline substitution is safe and consistent.
+   * Params bind through DuckDB's native positional binding (the `values`
+   * argument of `runAndReadAll`), NOT string substitution. Text-scanning every
+   * `?` would also rewrite question marks inside string literals or comments
+   * (`SELECT '?' AS marker, ? AS v`), corrupting the query — native binding
+   * only substitutes real placeholders.
    */
   async queryArrow(
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<Uint8Array> {
-    const boundSql = params.length > 0 ? bindParams(sql, params) : sql;
-    const reader = await this.conn().runAndReadAll(boundSql);
+    const reader =
+      params.length > 0
+        ? await this.conn().runAndReadAll(sql, params as DuckDBValue[])
+        : await this.conn().runAndReadAll(sql);
     const columnNames = reader.columnNames();
     const columnTypes = reader.columnTypes();
     const columnsObject = reader.getColumnsObjectJson() as Record<
@@ -160,5 +170,6 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.connection?.disconnectSync();
     this.connection = null;
     this.instance = null;
+    this.initPromise = null;
   }
 }
