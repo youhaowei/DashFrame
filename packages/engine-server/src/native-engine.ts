@@ -21,6 +21,24 @@ import {
 
 import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
 
+/**
+ * Inline positional params into the SQL string. Mirrors the approach in
+ * `ParquetCache.write` — strings are quoted, numbers/booleans inlined, null →
+ * NULL. The compiled query already routed values through `buildInsightSQL`;
+ * substitution here is a safe rendering step, not a trust boundary.
+ */
+function bindParams(sql: string, params: readonly unknown[]): string {
+  let i = 0;
+  return sql.replace(/\?/g, () => {
+    const value = params[i++];
+    if (value == null) return "NULL";
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    return `'${String(value).replace(/'/g, "''")}'`;
+  });
+}
+
 export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
@@ -76,12 +94,20 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   /**
-   * Execute `sql` and return the result as an Arrow IPC stream buffer — the
-   * payload the data path (Stage 5) serves as
+   * Execute `sql` (with optional positional `params`) and return the result as
+   * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
    * `application/vnd.apache.arrow.stream`.
+   *
+   * Params are inlined into the SQL string using the same `bindParams` approach
+   * as `ParquetCache.write` — the compiled query has already routed values
+   * through `buildInsightSQL`, so inline substitution is safe and consistent.
    */
-  async queryArrow(sql: string): Promise<Uint8Array> {
-    const reader = await this.conn().runAndReadAll(sql);
+  async queryArrow(
+    sql: string,
+    params: readonly unknown[] = [],
+  ): Promise<Uint8Array> {
+    const boundSql = params.length > 0 ? bindParams(sql, params) : sql;
+    const reader = await this.conn().runAndReadAll(boundSql);
     const columnNames = reader.columnNames();
     const columnTypes = reader.columnTypes();
     const columnsObject = reader.getColumnsObjectJson() as Record<

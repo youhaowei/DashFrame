@@ -24,7 +24,7 @@ export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
-  queryArrow(sql: string): Promise<Uint8Array>;
+  queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
 }
 
 export interface ArrowDataPathOptions {
@@ -74,7 +74,10 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       );
     }
 
-    const arrow = await options.engine.queryArrow(compiled.sql);
+    const arrow = await options.engine.queryArrow(
+      compiled.sql,
+      compiled.params,
+    );
     return new Response(arrow, {
       status: 200,
       headers: { "Content-Type": ARROW_STREAM_CONTENT_TYPE },
