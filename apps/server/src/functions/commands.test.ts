@@ -1735,6 +1735,59 @@ describe("command vocabulary", () => {
       expect(await vizsById(viz2Id)).toHaveLength(0);
     });
 
+    it("should surface dashboards that contain an Insight's owned Visualizations in orphanedNodes when the Insight is deleted", async () => {
+      // When deleting an Insight, its Visualizations cascade-delete via FK.
+      // Any Dashboard that had a layout item referencing one of those Visualizations
+      // is now left with a stale tile — it must appear in orphanedNodes.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: insightId }));
+
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(await vizsById(vizId)).toHaveLength(0);
+      // The dashboard is surfaced as an orphaned node.
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      const dashboardOrphans = value.orphanedNodes.filter(
+        (n) => n.kind === "dashboard",
+      );
+      expect(dashboardOrphans).toHaveLength(1);
+      expect(dashboardOrphans[0]?.id).toBe(dashId);
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
+    });
+
     it("should cascade-delete owned DataTables when their DataSource is deleted (ownership edge)", async () => {
       // DataSource → DataTable is the only ownership edge in the graph.
       // Deleting a DataSource must remove all its DataTables.

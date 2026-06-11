@@ -1269,8 +1269,9 @@ async function deleteDataSourceDependents(
  *       • Owned Visualizations cascade-delete via the DB schema FK.
  *       • The Insight's DataFrame metadata row is deleted (triggers Arrow
  *         cleanup on the client via `removeDataFrame`).
- *       • Insights that SOURCE this Insight are detected and returned as
- *         `orphanedNodes` (reference-boundary → drift-repair, not auto-delete).
+ *       • Insights that SOURCE this Insight are returned as `orphanedNodes`.
+ *       • Dashboards with layout items referencing the owned Visualizations are
+ *         also returned as `orphanedNodes` (cascade removed their viz tiles).
  *   - Deleting a DataTable:
  *       • The DataTable's DataFrame metadata row is deleted.
  *       • Insights that SOURCE this DataTable are returned as `orphanedNodes`.
@@ -1324,6 +1325,8 @@ const deleteNode = mutation({
     // Owned visualizations cascade-delete via the DB schema FK
     // (visualizations.insight_id references insights.id ON DELETE CASCADE).
     // Reference-boundary: Insights that SOURCE this Insight enter drift-repair.
+    // Dashboard items that reference any of the owned Visualizations also enter
+    // drift-repair (the FK cascade removes the viz, the layout item becomes stale).
     const insight = (await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1331,16 +1334,41 @@ const deleteNode = mutation({
     if (insight) {
       // Detect reference-boundary orphans BEFORE the delete (so the rows exist).
       const derivedInsights = await findOrphanedInsights(ctx, id);
+      // Collect owned visualizations BEFORE the cascade so we can check dashboards.
+      const ownedVizIds = new Set(
+        (
+          (await ctx.db
+            .from(visualizations)
+            .where(eq("insightId", id))
+            .all()) as VisualizationRow[]
+        ).map((v) => v.id),
+      );
+      // Find dashboards with layout items referencing any owned visualization.
+      const allDashboards = (await ctx.db
+        .from(dashboards)
+        .all()) as DashboardRow[];
+      const affectedDashboards = allDashboards.filter((d) => {
+        const items = ((d.layout as DashboardItem[]) ?? []) as DashboardItem[];
+        return items.some(
+          (it) => it.visualizationId && ownedVizIds.has(it.visualizationId),
+        );
+      });
       // Clean up DataFrame metadata so the client-side Arrow cleanup hook fires.
       await deleteInsightDataFrames(ctx, id);
       // Delete the Insight — schema FK cascade removes its Visualizations.
       await ctx.db.from(insights).where(eq("id", id)).delete();
       return {
         ok: true,
-        orphanedNodes: derivedInsights.map((r) => ({
-          id: r.id,
-          kind: "insight" as const,
-        })),
+        orphanedNodes: [
+          ...derivedInsights.map((r) => ({
+            id: r.id,
+            kind: "insight" as const,
+          })),
+          ...affectedDashboards.map((d) => ({
+            id: d.id,
+            kind: "dashboard" as const,
+          })),
+        ],
       };
     }
 
