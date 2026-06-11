@@ -95,6 +95,10 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
 
 function parseCompiledQuery(body: ArrowRequestBody): CompiledQuery | null {
   if (typeof body.sql !== "string" || body.sql.trim() === "") return null;
+  // A present-but-non-array `params` (e.g. a scalar 42) must be a clear 400,
+  // not silently coerced to [] — that would surface later as a binding
+  // mismatch and an opaque 500 from the engine.
+  if (body.params !== undefined && !Array.isArray(body.params)) return null;
   const params = Array.isArray(body.params) ? body.params : [];
   return { sql: body.sql, params };
 }

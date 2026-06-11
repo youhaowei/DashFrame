@@ -140,6 +140,23 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects a non-array params with 400 (no silent coercion to [])", async () => {
+    // params: 42 silently becoming [] would surface later as an opaque 500
+    // binding mismatch — fail clearly at the request boundary instead.
+    const engine = fakeEngine();
+    const app = createArrowDataPath({ engine, authToken: TOKEN });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ sql: "SELECT ? AS v", params: 42 }),
+    });
+    expect(res.status).toBe(400);
+    expect(engine.calls).toHaveLength(0);
+  });
+
   it("serves without auth when no token is configured (loopback)", async () => {
     const app = createArrowDataPath({ engine: fakeEngine() });
     const res = await app.request("/arrow", {

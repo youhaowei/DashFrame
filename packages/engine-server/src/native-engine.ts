@@ -58,7 +58,17 @@ export class NativeDuckDBEngine implements QueryEngine {
     // the first call's promise and hand it to everyone else.
     this.initPromise ??= (async () => {
       const instance = await DuckDBInstance.create(this.databasePath);
-      const connection = await instance.connect();
+      let connection: Connection;
+      try {
+        connection = await instance.connect();
+      } catch (err) {
+        // connect() failing would otherwise leak the just-created instance
+        // (native handle, background threads, file lock on a non-:memory:
+        // path) — it was never assigned to this.instance, so nothing else
+        // could ever close it. Close it before surfacing the error.
+        instance.closeSync();
+        throw err;
+      }
       this.instance = instance;
       this.connection = connection;
     })();
