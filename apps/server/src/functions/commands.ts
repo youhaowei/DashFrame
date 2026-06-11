@@ -702,6 +702,27 @@ async function resolveNode(
 }
 
 /**
+ * Validate that `value` is an InsightMetric (sourceTable shape) and return it.
+ * Mirrors requireInsightMetric in app-artifacts.ts — the same shape the read
+ * path enforces — so AddMetric on an Insight node always stores a metric the
+ * read path accepts. Inlined here to avoid a cross-module circular dependency.
+ */
+function requireInsightMetricShape(value: unknown): InsightMetric {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.sourceTable !== "string" ||
+    typeof value.aggregation !== "string"
+  ) {
+    throw new Error(
+      "InsightMetric must include id, name, sourceTable, and aggregation",
+    );
+  }
+  return value as unknown as InsightMetric;
+}
+
+/**
  * Apply one incremental collection edit to a node's fields or metrics array.
  * For DataTable nodes the array lives in the row's `fields`/`metrics` columns.
  * For Insight nodes the array lives inside `definition.fields`/`definition.metrics`
@@ -722,7 +743,7 @@ async function patchDataTableCollection(
   nodeId: string,
   kind: "fields" | "metrics",
   op:
-    | { mode: "add"; item: Field | Metric }
+    | { mode: "add"; item: Field | Metric | InsightMetric }
     | { mode: "update"; itemId: string; updates: Record<string, unknown> }
     | { mode: "remove"; itemId: string },
 ): Promise<void> {
@@ -736,7 +757,15 @@ async function patchDataTableCollection(
       metrics?: { id: string }[];
     };
     const items = ((definition[kind] ?? []) as { id: string }[]).slice();
-    const next = applyCollectionOp(items, kind, op);
+    // AddMetric on an Insight must store InsightMetric (sourceTable), the shape
+    // requireInsightMetric in app-artifacts.ts enforces on the read path.
+    // Validate at the write boundary so stored metrics always round-trip through
+    // the read path — same class of fix as CreateInsight.metrics (commit 72365b0).
+    const normalizedOp =
+      kind === "metrics" && op.mode === "add"
+        ? { ...op, item: requireInsightMetricShape(op.item) }
+        : op;
+    const next = applyCollectionOp(items, kind, normalizedOp);
     const nextDefinition = { ...definition, [kind]: next };
     await ctx.db
       .from(insights)
@@ -764,7 +793,7 @@ function applyCollectionOp(
   items: { id: string }[],
   kind: string,
   op:
-    | { mode: "add"; item: Field | Metric }
+    | { mode: "add"; item: Field | Metric | InsightMetric }
     | { mode: "update"; itemId: string; updates: Record<string, unknown> }
     | { mode: "remove"; itemId: string },
 ): { id: string }[] {
@@ -836,7 +865,12 @@ const addMetric = mutation({
   handler: async (ctx, { nodeId, metric }): Promise<{ ok: true }> => {
     await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "add",
-      item: requireRecordWithId(metric, "metric") as unknown as Metric,
+      // Cast as Metric | InsightMetric — the insight branch validates sourceTable
+      // via requireInsightMetricShape before storing; the DataTable branch stores
+      // the Metric shape as-is (tableId).
+      item: requireRecordWithId(metric, "metric") as unknown as
+        | Metric
+        | InsightMetric,
     });
     return { ok: true };
   },
@@ -1348,7 +1382,10 @@ export interface CommandPayloads {
   AddField: { nodeId: UUID; field: Field };
   UpdateField: { nodeId: UUID; fieldId: UUID; updates: Partial<Field> };
   RemoveField: { nodeId: UUID; fieldId: UUID };
-  AddMetric: { nodeId: UUID; metric: Metric };
+  // AddMetric is polymorphic: targets DataTable (Metric shape, tableId) or
+  // Insight (InsightMetric shape, sourceTable). The handler validates the shape
+  // at the write boundary (requireInsightMetricShape) for the Insight path.
+  AddMetric: { nodeId: UUID; metric: Metric | InsightMetric };
   UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
   RemoveMetric: { nodeId: UUID; metricId: UUID };
   // Insight (YW-123)

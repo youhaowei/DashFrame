@@ -1228,6 +1228,82 @@ describe("command vocabulary", () => {
     });
   });
 
+  describe("AddMetric on Insight node — InsightMetric shape round-trip", () => {
+    it("should store an InsightMetric (sourceTable) and round-trip through the read path", async () => {
+      // Regression: AddMetric on an Insight was casting the incoming metric to the
+      // DataTable Metric shape (tableId). The read path (requireInsightMetric in
+      // app-artifacts.ts) enforces InsightMetric (sourceTable), so stored metrics
+      // with only tableId would break source-table resolution on read. The fix
+      // validates sourceTable at the write boundary (requireInsightMetricShape) —
+      // same class as the CreateInsight.metrics fix in commit 72365b0.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Revenue Insight",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await commit(
+        cmd("AddMetric", {
+          nodeId: insightId,
+          metric: {
+            id: metricId,
+            name: "Total Revenue",
+            sourceTable: tableId,
+            aggregation: "sum",
+          },
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: {
+          id: string;
+          name: string;
+          sourceTable: string;
+          aggregation: string;
+        }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      const stored = def.metrics[0]!;
+      // Read path (requireInsightMetric) requires all four fields — assert each:
+      expect(stored.id).toBe(metricId);
+      expect(stored.name).toBe("Total Revenue");
+      expect(stored.sourceTable).toBe(tableId); // the field requireInsightMetric checks
+      expect(stored.aggregation).toBe("sum");
+    });
+
+    it("should reject an AddMetric on an Insight that lacks sourceTable (DataTable Metric shape rejected at write boundary)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            // DataTable Metric shape — tableId instead of sourceTable — must be rejected.
+            metric: {
+              id: crypto.randomUUID(),
+              name: "Sum",
+              expression: "sum(amount)",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceTable/);
+    });
+  });
+
   // ===========================================================================
   // YW-123: Visualization commands
   // ===========================================================================
