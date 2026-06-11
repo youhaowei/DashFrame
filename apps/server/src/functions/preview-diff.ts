@@ -536,13 +536,16 @@ async function walkDownstream(
       const key = `${row.kind}:${row.id}`;
       const existing = visited.get(key);
       if (existing !== undefined) {
-        // Already emitted — upgrade the flag if this path is stronger.
+        // Already emitted — upgrade the whole hit (flag + edge + via) if this
+        // path is stronger, so the lineage explanation stays consistent with
+        // the recorded edge.
         if (
           existing !== null &&
           flagStrength(hit.flag) > flagStrength(existing.flag)
         ) {
           existing.flag = hit.flag;
           existing.edge = hit.edge;
+          existing.via = current.via;
         }
         continue;
       }
