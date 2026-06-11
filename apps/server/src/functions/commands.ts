@@ -156,6 +156,27 @@ async function requireInsightDefinition(
 }
 
 /**
+ * Assert a `{ sourceType, sourceId }` resolves to an existing row before it is
+ * persisted into an Insight's `definition.source`. The source is stored as JSON,
+ * not an FK, so nothing else stops a dangling reference: a `sourceId` that names
+ * no row would be written and the command would report success, leaving an
+ * Insight whose source can never be resolved. Worse, the cycle walk in
+ * `wouldCreateCycle` treats a missing insight row as a leaf (returns false), so
+ * an unvalidated dangling insight source slips past cycle detection too. Both
+ * CreateInsight and SetInsightSource route source writes through here.
+ */
+async function requireSourceExists(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  source: InsightSource,
+): Promise<void> {
+  const table = source.sourceType === "insight" ? insights : dataTables;
+  const row = await ctx.db.from(table).where(eq("id", source.sourceId)).first();
+  if (!row) {
+    throw new Error(`Source ${source.sourceType} ${source.sourceId} not found`);
+  }
+}
+
+/**
  * Walk the source chain starting from `startId` to detect whether `targetId`
  * is already reachable — i.e. whether setting `startId`'s source to `targetId`
  * would create a cycle. Stops as soon as it finds `targetId` or reaches a
@@ -396,6 +417,18 @@ const createInsight = mutation({
         `CreateInsight: source.sourceType must be 'dataTable' or 'insight'`,
       );
     }
+    // Reject a self-referential insight source up front. With a client-supplied
+    // id a caller can pass `source: { sourceType: 'insight', sourceId: <this id> }`,
+    // which would write a 1-cycle into definition.source that SetInsightSource's
+    // cycle guard is built to forbid — CreateInsight must hold the same invariant.
+    if (source.sourceType === "insight" && source.sourceId === args.id) {
+      throw new Error(
+        `CreateInsight: source ${source.sourceId} would create a cycle (self-reference)`,
+      );
+    }
+    // The source must resolve to an existing row — JSON source has no FK, so an
+    // unvalidated sourceId would persist as a dangling reference.
+    await requireSourceExists(ctx, source);
     const definition: StoredInsightDefinition = {
       baseTableId: source.sourceId,
       source,
@@ -429,6 +462,12 @@ const setInsightSource = mutation({
       );
     }
     const { definition } = await requireInsightDefinition(ctx, id);
+
+    // The source must resolve to an existing row before we persist it (JSON
+    // source has no FK). Run this BEFORE the cycle walk: wouldCreateCycle treats
+    // a missing insight row as a leaf and returns false, so a dangling insight
+    // source would otherwise slip past cycle detection and persist.
+    await requireSourceExists(ctx, source);
 
     // Cycle detection: only needed when the new source is another Insight.
     if (source.sourceType === "insight") {
