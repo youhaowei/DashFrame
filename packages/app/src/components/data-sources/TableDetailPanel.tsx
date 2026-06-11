@@ -1,9 +1,14 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
-import type { DataTable, FieldSensitivity } from "@dashframe/types";
+import { extractUUIDFromColumnAlias } from "@dashframe/engine";
+import type {
+  ColumnAnalysis,
+  DataTable,
+  FieldSensitivity,
+} from "@dashframe/types";
 import {
   getFieldSensitivity,
-  suggestSensitivityFromName,
+  suggestSensitivityReasons,
 } from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
 import {
@@ -15,7 +20,7 @@ import {
   SparklesIcon,
 } from "@stdui/icons";
 import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@stdui/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SensitivityBadge } from "./SensitivityBadge";
 
 interface TableDetailPanelProps {
@@ -52,6 +57,18 @@ export function TableDetailPanel({
   onDeleteTable,
 }: TableDetailPanelProps) {
   const [activeTab, setActiveTab] = useState("fields");
+
+  // Cached column analysis keyed by field ID, for data-driven sensitivity
+  // signals (email-shaped values, free text) beyond name heuristics.
+  const analysisByFieldId = useMemo(() => {
+    const map = new Map<string, ColumnAnalysis>();
+    for (const column of dataFrameEntry?.analysis?.columns ?? []) {
+      const fieldId =
+        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
+      if (fieldId) map.set(fieldId, column);
+    }
+    return map;
+  }, [dataFrameEntry]);
 
   // Load data only when preview tab is active (lazy loading)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -201,7 +218,10 @@ export function TableDetailPanel({
                 const sensitivity = getFieldSensitivity(field);
                 const suggestedReasons =
                   sensitivity === "unclassified"
-                    ? suggestSensitivityFromName(field.name)
+                    ? suggestSensitivityReasons({
+                        name: field.name,
+                        analysis: analysisByFieldId.get(field.id),
+                      })
                     : [];
 
                 return (
