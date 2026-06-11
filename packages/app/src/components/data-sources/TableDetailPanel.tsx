@@ -1,6 +1,15 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
-import type { DataTable } from "@dashframe/types";
+import { extractUUIDFromColumnAlias } from "@dashframe/engine";
+import type {
+  ColumnAnalysis,
+  DataTable,
+  FieldSensitivity,
+} from "@dashframe/types";
+import {
+  getFieldSensitivity,
+  suggestSensitivityReasons,
+} from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
 import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@wystack/ui";
 import {
@@ -11,7 +20,8 @@ import {
   PlusIcon,
   SparklesIcon,
 } from "@wystack/ui-icons";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { SensitivityBadge } from "./SensitivityBadge";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -19,6 +29,15 @@ interface TableDetailPanelProps {
   onCreateVisualization: () => void;
   onEditField: (fieldId: string) => void;
   onDeleteField: (fieldId: string) => void;
+  /**
+   * One-click sensitivity marking. `reasons` carries classifier suggestions
+   * when the user confirms one (keeps the marking legible).
+   */
+  onSetFieldSensitivity: (
+    fieldId: string,
+    sensitivity: FieldSensitivity,
+    reasons?: string[],
+  ) => void;
   onAddField: () => void;
   onAddMetric: () => void;
   onDeleteMetric: (metricId: string) => void;
@@ -31,12 +50,25 @@ export function TableDetailPanel({
   onCreateVisualization,
   onEditField,
   onDeleteField,
+  onSetFieldSensitivity,
   onAddField,
   onAddMetric,
   onDeleteMetric,
   onDeleteTable,
 }: TableDetailPanelProps) {
   const [activeTab, setActiveTab] = useState("fields");
+
+  // Cached column analysis keyed by field ID, for data-driven sensitivity
+  // signals (email-shaped values, free text) beyond name heuristics.
+  const analysisByFieldId = useMemo(() => {
+    const map = new Map<string, ColumnAnalysis>();
+    for (const column of dataFrameEntry?.analysis?.columns ?? []) {
+      const fieldId =
+        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
+      if (fieldId) map.set(fieldId, column);
+    }
+    return map;
+  }, [dataFrameEntry]);
 
   // Load data only when preview tab is active (lazy loading)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -182,41 +214,74 @@ export function TableDetailPanel({
                 </p>
               </div>
             ) : (
-              dataTable.fields.map((field) => (
-                <div
-                  key={field.id}
-                  className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="truncate text-sm font-medium text-neutral-fg">
-                      {field.name}
-                    </span>
-                    <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
-                      {field.type}
-                    </span>
+              dataTable.fields.map((field) => {
+                const sensitivity = getFieldSensitivity(field);
+                const suggestedReasons =
+                  sensitivity === "unclassified"
+                    ? suggestSensitivityReasons({
+                        name: field.name,
+                        analysis: analysisByFieldId.get(field.id),
+                      })
+                    : [];
+
+                return (
+                  <div
+                    key={field.id}
+                    className="flex items-center justify-between rounded-xl border border-neutral-border/60 p-3 transition-colors hover:border-neutral-border"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <span className="truncate text-sm font-medium text-neutral-fg">
+                        {field.name}
+                      </span>
+                      <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
+                        {field.type}
+                      </span>
+                      <SensitivityBadge
+                        field={field}
+                        suggestedReasons={suggestedReasons}
+                        onConfirmSuggestion={() =>
+                          onSetFieldSensitivity(
+                            field.id,
+                            "sensitive",
+                            suggestedReasons,
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {sensitivity !== "cleared" && (
+                        <Button
+                          label="Mark safe"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            onSetFieldSensitivity(field.id, "cleared")
+                          }
+                          className="h-8"
+                        />
+                      )}
+                      <Button
+                        label="Edit field"
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        onClick={() => onEditField(field.id)}
+                        className="h-8 w-8"
+                        icon={EditIcon}
+                      />
+                      <Button
+                        label="Delete field"
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        onClick={() => onDeleteField(field.id)}
+                        className="h-8 w-8 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
+                        icon={CloseIcon}
+                      />
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      label="Edit field"
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      onClick={() => onEditField(field.id)}
-                      className="h-8 w-8"
-                      icon={EditIcon}
-                    />
-                    <Button
-                      label="Delete field"
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      onClick={() => onDeleteField(field.id)}
-                      className="h-8 w-8 text-palette-danger hover:bg-palette-danger hover:text-palette-danger-fg"
-                      icon={CloseIcon}
-                    />
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

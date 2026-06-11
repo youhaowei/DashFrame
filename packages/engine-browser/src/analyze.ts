@@ -17,7 +17,13 @@ import { debugLog } from "./debug";
 import { Insight } from "./insight";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
-export { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "@dashframe/types";
+export {
+  CARDINALITY_THRESHOLDS,
+  looksLikeIdentifier,
+  suggestSensitivityFromAnalysis,
+  suggestSensitivityFromName,
+  suggestSensitivityReasons,
+} from "@dashframe/types";
 export type {
   ColumnAnalysis,
   ColumnCategory,
