@@ -4,7 +4,7 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { Alert, AlertDescription } from "@stdui/react";
+import { Alert, AlertDescription } from "@wystack/ui";
 import { useMemo } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 

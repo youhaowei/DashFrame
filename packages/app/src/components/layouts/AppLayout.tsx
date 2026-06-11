@@ -1,6 +1,6 @@
 import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
-import { cn } from "@stdui/react";
 import { Link } from "@tanstack/react-router";
+import { cn } from "@wystack/ui";
 import type { ReactNode } from "react";
 
 export interface AppLayoutProps {

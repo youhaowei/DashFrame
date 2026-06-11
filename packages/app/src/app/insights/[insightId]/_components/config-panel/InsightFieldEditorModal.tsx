@@ -1,5 +1,4 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@stdui/icons";
 import {
   Badge,
   Dialog,
@@ -9,7 +8,8 @@ import {
   DialogTitle,
   Input,
   cn,
-} from "@stdui/react";
+} from "@wystack/ui";
+import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 interface InsightFieldEditorModalProps {

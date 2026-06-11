@@ -10,8 +10,8 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import { ArrowLeftIcon } from "@stdui/icons";
-import { Button, SectionList } from "@stdui/react";
+import { Button, SectionList } from "@wystack/ui";
+import { ArrowLeftIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";

@@ -1,11 +1,11 @@
 "use client";
 
-import { ButtonGroup, cn, Toggle, type ItemAction } from "@stdui/react";
+import { ButtonGroup, cn, Toggle, type ItemAction } from "@wystack/ui";
 import { useState } from "react";
 import type { LucideIcon } from "../lib/icons";
 import { GridIcon, ListIcon } from "../lib/icons";
 
-export type { ItemAction } from "@stdui/react";
+export type { ItemAction } from "@wystack/ui";
 
 export interface SelectableItem {
   id: string;

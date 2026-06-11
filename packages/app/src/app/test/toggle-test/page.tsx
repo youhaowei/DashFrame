@@ -1,3 +1,4 @@
+import { Card, Toggle } from "@wystack/ui";
 import {
   ChartIcon,
   DarkModeIcon,
@@ -5,8 +6,7 @@ import {
   LightModeIcon,
   ListIcon,
   TableIcon,
-} from "@stdui/icons";
-import { Card, Toggle } from "@stdui/react";
+} from "@wystack/ui-icons";
 import { useState } from "react";
 
 export default function ToggleTestPage() {

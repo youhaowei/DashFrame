@@ -1,6 +1,6 @@
-import { ArrowRightIcon, type LucideIcon } from "@stdui/icons";
-import { Button, ItemList, type ListItem } from "@stdui/react";
 import { useNavigate } from "@tanstack/react-router";
+import { Button, ItemList, type ListItem } from "@wystack/ui";
+import { ArrowRightIcon, type LucideIcon } from "@wystack/ui-icons";
 
 export interface DashboardSectionProps {
   /** Section title displayed in header */

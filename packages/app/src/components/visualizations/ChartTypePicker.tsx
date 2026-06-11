@@ -16,7 +16,6 @@ import {
 } from "@dashframe/types";
 import { CHART_ICONS } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
-import { InfoIcon, SparklesIcon } from "@stdui/icons";
 import {
   Button,
   cn,
@@ -24,7 +23,8 @@ import {
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@stdui/react";
+} from "@wystack/ui";
+import { InfoIcon, SparklesIcon } from "@wystack/ui-icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 /** Height of the chart preview area in pixels */

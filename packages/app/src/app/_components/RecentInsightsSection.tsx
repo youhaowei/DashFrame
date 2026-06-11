@@ -1,5 +1,5 @@
-import { SparklesIcon } from "@stdui/icons";
 import { useNavigate } from "@tanstack/react-router";
+import { SparklesIcon } from "@wystack/ui-icons";
 import { useMemo } from "react";
 
 import { useInsights } from "@dashframe/core";

@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@stdui/react";
+import { cn } from "@wystack/ui";
 import * as React from "react";
 
 export type JoinType = "inner" | "left" | "right" | "outer" | "full";

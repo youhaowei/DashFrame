@@ -10,7 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
+} from "@wystack/ui";
 import type { ChangeEvent } from "react";
 
 /**

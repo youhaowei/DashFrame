@@ -6,8 +6,8 @@ import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
 import { DatabaseProvider } from "@dashframe/core";
-import { TooltipProvider } from "@stdui/react";
 import { Outlet } from "@tanstack/react-router";
+import { TooltipProvider } from "@wystack/ui";
 import { Toaster } from "sonner";
 
 /**

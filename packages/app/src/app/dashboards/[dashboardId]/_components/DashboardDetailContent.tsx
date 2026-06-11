@@ -5,14 +5,7 @@ import {
   useVisualizations,
 } from "@dashframe/core";
 import type { DashboardItemType } from "@dashframe/types";
-import {
-  ArrowLeftIcon,
-  ChartIcon,
-  CheckIcon,
-  EditIcon,
-  FileIcon,
-  PlusIcon,
-} from "@stdui/icons";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -25,8 +18,15 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import {
+  ArrowLeftIcon,
+  ChartIcon,
+  CheckIcon,
+  EditIcon,
+  FileIcon,
+  PlusIcon,
+} from "@wystack/ui-icons";
 import { useEffect, useMemo, useState } from "react";
 
 interface DashboardDetailContentProps {

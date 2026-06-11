@@ -2,6 +2,7 @@ import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { DataFrameEntry } from "@dashframe/core";
 import type { DataTable } from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
+import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@wystack/ui";
 import {
   CloseIcon,
   DeleteIcon,
@@ -9,8 +10,7 @@ import {
   LayersIcon,
   PlusIcon,
   SparklesIcon,
-} from "@stdui/icons";
-import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@stdui/react";
+} from "@wystack/ui-icons";
 import { useState } from "react";
 
 interface TableDetailPanelProps {

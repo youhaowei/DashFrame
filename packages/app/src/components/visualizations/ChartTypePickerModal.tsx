@@ -8,7 +8,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { useCallback } from "react";
 import { ChartTypePicker } from "./ChartTypePicker";
 

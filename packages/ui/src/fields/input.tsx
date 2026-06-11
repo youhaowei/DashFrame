@@ -1,6 +1,6 @@
 "use client";
 
-import { Field, FieldLabel, Input as InputPrimitive } from "@stdui/react";
+import { Field, FieldLabel, Input as InputPrimitive } from "@wystack/ui";
 
 interface InputProps {
   label?: string;

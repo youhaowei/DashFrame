@@ -1,20 +1,20 @@
 import type { InsightMetric } from "@dashframe/types";
 import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {
-  CalculatorIcon,
-  ChevronRightIcon,
-  CloseIcon,
-  EditIcon,
-  PlusIcon,
-} from "@stdui/icons";
-import {
   Badge,
   Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
   cn,
-} from "@stdui/react";
+} from "@wystack/ui";
+import {
+  CalculatorIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  EditIcon,
+  PlusIcon,
+} from "@wystack/ui-icons";
 import { useCallback, useState } from "react";
 
 /** Extended sortable item with metric data */

@@ -9,16 +9,7 @@ import {
 } from "@dashframe/core";
 import type { UUID } from "@dashframe/types";
 import { Breadcrumb, VirtualTable } from "@dashframe/ui";
-import {
-  DatabaseIcon,
-  DeleteIcon,
-  ChevronLeftIcon as LuArrowLeft,
-  CloudIcon as LuCloud,
-  FileIcon as LuFileSpreadsheet,
-  MoreIcon as LuMoreHorizontal,
-  PlusIcon,
-  TableIcon,
-} from "@stdui/icons";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Badge,
   Button,
@@ -38,8 +29,17 @@ import {
   DropdownMenuTrigger,
   Input,
   ItemCard,
-} from "@stdui/react";
-import { Link, useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import {
+  DatabaseIcon,
+  DeleteIcon,
+  ChevronLeftIcon as LuArrowLeft,
+  CloudIcon as LuCloud,
+  FileIcon as LuFileSpreadsheet,
+  MoreIcon as LuMoreHorizontal,
+  PlusIcon,
+  TableIcon,
+} from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 interface DataSourcePageContentProps {

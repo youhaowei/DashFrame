@@ -13,7 +13,7 @@ import {
   DateTypeIcon,
   NumberTypeIcon,
   TextTypeIcon,
-} from "@stdui/icons";
+} from "@wystack/ui-icons";
 
 /**
  * Get icon for a field based on its type string.

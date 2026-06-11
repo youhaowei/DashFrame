@@ -9,7 +9,7 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { useState } from "react";
 
 interface FieldRenameDialogProps {

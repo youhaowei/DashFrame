@@ -38,7 +38,7 @@
     "test:e2e:ci": "turbo test:e2e:ci",
     "test:e2e:ui": "bun run --filter @dashframe/web-e2e test:ui",
     "typecheck": "turbo typecheck",
-    "check": "turbo check --filter=!@stdui/* --filter=!@wystack/*",
+    "check": "turbo check --filter=!@wystack/*",
     "clean": "turbo clean",
     "storybook": "turbo storybook",
     "build-storybook": "turbo build-storybook",

@@ -1,5 +1,6 @@
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -7,8 +8,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
 import { useCallback, useState } from "react";
 
 interface CreateVisualizationModalProps {

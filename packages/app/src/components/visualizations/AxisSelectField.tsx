@@ -26,13 +26,13 @@ import type {
 } from "@dashframe/types";
 import { fieldEncoding, metricEncoding, parseEncoding } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
-import { AlertCircleIcon, ArrowUpDownIcon } from "@stdui/icons";
 import {
   Badge,
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@stdui/react";
+} from "@wystack/ui";
+import { AlertCircleIcon, ArrowUpDownIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo } from "react";
 
 interface AxisSelectFieldProps {

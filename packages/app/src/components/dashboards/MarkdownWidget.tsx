@@ -1,5 +1,5 @@
-import { CheckIcon, CloseIcon } from "@stdui/icons";
-import { Button, cn } from "@stdui/react";
+import { Button, cn } from "@wystack/ui";
+import { CheckIcon, CloseIcon } from "@wystack/ui-icons";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 

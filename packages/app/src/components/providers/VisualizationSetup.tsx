@@ -4,7 +4,7 @@ import {
   registerRenderer,
   useVisualization,
 } from "@dashframe/visualization";
-import { ErrorState } from "@stdui/react";
+import { ErrorState } from "@wystack/ui";
 import { useCallback, useEffect, type ReactNode } from "react";
 import { useDuckDBContext } from "./DuckDBProvider";
 

@@ -1,6 +1,6 @@
 # @dashframe/ui
 
-Shared UI component library for DashFrame. Re-exports `@stdui/react` (design system) plus DashFrame-specific components.
+Shared UI component library for DashFrame. Re-exports `@wystack/ui` (design system) plus DashFrame-specific components.
 
 ## Installation
 
@@ -22,8 +22,8 @@ packages/ui/
 │   ├── components/       # DashFrame-specific components
 │   ├── fields/           # Form field wrappers
 │   ├── lib/
-│   │   └── icons.tsx     # Icon re-exports from @stdui/icons
-│   ├── globals.css       # Imports @stdui/react/styles + app fonts
+│   │   └── icons.tsx     # Icon re-exports from @wystack/ui-icons
+│   ├── globals.css       # Imports @wystack/ui/styles + app fonts
 │   └── index.ts          # Barrel exports (stdui + DashFrame components)
 ├── .storybook/           # Storybook v10 configuration
 └── package.json
@@ -53,11 +53,11 @@ import { StduiProvider, useTheme } from "@dashframe/ui";
 
 `@dashframe/ui` is a thin re-export layer:
 
-- **stdui primitives** (from `@stdui/react`) — Button, Card, Input, Select, Dialog, Badge, Tabs, etc.
-- **stdui theme** (from `@stdui/react/theme`) — StduiProvider, useTheme
+- **stdui primitives** (from `@wystack/ui`) — Button, Card, Input, Select, Dialog, Badge, Tabs, etc.
+- **stdui theme** (from `@wystack/ui/theme`) — StduiProvider, useTheme
 - **DashFrame components** — ItemSelector, VirtualTable, SortableList, Breadcrumb, JoinTypeIcon
 
-All stdui components are re-exported via `export * from "@stdui/react"` in `index.ts`.
+All stdui components are re-exported via `export * from "@wystack/ui"` in `index.ts`.
 
 ## Design Tokens
 
@@ -156,6 +156,6 @@ bun format           # Prettier check
 
 ## Dependencies
 
-**Production:** React 19, `@stdui/react` (design system), sonner
+**Production:** React 19, `@wystack/ui` (design system), sonner
 
 **Development:** Storybook v10, TypeScript 5.7, Tailwind CSS v4, PostCSS

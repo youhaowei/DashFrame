@@ -1,5 +1,5 @@
-import { Button } from "@stdui/react";
 import { useNavigate } from "@tanstack/react-router";
+import { Button } from "@wystack/ui";
 
 interface NotFoundViewProps {
   type: "insight" | "dataTable";

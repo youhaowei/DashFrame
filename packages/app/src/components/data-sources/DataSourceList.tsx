@@ -1,5 +1,5 @@
-import { FileIcon } from "@stdui/icons";
-import { ItemCard } from "@stdui/react";
+import { ItemCard } from "@wystack/ui";
+import { FileIcon } from "@wystack/ui-icons";
 
 export interface DataSourceInfo {
   id: string;

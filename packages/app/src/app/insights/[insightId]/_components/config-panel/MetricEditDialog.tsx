@@ -18,7 +18,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { useMemo, useState } from "react";
 
 interface MetricEditDialogProps {
