@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // Enforces the "no ticket numbers in source code" convention.
 //
-// Scans all TypeScript source files under packages/{pkg}/src and apps/{pkg}/src
-// for patterns like YW-123 or TASK-456. Any match is a hard failure — ticket
-// refs belong in commit messages and Linear, not in comments, JSDoc, or test
-// titles.
+// Scans all TypeScript source files under packages/{pkg} and apps/{pkg}
+// (recursively, not just their `src/` dirs — some apps keep source under
+// components/, hooks/, lib/, or at the package root) for patterns like YW-123
+// or TASK-456. Any match is a hard failure — ticket refs belong in commit
+// messages and Linear, not in comments, JSDoc, or test titles.
 //
 // Usage: node scripts/check-no-ticket-refs.mjs
 // Exit code: 0 = clean, 1 = violations found.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,7 +38,9 @@ function collectSourceFiles(dir) {
         entry.name === "dist" ||
         entry.name === "build" ||
         entry.name === ".turbo" ||
-        entry.name === "coverage"
+        entry.name === "coverage" ||
+        entry.name === ".next" ||
+        entry.name === "out"
       ) {
         continue;
       }
@@ -52,7 +55,11 @@ function collectSourceFiles(dir) {
   return results;
 }
 
-// Collect all source files across packages/{pkg}/src and apps/{pkg}/src.
+// Collect all source files across packages/{pkg} and apps/{pkg}. Each package
+// is scanned recursively from its root — not just `src/` — because some apps
+// (e.g. apps/web) keep TypeScript source under components/, hooks/, lib/, and at
+// the package root. The recursion's generated/vendor excludes (node_modules,
+// dist, build, .turbo, coverage) keep the scan to hand-written source.
 function collectAllSourceFiles() {
   const files = [];
   for (const root of SOURCE_ROOTS) {
@@ -65,13 +72,7 @@ function collectAllSourceFiles() {
     }
     for (const pkg of packages) {
       if (!pkg.isDirectory()) continue;
-      const srcDir = join(rootDir, pkg.name, "src");
-      try {
-        statSync(srcDir);
-      } catch {
-        continue;
-      }
-      files.push(...collectSourceFiles(srcDir));
+      files.push(...collectSourceFiles(join(rootDir, pkg.name)));
     }
   }
   return files;
