@@ -37,4 +37,19 @@ describe("classifyDuration", () => {
     expect(classifyDuration(PerfStage.Execute, 600)).toBe("warn");
     expect(classifyDuration(PerfStage.Execute, 800)).toBe("over");
   });
+
+  it("treats plumbing pipeline stages as attribution-only (no per-stage budget)", () => {
+    // compile/place/cache/transport carry no individual budget — the 500ms
+    // anchor is a whole-chain budget proxied by Execute, so a per-stage budget
+    // here would let a slow multi-stage flow read green stage-by-stage.
+    for (const stage of [
+      PerfStage.Compile,
+      PerfStage.Place,
+      PerfStage.Cache,
+      PerfStage.Transport,
+    ]) {
+      expect(classifyDuration(stage, 5)).toBe("unowned");
+      expect(classifyDuration(stage, 5000)).toBe("unowned");
+    }
+  });
 });

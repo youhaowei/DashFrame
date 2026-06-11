@@ -177,12 +177,18 @@ export default function DataSourcePageContent({
   // Handle name change - directly update database, triggers re-render via hook
   const handleNameChange = async (newName: string) => {
     // Command-apply boundary: a direct mutation on the artifact. Instrumented so
-    // the dev HUD can hold it against the <100ms perceived budget.
-    await withPerfAsync(
-      PerfStage.CommandApply,
-      () => updateDataSource(sourceId, { name: newName }),
-      `data-source:${sourceId}`,
-    );
+    // the dev HUD can hold it against the <100ms perceived budget. Wrapped so a
+    // failed mutation surfaces a toast instead of rejecting out of the input
+    // event path (unhandled rejection).
+    try {
+      await withPerfAsync(
+        PerfStage.CommandApply,
+        () => updateDataSource(sourceId, { name: newName }),
+        `data-source:${sourceId}`,
+      );
+    } catch {
+      toast.error("Failed to rename data source");
+    }
   };
 
   // Handle create insight from table

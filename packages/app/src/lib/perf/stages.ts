@@ -57,18 +57,24 @@ export type PerfStage = (typeof PerfStage)[keyof typeof PerfStage];
  * (streaming visible activity, never a dead spinner). Unowned connector/query
  * waits also carry no budget; the deliverable there is attribution.
  */
+/**
+ * The data-backed-update anchor (<500ms) is a budget on the *whole* compile→
+ * transport chain, not on each stage. Assigning 500ms per stage would let a
+ * five-stage flow run ~2.5s while every stage still read green — masking the
+ * very latency the anchor exists to catch. It is therefore carried by `Execute`
+ * (the dominant owned segment) as the per-stage proxy, and the plumbing stages
+ * (compile/place/cache/transport) carry no individual budget — they get
+ * attribution, not a green/amber/red verdict. The chain budget itself is
+ * exported for callers that measure the end-to-end span.
+ */
+export const DATA_UPDATE_CHAIN_BUDGET_MS = 500;
+
 export const STAGE_BUDGET_MS: Partial<Record<PerfStage, number>> = {
   [PerfStage.InputEcho]: 16,
   [PerfStage.CommandApply]: 100,
   [PerfStage.Render]: 100,
-  // Data-backed update: the full compile→transport chain has a 500ms anchor.
-  // Attributed to Execute as the dominant owned segment; Connector/query stages
-  // below are deliberately omitted (unowned → attribution, not a budget).
-  [PerfStage.Compile]: 500,
-  [PerfStage.Place]: 500,
-  [PerfStage.Execute]: 500,
-  [PerfStage.Cache]: 500,
-  [PerfStage.Transport]: 500,
+  // Dominant owned segment of the data-update chain carries the 500ms anchor.
+  [PerfStage.Execute]: DATA_UPDATE_CHAIN_BUDGET_MS,
 };
 
 /**

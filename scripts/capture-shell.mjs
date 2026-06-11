@@ -23,14 +23,15 @@ async function goto(page, path) {
   await page.waitForTimeout(1200);
 }
 
-const toggle = (page) =>
-  page.locator('[aria-label="Open assistant"], [aria-label="Hide assistant"]');
-
 async function ensureAssistant(page, open) {
-  const t = toggle(page);
-  const label = await t.getAttribute("aria-label");
-  const isOpen = label === "Hide assistant";
-  if (open !== isOpen) await t.click();
+  // The edge toggle ("Open assistant") only exists while the panel is closed;
+  // while open, the panel header's "Dismiss assistant" closes it.
+  const openBtn = page.locator('[aria-label="Open assistant"]');
+  const isOpen = (await openBtn.count()) === 0;
+  if (open && !isOpen) await openBtn.click();
+  if (!open && isOpen) {
+    await page.locator('[aria-label="Dismiss assistant"]:visible').first().click();
+  }
   await page.waitForTimeout(450);
 }
 
@@ -44,6 +45,16 @@ async function setDock(page, target /* "docked" | "floating" */) {
 
 const main = async () => {
   const browser = await chromium.launch();
+  try {
+    await capture(browser);
+  } finally {
+    // Always tear down Chromium, even if a step throws mid-run.
+    await browser.close();
+  }
+  console.log("captured →", OUT);
+};
+
+async function capture(browser) {
   const ctx = await browser.newContext({
     viewport: VIEWPORT,
     deviceScaleFactor: 2,
@@ -104,10 +115,7 @@ const main = async () => {
   await perfChip.click({ force: true });
   await page.waitForTimeout(300);
   await shot(page, "09-dev-hud-closed");
-
-  await browser.close();
-  console.log("captured →", OUT);
-};
+}
 
 main().catch((e) => {
   console.error(e);

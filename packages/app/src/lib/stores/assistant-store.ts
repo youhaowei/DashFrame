@@ -38,6 +38,39 @@ function clampWidth(width: number): number {
 }
 
 /**
+ * localStorage that swallows access failures (quota exceeded, Safari private
+ * mode, blocked site storage). Persistence is a nice-to-have for a UI
+ * preference — it must never let a write failure escape into a click handler
+ * and break the assistant controls. SSR-safe: no-ops without `window`.
+ */
+const safeLocalStorage = {
+  getItem: (name: string): string | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name: string, value: string): void => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(name, value);
+    } catch {
+      // Best-effort: drop the write rather than break the UI.
+    }
+  },
+  removeItem: (name: string): void => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(name);
+    } catch {
+      // Best-effort.
+    }
+  },
+};
+
+/**
  * Assistant sidebar preferences. The docked/undocked preference and rail width
  * persist locally (plain localStorage JSON); open/closed also persists so the
  * panel survives a reload in whatever state the user left it.
@@ -68,7 +101,7 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
     }),
     {
       name: "dashframe:assistant",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => safeLocalStorage),
       skipHydration: true,
       // Persist only durable preferences + last-open state; actions are derived.
       partialize: (s) => ({ isOpen: s.isOpen, dock: s.dock, width: s.width }),

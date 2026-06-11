@@ -1,3 +1,4 @@
+import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
@@ -113,6 +114,21 @@ export default function VisualizationPageContent({
   const visualization = useMemo(
     () => visualizations.find((v) => v.id === visualizationId),
     [visualizations, visualizationId],
+  );
+
+  // Bind the assistant to this visualization (cleared on unmount).
+  useBindArtifact(
+    useMemo(
+      () =>
+        visualization
+          ? {
+              kind: "visualization" as const,
+              id: visualizationId,
+              title: visualization.name || "Untitled visualization",
+            }
+          : null,
+      [visualization, visualizationId],
+    ),
   );
 
   // Find the insight (React Compiler memoizes this).

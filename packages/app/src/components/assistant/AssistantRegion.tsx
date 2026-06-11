@@ -57,10 +57,14 @@ export function AssistantRegion({ children }: { children: ReactNode }) {
       {/* Overlay — floating preference, or docked with no room to reflow. */}
       {overlay && <AssistantSidebar presentation="floating" />}
 
-      {/* Discoverable edge summon — always present, route-independent. */}
-      <div className="fixed top-3 right-3 z-40">
-        <AssistantToggle className="shadow-sm" />
-      </div>
+      {/* Discoverable edge summon — shown only when the panel is closed. While
+          open, the panel's own header holds dismiss/dock, and a fixed toggle
+          here would overlap (and intercept clicks on) those controls. */}
+      {!isOpen && (
+        <div className="fixed top-3 right-3 z-40">
+          <AssistantToggle className="shadow-sm" />
+        </div>
+      )}
     </div>
   );
 }

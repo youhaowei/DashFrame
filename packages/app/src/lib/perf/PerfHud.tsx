@@ -66,11 +66,14 @@ function rollup(samples: PerfSample[]): StageRollup[] {
       lastMs: last?.durationMs ?? 0,
       p95Ms: p95?.durationMs ?? 0,
       budgetMs: STAGE_BUDGET_MS[stage],
-      // Worst-case verdict across the window communicates risk honestly.
+      // Worst-case verdict across the window communicates risk honestly. Seed
+      // from the first sample (not "ok") so a stage with only `unowned` samples
+      // reports `unowned` — `ok` and `unowned` share rank 0, so a hardcoded "ok"
+      // seed would mask an attribution-only stage as healthy/green.
       verdict: list.reduce<BudgetVerdict>((worst, s) => {
         const rank = { ok: 0, unowned: 0, warn: 1, over: 2 } as const;
         return rank[s.verdict] > rank[worst] ? s.verdict : worst;
-      }, "ok"),
+      }, list[0]?.verdict ?? "ok"),
     });
   }
   return rows.sort((a, b) => a.stage.localeCompare(b.stage));

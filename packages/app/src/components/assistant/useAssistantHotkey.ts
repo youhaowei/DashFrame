@@ -12,6 +12,8 @@ export function useAssistantHotkey(): void {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ignore auto-repeat so holding ⌘/Ctrl+J doesn't flip the panel rapidly.
+      if (e.repeat) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "j" || e.key === "J")) {
         e.preventDefault();

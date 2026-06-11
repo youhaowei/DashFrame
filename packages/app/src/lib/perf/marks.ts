@@ -48,13 +48,10 @@ export function perfMeasure(
   const start = markName(stage, "start", label);
   const end = markName(stage, "end", label);
   const suffix = label ? `:${label}` : "";
+  const measureName = `dashframe:${stage}${suffix}`;
   try {
     performance.mark(end);
-    const measure = performance.measure(
-      `dashframe:${stage}${suffix}`,
-      start,
-      end,
-    );
+    const measure = performance.measure(measureName, start, end);
     const durationMs = measure?.duration ?? 0;
     usePerfStore.getState().record({
       stage,
@@ -62,9 +59,13 @@ export function perfMeasure(
       durationMs,
       at: performance.now(),
     });
-    // Keep the global mark buffer from growing unbounded across a long session.
+    // Keep the global PerformanceEntry buffer from growing unbounded across a
+    // long session — clear both the marks and the measure we just created.
+    // (Render instrumentation runs even when the HUD is disabled, so this must
+    // happen regardless of whether a sample was recorded.)
     performance.clearMarks(start);
     performance.clearMarks(end);
+    performance.clearMeasures(measureName);
     return durationMs;
   } catch {
     return undefined;
