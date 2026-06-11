@@ -383,10 +383,12 @@ async function buildDirectNodes(
   // node key = `${kind}:${id}` so two kinds sharing an id can't collide.
   const byKey = new Map<string, PreviewDirectNode>();
   const order: string[] = [];
-  // Kind already established for an id by an EARLIER command in this batch. A
-  // create command fixes its target's kind; a later polymorphic RenameNode on
-  // that same id (created in-batch, so not yet in canonical state — preview
-  // rolled back) reuses it instead of mis-defaulting to the descriptor kind.
+  // Kind already established for an id by an EARLIER command in this batch —
+  // consulted ONLY by the polymorphic RenameNode (its target may have been
+  // created in-batch, so not yet in canonical state — preview rolled back).
+  // Every other command's kind is FIXED by its descriptor: two different kinds
+  // legitimately sharing one client-minted id (PKs are per table) must land in
+  // two distinct `${kind}:${id}` nodes, not collapse into whichever came first.
   const idToKind = new Map<string, ArtifactKind>();
 
   for (const command of batch) {
@@ -395,8 +397,10 @@ async function buildDirectNodes(
     const args = (command.args ?? {}) as Record<string, unknown>;
     const nodeId = descriptor.targetId(args) as UUID;
     const kind =
-      idToKind.get(nodeId) ??
-      (await resolveKind(db, command.path, descriptor, nodeId));
+      command.path === "renameNode"
+        ? (idToKind.get(nodeId) ??
+          (await resolveKind(db, command.path, descriptor, nodeId)))
+        : descriptor.kind;
     idToKind.set(nodeId, kind);
     const key = `${kind}:${nodeId}`;
 

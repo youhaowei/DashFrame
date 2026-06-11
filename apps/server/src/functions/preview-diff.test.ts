@@ -383,6 +383,36 @@ describe("PreviewDiff builder", () => {
       expect(node.change).toBe("noop");
       expect(node.proposedDefinition).toEqual({});
     });
+
+    // ---- node identity: the `${kind}:${id}` key, not the id alone ----
+
+    it("two kinds sharing one client id stay two distinct nodes (no cross-kind merge)", async () => {
+      // PKs are per table, so a batch may legitimately mint a dataSource AND a
+      // dataTable under the same client-supplied UUID. A fixed-kind command must
+      // use its DESCRIPTOR kind — the table create must not collapse into the
+      // source node as a noop and vanish from the preview.
+      const sharedId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sharedId, type: "csv", name: "Src" }),
+        cmd("CreateDataTable", {
+          id: sharedId,
+          dataSourceId: sharedId,
+          name: "Tbl",
+          table: "t.csv",
+        }),
+      );
+
+      expect(diff.directNodes).toHaveLength(2);
+      const source = diff.directNodes.find((n) => n.kind === "dataSource")!;
+      const table = diff.directNodes.find((n) => n.kind === "dataTable")!;
+      expect(source.change).toBe("create");
+      expect(table.change).toBe("create");
+      // The table's proposed args survive — a real create, not a noop merge.
+      expect(table.proposedDefinition).toMatchObject({
+        name: "Tbl",
+        table: "t.csv",
+      });
+    });
   });
 
   // --------------------------------------------------------------------------
