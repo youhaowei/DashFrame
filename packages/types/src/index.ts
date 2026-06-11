@@ -150,3 +150,18 @@ export {
   getLegacyCategory,
   looksLikeIdentifier,
 } from "./column-analysis";
+
+// =============================================================================
+// Preview-diff Types (YW-124)
+// =============================================================================
+
+export type {
+  ArtifactKind,
+  DownstreamEdge,
+  DownstreamFlag,
+  PreviewCompute,
+  PreviewDiff,
+  PreviewDirectNode,
+  PreviewDownstreamNode,
+  PreviewIntent,
+} from "./preview-diff";
