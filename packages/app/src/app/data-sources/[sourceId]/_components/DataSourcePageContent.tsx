@@ -7,7 +7,12 @@ import {
   useDataTableMutations,
   useDataTables,
 } from "@dashframe/core";
-import type { UUID } from "@dashframe/types";
+import type { FieldSensitivity, UUID } from "@dashframe/types";
+import {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  suggestSensitivityFromName,
+} from "@dashframe/types";
 import { Breadcrumb, VirtualTable } from "@dashframe/ui";
 import {
   DatabaseIcon,
@@ -41,6 +46,7 @@ import {
 } from "@stdui/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 interface DataSourcePageContentProps {
   sourceId: string;
@@ -77,7 +83,7 @@ export default function DataSourcePageContent({
   // Dexie hooks
   const { data: allDataSources = [] } = useDataSources();
   const { update: updateDataSource } = useDataSourceMutations();
-  const { remove: removeDataTable } = useDataTableMutations();
+  const { remove: removeDataTable, updateField } = useDataTableMutations();
   const { data: allDataFrames = [] } = useDataFrames();
 
   // Find the data source
@@ -138,6 +144,26 @@ export default function DataSourcePageContent({
       to: "/insights",
       search: { newInsight: "true", tableId },
     } as never);
+  };
+
+  // One-click sensitivity marking. Confirming a classifier suggestion keeps
+  // its reasons; deliberate marking/clearing is recorded as a user decision.
+  const handleSetFieldSensitivity = async (
+    fieldId: UUID,
+    sensitivity: FieldSensitivity,
+    reasons?: string[],
+  ) => {
+    if (!effectiveSelectedTableId) return;
+    await updateField(
+      effectiveSelectedTableId,
+      fieldId,
+      buildSensitivityUpdate(sensitivity, reasons),
+    );
+    toast.success(
+      sensitivity === "cleared"
+        ? "Field marked as not sensitive"
+        : "Field marked sensitive",
+    );
   };
 
   // Handle delete table
@@ -322,19 +348,87 @@ export default function DataSourcePageContent({
                   </p>
                 ) : (
                   <div className="grid gap-2">
-                    {tableDetails.fields.map((field) => (
-                      <div
-                        key={field.id}
-                        className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
-                      >
-                        <span className="text-sm font-medium">
-                          {field.name}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {field.type}
-                        </Badge>
-                      </div>
-                    ))}
+                    {tableDetails.fields.map((field) => {
+                      const sensitivity = getFieldSensitivity(field);
+                      const suggestedReasons =
+                        sensitivity === "unclassified"
+                          ? suggestSensitivityFromName(field.name)
+                          : [];
+
+                      return (
+                        <div
+                          key={field.id}
+                          className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="text-sm font-medium">
+                              {field.name}
+                            </span>
+                            {sensitivity === "sensitive" && (
+                              <span
+                                title={field.sensitivityReason}
+                                className="shrink-0 rounded bg-palette-danger/10 px-2 py-0.5 text-xs font-medium text-palette-danger"
+                              >
+                                Sensitive
+                              </span>
+                            )}
+                            {sensitivity === "unclassified" &&
+                              (suggestedReasons.length > 0 ? (
+                                <button
+                                  type="button"
+                                  title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
+                                  onClick={() =>
+                                    handleSetFieldSensitivity(
+                                      field.id,
+                                      "sensitive",
+                                      suggestedReasons,
+                                    )
+                                  }
+                                  className="shrink-0 cursor-pointer rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-100 dark:bg-amber-950 dark:hover:bg-amber-900"
+                                >
+                                  Likely sensitive
+                                </button>
+                              ) : (
+                                <span
+                                  title="Treated as sensitive until cleared"
+                                  className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle"
+                                >
+                                  Unclassified
+                                </span>
+                              ))}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {sensitivity === "cleared" ? (
+                              <Button
+                                label="Mark sensitive"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  handleSetFieldSensitivity(
+                                    field.id,
+                                    "sensitive",
+                                  )
+                                }
+                                className="h-7"
+                              />
+                            ) : (
+                              <Button
+                                label="Mark safe"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  handleSetFieldSensitivity(field.id, "cleared")
+                                }
+                                className="h-7"
+                              />
+                            )}
+                            <Badge variant="outline" className="text-xs">
+                              {field.type}
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
