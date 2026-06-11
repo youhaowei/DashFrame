@@ -1,6 +1,6 @@
 /**
- * Command VOCABULARY (YW-106) — Layer B over @wystack/server's `applyCommands`
- * MECHANISM (YW-122).
+ * Command VOCABULARY (YW-106 + YW-123) — Layer B over @wystack/server's
+ * `applyCommands` MECHANISM (YW-122).
  *
  * `applyCommands` knows nothing about DashFrame. It dispatches a batch of
  * `{ path, args }` against the app's function registry inside one tracked
@@ -18,10 +18,9 @@
  * mutation handler. The builder layer is pure data-shaping (no DB access), so
  * the vocabulary stays a thin typed face over the mechanism.
  *
- * Decomposition: each coarse handler in `app-artifacts.ts` is split into
- * intent-carrying ops (the diffability the draft→publish trust model needs).
- * The traceability table:
+ * Decomposition:
  *
+ *   YW-106 (DataSource/DataTable/Fields/Metrics — merged in main):
  *   getOrCreateDataSourceByType → GetOrCreateDataSource   (the reference atomic command)
  *   addDataSource              → CreateDataSource
  *   updateDataSource           → SetDataSourceConfig + RenameNode
@@ -31,35 +30,162 @@
  *   patchDataTableArray        → AddField / UpdateField / RemoveField
  *                                + AddMetric / UpdateMetric / RemoveMetric
  *
+ *   YW-123 (Insight/Visualization/Dashboard — this slice):
+ *   createInsight              → CreateInsight
+ *   updateInsight (baseTableId/source slice) → SetInsightSource
+ *   updateInsight (selectedFields slice)     → SelectFields
+ *   updateInsight (filters slice)            → SetInsightFilter
+ *   updateInsight (sorts slice)              → SetInsightSort
+ *   updateInsight (joins array)              → AddJoin / UpdateJoin / RemoveJoin
+ *   patchInsight (fields/metrics)            → AddField / UpdateField / RemoveField
+ *                                              AddMetric / UpdateMetric / RemoveMetric
+ *                                              (same commands, now routed to Insight node)
+ *   createVisualization        → CreateVisualization
+ *   updateVisualization        → RenameNode + SetChartType + SetChartEncoding
+ *   removeVisualization        → DeleteNode
+ *   DashboardMutations.create  → CreateDashboard
+ *   DashboardMutations.addItem → AddDashboardItem
+ *   DashboardMutations.updateItem → UpdateDashboardItem
+ *   DashboardMutations.update (layout) → SetDashboardLayout
+ *   DashboardMutations.removeItem → RemoveDashboardItem
+ *   removeInsight/removeVisualization/removeDashboard → DeleteNode
+ *
  * Cross-cutting `RenameNode` is the one polymorphic rename — the `name` slice
- * carved out of every coarse update(blob).
+ * carved out of every coarse update(blob). Now covers Insight + Visualization +
+ * Dashboard nodes in addition to DataSource/DataTable.
  *
  * Fields & Metrics target the DataFrame-PRODUCING node polymorphically via
- * `{ nodeId }`, NOT a DataTable id — a leaf node is a DataTable (fields/metrics
- * live in its `fields`/`metrics` jsonb columns); a derived node is an Insight
- * (YW-123). This slice implements the DataTable case and dispatches on node kind
- * so the Insight case slots in without changing the command shape.
+ * `{ nodeId }`. The YW-106 slice implemented the DataTable case; YW-123 wires
+ * the Insight case so field/metric edits on a derived Insight work with the
+ * same command shape.
  *
- * Operand encoding (YW-153 spike finding): when a value-bearing operand type is
- * introduced (filters, YW-123), it MUST be a TAGGED union
- *   { kind: 'value'; v } | { kind: 'deferred'; ref }   (v: null means IS NULL)
- * NOT property-presence. The YW-106 commands here carry only concrete values
- * (ids, names, schemas, whole Field/Metric records), so no operand type is
- * introduced — adding one speculatively would violate "don't gold-plate". This
- * comment records that the tagged-union convention is established for YW-123.
+ * Operand encoding (YW-153 spike finding): value-bearing operands in
+ * SetInsightFilter are a TAGGED union:
+ *   { kind: 'value'; v: unknown }      (v: null is valid — means IS NULL)
+ *   | { kind: 'lateBound'; ref: ... }  (column | category | placeholder)
+ * NOT property-presence. This is the mechanism that reconciles capability-parity
+ * with the privacy floor: the agent emits the same command verb, leaving only
+ * the *value* unbound when the egress gate withheld it.
+ *
+ * Insight-on-Insight composition (SetInsightSource):
+ * `source` is polymorphic — `{ sourceType: 'dataTable', sourceId }` OR
+ * `{ sourceType: 'insight', sourceId }`. The handler detects cycles by
+ * walking the source chain; it rejects a source that would make the Insight
+ * transitively depend on itself.
+ *
+ * Backwards compatibility: the existing `InsightDefinition.baseTableId` field is
+ * preserved in all writes so `rowToInsight` in `app-artifacts.ts` (which reads
+ * `definition.baseTableId`) continues to work during the transition window
+ * (YW-157). For a DataTable source, `baseTableId === source.sourceId`. For an
+ * Insight source, `baseTableId` is left as the last known value (the read path
+ * in app-artifacts will eventually be migrated to read `source` instead).
  */
 import { schema } from "@dashframe/server-core";
-import type { Field, Metric, SourceSchema, UUID } from "@dashframe/types";
+import type {
+  Field,
+  InsightJoinConfig,
+  InsightSort,
+  Metric,
+  SourceSchema,
+  UUID,
+  VegaLiteSpec,
+  VisualizationEncoding,
+  VisualizationType,
+} from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 
 import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
 
-const { dataSources, dataTables, insights } = schema;
+const { dataSources, dataTables, insights, visualizations, dashboards } =
+  schema;
 
 type DataSourceRow = typeof dataSources.$inferSelect;
 type DataTableRow = typeof dataTables.$inferSelect;
+type InsightRow = typeof insights.$inferSelect;
+type VisualizationRow = typeof visualizations.$inferSelect;
+type DashboardRow = typeof dashboards.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Insight definition shape (stored in insights.definition jsonb)
+// ---------------------------------------------------------------------------
+
+/**
+ * The full polymorphic source description stored in `insights.definition`.
+ * `baseTableId` is kept for backwards compat with the existing `rowToInsight`
+ * reader in `app-artifacts.ts` which pre-dates Insight-on-Insight composition.
+ */
+interface InsightSource {
+  sourceType: "dataTable" | "insight";
+  sourceId: UUID;
+}
+
+interface StoredInsightDefinition {
+  /** Legacy field — kept for the app-artifacts.ts read path (YW-157 transition). */
+  baseTableId: UUID;
+  /** Polymorphic source (supersedes baseTableId for new writes). */
+  source?: InsightSource;
+  selectedFields: UUID[];
+  metrics: unknown[];
+  filters?: unknown[];
+  sorts?: unknown[];
+  joins?: unknown[];
+}
+
+/**
+ * Load an Insight's stored definition. Throws if the row does not exist — the
+ * same guard `requireDataTable` provides for DataTable commands.
+ */
+async function requireInsightDefinition(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  insightId: string,
+): Promise<{ row: InsightRow; definition: StoredInsightDefinition }> {
+  const row = (await ctx.db
+    .from(insights)
+    .where(eq("id", insightId))
+    .first()) as InsightRow | undefined;
+  if (!row) throw new Error(`Insight ${insightId} not found`);
+  return { row, definition: row.definition as StoredInsightDefinition };
+}
+
+/**
+ * Walk the source chain starting from `startId` to detect whether `targetId`
+ * is already reachable — i.e. whether setting `startId`'s source to `targetId`
+ * would create a cycle. Stops as soon as it finds `targetId` or reaches a
+ * DataTable (leaf).
+ *
+ * This is a simple linear walk (O(depth)); cycle detection could be done with
+ * a visited set for diamond DAGs, but the typical chain depth is small and
+ * diamonds are architecturally uncommon at authoring time.
+ */
+async function wouldCreateCycle(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  startId: string,
+  targetId: string,
+): Promise<boolean> {
+  // If the target IS the start, setting self as source is already a 1-cycle.
+  if (startId === targetId) return true;
+  // Walk the existing source chain from targetId upward — if we reach startId
+  // then adding the edge targetId → startId would close a cycle.
+  let currentId: string = targetId;
+  const visited = new Set<string>();
+  for (;;) {
+    if (visited.has(currentId)) break; // already explored (shared prefix)
+    visited.add(currentId);
+    const row = (await ctx.db
+      .from(insights)
+      .where(eq("id", currentId))
+      .first()) as InsightRow | undefined;
+    if (!row) break; // reached a leaf (DataTable or unknown)
+    const def = row.definition as StoredInsightDefinition;
+    const src = def.source;
+    if (!src || src.sourceType !== "insight") break; // leaf
+    if (src.sourceId === startId) return true; // cycle found
+    currentId = src.sourceId;
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // DataSource commands
@@ -237,20 +363,268 @@ const refreshDataTable = mutation({
 });
 
 // ---------------------------------------------------------------------------
+// Insight commands
+// ---------------------------------------------------------------------------
+
+/**
+ * CreateInsight — mints a new transform node over a DataFrame-producing input
+ * (DataTable or another Insight). The `source.sourceId` is written into both
+ * the new polymorphic `source` field AND the legacy `baseTableId` so the
+ * existing `rowToInsight` reader in `app-artifacts.ts` continues to work.
+ * When `sourceType === 'insight'` the `baseTableId` carries the source insight
+ * id — the legacy reader will treat it as a table id, but that is harmless
+ * until the read path is migrated (YW-157).
+ */
+const createInsight = mutation({
+  args: {
+    id: uuid,
+    name: text,
+    source: jsonb,
+    selectedFields: jsonb.optional(),
+    metrics: jsonb.optional(),
+  },
+  handler: async (ctx, args): Promise<{ id: string }> => {
+    const source = args.source as InsightSource;
+    if (source.sourceType !== "dataTable" && source.sourceType !== "insight") {
+      throw new Error(
+        `CreateInsight: source.sourceType must be 'dataTable' or 'insight'`,
+      );
+    }
+    const definition: StoredInsightDefinition = {
+      baseTableId: source.sourceId,
+      source,
+      selectedFields: (args.selectedFields as UUID[] | undefined) ?? [],
+      metrics: (args.metrics as unknown[] | undefined) ?? [],
+    };
+    const [row] = (await ctx.db.into(insights).insert({
+      id: args.id,
+      name: args.name,
+      definition,
+      createdBy: { kind: "user" },
+    })) as InsightRow[];
+    if (!row) throw new Error("insert returned no row");
+    return { id: row.id };
+  },
+});
+
+/**
+ * SetInsightSource — re-points an Insight's input to a DataTable or another
+ * Insight's DataFrame (Insight-on-Insight composition). Rejects a source that
+ * would create a cycle — i.e. if the proposed source already depends on this
+ * Insight transitively.
+ */
+const setInsightSource = mutation({
+  args: { id: uuid, source: jsonb },
+  handler: async (ctx, { id, source: rawSource }): Promise<{ ok: true }> => {
+    const source = rawSource as InsightSource;
+    if (source.sourceType !== "dataTable" && source.sourceType !== "insight") {
+      throw new Error(
+        `SetInsightSource: source.sourceType must be 'dataTable' or 'insight'`,
+      );
+    }
+    const { definition } = await requireInsightDefinition(ctx, id);
+
+    // Cycle detection: only needed when the new source is another Insight.
+    if (source.sourceType === "insight") {
+      if (await wouldCreateCycle(ctx, id, source.sourceId)) {
+        throw new Error(
+          `SetInsightSource: source ${source.sourceId} would create a cycle`,
+        );
+      }
+    }
+
+    const next: StoredInsightDefinition = {
+      ...definition,
+      baseTableId: source.sourceId,
+      source,
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/**
+ * SelectFields — replace-all set of selected dimension field ids on an Insight.
+ * Replace-all semantics: the caller supplies the desired final set; incremental
+ * add/remove is done client-side before calling this command.
+ */
+const selectFields = mutation({
+  args: { id: uuid, fieldIds: jsonb },
+  handler: async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      selectedFields: fieldIds as UUID[],
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/**
+ * SetInsightFilter — replace-all filter predicates. Each filter value operand
+ * is a tagged union `{ kind: 'value', v } | { kind: 'lateBound', ref }` per
+ * the YW-153 spike finding (discriminant required, no property-presence).
+ * The command stores operands opaquely — validation of the union discriminant
+ * is shape-only here; unknown handles fail at publish binding (Draft spec).
+ */
+const setInsightFilter = mutation({
+  args: { id: uuid, filters: jsonb },
+  handler: async (ctx, { id, filters }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      filters: filters as unknown[],
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/**
+ * SetInsightSort — replace-all sort order. Replace-all semantics mirror
+ * SetInsightFilter: the complete desired sort list replaces the existing one.
+ */
+const setInsightSort = mutation({
+  args: { id: uuid, sorts: jsonb },
+  handler: async (ctx, { id, sorts }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      sorts: sorts as unknown[],
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/**
+ * Apply one incremental edit to the `joins` collection in an Insight definition.
+ * Mirrors `patchDataTableCollection`'s guard symmetry:
+ * - Add: rejects a duplicate joinIndex (we use array-position indexing, so the
+ *   guard is that the array is not already longer than `joinIndex` would imply
+ *   — AddJoin appends so there is no index collision; the spec uses array
+ *   indices for Update/Remove because joins are ordered and anonymous).
+ * - Update: rejects a missing index. Pins the structure so updates cannot
+ *   rewrite the whole join object in ways that clobber unrelated keys.
+ * - Remove: rejects a missing index.
+ */
+function patchJoinsCollection(
+  joins: unknown[],
+  op:
+    | { mode: "add"; join: InsightJoinConfig }
+    | { mode: "update"; joinIndex: number; updates: Record<string, unknown> }
+    | { mode: "remove"; joinIndex: number },
+): unknown[] {
+  if (op.mode === "add") {
+    return [...joins, op.join];
+  } else if (op.mode === "update") {
+    if (op.joinIndex < 0 || op.joinIndex >= joins.length) {
+      throw new Error(`Join at index ${op.joinIndex} not found`);
+    }
+    // Pin the join by spreading updates then overwriting the whole element —
+    // the same id-pin semantics that patchDataTableCollection provides.
+    return joins.map((j, i) =>
+      i === op.joinIndex ? { ...(j as object), ...op.updates } : j,
+    );
+  } else {
+    if (op.joinIndex < 0 || op.joinIndex >= joins.length) {
+      throw new Error(`Join at index ${op.joinIndex} not found`);
+    }
+    return joins.filter((_, i) => i !== op.joinIndex);
+  }
+}
+
+/** AddJoin — append an inline join to an Insight. */
+const addJoin = mutation({
+  args: { id: uuid, join: jsonb },
+  handler: async (ctx, { id, join }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      joins: patchJoinsCollection(definition.joins ?? [], {
+        mode: "add",
+        join: join as InsightJoinConfig,
+      }),
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/** UpdateJoin — edit a join's keys/type at the given array index. */
+const updateJoin = mutation({
+  args: { id: uuid, joinIndex: jsonb, updates: jsonb },
+  handler: async (ctx, { id, joinIndex, updates }): Promise<{ ok: true }> => {
+    if (!isRecord(updates) || Object.keys(updates).length === 0) {
+      throw new Error("updates are required for UpdateJoin");
+    }
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      joins: patchJoinsCollection(definition.joins ?? [], {
+        mode: "update",
+        joinIndex: joinIndex as number,
+        updates,
+      }),
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+/** RemoveJoin — drop the join at the given array index. */
+const removeJoin = mutation({
+  args: { id: uuid, joinIndex: jsonb },
+  handler: async (ctx, { id, joinIndex }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const next: StoredInsightDefinition = {
+      ...definition,
+      joins: patchJoinsCollection(definition.joins ?? [], {
+        mode: "remove",
+        joinIndex: joinIndex as number,
+      }),
+    };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: next });
+    return { ok: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Fields & Metrics commands — target a DataFrame-producing node via {nodeId}
 // ---------------------------------------------------------------------------
 
 type ResolvedNode =
   | { kind: "dataTable"; row: DataTableRow }
-  | { kind: "insight" };
+  | { kind: "insight"; row: InsightRow };
 
 /**
  * Resolve which kind of node `nodeId` is, returning the row it already fetched
- * for the DataTable case so callers don't pay a second lookup. A leaf node is a
- * DataTable (fields and metrics live in its jsonb columns); a derived node is
- * an Insight (YW-123, not yet wired for collection edits). One lookup decides
- * the dispatch so the command shape (`{ nodeId, ... }`) never needs to know the
- * kind up front.
+ * so callers don't pay a second lookup. A leaf node is a DataTable (fields and
+ * metrics live in its jsonb columns); a derived node is an Insight (fields and
+ * metrics live in its `definition` jsonb). One lookup decides the dispatch so
+ * the command shape (`{ nodeId, ... }`) never needs to know the kind up front.
  */
 async function resolveNode(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -261,23 +635,29 @@ async function resolveNode(
     .where(eq("id", nodeId))
     .first()) as DataTableRow | undefined;
   if (table) return { kind: "dataTable", row: table };
-  const insight = await ctx.db.from(insights).where(eq("id", nodeId)).first();
-  if (insight) return { kind: "insight" };
+  const insight = (await ctx.db
+    .from(insights)
+    .where(eq("id", nodeId))
+    .first()) as InsightRow | undefined;
+  if (insight) return { kind: "insight", row: insight };
   throw new Error(`Node ${nodeId} not found`);
 }
 
 /**
- * Apply one incremental collection edit ("fields" | "metrics") to a DataTable's
- * jsonb array and persist it. Add appends; Update merges by id; Remove drops by
- * id. Update/Remove on a missing id throw so a bad batch fails loudly (and rolls
- * back). Insight nodes are rejected until YW-123 wires their definition arrays.
+ * Apply one incremental collection edit to a node's fields or metrics array.
+ * For DataTable nodes the array lives in the row's `fields`/`metrics` columns.
+ * For Insight nodes the array lives inside `definition.fields`/`definition.metrics`
+ * (not the top-level jsonb `definition` structure — the Insight's own-definitions
+ * section, distinct from the inherited ones from its source).
  *
- * Concurrency: this read-modify-write is safe on PGLite (single-connection —
+ * Guard symmetry (mirrors patchDataTableCollection's contract from YW-106):
+ * - Add: rejects duplicate id (no illegal two-items-one-id state)
+ * - Update: rejects missing id; pins `id` last so updates cannot rebind the key
+ * - Remove: rejects missing id
+ *
+ * Concurrency: read-modify-write is safe on PGLite (single-connection —
  * batches serialize at the event loop). A future multi-connection Postgres
- * backend makes it a lost-update vector (two batches read the same array, the
- * later write clobbers the earlier); that tier needs SELECT FOR UPDATE, a
- * raised transaction isolation level at the `applyCommands` call, or a
- * jsonb-native append.
+ * backend needs SELECT FOR UPDATE or jsonb-native append.
  */
 async function patchDataTableCollection(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -289,14 +669,47 @@ async function patchDataTableCollection(
     | { mode: "remove"; itemId: string },
 ): Promise<void> {
   const node = await resolveNode(ctx, nodeId);
-  if (node.kind === "insight") {
-    throw new Error(
-      `Field/metric edits on Insight node ${nodeId} are not supported yet (YW-123)`,
-    );
-  }
-  const items = ((node.row[kind] ?? []) as { id: string }[]).slice();
 
-  let next: { id: string }[];
+  if (node.kind === "insight") {
+    // Insight fields/metrics live inside the definition jsonb under the same
+    // key names ("fields"/"metrics") as an extension to the InsightDefinition.
+    const definition = node.row.definition as StoredInsightDefinition & {
+      fields?: { id: string }[];
+      metrics?: { id: string }[];
+    };
+    const items = ((definition[kind] ?? []) as { id: string }[]).slice();
+    const next = applyCollectionOp(items, kind, op);
+    const nextDefinition = { ...definition, [kind]: next };
+    await ctx.db
+      .from(insights)
+      .where(eq("id", nodeId))
+      .update({ definition: nextDefinition });
+    return;
+  }
+
+  // DataTable path: items live in the top-level row columns.
+  const items = ((node.row[kind] ?? []) as { id: string }[]).slice();
+  const next = applyCollectionOp(items, kind, op);
+
+  await ctx.db
+    .from(dataTables)
+    .where(eq("id", nodeId))
+    .update({ [kind]: next });
+}
+
+/**
+ * Pure helper: apply one add/update/remove op to a `{ id: string }[]` array,
+ * enforcing the guard symmetry. Extracted so both the DataTable and Insight
+ * paths share identical mutation logic.
+ */
+function applyCollectionOp(
+  items: { id: string }[],
+  kind: string,
+  op:
+    | { mode: "add"; item: Field | Metric }
+    | { mode: "update"; itemId: string; updates: Record<string, unknown> }
+    | { mode: "remove"; itemId: string },
+): { id: string }[] {
   if (op.mode === "add") {
     // Guard id uniqueness symmetrically with Update/Remove. Without it a second
     // Add of the same id would make an illegal state representable (two items,
@@ -305,27 +718,22 @@ async function patchDataTableCollection(
     if (items.some((item) => item.id === op.item.id)) {
       throw new Error(`${kind} item ${op.item.id} already exists`);
     }
-    next = [...items, op.item];
+    return [...items, op.item];
   } else if (op.mode === "update") {
     if (!items.some((item) => item.id === op.itemId)) {
       throw new Error(`${kind} item ${op.itemId} not found`);
     }
     // Pin `id` last so a stray `updates.id` cannot rebind the item — that would
     // recreate the un-addressable two-items-one-id state the Add-guard prevents.
-    next = items.map((item) =>
+    return items.map((item) =>
       item.id === op.itemId ? { ...item, ...op.updates, id: item.id } : item,
     );
   } else {
     if (!items.some((item) => item.id === op.itemId)) {
       throw new Error(`${kind} item ${op.itemId} not found`);
     }
-    next = items.filter((item) => item.id !== op.itemId);
+    return items.filter((item) => item.id !== op.itemId);
   }
-
-  await ctx.db
-    .from(dataTables)
-    .where(eq("id", nodeId))
-    .update({ [kind]: next });
 }
 
 const addField = mutation({
@@ -406,13 +814,245 @@ const removeMetric = mutation({
 });
 
 // ---------------------------------------------------------------------------
+// Visualization commands
+// ---------------------------------------------------------------------------
+
+/**
+ * CreateVisualization — mints a chart over an Insight's DataFrame with a
+ * client-supplied id. Insight and Visualization stay 1:many (spec decision):
+ * the UI creates a 1:1 feel by batching CreateInsight + CreateVisualization in
+ * one envelope, but the model keeps one-query-many-charts open.
+ */
+const createVisualization = mutation({
+  args: {
+    id: uuid,
+    name: text,
+    insightId: uuid,
+    visualizationType: text,
+    spec: jsonb,
+    encoding: jsonb.optional(),
+  },
+  handler: async (ctx, args): Promise<{ id: string }> => {
+    const [row] = (await ctx.db.into(visualizations).insert({
+      id: args.id,
+      name: args.name,
+      insightId: args.insightId,
+      chartType: args.visualizationType,
+      encoding: (args.encoding ?? {}) as VisualizationEncoding,
+      options: { spec: args.spec as VegaLiteSpec },
+      createdBy: { kind: "user" },
+    })) as VisualizationRow[];
+    if (!row) throw new Error("insert returned no row");
+    return { id: row.id };
+  },
+});
+
+async function requireVisualization(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  id: string,
+): Promise<void> {
+  const row = await ctx.db.from(visualizations).where(eq("id", id)).first();
+  if (!row) throw new Error(`Visualization ${id} not found`);
+}
+
+/**
+ * SetChartType — change the chart type for an existing Visualization.
+ * Decomposed out of the coarse `updateVisualization` blob handler.
+ */
+const setChartType = mutation({
+  args: { id: uuid, visualizationType: text },
+  handler: async (ctx, { id, visualizationType }): Promise<{ ok: true }> => {
+    await requireVisualization(ctx, id);
+    await ctx.db
+      .from(visualizations)
+      .where(eq("id", id))
+      .update({ chartType: visualizationType });
+    return { ok: true };
+  },
+});
+
+/**
+ * SetChartEncoding — set the field→channel encoding (and resulting Vega-Lite
+ * spec) for a Visualization. `spec` is optional — omitting it leaves the
+ * existing spec untouched.
+ */
+const setChartEncoding = mutation({
+  args: { id: uuid, encoding: jsonb, spec: jsonb.optional() },
+  handler: async (ctx, { id, encoding, spec }): Promise<{ ok: true }> => {
+    await requireVisualization(ctx, id);
+    const patch: Partial<VisualizationRow> = {
+      encoding: encoding as VisualizationEncoding,
+    };
+    if (spec !== undefined) {
+      patch.options = { spec: spec as VegaLiteSpec };
+    }
+    await ctx.db.from(visualizations).where(eq("id", id)).update(patch);
+    return { ok: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Dashboard commands (net-new in the server vocabulary — YW-123)
+// ---------------------------------------------------------------------------
+
+// Re-use the DashboardItem interface from dashboards.ts inline (no re-export).
+interface DashboardItem {
+  id: string;
+  type: "visualization" | "markdown";
+  visualizationId?: string;
+  content?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Load a dashboard's layout array, throwing if the dashboard does not exist. */
+async function requireDashboardItems(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  dashboardId: string,
+): Promise<DashboardItem[]> {
+  const row = (await ctx.db
+    .from(dashboards)
+    .where(eq("id", dashboardId))
+    .first()) as DashboardRow | undefined;
+  if (!row) throw new Error(`Dashboard ${dashboardId} not found`);
+  return ((row.layout as DashboardItem[]) ?? []).slice();
+}
+
+/**
+ * CreateDashboard — mints an empty dashboard with a client-supplied id.
+ */
+const createDashboard = mutation({
+  args: { id: uuid, name: text, description: text.optional() },
+  handler: async (ctx, { id, name, description }): Promise<{ id: string }> => {
+    const [row] = (await ctx.db.into(dashboards).insert({
+      id,
+      name,
+      description: description ?? null,
+      layout: [],
+      createdBy: { kind: "user" },
+    })) as DashboardRow[];
+    if (!row) throw new Error("insert returned no row");
+    return { id: row.id };
+  },
+});
+
+/**
+ * AddDashboardItem — place a viz panel or markdown block on a dashboard.
+ *
+ * Guard symmetry: the item's `id` is caller-supplied (client-generated, same
+ * client-id invariant as every Create command). Duplicate ids are rejected so
+ * UpdateDashboardItem and RemoveDashboardItem always address exactly one item.
+ */
+const addDashboardItem = mutation({
+  args: { dashboardId: uuid, item: jsonb },
+  handler: async (
+    ctx,
+    { dashboardId, item: rawItem },
+  ): Promise<{ ok: true }> => {
+    const item = rawItem as DashboardItem;
+    if (typeof item.id !== "string") {
+      throw new Error("AddDashboardItem: item.id must be a string");
+    }
+    const items = await requireDashboardItems(ctx, dashboardId);
+    if (items.some((it) => it.id === item.id)) {
+      throw new Error(`Dashboard item ${item.id} already exists`);
+    }
+    items.push(item);
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ layout: items });
+    return { ok: true };
+  },
+});
+
+/**
+ * UpdateDashboardItem — move/resize/edit one item.
+ *
+ * Guard: rejects a missing itemId. Pins `id` and `type` so updates cannot
+ * change structural container keys (mirrors UpdateField's id-pin contract).
+ */
+const updateDashboardItem = mutation({
+  args: { dashboardId: uuid, itemId: uuid, updates: jsonb },
+  handler: async (
+    ctx,
+    { dashboardId, itemId, updates },
+  ): Promise<{ ok: true }> => {
+    if (!isRecord(updates) || Object.keys(updates).length === 0) {
+      throw new Error("updates are required for UpdateDashboardItem");
+    }
+    const items = await requireDashboardItems(ctx, dashboardId);
+    if (!items.some((it) => it.id === itemId)) {
+      throw new Error(`Dashboard item ${itemId} not found`);
+    }
+    // Pin `id` and `type` last — type is a structural key (determines which
+    // optional fields are valid), so callers cannot rebind it via updates.
+    const next = items.map((it) =>
+      it.id === itemId
+        ? {
+            ...it,
+            ...(updates as Partial<DashboardItem>),
+            id: it.id,
+            type: it.type,
+          }
+        : it,
+    );
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ layout: next });
+    return { ok: true };
+  },
+});
+
+/**
+ * SetDashboardLayout — replace the whole layout at once (bulk drag-rearrange).
+ * Replace-all counterpart to per-item UpdateDashboardItem. No id-uniqueness
+ * check needed — caller-supplied full list is authoritative (consistent with
+ * the replace-all contract of SetInsightFilter/SetInsightSort).
+ */
+const setDashboardLayout = mutation({
+  args: { dashboardId: uuid, items: jsonb },
+  handler: async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
+    // Guard existence first — a missing dashboard would silently do nothing.
+    await requireDashboardItems(ctx, dashboardId);
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ layout: items as DashboardItem[] });
+    return { ok: true };
+  },
+});
+
+/**
+ * RemoveDashboardItem — remove one panel by id.
+ * Guard: rejects a missing itemId (no silent no-op).
+ */
+const removeDashboardItem = mutation({
+  args: { dashboardId: uuid, itemId: uuid },
+  handler: async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
+    const items = await requireDashboardItems(ctx, dashboardId);
+    if (!items.some((it) => it.id === itemId)) {
+      throw new Error(`Dashboard item ${itemId} not found`);
+    }
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ layout: items.filter((it) => it.id !== itemId) });
+    return { ok: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Cross-cutting: RenameNode (one polymorphic rename)
 // ---------------------------------------------------------------------------
 
 /**
  * RenameNode — the single `name` mutation, carved out of every coarse
- * update(blob). Polymorphic over the artifact node kinds that carry a `name`
- * column. One lookup decides the table; the SET is identical across them.
+ * update(blob). Polymorphic over all artifact node kinds that carry a `name`
+ * column. One lookup per table decides the target; the SET is identical.
  */
 const renameNode = mutation({
   args: { id: uuid, name: text },
@@ -432,6 +1072,65 @@ const renameNode = mutation({
       await ctx.db.from(insights).where(eq("id", id)).update({ name });
       return { ok: true };
     }
+    const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
+    if (viz) {
+      await ctx.db.from(visualizations).where(eq("id", id)).update({ name });
+      return { ok: true };
+    }
+    const dash = await ctx.db.from(dashboards).where(eq("id", id)).first();
+    if (dash) {
+      await ctx.db.from(dashboards).where(eq("id", id)).update({ name });
+      return { ok: true };
+    }
+    throw new Error(`Node ${id} not found`);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Cross-cutting: DeleteNode (one polymorphic delete)
+// ---------------------------------------------------------------------------
+
+/**
+ * DeleteNode — one polymorphic delete across all node types. Downstream
+ * referential integrity is orphan-and-warn (Data-Drift Repair spec), not
+ * FK-cascade — the handler's manual child-deletes in `app-artifacts.ts`
+ * become a derived-DAG concern. For now the DB schema has FK cascade on
+ * `visualizations.insight_id` and `data_tables.data_source_id`, so deleting
+ * an Insight cascades its visualizations at the DB level.
+ */
+const deleteNode = mutation({
+  args: { id: uuid },
+  handler: async (ctx, { id }): Promise<{ ok: true }> => {
+    // Try each table in dependency order (children before parents so FK
+    // constraints are satisfied if cascade is not set at the schema level).
+    const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
+    if (viz) {
+      await ctx.db.from(visualizations).where(eq("id", id)).delete();
+      return { ok: true };
+    }
+    const dash = await ctx.db.from(dashboards).where(eq("id", id)).first();
+    if (dash) {
+      await ctx.db.from(dashboards).where(eq("id", id)).delete();
+      return { ok: true };
+    }
+    // Insight: FK cascade removes its visualizations (schema: onDelete: cascade).
+    const insight = await ctx.db.from(insights).where(eq("id", id)).first();
+    if (insight) {
+      await ctx.db.from(insights).where(eq("id", id)).delete();
+      return { ok: true };
+    }
+    // DataTable: FK cascade removes it from dataTables (parent is DataSource).
+    const table = await ctx.db.from(dataTables).where(eq("id", id)).first();
+    if (table) {
+      await ctx.db.from(dataTables).where(eq("id", id)).delete();
+      return { ok: true };
+    }
+    // DataSource: FK cascade removes its child dataTables.
+    const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
+    if (source) {
+      await ctx.db.from(dataSources).where(eq("id", id)).delete();
+      return { ok: true };
+    }
     throw new Error(`Node ${id} not found`);
   },
 });
@@ -442,32 +1141,112 @@ const renameNode = mutation({
  * builders below reference.
  */
 export const commandFunctions = {
+  // DataSource (YW-106)
   getOrCreateDataSource,
   createDataSource,
   setDataSourceConfig,
+  // DataTable (YW-106)
   createDataTable,
   setDataTableSchema,
   refreshDataTableCmd: refreshDataTable,
+  // Fields & Metrics (YW-106, now also handles Insight nodes via YW-123)
   addField,
   updateField,
   removeField,
   addMetric,
   updateMetric,
   removeMetric,
+  // Insight (YW-123)
+  createInsightCmd: createInsight,
+  setInsightSource,
+  selectFields,
+  setInsightFilter,
+  setInsightSort,
+  addJoin,
+  updateJoin,
+  removeJoin,
+  // Visualization (YW-123)
+  createVisualizationCmd: createVisualization,
+  setChartType,
+  setChartEncoding,
+  // Dashboard (YW-123)
+  createDashboardCmd: createDashboard,
+  addDashboardItemCmd: addDashboardItem,
+  updateDashboardItemCmd: updateDashboardItem,
+  setDashboardLayout,
+  removeDashboardItemCmd: removeDashboardItem,
+  // Cross-cutting (YW-106 + extended in YW-123)
   renameNode,
+  deleteNode,
 };
 
 // ---------------------------------------------------------------------------
 // Typed command builders — the VOCABULARY face
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Typed command builders — the VOCABULARY face
+// ---------------------------------------------------------------------------
+
+/**
+ * The polymorphic source for Insight commands (DataTable or another Insight's
+ * DataFrame). Exported so callers can construct it without knowing the union
+ * shape inline.
+ */
+export type InsightSourceInput =
+  | { sourceType: "dataTable"; sourceId: UUID }
+  | { sourceType: "insight"; sourceId: UUID };
+
+/**
+ * A filter predicate value operand — tagged union per YW-153 spike.
+ * `kind: 'value'`    → the author supplied the literal (v: null = IS NULL).
+ * `kind: 'lateBound'` → the egress gate withheld the value; bound at publish.
+ */
+export type FilterOperandValue =
+  | { kind: "value"; v: unknown }
+  | { kind: "lateBound"; ref: LateBoundRef };
+
+/**
+ * Late-bound reference forms (spec: Artifact API, Operand value-binding).
+ * column    → operand IS another column; no literal needed.
+ * category  → opaque handle for a value the gate minted; resolved at publish.
+ * placeholder → human supplies at publish.
+ */
+export type LateBoundRef =
+  | { type: "column"; fieldId: UUID }
+  | { type: "category"; handle: string }
+  | { type: "placeholder"; prompt: string };
+
+/**
+ * A filter predicate where the value operand is a FilterOperandValue.
+ * Mirrors InsightFilter from @dashframe/types but with the typed operand.
+ */
+export interface TypedInsightFilter {
+  field: string;
+  operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
+  value: FilterOperandValue;
+}
+
+/** A Dashboard item as supplied in AddDashboardItem / SetDashboardLayout. */
+export interface DashboardItemInput {
+  id: UUID;
+  type: "visualization" | "markdown";
+  visualizationId?: UUID;
+  content?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /**
  * Typed payloads for each command. These are the intent-carrying messages the
- * human UI and the agent both construct; `commandBuilders` lowers them to the
+ * human UI and the agent both construct; `COMMAND_PATHS` lowers them to the
  * `{ path, args }` envelope `applyCommands` dispatches. Keeping the builder pure
  * (no DB) means the only place command logic lives is the backing mutation.
  */
 export interface CommandPayloads {
+  // DataSource (YW-106)
   GetOrCreateDataSource: { id: UUID; type: string; name: string };
   CreateDataSource: {
     id: UUID;
@@ -481,6 +1260,7 @@ export interface CommandPayloads {
     apiKey?: string;
     connectionString?: string;
   };
+  // DataTable (YW-106)
   CreateDataTable: {
     id: UUID;
     dataSourceId: UUID;
@@ -493,13 +1273,60 @@ export interface CommandPayloads {
   };
   SetDataTableSchema: { id: UUID; sourceSchema: SourceSchema };
   RefreshDataTable: { id: UUID; dataFrameId: UUID };
+  // Fields & Metrics (YW-106, targets DataTable or Insight via nodeId)
   AddField: { nodeId: UUID; field: Field };
   UpdateField: { nodeId: UUID; fieldId: UUID; updates: Partial<Field> };
   RemoveField: { nodeId: UUID; fieldId: UUID };
   AddMetric: { nodeId: UUID; metric: Metric };
   UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
   RemoveMetric: { nodeId: UUID; metricId: UUID };
+  // Insight (YW-123)
+  CreateInsight: {
+    id: UUID;
+    name: string;
+    source: InsightSourceInput;
+    selectedFields?: UUID[];
+    metrics?: Metric[];
+  };
+  SetInsightSource: { id: UUID; source: InsightSourceInput };
+  SelectFields: { id: UUID; fieldIds: UUID[] };
+  SetInsightFilter: { id: UUID; filters: TypedInsightFilter[] };
+  SetInsightSort: { id: UUID; sorts: InsightSort[] };
+  AddJoin: { id: UUID; join: InsightJoinConfig };
+  UpdateJoin: {
+    id: UUID;
+    joinIndex: number;
+    updates: Partial<InsightJoinConfig>;
+  };
+  RemoveJoin: { id: UUID; joinIndex: number };
+  // Visualization (YW-123)
+  CreateVisualization: {
+    id: UUID;
+    name: string;
+    insightId: UUID;
+    visualizationType: VisualizationType;
+    spec: VegaLiteSpec;
+    encoding?: VisualizationEncoding;
+  };
+  SetChartType: { id: UUID; visualizationType: VisualizationType };
+  SetChartEncoding: {
+    id: UUID;
+    encoding: VisualizationEncoding;
+    spec?: VegaLiteSpec;
+  };
+  // Dashboard (YW-123)
+  CreateDashboard: { id: UUID; name: string; description?: string };
+  AddDashboardItem: { dashboardId: UUID; item: DashboardItemInput };
+  UpdateDashboardItem: {
+    dashboardId: UUID;
+    itemId: UUID;
+    updates: Partial<Omit<DashboardItemInput, "id" | "type">>;
+  };
+  SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
+  RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
+  // Cross-cutting (YW-106 + extended in YW-123)
   RenameNode: { id: UUID; name: string };
+  DeleteNode: { id: UUID };
 }
 
 export type CommandName = keyof CommandPayloads;
@@ -522,7 +1349,24 @@ const COMMAND_PATHS: { [K in CommandName]: keyof typeof commandFunctions } = {
   AddMetric: "addMetric",
   UpdateMetric: "updateMetric",
   RemoveMetric: "removeMetric",
+  CreateInsight: "createInsightCmd",
+  SetInsightSource: "setInsightSource",
+  SelectFields: "selectFields",
+  SetInsightFilter: "setInsightFilter",
+  SetInsightSort: "setInsightSort",
+  AddJoin: "addJoin",
+  UpdateJoin: "updateJoin",
+  RemoveJoin: "removeJoin",
+  CreateVisualization: "createVisualizationCmd",
+  SetChartType: "setChartType",
+  SetChartEncoding: "setChartEncoding",
+  CreateDashboard: "createDashboardCmd",
+  AddDashboardItem: "addDashboardItemCmd",
+  UpdateDashboardItem: "updateDashboardItemCmd",
+  SetDashboardLayout: "setDashboardLayout",
+  RemoveDashboardItem: "removeDashboardItemCmd",
   RenameNode: "renameNode",
+  DeleteNode: "deleteNode",
 };
 
 /**
