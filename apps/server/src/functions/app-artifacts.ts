@@ -22,6 +22,8 @@ import type {
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
+import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
+
 const {
   dashboards,
   dataFrames,
@@ -43,11 +45,6 @@ type DataFrameEntry = DataFrameJSON & {
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
-};
-
-type DataSourceConfig = {
-  apiKey?: string;
-  connectionString?: string;
 };
 
 type InsightDefinition = {
@@ -88,17 +85,6 @@ function withDefaultCountMetric(
     },
     ...metrics,
   ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireRecordWithId(value: unknown, label: string): { id: string } {
-  if (!isRecord(value) || typeof value.id !== "string") {
-    throw new Error(`${label} must be an object with an id`);
-  }
-  return value as { id: string };
 }
 
 function requireInsightMetric(value: unknown): InsightMetric {
@@ -367,26 +353,11 @@ const getDataSourceByType = query({
   },
 });
 
-const getOrCreateDataSourceByType = mutation({
-  args: { type: text, name: text },
-  handler: async (ctx, { type, name }): Promise<DataSource> => {
-    const existing = (await ctx.db
-      .from(dataSources)
-      .where(eq("kind", type))
-      .first()) as DataSourceRow | undefined;
-    if (existing) return rowToDataSource(existing);
-
-    const [row] = (await ctx.db.into(dataSources).insert({
-      name,
-      kind: type,
-      storage: "live",
-      config: {},
-      createdBy: { kind: "user" },
-    })) as DataSourceRow[];
-    if (!row) throw new Error("insert returned no row");
-    return rowToDataSource(row);
-  },
-});
+// NOTE: the racy `getOrCreateDataSourceByType` (check-then-insert keyed on
+// `kind`, no unique constraint → concurrent ingests double-insert, PR #46
+// Greptile P1) was REPLACED by the `GetOrCreateDataSource` command in
+// `./commands.ts`, which keys idempotency on a client-minted primary key. See
+// that file's traceability table.
 
 const addDataSource = mutation({
   args: {
@@ -534,6 +505,10 @@ const updateDataTable = mutation({
   },
 });
 
+// NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
+// The command path (`refreshDataTableCmd` in commands.ts) enforces existence
+// and throws instead — divergent semantics for the same intent, bounded by the
+// YW-157 caller migration window.
 const refreshDataTable = mutation({
   args: { id: uuid, dataFrameId: uuid },
   handler: async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
@@ -877,7 +852,6 @@ export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
   getDataSourceByType,
-  getOrCreateDataSourceByType,
   addDataSource,
   updateDataSource,
   removeDataSource,
