@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { perfMark, perfMeasure } from "./marks";
+import { perfCancel, perfMark, perfMeasure } from "./marks";
 import { PerfStage } from "./stages";
 
 /**
@@ -22,15 +22,20 @@ export function useRenderPerf(label: string): void {
     // Open at commit; the unique-span marks helper keeps overlapping commits
     // from colliding on a shared mark name.
     const span = perfMark(PerfStage.Render, label);
+    let measured = false;
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         perfMeasure(span);
+        measured = true;
       });
     });
     return () => {
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
+      // If we re-rendered/unmounted before the paint callback measured the span,
+      // discard its start mark so it doesn't leak into the entries buffer.
+      if (!measured) perfCancel(span);
     };
     // Runs every render so each commit produces one paired span.
   });

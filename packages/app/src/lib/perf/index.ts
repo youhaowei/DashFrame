@@ -6,7 +6,13 @@
  * dev-only HUD. Stage timings are classified against latency budgets recorded
  * in the v0.3 UI spec; budgets are measurement anchors, never hard failures.
  */
-export { perfMark, perfMeasure, withPerf, withPerfAsync } from "./marks";
+export {
+  perfCancel,
+  perfMark,
+  perfMeasure,
+  withPerf,
+  withPerfAsync,
+} from "./marks";
 export { PerfHud } from "./PerfHud";
 export { usePerfStore, type PerfSample } from "./perfStore";
 export {

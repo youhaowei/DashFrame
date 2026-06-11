@@ -97,6 +97,21 @@ export function perfMeasure(span: PerfSpan | undefined): number | undefined {
 }
 
 /**
+ * Discard an opened span without measuring it — clears its start mark so it
+ * doesn't leak into the PerformanceEntries buffer. Call this when a span is
+ * abandoned (e.g. a render commits and opens a span, but the component
+ * re-renders or unmounts before the paint callback closes it).
+ */
+export function perfCancel(span: PerfSpan | undefined): void {
+  if (!hasPerf || !span) return;
+  try {
+    performance.clearMarks(span.startMark);
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
+/**
  * Measure a synchronous block. Records one sample for the stage.
  *
  * @example
