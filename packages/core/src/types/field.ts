@@ -1,6 +1,23 @@
 import type { ColumnType, TableColumn } from "./column";
 import type { UUID } from "./uuid";
 
+// Re-export sensitivity types and helpers from @dashframe/types — single
+// source of truth; no duplicate implementations in this package.
+export {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "@dashframe/types";
+export type {
+  FieldSensitivity,
+  FieldSensitivitySource,
+} from "@dashframe/types";
+
+import type {
+  FieldSensitivity,
+  FieldSensitivitySource,
+} from "@dashframe/types";
+
 /**
  * Field - User-facing column with lineage tracking.
  *
@@ -21,6 +38,17 @@ export type Field = {
   type: ColumnType;
   isIdentifier?: boolean;
   isReference?: boolean;
+  /**
+   * Privacy axis — single source of truth read by every privacy gate
+   * (cache-write, artifact-DB, egress) and by engine placement.
+   * Absent means `unclassified`, which is restricted (fail-closed).
+   * Distinct from the semantic axis (`isIdentifier`/`isReference`).
+   */
+  sensitivity?: FieldSensitivity;
+  /** Why the current sensitivity value was set — keeps marking legible */
+  sensitivityReason?: string;
+  /** Who set the current sensitivity value */
+  sensitivitySource?: FieldSensitivitySource;
 };
 
 /**

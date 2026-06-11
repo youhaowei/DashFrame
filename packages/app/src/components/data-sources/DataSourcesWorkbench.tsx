@@ -11,7 +11,8 @@ import type {
   RemoteApiConnector,
   RemoteDatabase,
 } from "@dashframe/engine";
-import type { Field, Metric } from "@dashframe/types";
+import type { Field, FieldSensitivity, Metric } from "@dashframe/types";
+import { buildSensitivityUpdate } from "@dashframe/types";
 import {
   Button,
   Dialog,
@@ -200,6 +201,32 @@ export function DataSourcesWorkbench() {
     toast.success("Field deleted successfully");
   };
 
+  // One-click sensitivity marking. Confirming a classifier suggestion keeps
+  // its reasons; deliberate marking/clearing is recorded as a user decision.
+  const handleSetFieldSensitivity = async (
+    fieldId: string,
+    sensitivity: FieldSensitivity,
+    reasons?: string[],
+  ) => {
+    if (!selectedTableId) return;
+    try {
+      await tableMutations.updateField(
+        selectedTableId,
+        fieldId,
+        buildSensitivityUpdate(sensitivity, reasons),
+      );
+    } catch {
+      toast.error("Failed to update field sensitivity");
+      return;
+    }
+    const toasts: Record<FieldSensitivity, string> = {
+      sensitive: "Field marked sensitive",
+      cleared: "Field marked as not sensitive",
+      unclassified: "Field reset to unclassified",
+    };
+    toast.success(toasts[sensitivity]);
+  };
+
   const handleAddField = () => {
     toast.info("Custom field creation coming soon");
   };
@@ -309,6 +336,7 @@ export function DataSourcesWorkbench() {
             onCreateVisualization={handleCreateVisualization}
             onEditField={handleEditField}
             onDeleteField={handleDeleteField}
+            onSetFieldSensitivity={handleSetFieldSensitivity}
             onAddField={handleAddField}
             onAddMetric={() => setMetricEditorOpen(true)}
             onDeleteMetric={handleDeleteMetric}

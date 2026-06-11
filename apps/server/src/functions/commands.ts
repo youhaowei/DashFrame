@@ -1,6 +1,5 @@
 /**
- * Command VOCABULARY (YW-106 + YW-123) — Layer B over @wystack/server's
- * `applyCommands` MECHANISM (YW-122).
+ * Command VOCABULARY — Layer B over @wystack/server's `applyCommands` MECHANISM.
  *
  * `applyCommands` knows nothing about DashFrame. It dispatches a batch of
  * `{ path, args }` against the app's function registry inside one tracked
@@ -55,12 +54,10 @@
  * Dashboard nodes in addition to DataSource/DataTable.
  *
  * Fields & Metrics target the DataFrame-PRODUCING node polymorphically via
- * `{ nodeId }`. The YW-106 slice implemented the DataTable case; YW-123 wires
- * the Insight case so field/metric edits on a derived Insight work with the
- * same command shape.
+ * `{ nodeId }`. Field/metric edits on a derived Insight work with the same
+ * command shape as the DataTable case — `resolveNode` dispatches on kind.
  *
- * Operand encoding (YW-153 spike finding): value-bearing operands in
- * SetInsightFilter are a TAGGED union:
+ * Operand encoding: value-bearing operands in SetInsightFilter are a TAGGED union:
  *   { kind: 'value'; v: unknown }      (v: null is valid — means IS NULL)
  *   | { kind: 'lateBound'; ref: ... }  (column | category | placeholder)
  * NOT property-presence. This is the mechanism that reconciles capability-parity

@@ -6,7 +6,7 @@
  * its URL + a stop handle. Callers supply the project's Drizzle DB and the
  * bind address:
  *   - desktop (Electron main): bind 127.0.0.1, port 0 → ephemeral loopback port.
- *   - `dashframe serve` (YW-73): bind a chosen addr/port standalone.
+ *   - `dashframe serve`: bind a chosen addr/port standalone.
  *
  * Why this inlines the Node adapter instead of calling `@wystack/server/node`'s
  * `serve()`: the renderer (a localhost web client) is a *different origin* from

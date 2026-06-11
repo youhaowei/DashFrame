@@ -16,7 +16,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import {
   ARTIFACT_DB_SCHEMA_VERSION,
@@ -28,6 +28,7 @@ import {
   type ResolveProjectDirOptions,
 } from "./project-dir";
 import {
+  dataFrames,
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
@@ -100,8 +101,41 @@ async function ensureProjectMeta(
     .where(eq(projectMeta.id, PROJECT_META_ID))
     .limit(1);
   if (existing.length > 0) {
-    const meta = existing[0]!;
-    if (meta.schemaVersion !== ARTIFACT_DB_SCHEMA_VERSION) {
+    let meta = existing[0]!;
+    if (meta.schemaVersion === 2) {
+      // v2→v3 migration: strip raw sampleValues from all persisted
+      // DataFrameAnalysis. `analysis` is a JSONB column whose `columns` array
+      // may contain `sampleValues` arrays with raw cell values. The privacy
+      // floor requires zero raw values at rest.
+      //
+      // The jsonb_set + jsonb_path_query_array call rewrites every element
+      // of the `columns` array to remove the `sampleValues` key, leaving
+      // all other profile fields (cardinality, nullCount, min/max, …) intact.
+      // Rows where `analysis` IS NULL are untouched by the WHERE clause.
+      await db.execute(sql`
+        UPDATE ${dataFrames}
+        SET analysis = jsonb_set(
+          analysis,
+          '{columns}',
+          COALESCE(
+            (
+              SELECT jsonb_agg(jsonb_set(col, '{sampleValues}', '[]'::jsonb))
+              FROM jsonb_array_elements(analysis->'columns') AS col
+            ),
+            '[]'::jsonb
+          )
+        )
+        WHERE analysis IS NOT NULL
+          AND analysis ? 'columns'
+      `);
+      // Bump schemaVersion to 3 so this migration does not re-run.
+      const [updated] = await db
+        .update(projectMeta)
+        .set({ schemaVersion: ARTIFACT_DB_SCHEMA_VERSION })
+        .where(eq(projectMeta.id, PROJECT_META_ID))
+        .returning();
+      meta = updated!;
+    } else if (meta.schemaVersion !== ARTIFACT_DB_SCHEMA_VERSION) {
       throw new Error(
         `Unsupported project schema version ${meta.schemaVersion}; expected ${ARTIFACT_DB_SCHEMA_VERSION}.`,
       );

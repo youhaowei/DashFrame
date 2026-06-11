@@ -4,7 +4,11 @@
 # absolute GIT_DIR into the hook environment. `git init`/`git fetch` honor
 # GIT_DIR over -C, so the scratch-repo commands below would re-initialize
 # THIS repo as bare (core.bare=true) and break every worktree operation.
-# Hooks run at the top of the working tree, so cwd discovery is always right.
+# Capture the repo root FIRST while the env is still intact so that pushes
+# launched with explicit repo context (--git-dir / absolute hooksPath) still
+# resolve the correct working tree. Then cd + unset so scratch commands are safe.
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 # Verify pushed submodule pointers are reachable from their configured remotes.

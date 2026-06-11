@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { ARTIFACT_DB_SCHEMA_VERSION } from "./db";
+import { ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
 import {
   ARTIFACTS_DB_FILENAME,
   DATA_SOURCES_DIRNAME,
@@ -11,6 +11,7 @@ import {
   type ProjectHandle,
 } from "./project";
 import {
+  dataFrames,
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
@@ -115,5 +116,108 @@ describe("openProject", () => {
     });
     expect(handle.dir).toBe(dir);
     expect(existsSync(join(dir, ARTIFACTS_DB_FILENAME))).toBe(true);
+  });
+
+  // ============================================================================
+  // v2→v3 migration — strip sampleValues from persisted analysis
+  // ============================================================================
+
+  test("should migrate v2 DB by stripping sampleValues from data_frames.analysis", async () => {
+    const dir = join(root, "v2-migration");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // Bootstrap a v2 DB: open via openArtifactDb (which creates tables) and
+    // manually seed a project_meta row at schemaVersion=2 plus a dataFrames row
+    // whose analysis contains raw sampleValues.
+    mkdirSync(dir, { recursive: true });
+    const db2 = await openArtifactDb({ path: dbPath });
+    openHandles.push({ close: () => db2.$client.close() } as ProjectHandle);
+
+    await db2.insert(projectMeta).values({
+      id: PROJECT_META_ID,
+      singletonKey: PROJECT_META_SINGLETON_KEY,
+      version: "0.2.0",
+      name: "Old Project",
+      projectId: crypto.randomUUID(),
+      schemaVersion: 2, // Simulate a v2 project DB
+      createdBy: "test",
+    });
+
+    const frameId = crypto.randomUUID();
+    await db2.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "indexeddb", key: "k" },
+      fieldIds: [],
+      name: "Frame",
+      analysis: {
+        rowCount: 5,
+        analyzedAt: Date.now(),
+        fieldHash: "hash",
+        columns: [
+          {
+            columnName: "email",
+            dataType: "string",
+            semantic: "email",
+            cardinality: 5,
+            uniqueness: 1,
+            nullCount: 0,
+            // Raw PII values that must be purged by the migration.
+            sampleValues: ["alice@example.com", "bob@example.com"],
+          },
+        ],
+      },
+    });
+    await db2.$client.close();
+
+    // Re-open as the current version — openProject runs the v2→v3 migration.
+    const migrated = await openTestProject({ dir });
+
+    // schemaVersion must now be 3 (current).
+    expect(migrated.meta.schemaVersion).toBe(ARTIFACT_DB_SCHEMA_VERSION);
+
+    // The analysis must have sampleValues stripped.
+    const rows = await migrated.db.select().from(dataFrames);
+    const stored = rows[0]?.analysis as {
+      columns: { columnName: string; sampleValues: unknown[] }[];
+    } | null;
+    expect(stored).not.toBeNull();
+    const emailCol = stored!.columns.find((c) => c.columnName === "email");
+    expect(emailCol).toBeDefined();
+    // The invariant: zero raw values at rest.
+    expect(emailCol!.sampleValues).toEqual([]);
+  });
+
+  test("should leave analysis intact (null columns) when analysis IS NULL during migration", async () => {
+    const dir = join(root, "v2-null-analysis");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    mkdirSync(dir, { recursive: true });
+    const db2 = await openArtifactDb({ path: dbPath });
+    openHandles.push({ close: () => db2.$client.close() } as ProjectHandle);
+
+    await db2.insert(projectMeta).values({
+      id: PROJECT_META_ID,
+      singletonKey: PROJECT_META_SINGLETON_KEY,
+      version: "0.2.0",
+      name: "Old Project",
+      projectId: crypto.randomUUID(),
+      schemaVersion: 2,
+      createdBy: "test",
+    });
+
+    // A frame with no analysis — should survive migration untouched.
+    const frameId = crypto.randomUUID();
+    await db2.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "indexeddb", key: "k2" },
+      fieldIds: [],
+      name: "Frame No Analysis",
+      analysis: null,
+    });
+    await db2.$client.close();
+
+    const migrated = await openTestProject({ dir });
+    const rows = await migrated.db.select().from(dataFrames);
+    expect(rows[0]?.analysis).toBeNull();
   });
 });
