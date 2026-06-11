@@ -1,4 +1,4 @@
-/* Base theme from stdui (includes @import "tailwindcss", token vars, @layer base) */
+/* Base theme from @wystack/ui (includes @import "tailwindcss", token vars, @layer base) */
 @import "@wystack/ui/styles";
 
 /* Scan DashFrame UI package for Tailwind classes */
