@@ -41,17 +41,33 @@ export function SensitivityBadge({
   }
 
   if (suggestedReasons.length > 0) {
+    // Clickable confirm affordance. Built from the composed Badge (not a raw
+    // primitive — those are construction blocks internal to @wystack/ui) made
+    // interactive via role/tabIndex + keyboard activation.
+    //
+    // This relies on Badge forwarding arbitrary props to its root DOM node.
+    // @wystack/ui's Badge renders `<div className={...} {...props} />`
+    // (libs/.../primitives/badge.tsx), so role/tabIndex/onKeyDown/onClick reach
+    // the DOM — keyboard nav and SR announcement work. If Badge ever stops
+    // spreading ...rest, this affordance must move to an interactive primitive.
     return (
-      <button
-        type="button"
+      <Badge
+        variant="soft"
+        color="warning"
+        role="button"
+        tabIndex={0}
         title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
         onClick={onConfirmSuggestion}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onConfirmSuggestion();
+          }
+        }}
         className="shrink-0 cursor-pointer"
       >
-        <Badge variant="soft" color="warning" className="hover:opacity-80">
-          Likely sensitive
-        </Badge>
-      </button>
+        Likely sensitive
+      </Badge>
     );
   }
 

@@ -1,5 +1,5 @@
 /**
- * Suggest-mode PII classifier (YW-129).
+ * Suggest-mode PII classifier.
  *
  * Produces human-readable reasons why a column is *suspected* sensitive.
  * Suggest-mode contract: this module never writes `Field.sensitivity` — it
