@@ -28,6 +28,7 @@ import {
   PlusIcon,
 } from "@wystack/ui-icons";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
   dashboardId: string;
@@ -56,6 +57,7 @@ export default function DashboardDetailContent({
   // Local state
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
@@ -89,20 +91,31 @@ export default function DashboardDetailContent({
       0,
     );
 
-    await addItem(dashboardId, {
-      type: addType,
-      position: {
-        x: 0,
-        y: bottomY,
-        width: addType === "visualization" ? 6 : 4,
-        height: addType === "visualization" ? 6 : 4,
-      },
-      visualizationId: addType === "visualization" ? selectedVizId : undefined,
-      content:
-        addType === "markdown"
-          ? "## New Text Widget\n\nEdit this text..."
-          : undefined,
-    });
+    setIsAddPending(true);
+    try {
+      await addItem(dashboardId, {
+        type: addType,
+        position: {
+          x: 0,
+          y: bottomY,
+          width: addType === "visualization" ? 6 : 4,
+          height: addType === "visualization" ? 6 : 4,
+        },
+        visualizationId:
+          addType === "visualization" ? selectedVizId : undefined,
+        content:
+          addType === "markdown"
+            ? "## New Text Widget\n\nEdit this text..."
+            : undefined,
+      });
+    } catch (error) {
+      // Keep the dialog open so the user's selection isn't lost.
+      console.error("Failed to add dashboard widget", error);
+      toast.error("Couldn't add widget");
+      return;
+    } finally {
+      setIsAddPending(false);
+    }
 
     setIsAddOpen(false);
     setAddType("visualization");
@@ -236,7 +249,9 @@ export default function DashboardDetailContent({
             <Button
               label="Add Widget"
               onClick={handleAddItem}
-              disabled={addType === "visualization" && !selectedVizId}
+              disabled={
+                isAddPending || (addType === "visualization" && !selectedVizId)
+              }
             />
           </div>
         </DialogContent>
