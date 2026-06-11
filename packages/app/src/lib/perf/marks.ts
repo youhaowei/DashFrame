@@ -10,8 +10,12 @@ import { type PerfStage } from "./stages";
  * - Zero-cost when disabled: `record` short-circuits on `enabled === false`, so
  *   in production (HUD off) the marks still create native PerformanceEntries
  *   (cheap, useful for external profilers) but never allocate store samples.
- * - Marks use a stable naming scheme so they're greppable in the Performance
- *   timeline: `dashframe:<stage>:<phase>[:<label>]`.
+ * - Overlap-safe: each {@link perfMark} mints a *unique* mark name (instance
+ *   counter), and {@link perfMeasure} closes that exact span. Two measurements
+ *   that reuse the same stage/label before the first finishes (e.g. rapid
+ *   keystrokes firing overlapping async command applies) therefore don't collide
+ *   on a shared mark name — no under-measurement, no dropped samples.
+ * - Marks use a stable, greppable scheme: `dashframe:<stage>[:<label>]:<phase>#<id>`.
  */
 
 const hasPerf =
@@ -19,39 +23,58 @@ const hasPerf =
   typeof performance.mark === "function" &&
   typeof performance.measure === "function";
 
-function markName(stage: PerfStage, phase: "start" | "end", label?: string) {
-  return label
-    ? `dashframe:${stage}:${phase}:${label}`
-    : `dashframe:${stage}:${phase}`;
+let nextSpanId = 0;
+
+/** Opaque handle returned by {@link perfMark}, passed back to {@link perfMeasure}. */
+export interface PerfSpan {
+  stage: PerfStage;
+  label?: string;
+  startMark: string;
+  endMark: string;
+  measureName: string;
 }
 
-/** Place a start mark for a stage. Pair with {@link perfMeasure}. */
-export function perfMark(stage: PerfStage, label?: string): void {
-  if (!hasPerf) return;
-  try {
-    performance.mark(markName(stage, "start", label));
-  } catch {
-    // Marks are best-effort; never let instrumentation throw into the app.
-  }
+function base(stage: PerfStage, label?: string): string {
+  return label ? `dashframe:${stage}:${label}` : `dashframe:${stage}`;
 }
 
 /**
- * Close a stage opened with {@link perfMark}, emitting a `performance.measure`
- * and recording a classified sample. Returns the measured duration in ms (or
- * `undefined` if no matching start mark / no Performance API).
+ * Open a span for a stage. Returns a {@link PerfSpan} handle to pass to
+ * {@link perfMeasure}, or `undefined` if the Performance API is unavailable.
  */
-export function perfMeasure(
+export function perfMark(
   stage: PerfStage,
   label?: string,
-): number | undefined {
+): PerfSpan | undefined {
   if (!hasPerf) return undefined;
-  const start = markName(stage, "start", label);
-  const end = markName(stage, "end", label);
-  const suffix = label ? `:${label}` : "";
-  const measureName = `dashframe:${stage}${suffix}`;
+  const id = nextSpanId++;
+  const root = base(stage, label);
+  const span: PerfSpan = {
+    stage,
+    label,
+    startMark: `${root}:start#${id}`,
+    endMark: `${root}:end#${id}`,
+    measureName: `${root}#${id}`,
+  };
   try {
-    performance.mark(end);
-    const measure = performance.measure(measureName, start, end);
+    performance.mark(span.startMark);
+  } catch {
+    // Marks are best-effort; never let instrumentation throw into the app.
+  }
+  return span;
+}
+
+/**
+ * Close a span opened with {@link perfMark}, emitting a `performance.measure`
+ * and recording a classified sample. Returns the measured duration in ms (or
+ * `undefined` if no span / no Performance API).
+ */
+export function perfMeasure(span: PerfSpan | undefined): number | undefined {
+  if (!hasPerf || !span) return undefined;
+  const { stage, label, startMark, endMark, measureName } = span;
+  try {
+    performance.mark(endMark);
+    const measure = performance.measure(measureName, startMark, endMark);
     const durationMs = measure?.duration ?? 0;
     usePerfStore.getState().record({
       stage,
@@ -60,11 +83,12 @@ export function perfMeasure(
       at: performance.now(),
     });
     // Keep the global PerformanceEntry buffer from growing unbounded across a
-    // long session — clear both the marks and the measure we just created.
-    // (Render instrumentation runs even when the HUD is disabled, so this must
-    // happen regardless of whether a sample was recorded.)
-    performance.clearMarks(start);
-    performance.clearMarks(end);
+    // long session — clear this span's marks and measure. Because the names are
+    // unique per span, this never removes a still-active overlapping span's
+    // marks. (Render instrumentation runs even when the HUD is disabled, so this
+    // must happen regardless of whether a sample was recorded.)
+    performance.clearMarks(startMark);
+    performance.clearMarks(endMark);
     performance.clearMeasures(measureName);
     return durationMs;
   } catch {
@@ -79,11 +103,11 @@ export function perfMeasure(
  * withPerf(PerfStage.CommandApply, () => applyCommand(cmd), insightId);
  */
 export function withPerf<T>(stage: PerfStage, fn: () => T, label?: string): T {
-  perfMark(stage, label);
+  const span = perfMark(stage, label);
   try {
     return fn();
   } finally {
-    perfMeasure(stage, label);
+    perfMeasure(span);
   }
 }
 
@@ -93,10 +117,10 @@ export async function withPerfAsync<T>(
   fn: () => Promise<T>,
   label?: string,
 ): Promise<T> {
-  perfMark(stage, label);
+  const span = perfMark(stage, label);
   try {
     return await fn();
   } finally {
-    perfMeasure(stage, label);
+    perfMeasure(span);
   }
 }
