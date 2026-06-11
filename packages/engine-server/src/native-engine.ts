@@ -181,6 +181,17 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async dispose(): Promise<void> {
+    // An initialize() may still be in flight (e.g. Electron before-quit fires
+    // during DuckDB startup). Tearing down immediately would null out nothing,
+    // and the init closure would then assign a live connection/instance AFTER
+    // this teardown — an engine alive past disposal, its native handle and any
+    // file lock never released. Wait for the latch to settle first; a failed
+    // init has already cleaned up after itself, so its error is swallowed.
+    try {
+      await this.initPromise;
+    } catch {
+      // Failed init closed its own instance — nothing live to tear down.
+    }
     // Disconnect the connection before closing the instance — DuckDB expects
     // all connections to be released before the instance is closed.
     this.connection?.disconnectSync();

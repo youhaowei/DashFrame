@@ -95,6 +95,21 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await expect(engine.dispose()).resolves.toBeUndefined();
   });
 
+  it("dispose() during an in-flight initialize() leaves the engine dead, not live", async () => {
+    engine = new NativeDuckDBEngine();
+    // dispose() races initialize(): without awaiting the init latch, the init
+    // closure would assign a live connection AFTER teardown ran — an engine
+    // alive past disposal (e.g. Electron before-quit during DuckDB startup).
+    const init = engine.initialize();
+    await engine.dispose();
+    await init;
+
+    expect(engine.isReady()).toBe(false);
+    await expect(engine.query("SELECT 1")).rejects.toThrow(
+      "NativeDuckDBEngine not initialized",
+    );
+  });
+
   it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {
     engine = new NativeDuckDBEngine();
     // Two callers race before the first await resolves; both must converge on
