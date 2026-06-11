@@ -1,26 +1,22 @@
 import type { ColumnType, TableColumn } from "./column";
 import type { UUID } from "./uuid";
 
-/**
- * Privacy sensitivity marker for a Field.
- *
- * Tri-state, fail-closed: `unclassified` (the default when absent) reads as
- * restricted — every privacy gate treats it exactly like `sensitive` until a
- * deliberate decision writes `cleared`.
- *
- * - `unclassified` — nobody has confidently decided; restricted by default.
- * - `sensitive` — confirmed sensitive; restricted.
- * - `cleared` — confirmed safe; unrestricted.
- */
-export type FieldSensitivity = "unclassified" | "sensitive" | "cleared";
+// Re-export sensitivity types and helpers from @dashframe/types — single
+// source of truth; no duplicate implementations in this package.
+export {
+  buildSensitivityUpdate,
+  getFieldSensitivity,
+  isFieldRestricted,
+} from "@dashframe/types";
+export type {
+  FieldSensitivity,
+  FieldSensitivitySource,
+} from "@dashframe/types";
 
-/**
- * Who wrote the current sensitivity value.
- *
- * `classifier` means the user confirmed a classifier suggestion — in
- * suggest-mode the classifier never writes the marker on its own.
- */
-export type FieldSensitivitySource = "user" | "classifier";
+import type {
+  FieldSensitivity,
+  FieldSensitivitySource,
+} from "@dashframe/types";
 
 /**
  * Field - User-facing column with lineage tracking.
@@ -54,61 +50,6 @@ export type Field = {
   /** Who set the current sensitivity value */
   sensitivitySource?: FieldSensitivitySource;
 };
-
-/**
- * Resolve a field's effective sensitivity. Absent reads as `unclassified` —
- * the column default IS the fail-closed invariant.
- */
-export function getFieldSensitivity(
-  field: Pick<Field, "sensitivity">,
-): FieldSensitivity {
-  return field.sensitivity ?? "unclassified";
-}
-
-/**
- * Whether privacy gates must restrict this field.
- *
- * The single read point for all enforcement placements: only an explicit
- * `cleared` unlocks a field; `sensitive` and `unclassified` are both
- * restricted.
- */
-export function isFieldRestricted(field: Pick<Field, "sensitivity">): boolean {
-  return getFieldSensitivity(field) !== "cleared";
-}
-
-/**
- * Build the Field update for a sensitivity marking, with the legible
- * reason/source the marking contract requires. Single source for the
- * persisted reason strings — UI surfaces must not hand-roll them.
- *
- * @param reasons - Classifier suggestion reasons when the user is confirming
- *   a suggestion; their presence records the marking as classifier-sourced.
- */
-export function buildSensitivityUpdate(
-  sensitivity: FieldSensitivity,
-  reasons?: string[],
-): Pick<Field, "sensitivity" | "sensitivityReason" | "sensitivitySource"> {
-  if (sensitivity === "sensitive" && reasons?.length) {
-    return {
-      sensitivity,
-      sensitivityReason: reasons.join("; "),
-      sensitivitySource: "classifier",
-    };
-  }
-  let sensitivityReason: string;
-  switch (sensitivity) {
-    case "sensitive":
-      sensitivityReason = "Marked sensitive by you";
-      break;
-    case "cleared":
-      sensitivityReason = "Cleared by you";
-      break;
-    case "unclassified":
-      sensitivityReason = "Reset to unclassified by you";
-      break;
-  }
-  return { sensitivity, sensitivityReason, sensitivitySource: "user" };
-}
 
 /**
  * Source schema wrapper - tracks schema version and sync time.
