@@ -1403,6 +1403,53 @@ describe("command vocabulary", () => {
       expect(layout.find((it) => it.id === item2)?.x).toBe(4);
     });
 
+    it("should reject duplicate item ids in SetDashboardLayout (no corrupt state for UpdateDashboardItem/RemoveDashboardItem)", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: [
+              {
+                id: itemId,
+                type: "markdown" as const,
+                content: "A",
+                x: 1,
+                y: 0,
+                width: 3,
+                height: 3,
+              },
+              {
+                id: itemId,
+                type: "markdown" as const,
+                content: "A",
+                x: 4,
+                y: 0,
+                width: 3,
+                height: 3,
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow("duplicate ids");
+    });
+
     it("should remove a dashboard item by id", async () => {
       const dashId = id();
       const itemId = id();

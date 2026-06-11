@@ -824,6 +824,17 @@ const removeMetric = mutation({
 // ---------------------------------------------------------------------------
 
 /**
+ * Remove the `data` key from a Vega-Lite spec before persisting.
+ * Keeps storage/privacy behaviour consistent with the legacy
+ * createVisualization/updateVisualization handlers in app-artifacts.ts.
+ */
+function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
+  const next = { ...spec };
+  delete next.data;
+  return next;
+}
+
+/**
  * CreateVisualization — mints a chart over an Insight's DataFrame with a
  * client-supplied id. Insight and Visualization stay 1:many (spec decision):
  * the UI creates a 1:1 feel by batching CreateInsight + CreateVisualization in
@@ -845,7 +856,7 @@ const createVisualization = mutation({
       insightId: args.insightId,
       chartType: args.visualizationType,
       encoding: (args.encoding ?? {}) as VisualizationEncoding,
-      options: { spec: args.spec as VegaLiteSpec },
+      options: { spec: stripDataFromSpec(args.spec as VegaLiteSpec) },
       createdBy: { kind: "user" },
     })) as VisualizationRow[];
     if (!row) throw new Error("insert returned no row");
@@ -890,7 +901,7 @@ const setChartEncoding = mutation({
       encoding: encoding as VisualizationEncoding,
     };
     if (spec !== undefined) {
-      patch.options = { spec: spec as VegaLiteSpec };
+      patch.options = { spec: stripDataFromSpec(spec as VegaLiteSpec) };
     }
     await ctx.db.from(visualizations).where(eq("id", id)).update(patch);
     return { ok: true };
@@ -1015,19 +1026,25 @@ const updateDashboardItem = mutation({
 
 /**
  * SetDashboardLayout — replace the whole layout at once (bulk drag-rearrange).
- * Replace-all counterpart to per-item UpdateDashboardItem. No id-uniqueness
- * check needed — caller-supplied full list is authoritative (consistent with
- * the replace-all contract of SetInsightFilter/SetInsightSort).
+ * Replace-all counterpart to per-item UpdateDashboardItem. Unlike the
+ * replace-all SetInsightFilter/SetInsightSort, dashboard items are id-keyed:
+ * UpdateDashboardItem and RemoveDashboardItem both rely on id uniqueness, so a
+ * duplicate in the incoming list would corrupt those operations. Guard it.
  */
 const setDashboardLayout = mutation({
   args: { dashboardId: uuid, items: jsonb },
   handler: async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
     // Guard existence first — a missing dashboard would silently do nothing.
     await requireDashboardItems(ctx, dashboardId);
+    const parsed = items as DashboardItem[];
+    const ids = parsed.map((it) => it.id);
+    if (new Set(ids).size !== ids.length) {
+      throw new Error("SetDashboardLayout: items contains duplicate ids");
+    }
     await ctx.db
       .from(dashboards)
       .where(eq("id", dashboardId))
-      .update({ layout: items as DashboardItem[] });
+      .update({ layout: parsed });
     return { ok: true };
   },
 });
@@ -1363,10 +1380,6 @@ export const commandFunctions = {
   renameNode,
   deleteNode,
 };
-
-// ---------------------------------------------------------------------------
-// Typed command builders — the VOCABULARY face
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Typed command builders — the VOCABULARY face
