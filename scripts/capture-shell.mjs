@@ -30,7 +30,10 @@ async function ensureAssistant(page, open) {
   const isOpen = (await openBtn.count()) === 0;
   if (open && !isOpen) await openBtn.click();
   if (!open && isOpen) {
-    await page.locator('[aria-label="Dismiss assistant"]:visible').first().click();
+    await page
+      .locator('[aria-label="Dismiss assistant"]:visible')
+      .first()
+      .click();
   }
   await page.waitForTimeout(450);
 }
