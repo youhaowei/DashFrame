@@ -118,12 +118,16 @@ const createDataSource = mutation({
     ctx,
     { id, type, name, apiKey, connectionString },
   ): Promise<{ id: string }> => {
+    const config: DataSourceConfig = {};
+    if (apiKey !== undefined) config.apiKey = apiKey;
+    if (connectionString !== undefined)
+      config.connectionString = connectionString;
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
       name,
       kind: type,
       storage: "live",
-      config: { apiKey, connectionString },
+      config,
       createdBy: { kind: "user" },
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
@@ -411,8 +415,10 @@ const removeMetric = mutation({
 
 /**
  * RenameNode — the single `name` mutation, carved out of every coarse
- * update(blob). Polymorphic over the artifact node kinds that carry a `name`
- * column. One lookup decides the table; the SET is identical across them.
+ * update(blob). Polymorphic over the three artifact NODE kinds
+ * (DataSource / DataTable / Insight); presentation artifacts (e.g. views)
+ * rename through their own surfaces. One lookup decides the table; the SET
+ * is identical across them.
  */
 const renameNode = mutation({
   args: { id: uuid, name: text },
