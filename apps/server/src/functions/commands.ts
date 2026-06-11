@@ -574,12 +574,21 @@ const updateJoin = mutation({
     if (!isRecord(updates) || Object.keys(updates).length === 0) {
       throw new Error("updates are required for UpdateJoin");
     }
+    if (
+      typeof joinIndex !== "number" ||
+      !Number.isInteger(joinIndex) ||
+      joinIndex < 0
+    ) {
+      throw new Error(
+        `UpdateJoin: joinIndex must be a non-negative integer, got ${JSON.stringify(joinIndex)}`,
+      );
+    }
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
       joins: patchJoinsCollection(definition.joins ?? [], {
         mode: "update",
-        joinIndex: joinIndex as number,
+        joinIndex,
         updates,
       }),
     };
@@ -595,12 +604,21 @@ const updateJoin = mutation({
 const removeJoin = mutation({
   args: { id: uuid, joinIndex: jsonb },
   handler: async (ctx, { id, joinIndex }): Promise<{ ok: true }> => {
+    if (
+      typeof joinIndex !== "number" ||
+      !Number.isInteger(joinIndex) ||
+      joinIndex < 0
+    ) {
+      throw new Error(
+        `RemoveJoin: joinIndex must be a non-negative integer, got ${JSON.stringify(joinIndex)}`,
+      );
+    }
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
       joins: patchJoinsCollection(definition.joins ?? [], {
         mode: "remove",
-        joinIndex: joinIndex as number,
+        joinIndex,
       }),
     };
     await ctx.db
