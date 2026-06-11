@@ -1,6 +1,5 @@
 /**
- * Command VOCABULARY (YW-106) — Layer B over @wystack/server's `applyCommands`
- * MECHANISM (YW-122).
+ * Command VOCABULARY — Layer B over @wystack/server's `applyCommands` MECHANISM.
  *
  * `applyCommands` knows nothing about DashFrame. It dispatches a batch of
  * `{ path, args }` against the app's function registry inside one tracked
@@ -37,16 +36,17 @@
  * Fields & Metrics target the DataFrame-PRODUCING node polymorphically via
  * `{ nodeId }`, NOT a DataTable id — a leaf node is a DataTable (fields/metrics
  * live in its `fields`/`metrics` jsonb columns); a derived node is an Insight
- * (YW-123). This slice implements the DataTable case and dispatches on node kind
- * so the Insight case slots in without changing the command shape.
+ * (not yet wired for collection edits). This slice implements the DataTable case
+ * and dispatches on node kind so the Insight case slots in without changing the
+ * command shape.
  *
- * Operand encoding (YW-153 spike finding): when a value-bearing operand type is
- * introduced (filters, YW-123), it MUST be a TAGGED union
+ * Operand encoding — when a value-bearing operand type is introduced (e.g.
+ * filters on Insight nodes), it MUST be a TAGGED union
  *   { kind: 'value'; v } | { kind: 'deferred'; ref }   (v: null means IS NULL)
- * NOT property-presence. The YW-106 commands here carry only concrete values
- * (ids, names, schemas, whole Field/Metric records), so no operand type is
- * introduced — adding one speculatively would violate "don't gold-plate". This
- * comment records that the tagged-union convention is established for YW-123.
+ * NOT property-presence. The commands here carry only concrete values (ids,
+ * names, schemas, whole Field/Metric records), so no operand type is introduced
+ * — adding one speculatively would violate "don't gold-plate". This comment
+ * records that the tagged-union convention is established for future filter work.
  */
 import { schema } from "@dashframe/server-core";
 import type {
@@ -258,7 +258,7 @@ type ResolvedNode =
  * Resolve which kind of node `nodeId` is, returning the row it already fetched
  * for the DataTable case so callers don't pay a second lookup. A leaf node is a
  * DataTable (fields and metrics live in its jsonb columns); a derived node is
- * an Insight (YW-123, not yet wired for collection edits). One lookup decides
+ * an Insight (not yet wired for collection edits). One lookup decides
  * the dispatch so the command shape (`{ nodeId, ... }`) never needs to know the
  * kind up front.
  */
@@ -280,7 +280,7 @@ async function resolveNode(
  * Apply one incremental collection edit ("fields" | "metrics") to a DataTable's
  * jsonb array and persist it. Add appends; Update merges by id; Remove drops by
  * id. Update/Remove on a missing id throw so a bad batch fails loudly (and rolls
- * back). Insight nodes are rejected until YW-123 wires their definition arrays.
+ * back). Insight nodes are rejected until collection-edit support is wired.
  *
  * Concurrency: this read-modify-write is safe on PGLite (single-connection —
  * batches serialize at the event loop). A future multi-connection Postgres
@@ -301,7 +301,7 @@ async function patchDataTableCollection(
   const node = await resolveNode(ctx, nodeId);
   if (node.kind === "insight") {
     throw new Error(
-      `Field/metric edits on Insight node ${nodeId} are not supported yet (YW-123)`,
+      `Field/metric edits on Insight node ${nodeId} are not supported yet`,
     );
   }
   const items = ((node.row[kind] ?? []) as { id: string }[]).slice();

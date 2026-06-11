@@ -13,6 +13,7 @@ import {
   type ArtifactProvenance,
   PROJECT_META_ID,
   dashboards,
+  dataFrames,
   dataSources,
   insights,
   schema,
@@ -177,6 +178,343 @@ describe("openArtifactDb", () => {
       "insights_parent_artifact_id_idx",
       "visualizations_parent_artifact_id_idx",
     ]);
+  });
+
+  // ============================================================================
+  // Artifact-DB write gate — profiles only by construction
+  //
+  // Contract: a raw `sampleValues` array written via ANY Drizzle path (insert
+  // or update) against `data_frames` is stripped to `[]` before the bytes
+  // reach PGLite. The invariant is enforced at the DB instance level so no
+  // caller can bypass it — violating writes are unrepresentable, not policed
+  // by callers.
+  // ============================================================================
+  describe("write gate — no raw sampleValues can land in data_frames", () => {
+    function makeAnalysis(sampleValues: unknown[] = ["pii@example.com"]) {
+      return {
+        rowCount: 1,
+        analyzedAt: Date.now(),
+        fieldHash: "h",
+        columns: [
+          {
+            columnName: "email",
+            dataType: "string",
+            semantic: "email",
+            cardinality: 1,
+            uniqueness: 1,
+            nullCount: 0,
+            sampleValues,
+          },
+        ],
+      };
+    }
+
+    test("should strip sampleValues on insert even when caller passes raw values", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Attempt to persist raw PII via a direct Drizzle insert —
+      // the gate must strip it before the row lands in PGLite.
+      await db
+        .insert(dataFrames)
+        .values({
+          id,
+          storage: { type: "indexeddb", key: "k" },
+          fieldIds: [],
+          name: "Gate Test Frame",
+          analysis: makeAnalysis(["alice@example.com", "bob@example.com"]),
+        })
+        .returning();
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // The invariant: zero raw cell values at rest.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+      // Profile stats survive the strip.
+      expect(analysis.columns[0]!.cardinality).toBe(1);
+      expect(analysis.columns[0]!.semantic).toBe("email");
+    });
+
+    test("should strip sampleValues on update even when caller passes raw values", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert a clean frame first.
+      await db
+        .insert(dataFrames)
+        .values({
+          id,
+          storage: { type: "indexeddb", key: "k" },
+          fieldIds: [],
+          name: "Gate Test Frame",
+        })
+        .returning();
+
+      // Attempt to write raw values via a direct Drizzle update.
+      await db
+        .update(dataFrames)
+        .set({ analysis: makeAnalysis([42, 99, 101]) })
+        .where(eq(dataFrames.id, id))
+        .returning();
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // Raw numeric values must not have landed.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should preserve profile fields and leave null analysis untouched", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert with null analysis — gate must not break the write.
+      await db
+        .insert(dataFrames)
+        .values({
+          id,
+          storage: { type: "indexeddb", key: "k" },
+          fieldIds: [],
+          name: "Null Analysis Frame",
+          analysis: null,
+        })
+        .returning();
+
+      const rows = await db.select().from(dataFrames);
+      expect(rows.find((r) => r.id === id)?.analysis).toBeNull();
+    });
+
+    test("should strip sampleValues in onConflictDoUpdate set clause", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert a clean frame first.
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Upsert Gate Frame",
+      });
+
+      // Attempt a conflict-update that carries raw sampleValues in the set clause.
+      await db
+        .insert(dataFrames)
+        .values({
+          id,
+          storage: { type: "indexeddb", key: "k" },
+          fieldIds: [],
+          name: "Upsert Gate Frame",
+        })
+        .onConflictDoUpdate({
+          target: dataFrames.id,
+          set: { analysis: makeAnalysis(["secret@example.com"]) },
+        });
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // The conflict-update path must also strip raw values.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should strip sampleValues on a transactional insert", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Drizzle hands the tx callback an unwrapped handle; the gate must wrap
+      // it so writes inside the transaction are stripped just like top-level ones.
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(dataFrames)
+          .values({
+            id,
+            storage: { type: "indexeddb", key: "k" },
+            fieldIds: [],
+            name: "Tx Gate Frame",
+            analysis: makeAnalysis(["pii-in-tx@example.com"]),
+          })
+          .returning();
+      });
+
+      const rows = await db.select().from(dataFrames);
+      const analysis = rows.find((r) => r.id === id)!.analysis as ReturnType<
+        typeof makeAnalysis
+      >;
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should strip sampleValues inside a nested transaction (savepoint)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // The gate must recurse: the handle passed to a nested transaction is
+      // itself gated, so a write at savepoint depth is still stripped.
+      await db.transaction(async (tx) => {
+        await tx.transaction(async (inner) => {
+          await inner
+            .insert(dataFrames)
+            .values({
+              id,
+              storage: { type: "indexeddb", key: "k" },
+              fieldIds: [],
+              name: "Nested Tx Gate Frame",
+              analysis: makeAnalysis(["nested-pii@example.com"]),
+            })
+            .returning();
+        });
+      });
+
+      const rows = await db.select().from(dataFrames);
+      const analysis = rows.find((r) => r.id === id)!.analysis as ReturnType<
+        typeof makeAnalysis
+      >;
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+    });
+
+    test("should throw on a sql`` analysis value (fail closed, not silent)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Sql Expr Frame",
+      });
+
+      // A SQL expression cannot be statically stripped, so the gate must throw
+      // rather than forward raw values to PGLite. The error names the gate.
+      expect(() =>
+        db
+          .update(dataFrames)
+          .set({
+            analysis: sql`jsonb_set(analysis, '{columns,0,sampleValues}', '["raw"]')`,
+          })
+          .where(eq(dataFrames.id, id)),
+      ).toThrow(/Artifact-DB write gate/);
+
+      // And the row is untouched — nothing raw landed.
+      const rows = await db.select().from(dataFrames);
+      expect(rows.find((r) => r.id === id)?.analysis).toBeNull();
+    });
+
+    test("should persist nothing when a transaction throws (rollback intact)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // A write inside a tx that throws must roll back — the gate wraps the
+      // handle but does not alter the transaction's atomicity semantics.
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.insert(dataFrames).values({
+            id,
+            storage: { type: "indexeddb", key: "k" },
+            fieldIds: [],
+            name: "Rolled-Back Frame",
+            analysis: makeAnalysis(["should-not-persist@example.com"]),
+          });
+          throw new Error("force rollback");
+        }),
+      ).rejects.toThrow("force rollback");
+
+      const rows = await db.select().from(dataFrames);
+      expect(rows.find((r) => r.id === id)).toBeUndefined();
+    });
+
+    test("should not interfere with writes to other tables (dataSources)", async () => {
+      const db = await openTestArtifactDb();
+
+      // A dataSources write has no analysis column — the gate must be a no-op.
+      const [row] = await db
+        .insert(dataSources)
+        .values({
+          name: "unaffected-source",
+          kind: "csv",
+          storage: "parquet",
+          config: { note: "gate should not interfere" },
+          createdBy: userProvenance,
+        })
+        .returning();
+
+      expect(row!.name).toBe("unaffected-source");
+      expect((row!.config as Record<string, string>).note).toBe(
+        "gate should not interfere",
+      );
+    });
+
+    // ── DB-floor trigger tests (bypass class #4 — prepared statements) ──────
+    //
+    // Drizzle's `.prepare()` / `.execute()` bind values at execute time, after
+    // the Proxy builder-intercept has already run.  The Proxy cannot see the
+    // placeholder value at builder time, so the DB trigger is the enforcing
+    // layer for this path.  These tests confirm the trigger catches it.
+
+    test("should strip sampleValues written via a prepared-statement update (DB-floor trigger)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert a clean seed row via the normal ORM path.
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Prepared Stmt Frame",
+      });
+
+      // Build a prepared statement whose analysis value is a sql.placeholder —
+      // the Proxy gate sees the placeholder (not a plain object) at builder
+      // time and cannot strip it.  The DB trigger must catch it instead.
+      const prepared = db
+        .update(dataFrames)
+        .set({ analysis: sql.placeholder("analysis") })
+        .where(eq(dataFrames.id, sql.placeholder("id")))
+        .prepare("update_analysis_prepared");
+
+      const rawAnalysis = makeAnalysis(["prepared-pii@example.com"]);
+      await prepared.execute({ id, analysis: rawAnalysis });
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // The DB-floor trigger must have stripped sampleValues before the row landed.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+      // Profile stats survive the strip.
+      expect(analysis.columns[0]!.cardinality).toBe(1);
+      expect(analysis.columns[0]!.semantic).toBe("email");
+    });
+
+    test("should strip sampleValues written via raw SQL INSERT (DB-floor trigger)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+      const rawAnalysis = makeAnalysis(["raw-sql-pii@example.com"]);
+
+      // db.execute() bypasses the Proxy entirely — the trigger is the only guard.
+      await db.execute(
+        sql`INSERT INTO "data_frames" (id, storage, field_ids, name, analysis)
+            VALUES (
+              ${id}::uuid,
+              ${"{}"}::jsonb,
+              ${"[]"}::jsonb,
+              ${"Raw SQL Frame"},
+              ${JSON.stringify(rawAnalysis)}::jsonb
+            )`,
+      );
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // Raw SQL INSERT bypasses the Proxy; the DB trigger must strip it.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+      expect(analysis.columns[0]!.cardinality).toBe(1);
+    });
   });
 
   // Regression: PostgreSQL has no native ON UPDATE trigger, so `defaultNow()`

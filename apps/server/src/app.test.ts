@@ -1,5 +1,5 @@
 /**
- * Integration smoke for the DashFrame loopback server (YW-69).
+ * Integration smoke for the DashFrame loopback server.
  *
  * Proves the full path the renderer relies on — open a real project, start the
  * server on loopback, and round-trip `projectInfo` over HTTP — without Electron.

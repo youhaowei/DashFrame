@@ -1,5 +1,5 @@
 /**
- * Command vocabulary (YW-106) tests.
+ * Command vocabulary tests.
  *
  * These exercise the vocabulary THROUGH the real engine: a batch of typed
  * commands (built with `cmd(...)`) dispatched by `@wystack/server`'s

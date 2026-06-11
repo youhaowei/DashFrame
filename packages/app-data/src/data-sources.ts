@@ -90,7 +90,7 @@ export async function getDataSourceByType(
  *
  * The defect (PR #46 Greptile P1): two concurrent CSV ingests both ran the racy
  * `kind`-keyed check-then-insert and both inserted (no unique constraint on
- * `kind`). The fix (YW-106) is to key get-or-create on the PRIMARY KEY: a stable
+ * `kind`). The fix is to key get-or-create on the PRIMARY KEY: a stable
  * id derived from the type means concurrent ingests target the same row, so the
  * `GetOrCreateDataSource` command is idempotent (the loser reads the winner's
  * row or conflicts on the PK and its batch rolls back — never two rows).

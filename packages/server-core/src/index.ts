@@ -30,3 +30,4 @@ export {
 } from "./project-dir";
 export { schema, type Schema } from "./schema";
 export { DASHFRAME_PROJECT_VERSION } from "./version";
+export { applyDataFrameWriteGate } from "./write-gate";

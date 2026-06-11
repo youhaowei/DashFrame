@@ -43,6 +43,82 @@ export async function syncSchema(
   }
 }
 
+/**
+ * Install (or replace) the `strip_data_frames_sample_values` trigger on the
+ * `data_frames` table.  This is the **non-bypassable DB-floor** component of
+ * the artifact-DB write gate.
+ *
+ * Why a DB trigger (in addition to the Proxy gate):
+ * - The Proxy gate catches ORM builder paths at construction time.  However,
+ *   Drizzle's `.prepare()` / `.execute()` API binds values at execute time, so
+ *   a prepared statement bypasses the gate: the placeholder is not a plain
+ *   object and the builder-level intercept never sees the real value.
+ * - Raw `db.execute(sql`…`)` is similarly invisible to the Proxy.
+ * - A database BEFORE INSERT OR UPDATE trigger runs regardless of how the row
+ *   reaches PGLite — ORM builders, prepared statements, raw SQL, or any future
+ *   code path — making the strip truly invariant.
+ *
+ * The trigger function iterates every element of `NEW.analysis->'columns'` and
+ * sets `sampleValues` to `'[]'::jsonb`.  If `analysis` is NULL or has no
+ * `columns` array the function is a no-op.
+ *
+ * Idempotency: `CREATE OR REPLACE FUNCTION` replaces the function on re-open;
+ * `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER` replaces the trigger binding.
+ * Running this on every `openArtifactDb` call is safe.
+ */
+export async function installSampleValuesTrigger(
+  db: SyncTarget,
+): Promise<void> {
+  // 1. Create (or replace) the trigger function.
+  await db.execute(
+    sql.raw(`
+CREATE OR REPLACE FUNCTION strip_data_frames_sample_values()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  i   integer;
+  len integer;
+BEGIN
+  IF NEW.analysis IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF jsonb_typeof(NEW.analysis->'columns') IS DISTINCT FROM 'array' THEN
+    RETURN NEW;
+  END IF;
+  len := jsonb_array_length(NEW.analysis->'columns');
+  FOR i IN 0 .. len - 1 LOOP
+    NEW.analysis := jsonb_set(
+      NEW.analysis,
+      ARRAY['columns', i::text, 'sampleValues'],
+      '[]'::jsonb,
+      true
+    );
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+  `),
+  );
+
+  // 2. Drop any existing binding so CREATE TRIGGER is idempotent.
+  await db.execute(
+    sql.raw(`
+DROP TRIGGER IF EXISTS trg_strip_sample_values ON "data_frames";
+  `),
+  );
+
+  // 3. Bind the trigger — fires BEFORE every INSERT and UPDATE on data_frames.
+  await db.execute(
+    sql.raw(`
+CREATE TRIGGER trg_strip_sample_values
+  BEFORE INSERT OR UPDATE ON "data_frames"
+  FOR EACH ROW
+  EXECUTE FUNCTION strip_data_frames_sample_values();
+  `),
+  );
+}
+
 export function renderCreateTableIfNotExists(table: PgTable): string {
   const cfg = getTableConfig(table);
   const lines: string[] = [];
