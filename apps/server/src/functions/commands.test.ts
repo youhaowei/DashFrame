@@ -8,8 +8,8 @@
  * client-id invariant, each command mapping to the right write, mid-batch
  * rollback, and preview persisting nothing.
  *
- * YW-123 additions: Insight (incl. Insight-on-Insight composition and cycle
- * rejection), SelectFields, SetInsightFilter/Sort, AddJoin/UpdateJoin/RemoveJoin,
+ * Covers: Insight (incl. Insight-on-Insight composition and cycle rejection),
+ * SelectFields, SetInsightFilter/Sort, AddJoin/UpdateJoin/RemoveJoin,
  * Visualization (CreateVisualization, SetChartType, SetChartEncoding), Dashboard
  * (CreateDashboard, AddDashboardItem, UpdateDashboardItem, SetDashboardLayout,
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
@@ -650,7 +650,7 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
-  // YW-123: Insight commands
+  // Insight commands
   // ===========================================================================
 
   describe("CreateInsight", () => {
@@ -1140,7 +1140,7 @@ describe("command vocabulary", () => {
     });
   });
 
-  describe("AddField / UpdateField on Insight node (YW-123 — fields on derived node)", () => {
+  describe("AddField / UpdateField on Insight node (fields on derived node)", () => {
     it("should add and update a field on an Insight node", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
@@ -1305,7 +1305,7 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
-  // YW-123: Visualization commands
+  // Visualization commands
   // ===========================================================================
 
   describe("CreateVisualization / SetChartType / SetChartEncoding", () => {
@@ -1378,7 +1378,7 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
-  // YW-123: Dashboard commands
+  // Dashboard commands
   // ===========================================================================
 
   describe("CreateDashboard / AddDashboardItem / UpdateDashboardItem / SetDashboardLayout / RemoveDashboardItem", () => {
@@ -1690,7 +1690,7 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
-  // YW-123: Cross-cutting — DeleteNode + extended RenameNode
+  // Cross-cutting — DeleteNode + extended RenameNode
   // ===========================================================================
 
   describe("DeleteNode (polymorphic delete)", () => {
@@ -1822,10 +1822,10 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
-  // YW-105: DeleteNode — typed-edge cascade rule + orphan-and-warn
+  // DeleteNode — typed-edge cascade rule + orphan-and-warn
   // ===========================================================================
 
-  describe("DeleteNode — typed-edge cascade rule (YW-105)", () => {
+  describe("DeleteNode — typed-edge cascade rule", () => {
     // -------------------------------------------------------------------------
     // Owned-edge cascade: Insight → Visualization (schema FK, onDelete cascade)
     // -------------------------------------------------------------------------

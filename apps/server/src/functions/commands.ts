@@ -19,7 +19,7 @@
  *
  * Decomposition:
  *
- *   YW-106 (DataSource/DataTable/Fields/Metrics — merged in main):
+ *   DataSource/DataTable/Fields/Metrics commands:
  *   getOrCreateDataSourceByType → GetOrCreateDataSource   (the reference atomic command)
  *   addDataSource              → CreateDataSource
  *   updateDataSource           → SetDataSourceConfig + RenameNode
@@ -29,7 +29,7 @@
  *   patchDataTableArray        → AddField / UpdateField / RemoveField
  *                                + AddMetric / UpdateMetric / RemoveMetric
  *
- *   YW-123 (Insight/Visualization/Dashboard — this slice):
+ *   Insight/Visualization/Dashboard commands:
  *   createInsight              → CreateInsight
  *   updateInsight (baseTableId/source slice) → SetInsightSource
  *   updateInsight (selectedFields slice)     → SelectFields
@@ -513,7 +513,7 @@ const selectFields = mutation({
 /**
  * SetInsightFilter — replace-all filter predicates. Each filter value operand
  * is a tagged union `{ kind: 'value', v } | { kind: 'lateBound', ref }` per
- * the YW-153 spike finding (discriminant required, no property-presence).
+ * the tagged-union discriminant requirement (no property-presence).
  * The command stores operands opaquely — validation of the union discriminant
  * is shape-only here; unknown handles fail at publish binding (Draft spec).
  */
@@ -732,7 +732,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
  * (not the top-level jsonb `definition` structure — the Insight's own-definitions
  * section, distinct from the inherited ones from its source).
  *
- * Guard symmetry (mirrors patchDataTableCollection's contract from YW-106):
+ * Guard symmetry:
  * - Add: rejects duplicate id (no illegal two-items-one-id state)
  * - Update: rejects missing id; pins `id` last so updates cannot rebind the key
  * - Remove: rejects missing id
@@ -998,7 +998,7 @@ const setChartEncoding = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// Dashboard commands (net-new in the server vocabulary — YW-123)
+// Dashboard commands
 // ---------------------------------------------------------------------------
 
 // Re-use the DashboardItem interface from dashboards.ts inline (no re-export).
@@ -1222,7 +1222,8 @@ export interface OrphanedNode {
  *
  * The check covers:
  *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
- *   • The legacy `baseTableId` field for pre-composition rows (YW-157).
+ *   • The legacy `baseTableId` field for pre-composition rows (written before
+ *     `source` was introduced; both fields are kept in lockstep on writes).
  *   • Any `joins[*].rightTableId` — an Insight that JOINs against the deleted
  *     node is just as broken as one that sources it directly.
  *
@@ -1495,22 +1496,22 @@ const deleteNode = mutation({
  * builders below reference.
  */
 export const commandFunctions = {
-  // DataSource (YW-106)
+  // DataSource
   getOrCreateDataSource,
   createDataSource,
   setDataSourceConfig,
-  // DataTable (YW-106)
+  // DataTable
   createDataTable,
   setDataTableSchema,
   refreshDataTableCmd: refreshDataTable,
-  // Fields & Metrics (YW-106, now also handles Insight nodes via YW-123)
+  // Fields & Metrics (targets DataTable or Insight via nodeId)
   addField,
   updateField,
   removeField,
   addMetric,
   updateMetric,
   removeMetric,
-  // Insight (YW-123)
+  // Insight
   createInsightCmd: createInsight,
   setInsightSource,
   selectFields,
@@ -1519,17 +1520,17 @@ export const commandFunctions = {
   addJoin,
   updateJoin,
   removeJoin,
-  // Visualization (YW-123)
+  // Visualization
   createVisualizationCmd: createVisualization,
   setChartType,
   setChartEncoding,
-  // Dashboard (YW-123)
+  // Dashboard
   createDashboardCmd: createDashboard,
   addDashboardItemCmd: addDashboardItem,
   updateDashboardItemCmd: updateDashboardItem,
   setDashboardLayout,
   removeDashboardItemCmd: removeDashboardItem,
-  // Cross-cutting (YW-106 + extended in YW-123)
+  // Cross-cutting
   renameNode,
   deleteNode,
 };
@@ -1548,7 +1549,8 @@ export type InsightSourceInput =
   | { sourceType: "insight"; sourceId: UUID };
 
 /**
- * A filter predicate value operand — tagged union per YW-153 spike.
+ * A filter predicate value operand — tagged union (discriminant required,
+ * no property-presence).
  * `kind: 'value'`    → the author supplied the literal (v: null = IS NULL).
  * `kind: 'lateBound'` → the egress gate withheld the value; bound at publish.
  */
@@ -1596,7 +1598,7 @@ export interface DashboardItemInput {
  * (no DB) means the only place command logic lives is the backing mutation.
  */
 export interface CommandPayloads {
-  // DataSource (YW-106)
+  // DataSource
   GetOrCreateDataSource: { id: UUID; type: string; name: string };
   CreateDataSource: {
     id: UUID;
@@ -1610,7 +1612,7 @@ export interface CommandPayloads {
     apiKey?: string;
     connectionString?: string;
   };
-  // DataTable (YW-106)
+  // DataTable
   CreateDataTable: {
     id: UUID;
     dataSourceId: UUID;
@@ -1623,7 +1625,7 @@ export interface CommandPayloads {
   };
   SetDataTableSchema: { id: UUID; sourceSchema: SourceSchema };
   RefreshDataTable: { id: UUID; dataFrameId: UUID };
-  // Fields & Metrics (YW-106, targets DataTable or Insight via nodeId)
+  // Fields & Metrics (targets DataTable or Insight via nodeId)
   AddField: { nodeId: UUID; field: Field };
   UpdateField: { nodeId: UUID; fieldId: UUID; updates: Partial<Field> };
   RemoveField: { nodeId: UUID; fieldId: UUID };
@@ -1633,7 +1635,7 @@ export interface CommandPayloads {
   AddMetric: { nodeId: UUID; metric: Metric | InsightMetric };
   UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
   RemoveMetric: { nodeId: UUID; metricId: UUID };
-  // Insight (YW-123)
+  // Insight
   CreateInsight: {
     id: UUID;
     name: string;
@@ -1655,7 +1657,7 @@ export interface CommandPayloads {
     updates: Partial<InsightJoinConfig>;
   };
   RemoveJoin: { id: UUID; joinIndex: number };
-  // Visualization (YW-123)
+  // Visualization
   CreateVisualization: {
     id: UUID;
     name: string;
@@ -1670,7 +1672,7 @@ export interface CommandPayloads {
     encoding: VisualizationEncoding;
     spec?: VegaLiteSpec;
   };
-  // Dashboard (YW-123)
+  // Dashboard
   CreateDashboard: { id: UUID; name: string; description?: string };
   AddDashboardItem: { dashboardId: UUID; item: DashboardItemInput };
   UpdateDashboardItem: {
@@ -1680,7 +1682,7 @@ export interface CommandPayloads {
   };
   SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
   RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
-  // Cross-cutting (YW-106 + extended in YW-123)
+  // Cross-cutting
   RenameNode: { id: UUID; name: string };
   DeleteNode: { id: UUID };
 }
