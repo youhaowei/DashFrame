@@ -278,16 +278,7 @@ async function buildDirectNodes(
 
     const existing = byKey.get(key);
     if (existing) {
-      existing.intent.push(intent);
-      // A later create marks the node as minted by this batch — but ONLY if
-      // the node wasn't already resolved to a canonical row (before === null).
-      // When the row pre-exists, a create-declared command on it is either an
-      // idempotent get-or-create (a no-op — keep update + before) or it would
-      // have failed the whole batch in applyCommands, so it never mints here.
-      if (descriptor.change === "create" && existing.before === null) {
-        existing.change = "create";
-      }
-      Object.assign(existing.proposedDefinition, args);
+      mergeIntoGroup(existing, descriptor, intent, args);
       continue;
     }
 
@@ -297,6 +288,9 @@ async function buildDirectNodes(
       kind,
       nodeId,
     );
+    // Same rule on first contact: a get-or-create that hit an existing row
+    // (declared create, resolved update) writes nothing — empty proposal.
+    const isNoOpGet = descriptor.change === "create" && change === "update";
 
     order.push(key);
     byKey.set(key, {
@@ -305,13 +299,34 @@ async function buildDirectNodes(
       change,
       intent: [intent],
       before,
-      proposedDefinition: { ...args },
+      proposedDefinition: isNoOpGet ? {} : { ...args },
       // SPLIT-TIER: never filled server-side. The renderer resolves it lazily.
       compute: undefined,
     });
   }
 
   return order.map((key) => byKey.get(key)!);
+}
+
+/**
+ * Fold a later command for an already-grouped node into the group. A
+ * create-declared command on a node already resolved to a canonical row
+ * (before !== null) is an idempotent get-or-create: the handler returns the
+ * existing row and IGNORES the args (existing row wins), or a true create
+ * would have failed the batch in applyCommands. It never mints the node and
+ * its args must not masquerade as a proposed change.
+ */
+function mergeIntoGroup(
+  existing: PreviewDirectNode,
+  descriptor: CommandDescriptor,
+  intent: PreviewIntent,
+  args: Record<string, unknown>,
+): void {
+  existing.intent.push(intent);
+  const isNoOpGet = descriptor.change === "create" && existing.before !== null;
+  if (isNoOpGet) return;
+  if (descriptor.change === "create") existing.change = "create";
+  Object.assign(existing.proposedDefinition, args);
 }
 
 /**

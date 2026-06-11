@@ -238,6 +238,9 @@ describe("PreviewDiff builder", () => {
       expect(node.change).toBe("update");
       expect((node.before as { name?: string }).name).toBe("Existing");
       expect(node.intent).toHaveLength(2);
+      // The handler ignores args when the row exists (existing row wins), so
+      // the stale name/type must not masquerade as a proposed change.
+      expect(node.proposedDefinition).toEqual({});
     });
   });
 
