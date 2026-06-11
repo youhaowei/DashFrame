@@ -1,8 +1,8 @@
 /**
- * PreviewDiff builder (YW-124) — the DashFrame Layer-B wrapper over
+ * PreviewDiff builder — the DashFrame Layer-B wrapper over
  * `@wystack/server`'s `applyCommands(batch, { mode: 'preview' })` MECHANISM.
  *
- * The mechanism (YW-122) is vocabulary-free: it runs the batch for real inside
+ * The mechanism is vocabulary-free: it runs the batch for real inside
  * one tracked transaction, rolls it back, and returns a `PreviewResult` (which
  * paths ran, their return values, the tables they touched). It knows nothing
  * about DashFrame artifacts. THIS module reads that generic result as the

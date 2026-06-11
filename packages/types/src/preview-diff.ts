@@ -1,5 +1,5 @@
 /**
- * PreviewDiff (YW-124) — the renderable, artifact-grouped diff a human reviews
+ * PreviewDiff — the renderable, artifact-grouped diff a human reviews
  * before publishing a command batch.
  *
  * Produced by the Layer-B `buildPreviewDiff` wrapper (apps/server) over

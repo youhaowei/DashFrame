@@ -1,18 +1,19 @@
 /**
- * PreviewDiff builder (YW-124) tests.
+ * PreviewDiff builder tests.
  *
  * These exercise the Layer-B wrapper THROUGH the real engine and a real
  * artifact DB: a batch of typed commands run in preview mode, the result read as
- * the artifact-grouped `PreviewDiff`. They assert the contracts YW-124 freezes —
+ * the artifact-grouped `PreviewDiff`. They assert the preview-diff contracts —
  * direct-node grouping with intent + before/after, downstream fan-out across
  * EACH implicit DAG edge (FK, JSON-IR, parentArtifactId), rollback leaving
  * canonical untouched, and the split-tier rule that compute slots stay unfilled
  * server-side.
  *
  * Downstream artifacts (insights / dataFrames / visualizations / dashboards) are
- * seeded directly through the Drizzle handle — there are no vocabulary commands
- * for them yet (YW-123+), and the DAG walk reads canonical state regardless of
- * how it got there. Direct nodes are driven through `cmd(...)` like commit does.
+ * seeded directly through the Drizzle handle — vocabulary commands for those
+ * artifact types are out of scope here, and the DAG walk reads canonical state
+ * regardless of how it got there. Direct nodes are driven through `cmd(...)` like
+ * commit does.
  */
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import { createWyStack, type WyStackApp } from "@wystack/server";
