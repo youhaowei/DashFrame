@@ -12,14 +12,14 @@ import {
 } from "./sensitivity";
 
 describe("fail-closed sensitivity marker", () => {
-  it("absent sensitivity reads as unclassified", () => {
+  it("should read absent sensitivity as unclassified", () => {
     expect(getFieldSensitivity({})).toBe("unclassified");
     expect(getFieldSensitivity({ sensitivity: undefined })).toBe(
       "unclassified",
     );
   });
 
-  it("only an explicit cleared unlocks a field", () => {
+  it("should restrict every state except an explicit cleared", () => {
     expect(isFieldRestricted({})).toBe(true);
     expect(isFieldRestricted({ sensitivity: "unclassified" })).toBe(true);
     expect(isFieldRestricted({ sensitivity: "sensitive" })).toBe(true);
@@ -44,7 +44,7 @@ describe("suggestSensitivityFromName", () => {
     ["api_key", "credentials or secrets"],
     ["gender", "demographic attributes"],
     ["ip_address", "IP addresses"],
-  ])("flags %s", (name, reasonFragment) => {
+  ])("should flag %s", (name, reasonFragment) => {
     const reasons = suggestSensitivityFromName(name);
     expect(reasons.length).toBeGreaterThan(0);
     expect(reasons.join(" ")).toContain(reasonFragment);
@@ -62,11 +62,11 @@ describe("suggestSensitivityFromName", () => {
     "country",
     "order_total",
     "secretary",
-  ])("does not flag %s", (name) => {
+  ])("should not flag %s", (name) => {
     expect(suggestSensitivityFromName(name)).toEqual([]);
   });
 
-  it("does not double-fire the physical-address rule on email/IP addresses", () => {
+  it("should not double-fire the physical-address rule on email/IP addresses", () => {
     expect(suggestSensitivityFromName("email_address")).toEqual([
       "Column name suggests email addresses",
     ]);
@@ -87,7 +87,7 @@ describe("suggestSensitivityFromAnalysis", () => {
     semantic: "categorical",
   };
 
-  it("flags email semantic", () => {
+  it("should flag email-semantic columns", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
       semantic: "email",
@@ -95,7 +95,7 @@ describe("suggestSensitivityFromAnalysis", () => {
     expect(reasons.join(" ")).toContain("email addresses");
   });
 
-  it("flags columns whose values look like phone numbers", () => {
+  it("should flag columns whose values look like phone numbers", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
       sampleValues: [
@@ -109,15 +109,21 @@ describe("suggestSensitivityFromAnalysis", () => {
     expect(reasons.join(" ")).toContain("phone numbers");
   });
 
-  it("does not flag date-shaped strings as phone numbers", () => {
+  it("should not flag date-shaped strings as phone numbers", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
-      sampleValues: ["2023-01-15", "2022-12-31", "15.01.2023", "1/15/2023"],
+      sampleValues: [
+        "2023-01-15",
+        "2022-12-31",
+        "15.01.2023",
+        "1/15/2023",
+        "20230115",
+      ],
     });
     expect(reasons).toEqual([]);
   });
 
-  it("does not flag short numeric-ish codes as phone numbers", () => {
+  it("should not flag short numeric ID codes as phone numbers", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
       sampleValues: ["12345", "98765", "54321"],
@@ -125,7 +131,7 @@ describe("suggestSensitivityFromAnalysis", () => {
     expect(reasons).toEqual([]);
   });
 
-  it("flags long free-text columns as a PII risk", () => {
+  it("should flag long free-text columns as a PII risk", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
       semantic: "text",
@@ -135,7 +141,7 @@ describe("suggestSensitivityFromAnalysis", () => {
     expect(reasons.join(" ")).toContain("Free-text");
   });
 
-  it("does not flag short free-text columns", () => {
+  it("should not flag short free-text columns", () => {
     const reasons = suggestSensitivityFromAnalysis({
       ...baseString,
       semantic: "text",
@@ -147,7 +153,7 @@ describe("suggestSensitivityFromAnalysis", () => {
 });
 
 describe("suggestSensitivityReasons", () => {
-  it("combines name and analysis signals without duplicates", () => {
+  it("should combine name and analysis signals without duplicates", () => {
     const analysis: StringAnalysis = {
       columnName: "field_x",
       cardinality: 50,
@@ -166,13 +172,13 @@ describe("suggestSensitivityReasons", () => {
     expect(new Set(reasons).size).toBe(reasons.length);
   });
 
-  it("returns no reasons for an innocuous column", () => {
+  it("should return no reasons for an innocuous column", () => {
     expect(suggestSensitivityReasons({ name: "order_total" })).toEqual([]);
   });
 });
 
 describe("buildSensitivityUpdate", () => {
-  it("records a confirmed classifier suggestion with its reasons", () => {
+  it("should record a confirmed classifier suggestion with its reasons", () => {
     expect(
       buildSensitivityUpdate("sensitive", ["reason a", "reason b"]),
     ).toEqual({
@@ -186,15 +192,18 @@ describe("buildSensitivityUpdate", () => {
     ["sensitive", "Marked sensitive by you"],
     ["cleared", "Cleared by you"],
     ["unclassified", "Reset to unclassified by you"],
-  ] as const)("records a manual %s marking as user-sourced", (s, reason) => {
-    expect(buildSensitivityUpdate(s)).toEqual({
-      sensitivity: s,
-      sensitivityReason: reason,
-      sensitivitySource: "user",
-    });
-  });
+  ] as const)(
+    "should record a manual %s marking as user-sourced",
+    (s, reason) => {
+      expect(buildSensitivityUpdate(s)).toEqual({
+        sensitivity: s,
+        sensitivityReason: reason,
+        sensitivitySource: "user",
+      });
+    },
+  );
 
-  it("ignores reasons when clearing — clearing is always a user decision", () => {
+  it("should ignore reasons when clearing — clearing is always a user decision", () => {
     expect(buildSensitivityUpdate("cleared", ["reason"])).toEqual({
       sensitivity: "cleared",
       sensitivityReason: "Cleared by you",

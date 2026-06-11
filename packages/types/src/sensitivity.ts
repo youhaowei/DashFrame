@@ -89,6 +89,16 @@ const MIN_PHONE_DIGITS = 7;
 // phone pattern and flag every string-typed date column on import.
 const DATE_SHAPE_PATTERN =
   /^(\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})$/;
+// Compact YYYYMMDD dates (20230115) also pass the phone pattern; only treat
+// 8-digit strings as dates when month/day positions are plausible.
+const COMPACT_DATE_PATTERN = /^\d{8}$/;
+
+function looksLikeCompactDate(value: string): boolean {
+  if (!COMPACT_DATE_PATTERN.test(value)) return false;
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
 /** Fraction of samples that must match a value pattern to count as a signal. */
 const SAMPLE_MATCH_THRESHOLD = 0.8;
 /** Average string length above which free-text is flagged as a PII risk. */
@@ -97,6 +107,7 @@ const FREE_TEXT_MIN_AVG_LENGTH = 20;
 function looksLikePhone(value: string): boolean {
   if (!PHONE_PATTERN.test(value)) return false;
   if (DATE_SHAPE_PATTERN.test(value)) return false;
+  if (looksLikeCompactDate(value)) return false;
   const digits = value.replace(/\D/g, "");
   return digits.length >= MIN_PHONE_DIGITS;
 }

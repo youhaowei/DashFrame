@@ -124,11 +124,12 @@ function FieldEditorForm({
               <SelectItem value="cleared">Not sensitive</SelectItem>
             </SelectContent>
           </Select>
-          {field.sensitivityReason && (
-            <p className="text-xs text-neutral-fg-subtle">
-              {field.sensitivityReason}
-            </p>
-          )}
+          {field.sensitivityReason &&
+            sensitivity === getFieldSensitivity(field) && (
+              <p className="text-xs text-neutral-fg-subtle">
+                {field.sensitivityReason}
+              </p>
+            )}
         </div>
 
         {/* Is Identifier */}

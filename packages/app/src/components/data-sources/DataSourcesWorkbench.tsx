@@ -209,16 +209,22 @@ export function DataSourcesWorkbench() {
     reasons?: string[],
   ) => {
     if (!selectedTableId) return;
-    await tableMutations.updateField(
-      selectedTableId,
-      fieldId,
-      buildSensitivityUpdate(sensitivity, reasons),
-    );
-    toast.success(
-      sensitivity === "cleared"
-        ? "Field marked as not sensitive"
-        : "Field marked sensitive",
-    );
+    try {
+      await tableMutations.updateField(
+        selectedTableId,
+        fieldId,
+        buildSensitivityUpdate(sensitivity, reasons),
+      );
+    } catch {
+      toast.error("Failed to update field sensitivity");
+      return;
+    }
+    const toasts: Record<FieldSensitivity, string> = {
+      sensitive: "Field marked sensitive",
+      cleared: "Field marked as not sensitive",
+      unclassified: "Field reset to unclassified",
+    };
+    toast.success(toasts[sensitivity]);
   };
 
   const handleAddField = () => {

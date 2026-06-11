@@ -1,3 +1,4 @@
+import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
@@ -7,11 +8,12 @@ import {
   useDataTableMutations,
   useDataTables,
 } from "@dashframe/core";
-import type { FieldSensitivity, UUID } from "@dashframe/types";
+import { extractUUIDFromColumnAlias } from "@dashframe/engine";
+import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {
   buildSensitivityUpdate,
   getFieldSensitivity,
-  suggestSensitivityFromName,
+  suggestSensitivityReasons,
 } from "@dashframe/types";
 import { Breadcrumb, VirtualTable } from "@dashframe/ui";
 import {
@@ -51,6 +53,12 @@ import { toast } from "sonner";
 interface DataSourcePageContentProps {
   sourceId: string;
 }
+
+const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
+  sensitive: "Field marked sensitive",
+  cleared: "Field marked as not sensitive",
+  unclassified: "Field reset to unclassified",
+};
 
 // Get icon for data source type
 function getSourceTypeIcon(type: string) {
@@ -146,6 +154,18 @@ export default function DataSourcePageContent({
     } as never);
   };
 
+  // Cached column analysis keyed by field ID, for data-driven sensitivity
+  // signals (email-shaped values, free text) beyond name heuristics.
+  const analysisByFieldId = useMemo(() => {
+    const map = new Map<string, ColumnAnalysis>();
+    for (const column of dataFrameEntry?.analysis?.columns ?? []) {
+      const fieldId =
+        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
+      if (fieldId) map.set(fieldId, column);
+    }
+    return map;
+  }, [dataFrameEntry]);
+
   // One-click sensitivity marking. Confirming a classifier suggestion keeps
   // its reasons; deliberate marking/clearing is recorded as a user decision.
   const handleSetFieldSensitivity = async (
@@ -154,16 +174,17 @@ export default function DataSourcePageContent({
     reasons?: string[],
   ) => {
     if (!effectiveSelectedTableId) return;
-    await updateField(
-      effectiveSelectedTableId,
-      fieldId,
-      buildSensitivityUpdate(sensitivity, reasons),
-    );
-    toast.success(
-      sensitivity === "cleared"
-        ? "Field marked as not sensitive"
-        : "Field marked sensitive",
-    );
+    try {
+      await updateField(
+        effectiveSelectedTableId,
+        fieldId,
+        buildSensitivityUpdate(sensitivity, reasons),
+      );
+    } catch {
+      toast.error("Failed to update field sensitivity");
+      return;
+    }
+    toast.success(SENSITIVITY_TOASTS[sensitivity]);
   };
 
   // Handle delete table
@@ -352,7 +373,10 @@ export default function DataSourcePageContent({
                       const sensitivity = getFieldSensitivity(field);
                       const suggestedReasons =
                         sensitivity === "unclassified"
-                          ? suggestSensitivityFromName(field.name)
+                          ? suggestSensitivityReasons({
+                              name: field.name,
+                              analysis: analysisByFieldId.get(field.id),
+                            })
                           : [];
 
                       return (
@@ -364,38 +388,17 @@ export default function DataSourcePageContent({
                             <span className="text-sm font-medium">
                               {field.name}
                             </span>
-                            {sensitivity === "sensitive" && (
-                              <span
-                                title={field.sensitivityReason}
-                                className="shrink-0 rounded bg-palette-danger/10 px-2 py-0.5 text-xs font-medium text-palette-danger"
-                              >
-                                Sensitive
-                              </span>
-                            )}
-                            {sensitivity === "unclassified" &&
-                              (suggestedReasons.length > 0 ? (
-                                <button
-                                  type="button"
-                                  title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
-                                  onClick={() =>
-                                    handleSetFieldSensitivity(
-                                      field.id,
-                                      "sensitive",
-                                      suggestedReasons,
-                                    )
-                                  }
-                                  className="shrink-0 cursor-pointer rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-100 dark:bg-amber-950 dark:hover:bg-amber-900"
-                                >
-                                  Likely sensitive
-                                </button>
-                              ) : (
-                                <span
-                                  title="Treated as sensitive until cleared"
-                                  className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle"
-                                >
-                                  Unclassified
-                                </span>
-                              ))}
+                            <SensitivityBadge
+                              field={field}
+                              suggestedReasons={suggestedReasons}
+                              onConfirmSuggestion={() =>
+                                handleSetFieldSensitivity(
+                                  field.id,
+                                  "sensitive",
+                                  suggestedReasons,
+                                )
+                              }
+                            />
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             {sensitivity === "cleared" ? (

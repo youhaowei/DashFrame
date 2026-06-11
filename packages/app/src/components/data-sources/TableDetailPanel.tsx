@@ -16,6 +16,7 @@ import {
 } from "@stdui/icons";
 import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@stdui/react";
 import { useState } from "react";
+import { SensitivityBadge } from "./SensitivityBadge";
 
 interface TableDetailPanelProps {
   dataTable: DataTable | null;
@@ -215,38 +216,17 @@ export function TableDetailPanel({
                       <span className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle">
                         {field.type}
                       </span>
-                      {sensitivity === "sensitive" && (
-                        <span
-                          title={field.sensitivityReason}
-                          className="shrink-0 rounded bg-palette-danger/10 px-2 py-0.5 text-xs font-medium text-palette-danger"
-                        >
-                          Sensitive
-                        </span>
-                      )}
-                      {sensitivity === "unclassified" &&
-                        (suggestedReasons.length > 0 ? (
-                          <button
-                            type="button"
-                            title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
-                            onClick={() =>
-                              onSetFieldSensitivity(
-                                field.id,
-                                "sensitive",
-                                suggestedReasons,
-                              )
-                            }
-                            className="shrink-0 cursor-pointer rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-100 dark:bg-amber-950 dark:hover:bg-amber-900"
-                          >
-                            Likely sensitive
-                          </button>
-                        ) : (
-                          <span
-                            title="Treated as sensitive until cleared"
-                            className="shrink-0 rounded bg-neutral-bg-muted px-2 py-0.5 text-xs font-medium text-neutral-fg-subtle"
-                          >
-                            Unclassified
-                          </span>
-                        ))}
+                      <SensitivityBadge
+                        field={field}
+                        suggestedReasons={suggestedReasons}
+                        onConfirmSuggestion={() =>
+                          onSetFieldSensitivity(
+                            field.id,
+                            "sensitive",
+                            suggestedReasons,
+                          )
+                        }
+                      />
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       {sensitivity !== "cleared" && (
