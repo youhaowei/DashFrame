@@ -20,30 +20,44 @@ const shot = (page, name) =>
 
 async function goto(page, path) {
   await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(1200);
+  // State-based wait: the left nav's brand link is always present once the shell
+  // has mounted (regardless of assistant open/closed state), so wait for it
+  // rather than a fixed delay.
+  await page.getByText("DashFrame").first().waitFor({ state: "visible" });
 }
 
 async function ensureAssistant(page, open) {
   // The edge toggle ("Open assistant") only exists while the panel is closed;
   // while open, the panel header's "Dismiss assistant" closes it.
   const openBtn = page.locator('[aria-label="Open assistant"]');
+  const panel = page.locator('[role="complementary"][aria-label="Assistant"]');
   const isOpen = (await openBtn.count()) === 0;
-  if (open && !isOpen) await openBtn.click();
+  if (open && !isOpen) {
+    await openBtn.click();
+    await panel.first().waitFor({ state: "visible" });
+  }
   if (!open && isOpen) {
     await page
       .locator('[aria-label="Dismiss assistant"]:visible')
       .first()
       .click();
+    await panel.first().waitFor({ state: "detached" });
   }
-  await page.waitForTimeout(450);
 }
 
 async function setDock(page, target /* "docked" | "floating" */) {
   const undock = page.locator('[aria-label="Undock (float)"]:visible').first();
   const dockBtn = page.locator('[aria-label="Dock to right"]:visible').first();
-  if (target === "floating" && (await undock.count())) await undock.click();
-  if (target === "docked" && (await dockBtn.count())) await dockBtn.click();
-  await page.waitForTimeout(450);
+  // After toggling, the header control flips to the opposite action — wait for
+  // the target presentation's control to confirm the switch landed.
+  if (target === "floating" && (await undock.count())) {
+    await undock.click();
+    await dockBtn.waitFor({ state: "visible" });
+  }
+  if (target === "docked" && (await dockBtn.count())) {
+    await dockBtn.click();
+    await undock.waitFor({ state: "visible" });
+  }
 }
 
 const main = async () => {
@@ -97,10 +111,14 @@ async function capture(browser) {
   await ensureAssistant(page, true);
   await setDock(page, "docked");
   await page.setViewportSize({ width: 720, height: 900 });
-  await page.waitForTimeout(600);
+  // The overlay carries a rounded card (shadow-lg); the docked rail doesn't.
+  // Wait for the rounded overlay container to confirm the fallback engaged.
+  await page
+    .locator('[role="complementary"][aria-label="Assistant"].rounded-2xl')
+    .first()
+    .waitFor({ state: "visible" });
   await shot(page, "07-assistant-narrow-overlay");
   await page.setViewportSize(VIEWPORT);
-  await page.waitForTimeout(400);
 
   // 8. Dev HUD open — visit a couple of AppLayout pages first so the HUD has
   // real render-stage samples to display against budgets.
@@ -111,12 +129,13 @@ async function capture(browser) {
   const perfChip = page.locator("button", { hasText: /^perf$/ }).first();
   await perfChip.scrollIntoViewIfNeeded();
   await perfChip.click({ force: true });
-  await page.waitForTimeout(400);
+  // Wait for the HUD panel (the "Perf" header) to render.
+  await page.getByText("dev only").waitFor({ state: "visible" });
   await shot(page, "08-dev-hud-open");
 
   // 9. Dev HUD closed (chip only, bottom-left).
   await perfChip.click({ force: true });
-  await page.waitForTimeout(300);
+  await page.getByText("dev only").waitFor({ state: "hidden" });
   await shot(page, "09-dev-hud-closed");
 }
 
