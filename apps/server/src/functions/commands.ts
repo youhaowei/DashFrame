@@ -73,12 +73,13 @@
  * walking the source chain; it rejects a source that would make the Insight
  * transitively depend on itself.
  *
- * Backwards compatibility: the existing `InsightDefinition.baseTableId` field is
- * preserved in all writes so `rowToInsight` in `app-artifacts.ts` (which reads
- * `definition.baseTableId`) continues to work during the transition window
- * (YW-157). For a DataTable source, `baseTableId === source.sourceId`. For an
- * Insight source, `baseTableId` is left as the last known value (the read path
- * in app-artifacts will eventually be migrated to read `source` instead).
+ * Storage contract: `InsightDefinition.baseTableId` is the structural source id
+ * carried on every Insight. `rowToInsight` in `app-artifacts.ts` reads it, and
+ * it is a field on the `Insight` domain type the renderer consumes. `source`
+ * carries the polymorphic source description; `baseTableId` is written to
+ * `source.sourceId` on every write so both stay in lockstep — for a DataTable
+ * source the two are interchangeable, for an Insight source `baseTableId` holds
+ * the upstream insight id.
  */
 import { schema } from "@dashframe/server-core";
 import type {
@@ -113,9 +114,8 @@ type DashboardRow = typeof dashboards.$inferSelect;
 // ---------------------------------------------------------------------------
 
 /**
- * The full polymorphic source description stored in `insights.definition`.
- * `baseTableId` is kept for backwards compat with the existing `rowToInsight`
- * reader in `app-artifacts.ts` which pre-dates Insight-on-Insight composition.
+ * The polymorphic source description stored in `insights.definition`.
+ * Insight-on-Insight composition rides on `sourceType`.
  */
 interface InsightSource {
   sourceType: "dataTable" | "insight";
@@ -123,9 +123,9 @@ interface InsightSource {
 }
 
 interface StoredInsightDefinition {
-  /** Legacy field — kept for the app-artifacts.ts read path (YW-157 transition). */
+  /** Structural source id — also surfaced on the `Insight` domain type via `rowToInsight`. */
   baseTableId: UUID;
-  /** Polymorphic source (supersedes baseTableId for new writes). */
+  /** Polymorphic source description; `baseTableId` mirrors `source.sourceId`. */
   source?: InsightSource;
   selectedFields: UUID[];
   metrics: unknown[];
@@ -390,12 +390,11 @@ const refreshDataTable = mutation({
 
 /**
  * CreateInsight — mints a new transform node over a DataFrame-producing input
- * (DataTable or another Insight). The `source.sourceId` is written into both
- * the new polymorphic `source` field AND the legacy `baseTableId` so the
- * existing `rowToInsight` reader in `app-artifacts.ts` continues to work.
- * When `sourceType === 'insight'` the `baseTableId` carries the source insight
- * id — the legacy reader will treat it as a table id, but that is harmless
- * until the read path is migrated (YW-157).
+ * (DataTable or another Insight). `source.sourceId` is written into both the
+ * polymorphic `source` field and `baseTableId` (which `rowToInsight` surfaces
+ * on the `Insight` domain type). When `sourceType === 'insight'` `baseTableId`
+ * carries the upstream insight id; consumers resolving the structural source
+ * read `source.sourceType` to disambiguate.
  */
 const createInsight = mutation({
   args: {

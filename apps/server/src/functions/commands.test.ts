@@ -670,7 +670,7 @@ describe("command vocabulary", () => {
         baseTableId: string;
         source: { sourceType: string; sourceId: string };
       };
-      // Backwards-compat: baseTableId must equal the source id.
+      // baseTableId mirrors source.sourceId on every write.
       expect(def.baseTableId).toBe(tableId);
       // New polymorphic source field.
       expect(def.source).toEqual({
