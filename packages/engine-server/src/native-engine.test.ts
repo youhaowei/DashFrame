@@ -44,6 +44,40 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect([...table.getChild("v")!.toArray()].map(Number)).toEqual([42]);
   });
 
+  it("is not usable after dispose()", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    expect(engine.isReady()).toBe(true);
+
+    await engine.dispose();
+
+    // isReady() must return false — the connection reference is gone.
+    expect(engine.isReady()).toBe(false);
+    // query() must throw rather than silently return empty results, so callers
+    // discover the misuse instead of seeing a ghost success.
+    await expect(engine.query("SELECT 1")).rejects.toThrow(
+      "NativeDuckDBEngine not initialized",
+    );
+  });
+
+  it("dispose() is idempotent — calling it twice does not throw", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    // First dispose closes connection + instance.
+    await engine.dispose();
+    // Second dispose must not throw even though handles are already gone —
+    // e.g. a finally-block and an afterEach teardown may both call dispose().
+    await expect(engine.dispose()).resolves.toBeUndefined();
+    expect(engine.isReady()).toBe(false);
+  });
+
+  it("dispose() on an uninitialized engine does not throw", async () => {
+    engine = new NativeDuckDBEngine();
+    // Never called initialize() — nothing to close, must be a no-op.
+    await expect(engine.dispose()).resolves.toBeUndefined();
+  });
+
   it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {
     engine = new NativeDuckDBEngine();
     // Two callers race before the first await resolves; both must converge on

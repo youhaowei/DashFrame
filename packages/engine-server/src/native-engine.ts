@@ -177,8 +177,21 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async dispose(): Promise<void> {
+    // Disconnect the connection before closing the instance — DuckDB expects
+    // all connections to be released before the instance is closed.
     this.connection?.disconnectSync();
     this.connection = null;
+    // Close the native instance: releases the background I/O threads, the
+    // file lock on the database path, and any native heap the instance holds.
+    // The init-failure path already calls closeSync() inline; tolerating an
+    // already-closed instance here makes dispose() idempotent (double-dispose
+    // is safe by design — e.g. both a finally-block and an afterEach teardown
+    // calling dispose() on the same engine must not throw).
+    try {
+      this.instance?.closeSync();
+    } catch {
+      // Already closed — safe to ignore.
+    }
     this.instance = null;
     this.initPromise = null;
   }
