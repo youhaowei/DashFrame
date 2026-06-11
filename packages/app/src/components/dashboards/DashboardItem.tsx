@@ -1,8 +1,8 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDashboardMutations } from "@dashframe/core";
 import type { DashboardItem as DashboardItemType } from "@dashframe/types";
-import { DeleteIcon, DragHandleIcon, EditIcon } from "@stdui/icons";
-import { Button, cn, Surface } from "@stdui/react";
+import { Button, cn, Surface } from "@wystack/ui";
+import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-icons";
 import { useState } from "react";
 import { MarkdownWidget } from "./MarkdownWidget";
 

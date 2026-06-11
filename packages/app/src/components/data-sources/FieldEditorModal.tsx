@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { useState } from "react";
 
 interface FieldEditorModalProps {

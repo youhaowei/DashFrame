@@ -1,4 +1,4 @@
-import { Surface } from "@stdui/react";
+import { Surface } from "@wystack/ui";
 
 /**
  * Replaces the Notion-specific UI in DataSourceControls / DataSourceDisplay

@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
   FieldError,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { lazy, Suspense } from "react";
 
 const ConnectorIcon = lazy(() =>

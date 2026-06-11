@@ -1,6 +1,6 @@
 import { useDataFrames, useDataSources, useDataTables } from "@dashframe/core";
-import { DeleteIcon, FileIcon } from "@stdui/icons";
-import { Button, EmptyState, Panel, cn } from "@stdui/react";
+import { Button, EmptyState, Panel, cn } from "@wystack/ui";
+import { DeleteIcon, FileIcon } from "@wystack/ui-icons";
 import { useMemo } from "react";
 
 interface DataSourceTreeProps {

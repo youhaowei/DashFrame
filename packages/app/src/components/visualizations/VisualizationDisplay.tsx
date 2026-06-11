@@ -6,8 +6,8 @@ import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
-import { ChartIcon, LayersIcon, TableIcon } from "@stdui/icons";
-import { Spinner, Surface, Toggle } from "@stdui/react";
+import { Spinner, Surface, Toggle } from "@wystack/ui";
+import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-icons";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // Minimum visible rows needed to enable "Show Both" mode

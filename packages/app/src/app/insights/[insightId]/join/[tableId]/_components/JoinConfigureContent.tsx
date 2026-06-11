@@ -20,7 +20,7 @@ import {
   type VirtualTableColumn,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
-import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@stdui/icons";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Alert,
   AlertDescription,
@@ -33,8 +33,8 @@ import {
   SelectValue,
   Spinner,
   Surface,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@wystack/ui-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface JoinConfigureContentProps {

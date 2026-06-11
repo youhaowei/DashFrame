@@ -1,3 +1,4 @@
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   ChartIcon,
   DatabaseIcon,
@@ -5,8 +6,7 @@ import {
   FileIcon,
   PlusIcon,
   RefreshIcon,
-} from "@stdui/icons";
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+} from "@wystack/ui-icons";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 

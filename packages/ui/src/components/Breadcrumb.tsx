@@ -5,7 +5,7 @@ import {
   BreadcrumbPage,
   Breadcrumb as BreadcrumbPrimitive,
   BreadcrumbSeparator,
-} from "@stdui/react";
+} from "@wystack/ui";
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 

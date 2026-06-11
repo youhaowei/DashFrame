@@ -9,8 +9,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.{ts,tsx}"],
-    // PGLite cold-start can exceed Vitest's default 5s timeout in CI.
+    // PGLite cold-start can exceed Vitest's default timeouts in CI. The
+    // command-vocabulary suite opens a fresh artifact DB per test in a
+    // `beforeEach`, so the HOOK timeout (default 10s) needs raising too — not
+    // just testTimeout, which doesn't cover hooks.
     testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
   resolve: {
     alias: {

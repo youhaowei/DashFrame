@@ -1,12 +1,12 @@
-import { DarkModeIcon, LightModeIcon } from "@stdui/icons";
 import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@stdui/react";
-import { useTheme } from "@stdui/react/theme";
+} from "@wystack/ui";
+import { DarkModeIcon, LightModeIcon } from "@wystack/ui-icons";
+import { useTheme } from "@wystack/ui/theme";
 import * as React from "react";
 
 // Subscribe is a no-op: the snapshot transitions from server (false) to

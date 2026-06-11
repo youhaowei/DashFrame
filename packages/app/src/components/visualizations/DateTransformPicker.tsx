@@ -3,7 +3,6 @@ import type {
   ChannelTransform,
   TemporalAggregation,
 } from "@dashframe/types";
-import { DateTypeIcon } from "@stdui/icons";
 import {
   Label,
   Select,
@@ -11,7 +10,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
+} from "@wystack/ui";
+import { DateTypeIcon } from "@wystack/ui-icons";
 import { useMemo } from "react";
 
 /**

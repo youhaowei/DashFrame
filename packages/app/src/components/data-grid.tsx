@@ -1,4 +1,11 @@
-import { MoreIcon } from "@stdui/icons";
+import {
+  type ColumnDef,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import {
   Button,
   DropdownMenu,
@@ -14,15 +21,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@stdui/react";
-import {
-  type ColumnDef,
-  type SortingState,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+} from "@wystack/ui";
+import { MoreIcon } from "@wystack/ui-icons";
 import * as React from "react";
 
 interface DataGridProps<TData> {

@@ -1,9 +1,9 @@
 // =============================================================================
 // @dashframe/ui — DashFrame-specific UI components
 //
-// stdui primitives and components: import from "@stdui/react"
-// Icons: import from "@stdui/icons"
-// Theme: import from "@stdui/react/theme"
+// stdui primitives and components: import from "@wystack/ui"
+// Icons: import from "@wystack/ui-icons"
+// Theme: import from "@wystack/ui/theme"
 //
 // This package exports ONLY DashFrame-specific components, hooks, and utilities
 // that are not part of the stdui design system.
@@ -41,7 +41,7 @@ export {
 } from "./components/ItemSelector";
 
 // Chart icons (static SVG representations of chart types)
-// NOTE: DotIcon is renamed to ChartDotIcon to avoid conflict with @stdui/icons DotIcon
+// NOTE: DotIcon is renamed to ChartDotIcon to avoid conflict with @wystack/ui-icons DotIcon
 export {
   AreaYIcon,
   BarXIcon,

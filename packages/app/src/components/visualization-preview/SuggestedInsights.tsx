@@ -1,6 +1,6 @@
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
-import { Button, Card } from "@stdui/react";
+import { Button, Card } from "@wystack/ui";
 
 /**
  * EncodingRow - Displays a single encoding channel

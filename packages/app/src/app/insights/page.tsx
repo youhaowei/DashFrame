@@ -7,16 +7,7 @@ import {
   useVisualizations,
 } from "@dashframe/core";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
-import {
-  ChartIcon,
-  DeleteIcon,
-  ExternalLinkIcon,
-  FileIcon,
-  MoreIcon,
-  PlusIcon,
-  SearchIcon,
-  SettingsIcon,
-} from "@stdui/icons";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Badge,
   Button,
@@ -27,8 +18,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import {
+  ChartIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  FileIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+} from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 // Type for insight with joined details

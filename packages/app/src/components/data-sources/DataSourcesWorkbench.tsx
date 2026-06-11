@@ -21,7 +21,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@stdui/react";
+} from "@wystack/ui";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AddConnectionPanel } from "./AddConnectionPanel";

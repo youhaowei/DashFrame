@@ -1,5 +1,5 @@
-import { DatabaseIcon } from "@stdui/icons";
-import { ItemCard } from "@stdui/react";
+import { ItemCard } from "@wystack/ui";
+import { DatabaseIcon } from "@wystack/ui-icons";
 
 /**
  * Display info for a data table in lists.

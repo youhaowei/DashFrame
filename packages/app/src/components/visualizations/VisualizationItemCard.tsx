@@ -1,5 +1,4 @@
 import type { Visualization } from "@dashframe/types";
-import { ChartIcon, DataPointIcon, MoreIcon, TableIcon } from "@stdui/icons";
 import {
   Button,
   cn,
@@ -8,7 +7,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   type ItemCardAction,
-} from "@stdui/react";
+} from "@wystack/ui";
+import {
+  ChartIcon,
+  DataPointIcon,
+  MoreIcon,
+  TableIcon,
+} from "@wystack/ui-icons";
 import * as React from "react";
 import { VisualizationPreview } from "./VisualizationPreview";
 

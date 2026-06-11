@@ -1,5 +1,5 @@
 import { useInsight } from "@dashframe/core";
-import { Spinner } from "@stdui/react";
+import { Spinner } from "@wystack/ui";
 import { InsightView } from "./InsightView";
 import { NotFoundView } from "./NotFoundView";
 

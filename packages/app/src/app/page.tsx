@@ -1,5 +1,5 @@
 import { useVisualizations } from "@dashframe/core";
-import { Spinner } from "@stdui/react";
+import { Spinner } from "@wystack/ui";
 import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
 

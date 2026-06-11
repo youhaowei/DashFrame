@@ -1,6 +1,14 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  cn,
+} from "@wystack/ui";
+import {
   BooleanTypeIcon,
   ChevronRightIcon,
   CloseIcon,
@@ -9,15 +17,7 @@ import {
   NumberTypeIcon,
   PlusIcon,
   TextTypeIcon,
-} from "@stdui/icons";
-import {
-  Badge,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  cn,
-} from "@stdui/react";
+} from "@wystack/ui-icons";
 import { useCallback, useState } from "react";
 
 /**
