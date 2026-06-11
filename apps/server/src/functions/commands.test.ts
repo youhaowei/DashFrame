@@ -139,7 +139,7 @@ describe("command vocabulary", () => {
           name: "Ignored Second Name",
         }),
       );
-      expect(second.results[0]).toEqual({ id: sourceId });
+      expect(second.results[0]?.value).toEqual({ id: sourceId });
 
       const rows = await allSources();
       expect(rows).toHaveLength(1);
@@ -167,7 +167,7 @@ describe("command vocabulary", () => {
         }),
       );
       expect(result.mode).toBe("commit");
-      expect(result.commandCount).toBe(2);
+      expect(result.commands).toHaveLength(2);
 
       const source = await sourcesById(sourceId);
       const table = await tablesById(tableId);
