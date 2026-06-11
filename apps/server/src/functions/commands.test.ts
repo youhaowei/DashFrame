@@ -1699,8 +1699,13 @@ describe("command vocabulary", () => {
       await commit(
         cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       );
-      await commit(cmd("DeleteNode", { id: sourceId }));
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
       expect(await sourcesById(sourceId)).toHaveLength(0);
+      // No reference-boundary nodes — orphanedNodes is empty.
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
     });
 
     it("should delete an Insight by id", async () => {
@@ -1713,8 +1718,12 @@ describe("command vocabulary", () => {
           source: { sourceType: "dataTable", sourceId: tableId },
         }),
       );
-      await commit(cmd("DeleteNode", { id: insightId }));
+      const result = await commit(cmd("DeleteNode", { id: insightId }));
       expect(await insightsById(insightId)).toHaveLength(0);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
     });
 
     it("should delete a Visualization by id", async () => {
@@ -1735,22 +1744,502 @@ describe("command vocabulary", () => {
           spec: {},
         }),
       );
-      await commit(cmd("DeleteNode", { id: vizId }));
+      const result = await commit(cmd("DeleteNode", { id: vizId }));
       expect(await vizsById(vizId)).toHaveLength(0);
       // The parent Insight is untouched.
       expect(await insightsById(insightId)).toHaveLength(1);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
+    });
+
+    it("should surface dashboards that reference a deleted Visualization in orphanedNodes (reference boundary)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: vizId }));
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      // The dashboard is surfaced as an orphaned node (its viz item is now stale).
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]).toMatchObject({
+        id: dashId,
+        kind: "dashboard",
+      });
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
     });
 
     it("should delete a Dashboard by id", async () => {
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
-      await commit(cmd("DeleteNode", { id: dashId }));
+      const result = await commit(cmd("DeleteNode", { id: dashId }));
       expect(await dashboardsById(dashId)).toHaveLength(0);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
     });
 
     it("should throw on DeleteNode for an unknown id (no silent no-op)", async () => {
       await expect(commit(cmd("DeleteNode", { id: id() }))).rejects.toThrow(
         /not found/,
+      );
+    });
+  });
+
+  // ===========================================================================
+  // YW-105: DeleteNode — typed-edge cascade rule + orphan-and-warn
+  // ===========================================================================
+
+  describe("DeleteNode — typed-edge cascade rule (YW-105)", () => {
+    // -------------------------------------------------------------------------
+    // Owned-edge cascade: Insight → Visualization (schema FK, onDelete cascade)
+    // -------------------------------------------------------------------------
+
+    it("should cascade-delete owned Visualizations when their Insight is deleted (ownership edge)", async () => {
+      // Spec — DashFrame Artifact Model: Visualization is owned by its Insight
+      // (it has no independent value without the query that produces it).
+      // The DB schema's onDelete:cascade on visualizations.insight_id enforces
+      // this; DeleteNode must not block it.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const viz2Id = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V1",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateVisualization", {
+          id: viz2Id,
+          name: "V2",
+          insightId,
+          visualizationType: "line",
+          spec: {},
+        }),
+      );
+
+      await commit(cmd("DeleteNode", { id: insightId }));
+
+      // Insight is gone.
+      expect(await insightsById(insightId)).toHaveLength(0);
+      // Both Visualizations are gone (cascade through the ownership edge).
+      expect(await vizsById(vizId)).toHaveLength(0);
+      expect(await vizsById(viz2Id)).toHaveLength(0);
+    });
+
+    it("should surface dashboards that contain an Insight's owned Visualizations in orphanedNodes when the Insight is deleted", async () => {
+      // When deleting an Insight, its Visualizations cascade-delete via FK.
+      // Any Dashboard that had a layout item referencing one of those Visualizations
+      // is now left with a stale tile — it must appear in orphanedNodes.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: insightId }));
+
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(await vizsById(vizId)).toHaveLength(0);
+      // The dashboard is surfaced as an orphaned node.
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      const dashboardOrphans = value.orphanedNodes.filter(
+        (n) => n.kind === "dashboard",
+      );
+      expect(dashboardOrphans).toHaveLength(1);
+      expect(dashboardOrphans[0]?.id).toBe(dashId);
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
+    });
+
+    it("should cascade-delete owned DataTables when their DataSource is deleted (ownership edge)", async () => {
+      // DataSource → DataTable is the only ownership edge in the graph.
+      // Deleting a DataSource must remove all its DataTables.
+      const sourceId = id();
+      const tableId = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+
+      await commit(cmd("DeleteNode", { id: sourceId }));
+
+      expect(await sourcesById(sourceId)).toHaveLength(0);
+      expect(await tablesById(tableId)).toHaveLength(0);
+      expect(await tablesById(table2Id)).toHaveLength(0);
+    });
+
+    // -------------------------------------------------------------------------
+    // Reference-edge stop: DataTable → Insight (orphan-and-warn)
+    // -------------------------------------------------------------------------
+
+    it("should surface orphaned Insights when a DataTable they source is deleted (reference boundary)", async () => {
+      // The Artifact Model's typed-edge rule: DataTable → Insight is a reference
+      // edge. Deleting the DataTable must NOT auto-delete the Insight; instead it
+      // must return the Insight in orphanedNodes so the caller can route it to
+      // drift-repair. The Insight remains in the DB, reachable but broken.
+      const { tableId } = await makeTable();
+      const insight1Id = id();
+      const insight2Id = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insight1Id,
+          name: "I1",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: insight2Id,
+          name: "I2",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: tableId }));
+
+      // DataTable is gone.
+      expect(await tablesById(tableId)).toHaveLength(0);
+      // Insights survive — they are NOT cascade-deleted.
+      expect(await insightsById(insight1Id)).toHaveLength(1);
+      expect(await insightsById(insight2Id)).toHaveLength(1);
+      // Both are surfaced as orphanedNodes for the caller to route to repair.
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.ok).toBe(true);
+      expect(value.orphanedNodes).toHaveLength(2);
+      expect(value.orphanedNodes.map((n) => n.id).sort()).toEqual(
+        [insight1Id, insight2Id].sort(),
+      );
+      expect(value.orphanedNodes.every((n) => n.kind === "insight")).toBe(true);
+    });
+
+    it("should surface orphaned Insights when a DataSource (and its DataTables) is deleted (reference boundary through cascade)", async () => {
+      // When a DataSource is deleted, its DataTables cascade-delete (ownership).
+      // Any Insights that sourced those DataTables hit the reference boundary and
+      // must be surfaced as orphanedNodes — the delete blast-radius extends to
+      // the source's descendants at the reference edge.
+      const { sourceId, tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      expect(await sourcesById(sourceId)).toHaveLength(0);
+      expect(await tablesById(tableId)).toHaveLength(0);
+      // Insight survives — reference edge stops the cascade.
+      expect(await insightsById(insightId)).toHaveLength(1);
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]?.id).toBe(insightId);
+      expect(value.orphanedNodes[0]?.kind).toBe("insight");
+    });
+
+    // -------------------------------------------------------------------------
+    // Reference-edge stop: Insight → derived Insight (orphan-and-warn)
+    // -------------------------------------------------------------------------
+
+    it("should surface orphaned derived Insights when their upstream Insight is deleted (Insight-on-Insight reference boundary)", async () => {
+      // Insight-on-Insight composition: the derived Insight sources the deleted
+      // Insight. This is another reference edge — the derived Insight is an
+      // independently-authored artifact that must NOT be cascade-deleted.
+      const { tableId } = await makeTable();
+      const baseInsightId = id();
+      const derivedInsightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: baseInsightId,
+          name: "Base",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: derivedInsightId,
+          name: "Derived",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      // Re-point the derived Insight to source from the base.
+      await commit(
+        cmd("SetInsightSource", {
+          id: derivedInsightId,
+          source: { sourceType: "insight", sourceId: baseInsightId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: baseInsightId }));
+
+      // Base Insight is gone.
+      expect(await insightsById(baseInsightId)).toHaveLength(0);
+      // Derived Insight survives — it is a separately-authored artifact.
+      expect(await insightsById(derivedInsightId)).toHaveLength(1);
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]?.id).toBe(derivedInsightId);
+      expect(value.orphanedNodes[0]?.kind).toBe("insight");
+    });
+
+    it("should not surface duplicate orphaned Insights when two DataTables from one DataSource both feed the same Insight", async () => {
+      // Deduplication invariant: an Insight that transitively sources two
+      // DataTables from the same DataSource must appear only once in
+      // orphanedNodes. Two separate source refs → same orphan id → one entry.
+      // (This is a rare but structurally possible configuration when joins
+      // reference two tables from the same source; we test the dedup path.)
+      const sourceId = id();
+      const table1Id = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: table1Id,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+      // Single Insight sources table1; table2 doesn't have an Insight over it.
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: table1Id },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string }[];
+      };
+      // Insight appears exactly once even though the DataSource has 2 tables.
+      expect(
+        value.orphanedNodes.filter((n) => n.id === insightId),
+      ).toHaveLength(1);
+    });
+
+    it("should surface orphaned Insights when a DataTable they JOIN against is deleted (join-dependency boundary)", async () => {
+      // An Insight that uses a DataTable only as a JOIN target (not as its
+      // primary source) is still orphaned when that table is deleted. Verify
+      // that findOrphanedInsights checks joins[*].rightTableId.
+      const { tableId: primaryTableId } = await makeTable();
+      const { tableId: joinTableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: primaryTableId },
+        }),
+        // Add a join that references joinTableId as the right-hand side.
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "inner",
+            rightTableId: joinTableId,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: joinTableId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes.map((n) => n.id)).toContain(insightId);
+    });
+
+    it("should surface an Insight only once when it sources AND joins against tables from the same DataSource", async () => {
+      // Dedup: an Insight whose primary source AND one of its joins both point
+      // at tables owned by a deleted DataSource must appear exactly once.
+      const sourceId = id();
+      const table1Id = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: table1Id,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: table1Id },
+        }),
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "left",
+            rightTableId: table2Id,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string }[];
+      };
+      expect(
+        value.orphanedNodes.filter((n) => n.id === insightId),
+      ).toHaveLength(1);
+    });
+
+    // -------------------------------------------------------------------------
+    // Arrow / DataFrame metadata cleanup
+    // -------------------------------------------------------------------------
+
+    it("should delete the DataFrame metadata row when an Insight is deleted (Arrow cleanup signal)", async () => {
+      // The dataFrames table stores metadata-only; the actual Arrow bytes live in
+      // the renderer's IndexedDB. Deleting the metadata row signals the client-
+      // side removeDataFrame hook to clean up Arrow bytes via deleteArrowData().
+      // Test: after DeleteNode(insight), the dataFrames row with insightId is gone.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const frameId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      // Directly insert a DataFrame row linked to this Insight to simulate a
+      // cached result (the applyCommands vocabulary has no PutDataFrame command
+      // yet; we write the row via the raw Drizzle handle used by test helpers).
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        fieldIds: [],
+        name: `Frame for ${insightId}`,
+        insightId,
+        createdAt: new Date(),
+      });
+
+      const rows = await db.select().from(schema.dataFrames);
+      expect(rows.filter((r) => r.insightId === insightId)).toHaveLength(1);
+
+      await commit(cmd("DeleteNode", { id: insightId }));
+
+      // The DataFrame metadata row must be gone after the Insight is deleted.
+      const afterRows = await db.select().from(schema.dataFrames);
+      expect(afterRows.filter((r) => r.insightId === insightId)).toHaveLength(
+        0,
       );
     });
   });

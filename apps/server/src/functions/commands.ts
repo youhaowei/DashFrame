@@ -100,8 +100,14 @@ import { mutation } from "@wystack/server";
 
 import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
 
-const { dataSources, dataTables, insights, visualizations, dashboards } =
-  schema;
+const {
+  dataSources,
+  dataTables,
+  dataFrames,
+  insights,
+  visualizations,
+  dashboards,
+} = schema;
 
 type DataSourceRow = typeof dataSources.$inferSelect;
 type DataTableRow = typeof dataTables.$inferSelect;
@@ -1196,50 +1202,292 @@ const renameNode = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// Cross-cutting: DeleteNode (one polymorphic delete)
+// Cross-cutting: DeleteNode (one polymorphic delete — typed-edge cascade rule)
 // ---------------------------------------------------------------------------
 
 /**
- * DeleteNode — one polymorphic delete across all node types. Downstream
- * referential integrity is orphan-and-warn (Data-Drift Repair spec), not
- * FK-cascade — the handler's manual child-deletes in `app-artifacts.ts`
- * become a derived-DAG concern. For now the DB schema has FK cascade on
- * `visualizations.insight_id` and `data_tables.data_source_id`, so deleting
- * an Insight cascades its visualizations at the DB level.
+ * An orphaned node description returned by DeleteNode when a delete stops at a
+ * reference edge. The caller (UI or agent) routes these into the Data-Drift
+ * Repair flow — from a reference child's perspective, a deleted parent is
+ * indistinguishable from drift.
+ */
+export interface OrphanedNode {
+  /** The id of the now-orphaned artifact. */
+  id: string;
+  /** The kind of artifact: 'insight' | 'visualization' | 'dashboard'. */
+  kind: "insight" | "visualization" | "dashboard";
+}
+
+/**
+ * Walk all Insights whose primary source OR any join dependency equals
+ * `sourceId`. These are the reference-boundary nodes that must be routed to
+ * drift-repair when `sourceId` is deleted.
+ *
+ * The check covers:
+ *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
+ *   • The legacy `baseTableId` field for pre-composition rows (YW-157).
+ *   • Any `joins[*].rightTableId` — an Insight that JOINs against the deleted
+ *     node is just as broken as one that sources it directly.
+ *
+ * Because insights.definition is a jsonb column with no stored FK, this is a
+ * full-table scan filtered in application code (PGLite single-connection, the
+ * table is small in practice). A future index on a promoted column would speed
+ * this up; the read is intentionally bounded to the delete path.
+ */
+function isOrphanedBy(row: InsightRow, sourceId: string): boolean {
+  const def = row.definition as StoredInsightDefinition;
+  // Primary source check.
+  const primaryMatch = def.source
+    ? def.source.sourceId === sourceId
+    : def.baseTableId === sourceId;
+  if (primaryMatch) return true;
+  // Join-dependency check — an Insight JOINing against the deleted node
+  // is also orphaned (its rightTableId no longer resolves).
+  const joins = (def.joins ?? []) as { rightTableId?: string }[];
+  return joins.some((j) => j.rightTableId === sourceId);
+}
+
+async function findOrphanedInsights(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  sourceId: string,
+): Promise<{ id: string }[]> {
+  const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
+  return allInsights.filter((row) => isOrphanedBy(row, sourceId));
+}
+
+/**
+ * Delete all DataFrame metadata rows linked to the given node id (by
+ * `insightId` column) and return their storage locations so the caller can
+ * signal Arrow/IndexedDB cleanup. DataTable rows link via `dataFrameId` (a
+ * nullable FK on the DataTable row itself), not a column on the DataFrame —
+ * so DataTable cleanup is handled by the caller passing the DataTable's
+ * `dataFrameId` directly.
+ *
+ * The `dataFrames` table stores metadata only; the actual Arrow bytes live in
+ * the renderer's IndexedDB. Deleting the metadata row here is the signal the
+ * client-side `removeDataFrame` hook needs to clean up the Arrow bytes via
+ * `deleteArrowData(storage.key)` (see `packages/app-data/src/data-frames.ts`).
+ */
+async function deleteInsightDataFrames(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  insightId: string,
+): Promise<void> {
+  // Delete all DataFrame rows whose insightId matches — there should be at
+  // most one per Insight in practice, but the schema allows N.
+  await ctx.db.from(dataFrames).where(eq("insightId", insightId)).delete();
+}
+
+/**
+ * Collect all orphaned Insights and clean up DataFrame metadata for a
+ * DataSource delete. Extracted to keep `deleteNode`'s handler within the
+ * cognitive-complexity budget.
+ *
+ * Returns the deduplicated set of Insights that SOURCE or JOIN any of
+ * `ownedTables` (these are the reference-boundary orphans). As a side-effect,
+ * deletes the DataFrame metadata rows for each DataTable's Arrow result so the
+ * client-side `removeDataFrame` hook can clean up Arrow bytes.
+ *
+ * The full insights table is fetched once (not once-per-table) so that N owned
+ * tables do not produce N round-trips.
+ */
+async function deleteDataSourceDependents(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  ownedTables: (typeof dataTables.$inferSelect)[],
+): Promise<OrphanedNode[]> {
+  // Fetch all insights once — avoids O(N) full-table scans inside the loop.
+  const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
+  const ownedTableIds = new Set(ownedTables.map((t) => t.id));
+
+  // Detect reference-boundary Insights across ALL owned tables (deduplicated).
+  const seen = new Set<string>();
+  const orphanedNodes: OrphanedNode[] = [];
+  for (const row of allInsights) {
+    if (seen.has(row.id)) continue;
+    // Check primary source and all join dependencies against every owned table.
+    const orphaned = [...ownedTableIds].some((tableId) =>
+      isOrphanedBy(row, tableId),
+    );
+    if (orphaned) {
+      seen.add(row.id);
+      orphanedNodes.push({ id: row.id, kind: "insight" });
+    }
+  }
+
+  // Clean up DataFrame metadata for each owned DataTable's Arrow result.
+  for (const t of ownedTables) {
+    if (t.dataFrameId) {
+      await ctx.db.from(dataFrames).where(eq("id", t.dataFrameId)).delete();
+    }
+  }
+
+  return orphanedNodes;
+}
+
+/**
+ * DeleteNode — one polymorphic delete that implements the Artifact Model's
+ * typed-edge cascade rule (Spec — DashFrame Artifact Model, "Edge types and
+ * the delete cascade"):
+ *
+ *   Ownership edges (cascade through): DataSource → DataTable.
+ *   Reference edges (stop at): DataTable → Insight, Insight → Insight,
+ *     Insight → Visualization (owned by schema FK — kept because Viz has no
+ *     independent value without its Insight).
+ *
+ * **Cascade path:**
+ *   - Deleting a Visualization:
+ *       • The Visualization is removed.
+ *       • Dashboards that contain this visualization via a layout item's
+ *         `visualizationId` are returned as `orphanedNodes` (reference edge).
+ *   - Deleting a Dashboard: only the Dashboard is removed.
+ *   - Deleting an Insight:
+ *       • Owned Visualizations cascade-delete via the DB schema FK.
+ *       • The Insight's DataFrame metadata row is deleted (triggers Arrow
+ *         cleanup on the client via `removeDataFrame`).
+ *       • Insights that SOURCE this Insight are returned as `orphanedNodes`.
+ *       • Dashboards with layout items referencing the owned Visualizations are
+ *         also returned as `orphanedNodes` (cascade removed their viz tiles).
+ *   - Deleting a DataTable:
+ *       • The DataTable's DataFrame metadata row is deleted.
+ *       • Insights that SOURCE this DataTable are returned as `orphanedNodes`.
+ *   - Deleting a DataSource:
+ *       • Owned DataTables cascade-delete via the DB schema FK.
+ *       • DataFrame metadata rows for each owned DataTable are deleted.
+ *       • Insights that SOURCE any of those DataTables are returned as
+ *         `orphanedNodes`.
+ *
+ * The returned `orphanedNodes` list is the "warning surface" the ticket
+ * describes — the UI/agent routes these into the Data-Drift Repair flow.
+ * Nothing is silently orphaned and no authored artifact is silently destroyed.
  */
 const deleteNode = mutation({
   args: { id: uuid },
-  handler: async (ctx, { id }): Promise<{ ok: true }> => {
-    // Try each table in dependency order (children before parents so FK
-    // constraints are satisfied if cascade is not set at the schema level).
+  handler: async (
+    ctx,
+    { id },
+  ): Promise<{ ok: true; orphanedNodes: OrphanedNode[] }> => {
+    // --- Visualization -------------------------------------------------------
+    // No owned children. Reference boundary: Dashboards that contain this
+    // visualization via a layout item's `visualizationId` are orphaned when the
+    // visualization is deleted — surface them in orphanedNodes for drift-repair.
     const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
     if (viz) {
+      const allDashboards = (await ctx.db
+        .from(dashboards)
+        .all()) as DashboardRow[];
+      const affectedDashboards = allDashboards.filter((d) => {
+        const items = ((d.layout as DashboardItem[]) ?? []) as DashboardItem[];
+        return items.some((it) => it.visualizationId === id);
+      });
       await ctx.db.from(visualizations).where(eq("id", id)).delete();
-      return { ok: true };
+      return {
+        ok: true,
+        orphanedNodes: affectedDashboards.map((d) => ({
+          id: d.id,
+          kind: "dashboard" as const,
+        })),
+      };
     }
+
+    // --- Dashboard (leaf — no owned children, no reference children) --------
     const dash = await ctx.db.from(dashboards).where(eq("id", id)).first();
     if (dash) {
       await ctx.db.from(dashboards).where(eq("id", id)).delete();
-      return { ok: true };
+      return { ok: true, orphanedNodes: [] };
     }
-    // Insight: FK cascade removes its visualizations (schema: onDelete: cascade).
-    const insight = await ctx.db.from(insights).where(eq("id", id)).first();
+
+    // --- Insight ------------------------------------------------------------
+    // Owned visualizations cascade-delete via the DB schema FK
+    // (visualizations.insight_id references insights.id ON DELETE CASCADE).
+    // Reference-boundary: Insights that SOURCE this Insight enter drift-repair.
+    // Dashboard items that reference any of the owned Visualizations also enter
+    // drift-repair (the FK cascade removes the viz, the layout item becomes stale).
+    const insight = (await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .first()) as InsightRow | undefined;
     if (insight) {
+      // Detect reference-boundary orphans BEFORE the delete (so the rows exist).
+      const derivedInsights = await findOrphanedInsights(ctx, id);
+      // Collect owned visualizations BEFORE the cascade so we can check dashboards.
+      const ownedVizIds = new Set(
+        (
+          (await ctx.db
+            .from(visualizations)
+            .where(eq("insightId", id))
+            .all()) as VisualizationRow[]
+        ).map((v) => v.id),
+      );
+      // Find dashboards with layout items referencing any owned visualization.
+      const allDashboards = (await ctx.db
+        .from(dashboards)
+        .all()) as DashboardRow[];
+      const affectedDashboards = allDashboards.filter((d) => {
+        const items = ((d.layout as DashboardItem[]) ?? []) as DashboardItem[];
+        return items.some(
+          (it) => it.visualizationId && ownedVizIds.has(it.visualizationId),
+        );
+      });
+      // Clean up DataFrame metadata so the client-side Arrow cleanup hook fires.
+      await deleteInsightDataFrames(ctx, id);
+      // Delete the Insight — schema FK cascade removes its Visualizations.
       await ctx.db.from(insights).where(eq("id", id)).delete();
-      return { ok: true };
+      return {
+        ok: true,
+        orphanedNodes: [
+          ...derivedInsights.map((r) => ({
+            id: r.id,
+            kind: "insight" as const,
+          })),
+          ...affectedDashboards.map((d) => ({
+            id: d.id,
+            kind: "dashboard" as const,
+          })),
+        ],
+      };
     }
-    // DataTable: FK cascade removes it from dataTables (parent is DataSource).
-    const table = await ctx.db.from(dataTables).where(eq("id", id)).first();
+
+    // --- DataTable ----------------------------------------------------------
+    // No owned children (DataTable is owned by DataSource, not by DataTable).
+    // Reference-boundary: Insights that SOURCE this DataTable enter drift-repair.
+    // Arrow cleanup: delete the DataTable's DataFrame metadata if it has one.
+    const table = (await ctx.db
+      .from(dataTables)
+      .where(eq("id", id))
+      .first()) as typeof dataTables.$inferSelect | undefined;
     if (table) {
+      const orphanedInsights = await findOrphanedInsights(ctx, id);
+      if (table.dataFrameId) {
+        await ctx.db
+          .from(dataFrames)
+          .where(eq("id", table.dataFrameId))
+          .delete();
+      }
       await ctx.db.from(dataTables).where(eq("id", id)).delete();
-      return { ok: true };
+      return {
+        ok: true,
+        orphanedNodes: orphanedInsights.map((r) => ({
+          id: r.id,
+          kind: "insight" as const,
+        })),
+      };
     }
-    // DataSource: FK cascade removes its child dataTables.
+
+    // --- DataSource ---------------------------------------------------------
+    // Owned DataTables cascade-delete via the DB schema FK
+    // (data_tables.data_source_id references data_sources.id ON DELETE CASCADE).
+    // Collect owned tables before the delete (FK cascade would remove them).
     const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
     if (source) {
+      const ownedTables = (await ctx.db
+        .from(dataTables)
+        .where(eq("dataSourceId", id))
+        .all()) as (typeof dataTables.$inferSelect)[];
+      const orphanedNodes = await deleteDataSourceDependents(ctx, ownedTables);
+      // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
-      return { ok: true };
+      return { ok: true, orphanedNodes };
     }
+
     throw new Error(`Node ${id} not found`);
   },
 });
