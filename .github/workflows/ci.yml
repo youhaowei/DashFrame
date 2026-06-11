@@ -33,6 +33,9 @@ jobs:
         run: |
           bun format:check || (bun format && git diff && exit 1)
 
+      - name: No ticket refs in source
+        run: bun run check:ticket-refs
+
       - name: Run checks
         run: bun check
 
