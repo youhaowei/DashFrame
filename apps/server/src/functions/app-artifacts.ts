@@ -19,6 +19,7 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
+import { stripSampleValues } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
@@ -508,7 +509,7 @@ const updateDataTable = mutation({
 // NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
 // The command path (`refreshDataTableCmd` in commands.ts) enforces existence
 // and throws instead — divergent semantics for the same intent, bounded by the
-// YW-157 caller migration window.
+// legacy-caller migration window (see #66).
 const refreshDataTable = mutation({
   args: { id: uuid, dataFrameId: uuid },
   handler: async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
@@ -587,6 +588,13 @@ const putDataFrameEntry = mutation({
   args: { entry: jsonb },
   handler: async (ctx, { entry }): Promise<{ id: string }> => {
     const value = entry as DataFrameEntry;
+    // Strip raw sample values before persisting — privacy floor: the artifact
+    // DB holds zero raw cell values. In-memory callers that need sampleValues
+    // (e.g. the suggest-mode PII classifier) operate on the runtime object
+    // before it reaches this write boundary.
+    const safeAnalysis = value.analysis
+      ? stripSampleValues(value.analysis)
+      : null;
     const row = {
       id: value.id,
       storage: value.storage,
@@ -597,7 +605,7 @@ const putDataFrameEntry = mutation({
       insightId: value.insightId ?? null,
       rowCount: value.rowCount ?? null,
       columnCount: value.columnCount ?? null,
-      analysis: value.analysis ?? null,
+      analysis: safeAnalysis,
     };
     const existing = (await ctx.db
       .from(dataFrames)
@@ -636,7 +644,14 @@ const updateDataFrameEntry = mutation({
         ...(patch.columnCount !== undefined
           ? { columnCount: patch.columnCount }
           : {}),
-        ...(patch.analysis !== undefined ? { analysis: patch.analysis } : {}),
+        // Strip raw sample values at the write boundary (privacy floor).
+        ...(patch.analysis !== undefined
+          ? {
+              analysis: patch.analysis
+                ? stripSampleValues(patch.analysis)
+                : null,
+            }
+          : {}),
       });
     return { ok: true };
   },
