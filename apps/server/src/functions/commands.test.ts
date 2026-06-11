@@ -706,6 +706,36 @@ describe("command vocabulary", () => {
       expect(vRows).toHaveLength(1);
       expect(vRows[0]?.insightId).toBe(insightId);
     });
+
+    it("should reject a self-referential insight source (client-supplied id == sourceId)", async () => {
+      // CreateInsight mints its own id, so a caller can name itself as its
+      // insight source — a 1-cycle that bypasses SetInsightSource's cycle guard.
+      const insightId = id();
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "Self",
+            source: { sourceType: "insight", sourceId: insightId },
+          }),
+        ),
+      ).rejects.toThrow(/cycle/);
+      expect(await insightsById(insightId)).toHaveLength(0);
+    });
+
+    it("should reject a non-existent insight source (no dangling reference persisted)", async () => {
+      const insightId = id();
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "Dangling",
+            source: { sourceType: "insight", sourceId: id() },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+      expect(await insightsById(insightId)).toHaveLength(0);
+    });
   });
 
   describe("SetInsightSource (Insight-on-Insight composition + cycle rejection)", () => {
@@ -815,6 +845,35 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject a non-existent insight source (wouldCreateCycle treats missing as leaf — guard with existence check)", async () => {
+      // The source is JSON, not an FK, and wouldCreateCycle returns false for a
+      // missing source row. Without an existence check a dangling sourceId would
+      // persist and the command would report success.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Derived",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      const missingSourceId = id();
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: insightId,
+            source: { sourceType: "insight", sourceId: missingSourceId },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+
+      // The original dataTable source must be intact (the write rolled back).
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { source: { sourceId: string } };
+      expect(def.source.sourceId).toBe(tableId);
     });
   });
 
