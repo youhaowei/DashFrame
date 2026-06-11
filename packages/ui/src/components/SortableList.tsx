@@ -29,7 +29,7 @@ import {
   type ItemCardAction as ItemAction,
   type ItemListProps,
   type ListItem,
-} from "@stdui/react";
+} from "@wystack/ui";
 import * as React from "react";
 import { useCallback, useState } from "react";
 import { DragHandleVerticalIcon, type LucideIcon } from "../lib/icons";

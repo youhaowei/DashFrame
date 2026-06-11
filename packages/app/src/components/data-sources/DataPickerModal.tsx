@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@stdui/react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@wystack/ui";
 import {
   DataPickerContent,
   type DataPickerContentProps,

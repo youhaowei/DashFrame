@@ -5,14 +5,14 @@ import type { Insight } from "@/lib/stores/types";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type { Field, Visualization } from "@dashframe/types";
-import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ItemList,
   Section,
   type ItemCardAction,
   type ListItem,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@wystack/ui-icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface VisualizationsSectionProps {

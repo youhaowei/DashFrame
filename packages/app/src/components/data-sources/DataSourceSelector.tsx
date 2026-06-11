@@ -1,14 +1,14 @@
 import { useDataSources, useDataTables } from "@dashframe/core";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
+import { Link } from "@tanstack/react-router";
+import { Button, Surface, type ItemAction } from "@wystack/ui";
 import {
   ChartIcon,
   DatabaseIcon,
   FileIcon,
   NotionIcon,
   PlusIcon,
-} from "@stdui/icons";
-import { Button, Surface, type ItemAction } from "@stdui/react";
-import { Link } from "@tanstack/react-router";
+} from "@wystack/ui-icons";
 import { useMemo } from "react";
 
 interface DataSourceSelectorProps {

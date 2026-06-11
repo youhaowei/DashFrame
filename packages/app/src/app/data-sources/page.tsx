@@ -5,17 +5,7 @@ import {
   useDataTables,
 } from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
-import {
-  CloudIcon,
-  DatabaseIcon,
-  DeleteIcon,
-  ExternalLinkIcon,
-  MoreIcon,
-  PlusIcon,
-  SearchIcon,
-  SpreadsheetIcon,
-  TableIcon,
-} from "@stdui/icons";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Badge,
   Button,
@@ -26,8 +16,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import {
+  CloudIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SpreadsheetIcon,
+  TableIcon,
+} from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 // Type for data source with table count

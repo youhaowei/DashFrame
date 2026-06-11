@@ -1,7 +1,7 @@
 "use client";
 
-import { cn, Spinner } from "@stdui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { cn, Spinner } from "@wystack/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // ============================================================================

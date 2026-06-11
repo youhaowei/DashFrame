@@ -7,6 +7,13 @@ import {
 } from "@dashframe/core";
 import type { DataTable, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
+import { useNavigate } from "@tanstack/react-router";
+import {
+  ItemList,
+  Section,
+  type ItemCardAction,
+  type ListItem,
+} from "@wystack/ui";
 import {
   CloseIcon,
   CloudIcon,
@@ -15,14 +22,7 @@ import {
   FileIcon,
   PlusIcon,
   TableIcon,
-} from "@stdui/icons";
-import {
-  ItemList,
-  Section,
-  type ItemCardAction,
-  type ListItem,
-} from "@stdui/react";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui-icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataModelSectionProps {

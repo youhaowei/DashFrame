@@ -15,13 +15,6 @@ import {
   type VirtualTableColumn,
 } from "@dashframe/ui";
 import {
-  ChevronDownIcon,
-  ChevronUpIcon,
-  DatabaseIcon,
-  LayersIcon,
-  RefreshIcon,
-} from "@stdui/icons";
-import {
   Button,
   Card,
   CardContent,
@@ -30,7 +23,14 @@ import {
   CardTitle,
   cn,
   Surface,
-} from "@stdui/react";
+} from "@wystack/ui";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DatabaseIcon,
+  LayersIcon,
+  RefreshIcon,
+} from "@wystack/ui-icons";
 import {
   useCallback,
   useEffect,

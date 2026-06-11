@@ -9,7 +9,7 @@ import {
   Select as SelectPrimitive,
   SelectTrigger,
   SelectValue,
-} from "@stdui/react";
+} from "@wystack/ui";
 
 interface SelectOption {
   label: string;

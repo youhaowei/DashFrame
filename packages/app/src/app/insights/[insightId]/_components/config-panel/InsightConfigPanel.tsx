@@ -10,7 +10,7 @@ import {
 } from "@dashframe/core";
 import type { DataTable, Insight, InsightMetric } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
-import { Panel } from "@stdui/react";
+import { Panel } from "@wystack/ui";
 import { useCallback, useMemo, useState } from "react";
 import {
   DeleteConfirmDialog,

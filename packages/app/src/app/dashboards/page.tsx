@@ -1,5 +1,5 @@
 import { useDashboardMutations, useDashboards } from "@dashframe/core";
-import { DashboardIcon, DeleteIcon, PlusIcon } from "@stdui/icons";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -10,8 +10,8 @@ import {
   Input,
   Label,
   Surface,
-} from "@stdui/react";
-import { Link, useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui";
+import { DashboardIcon, DeleteIcon, PlusIcon } from "@wystack/ui-icons";
 import { useState } from "react";
 
 export default function DashboardsPage() {

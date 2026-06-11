@@ -3,7 +3,7 @@ import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, UUID } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
-import { Spinner } from "@stdui/react";
+import { Spinner } from "@wystack/ui";
 import { useMemo } from "react";
 
 interface VisualizationRendererProps {

@@ -7,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@stdui/react";
+} from "@wystack/ui";
 
 /**
  * Global confirm dialog component

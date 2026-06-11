@@ -1,6 +1,21 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToastStore } from "@/lib/stores";
 import { clearAllData } from "@dashframe/core";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  cn,
+} from "@wystack/ui";
 import {
   type LucideIcon,
   ChartIcon,
@@ -17,22 +32,7 @@ import {
   MenuIcon,
   SettingsIcon,
   SparklesIcon,
-} from "@stdui/icons";
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  cn,
-} from "@stdui/react";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+} from "@wystack/ui-icons";
 import { useState } from "react";
 
 type NavItem = {

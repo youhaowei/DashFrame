@@ -4,7 +4,7 @@ import {
   useDataFrames,
   type DataFrameEntry,
 } from "@dashframe/core";
-import { ArrowUpDownIcon } from "@stdui/icons";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Button,
   Dialog,
@@ -15,8 +15,8 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@stdui/react";
-import type { ColumnDef } from "@tanstack/react-table";
+} from "@wystack/ui";
+import { ArrowUpDownIcon } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 export default function DataFramesPage() {

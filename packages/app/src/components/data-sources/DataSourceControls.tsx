@@ -8,13 +8,6 @@ import {
 } from "@dashframe/core";
 import { InputField } from "@dashframe/ui";
 import {
-  ChevronDownIcon,
-  DatabaseIcon,
-  DeleteIcon,
-  PlusIcon,
-  RefreshIcon,
-} from "@stdui/icons";
-import {
   Button,
   cn,
   Collapsible,
@@ -23,7 +16,14 @@ import {
   Panel,
   Spinner,
   Surface,
-} from "@stdui/react";
+} from "@wystack/ui";
+import {
+  ChevronDownIcon,
+  DatabaseIcon,
+  DeleteIcon,
+  PlusIcon,
+  RefreshIcon,
+} from "@wystack/ui-icons";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 

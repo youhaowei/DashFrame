@@ -3,7 +3,7 @@
 import type { ChartConfig, ChartTheme } from "@dashframe/core";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { useContainerDimensions } from "@dashframe/ui";
-import { Spinner, cn } from "@stdui/react";
+import { Spinner, cn } from "@wystack/ui";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
 

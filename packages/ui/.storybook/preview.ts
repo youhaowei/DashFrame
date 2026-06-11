@@ -1,5 +1,5 @@
-import { TooltipProvider } from "@stdui/react";
 import type { Preview } from "@storybook/nextjs-vite";
+import { TooltipProvider } from "@wystack/ui";
 import { createElement } from "react";
 import "../src/globals.css";
 import { ThemeWrapper } from "./ThemeWrapper";
