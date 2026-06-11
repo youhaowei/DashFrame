@@ -34,7 +34,7 @@ export function AssistantSidebar({
     return (
       <div className="pointer-events-none fixed inset-y-0 right-0 z-30 flex items-stretch p-3">
         <div
-          className="pointer-events-auto flex w-[clamp(20rem,28vw,30rem)] flex-col overflow-hidden rounded-2xl border border-neutral-border bg-neutral-bg/95 shadow-2xl backdrop-blur supports-backdrop-filter:bg-neutral-bg/85"
+          className="pointer-events-auto flex w-[clamp(20rem,28vw,30rem)] flex-col overflow-hidden rounded-2xl border border-neutral-border bg-neutral-bg/95 shadow-lg backdrop-blur supports-backdrop-filter:bg-neutral-bg/85"
           role="complementary"
           aria-label="Assistant"
         >
