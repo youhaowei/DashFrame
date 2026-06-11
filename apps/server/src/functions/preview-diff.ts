@@ -279,33 +279,24 @@ async function buildDirectNodes(
     const existing = byKey.get(key);
     if (existing) {
       existing.intent.push(intent);
-      // A later create dominates: if any command in the group mints the node,
-      // the node is new to this batch — clear the before-slice too.
-      if (descriptor.change === "create") {
+      // A later create marks the node as minted by this batch — but ONLY if
+      // the node wasn't already resolved to a canonical row (before === null).
+      // When the row pre-exists, a create-declared command on it is either an
+      // idempotent get-or-create (a no-op — keep update + before) or it would
+      // have failed the whole batch in applyCommands, so it never mints here.
+      if (descriptor.change === "create" && existing.before === null) {
         existing.change = "create";
-        existing.before = null;
       }
       Object.assign(existing.proposedDefinition, args);
       continue;
     }
 
-    // Idempotent commands (e.g. getOrCreateDataSource) are declared as
-    // "create" but may hit an existing row. Read before-slice in that case so
-    // the preview shows the canonical row rather than a misleading null.
-    let change = descriptor.change;
-    let before: Record<string, unknown> | null;
-    if (descriptor.change === "create") {
-      const existingRow = await readBefore(db, kind, nodeId);
-      if (existingRow !== null) {
-        // Row exists — this is a no-op / idempotent get: show as update.
-        change = "update";
-        before = existingRow;
-      } else {
-        before = null;
-      }
-    } else {
-      before = await readBefore(db, kind, nodeId);
-    }
+    const { change, before } = await resolveChangeAndBefore(
+      db,
+      descriptor,
+      kind,
+      nodeId,
+    );
 
     order.push(key);
     byKey.set(key, {
@@ -321,6 +312,30 @@ async function buildDirectNodes(
   }
 
   return order.map((key) => byKey.get(key)!);
+}
+
+/**
+ * Resolve a new direct node's change kind and before-slice from canonical
+ * state. Idempotent commands (e.g. getOrCreateDataSource) are declared as
+ * "create" but may hit an existing row — in that case the preview shows the
+ * canonical row as an update rather than a misleading before:null create.
+ */
+async function resolveChangeAndBefore(
+  db: ArtifactDb,
+  descriptor: CommandDescriptor,
+  kind: ArtifactKind,
+  nodeId: string,
+): Promise<{
+  change: "create" | "update";
+  before: Record<string, unknown> | null;
+}> {
+  const before = await readBefore(db, kind, nodeId);
+  if (descriptor.change === "create" && before === null) {
+    return { change: "create", before: null };
+  }
+  // Either a declared update, or a create-declared command whose row already
+  // exists (idempotent get) — both show canonical state as the before-slice.
+  return { change: "update", before };
 }
 
 /**

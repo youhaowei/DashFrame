@@ -220,6 +220,25 @@ describe("PreviewDiff builder", () => {
 
       expect(diff.directNodes[0]!.kind).toBe("dataTable");
     });
+
+    it("should keep update + before when repeated get-or-creates hit an existing row", async () => {
+      // Idempotent import batch: the source already exists canonically and the
+      // batch get-or-creates it twice. Neither command mints the node — the
+      // grouped node must stay an update with the canonical before-slice, on
+      // the first command (descriptor says create, row exists) AND on the
+      // repeat (the merge path must not regress it to create/null).
+      const sourceId = await seedSource({ name: "Existing" });
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+      );
+
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      expect((node.before as { name?: string }).name).toBe("Existing");
+      expect(node.intent).toHaveLength(2);
+    });
   });
 
   // --------------------------------------------------------------------------
