@@ -79,18 +79,28 @@ export interface PreviewCompute {
 export interface PreviewDirectNode {
   nodeId: UUID;
   kind: ArtifactKind;
-  /** Whether this node existed before the batch (update) or is minted by it (create). */
-  change: "create" | "update";
+  /**
+   * What the batch does to this node's canonical row:
+   * - `create`  — the node is minted by this batch (no canonical row before).
+   * - `update`  — an existing canonical row is mutated.
+   * - `noop`    — a get-or-create resolved to an existing row and wrote nothing.
+   *   The node is shown for transparency (e.g. an idempotent import touched it)
+   *   but contributes NO change: `proposedDefinition` is empty and it does not
+   *   seed the downstream blast-radius walk. The renderer renders it "unchanged".
+   */
+  change: "create" | "update" | "noop";
   /** One line per command targeting this node, in batch order. */
   intent: PreviewIntent[];
   /**
-   * The canonical (pre-batch) definition slice, or null when the node is created
-   * by this batch. Read from the untouched canonical DB.
+   * The canonical (pre-batch) definition slice. `null` only for `create` (no row
+   * existed). For `update` and `noop` it is the existing canonical row. Read from
+   * the untouched canonical DB.
    */
   before: Record<string, unknown> | null;
   /**
    * The proposed (post-batch) definition slice, assembled from the command args.
-   * The client resolves `compute` from this VALUE.
+   * The client resolves `compute` from this VALUE. Empty `{}` for a `noop` node
+   * (the get-or-create wrote nothing, so there is no proposed change).
    */
   proposedDefinition: Record<string, unknown>;
   /**

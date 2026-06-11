@@ -231,8 +231,13 @@ export async function buildPreviewDiff(
   // 2. Group the batch by the artifact node each command targets.
   const direct = await buildDirectNodes(db, batch);
 
-  // 3. Walk the implicit DAG outward from every touched node.
-  const affectedDownstream = await walkDownstream(db, direct);
+  // 3. Walk the implicit DAG outward from every node the batch actually CHANGES.
+  //    `noop` nodes (idempotent get-or-create that hit an existing row and wrote
+  //    nothing) are shown in directNodes for transparency but must not seed the
+  //    blast radius — an unchanged upstream changes nothing downstream. Excluding
+  //    them keeps a no-op import batch's affectedDownstream honestly empty.
+  const changed = direct.filter((node) => node.change !== "noop");
+  const affectedDownstream = await walkDownstream(db, changed);
 
   return {
     mode: "preview",
@@ -242,10 +247,134 @@ export async function buildPreviewDiff(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The node-merge state machine
+//
+// FOUR consecutive review findings landed on this merge logic, every one a hole
+// in an implicit, ad-hoc state space. This is the explicit enumeration so the
+// next one has nowhere to hide.
+//
+// A command's RESOLVED EFFECT on its target node is one of three — NOT the same
+// as the descriptor's declared `change`. A declared-`create` (get-or-create) is
+// only a real create when the row does not already exist; otherwise it writes
+// nothing (the handler returns the existing row and ignores args — frozen by
+// commands.test.ts "existing row wins"). The vocabulary has no node-delete yet,
+// so `delete` is not in the domain; if one is added, it joins here as a fourth
+// effect with its own column and the machine stays total.
+//
+//   CommandEffect:
+//     "create"  declared-create, row ABSENT (in batch + canonical)  → mints
+//     "update"  declared-update                                     → mutates
+//     "noop"    declared-create, row PRESENT (in batch OR canonical) → writes ∅
+//
+// Each command folds into the node's ACCUMULATED state via `foldCommand`, a
+// total function over (accumulated change × incoming effect). The accumulated
+// `change` carried on the node IS the state; `absent` is "no node in the map
+// yet". The table:
+//
+//   acc \ effect │ create               │ update               │ noop
+//   ─────────────┼──────────────────────┼──────────────────────┼─────────────────────
+//   absent       │ create  before=null  │ update  before=canon │ noop  before=canon
+//                │ propose=args         │ propose=args         │ propose=∅
+//   create       │ create  merge args   │ create  merge args   │ create  (ignore args)
+//   update       │ update  merge args † │ update  merge args   │ update  (ignore args)
+//   noop         │ update  merge args † │ update  merge args   │ noop    (ignore args)
+//
+//   † A create-effect can only reach an already-grouped node if the row was
+//     ABSENT at first contact (else this command resolves to `noop`, not
+//     `create`). So "acc=update/noop + effect=create" means the node was first
+//     seen as a canonical row, then a genuine mint arrived — impossible without
+//     applyCommands having already thrown. We model it conservatively as an
+//     update-merge (never regress a resolved canonical node back to create with
+//     a wiped before — finding #1/#2), and it is unreachable in practice.
+//
+// `proposedDefinition`: only `create`/`update` commands contribute args; `noop`
+// commands contribute nothing (finding #3/#4 — get-or-create args that provably
+// never become writes must not masquerade as a proposed change). A node whose
+// FINAL state is `noop` is excluded from the downstream walk (finding #4 —
+// see buildPreviewDiff).
+// ---------------------------------------------------------------------------
+
+type CommandEffect = "create" | "update" | "noop";
+
+/**
+ * Resolve a single command's effect on its target node, given whether the node
+ * already exists either earlier in THIS batch or in canonical DB. This is the
+ * only place declared-`change` meets reality.
+ */
+function resolveEffect(
+  declared: "create" | "update",
+  rowExistsAlready: boolean,
+): CommandEffect {
+  if (declared === "update") return "update";
+  // declared create: a real mint only when no row exists yet; otherwise the
+  // get-or-create handler returns the existing row and writes nothing.
+  return rowExistsAlready ? "noop" : "create";
+}
+
+/**
+ * Fold one command (its resolved effect + args) into the node's accumulated
+ * state. Total over (node.change × effect) per the table above. Mutates `node`
+ * in place; the intent line is appended by the caller so this stays pure over
+ * the change/before/proposed triple.
+ */
+function foldCommand(
+  node: PreviewDirectNode,
+  effect: CommandEffect,
+  args: Record<string, unknown>,
+): void {
+  if (effect === "noop") return; // writes nothing — no change, no proposed args
+  if (effect === "create" && node.change === "create") {
+    // already minting; merge args. (create→create is the only create-merge that
+    // genuinely happens, e.g. CreateDataSource then RenameNode on a fresh id.)
+    Object.assign(node.proposedDefinition, args);
+    return;
+  }
+  if (effect === "create") {
+    // create-effect onto an update/noop node — unreachable in practice (the row
+    // existed at first contact, so this would resolve to noop, not create). Stay
+    // an update: never regress a resolved canonical node to a before:null create.
+    node.change = "update";
+    Object.assign(node.proposedDefinition, args);
+    return;
+  }
+  // effect === "update": a noop node becomes a real update; a create stays a
+  // create (a create + later update is still a mint). Either way, merge args.
+  if (node.change === "noop") node.change = "update";
+  Object.assign(node.proposedDefinition, args);
+}
+
+/**
+ * Seed a node on FIRST contact from the absent state. The `absent` row of the
+ * transition table: effect picks (change, before, proposed) directly.
+ */
+function seedNode(
+  nodeId: UUID,
+  kind: ArtifactKind,
+  effect: CommandEffect,
+  before: Record<string, unknown> | null,
+  intent: PreviewIntent,
+  args: Record<string, unknown>,
+): PreviewDirectNode {
+  return {
+    nodeId,
+    kind,
+    change: effect,
+    intent: [intent],
+    // create: no canonical row. update/noop: the existing canonical row.
+    before: effect === "create" ? null : before,
+    // noop writes nothing, so no proposed change; create/update carry args.
+    proposedDefinition: effect === "noop" ? {} : { ...args },
+    // SPLIT-TIER: never filled server-side. The renderer resolves it lazily.
+    compute: undefined,
+  };
+}
+
 /**
  * Group the batch by target node. Multiple commands targeting the same node
- * merge into one direct node (their intents accumulate in batch order). The
- * before-slice is read from canonical DB; the proposed slice is the merged args.
+ * merge into one direct node (their intents accumulate in batch order). Each
+ * command resolves to an EFFECT (create/update/noop) against the node's state
+ * so far, then folds into the group via the explicit transition machine above.
  */
 async function buildDirectNodes(
   db: ArtifactDb,
@@ -278,79 +407,23 @@ async function buildDirectNodes(
 
     const existing = byKey.get(key);
     if (existing) {
-      mergeIntoGroup(existing, descriptor, intent, args);
+      // The node already exists in this batch (earlier command grouped it). A
+      // declared-create against it is therefore an idempotent get — effect noop.
+      const effect = resolveEffect(descriptor.change, true);
+      existing.intent.push(intent);
+      foldCommand(existing, effect, args);
       continue;
     }
 
-    const { change, before } = await resolveChangeAndBefore(
-      db,
-      descriptor,
-      kind,
-      nodeId,
-    );
-    // Same rule on first contact: a get-or-create that hit an existing row
-    // (declared create, resolved update) writes nothing — empty proposal.
-    const isNoOpGet = descriptor.change === "create" && change === "update";
-
+    // First contact: existence is canonical-only. Read the row once; it serves
+    // as both the effect oracle and the before-slice.
+    const before = await readBefore(db, kind, nodeId);
+    const effect = resolveEffect(descriptor.change, before !== null);
     order.push(key);
-    byKey.set(key, {
-      nodeId,
-      kind,
-      change,
-      intent: [intent],
-      before,
-      proposedDefinition: isNoOpGet ? {} : { ...args },
-      // SPLIT-TIER: never filled server-side. The renderer resolves it lazily.
-      compute: undefined,
-    });
+    byKey.set(key, seedNode(nodeId, kind, effect, before, intent, args));
   }
 
   return order.map((key) => byKey.get(key)!);
-}
-
-/**
- * Fold a later command for an already-grouped node into the group. A
- * create-declared command on a node already resolved to a canonical row
- * (before !== null) is an idempotent get-or-create: the handler returns the
- * existing row and IGNORES the args (existing row wins), or a true create
- * would have failed the batch in applyCommands. It never mints the node and
- * its args must not masquerade as a proposed change.
- */
-function mergeIntoGroup(
-  existing: PreviewDirectNode,
-  descriptor: CommandDescriptor,
-  intent: PreviewIntent,
-  args: Record<string, unknown>,
-): void {
-  existing.intent.push(intent);
-  const isNoOpGet = descriptor.change === "create" && existing.before !== null;
-  if (isNoOpGet) return;
-  if (descriptor.change === "create") existing.change = "create";
-  Object.assign(existing.proposedDefinition, args);
-}
-
-/**
- * Resolve a new direct node's change kind and before-slice from canonical
- * state. Idempotent commands (e.g. getOrCreateDataSource) are declared as
- * "create" but may hit an existing row — in that case the preview shows the
- * canonical row as an update rather than a misleading before:null create.
- */
-async function resolveChangeAndBefore(
-  db: ArtifactDb,
-  descriptor: CommandDescriptor,
-  kind: ArtifactKind,
-  nodeId: string,
-): Promise<{
-  change: "create" | "update";
-  before: Record<string, unknown> | null;
-}> {
-  const before = await readBefore(db, kind, nodeId);
-  if (descriptor.change === "create" && before === null) {
-    return { change: "create", before: null };
-  }
-  // Either a declared update, or a create-declared command whose row already
-  // exists (idempotent get) — both show canonical state as the before-slice.
-  return { change: "update", before };
 }
 
 /**

@@ -221,12 +221,12 @@ describe("PreviewDiff builder", () => {
       expect(diff.directNodes[0]!.kind).toBe("dataTable");
     });
 
-    it("should keep update + before when repeated get-or-creates hit an existing row", async () => {
+    it("should keep noop + before when repeated get-or-creates hit an existing row", async () => {
       // Idempotent import batch: the source already exists canonically and the
-      // batch get-or-creates it twice. Neither command mints the node — the
-      // grouped node must stay an update with the canonical before-slice, on
-      // the first command (descriptor says create, row exists) AND on the
-      // repeat (the merge path must not regress it to create/null).
+      // batch get-or-creates it twice. Neither command mints OR mutates the node
+      // — both writes nothing — so the grouped node is `noop`, carrying the
+      // canonical before-slice, on the first command (descriptor says create,
+      // row exists) AND on the repeat (the merge path must not regress it).
       const sourceId = await seedSource({ name: "Existing" });
       const diff = await preview(
         cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
@@ -235,12 +235,214 @@ describe("PreviewDiff builder", () => {
 
       expect(diff.directNodes).toHaveLength(1);
       const node = diff.directNodes[0]!;
-      expect(node.change).toBe("update");
+      expect(node.change).toBe("noop");
       expect((node.before as { name?: string }).name).toBe("Existing");
       expect(node.intent).toHaveLength(2);
       // The handler ignores args when the row exists (existing row wins), so
       // the stale name/type must not masquerade as a proposed change.
       expect(node.proposedDefinition).toEqual({});
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Node-merge state machine — one test per (accumulated × effect) cell.
+  //
+  // The merge logic took four consecutive review findings; this matrix pins
+  // every cell of the transition table so a regression in any one is caught.
+  // Accumulated state ∈ {absent (first contact), create, update, noop};
+  // command effect ∈ {create, update, noop}.
+  // --------------------------------------------------------------------------
+
+  describe("node-merge state machine", () => {
+    // ---- ABSENT row: first contact establishes the node ----
+
+    it("absent + create: declared-create on an absent row mints (before=null, args proposed)", async () => {
+      const sourceId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "New" }),
+      );
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("create");
+      expect(node.before).toBeNull();
+      expect(node.proposedDefinition).toMatchObject({ name: "New" });
+    });
+
+    it("absent + update: declared-update on an existing row mutates (before=canon, args proposed)", async () => {
+      const sourceId = await seedSource({ name: "Before" });
+      const diff = await preview(
+        cmd("RenameNode", { id: sourceId, name: "After" }),
+      );
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      expect((node.before as { name?: string }).name).toBe("Before");
+      expect(node.proposedDefinition).toMatchObject({ name: "After" });
+    });
+
+    it("absent + noop: get-or-create hitting an existing row writes nothing (before=canon, proposed=∅)", async () => {
+      const sourceId = await seedSource({ name: "Existing" });
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+      );
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("noop");
+      expect((node.before as { name?: string }).name).toBe("Existing");
+      expect(node.proposedDefinition).toEqual({});
+    });
+
+    // ---- CREATE accumulated: node minted earlier in the batch ----
+
+    it("create + create: a get-or-create after an in-batch create stays create, no before regression", async () => {
+      // CreateDataSource mints the row in-batch; a following GetOrCreate on the
+      // same id resolves to noop (row exists in batch) and must not wipe state.
+      const sourceId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Fresh" }),
+        cmd("GetOrCreateDataSource", {
+          id: sourceId,
+          type: "csv",
+          name: "Ignored",
+        }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("create");
+      expect(node.before).toBeNull();
+      // The idempotent get contributes nothing; the create's args survive.
+      expect(node.proposedDefinition).toMatchObject({ name: "Fresh" });
+    });
+
+    it("create + update: a create then an update on the same fresh node stays create, args merge", async () => {
+      const sourceId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Fresh" }),
+        cmd("RenameNode", { id: sourceId, name: "Renamed" }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("create");
+      expect(node.before).toBeNull();
+      expect(node.proposedDefinition).toMatchObject({ name: "Renamed" });
+    });
+
+    // ---- UPDATE accumulated: existing canonical row, mutated earlier ----
+
+    it("update + update: two updates on one existing node merge args, stay update", async () => {
+      const sourceId = await seedSource({ name: "Before" });
+      const diff = await preview(
+        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "k" }),
+        cmd("RenameNode", { id: sourceId, name: "After" }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      expect((node.before as { name?: string }).name).toBe("Before");
+      expect(node.proposedDefinition).toMatchObject({
+        apiKey: "k",
+        name: "After",
+      });
+    });
+
+    it("update + noop: an update then an idempotent get on an existing node stays update", async () => {
+      const sourceId = await seedSource({ name: "Before" });
+      const diff = await preview(
+        cmd("RenameNode", { id: sourceId, name: "After" }),
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      expect((node.before as { name?: string }).name).toBe("Before");
+      // The genuine update's args survive; the get contributes nothing.
+      expect(node.proposedDefinition).toMatchObject({ name: "After" });
+    });
+
+    // ---- NOOP accumulated: existing row, only get-or-creates so far ----
+
+    it("noop + update: a real update after an idempotent get upgrades the node to update", async () => {
+      const sourceId = await seedSource({ name: "Before" });
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+        cmd("RenameNode", { id: sourceId, name: "After" }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      expect((node.before as { name?: string }).name).toBe("Before");
+      // Only the genuine update contributes; the get's args stay out.
+      expect(node.proposedDefinition).toEqual({ id: sourceId, name: "After" });
+    });
+
+    it("noop + noop: repeated get-or-creates on an existing row stay noop with empty proposal", async () => {
+      const sourceId = await seedSource({ name: "Existing" });
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "A" }),
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "B" }),
+      );
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("noop");
+      expect(node.proposedDefinition).toEqual({});
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // No-op batches contribute zero blast radius (finding #4 — PRRT_kwDOQKlCpM6I4_6X)
+  // --------------------------------------------------------------------------
+
+  describe("no-op nodes are excluded from the downstream walk", () => {
+    it("an idempotent GetOrCreateDataSource for an existing source flags nothing downstream", async () => {
+      // The source exists with a table + insight under it. A pure get-or-create
+      // for that existing source writes nothing — so NOTHING under it is stale
+      // or recompute. The blast radius for this no-op must be empty.
+      const sourceId = await seedSource({ name: "Existing" });
+      await seedTable(sourceId);
+      const tableId = await seedTable(sourceId);
+      await seedInsight({ baseTableId: tableId });
+
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+      );
+
+      // The source is still shown (transparency) as a no-op...
+      expect(diff.directNodes).toHaveLength(1);
+      expect(diff.directNodes[0]!.change).toBe("noop");
+      // ...but contributes zero downstream flags.
+      const fromSource = diff.affectedDownstream.filter(
+        (n) => n.via === sourceId,
+      );
+      expect(fromSource).toEqual([]);
+      expect(diff.affectedDownstream).toEqual([]);
+    });
+
+    it("a no-op source alongside a real change still flags the real change's downstream", async () => {
+      // Mixed batch: one source is an idempotent no-op; a SECOND, different
+      // source is genuinely renamed. Only the renamed source's subtree fans out.
+      const noopSourceId = await seedSource({ name: "NoOp" });
+      await seedTable(noopSourceId); // would be falsely flagged if noop walked
+
+      const changedSourceId = await seedSource({ name: "Changed" });
+      const changedTableId = await seedTable(changedSourceId);
+
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", {
+          id: noopSourceId,
+          type: "csv",
+          name: "X",
+        }),
+        cmd("RenameNode", { id: changedSourceId, name: "Renamed" }),
+      );
+
+      const viaNoOp = diff.affectedDownstream.filter(
+        (n) => n.via === noopSourceId,
+      );
+      expect(viaNoOp).toEqual([]);
+      const changedTable = diff.affectedDownstream.find(
+        (n) => n.nodeId === changedTableId,
+      );
+      expect(changedTable).toMatchObject({
+        edge: "dataSource->dataTable",
+        via: changedSourceId,
+      });
     });
   });
 
