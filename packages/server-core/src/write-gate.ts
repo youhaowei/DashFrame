@@ -1,11 +1,35 @@
 /**
  * Artifact-DB write gate — profiles only, by construction (YW-131).
  *
- * Wraps the raw Drizzle ArtifactDb in a Proxy so that *every* insert or
- * update against the `data_frames` table has `analysis.columns[*].sampleValues`
- * stripped to `[]` before the bytes reach PGLite, regardless of caller.
+ * Two-layer enforcement design
+ * ─────────────────────────────
+ * Layer 1 — this Proxy gate (fast, legible errors):
+ *   Wraps the raw Drizzle ArtifactDb so that *every* ORM insert or update
+ *   against `data_frames` has `analysis.columns[*].sampleValues` stripped to
+ *   `[]` before the bytes reach PGLite.  Intercepts builder-level calls, so
+ *   the error is thrown at the call site with a clear message naming the gate.
  *
- * Why a Proxy at this layer:
+ * Layer 2 — DB-floor trigger (`strip_data_frames_sample_values`):
+ *   A PostgreSQL BEFORE INSERT OR UPDATE trigger installed on `data_frames` by
+ *   `installSampleValuesTrigger` (sync-schema.ts) on every `openArtifactDb`
+ *   call.  The trigger iterates `NEW.analysis->'columns'` and sets every
+ *   `sampleValues` to `'[]'::jsonb` before the row lands.  Because this fires
+ *   at the database level it catches paths the Proxy cannot see:
+ *   - Drizzle `.prepare()` / `.execute()` — the placeholder is bound at
+ *     execute time, after the Proxy builder-intercept has already run.
+ *   - `db.execute(sql`…`)` — raw SQL entirely bypasses the Proxy.
+ *   - Any future code path, ORM version, or third-party integration.
+ *   The trigger is the invariant of record.  "No current caller" reasoning is
+ *   invalid for this surface by policy — the gate exists to constrain future
+ *   callers that haven't been written yet.
+ *
+ * Why both layers:
+ *   The Proxy provides early, legible errors (fail-closed on sql`` expressions,
+ *   clear gate name in the message).  The trigger provides unconditional
+ *   enforcement regardless of call path.  Together they make the invariant
+ *   "artifact DB contains zero raw sampleValues" physically unbreakable.
+ *
+ * Why a Proxy at this layer (Layer 1 detail):
  * - YW-118 stripped sampleValues in specific mutation handlers; a future
  *   handler could accidentally skip the call.  The gate below makes that
  *   omission impossible — the strip fires on the Drizzle instance itself.
@@ -16,13 +40,9 @@
  * JSONB column).  All other table writes pass through unchanged.
  *
  * The gate is applied once, inside `openArtifactDb`, before the db instance
- * is handed to any caller.  From that point on the invariant "artifact DB
- * contains zero raw sampleValues" is physically unbreakable for the
- * in-process session.
+ * is handed to any caller.
  *
- * Coverage — the gate is fail-closed by design.  Every Drizzle ORM write path
- * to `data_frames` is gated, including paths with no caller today, because the
- * gate exists to constrain FUTURE callers:
+ * Proxy gate coverage — every Drizzle ORM write path to `data_frames`:
  * - `.insert(dataFrames).values(...)`              → sampleValues stripped
  * - `.insert(...).onConflictDoUpdate({ set })`     → set payload stripped
  * - `.update(dataFrames).set(...)`                 → set payload stripped
@@ -36,10 +56,10 @@
  *   THROWS rather than letting it through silently.  See
  *   `stripDataFrameAnalysis` for the rationale.
  *
- * Raw SQL (`db.execute(sql\`…\`)`) is NOT intercepted — it is not a typed ORM
- * write path and not a public API.  Existing raw-SQL paths are the v2→v3
- * migration in `project.ts` (which clears sampleValues itself) and `syncSchema`
- * (DDL only).  Neither writes raw analysis values.
+ * DB trigger coverage (catches what the Proxy misses):
+ * - `.prepare()` / `.execute({ analysis })` — value bound after builder phase.
+ * - `db.execute(sql\`INSERT INTO data_frames … VALUES (…)\`)` — raw SQL.
+ * - Any future call path.
  */
 
 import { getTableName, is, SQL } from "drizzle-orm";

@@ -447,6 +447,74 @@ describe("openArtifactDb", () => {
         "gate should not interfere",
       );
     });
+
+    // ── DB-floor trigger tests (bypass class #4 — prepared statements) ──────
+    //
+    // Drizzle's `.prepare()` / `.execute()` bind values at execute time, after
+    // the Proxy builder-intercept has already run.  The Proxy cannot see the
+    // placeholder value at builder time, so the DB trigger is the enforcing
+    // layer for this path.  These tests confirm the trigger catches it.
+
+    test("should strip sampleValues written via a prepared-statement update (DB-floor trigger)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+
+      // Insert a clean seed row via the normal ORM path.
+      await db.insert(dataFrames).values({
+        id,
+        storage: { type: "indexeddb", key: "k" },
+        fieldIds: [],
+        name: "Prepared Stmt Frame",
+      });
+
+      // Build a prepared statement whose analysis value is a sql.placeholder —
+      // the Proxy gate sees the placeholder (not a plain object) at builder
+      // time and cannot strip it.  The DB trigger must catch it instead.
+      const prepared = db
+        .update(dataFrames)
+        .set({ analysis: sql.placeholder("analysis") })
+        .where(eq(dataFrames.id, sql.placeholder("id")))
+        .prepare("update_analysis_prepared");
+
+      const rawAnalysis = makeAnalysis(["prepared-pii@example.com"]);
+      await prepared.execute({ id, analysis: rawAnalysis });
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // The DB-floor trigger must have stripped sampleValues before the row landed.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+      // Profile stats survive the strip.
+      expect(analysis.columns[0]!.cardinality).toBe(1);
+      expect(analysis.columns[0]!.semantic).toBe("email");
+    });
+
+    test("should strip sampleValues written via raw SQL INSERT (DB-floor trigger)", async () => {
+      const db = await openTestArtifactDb();
+      const id = crypto.randomUUID();
+      const rawAnalysis = makeAnalysis(["raw-sql-pii@example.com"]);
+
+      // db.execute() bypasses the Proxy entirely — the trigger is the only guard.
+      await db.execute(
+        sql`INSERT INTO "data_frames" (id, storage, field_ids, name, analysis)
+            VALUES (
+              ${id}::uuid,
+              ${"{}"}::jsonb,
+              ${"[]"}::jsonb,
+              ${"Raw SQL Frame"},
+              ${JSON.stringify(rawAnalysis)}::jsonb
+            )`,
+      );
+
+      const rows = await db.select().from(dataFrames);
+      const stored = rows.find((r) => r.id === id);
+      expect(stored).toBeDefined();
+      const analysis = stored!.analysis as ReturnType<typeof makeAnalysis>;
+      // Raw SQL INSERT bypasses the Proxy; the DB trigger must strip it.
+      expect(analysis.columns[0]!.sampleValues).toEqual([]);
+      expect(analysis.columns[0]!.cardinality).toBe(1);
+    });
   });
 
   // Regression: PostgreSQL has no native ON UPDATE trigger, so `defaultNow()`
