@@ -168,8 +168,17 @@ export interface PreviewDownstreamNode {
   kind: ArtifactKind;
   /** The edge by which this node was reached from the directly-touched node. */
   edge: DownstreamEdge;
-  /** The direct node whose change propagated to this one. */
-  via: UUID;
+  /**
+   * The direct node whose change propagated to this one — identified by both
+   * kind AND id. A batch can legitimately create two artifacts that share a
+   * client-minted UUID under different kinds (e.g. CreateDataSource(X) +
+   * CreateDataTable(X)); the preview builder keys direct nodes as
+   * `${kind}:${id}` for exactly this reason. Carrying only `id` here would
+   * leave a renderer unable to resolve which of those two direct nodes owns
+   * the blast radius. The structural identity mirrors the key the builder
+   * already uses internally.
+   */
+  via: { kind: ArtifactKind; id: UUID };
   flag: DownstreamFlag;
 }
 

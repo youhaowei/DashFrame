@@ -629,7 +629,7 @@ function flagStrength(flag: DownstreamFlag): number {
 function tryUpgrade(
   existing: PreviewDownstreamNode,
   hit: { edge: DownstreamEdge; flag: DownstreamFlag },
-  via: UUID,
+  via: { kind: ArtifactKind; id: UUID },
 ): boolean {
   if (flagStrength(hit.flag) <= flagStrength(existing.flag)) return false;
   existing.flag = hit.flag;
@@ -646,7 +646,7 @@ function tryUpgrade(
 function seedWalkState(
   direct: PreviewDirectNode[],
   visited: Map<string, PreviewDownstreamNode | null>,
-  viaOf: Map<string, UUID>,
+  viaOf: Map<string, { kind: ArtifactKind; id: UUID }>,
 ): Array<{ id: string; kind: ArtifactKind }> {
   for (const node of direct) {
     const key = `${node.kind}:${node.nodeId}`;
@@ -655,7 +655,7 @@ function seedWalkState(
     // Typing the map `| null` makes the `existing !== null` guard below
     // type-visible — a future edit can't treat the sentinel as a node.
     visited.set(key, null);
-    viaOf.set(key, node.nodeId);
+    viaOf.set(key, { kind: node.kind, id: node.nodeId });
   }
   return direct.map((d) => ({ id: d.nodeId, kind: d.kind }));
 }
@@ -683,7 +683,7 @@ async function walkDownstream(
   // node was queued is visible to its descendants — fixing the stale-provenance
   // bug where the already-queued frontier entry carried an old via after an
   // upgrade mutated the emitted object.
-  const viaOf = new Map<string, UUID>();
+  const viaOf = new Map<string, { kind: ArtifactKind; id: UUID }>();
   const frontier = seedWalkState(direct, visited, viaOf);
 
   while (frontier.length > 0) {
@@ -716,6 +716,8 @@ async function walkDownstream(
         flag: hit.flag,
       };
       visited.set(key, emitted);
+      // Record the via for this downstream node so its own descendants can read
+      // it from viaOf at dequeue time (not a stale frontier snapshot).
       viaOf.set(key, currentVia);
       out.push(emitted);
       // Queue the identifier only — via is resolved from viaOf at dequeue time.

@@ -414,6 +414,46 @@ describe("PreviewDiff builder", () => {
         table: "t.csv",
       });
     });
+
+    it("via.kind disambiguates the direct root when two artifacts share a UUID and a downstream node hangs off exactly one of them", async () => {
+      // This is the Codex P2 finding (PRRT_kwDOQKlCpM6I8-JO on PR #54):
+      // a batch mints CreateDataSource(X) + CreateDataTable(X). A downstream
+      // insight references the dataTable (not the dataSource). With via: UUID
+      // the renderer could not tell which direct node owns the blast radius;
+      // via: { kind, id } makes it unambiguous.
+      const sharedId = id();
+      const insightId = id();
+      // Seed a canonical insight that references sharedId as its baseTableId so
+      // the DAG walk finds it as downstream of the dataTable direct node.
+      await db.insert(insights).values({
+        id: insightId,
+        name: "InsightUnderTable",
+        definition: { baseTableId: sharedId },
+        createdBy: PROV,
+      });
+
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sharedId, type: "csv", name: "Src" }),
+        cmd("CreateDataTable", {
+          id: sharedId,
+          dataSourceId: sharedId,
+          name: "Tbl",
+          table: "t.csv",
+        }),
+      );
+
+      // The insight must be in affectedDownstream and attributed to the
+      // dataTable direct node — not the dataSource.
+      const insightHit = diff.affectedDownstream.find(
+        (n) => n.nodeId === insightId,
+      );
+      expect(insightHit).toBeDefined();
+      expect(insightHit!.edge).toBe("dataTable->insight");
+      // via.kind must be "dataTable" so the renderer resolves the correct root.
+      expect(insightHit!.via).toEqual({ kind: "dataTable", id: sharedId });
+      // Sanity: must NOT point at the dataSource which also carries sharedId.
+      expect(insightHit!.via.kind).not.toBe("dataSource");
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -439,7 +479,7 @@ describe("PreviewDiff builder", () => {
       expect(diff.directNodes[0]!.change).toBe("noop");
       // ...but contributes zero downstream flags.
       const fromSource = diff.affectedDownstream.filter(
-        (n) => n.via === sourceId,
+        (n) => n.via.id === sourceId,
       );
       expect(fromSource).toEqual([]);
       expect(diff.affectedDownstream).toEqual([]);
@@ -464,7 +504,7 @@ describe("PreviewDiff builder", () => {
       );
 
       const viaNoOp = diff.affectedDownstream.filter(
-        (n) => n.via === noopSourceId,
+        (n) => n.via.id === noopSourceId,
       );
       expect(viaNoOp).toEqual([]);
       const changedTable = diff.affectedDownstream.find(
@@ -472,7 +512,7 @@ describe("PreviewDiff builder", () => {
       );
       expect(changedTable).toMatchObject({
         edge: "dataSource->dataTable",
-        via: changedSourceId,
+        via: { kind: "dataSource", id: changedSourceId },
       });
     });
   });
@@ -495,7 +535,7 @@ describe("PreviewDiff builder", () => {
       expect(table).toMatchObject({
         kind: "dataTable",
         edge: "dataSource->dataTable",
-        via: sourceId,
+        via: { kind: "dataSource", id: sourceId },
       });
     });
 
@@ -510,7 +550,7 @@ describe("PreviewDiff builder", () => {
       expect(ins).toMatchObject({
         kind: "insight",
         edge: "dataTable->insight",
-        via: tableId,
+        via: { kind: "dataTable", id: tableId },
       });
     });
 
@@ -538,7 +578,7 @@ describe("PreviewDiff builder", () => {
       const ins = diff.affectedDownstream.find((n) => n.nodeId === insightId);
       expect(ins).toMatchObject({
         edge: "dataTable->insight",
-        via: joinTableId,
+        via: { kind: "dataTable", id: joinTableId },
       });
     });
 
@@ -650,7 +690,10 @@ describe("PreviewDiff builder", () => {
       const child = diff.affectedDownstream.find(
         (n) => n.nodeId === childInsightId,
       );
-      expect(child).toMatchObject({ edge: "parentArtifact", via: sourceId });
+      expect(child).toMatchObject({
+        edge: "parentArtifact",
+        via: { kind: "dataSource", id: sourceId },
+      });
     });
 
     it("descendants of an upgraded node walk with the upgraded via/edge, not the stale one", async () => {
@@ -697,7 +740,7 @@ describe("PreviewDiff builder", () => {
       expect(insightHit).toBeDefined();
       expect(insightHit!.flag).toBe("recompute");
       expect(insightHit!.edge).toBe("dataTable->insight");
-      expect(insightHit!.via).toBe(tableId);
+      expect(insightHit!.via).toEqual({ kind: "dataTable", id: tableId });
 
       // The dataFrame is downstream of the insight. Its via must propagate the
       // UPGRADED insight provenance (the tableId that delivered the strongest
@@ -709,7 +752,7 @@ describe("PreviewDiff builder", () => {
         (n) => n.nodeId === frameId,
       );
       expect(frameHit).toBeDefined();
-      expect(frameHit!.via).toBe(tableId);
+      expect(frameHit!.via).toEqual({ kind: "dataTable", id: tableId });
     });
 
     it("should flag each downstream node once even when reached by two paths", async () => {
