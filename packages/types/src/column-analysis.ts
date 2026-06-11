@@ -208,6 +208,32 @@ export type DataFrameAnalysis = {
 };
 
 // ============================================================================
+// Privacy helpers
+// ============================================================================
+
+/**
+ * Strip raw sample values from a DataFrameAnalysis before persisting.
+ *
+ * `sampleValues` are raw cell values that may contain PII. The privacy
+ * floor is: the artifact DB (PGLite) holds zero raw cell values. This
+ * helper enforces the floor at the write boundary — call it on any
+ * DataFrameAnalysis before writing it to the DB.
+ *
+ * The returned object is safe to persist. In-memory callers (e.g. the
+ * suggest-mode PII classifier in YW-129) continue to use the original
+ * object — do not call this helper before passing analysis to runtime-only
+ * consumers.
+ */
+export function stripSampleValues(
+  analysis: DataFrameAnalysis,
+): DataFrameAnalysis {
+  return {
+    ...analysis,
+    columns: analysis.columns.map((col) => ({ ...col, sampleValues: [] })),
+  };
+}
+
+// ============================================================================
 // Legacy Compatibility - ColumnCategory
 // ============================================================================
 

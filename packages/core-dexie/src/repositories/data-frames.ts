@@ -5,6 +5,7 @@ import {
   deleteArrowData,
 } from "@dashframe/engine-browser";
 import type { DataFrame, DataFrameAnalysis, UUID } from "@dashframe/types";
+import { stripSampleValues } from "@dashframe/types";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useMemo } from "react";
 import { db, type DataFrameEntity } from "../db";
@@ -221,7 +222,10 @@ export function useDataFrameMutations(): DataFrameMutations {
         id: UUID,
         analysis: DataFrameAnalysis,
       ): Promise<void> => {
-        await db.dataFrames.update(id, { analysis });
+        // Strip raw sample values at the write boundary (YW-118).
+        await db.dataFrames.update(id, {
+          analysis: stripSampleValues(analysis),
+        });
       },
     }),
     [],
@@ -280,10 +284,11 @@ export async function getAllDataFrames(): Promise<DataFrameEntry[]> {
 /**
  * Update the cached analysis for a DataFrame.
  * Called after computing column analysis at upload/sync time.
+ * Strips raw sample values before persisting (YW-118 privacy floor).
  */
 export async function updateDataFrameAnalysis(
   id: UUID,
   analysis: DataFrameAnalysis,
 ): Promise<void> {
-  await db.dataFrames.update(id, { analysis });
+  await db.dataFrames.update(id, { analysis: stripSampleValues(analysis) });
 }

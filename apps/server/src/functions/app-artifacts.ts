@@ -19,6 +19,7 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
+import { stripSampleValues } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
@@ -587,6 +588,13 @@ const putDataFrameEntry = mutation({
   args: { entry: jsonb },
   handler: async (ctx, { entry }): Promise<{ id: string }> => {
     const value = entry as DataFrameEntry;
+    // Strip raw sample values before persisting — privacy floor: the artifact
+    // DB holds zero raw cell values (YW-118). In-memory callers that need
+    // sampleValues (e.g. YW-129 classifier) operate on the runtime object
+    // before it reaches this write boundary.
+    const safeAnalysis = value.analysis
+      ? stripSampleValues(value.analysis)
+      : null;
     const row = {
       id: value.id,
       storage: value.storage,
@@ -597,7 +605,7 @@ const putDataFrameEntry = mutation({
       insightId: value.insightId ?? null,
       rowCount: value.rowCount ?? null,
       columnCount: value.columnCount ?? null,
-      analysis: value.analysis ?? null,
+      analysis: safeAnalysis,
     };
     const existing = (await ctx.db
       .from(dataFrames)
@@ -636,7 +644,10 @@ const updateDataFrameEntry = mutation({
         ...(patch.columnCount !== undefined
           ? { columnCount: patch.columnCount }
           : {}),
-        ...(patch.analysis !== undefined ? { analysis: patch.analysis } : {}),
+        // Strip raw sample values at the write boundary (YW-118).
+        ...(patch.analysis !== undefined
+          ? { analysis: stripSampleValues(patch.analysis) }
+          : {}),
       });
     return { ok: true };
   },

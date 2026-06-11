@@ -149,4 +149,5 @@ export {
   CARDINALITY_THRESHOLDS,
   getLegacyCategory,
   looksLikeIdentifier,
+  stripSampleValues,
 } from "./column-analysis";

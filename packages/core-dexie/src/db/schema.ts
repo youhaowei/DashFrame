@@ -10,6 +10,7 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
+import { stripSampleValues } from "@dashframe/types";
 import Dexie, { type EntityTable } from "dexie";
 
 // ============================================================================
@@ -192,6 +193,31 @@ export class DashFrameDB extends Dexie {
       dataFrames: "id, insightId, createdAt",
       settings: "key", // Key-value store with key as primary key
     });
+
+    // Version 3 (YW-118): strip raw sampleValues from persisted analysis.
+    // No schema change — this is a data-only migration that rewrites the
+    // `analysis` field of every dataFrames row to remove sampleValues arrays,
+    // enforcing the privacy floor: the artifact DB holds zero raw cell values.
+    this.version(3)
+      .stores({
+        dataSources: "id, type, createdAt",
+        dataTables: "id, dataSourceId, createdAt",
+        insights: "id, baseTableId, createdAt",
+        visualizations: "id, insightId, createdAt",
+        dashboards: "id, createdAt",
+        dataFrames: "id, insightId, createdAt",
+        settings: "key",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("dataFrames")
+          .toCollection()
+          .modify((record: DataFrameEntity) => {
+            if (record.analysis) {
+              record.analysis = stripSampleValues(record.analysis);
+            }
+          });
+      });
   }
 }
 
