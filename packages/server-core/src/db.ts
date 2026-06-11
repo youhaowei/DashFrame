@@ -22,7 +22,8 @@ export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 // fail on a missing column. Pre-release policy is wipe-and-recreate, not a
 // migration ladder.
 // v2: added dashboards.description; added data_tables, data_frames.
-export const ARTIFACT_DB_SCHEMA_VERSION = 2;
+// v3: strip raw sampleValues from data_frames.analysis (privacy floor).
+export const ARTIFACT_DB_SCHEMA_VERSION = 3;
 
 export interface OpenArtifactDbOptions {
   /** Filesystem path to the database file, e.g. "~/.DashFrame/default-project/artifacts.db". */
