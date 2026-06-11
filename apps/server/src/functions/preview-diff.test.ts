@@ -833,17 +833,20 @@ describe("PreviewDiff builder", () => {
   });
 
   // --------------------------------------------------------------------------
-  // Fix 1 regression: RenameNode kind-resolution precedence
+  // RenameNode kind resolution (terminal fix — read the handler, #64)
   //
-  // Scenario: id X exists canonically as a dataTable. The batch contains
-  // CreateDataSource({id: X}) followed by RenameNode({id: X}). Under the old
-  // code, idToKind registered X as "dataSource" (from the CreateDataSource),
-  // and RenameNode short-circuited to "dataSource" without consulting canonical.
-  // Fix inverts precedence: resolveKindCanonical probes canonical first; idToKind
-  // is only the last-resort fallback for genuinely-in-batch-only ids.
+  // These scenarios all turned on which artifact a polymorphic RenameNode
+  // resolves to. Every prior round tried to RE-DERIVE that from canonical and/or
+  // in-batch lookups and diverged from the real handler. The terminal fix has the
+  // handler REPORT its resolution (`result.renamed`); the preview reads it. These
+  // tests keep passing — now by construction — and guard the read.
+  //
+  //   Scenario: id X exists canonically as a dataTable. The batch contains
+  //   CreateDataSource({id: X}) followed by RenameNode({id: X}). The handler
+  //   probes dataTables first → renames the dataTable; the preview reads that.
   // --------------------------------------------------------------------------
 
-  describe("RenameNode canonical-precedence regression (Fix 1)", () => {
+  describe("RenameNode kind resolution reads the handler (#64)", () => {
     it("attaches rename to the canonical dataTable kind even when an earlier batch command registered the same id as dataSource", async () => {
       // X exists in canonical as a dataTable (seeded before the batch).
       const sourceId = await seedSource();
@@ -904,7 +907,8 @@ describe("PreviewDiff builder", () => {
         cmd("RenameNode", { id: freshId, name: "Renamed" }),
       );
 
-      // freshId is not in canonical; idToKind fallback must kick in → dataSource.
+      // freshId is in-batch-only; the handler renames the dataSource it minted
+      // and reports kind "dataSource" — the preview reads that.
       const node = diff.directNodes.find((n) => n.nodeId === freshId);
       expect(node).toBeDefined();
       expect(node!.kind).toBe("dataSource");
@@ -1108,6 +1112,63 @@ describe("PreviewDiff builder", () => {
       expect(renameNode!.proposedDefinition).toMatchObject({
         name: "RenamedCollider",
       });
+    });
+
+    it("preview reads handler resolution for a mixed canonical-source + in-batch-table collision (#64)", async () => {
+      // The terminal case every mirroring round lost (public issue #64): id X
+      // exists CANONICALLY as a dataSource; the batch creates a dataTable under
+      // the same X, then renames X. The renameNode handler probes the LIVE tx —
+      // dataTables (the in-batch one) BEFORE dataSources (the canonical one) —
+      // so publish renames the dataTable. A preview that re-derived from separate
+      // canonical/in-batch lookups stopped at the canonical dataSource and
+      // diverged. Reading the handler's reported resolution makes preview agree
+      // by construction; this test guards the plumbing.
+      const collidingId = await seedSource({ name: "CanonicalSource" });
+
+      const batch = [
+        cmd("CreateDataTable", {
+          id: collidingId,
+          dataSourceId: collidingId,
+          name: "InBatchTable",
+          table: "t.csv",
+        }),
+        cmd("RenameNode", { id: collidingId, name: "RenamedTarget" }),
+      ] as ReturnType<typeof cmd>[];
+
+      // 1. Preview — the rename must attach to the dataTable kind (handler order),
+      //    NOT the canonical dataSource.
+      const diff = await buildPreviewDiff(app, db, batch);
+      const renameTable = diff.directNodes.find(
+        (n) => n.nodeId === collidingId && n.kind === "dataTable",
+      );
+      expect(renameTable).toBeDefined();
+      expect(renameTable!.intent.some((i) => i.command === "RenameNode")).toBe(
+        true,
+      );
+      expect(renameTable!.proposedDefinition).toMatchObject({
+        name: "RenamedTarget",
+      });
+      // The canonical dataSource node must NOT carry the rename intent.
+      const sourceNode = diff.directNodes.find(
+        (n) => n.nodeId === collidingId && n.kind === "dataSource",
+      );
+      if (sourceNode) {
+        expect(sourceNode.intent.some((i) => i.command === "RenameNode")).toBe(
+          false,
+        );
+      }
+
+      // 2. Commit the same batch — confirm the handler renamed the in-batch
+      //    dataTable and left the canonical dataSource untouched.
+      await applyCommands(app, batch, { mode: "commit" });
+      const tables = await db.select().from(dataTables);
+      const sources = await db.select().from(dataSources);
+      expect(tables.find((r) => r.id === collidingId)?.name).toBe(
+        "RenamedTarget",
+      );
+      expect(sources.find((r) => r.id === collidingId)?.name).toBe(
+        "CanonicalSource",
+      );
     });
   });
 

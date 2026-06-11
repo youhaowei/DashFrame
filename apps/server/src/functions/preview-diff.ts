@@ -54,9 +54,10 @@ import type {
   PreviewDirectNode,
   PreviewDownstreamNode,
   PreviewIntent,
+  RenamedTarget,
   UUID,
 } from "@dashframe/types";
-import type { Command } from "@wystack/server";
+import type { Command, CommandResult } from "@wystack/server";
 import { applyCommands, type WyStackApp } from "@wystack/server";
 
 import { commandFunctions } from "./commands";
@@ -171,7 +172,11 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     summary: (a) => `Remove metric ${String(a.metricId)}`,
   },
   renameNode: {
-    kind: "dataTable", // resolved at build time — rename is polymorphic (see resolveKindCanonical)
+    // Polymorphic — the real kind comes from the handler's reported `renamed`
+    // target (read in buildDirectNodes), NOT from this declared value. This
+    // placeholder is only the fallback when the handler result is somehow
+    // unreadable (it never is for a command that didn't throw).
+    kind: "dataTable",
     targetId: byId,
     change: "update",
     summary: (a) => `Rename to "${String(a.name)}"`,
@@ -224,12 +229,16 @@ export async function buildPreviewDiff(
   db: ArtifactDb,
   batch: Command[],
 ): Promise<PreviewDiff> {
-  // 1. Execute-then-rollback. We don't read the preview's row-level output here
-  //    (the proposed slice comes from args); we DO echo its tablesWritten.
+  // 1. Execute-then-rollback. The proposed slice still comes from args, but for
+  //    polymorphic RenameNode we READ the handler's reported resolution out of
+  //    `result.results` — the preview must not re-derive which artifact a rename
+  //    hit (public issue #64). We also echo tablesWritten.
   const result = await applyCommands(app, batch, { mode: "preview" });
 
-  // 2. Group the batch by the artifact node each command targets.
-  const direct = await buildDirectNodes(db, batch);
+  // 2. Group the batch by the artifact node each command targets. `result.results`
+  //    is positional with `batch` (results[i] ↔ batch[i]); the builder reads it
+  //    to learn what each RenameNode actually renamed.
+  const direct = await buildDirectNodes(db, batch, result.results);
 
   // 3. Walk the implicit DAG outward from every node the batch actually CHANGES.
   //    `noop` nodes (idempotent get-or-create that hit an existing row and wrote
@@ -371,23 +380,26 @@ function seedNode(
 }
 
 /**
- * Probe in-batch kind registrations in the same order the renameNode handler
- * probes live tables (dataTables → dataSources → insights). Used as the
- * fallback for RenameNode when resolveKindCanonical returns null (id minted
- * in this batch, invisible post-rollback). Must match renameNode probe order.
+ * Read the kind a polymorphic `RenameNode` ACTUALLY resolved to from the
+ * handler's reported result — never re-derived. `applyCommands` echoes each
+ * handler's return value onto `results[i].value` (positional with the batch),
+ * so the rename's `value.renamed.kind` is exactly the table the handler's SET
+ * ran against. This is the whole fix for public issue #64: the handler probes
+ * the LIVE transaction (canonical rows UNIONed with anything earlier commands
+ * minted) in one kind order; the preview reads that decision instead of
+ * re-deriving it from separate canonical/in-batch lookups that can never
+ * reproduce a single merged-tx probe.
+ *
+ * Falls back to the descriptor kind only if the result is structurally absent
+ * — which never happens for a rename that didn't throw (a throw would have
+ * propagated out of `applyCommands` and never reached here).
  */
-function resolveKindInBatch(
-  inBatchByKind: {
-    dataTable: Set<string>;
-    dataSource: Set<string>;
-    insight: Set<string>;
-  },
-  nodeId: string,
-): ArtifactKind | undefined {
-  if (inBatchByKind.dataTable.has(nodeId)) return "dataTable";
-  if (inBatchByKind.dataSource.has(nodeId)) return "dataSource";
-  if (inBatchByKind.insight.has(nodeId)) return "insight";
-  return undefined;
+function readRenamedKind(
+  result: CommandResult | undefined,
+  fallback: ArtifactKind,
+): ArtifactKind {
+  const value = result?.value as { renamed?: RenamedTarget } | undefined;
+  return value?.renamed?.kind ?? fallback;
 }
 
 /**
@@ -395,69 +407,37 @@ function resolveKindInBatch(
  * merge into one direct node (their intents accumulate in batch order). Each
  * command resolves to an EFFECT (create/update/noop) against the node's state
  * so far, then folds into the group via the explicit transition machine above.
+ *
+ * `results` is the handler-result array from `applyCommands` (positional with
+ * `batch`: `results[i]` ↔ `batch[i]`). For polymorphic `RenameNode` the target
+ * kind is READ from `results[i].value.renamed.kind` — the handler's own
+ * resolution — rather than re-derived. Every other command's kind is FIXED by
+ * its descriptor: two kinds legitimately sharing one client-minted id (PKs are
+ * per table) land in two distinct `${kind}:${id}` nodes, never collapsing into
+ * whichever came first.
  */
 async function buildDirectNodes(
   db: ArtifactDb,
   batch: Command[],
+  results: CommandResult[],
 ): Promise<PreviewDirectNode[]> {
   // node key = `${kind}:${id}` so two kinds sharing an id can't collide.
   const byKey = new Map<string, PreviewDirectNode>();
   const order: string[] = [];
-  // Ids minted in-batch by a fixed-kind command, tracked PER KIND so the
-  // RenameNode fallback can probe them in the same order the renameNode handler
-  // does (dataTables → dataSources → insight) rather than yielding the last
-  // writer. Canonical tables are the authority; these sets are the last resort
-  // for genuinely-created-in-batch ids that are invisible post-rollback.
-  //
-  // Precedence (RenameNode only):
-  //   1. resolveKindCanonical — probes canonical tables in the same order the
-  //      renameNode handler does. First hit wins.
-  //   2. inBatchByKind — only when canonical finds nothing (id minted in this
-  //      batch, invisible post-rollback). Must mirror renameNode probe order:
-  //      dataTables first, then dataSources, then insights. See comment on
-  //      resolveKindCanonical.
-  //
-  // Every other command's kind is FIXED by its descriptor: two different kinds
-  // legitimately sharing one client-minted id (PKs are per table) must land in
-  // two distinct `${kind}:${id}` nodes, not collapse into whichever came first.
-  const inBatchByKind = {
-    dataTable: new Set<string>(),
-    dataSource: new Set<string>(),
-    insight: new Set<string>(),
-  };
 
-  for (const command of batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const command = batch[i]!;
     if (!isKnownPath(command.path)) continue; // non-vocabulary path — not grouped
     const descriptor = COMMAND_DESCRIPTORS[command.path];
     const args = (command.args ?? {}) as Record<string, unknown>;
     const nodeId = descriptor.targetId(args) as UUID;
-    let kind: ArtifactKind;
-    if (command.path === "renameNode") {
-      // Canonical is the authority: probe canonical tables (dataTable →
-      // dataSource → insight) in the same order the renameNode handler does.
-      // First canonical hit wins. Only when canonical finds nothing (id was
-      // minted in this batch and is invisible post-rollback) do we fall back to
-      // inBatchByKind, probing in the SAME order as renameNode (dataTable →
-      // dataSource → insight) — must match renameNode probe order. Last-writer
-      // idToKind diverged when a batch created both kinds under the same id in
-      // the reverse order (e.g. CreateDataTable then CreateDataSource): the
-      // last-writer entry was "dataSource" but the handler finds the dataTable
-      // first. Per-kind sets preserve both registrations; probing in handler
-      // order resolves to the same result as the real handler (#64).
-      kind =
-        (await resolveKindCanonical(db, nodeId)) ??
-        resolveKindInBatch(inBatchByKind, nodeId) ??
-        descriptor.kind;
-    } else {
-      kind = descriptor.kind;
-    }
-    // Register fixed-kind commands in the per-kind set (renameNode is
-    // polymorphic — its resolved kind is NOT registered here to avoid
-    // poisoning a subsequent rename's fallback with a non-canonical kind).
-    if (command.path !== "renameNode") {
-      const k = kind as keyof typeof inBatchByKind;
-      if (k in inBatchByKind) inBatchByKind[k].add(nodeId);
-    }
+    // RenameNode is polymorphic: read the handler's reported resolution from the
+    // positionally-matched result. Every other command's kind is its descriptor
+    // kind. No re-derivation — share the handler's decision, never mirror it.
+    const kind: ArtifactKind =
+      command.path === "renameNode"
+        ? readRenamedKind(results[i], descriptor.kind)
+        : descriptor.kind;
     const key = `${kind}:${nodeId}`;
 
     const intent: PreviewIntent = {
@@ -486,25 +466,6 @@ async function buildDirectNodes(
   return order.map((key) => byKey.get(key)!);
 }
 
-/**
- * Probe canonical tables in the same order the `renameNode` handler does
- * (dataTable → dataSource → insight) and return the matching kind, or `null`
- * when the id is not found in any canonical table (e.g. minted in the current
- * batch and invisible after the preview rollback).
- *
- * Returning `null` lets the caller distinguish "definitely found in canonical"
- * from "not there yet" without conflating the two via a default value.
- */
-async function resolveKindCanonical(
-  db: ArtifactDb,
-  nodeId: string,
-): Promise<ArtifactKind | null> {
-  if (await rowExists(db, "dataTable", nodeId)) return "dataTable";
-  if (await rowExists(db, "dataSource", nodeId)) return "dataSource";
-  if (await rowExists(db, "insight", nodeId)) return "insight";
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // Canonical reads (pre-batch state — the preview tx rolled back)
 //
@@ -520,14 +481,6 @@ async function readBefore(
 ): Promise<Record<string, unknown> | null> {
   const row = await findRow(db, kind, id);
   return (row as Record<string, unknown> | undefined) ?? null;
-}
-
-async function rowExists(
-  db: ArtifactDb,
-  kind: ArtifactKind,
-  id: string,
-): Promise<boolean> {
-  return (await findRow(db, kind, id)) !== undefined;
 }
 
 async function findRow(
@@ -692,12 +645,16 @@ function tryUpgrade(
  */
 function seedWalkState(
   direct: PreviewDirectNode[],
-  visited: Map<string, PreviewDownstreamNode>,
+  visited: Map<string, PreviewDownstreamNode | null>,
   viaOf: Map<string, UUID>,
 ): Array<{ id: string; kind: ArtifactKind }> {
   for (const node of direct) {
     const key = `${node.kind}:${node.nodeId}`;
-    visited.set(key, null!);
+    // `null` is an honest sentinel: the direct (touched) node is in `visited` so
+    // the walk dedupes it, but it has no emitted downstream entry of its own.
+    // Typing the map `| null` makes the `existing !== null` guard below
+    // type-visible — a future edit can't treat the sentinel as a node.
+    visited.set(key, null);
     viaOf.set(key, node.nodeId);
   }
   return direct.map((d) => ({ id: d.nodeId, kind: d.kind }));
@@ -711,8 +668,10 @@ async function walkDownstream(
 
   const out: PreviewDownstreamNode[] = [];
   // visited maps kind:id to the emitted out-entry so we can upgrade its flag if
-  // a later path reaches it via a stronger edge (recompute > stale).
-  const visited = new Map<string, PreviewDownstreamNode>();
+  // a later path reaches it via a stronger edge (recompute > stale). Direct
+  // (touched) nodes are seeded with a `null` sentinel — present for dedup, but
+  // no emitted downstream entry — so the value is `PreviewDownstreamNode | null`.
+  const visited = new Map<string, PreviewDownstreamNode | null>();
 
   // viaOf maps kind:id to the node's current `via` value — the single source of
   // truth for lineage provenance. Direct seeds are their own via. Downstream

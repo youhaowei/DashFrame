@@ -39,6 +39,22 @@ export type ArtifactKind =
   | "dashboard";
 
 /**
+ * What a polymorphic `RenameNode` ACTUALLY resolved to, reported by the handler
+ * itself. The `renameNode` mutation probes the live transaction (canonical rows
+ * UNIONed with anything earlier commands in the same batch created) in a fixed
+ * kind order and renames the first hit. That resolution is data the preview
+ * MUST read rather than re-derive: the preview reads canonical and in-batch
+ * state through separate lookups and can never reproduce a single merged-tx
+ * probe (public issue #64 — every mirroring attempt diverged). The handler
+ * surfaces this on its result so the preview builder reads the decision instead
+ * of guessing it.
+ */
+export interface RenamedTarget {
+  kind: ArtifactKind;
+  id: UUID;
+}
+
+/**
  * One intent line on a direct node — the human-legible "what this command does",
  * derived from the command name + the slice of args that changed. The renderer
  * shows these verbatim above the before/after drill-down. `command` is the

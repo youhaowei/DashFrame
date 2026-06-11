@@ -181,4 +181,5 @@ export type {
   PreviewDirectNode,
   PreviewDownstreamNode,
   PreviewIntent,
+  RenamedTarget,
 } from "./preview-diff";
