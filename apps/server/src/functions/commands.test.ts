@@ -146,6 +146,27 @@ describe("command vocabulary", () => {
       // The original name is preserved — get-or-create does not overwrite.
       expect(rows[0]?.name).toBe("Local Files");
     });
+
+    it("should ignore the type arg on a second get-or-create with the same id (existing row wins)", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+      // The canonical caller derives id FROM type, so this mismatch can't
+      // happen there — but the command is callable by any producer. Pin the
+      // chosen semantics (existing row wins, type silently ignored) so they
+      // can't drift unnoticed. Conflict semantics are a Spec Open Q.
+      await commit(
+        cmd("GetOrCreateDataSource", {
+          id: sourceId,
+          type: "notion",
+          name: "N",
+        }),
+      );
+      const rows = await sourcesById(sourceId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.kind).toBe("csv");
+    });
   });
 
   describe("client-id invariant across a batch", () => {
@@ -414,6 +435,66 @@ describe("command vocabulary", () => {
       expect(metrics[0]?.name).toBe("Total Sum");
     });
 
+    it("should remove a metric by id for RemoveMetric", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("AddMetric", {
+          nodeId: tableId,
+          metric: {
+            id: metricId,
+            name: "Sum",
+            expression: "sum(amount)",
+          } as never,
+        }),
+      );
+
+      await commit(cmd("RemoveMetric", { nodeId: tableId, metricId }));
+      const [row] = await tablesById(tableId);
+      expect(row?.metrics).toEqual([]);
+    });
+
+    it("should reject a duplicate metric id in AddMetric (no illegal two-items-one-id state)", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+        cmd("AddMetric", {
+          nodeId: tableId,
+          metric: { id: metricId, name: "Sum" } as never,
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: tableId,
+            metric: { id: metricId, name: "Sum again" } as never,
+          }),
+        ),
+      ).rejects.toThrow(/already exists/);
+
+      const [row] = await tablesById(tableId);
+      expect((row?.metrics as { id: string }[]).map((m) => m.id)).toEqual([
+        metricId,
+      ]);
+    });
+
     it("should throw on a missing id for SetDataTableSchema (no silent no-op)", async () => {
       await expect(
         commit(
@@ -425,6 +506,64 @@ describe("command vocabulary", () => {
     it("should throw on a missing id for RefreshDataTable (no silent no-op)", async () => {
       await expect(
         commit(cmd("RefreshDataTable", { id: id(), dataFrameId: id() })),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on a missing id for RenameNode (no silent no-op)", async () => {
+      await expect(
+        commit(cmd("RenameNode", { id: id(), name: "X" })),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on a missing id for SetDataSourceConfig (no silent no-op)", async () => {
+      await expect(
+        commit(cmd("SetDataSourceConfig", { id: id(), apiKey: "x" })),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on UpdateField with a missing fieldId", async () => {
+      const sourceId = id();
+      const tableId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("UpdateField", {
+            nodeId: tableId,
+            fieldId: id(),
+            updates: { name: "X" } as never,
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on UpdateMetric with a missing metricId", async () => {
+      const sourceId = id();
+      const tableId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("UpdateMetric", {
+            nodeId: tableId,
+            metricId: id(),
+            updates: { name: "X" } as never,
+          }),
+        ),
       ).rejects.toThrow(/not found/);
     });
   });
@@ -465,8 +604,9 @@ describe("command vocabulary", () => {
         { mode: "preview" },
       );
       expect(result.mode).toBe("preview");
-      // It WOULD have written the data_sources table.
-      expect(result.tablesWritten.size).toBeGreaterThan(0);
+      // It WOULD have written the data_sources table — pin the table name so a
+      // preview writing the wrong table can't satisfy this.
+      expect(result.tablesWritten.has("data_sources")).toBe(true);
 
       const rows = await sourcesById(sourceId);
       expect(rows).toHaveLength(0);
