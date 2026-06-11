@@ -67,6 +67,3 @@ coverage
 .wystack.*.bak
 .wystack.*.bak/
 .clawpatch/
-
-# Local visual-evidence captures (reproduce with scripts/capture-shell.mjs)
-docs/screenshots/
