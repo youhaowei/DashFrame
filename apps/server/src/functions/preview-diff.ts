@@ -54,7 +54,6 @@ import type {
   PreviewDirectNode,
   PreviewDownstreamNode,
   PreviewIntent,
-  RenamedTarget,
   UUID,
 } from "@dashframe/types";
 import type { Command, CommandResult } from "@wystack/server";
@@ -137,6 +136,10 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: () => "Refresh data table",
   },
+  // Field/metric commands are polymorphic over {dataTable, insight}: `nodeId`
+  // resolves to either at write time. The handler reports the resolved kind on
+  // `value.target.kind`, which buildDirectNodes reads (POLYMORPHIC_RESULT_KEY).
+  // The `kind: "dataTable"` below is only the structural-absence fallback.
   addField: {
     kind: "dataTable",
     targetId: byNodeId,
@@ -282,11 +285,14 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     summary: (a) => `Rename to "${String(a.name)}"`,
   },
   deleteNode: {
-    // Polymorphic like renameNode, but the handler reports orphanedNodes, not a
-    // resolved kind — the placeholder kind stands until the preview machine
-    // grows a real `delete` effect (the fourth column the state-machine note
-    // reserves). Until then a previewed delete groups as an update against the
-    // canonical row; the DAG walk does not yet emit `orphaned` (still RESERVED).
+    // Polymorphic like renameNode: the handler reports the resolved kind on
+    // `value.deleted.kind`, which buildDirectNodes reads (POLYMORPHIC_RESULT_KEY)
+    // so a previewed delete groups against the RIGHT canonical row and seeds the
+    // DAG walk from the right kind. This placeholder is only the fallback. A
+    // previewed delete still groups as an `update` effect (the preview machine has
+    // no `delete` effect yet — the fourth column the state-machine note reserves),
+    // so the walk does not yet emit `orphaned` (still RESERVED); the COMMIT path's
+    // orphanedNodes is the authoritative warning surface.
     kind: "dataTable",
     targetId: byId,
     change: "update",
@@ -508,26 +514,54 @@ function seedNode(
 }
 
 /**
- * Read the kind a polymorphic `RenameNode` ACTUALLY resolved to from the
- * handler's reported result — never re-derived. `applyCommands` echoes each
- * handler's return value onto `results[i].value` (positional with the batch),
- * so the rename's `value.renamed.kind` is exactly the table the handler's SET
- * ran against. This is the whole fix for public issue #64: the handler probes
- * the LIVE transaction (canonical rows UNIONed with anything earlier commands
- * minted) in one kind order; the preview reads that decision instead of
- * re-deriving it from separate canonical/in-batch lookups that can never
- * reproduce a single merged-tx probe.
+ * The polymorphic commands whose descriptor `kind` is a PLACEHOLDER: the real
+ * target kind is decided by the handler at write time (`nodeId` can resolve to a
+ * DataTable or an Insight; `id` can resolve to any of five artifacts). For each,
+ * the handler reports the resolution on its result; this maps the command path to
+ * the path on `result.value` that carries the resolved `{ kind }`.
+ *
+ *   renameNode                          → value.renamed.kind
+ *   deleteNode                          → value.deleted.kind
+ *   add/update/removeField/Metric       → value.target.kind
+ *
+ * Every other command's kind is FIXED by its descriptor.
+ */
+const POLYMORPHIC_RESULT_KEY: Partial<Record<CommandPath, string>> = {
+  renameNode: "renamed",
+  deleteNode: "deleted",
+  addField: "target",
+  updateField: "target",
+  removeField: "target",
+  addMetric: "target",
+  updateMetric: "target",
+  removeMetric: "target",
+};
+
+/**
+ * Read the kind a polymorphic command ACTUALLY resolved to from the handler's
+ * reported result — never re-derived. `applyCommands` echoes each handler's return
+ * value onto `results[i].value` (positional with the batch), so the resolved
+ * `{ kind }` under the command's result key is exactly the table the handler's SET
+ * / DELETE ran against. This is the whole fix for public issue #64 generalized to
+ * every polymorphic command: the handler probes the LIVE transaction (canonical
+ * rows UNIONed with anything earlier commands minted) in one kind order; the
+ * preview reads that decision instead of re-deriving it from separate
+ * canonical/in-batch lookups that can never reproduce a single merged-tx probe.
  *
  * Falls back to the descriptor kind only if the result is structurally absent
- * — which never happens for a rename that didn't throw (a throw would have
+ * — which never happens for a command that didn't throw (a throw would have
  * propagated out of `applyCommands` and never reached here).
  */
-function readRenamedKind(
+function readResolvedKind(
+  path: CommandPath,
   result: CommandResult | undefined,
   fallback: ArtifactKind,
 ): ArtifactKind {
-  const value = result?.value as { renamed?: RenamedTarget } | undefined;
-  return value?.renamed?.kind ?? fallback;
+  const resultKey = POLYMORPHIC_RESULT_KEY[path];
+  if (!resultKey) return fallback;
+  const value = result?.value as Record<string, unknown> | undefined;
+  const resolved = value?.[resultKey] as { kind?: ArtifactKind } | undefined;
+  return resolved?.kind ?? fallback;
 }
 
 /**
@@ -559,13 +593,15 @@ async function buildDirectNodes(
     const descriptor = COMMAND_DESCRIPTORS[command.path];
     const args = (command.args ?? {}) as Record<string, unknown>;
     const nodeId = descriptor.targetId(args) as UUID;
-    // RenameNode is polymorphic: read the handler's reported resolution from the
-    // positionally-matched result. Every other command's kind is its descriptor
-    // kind. No re-derivation — share the handler's decision, never mirror it.
-    const kind: ArtifactKind =
-      command.path === "renameNode"
-        ? readRenamedKind(results[i], descriptor.kind)
-        : descriptor.kind;
+    // Polymorphic commands (renameNode, deleteNode, field/metric edits) read the
+    // handler's reported resolution from the positionally-matched result. Every
+    // other command's kind is its descriptor kind. No re-derivation — share the
+    // handler's decision, never mirror it.
+    const kind: ArtifactKind = readResolvedKind(
+      command.path,
+      results[i],
+      descriptor.kind,
+    );
     const key = `${kind}:${nodeId}`;
 
     const intent: PreviewIntent = {
@@ -665,6 +701,10 @@ const DOWNSTREAM_EDGES: ReadonlyArray<{
 }> = [
   { edge: "dataSource->dataTable", flag: "recompute" },
   { edge: "dataTable->insight", flag: "recompute" },
+  // Insight-on-Insight composition: B sourcing A depends on A via baseTableId
+  // (source.sourceType 'insight'). A change to A must recompute B and fan out to
+  // B's own DataFrames/Visualizations/Dashboards through the rest of the walk.
+  { edge: "insight->insight", flag: "recompute" },
   { edge: "insight->dataFrame", flag: "stale" },
   { edge: "insight->visualization", flag: "recompute" },
   { edge: "visualization->dashboard", flag: "stale" },
@@ -882,10 +922,14 @@ function classifyDownstream(
 }
 
 /**
- * The dataTable ids an insight's stored `definition` IR references — the base
- * table (`baseTableId`) plus each join's right side (`joins[].rightTableId`).
+ * The upstream-node ids an insight's stored `definition` IR references — the base
+ * source (`baseTableId`) plus each join's right side (`joins[].rightTableId`).
+ * `baseTableId` carries a DataTable id when `source.sourceType` is 'dataTable' and
+ * an upstream Insight id when it is 'insight' (Insight-on-Insight composition); the
+ * walk classifies the edge by the parent node's actual kind, so the same id under
+ * `baseTableId` resolves to either `dataTable->insight` or `insight->insight`.
  * Defensive about the JSON shape: the column is `jsonb` and old rows may predate
- * fields. These are the insight's upstream-table dependencies.
+ * fields.
  */
 function insightTableRefs(definition: unknown): string[] {
   if (!definition || typeof definition !== "object") return [];

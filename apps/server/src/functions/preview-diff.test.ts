@@ -222,6 +222,55 @@ describe("PreviewDiff builder", () => {
       expect(diff.directNodes[0]!.kind).toBe("dataTable");
     });
 
+    it("should resolve a polymorphic field/metric command to the insight kind when nodeId is an Insight (read the handler result, not the descriptor)", async () => {
+      // Regression: field/metric descriptors hard-coded kind "dataTable", so an
+      // AddMetric whose nodeId is an Insight grouped under `dataTable:<insightId>`
+      // with a missing before-slice and seeded the downstream walk from the wrong
+      // kind. The handler now reports target.kind; the builder reads it.
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const insightId = await seedInsight({
+        baseTableId: tableId,
+        selectedFields: [],
+        metrics: [],
+      });
+
+      const diff = await preview(
+        cmd("AddMetric", {
+          nodeId: insightId,
+          metric: {
+            id: id(),
+            name: "Total",
+            sourceTable: tableId,
+            aggregation: "sum",
+          },
+        }),
+      );
+
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.kind).toBe("insight");
+      // The before-slice is the canonical Insight row, not null/mislabeled.
+      expect((node.before as { id?: string })?.id).toBe(insightId);
+    });
+
+    it("should resolve a polymorphic DeleteNode to the visualization kind when the id is a visualization (read the handler result)", async () => {
+      // Regression: DeleteNode descriptor hard-coded kind "dataTable", so a
+      // previewed delete of a Visualization read the wrong before-slice and seeded
+      // the walk from `dataTable:<id>`. The handler now reports deleted.kind.
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const insightId = await seedInsight({ baseTableId: tableId });
+      const vizId = await seedVisualization(insightId);
+
+      const diff = await preview(cmd("DeleteNode", { id: vizId }));
+
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.kind).toBe("visualization");
+      expect((node.before as { id?: string })?.id).toBe(vizId);
+    });
+
     it("should keep noop + before when repeated get-or-creates hit an existing row", async () => {
       // Idempotent import batch: the source already exists canonically and the
       // batch get-or-creates it twice. Neither command mints OR mutates the node
@@ -539,6 +588,44 @@ describe("PreviewDiff builder", () => {
       expect(ins).toMatchObject({
         edge: "dataTable->insight",
         via: joinTableId,
+      });
+    });
+
+    it("should fan out insight -> insight via the composition baseTableId ref (Insight-on-Insight)", async () => {
+      // Regression: when Insight B sources Insight A, B stores A's id in
+      // baseTableId, but the walk had only a `dataTable->insight` edge — no
+      // `insight->insight`. Previewing a change to A would not surface B (or B's
+      // downstream visualizations/dashboards), so a user could publish without
+      // seeing the full blast radius of the composition path.
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const insightAId = await seedInsight({
+        baseTableId: tableId,
+        source: { sourceType: "dataTable", sourceId: tableId },
+      });
+      // Insight B sources Insight A (composition): baseTableId carries A's id.
+      const insightBId = await seedInsight({
+        baseTableId: insightAId,
+        source: { sourceType: "insight", sourceId: insightAId },
+      });
+      const vizBId = await seedVisualization(insightBId);
+
+      // Touch A — the walk must reach B via insight->insight, then B's viz.
+      const diff = await preview(
+        cmd("RenameNode", { id: insightAId, name: "X" }),
+      );
+
+      const insB = diff.affectedDownstream.find((n) => n.nodeId === insightBId);
+      expect(insB).toMatchObject({
+        kind: "insight",
+        edge: "insight->insight",
+        via: insightAId,
+      });
+      // Transitive fan-out continues past B to B's own visualization.
+      const vizB = diff.affectedDownstream.find((n) => n.nodeId === vizBId);
+      expect(vizB).toMatchObject({
+        kind: "visualization",
+        edge: "insight->visualization",
       });
     });
 

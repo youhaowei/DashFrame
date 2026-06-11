@@ -1043,6 +1043,58 @@ describe("command vocabulary", () => {
       expect(def2.joins).toHaveLength(0);
     });
 
+    it("should reject an AddJoin with a malformed shape or a dangling rightTableId (validate before persisting)", async () => {
+      // Regression: AddJoin stored the raw JSON join verbatim — a missing/bogus
+      // type, a non-string rightTableId, or a rightTableId that resolves to no
+      // DataTable would persist into definition.joins. Downstream SQL assembly
+      // silently SKIPS an unresolved join table, producing wrong results instead
+      // of rejecting the command. The fix validates shape + FK at the write boundary.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // Bad join type.
+      await expect(
+        commit(
+          cmd("AddJoin", {
+            id: insightId,
+            join: {
+              type: "cross",
+              rightTableId: tableId,
+              leftKey: "a",
+              rightKey: "b",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/type/);
+
+      // Dangling rightTableId (well-formed shape, but no such DataTable).
+      await expect(
+        commit(
+          cmd("AddJoin", {
+            id: insightId,
+            join: {
+              type: "inner",
+              rightTableId: id(),
+              leftKey: "a",
+              rightKey: "b",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/does not resolve to a DataTable/);
+
+      // Nothing persisted from either rejected command.
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { joins?: unknown[] };
+      expect(def.joins ?? []).toHaveLength(0);
+    });
+
     it("should update a join at the given index without clobbering other keys", async () => {
       const { tableId } = await makeTable();
       const { tableId: rightTableId } = await makeTable();
@@ -1175,8 +1227,13 @@ describe("command vocabulary", () => {
     });
   });
 
-  describe("AddField / UpdateField on Insight node (fields on derived node)", () => {
-    it("should add and update a field on an Insight node", async () => {
+  describe("AddField / RemoveField on Insight node (selectedFields membership)", () => {
+    it("should add the field id to selectedFields (the array the read path surfaces), not a phantom definition.fields", async () => {
+      // Regression: AddField on an Insight wrote `definition.fields` (an array of
+      // Field objects), but rowToInsight surfaces `definition.selectedFields`
+      // (UUID[]) and ignores `definition.fields`. The selection reported success
+      // while the read path returned the old list. The fix routes an Insight field
+      // edit to selectedFields membership (mirrors patchInsightDefinition.addField).
       const { tableId } = await makeTable();
       const insightId = id();
       const fieldId = id();
@@ -1203,25 +1260,50 @@ describe("command vocabulary", () => {
 
       const rows = await insightsById(insightId);
       const def = rows[0]?.definition as {
-        fields: { id: string; name: string }[];
+        selectedFields: string[];
+        fields?: unknown;
       };
-      expect(def.fields).toHaveLength(1);
-      expect(def.fields[0]?.id).toBe(fieldId);
+      // The id lands in selectedFields — the array the read path reads.
+      expect(def.selectedFields).toEqual([fieldId]);
+      // No phantom `fields` key the read path would ignore.
+      expect(def.fields).toBeUndefined();
 
-      // UpdateField on an Insight node must pin id so updates.id cannot rebind.
+      // RemoveField drops the id from selectedFields.
+      await commit(cmd("RemoveField", { nodeId: insightId, fieldId }));
+      const rows2 = await insightsById(insightId);
+      const def2 = rows2[0]?.definition as { selectedFields: string[] };
+      expect(def2.selectedFields).toEqual([]);
+    });
+
+    it("should reject UpdateField on an Insight node (a referenced field has no editable definition on the Insight)", async () => {
+      // A field on an Insight is a reference (an id in selectedFields), not an
+      // owned Field object — nothing to edit. The old code silently wrote a phantom
+      // definition.fields the read path never reads, so the edit looked successful
+      // but no-op'd. Reject loudly instead.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
       await commit(
-        cmd("UpdateField", {
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddField", {
           nodeId: insightId,
-          fieldId,
-          updates: { name: "Net Revenue", id: id() } as never,
+          field: { id: fieldId, name: "Revenue", tableId, type: "number" },
         }),
       );
-      const rows2 = await insightsById(insightId);
-      const def2 = rows2[0]?.definition as {
-        fields: { id: string; name: string }[];
-      };
-      expect(def2.fields[0]?.id).toBe(fieldId); // id pinned
-      expect(def2.fields[0]?.name).toBe("Net Revenue");
+
+      await expect(
+        commit(
+          cmd("UpdateField", {
+            nodeId: insightId,
+            fieldId,
+            updates: { name: "Net Revenue" },
+          }),
+        ),
+      ).rejects.toThrow(/not supported on an Insight/);
     });
 
     it("should reject a duplicate field id on AddField for Insight node", async () => {
@@ -1649,6 +1731,92 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject an AddDashboardItem with a bogus type or non-numeric position (validate before storing)", async () => {
+      // Regression: the raw command path only checked item.id and persisted the
+      // rest verbatim, so `{ type: "bogus" }` or `{ x: "0" }` could land in
+      // dashboards.layout — but readers and layout rendering assume a known type
+      // and numeric x/y/width/height. The fix validates the shape at the write
+      // boundary (mirrors parseDashboardType + parsePosition in dashboards.ts).
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "bogus",
+              x: 0,
+              y: 0,
+              width: 3,
+              height: 3,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/type/);
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "markdown",
+              x: "0",
+              y: 0,
+              width: 3,
+              height: 3,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/must be a number/);
+
+      // Neither malformed item persisted.
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.layout as unknown[]).toHaveLength(0);
+    });
+
+    it("should drop malformed update fields instead of writing them into the layout (sanitize before merge)", async () => {
+      // Regression: UpdateDashboardItem merged `updates` verbatim, so
+      // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
+      // filters updates to recognized fields with correct primitive types
+      // (mirrors sanitizeDashboardUpdates in dashboards.ts).
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+          },
+        }),
+      );
+
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          // x is a valid number (applied); width is null and content is a number
+          // (both dropped — wrong primitive types).
+          updates: { x: 9, width: null, content: 5 } as never,
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (rows[0]?.layout as Record<string, unknown>[])[0]!;
+      expect(item.x).toBe(9); // valid numeric update applied
+      expect(item.width).toBe(3); // null dropped, original numeric kept
+      expect(item.content).toBe("A"); // wrong-typed update dropped
     });
 
     it("should replace the whole layout for SetDashboardLayout", async () => {

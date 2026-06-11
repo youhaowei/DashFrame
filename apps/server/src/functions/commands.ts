@@ -80,6 +80,7 @@
  */
 import { schema } from "@dashframe/server-core";
 import type {
+  ArtifactKind,
   Field,
   InsightJoinConfig,
   InsightMetric,
@@ -595,16 +596,59 @@ function patchJoinsCollection(
   }
 }
 
+/**
+ * Validate that `value` is a well-formed InsightJoinConfig (shape only): a known
+ * join `type`, a string `rightTableId`, and string `leftKey`/`rightKey`. The
+ * `rightTableId` FK is checked separately against the DataTable table (see AddJoin)
+ * — downstream SQL assembly silently skips an unresolved join table, so a malformed
+ * or dangling join must be rejected at the write boundary, not produce wrong results.
+ */
+function requireJoinShape(value: unknown): InsightJoinConfig {
+  if (!isRecord(value)) {
+    throw new Error("AddJoin: join must be an object");
+  }
+  if (
+    value.type !== "inner" &&
+    value.type !== "left" &&
+    value.type !== "right" &&
+    value.type !== "full"
+  ) {
+    throw new Error(
+      `AddJoin: join.type must be one of inner|left|right|full, got ${JSON.stringify(value.type)}`,
+    );
+  }
+  if (typeof value.rightTableId !== "string") {
+    throw new Error("AddJoin: join.rightTableId must be a string");
+  }
+  if (typeof value.leftKey !== "string" || typeof value.rightKey !== "string") {
+    throw new Error("AddJoin: join.leftKey and join.rightKey must be strings");
+  }
+  return value as unknown as InsightJoinConfig;
+}
+
 /** AddJoin — append an inline join to an Insight. */
 const addJoin = mutation({
   args: { id: uuid, join: jsonb },
   handler: async (ctx, { id, join }): Promise<{ ok: true }> => {
+    const validated = requireJoinShape(join);
+    // The rightTableId has no stored FK (joins live in jsonb), so verify it
+    // resolves to an existing DataTable — an unresolved join table is silently
+    // skipped by SQL assembly, producing wrong results instead of a clear reject.
+    const rightTable = await ctx.db
+      .from(dataTables)
+      .where(eq("id", validated.rightTableId))
+      .first();
+    if (!rightTable) {
+      throw new Error(
+        `AddJoin: rightTableId ${validated.rightTableId} does not resolve to a DataTable`,
+      );
+    }
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
       joins: patchJoinsCollection(definition.joins ?? [], {
         mode: "add",
-        join: join as InsightJoinConfig,
+        join: validated,
       }),
     };
     await ctx.db
@@ -686,6 +730,28 @@ type ResolvedNode =
   | { kind: "insight"; row: InsightRow };
 
 /**
+ * The result of a polymorphic field/metric command. `target.kind` reports which
+ * artifact `nodeId` resolved to (DataTable or Insight) — the same table the edit
+ * actually ran against. The preview builder READS this instead of re-deriving the
+ * kind (it hard-coded `dataTable`, mislabeling Insight nodes and seeding the
+ * downstream walk from the wrong kind). Mirrors the RenameNodeResult precedent.
+ */
+export interface FieldMetricResult {
+  ok: true;
+  target: { kind: "dataTable" | "insight"; id: UUID };
+}
+
+/**
+ * One incremental edit to a node's fields/metrics collection. Shared across the
+ * DataTable path, the Insight metrics path, and the Insight selectedFields path so
+ * all three enforce the same add/update/remove guard symmetry.
+ */
+type CollectionOp =
+  | { mode: "add"; item: Field | Metric | InsightMetric }
+  | { mode: "update"; itemId: string; updates: Record<string, unknown> }
+  | { mode: "remove"; itemId: string };
+
+/**
  * Resolve which kind of node `nodeId` is, returning the row it already fetched
  * so callers don't pay a second lookup. A leaf node is a DataTable (fields and
  * metrics live in its jsonb columns); a derived node is an Insight (fields and
@@ -731,6 +797,54 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
 }
 
 /**
+ * Apply a field edit to an Insight via `definition.selectedFields` — the array the
+ * read path (rowToInsight) actually surfaces. An Insight does not own Field objects;
+ * it SELECTS field ids from its source, so a field command resolves to a membership
+ * edit of the id set, mirroring patchInsightDefinition's addField/removeField in
+ * app-artifacts.ts:
+ *   - Add: append the field's id (reject duplicate — matches the collection guard).
+ *   - Remove: drop the id (reject missing).
+ *   - Update: rejected — a referenced field has no editable definition on the
+ *     Insight (its shape lives on the source); writing one would silently no-op
+ *     against the read path. Fail loudly instead.
+ */
+async function patchInsightSelectedFields(
+  ctx: { db: import("@wystack/db").TrackedDb },
+  nodeId: string,
+  row: InsightRow,
+  op: CollectionOp,
+): Promise<void> {
+  if (op.mode === "update") {
+    throw new Error(
+      "UpdateField is not supported on an Insight: fields are selected by reference (edit the source field, or re-select via SelectFields)",
+    );
+  }
+  const definition = row.definition as StoredInsightDefinition;
+  const selected = (definition.selectedFields ?? []).slice();
+  if (op.mode === "add") {
+    const fieldId = op.item.id;
+    if (selected.includes(fieldId)) {
+      throw new Error(`fields item ${fieldId} already exists`);
+    }
+    selected.push(fieldId);
+  } else {
+    if (!selected.includes(op.itemId)) {
+      throw new Error(`fields item ${op.itemId} not found`);
+    }
+    const idx = selected.indexOf(op.itemId);
+    selected.splice(idx, 1);
+  }
+  const nextDefinition: StoredInsightDefinition = {
+    ...definition,
+    selectedFields: selected,
+  };
+  await ctx.db
+    .from(insights)
+    .where(eq("id", nodeId))
+    .update({ definition: nextDefinition });
+}
+
+/**
  * Apply one incremental collection edit to a node's fields or metrics array.
  * For DataTable nodes the array lives in the row's `fields`/`metrics` columns.
  * For Insight nodes the array lives inside `definition.fields`/`definition.metrics`
@@ -750,42 +864,42 @@ async function patchDataTableCollection(
   ctx: { db: import("@wystack/db").TrackedDb },
   nodeId: string,
   kind: "fields" | "metrics",
-  op:
-    | { mode: "add"; item: Field | Metric | InsightMetric }
-    | { mode: "update"; itemId: string; updates: Record<string, unknown> }
-    | { mode: "remove"; itemId: string },
-): Promise<void> {
+  op: CollectionOp,
+): Promise<"dataTable" | "insight"> {
   const node = await resolveNode(ctx, nodeId);
 
   if (node.kind === "insight") {
-    // Insight fields/metrics live inside the definition jsonb under the same
-    // key names ("fields"/"metrics") as an extension to the InsightDefinition.
+    if (kind === "fields") {
+      await patchInsightSelectedFields(ctx, nodeId, node.row, op);
+      return "insight";
+    }
+    // Insight metrics live inside the definition jsonb under `metrics`, the same
+    // key the read path (rowToInsight) surfaces.
     const definition = node.row.definition as StoredInsightDefinition & {
-      fields?: { id: string }[];
       metrics?: { id: string }[];
     };
-    const items = ((definition[kind] ?? []) as { id: string }[]).slice();
+    const items = ((definition.metrics ?? []) as { id: string }[]).slice();
     // AddMetric on an Insight must store InsightMetric (sourceTable), the shape
     // requireInsightMetric in app-artifacts.ts enforces on the read path.
     // Validate at the write boundary so stored metrics always round-trip through
     // the read path — same class of fix as CreateInsight.metrics (commit 72365b0).
     const normalizedOp =
-      kind === "metrics" && op.mode === "add"
+      op.mode === "add"
         ? { ...op, item: requireInsightMetricShape(op.item) }
         : op;
     const next = applyCollectionOp(items, kind, normalizedOp);
     // Re-validate the merged metric after an update so corrupting fields like
     // `sourceTable` or `aggregation` to null are caught here — same as AddMetric.
-    if (kind === "metrics" && op.mode === "update") {
+    if (op.mode === "update") {
       const merged = next.find((item) => item.id === op.itemId);
       requireInsightMetricShape(merged);
     }
-    const nextDefinition = { ...definition, [kind]: next };
+    const nextDefinition = { ...definition, metrics: next };
     await ctx.db
       .from(insights)
       .where(eq("id", nodeId))
       .update({ definition: nextDefinition });
-    return;
+    return "insight";
   }
 
   // DataTable path: items live in the top-level row columns.
@@ -796,6 +910,7 @@ async function patchDataTableCollection(
     .from(dataTables)
     .where(eq("id", nodeId))
     .update({ [kind]: next });
+  return "dataTable";
 }
 
 /**
@@ -806,10 +921,7 @@ async function patchDataTableCollection(
 function applyCollectionOp(
   items: { id: string }[],
   kind: string,
-  op:
-    | { mode: "add"; item: Field | Metric | InsightMetric }
-    | { mode: "update"; itemId: string; updates: Record<string, unknown> }
-    | { mode: "remove"; itemId: string },
+  op: CollectionOp,
 ): { id: string }[] {
   if (op.mode === "add") {
     // Guard id uniqueness symmetrically with Update/Remove. Without it a second
@@ -839,45 +951,48 @@ function applyCollectionOp(
 
 const addField = mutation({
   args: { nodeId: uuid, field: jsonb },
-  handler: async (ctx, { nodeId, field }): Promise<{ ok: true }> => {
-    await patchDataTableCollection(ctx, nodeId, "fields", {
+  handler: async (ctx, { nodeId, field }): Promise<FieldMetricResult> => {
+    const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "add",
       item: requireRecordWithId(field, "field") as unknown as Field,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
 const updateField = mutation({
   args: { nodeId: uuid, fieldId: uuid, updates: jsonb },
-  handler: async (ctx, { nodeId, fieldId, updates }): Promise<{ ok: true }> => {
+  handler: async (
+    ctx,
+    { nodeId, fieldId, updates },
+  ): Promise<FieldMetricResult> => {
     if (!isRecord(updates) || Object.keys(updates).length === 0) {
       throw new Error("updates are required for UpdateField");
     }
-    await patchDataTableCollection(ctx, nodeId, "fields", {
+    const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "update",
       itemId: fieldId,
       updates,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
 const removeField = mutation({
   args: { nodeId: uuid, fieldId: uuid },
-  handler: async (ctx, { nodeId, fieldId }): Promise<{ ok: true }> => {
-    await patchDataTableCollection(ctx, nodeId, "fields", {
+  handler: async (ctx, { nodeId, fieldId }): Promise<FieldMetricResult> => {
+    const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "remove",
       itemId: fieldId,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
 const addMetric = mutation({
   args: { nodeId: uuid, metric: jsonb },
-  handler: async (ctx, { nodeId, metric }): Promise<{ ok: true }> => {
-    await patchDataTableCollection(ctx, nodeId, "metrics", {
+  handler: async (ctx, { nodeId, metric }): Promise<FieldMetricResult> => {
+    const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "add",
       // Cast as Metric | InsightMetric — the insight branch validates sourceTable
       // via requireInsightMetricShape before storing; the DataTable branch stores
@@ -886,7 +1001,7 @@ const addMetric = mutation({
         | Metric
         | InsightMetric,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
@@ -895,27 +1010,27 @@ const updateMetric = mutation({
   handler: async (
     ctx,
     { nodeId, metricId, updates },
-  ): Promise<{ ok: true }> => {
+  ): Promise<FieldMetricResult> => {
     if (!isRecord(updates) || Object.keys(updates).length === 0) {
       throw new Error("updates are required for UpdateMetric");
     }
-    await patchDataTableCollection(ctx, nodeId, "metrics", {
+    const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "update",
       itemId: metricId,
       updates,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
 const removeMetric = mutation({
   args: { nodeId: uuid, metricId: uuid },
-  handler: async (ctx, { nodeId, metricId }): Promise<{ ok: true }> => {
-    await patchDataTableCollection(ctx, nodeId, "metrics", {
+  handler: async (ctx, { nodeId, metricId }): Promise<FieldMetricResult> => {
+    const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "remove",
       itemId: metricId,
     });
-    return { ok: true };
+    return { ok: true, target: { kind, id: nodeId } };
   },
 });
 
@@ -1038,6 +1153,54 @@ async function requireDashboardItems(
 }
 
 /**
+ * Validate a full DashboardItem before it enters `dashboards.layout`. Mirrors the
+ * runtime checks in dashboards.ts (parseDashboardType + parsePosition): readers and
+ * layout rendering assume `type` is a known value and `x/y/width/height` are numbers.
+ * The raw command path persists args verbatim, so the same boundary that the typed
+ * dashboard mutation enforces is applied here.
+ */
+function requireDashboardItem(value: unknown): DashboardItem {
+  if (!isRecord(value)) {
+    throw new Error("AddDashboardItem: item must be an object");
+  }
+  if (typeof value.id !== "string") {
+    throw new Error("AddDashboardItem: item.id must be a string");
+  }
+  if (value.type !== "visualization" && value.type !== "markdown") {
+    throw new Error(
+      `AddDashboardItem: item.type must be 'visualization' or 'markdown', got ${JSON.stringify(value.type)}`,
+    );
+  }
+  for (const key of ["x", "y", "width", "height"] as const) {
+    if (typeof value[key] !== "number") {
+      throw new Error(`AddDashboardItem: item.${key} must be a number`);
+    }
+  }
+  return value as unknown as DashboardItem;
+}
+
+/**
+ * Filter raw `updates` to the recognized DashboardItem fields with the correct
+ * primitive types, dropping anything malformed. Mirrors sanitizeDashboardUpdates in
+ * dashboards.ts so the raw command path cannot write `{ x: "left", width: null }`
+ * into layout coordinates that consumers assume are numeric.
+ */
+function sanitizeDashboardItemUpdates(
+  updates: Record<string, unknown>,
+): Partial<Omit<DashboardItem, "id" | "type">> {
+  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
+  if (typeof updates.visualizationId === "string") {
+    next.visualizationId = updates.visualizationId;
+  }
+  if (typeof updates.content === "string") next.content = updates.content;
+  if (typeof updates.x === "number") next.x = updates.x;
+  if (typeof updates.y === "number") next.y = updates.y;
+  if (typeof updates.width === "number") next.width = updates.width;
+  if (typeof updates.height === "number") next.height = updates.height;
+  return next;
+}
+
+/**
  * CreateDashboard — mints an empty dashboard with a client-supplied id.
  */
 const createDashboard = mutation({
@@ -1068,10 +1231,7 @@ const addDashboardItem = mutation({
     ctx,
     { dashboardId, item: rawItem },
   ): Promise<{ ok: true }> => {
-    const item = rawItem as DashboardItem;
-    if (typeof item.id !== "string") {
-      throw new Error("AddDashboardItem: item.id must be a string");
-    }
+    const item = requireDashboardItem(rawItem);
     const items = await requireDashboardItems(ctx, dashboardId);
     if (items.some((it) => it.id === item.id)) {
       throw new Error(`Dashboard item ${item.id} already exists`);
@@ -1104,13 +1264,17 @@ const updateDashboardItem = mutation({
     if (!items.some((it) => it.id === itemId)) {
       throw new Error(`Dashboard item ${itemId} not found`);
     }
-    // Pin `id` and `type` last — type is a structural key (determines which
-    // optional fields are valid), so callers cannot rebind it via updates.
+    // Filter `updates` to recognized fields with correct primitive types before
+    // merging — the raw command path would otherwise write `{ x: "left" }` into
+    // layout coordinates consumers assume are numeric. Pin `id` and `type` last —
+    // type is a structural key (determines which optional fields are valid), so
+    // callers cannot rebind it via updates.
+    const sanitized = sanitizeDashboardItemUpdates(updates);
     const next = items.map((it) =>
       it.id === itemId
         ? {
             ...it,
-            ...(updates as Partial<DashboardItem>),
+            ...sanitized,
             id: it.id,
             type: it.type,
           }
@@ -1243,6 +1407,21 @@ export interface OrphanedNode {
   id: string;
   /** The kind of artifact: 'insight' | 'visualization' | 'dashboard'. */
   kind: "insight" | "visualization" | "dashboard";
+}
+
+/**
+ * The `deleteNode` handler's result. `deleted.kind` reports which artifact `id`
+ * resolved to — the table the delete actually ran against. The preview builder
+ * READS this to group the direct node and seed the downstream walk from the right
+ * kind, instead of hard-coding `dataTable` (which mislabeled a deleted Visualization
+ * / Dashboard / Insight / DataSource and read the wrong before-slice). Mirrors the
+ * RenameNodeResult precedent. `orphanedNodes` is the reference-boundary warning
+ * surface routed into Data-Drift Repair (orphan-and-warn is by design).
+ */
+export interface DeleteNodeResult {
+  ok: true;
+  deleted: { kind: ArtifactKind; id: UUID };
+  orphanedNodes: OrphanedNode[];
 }
 
 /**
@@ -1389,10 +1568,7 @@ async function deleteDataSourceDependents(
  */
 const deleteNode = mutation({
   args: { id: uuid },
-  handler: async (
-    ctx,
-    { id },
-  ): Promise<{ ok: true; orphanedNodes: OrphanedNode[] }> => {
+  handler: async (ctx, { id }): Promise<DeleteNodeResult> => {
     // --- Visualization -------------------------------------------------------
     // No owned children. Reference boundary: Dashboards that contain this
     // visualization via a layout item's `visualizationId` are orphaned when the
@@ -1409,6 +1585,7 @@ const deleteNode = mutation({
       await ctx.db.from(visualizations).where(eq("id", id)).delete();
       return {
         ok: true,
+        deleted: { kind: "visualization", id },
         orphanedNodes: affectedDashboards.map((d) => ({
           id: d.id,
           kind: "dashboard" as const,
@@ -1420,7 +1597,11 @@ const deleteNode = mutation({
     const dash = await ctx.db.from(dashboards).where(eq("id", id)).first();
     if (dash) {
       await ctx.db.from(dashboards).where(eq("id", id)).delete();
-      return { ok: true, orphanedNodes: [] };
+      return {
+        ok: true,
+        deleted: { kind: "dashboard", id },
+        orphanedNodes: [],
+      };
     }
 
     // --- Insight ------------------------------------------------------------
@@ -1461,6 +1642,7 @@ const deleteNode = mutation({
       await ctx.db.from(insights).where(eq("id", id)).delete();
       return {
         ok: true,
+        deleted: { kind: "insight", id },
         orphanedNodes: [
           ...derivedInsights.map((r) => ({
             id: r.id,
@@ -1493,6 +1675,7 @@ const deleteNode = mutation({
       await ctx.db.from(dataTables).where(eq("id", id)).delete();
       return {
         ok: true,
+        deleted: { kind: "dataTable", id },
         orphanedNodes: orphanedInsights.map((r) => ({
           id: r.id,
           kind: "insight" as const,
@@ -1513,7 +1696,7 @@ const deleteNode = mutation({
       const orphanedNodes = await deleteDataSourceDependents(ctx, ownedTables);
       // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
-      return { ok: true, orphanedNodes };
+      return { ok: true, deleted: { kind: "dataSource", id }, orphanedNodes };
     }
 
     throw new Error(`Node ${id} not found`);
