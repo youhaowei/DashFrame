@@ -1029,6 +1029,56 @@ describe("command vocabulary", () => {
         commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 })),
       ).rejects.toThrow(/not found/);
     });
+
+    it("should reject a malformed joinIndex for UpdateJoin (null / float / string are not integers)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("UpdateJoin", {
+            id: insightId,
+            joinIndex: null as unknown as number,
+            updates: { type: "left" },
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+      await expect(
+        commit(
+          cmd("UpdateJoin", {
+            id: insightId,
+            joinIndex: 0.5,
+            updates: { type: "left" },
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+    });
+
+    it("should reject a malformed joinIndex for RemoveJoin (null / float / string are not integers)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("RemoveJoin", {
+            id: insightId,
+            joinIndex: null as unknown as number,
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+    });
   });
 
   describe("AddField / UpdateField on Insight node (YW-123 — fields on derived node)", () => {
