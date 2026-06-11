@@ -646,7 +646,11 @@ const updateDataFrameEntry = mutation({
           : {}),
         // Strip raw sample values at the write boundary (YW-118).
         ...(patch.analysis !== undefined
-          ? { analysis: stripSampleValues(patch.analysis) }
+          ? {
+              analysis: patch.analysis
+                ? stripSampleValues(patch.analysis)
+                : null,
+            }
           : {}),
       });
     return { ok: true };

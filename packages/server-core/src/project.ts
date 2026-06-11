@@ -117,9 +117,12 @@ async function ensureProjectMeta(
         SET analysis = jsonb_set(
           analysis,
           '{columns}',
-          (
-            SELECT jsonb_agg(jsonb_set(col, '{sampleValues}', '[]'::jsonb))
-            FROM jsonb_array_elements(analysis->'columns') AS col
+          COALESCE(
+            (
+              SELECT jsonb_agg(jsonb_set(col, '{sampleValues}', '[]'::jsonb))
+              FROM jsonb_array_elements(analysis->'columns') AS col
+            ),
+            '[]'::jsonb
           )
         )
         WHERE analysis IS NOT NULL
