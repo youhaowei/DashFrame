@@ -21,8 +21,8 @@ export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 // "Unsupported project schema version" error instead of letting a later query
 // fail on a missing column. Pre-release policy is wipe-and-recreate, not a
 // migration ladder.
-// v2 (YW-103): added dashboards.description; added data_tables, data_frames.
-// v3 (YW-118): strip raw sampleValues from data_frames.analysis (privacy floor).
+// v2: added dashboards.description; added data_tables, data_frames.
+// v3: strip raw sampleValues from data_frames.analysis (privacy floor).
 export const ARTIFACT_DB_SCHEMA_VERSION = 3;
 
 export interface OpenArtifactDbOptions {

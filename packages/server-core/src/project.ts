@@ -103,10 +103,10 @@ async function ensureProjectMeta(
   if (existing.length > 0) {
     let meta = existing[0]!;
     if (meta.schemaVersion === 2) {
-      // v2→v3 migration (YW-118): strip raw sampleValues from all
-      // persisted DataFrameAnalysis. `analysis` is a JSONB column whose
-      // `columns` array may contain `sampleValues` arrays with raw cell
-      // values. The privacy floor requires zero raw values at rest.
+      // v2→v3 migration: strip raw sampleValues from all persisted
+      // DataFrameAnalysis. `analysis` is a JSONB column whose `columns` array
+      // may contain `sampleValues` arrays with raw cell values. The privacy
+      // floor requires zero raw values at rest.
       //
       // The jsonb_set + jsonb_path_query_array call rewrites every element
       // of the `columns` array to remove the `sampleValues` key, leaving

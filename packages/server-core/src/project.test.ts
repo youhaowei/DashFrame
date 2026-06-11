@@ -119,7 +119,7 @@ describe("openProject", () => {
   });
 
   // ============================================================================
-  // v2→v3 migration (YW-118) — strip sampleValues from persisted analysis
+  // v2→v3 migration — strip sampleValues from persisted analysis
   // ============================================================================
 
   test("should migrate v2 DB by stripping sampleValues from data_frames.analysis", async () => {
