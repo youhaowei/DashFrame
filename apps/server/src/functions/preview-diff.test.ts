@@ -954,10 +954,12 @@ describe("PreviewDiff builder", () => {
       );
 
       expect(diff.affectedDownstream.length).toBeGreaterThan(0);
-      // Each downstream entry is a flag, not a payload — assert the exact key set.
+      // Each downstream entry is a flag + name, not a row payload — assert the
+      // exact key set. `name` is the human-readable artifact name for the
+      // consent surface (see #65); it is metadata, not row data.
       for (const node of diff.affectedDownstream) {
         expect(Object.keys(node).sort()).toEqual(
-          ["edge", "flag", "kind", "nodeId", "via"].sort(),
+          ["edge", "flag", "kind", "name", "nodeId", "via"].sort(),
         );
       }
     });
@@ -1334,6 +1336,155 @@ describe("PreviewDiff builder", () => {
       expect(diff2.affectedDownstream).toEqual(diff1.affectedDownstream);
       expect(diff2.tablesWritten).toEqual(diff1.tablesWritten);
       expect(diff2.mode).toBe(diff1.mode);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Node names — human-readable names on the consent surface (#65)
+  // --------------------------------------------------------------------------
+
+  describe("node names — human-readable on the consent surface", () => {
+    it("direct create node carries the proposed name from args", async () => {
+      const sourceId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "My Data" }),
+      );
+
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("create");
+      // For a create, the name comes from args (no canonical row exists).
+      expect(node.name).toBe("My Data");
+    });
+
+    it("direct update node carries the canonical name from before-slice", async () => {
+      const sourceId = await seedSource({ name: "Canonical Name" });
+      const diff = await preview(
+        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "k" }),
+      );
+
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("update");
+      // For an update the name is the pre-batch canonical name, not the args.
+      expect(node.name).toBe("Canonical Name");
+    });
+
+    it("direct noop node carries the canonical name", async () => {
+      const sourceId = await seedSource({ name: "Existing" });
+      const diff = await preview(
+        cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "X" }),
+      );
+
+      const node = diff.directNodes[0]!;
+      expect(node.change).toBe("noop");
+      expect(node.name).toBe("Existing");
+    });
+
+    it("downstream nodes carry human-readable names, not bare UUIDs", async () => {
+      const sourceId = await seedSource({ name: "My Source" });
+      const tableId = await seedTable(sourceId, { name: "My Table" });
+      const insightId = await seedInsight(
+        { baseTableId: tableId },
+        { name: "My Insight" },
+      );
+      const vizId = await seedVisualization(insightId, { name: "My Viz" });
+
+      const diff = await preview(
+        cmd("RenameNode", { id: sourceId, name: "X" }),
+      );
+
+      const tableHit = diff.affectedDownstream.find(
+        (n) => n.nodeId === tableId,
+      )!;
+      expect(tableHit).toBeDefined();
+      expect(tableHit.name).toBe("My Table");
+
+      const insightHit = diff.affectedDownstream.find(
+        (n) => n.nodeId === insightId,
+      )!;
+      expect(insightHit).toBeDefined();
+      expect(insightHit.name).toBe("My Insight");
+
+      const vizHit = diff.affectedDownstream.find((n) => n.nodeId === vizId)!;
+      expect(vizHit).toBeDefined();
+      expect(vizHit.name).toBe("My Viz");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Partial failure — renderable diff when a command throws (#65)
+  //
+  // Batches stay all-or-nothing (the canonical DB is untouched after any
+  // preview); the `error` slot is purely representational.
+  // --------------------------------------------------------------------------
+
+  describe("partial failure — returns renderable diff, does not throw", () => {
+    it("a single-command batch that fails returns an error slot and empty directNodes", async () => {
+      // A command that will definitely fail: RenameNode on a non-existent id
+      // (no canonical row, not created in the batch).
+      const nonExistentId = id();
+      const diff = await buildPreviewDiff(app, db, [
+        cmd("RenameNode", { id: nonExistentId, name: "Will Fail" }),
+      ]);
+
+      expect(diff.mode).toBe("preview");
+      expect(diff.error).toBeDefined();
+      expect(diff.error!.commandIndex).toBe(0);
+      expect(typeof diff.error!.message).toBe("string");
+      // No pre-failure nodes (command 0 is the failure).
+      expect(diff.directNodes).toEqual([]);
+      expect(diff.affectedDownstream).toEqual([]);
+    });
+
+    it("mid-batch failure returns pre-failure nodes + error slot, canonical DB unchanged", async () => {
+      // Batch: two valid commands then one that fails.
+      // Commands 0+1 would succeed; command 2 fails.
+      const sourceId = id();
+      const tableId = id();
+      const nonExistentId = id();
+
+      const diff = await buildPreviewDiff(app, db, [
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Src" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "Tbl",
+          table: "t.csv",
+        }),
+        // Fails: RenameNode on an id that doesn't exist in canonical or batch.
+        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
+      ]);
+
+      // Did not throw — returned a renderable diff.
+      expect(diff.mode).toBe("preview");
+
+      // Error slot identifies the failing command.
+      expect(diff.error).toBeDefined();
+      expect(diff.error!.commandIndex).toBe(2);
+      expect(typeof diff.error!.message).toBe("string");
+
+      // Pre-failure nodes (commands 0 and 1) are present.
+      expect(diff.directNodes).toHaveLength(2);
+      const srcNode = diff.directNodes.find((n) => n.nodeId === sourceId);
+      expect(srcNode).toBeDefined();
+      expect(srcNode!.change).toBe("create");
+      const tblNode = diff.directNodes.find((n) => n.nodeId === tableId);
+      expect(tblNode).toBeDefined();
+      expect(tblNode!.change).toBe("create");
+
+      // Canonical DB is untouched — the previewed creates did not persist.
+      const sources = await db.select().from(dataSources);
+      expect(sources.find((r) => r.id === sourceId)).toBeUndefined();
+      const tables = await db.select().from(dataTables);
+      expect(tables.find((r) => r.id === tableId)).toBeUndefined();
+    });
+
+    it("a successful batch carries no error slot", async () => {
+      const sourceId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+
+      expect(diff.error).toBeUndefined();
     });
   });
 });

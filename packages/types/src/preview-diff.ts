@@ -96,6 +96,14 @@ export interface PreviewDirectNode {
   nodeId: UUID;
   kind: ArtifactKind;
   /**
+   * Human-readable artifact name for the consent surface. For `create` nodes
+   * this is the proposed name from the command args. For `update` and `noop`
+   * nodes it is the canonical name from the `before` slice. Never a bare UUID —
+   * the reviewer must be able to identify the artifact without cross-referencing
+   * the DB. See #65.
+   */
+  name: string;
+  /**
    * What the batch does to this node's canonical row:
    * - `create`  — the node is minted by this batch (no canonical row before).
    * - `update`  — an existing canonical row is mutated.
@@ -167,6 +175,12 @@ export type DownstreamEdge =
 export interface PreviewDownstreamNode {
   nodeId: UUID;
   kind: ArtifactKind;
+  /**
+   * Human-readable artifact name for the consent surface. Read from the
+   * canonical DB row at DAG-walk time — the reviewer must be able to identify
+   * the affected artifact without cross-referencing the DB. See #65.
+   */
+  name: string;
   /** The edge by which this node was reached from the directly-touched node. */
   edge: DownstreamEdge;
   /**
@@ -184,10 +198,30 @@ export interface PreviewDownstreamNode {
 }
 
 /**
+ * Partial-failure slot on the PreviewDiff. Set when command `commandIndex` of
+ * the batch threw during preview. Batches stay all-or-nothing (no change to
+ * the canonical DB); this is purely representational — the reviewer sees which
+ * commands would apply and which one fails, so they can fix the batch before
+ * publishing. See #65.
+ */
+export interface PreviewError {
+  /** 0-based index of the first command that threw. */
+  commandIndex: number;
+  /** The error message from the thrown exception. */
+  message: string;
+}
+
+/**
  * The full preview — the artifact-grouped diff the renderer paints. Discriminated
  * `mode: 'preview'` mirrors the underlying `PreviewResult`. `tablesWritten` is
  * echoed from the mechanism (the set that WOULD have flushed to invalidation had
  * the batch committed) so the renderer can scope its lazy compute / refresh.
+ *
+ * When `error` is present, command `error.commandIndex` threw during preview.
+ * `directNodes` contains the nodes built from commands 0..commandIndex-1 (the
+ * commands that would have applied). `affectedDownstream` is the DAG walk over
+ * those pre-failure nodes. Batches stay all-or-nothing; `error` is purely
+ * representational. See #65.
  */
 export interface PreviewDiff {
   mode: "preview";
@@ -197,4 +231,11 @@ export interface PreviewDiff {
   affectedDownstream: PreviewDownstreamNode[];
   /** Echo of the mechanism's tablesWritten — what a commit would have invalidated. */
   tablesWritten: string[];
+  /**
+   * Partial-failure slot — present when a command threw during preview. The diff
+   * is still renderable (pre-failure nodes + their blast radius); the reviewer
+   * sees which commands would apply and which one fails. Absent on a fully
+   * successful preview. See #65.
+   */
+  error?: PreviewError;
 }

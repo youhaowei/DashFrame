@@ -53,6 +53,7 @@ import type {
   PreviewDiff,
   PreviewDirectNode,
   PreviewDownstreamNode,
+  PreviewError,
   PreviewIntent,
   UUID,
 } from "@dashframe/types";
@@ -341,6 +342,26 @@ function fieldName(value: unknown): string {
   return "";
 }
 
+/**
+ * Extract a human-readable name for the consent surface. For `create` nodes
+ * the canonical row does not exist yet, so we fall back to `args.name` (the
+ * proposed name). For `update`/`noop` nodes the name comes from the `before`
+ * slice (the canonical row). The fallback empty string should never be reached
+ * in practice — every artifact table has a non-null `name` column.
+ */
+function resolveNodeName(
+  effect: CommandEffect,
+  before: Record<string, unknown> | null,
+  args: Record<string, unknown>,
+): string {
+  if (effect !== "create" && before !== null) {
+    // Canonical name from the pre-batch row.
+    return typeof before.name === "string" ? before.name : "";
+  }
+  // Create: no canonical row — use the proposed name from args.
+  return typeof args.name === "string" ? args.name : "";
+}
+
 function isKnownPath(path: string): path is CommandPath {
   return path in COMMAND_DESCRIPTORS;
 }
@@ -357,22 +378,67 @@ function isKnownPath(path: string): path is CommandPath {
  *              downstream DAG walk. Safe to read AFTER applyCommands returns: the
  *              preview transaction has rolled back, so this is pre-batch state.
  * @param batch the ordered command envelopes (built via `cmd(...)`)
+ *
+ * Partial failure (#65): when command i of N throws, the function does NOT
+ * re-throw. It returns a renderable PreviewDiff with the nodes from commands
+ * 0..i-1 plus an `error` slot carrying the index and message. Batches remain
+ * all-or-nothing — the canonical DB is untouched after any preview (the
+ * execute-then-rollback mechanism never persists). The `error` slot is purely
+ * representational: it tells the reviewer what would have applied and what fails.
  */
 export async function buildPreviewDiff(
   app: WyStackApp,
   db: ArtifactDb,
   batch: Command[],
 ): Promise<PreviewDiff> {
-  // 1. Execute-then-rollback. The proposed slice still comes from args, but for
-  //    polymorphic RenameNode we READ the handler's reported resolution out of
-  //    `result.results` — the preview must not re-derive which artifact a rename
-  //    hit (public issue #64). We also echo tablesWritten.
-  const result = await applyCommands(app, batch, { mode: "preview" });
+  // 1. Execute-then-rollback the full batch to learn what happens and collect
+  //    handler results for polymorphic-command resolution (RenameNode etc. report
+  //    the resolved kind on result.value — public issue #64). On success the
+  //    `result` object holds everything; on failure we probe for the index.
+  let prefixBatch = batch;
+  let prefixResults: CommandResult[] = [];
+  let tablesWritten: string[] = [];
+  let error: PreviewError | undefined;
 
-  // 2. Group the batch by the artifact node each command targets. `result.results`
-  //    is positional with `batch` (results[i] ↔ batch[i]); the builder reads it
-  //    to learn what each RenameNode actually renamed.
-  const direct = await buildDirectNodes(db, batch, result.results);
+  try {
+    const result = await applyCommands(app, batch, { mode: "preview" });
+    prefixResults = result.results;
+    tablesWritten = [...result.tablesWritten];
+  } catch (err) {
+    // A command threw during the full-batch preview. Find which command by
+    // probing ascending prefixes — linear scan (batches are small). The
+    // canonical DB is clean after each preview (execute-then-rollback), so
+    // repeated probing is safe and leaves canonical untouched.
+    const message =
+      err instanceof Error ? err.message : String(err ?? "Unknown error");
+    let failureIndex = batch.length - 1; // conservative default
+    for (let k = 0; k < batch.length; k++) {
+      try {
+        await applyCommands(app, batch.slice(0, k + 1), { mode: "preview" });
+      } catch {
+        failureIndex = k;
+        break;
+      }
+    }
+    error = { commandIndex: failureIndex, message };
+    // The pre-failure prefix is commands 0..failureIndex-1. Build nodes from
+    // those commands; they all succeeded and canonical DB is still clean.
+    prefixBatch = batch.slice(0, failureIndex);
+    if (prefixBatch.length > 0) {
+      const prefixResult = await applyCommands(app, prefixBatch, {
+        mode: "preview",
+      });
+      prefixResults = prefixResult.results;
+      tablesWritten = [...prefixResult.tablesWritten];
+    }
+    // If failureIndex === 0, prefixBatch is empty: no direct nodes, no
+    // tablesWritten — only the error slot. prefixResults stays [].
+  }
+
+  // 2. Group the batch by the artifact node each command targets. `prefixResults`
+  //    is positional with `prefixBatch` (results[i] ↔ prefixBatch[i]); the
+  //    builder reads it to learn what each RenameNode actually renamed.
+  const direct = await buildDirectNodes(db, prefixBatch, prefixResults);
 
   // 3. Walk the implicit DAG outward from every node the batch actually CHANGES.
   //    `noop` nodes (idempotent get-or-create that hit an existing row and wrote
@@ -386,7 +452,8 @@ export async function buildPreviewDiff(
     mode: "preview",
     directNodes: direct,
     affectedDownstream,
-    tablesWritten: [...result.tablesWritten],
+    tablesWritten,
+    ...(error !== undefined ? { error } : {}),
   };
 }
 
@@ -502,6 +569,8 @@ function seedNode(
   return {
     nodeId,
     kind,
+    // Human-readable name for the consent surface. See #65.
+    name: resolveNodeName(effect, before, args),
     change: effect,
     intent: [intent],
     // create: no canonical row. update/noop: the existing canonical row.
@@ -674,13 +743,16 @@ async function findRow(
 
 /**
  * One row of the canonical artifact graph, normalized to the fields the walk
- * needs: identity, the typed FK/IR back-references, and the cross-cutting
- * parent pointer. Built once from the table snapshots so the traversal reads a
- * uniform shape instead of branching per table.
+ * needs: identity, human-readable name (for the consent surface), the typed
+ * FK/IR back-references, and the cross-cutting parent pointer. Built once from
+ * the table snapshots so the traversal reads a uniform shape instead of
+ * branching per table.
  */
 interface GraphRow {
   id: string;
   kind: ArtifactKind;
+  /** Human-readable artifact name — carried to the consent surface. See #65. */
+  name: string;
   /** ids of the nodes this row directly DEPENDS ON (its upstream). */
   dependsOn: string[];
   parentArtifactId: string | null;
@@ -729,6 +801,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "dataSource",
+      name: r.name,
       dependsOn: [],
       parentArtifactId: r.parentArtifactId,
     });
@@ -736,6 +809,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "dataTable",
+      name: r.name,
       dependsOn: [r.dataSourceId],
       parentArtifactId: null,
     });
@@ -743,6 +817,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "insight",
+      name: r.name,
       dependsOn: insightTableRefs(r.definition),
       parentArtifactId: r.parentArtifactId,
     });
@@ -750,6 +825,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "dataFrame",
+      name: r.name,
       dependsOn: r.insightId ? [r.insightId] : [],
       parentArtifactId: null,
     });
@@ -757,6 +833,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "visualization",
+      name: r.name,
       dependsOn: [r.insightId],
       parentArtifactId: r.parentArtifactId,
     });
@@ -764,6 +841,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
     rows.push({
       id: r.id,
       kind: "dashboard",
+      name: r.name,
       dependsOn: dashboardVisRefs(r.layout),
       parentArtifactId: r.parentArtifactId,
     });
@@ -879,6 +957,7 @@ async function walkDownstream(
       const emitted: PreviewDownstreamNode = {
         nodeId: row.id as UUID,
         kind: row.kind,
+        name: row.name,
         edge: hit.edge,
         via: currentVia,
         flag: hit.flag,
