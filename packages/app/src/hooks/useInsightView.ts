@@ -1,6 +1,11 @@
+import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
-import { buildInsightSQL, ensureTableLoaded } from "@dashframe/engine-browser";
+import {
+  buildInsightSQL,
+  ensureTableLoaded,
+  loadArrowData,
+} from "@dashframe/engine-browser";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { useEffect, useState } from "react";
 
@@ -73,6 +78,7 @@ export function getCachedViewName(insightId: string): string | null {
  */
 export function useInsightView(insight: Insight | null | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
+  const { uploadArrowTable } = useChartEngine();
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;
@@ -204,11 +210,23 @@ export function useInsightView(insight: Insight | null | undefined) {
         // Wait for all join table resolutions
         await Promise.all(joinLoadPromises);
 
-        // Load ALL DataFrames into DuckDB in parallel
+        // Load ALL DataFrames into DuckDB-WASM in parallel.
+        // On desktop, also upload each Arrow IPC buffer to the native engine
+        // so chart queries running via the loopback connector can reference
+        // the same table names (df_<id>). The table name formula mirrors
+        // engine-browser's makeTableName: `df_${dataFrameId.replace(/-/g, "_")}`.
         await Promise.all(
-          dataFramesToLoad.map(({ dataFrame }) =>
-            dataFrame ? ensureTableLoaded(dataFrame, connection) : null,
-          ),
+          dataFramesToLoad.map(async ({ dataFrame }) => {
+            if (!dataFrame) return;
+            await ensureTableLoaded(dataFrame, connection);
+            if (uploadArrowTable && dataFrame.storage.type === "indexeddb") {
+              const arrowBytes = await loadArrowData(dataFrame.storage.key);
+              if (arrowBytes) {
+                const tableName = `df_${dataFrame.id.replace(/-/g, "_")}`;
+                await uploadArrowTable(tableName, arrowBytes);
+              }
+            }
+          }),
         );
 
         // Build SQL for the model (all columns, no aggregation)
@@ -259,7 +277,8 @@ export function useInsightView(insight: Insight | null | undefined) {
     // - Do NOT include `insight` (object reference changes every render)
     // - Do NOT include `isReady` (would create feedback loop when we setIsReady)
     // - `joinsKey` is a serialized representation of `insight.joins`, so we don't need `insight.joins` directly
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes
+    // - `uploadArrowTable` is stable (set once at bootstrap in the renderer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes; uploadArrowTable is stable
   }, [
     connection,
     isInitialized,
@@ -268,6 +287,7 @@ export function useInsightView(insight: Insight | null | undefined) {
     baseTableId,
     joinsKey,
     configKey,
+    uploadArrowTable,
   ]);
 
   return {

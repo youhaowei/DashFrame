@@ -6,6 +6,7 @@ import {
 } from "@dashframe/visualization";
 import { ErrorState } from "@wystack/ui";
 import { useCallback, useEffect, type ReactNode } from "react";
+import { useChartEngine } from "./ChartEngineProvider";
 import { useDuckDBContext } from "./DuckDBProvider";
 
 // ============================================================================
@@ -45,41 +46,37 @@ interface VisualizationSetupProps {
 /**
  * VisualizationSetup - Wires up the visualization system.
  *
- * This component:
- * 1. Consumes DuckDB state from DuckDBProvider (which handles lazy loading)
- * 2. Shows error UI if DuckDB initialization fails
- * 3. Wraps children with VisualizationProvider once DuckDB is ready
- * 4. Registers the vgplot renderer on mount
+ * Engine selection is surface-scoped (no `isElectron` branches here):
+ * - Web tier / WASM path: DuckDBProvider initializes the WASM engine; this
+ *   component wraps children with VisualizationProvider once it's ready.
+ * - Desktop tier / native path: the host ProviderWrapper mounts a
+ *   ChartEngineProvider with a pre-built Mosaic Connector. When that connector
+ *   is present, this component bypasses WASM entirely and wires the connector
+ *   into VisualizationProvider instead.
  *
  * ## Provider Hierarchy
  *
+ * ### Web (WASM):
  * ```
  * DuckDBProvider (handles lazy loading via requestIdleCallback)
- *     └── VisualizationSetup (this component - shows error UI, wraps with Mosaic)
- *           └── VisualizationProvider (creates Mosaic coordinator)
+ *     └── VisualizationSetup
+ *           └── VisualizationProvider (wasmConnector → Mosaic coordinator)
  *                 └── RendererRegistration (registers vgplot)
  *                 └── children
  * ```
  *
- * ## Usage
- *
- * ```tsx
- * // In layout.tsx
- * <DuckDBProvider>
- *   <VisualizationSetup>
- *     <App />
- *   </VisualizationSetup>
- * </DuckDBProvider>
+ * ### Desktop (native engine):
  * ```
- *
- * ## Note
- *
- * DuckDB initialization is triggered by DuckDBProvider during browser idle time.
- * Children are rendered immediately (pass-through during loading).
- * Error UI is shown here if DuckDB initialization fails.
- * VisualizationProvider is only rendered after DuckDB is ready.
+ * ChartEngineProvider (native Mosaic connector — supplied by desktop host)
+ *     └── DuckDBProvider (still runs for table/pagination — data-viewer paths)
+ *         └── VisualizationSetup
+ *               └── VisualizationProvider (native connector → Mosaic coordinator)
+ *                     └── RendererRegistration (registers vgplot)
+ *                     └── children
+ * ```
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
+  const { connector, engineError } = useChartEngine();
   const { db, connection, isInitialized, isLoading, error, initDuckDB } =
     useDuckDBContext();
 
@@ -87,7 +84,34 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     initDuckDB();
   }, [initDuckDB]);
 
-  // Show error state if DuckDB initialization failed
+  // ── Native engine path (desktop host supplied a connector) ──────────────
+  if (connector) {
+    // Show a visible banner when the native engine is degraded/unavailable.
+    // Never surface raw engine strings (DESIGN.md anti-pattern).
+    if (engineError) {
+      return (
+        <>
+          <ErrorState
+            title="Native engine unavailable"
+            description={engineError}
+            className="min-h-[200px]"
+          />
+          {children}
+        </>
+      );
+    }
+
+    return (
+      <VisualizationProvider connector={connector}>
+        <RendererRegistration />
+        {children}
+      </VisualizationProvider>
+    );
+  }
+
+  // ── WASM path (web tier default) ─────────────────────────────────────────
+
+  // Show error state if DuckDB WASM initialization failed
   if (error) {
     return (
       <>

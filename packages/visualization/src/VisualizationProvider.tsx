@@ -15,6 +15,24 @@ import {
 type MosaicCoordinator = import("@uwdata/vgplot").Coordinator;
 type MosaicAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
 
+/**
+ * Structural Mosaic Connector interface — matches `@uwdata/mosaic-core`'s
+ * `Connector` without adding a direct dep on that package.
+ *
+ * The three overloads mirror the three query types Mosaic issues:
+ * - `arrow`  — returns Arrow IPC as a flechette Table
+ * - `exec`   — runs a statement, returns void
+ * - `json`   — returns rows as plain objects
+ */
+interface MosaicConnector {
+  query(query: { type?: "arrow"; sql: string }): Promise<unknown>;
+  query(query: { type: "exec"; sql: string }): Promise<void>;
+  query(query: {
+    type: "json";
+    sql: string;
+  }): Promise<Record<string, unknown>[]>;
+}
+
 // ============================================================================
 // Context Types
 // ============================================================================
@@ -41,14 +59,35 @@ const VisualizationContext = createContext<VisualizationContextValue>({
 // Provider Props
 // ============================================================================
 
-export interface VisualizationProviderProps {
+/** WASM-backed props: pass db + connection from DuckDB-WASM. */
+interface WasmProviderProps {
   /** DuckDB-WASM database instance */
   db: duckdb.AsyncDuckDB;
   /** DuckDB-WASM connection - MUST be the same connection used for creating views/tables */
   connection: duckdb.AsyncDuckDBConnection;
+  /** When set, use this connector instead of the built-in wasmConnector. */
+  connector?: never;
   /** Children to render */
   children: ReactNode;
 }
+
+/** Custom-connector props: pass a pre-built Mosaic Connector directly. */
+interface ConnectorProviderProps {
+  db?: never;
+  connection?: never;
+  /**
+   * Pre-built Mosaic Connector. The desktop host supplies a connector that
+   * routes all Mosaic queries to the native DuckDB engine via the loopback
+   * Arrow IPC path instead of DuckDB-WASM.
+   */
+  connector: MosaicConnector;
+  /** Children to render */
+  children: ReactNode;
+}
+
+export type VisualizationProviderProps =
+  | WasmProviderProps
+  | ConnectorProviderProps;
 
 // ============================================================================
 // Provider Component
@@ -60,7 +99,7 @@ export interface VisualizationProviderProps {
  * This provider sets up Mosaic vgplot connected to a DuckDB instance,
  * enabling chart components to render visualizations with query pushdown.
  *
- * ## Usage
+ * ## Usage: WASM (web tier)
  *
  * ```tsx
  * import { VisualizationProvider, useVisualization } from "@dashframe/visualization";
@@ -71,61 +110,48 @@ export interface VisualizationProviderProps {
  *   if (!db) return <Loading />;
  *
  *   return (
- *     <VisualizationProvider db={db}>
+ *     <VisualizationProvider db={db} connection={connection}>
  *       <MyCharts />
  *     </VisualizationProvider>
  *   );
  * }
+ * ```
  *
- * // In chart components
- * function MyChart() {
- *   const { api, isReady } = useVisualization();
- *   if (!isReady) return <Loading />;
- *   // Use api to build charts...
- * }
+ * ## Usage: custom connector (desktop / native engine)
+ *
+ * ```tsx
+ * // Desktop host supplies a connector that routes to the loopback server.
+ * <VisualizationProvider connector={nativeConnector}>
+ *   <MyCharts />
+ * </VisualizationProvider>
  * ```
  *
  * ## How It Works
  *
  * 1. Creates a Mosaic Coordinator
- * 2. Connects to the provided DuckDB instance via wasmConnector using the SAME connection
+ * 2. Connects via wasmConnector (WASM path) or the supplied connector
  * 3. Creates vgplot API context for building charts
  * 4. Provides context to child components
  *
- * ## Important: Connection Sharing
+ * ## Important: Connection Sharing (WASM path)
  *
  * The connection parameter MUST be the same connection used for creating DuckDB views
  * and tables. In DuckDB-WASM, views created on one connection are not visible to
  * queries on a different connection. By passing the shared connection, Mosaic can
  * query views created by useInsightView and other hooks.
- *
- * ## Data Flow
- *
- * ```
- * DuckDB (tables) ─┐
- *                  ├─► VisualizationProvider
- * App config ──────┘        │
- *                           ▼
- *                    Mosaic Coordinator
- *                           │
- *                           ▼
- *                    vgplot API Context
- *                           │
- *                           ▼
- *                    Chart Components
- * ```
  */
-export function VisualizationProvider({
-  db,
-  connection,
-  children,
-}: VisualizationProviderProps) {
+export function VisualizationProvider(props: VisualizationProviderProps) {
   const [state, setState] = useState<VisualizationContextValue>({
     coordinator: null,
     api: null,
     isReady: false,
     error: null,
   });
+
+  // Stable references so the effect dependency array works correctly.
+  const db = "db" in props ? props.db : undefined;
+  const connection = "connection" in props ? props.connection : undefined;
+  const connector = "connector" in props ? props.connector : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -138,12 +164,33 @@ export function VisualizationProvider({
 
         const coordinator = new vg.Coordinator();
 
-        // Connect to the provided DuckDB instance using the SAME connection.
-        // Views created on one connection are not visible to queries on a
-        // different connection. By passing both db AND connection, Mosaic
-        // will reuse the existing connection instead of creating a new one.
-        const connector = vg.wasmConnector({ duckdb: db, connection });
-        coordinator.databaseConnector(connector);
+        if (connector) {
+          // Desktop path: use the supplied Mosaic Connector directly.
+          // The connector routes queries to the native DuckDB engine via
+          // the loopback Arrow IPC endpoint.
+          //
+          // Cast required: our structural MosaicConnector declares `query` for
+          // the arrow case as `Promise<unknown>` to avoid a direct dep on
+          // @uwdata/flechette, whereas mosaic-core's Connector interface
+          // declares it as `Promise<Table<TypeMap>>`. At runtime the connector
+          // returns a decoded flechette Table — the cast is safe.
+          coordinator.databaseConnector(
+            connector as unknown as Parameters<
+              typeof coordinator.databaseConnector
+            >[0],
+          );
+        } else if (db && connection) {
+          // WASM path: connect to the provided DuckDB instance using the SAME
+          // connection. Views created on one connection are not visible to
+          // queries on a different connection. By passing both db AND
+          // connection, Mosaic reuses the existing connection.
+          const wasmConn = vg.wasmConnector({ duckdb: db, connection });
+          coordinator.databaseConnector(wasmConn);
+        } else {
+          throw new Error(
+            "VisualizationProvider requires either (db + connection) or connector",
+          );
+        }
 
         const api = vg.createAPIContext({ coordinator });
 
@@ -171,11 +218,12 @@ export function VisualizationProvider({
     return () => {
       cancelled = true;
     };
-  }, [db, connection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- connector identity is stable; db/connection change together
+  }, [db, connection, connector]);
 
   return (
     <VisualizationContext.Provider value={state}>
-      {children}
+      {props.children}
     </VisualizationContext.Provider>
   );
 }

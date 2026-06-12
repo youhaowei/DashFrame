@@ -11,11 +11,22 @@
  * protects WyStack HTTP/WS — PRs #47/#49). A request with no/invalid token is
  * rejected before any query runs.
  *
- * Request body (JSON): a compiled query `{ sql, params }` — the same shape the
- * content-hash cache (Stage 4) keys on. (Insight-reference resolution — id →
- * compiled SQL — is the renderer/server function layer's job and lands as a
- * thin wrapper that produces this body; the data path itself is compile-agnostic.)
+ * `POST /arrow`
+ *   Accepts two overlapping request shapes:
+ *   - Native shape: `{ sql: string, params?: unknown[] }` — used by the
+ *     compiled-query cache path. Returns Arrow IPC.
+ *   - Mosaic shape: `{ type: 'arrow'|'exec'|'json', sql: string }` — the
+ *     protocol Mosaic's Coordinator issues to any restConnector-compatible
+ *     server. Returns Arrow IPC, empty body, or JSON rows respectively.
+ *
+ * `POST /tables/:name`
+ *   Accepts a raw Arrow IPC stream body (`application/vnd.apache.arrow.stream`)
+ *   and registers it as a named in-memory table in the engine. The renderer
+ *   uploads each DataFrame's Arrow buffer before issuing chart-compute queries.
+ *   Only available when the engine implements `registerArrowTable` (i.e. the
+ *   native engine is wired — not the web-WASM degenerate case).
  */
+import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
 
 import type { CompiledQuery } from "./compile";
@@ -27,9 +38,18 @@ export interface ArrowQueryRunner {
   queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
 }
 
+/**
+ * Optional extension: the engine can accept Arrow IPC buffers as named tables
+ * (used by the desktop chart-compute path so the native engine has the same
+ * DataFrame tables the renderer's WASM engine has).
+ */
+export interface ArrowTableRegistrar {
+  registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+}
+
 export interface ArrowDataPathOptions {
   /** The engine that executes compiled SQL and returns Arrow IPC. */
-  engine: ArrowQueryRunner;
+  engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   /**
    * Per-launch loopback bearer token. When set, every request must carry
    * `Authorization: Bearer <token>`. When unset, the path is open (loopback
@@ -39,18 +59,34 @@ export interface ArrowDataPathOptions {
   authToken?: string;
 }
 
-interface ArrowRequestBody {
+/** Native shape: `{ sql, params? }` */
+interface NativeRequestBody {
   sql?: unknown;
   params?: unknown;
+  type?: undefined;
 }
 
 /**
- * Build a Hono router exposing `POST /arrow` that streams Arrow IPC for a
- * compiled query. Mount it on the loopback host (e.g. under `/data`).
+ * Mosaic Coordinator shape: `{ type: 'arrow' | 'exec' | 'json', sql: string }`.
+ * Cache and priority fields are stripped by the Coordinator before sending.
+ */
+interface MosaicRequestBody {
+  type: "arrow" | "exec" | "json";
+  sql?: unknown;
+}
+
+type RequestBody = NativeRequestBody | MosaicRequestBody;
+
+/**
+ * Build a Hono router exposing the Arrow data path.
+ * Mount it on the loopback host (e.g. under `/data`).
  */
 export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   const app = new Hono();
 
+  // -------------------------------------------------------------------------
+  // POST /arrow  — query endpoint (native shape + Mosaic Coordinator shape)
+  // -------------------------------------------------------------------------
   app.post("/arrow", async (c) => {
     if (
       options.authToken &&
@@ -59,41 +95,147 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    let body: ArrowRequestBody;
+    let body: RequestBody;
     try {
-      body = (await c.req.json()) as ArrowRequestBody;
+      body = (await c.req.json()) as RequestBody;
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const compiled = parseCompiledQuery(body);
-    if (!compiled) {
-      return c.json(
-        { error: "Body must be { sql: string, params?: unknown[] }" },
-        400,
-      );
+    const sql = typeof body.sql === "string" ? body.sql.trim() : "";
+    if (!sql) {
+      return c.json({ error: "Body must include a non-empty sql string" }, 400);
     }
 
+    // Determine query type: Mosaic sends explicit `type`; the native compiled
+    // path has no `type` field and always wants Arrow IPC.
+    const queryType: "arrow" | "exec" | "json" =
+      body.type === "exec" ? "exec" : body.type === "json" ? "json" : "arrow";
+
+    // Validate params on the native path (no `type` field). Mosaic never sends
+    // params, so only the native compiled-query path can hit this. A scalar
+    // params silently coerced to [] would produce a binding-mismatch 500 later;
+    // fail clearly at the request boundary instead.
+    if (
+      !body.type &&
+      "params" in body &&
+      body.params !== undefined &&
+      !Array.isArray(body.params)
+    ) {
+      return c.json({ error: "params must be an array" }, 400);
+    }
+
+    // For exec queries (SET, CREATE TEMP, etc.) — run without returning data.
+    if (queryType === "exec") {
+      try {
+        // exec queries don't return data; run via queryArrow (which calls
+        // conn.runAndReadAll internally) and discard the result.
+        await options.engine.queryArrow(sql, []);
+      } catch {
+        // Keep engine errors opaque over the loopback channel.
+        return c.json({ error: "Query execution failed" }, 500);
+      }
+      // Mosaic expects an empty 200 body for exec.
+      return new Response(null, { status: 200 });
+    }
+
+    // For both arrow and json types, run the query and get Arrow IPC bytes.
     let arrow: Uint8Array;
     try {
-      arrow = await options.engine.queryArrow(compiled.sql, compiled.params);
+      const params = parseParams(body);
+      arrow = await options.engine.queryArrow(sql, params);
     } catch {
-      // Keep engine errors opaque. queryArrow throws for any SQL error (syntax,
-      // type mismatch, missing table); the raw DuckDB message would otherwise
-      // reach the client through Hono's default error handler, leaking
-      // engine-layer internals over the loopback data channel.
       return c.json({ error: "Query execution failed" }, 500);
     }
+
+    if (queryType === "json") {
+      // Mosaic uses 'json' for query-planner calls (DESCRIBE, column stats,
+      // etc.) and expects a JSON array of objects. Decode our Arrow IPC bytes
+      // into rows rather than returning binary — Mosaic will parse the JSON.
+      let rows: Record<string, unknown>[];
+      try {
+        rows = arrowIpcToJsonRows(arrow);
+      } catch {
+        return c.json({ error: "Result serialization failed" }, 500);
+      }
+      return c.json(rows);
+    }
+
+    // Default: return Arrow IPC bytes.
     return new Response(arrow, {
       status: 200,
       headers: { "Content-Type": ARROW_STREAM_CONTENT_TYPE },
     });
   });
 
+  // -------------------------------------------------------------------------
+  // POST /tables/:name  — register an Arrow IPC buffer as a named table
+  // -------------------------------------------------------------------------
+  app.post("/tables/:name", async (c) => {
+    if (
+      options.authToken &&
+      !tokenOk(c.req.header("authorization"), options.authToken)
+    ) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const name = c.req.param("name");
+    if (!name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return c.json(
+        { error: "Table name must be a valid SQL identifier" },
+        400,
+      );
+    }
+
+    // Engine must support Arrow table registration (native engine only).
+    if (typeof options.engine.registerArrowTable !== "function") {
+      return c.json(
+        {
+          error:
+            "Engine does not support Arrow table registration on this surface",
+        },
+        501,
+      );
+    }
+
+    let arrowBytes: Uint8Array;
+    try {
+      const buf = await c.req.arrayBuffer();
+      arrowBytes = new Uint8Array(buf);
+    } catch {
+      return c.json({ error: "Failed to read request body" }, 400);
+    }
+
+    if (arrowBytes.byteLength === 0) {
+      return c.json({ error: "Empty Arrow IPC body" }, 400);
+    }
+
+    try {
+      await options.engine.registerArrowTable(name, arrowBytes);
+    } catch {
+      return c.json({ error: "Failed to register table" }, 500);
+    }
+
+    return c.json({ ok: true, name });
+  });
+
   return app;
 }
 
-function parseCompiledQuery(body: ArrowRequestBody): CompiledQuery | null {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseParams(body: RequestBody): readonly unknown[] {
+  // Mosaic requests don't carry params (SQL is fully resolved by the time it
+  // reaches the connector). The native compiled-query path may supply them.
+  if ("params" in body && Array.isArray(body.params)) {
+    return body.params as readonly unknown[];
+  }
+  return [];
+}
+
+function parseCompiledQuery(body: NativeRequestBody): CompiledQuery | null {
   if (typeof body.sql !== "string" || body.sql.trim() === "") return null;
   // A present-but-non-array `params` (e.g. a scalar 42) must be a clear 400,
   // not silently coerced to [] — that would surface later as a binding
@@ -101,6 +243,26 @@ function parseCompiledQuery(body: ArrowRequestBody): CompiledQuery | null {
   if (body.params !== undefined && !Array.isArray(body.params)) return null;
   const params = Array.isArray(body.params) ? body.params : [];
   return { sql: body.sql, params };
+}
+export { parseCompiledQuery };
+
+/**
+ * Decode an Arrow IPC stream buffer into plain JSON rows.
+ * Used for Mosaic 'json' query type (column stats, DESCRIBE, etc.).
+ */
+function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
+  const table = tableFromIPC(arrow);
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < table.numRows; i++) {
+    const row: Record<string, unknown> = {};
+    for (const field of table.schema.fields) {
+      const col = table.getChild(field.name);
+      const val = col?.get(i);
+      row[field.name] = typeof val === "bigint" ? Number(val) : val;
+    }
+    rows.push(row);
+  }
+  return rows;
 }
 
 function tokenOk(authHeader: string | undefined, expected: string): boolean {

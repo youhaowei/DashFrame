@@ -11,6 +11,13 @@
  * delegated to `apache-arrow` (`resultToArrowIpc`) rather than DuckDB's Arrow
  * extension, so the binary format matches exactly what DuckDB-WASM ingests on
  * the renderer side and stays in one well-exercised library.
+ *
+ * `registerArrowTable` accepts an Arrow IPC stream buffer from the renderer,
+ * decodes it with apache-arrow, writes each row as NDJSON to a temp file, and
+ * ingests into an in-memory DuckDB table via `read_json_auto`. Chart-compute
+ * queries work on aggregated results (small row counts), so the JSON round-trip
+ * is acceptable for v1. Tables persist for the session lifetime and are
+ * re-registered on reconnect.
  */
 import type { DataFrame, QueryEngine, QueryResult } from "@dashframe/engine";
 import type { TableColumn } from "@dashframe/types";
@@ -19,6 +26,10 @@ import {
   type DuckDBConnection as Connection,
   type DuckDBValue,
 } from "@duckdb/node-api";
+import { tableFromIPC } from "apache-arrow";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   duckdbColumnsToArrowIpc,
@@ -49,6 +60,11 @@ export class NativeDuckDBEngine implements QueryEngine {
    * background threads, and any file lock on the database path).
    */
   private initPromise: Promise<void> | null = null;
+  /**
+   * Set of table names currently registered via `registerArrowTable`. Used to
+   * answer `hasTable`/`getTableNames` without an async DB round-trip.
+   */
+  private _registeredTables = new Set<string>();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
     this.databasePath = options.databasePath ?? ":memory:";
@@ -149,35 +165,80 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   /**
-   * The native engine is the *producer* of result Arrow, not a consumer: per
-   * the pipeline spec, ingesting result Arrow as a transient table is the
-   * renderer-side DuckDB-WASM's narrowed role, while the native engine reads
-   * its sources directly (`read_parquet` / `postgres_scan`). Arrow-buffer
-   * registration is therefore intentionally unsupported here — kept explicit
-   * (throws) rather than a silent no-op so the contract is visible.
+   * Register an Arrow IPC stream buffer as a named in-memory DuckDB table.
+   *
+   * The renderer uploads each DataFrame's Arrow IPC buffer before issuing
+   * chart-compute queries; the native engine then has the table available for
+   * the duration of the session. On reconnect the renderer re-registers any
+   * tables it needs.
+   *
+   * Implementation: decode with apache-arrow, serialize each row as NDJSON to
+   * a temp file, then `CREATE OR REPLACE TABLE ... AS SELECT * FROM
+   * read_json_auto(...)`. Chart queries run on aggregated/small datasets, so
+   * the JSON round-trip is acceptable for v1.
    */
-  async registerArrowTable(_name: string, _arrow: Uint8Array): Promise<void> {
-    throw new Error(
-      "NativeDuckDBEngine.registerArrowTable is not supported — Arrow ingest is the renderer WASM engine's role; query sources directly here",
-    );
+  async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
+    await this.initialize();
+    const conn = this.conn();
+
+    // Decode the Arrow IPC stream buffer.
+    const arrowTable = tableFromIPC(arrow);
+    const rowCount = arrowTable.numRows;
+
+    // Serialize each row to NDJSON.
+    const lines: string[] = [];
+    for (let i = 0; i < rowCount; i++) {
+      const row: Record<string, unknown> = {};
+      for (const field of arrowTable.schema.fields) {
+        const col = arrowTable.getChild(field.name);
+        // Apache-arrow column.get(i) returns the typed value.
+        const val = col?.get(i);
+        // Coerce BigInt to number (JSON can't serialize BigInt).
+        row[field.name] = typeof val === "bigint" ? Number(val) : val;
+      }
+      lines.push(JSON.stringify(row));
+    }
+
+    // Write NDJSON to a temp file. Use a sanitised table name as part of the
+    // filename so temp files are identifiable in crash dumps.
+    const safe = name.replace(/[^a-z0-9_]/gi, "_").slice(0, 40);
+    const tmpFile = path.join(os.tmpdir(), `df_${safe}_${Date.now()}.ndjson`);
+    try {
+      await fs.writeFile(tmpFile, lines.join("\n"), "utf8");
+      const quotedPath = quoteLiteral(tmpFile);
+      await conn.run(
+        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM read_json_auto(${quotedPath})`,
+      );
+    } finally {
+      // Best-effort cleanup — leave no temp files behind.
+      await fs.unlink(tmpFile).catch(() => {});
+    }
+
+    this._registeredTables.add(name);
   }
 
   async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
     throw new Error(
-      "NativeDuckDBEngine.registerTable is not supported — query sources directly (read_parquet / postgres_scan)",
+      "NativeDuckDBEngine.registerTable is not supported — upload Arrow IPC via registerArrowTable, or query sources directly (read_parquet)",
     );
   }
 
-  async unregisterTable(_name: string): Promise<void> {
-    // No-op: this engine registers no named tables.
+  async unregisterTable(name: string): Promise<void> {
+    if (!this._registeredTables.has(name)) return;
+    try {
+      await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
+    } catch {
+      // Best-effort; table may already be gone.
+    }
+    this._registeredTables.delete(name);
   }
 
-  hasTable(_name: string): boolean {
-    return false;
+  hasTable(name: string): boolean {
+    return this._registeredTables.has(name);
   }
 
   getTableNames(): string[] {
-    return [];
+    return [...this._registeredTables];
   }
 
   async dispose(): Promise<void> {
@@ -192,6 +253,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     } catch {
       // Failed init closed its own instance — nothing live to tear down.
     }
+    this._registeredTables.clear();
     // Disconnect the connection before closing the instance — DuckDB expects
     // all connections to be released before the instance is closed.
     this.connection?.disconnectSync();
@@ -210,4 +272,12 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.instance = null;
     this.initPromise = null;
   }
+}
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
