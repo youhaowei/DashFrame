@@ -7,6 +7,13 @@
  * spec freezes — atomicity of GetOrCreateDataSource, batch atomicity with the
  * client-id invariant, each command mapping to the right write, mid-batch
  * rollback, and preview persisting nothing.
+ *
+ * Covers: Insight (incl. Insight-on-Insight composition and cycle rejection),
+ * SelectFields, SetInsightFilter/Sort, AddJoin/UpdateJoin/RemoveJoin,
+ * Visualization (CreateVisualization, SetChartType, SetChartEncoding), Dashboard
+ * (CreateDashboard, AddDashboardItem, UpdateDashboardItem, SetDashboardLayout,
+ * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
+ * on Insight nodes.
  */
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import { createWyStack, type WyStackApp } from "@wystack/server";
@@ -18,7 +25,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { functions } from "../functions";
 import { cmd } from "./commands";
 
-const { dataSources, dataTables } = schema;
+const { dataSources, dataTables, insights, visualizations, dashboards } =
+  schema;
 
 describe("command vocabulary", () => {
   let dir: string;
@@ -65,6 +73,34 @@ describe("command vocabulary", () => {
   async function tablesById(tableId: string) {
     const rows = await db.select().from(dataTables);
     return rows.filter((r) => r.id === tableId);
+  }
+  async function insightsById(insightId: string) {
+    const rows = await db.select().from(insights);
+    return rows.filter((r) => r.id === insightId);
+  }
+  async function vizsById(vizId: string) {
+    const rows = await db.select().from(visualizations);
+    return rows.filter((r) => r.id === vizId);
+  }
+  async function dashboardsById(dashId: string) {
+    const rows = await db.select().from(dashboards);
+    return rows.filter((r) => r.id === dashId);
+  }
+
+  /** Create a DataSource + DataTable in one batch, returning both ids. */
+  async function makeTable(): Promise<{ sourceId: string; tableId: string }> {
+    const sourceId = id();
+    const tableId = id();
+    await commit(
+      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "T",
+        table: "t.csv",
+      }),
+    );
+    return { sourceId, tableId };
   }
 
   describe("GetOrCreateDataSource (the reference atomic command)", () => {
@@ -637,6 +673,1891 @@ describe("command vocabulary", () => {
 
       const rows = await sourcesById(sourceId);
       expect(rows).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Insight commands
+  // ===========================================================================
+
+  describe("CreateInsight", () => {
+    it("should create an insight over a DataTable source", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Revenue by Region",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      const rows = await insightsById(insightId);
+      expect(rows).toHaveLength(1);
+      const def = rows[0]?.definition as {
+        baseTableId: string;
+        source: { sourceType: string; sourceId: string };
+      };
+      // baseTableId mirrors source.sourceId on every write.
+      expect(def.baseTableId).toBe(tableId);
+      // New polymorphic source field.
+      expect(def.source).toEqual({
+        sourceType: "dataTable",
+        sourceId: tableId,
+      });
+    });
+
+    it("should batch CreateInsight + CreateVisualization in one atomic envelope (client-id invariant)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const result = await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Trend",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Trend Chart",
+          insightId,
+          visualizationType: "line",
+          spec: {},
+        }),
+      );
+      expect(result.mode).toBe("commit");
+      expect(result.commands).toHaveLength(2);
+
+      const iRows = await insightsById(insightId);
+      const vRows = await vizsById(vizId);
+      expect(iRows).toHaveLength(1);
+      expect(vRows).toHaveLength(1);
+      expect(vRows[0]?.insightId).toBe(insightId);
+    });
+
+    it("should reject a self-referential insight source (client-supplied id == sourceId)", async () => {
+      // CreateInsight mints its own id, so a caller can name itself as its
+      // insight source — a 1-cycle that bypasses SetInsightSource's cycle guard.
+      const insightId = id();
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "Self",
+            source: { sourceType: "insight", sourceId: insightId },
+          }),
+        ),
+      ).rejects.toThrow(/cycle/);
+      expect(await insightsById(insightId)).toHaveLength(0);
+    });
+
+    it("should reject a non-existent insight source (no dangling reference persisted)", async () => {
+      const insightId = id();
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "Dangling",
+            source: { sourceType: "insight", sourceId: id() },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+      expect(await insightsById(insightId)).toHaveLength(0);
+    });
+  });
+
+  describe("SetInsightSource (Insight-on-Insight composition + cycle rejection)", () => {
+    it("should re-point an Insight's source to another Insight's DataFrame", async () => {
+      const { tableId } = await makeTable();
+      const baseInsightId = id();
+      const derivedInsightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: baseInsightId,
+          name: "Base",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: derivedInsightId,
+          name: "Derived",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await commit(
+        cmd("SetInsightSource", {
+          id: derivedInsightId,
+          source: { sourceType: "insight", sourceId: baseInsightId },
+        }),
+      );
+
+      const rows = await insightsById(derivedInsightId);
+      const def = rows[0]?.definition as {
+        source: { sourceType: string; sourceId: string };
+      };
+      expect(def.source).toEqual({
+        sourceType: "insight",
+        sourceId: baseInsightId,
+      });
+    });
+
+    it("should reject a direct self-cycle (insight sourcing itself)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Self",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: insightId,
+            source: { sourceType: "insight", sourceId: insightId },
+          }),
+        ),
+      ).rejects.toThrow(/cycle/);
+    });
+
+    it("should reject a transitive cycle (A → B, then B → A)", async () => {
+      const { tableId } = await makeTable();
+      const aId = id();
+      const bId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: aId,
+          name: "A",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: bId,
+          name: "B",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // A now depends on B.
+      await commit(
+        cmd("SetInsightSource", {
+          id: aId,
+          source: { sourceType: "insight", sourceId: bId },
+        }),
+      );
+
+      // Making B depend on A would close the cycle: A → B → A.
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: bId,
+            source: { sourceType: "insight", sourceId: aId },
+          }),
+        ),
+      ).rejects.toThrow(/cycle/);
+
+      // A's source should still be B (the rollback worked).
+      const aRows = await insightsById(aId);
+      const def = aRows[0]?.definition as { source: { sourceId: string } };
+      expect(def.source.sourceId).toBe(bId);
+    });
+
+    it("should throw for SetInsightSource on a missing insight (no silent no-op)", async () => {
+      const { tableId } = await makeTable();
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: id(),
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject a non-existent insight source (wouldCreateCycle treats missing as leaf — guard with existence check)", async () => {
+      // The source is JSON, not an FK, and wouldCreateCycle returns false for a
+      // missing source row. Without an existence check a dangling sourceId would
+      // persist and the command would report success.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Derived",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      const missingSourceId = id();
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: insightId,
+            source: { sourceType: "insight", sourceId: missingSourceId },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+
+      // The original dataTable source must be intact (the write rolled back).
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { source: { sourceId: string } };
+      expect(def.source.sourceId).toBe(tableId);
+    });
+  });
+
+  describe("SelectFields", () => {
+    it("should replace the selected fields set with replace-all semantics", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldA = id();
+      const fieldB = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [fieldA],
+        }),
+      );
+
+      await commit(
+        cmd("SelectFields", { id: insightId, fieldIds: [fieldA, fieldB] }),
+      );
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { selectedFields: string[] };
+      expect(def.selectedFields).toEqual([fieldA, fieldB]);
+
+      // Replace-all: supplying an empty set clears all fields.
+      await commit(cmd("SelectFields", { id: insightId, fieldIds: [] }));
+      const rows2 = await insightsById(insightId);
+      const def2 = rows2[0]?.definition as { selectedFields: string[] };
+      expect(def2.selectedFields).toEqual([]);
+    });
+  });
+
+  describe("SetInsightFilter", () => {
+    it("should replace filters with tagged-union operands", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const filters = [
+        {
+          field: "region",
+          operator: "eq" as const,
+          value: { kind: "value" as const, v: "EMEA" },
+        },
+      ];
+      await commit(cmd("SetInsightFilter", { id: insightId, filters }));
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { filters: typeof filters };
+      expect(def.filters).toEqual(filters);
+    });
+
+    it("should replace filters with a late-bound operand (category handle)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // The agent emits the same command verb; the value is a late-bound ref
+      // because the egress gate withheld the literal.
+      const filters = [
+        {
+          field: "customer_id",
+          operator: "eq" as const,
+          value: {
+            kind: "lateBound" as const,
+            ref: { type: "category" as const, handle: "cat_abc123" },
+          },
+        },
+      ];
+      await commit(cmd("SetInsightFilter", { id: insightId, filters }));
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { filters: typeof filters };
+      // The tagged-union discriminant must be stored verbatim — the command
+      // is a passthrough store; validation of handle existence is bind-time.
+      expect(def.filters[0]?.value.kind).toBe("lateBound");
+    });
+  });
+
+  describe("SetInsightSort", () => {
+    it("should replace the sort order (replace-all semantics)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const sorts = [{ field: "amount", direction: "desc" as const }];
+      await commit(cmd("SetInsightSort", { id: insightId, sorts }));
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { sorts: typeof sorts };
+      expect(def.sorts).toEqual(sorts);
+    });
+  });
+
+  describe("AddJoin / UpdateJoin / RemoveJoin", () => {
+    it("should add a join and then remove it by index", async () => {
+      const { tableId } = await makeTable();
+      const { tableId: rightTableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const join = {
+        type: "inner" as const,
+        rightTableId,
+        leftKey: "user_id",
+        rightKey: "id",
+      };
+      await commit(cmd("AddJoin", { id: insightId, join }));
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { joins: (typeof join)[] };
+      expect(def.joins).toHaveLength(1);
+      expect(def.joins[0]).toEqual(join);
+
+      // Remove the join by index.
+      await commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 }));
+      const rows2 = await insightsById(insightId);
+      const def2 = rows2[0]?.definition as { joins: unknown[] };
+      expect(def2.joins).toHaveLength(0);
+    });
+
+    it("should reject an AddJoin with a malformed shape or a dangling rightTableId (validate before persisting)", async () => {
+      // Regression: AddJoin stored the raw JSON join verbatim — a missing/bogus
+      // type, a non-string rightTableId, or a rightTableId that resolves to no
+      // DataTable would persist into definition.joins. Downstream SQL assembly
+      // silently SKIPS an unresolved join table, producing wrong results instead
+      // of rejecting the command. The fix validates shape + FK at the write boundary.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // Bad join type.
+      await expect(
+        commit(
+          cmd("AddJoin", {
+            id: insightId,
+            join: {
+              type: "cross",
+              rightTableId: tableId,
+              leftKey: "a",
+              rightKey: "b",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/type/);
+
+      // Dangling rightTableId (well-formed shape, but no such DataTable).
+      await expect(
+        commit(
+          cmd("AddJoin", {
+            id: insightId,
+            join: {
+              type: "inner",
+              rightTableId: id(),
+              leftKey: "a",
+              rightKey: "b",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/does not resolve to a DataTable/);
+
+      // Nothing persisted from either rejected command.
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as { joins?: unknown[] };
+      expect(def.joins ?? []).toHaveLength(0);
+    });
+
+    it("should update a join at the given index without clobbering other keys", async () => {
+      const { tableId } = await makeTable();
+      const { tableId: rightTableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "inner",
+            rightTableId,
+            leftKey: "user_id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      await commit(
+        cmd("UpdateJoin", {
+          id: insightId,
+          joinIndex: 0,
+          updates: { type: "left" },
+        }),
+      );
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        joins: { type: string; rightTableId: string }[];
+      };
+      expect(def.joins[0]?.type).toBe("left");
+      // Other keys preserved.
+      expect(def.joins[0]?.rightTableId).toBe(rightTableId);
+    });
+
+    it("should throw on UpdateJoin with a missing index (no silent no-op)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("UpdateJoin", {
+            id: insightId,
+            joinIndex: 5,
+            updates: { type: "left" },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on RemoveJoin with a missing index (no silent no-op)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 })),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject a malformed joinIndex for UpdateJoin (null / float / string are not integers)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("UpdateJoin", {
+            id: insightId,
+            joinIndex: null as unknown as number,
+            updates: { type: "left" },
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+      await expect(
+        commit(
+          cmd("UpdateJoin", {
+            id: insightId,
+            joinIndex: 0.5,
+            updates: { type: "left" },
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+    });
+
+    it("should reject a malformed joinIndex for RemoveJoin (null / float / string are not integers)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("RemoveJoin", {
+            id: insightId,
+            joinIndex: null as unknown as number,
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+      await expect(
+        commit(
+          cmd("RemoveJoin", {
+            id: insightId,
+            joinIndex: "0" as unknown as number,
+          }),
+        ),
+      ).rejects.toThrow(/non-negative integer/);
+    });
+  });
+
+  describe("AddField / RemoveField on Insight node (selectedFields membership)", () => {
+    it("should add the field id to selectedFields (the array the read path surfaces), not a phantom definition.fields", async () => {
+      // Regression: AddField on an Insight wrote `definition.fields` (an array of
+      // Field objects), but rowToInsight surfaces `definition.selectedFields`
+      // (UUID[]) and ignores `definition.fields`. The selection reported success
+      // while the read path returned the old list. The fix routes an Insight field
+      // edit to selectedFields membership (mirrors patchInsightDefinition.addField).
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await commit(
+        cmd("AddField", {
+          nodeId: insightId,
+          field: {
+            id: fieldId,
+            name: "Revenue",
+            tableId,
+            columnName: "revenue",
+            type: "number",
+          },
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        selectedFields: string[];
+        fields?: unknown;
+      };
+      // The id lands in selectedFields — the array the read path reads.
+      expect(def.selectedFields).toEqual([fieldId]);
+      // No phantom `fields` key the read path would ignore.
+      expect(def.fields).toBeUndefined();
+
+      // RemoveField drops the id from selectedFields.
+      await commit(cmd("RemoveField", { nodeId: insightId, fieldId }));
+      const rows2 = await insightsById(insightId);
+      const def2 = rows2[0]?.definition as { selectedFields: string[] };
+      expect(def2.selectedFields).toEqual([]);
+    });
+
+    it("should reject UpdateField on an Insight node (a referenced field has no editable definition on the Insight)", async () => {
+      // A field on an Insight is a reference (an id in selectedFields), not an
+      // owned Field object — nothing to edit. The old code silently wrote a phantom
+      // definition.fields the read path never reads, so the edit looked successful
+      // but no-op'd. Reject loudly instead.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddField", {
+          nodeId: insightId,
+          field: { id: fieldId, name: "Revenue", tableId, type: "number" },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("UpdateField", {
+            nodeId: insightId,
+            fieldId,
+            updates: { name: "Net Revenue" },
+          }),
+        ),
+      ).rejects.toThrow(/not supported on an Insight/);
+    });
+
+    it("should reject a duplicate field id on AddField for Insight node", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddField", {
+          nodeId: insightId,
+          field: {
+            id: fieldId,
+            name: "X",
+            tableId,
+            columnName: "x",
+            type: "string",
+          },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddField", {
+            nodeId: insightId,
+            field: {
+              id: fieldId,
+              name: "X again",
+              tableId,
+              columnName: "x",
+              type: "string",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/already exists/);
+    });
+  });
+
+  describe("AddMetric on Insight node — InsightMetric shape round-trip", () => {
+    it("should store an InsightMetric (sourceTable) and round-trip through the read path", async () => {
+      // Regression: AddMetric on an Insight was casting the incoming metric to the
+      // DataTable Metric shape (tableId). The read path (requireInsightMetric in
+      // app-artifacts.ts) enforces InsightMetric (sourceTable), so stored metrics
+      // with only tableId would break source-table resolution on read. The fix
+      // validates sourceTable at the write boundary (requireInsightMetricShape) —
+      // same class as the CreateInsight.metrics fix in commit 72365b0.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Revenue Insight",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await commit(
+        cmd("AddMetric", {
+          nodeId: insightId,
+          metric: {
+            id: metricId,
+            name: "Total Revenue",
+            sourceTable: tableId,
+            aggregation: "sum",
+          },
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: {
+          id: string;
+          name: string;
+          sourceTable: string;
+          aggregation: string;
+        }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      const stored = def.metrics[0]!;
+      // Read path (requireInsightMetric) requires all four fields — assert each:
+      expect(stored.id).toBe(metricId);
+      expect(stored.name).toBe("Total Revenue");
+      expect(stored.sourceTable).toBe(tableId); // the field requireInsightMetric checks
+      expect(stored.aggregation).toBe("sum");
+    });
+
+    it("should reject an AddMetric on an Insight that lacks sourceTable (DataTable Metric shape rejected at write boundary)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            // DataTable Metric shape — tableId instead of sourceTable — must be rejected.
+            metric: {
+              id: crypto.randomUUID(),
+              name: "Sum",
+              expression: "sum(amount)",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceTable/);
+    });
+  });
+
+  describe("UpdateMetric on Insight node — merged shape re-validated", () => {
+    /** Seed an Insight carrying one valid InsightMetric; returns the ids. */
+    async function makeInsightWithMetric() {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const metricId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddMetric", {
+          nodeId: insightId,
+          metric: {
+            id: metricId,
+            name: "Total Revenue",
+            sourceTable: tableId,
+            aggregation: "sum",
+          },
+        }),
+      );
+      return { tableId, insightId, metricId };
+    }
+
+    it("should reject an update that corrupts sourceTable to null, leaving the stored metric unchanged", async () => {
+      // Regression: the update path merged blind jsonb updates into a stored
+      // InsightMetric without re-validating the result — `{ sourceTable: null }`
+      // would persist a metric the read path (requireInsightMetric) rejects.
+      const { tableId, insightId, metricId } = await makeInsightWithMetric();
+
+      await expect(
+        commit(
+          cmd("UpdateMetric", {
+            nodeId: insightId,
+            metricId,
+            updates: { sourceTable: null } as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceTable/);
+
+      // The stored metric must be untouched — no partial write before the throw.
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: { id: string; sourceTable: string; aggregation: string }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      expect(def.metrics[0]?.sourceTable).toBe(tableId);
+      expect(def.metrics[0]?.aggregation).toBe("sum");
+    });
+
+    it("should accept a valid partial update and keep the InsightMetric shape intact", async () => {
+      const { tableId, insightId, metricId } = await makeInsightWithMetric();
+
+      await commit(
+        cmd("UpdateMetric", {
+          nodeId: insightId,
+          metricId,
+          updates: { name: "Revenue (Total)", aggregation: "avg" } as never,
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        metrics: {
+          id: string;
+          name: string;
+          sourceTable: string;
+          aggregation: string;
+        }[];
+      };
+      expect(def.metrics).toHaveLength(1);
+      const stored = def.metrics[0]!;
+      expect(stored.id).toBe(metricId);
+      expect(stored.name).toBe("Revenue (Total)");
+      expect(stored.sourceTable).toBe(tableId); // untouched key survives the merge
+      expect(stored.aggregation).toBe("avg");
+    });
+  });
+
+  // ===========================================================================
+  // Visualization commands
+  // ===========================================================================
+
+  describe("CreateVisualization / SetChartType / SetChartEncoding", () => {
+    it("should create a visualization and change its chart type", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      const rows = await vizsById(vizId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.chartType).toBe("barY");
+
+      await commit(
+        cmd("SetChartType", { id: vizId, visualizationType: "line" }),
+      );
+      const rows2 = await vizsById(vizId);
+      expect(rows2[0]?.chartType).toBe("line");
+    });
+
+    it("should set the encoding (and optionally the spec) for SetChartEncoding", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      const encoding = { x: "field:abc", y: "metric:xyz" } as never;
+      await commit(cmd("SetChartEncoding", { id: vizId, encoding }));
+      const rows = await vizsById(vizId);
+      expect(rows[0]?.encoding).toEqual(encoding);
+    });
+
+    it("should throw on SetChartType for a missing visualization (no silent no-op)", async () => {
+      await expect(
+        commit(cmd("SetChartType", { id: id(), visualizationType: "line" })),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on SetChartEncoding for a missing visualization (no silent no-op)", async () => {
+      await expect(
+        commit(cmd("SetChartEncoding", { id: id(), encoding: {} as never })),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+
+  // ===========================================================================
+  // Dashboard commands
+  // ===========================================================================
+
+  describe("CreateDashboard / AddDashboardItem / UpdateDashboardItem / SetDashboardLayout / RemoveDashboardItem", () => {
+    it("should create a dashboard and add two items", async () => {
+      const dashId = id();
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "My Dashboard" }),
+      );
+
+      const itemId = id();
+      const markdownId = id();
+      await commit(
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: markdownId,
+            type: "markdown",
+            content: "## Hello",
+            x: 6,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const layout = rows[0]?.layout as { id: string }[];
+      expect(layout).toHaveLength(2);
+      expect(layout.map((it) => it.id)).toContain(itemId);
+      expect(layout.map((it) => it.id)).toContain(markdownId);
+    });
+
+    it("should reject a duplicate item id in AddDashboardItem (no illegal two-items-one-id state)", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: itemId,
+              type: "markdown",
+              content: "A dup",
+              x: 1,
+              y: 1,
+              width: 3,
+              height: 3,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/already exists/);
+    });
+
+    it("should update an item without rebinding id or type", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "Original",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+
+      // updates.id and updates.type must be ignored (pinned by handler).
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: {
+            content: "Updated",
+            x: 2,
+            id: id(),
+            type: "visualization",
+          } as never,
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const layout = rows[0]?.layout as {
+        id: string;
+        type: string;
+        content: string;
+        x: number;
+      }[];
+      expect(layout[0]?.id).toBe(itemId);
+      expect(layout[0]?.type).toBe("markdown"); // type pinned
+      expect(layout[0]?.content).toBe("Updated");
+      expect(layout[0]?.x).toBe(2);
+    });
+
+    it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId: id(),
+            updates: { x: 1 },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject an AddDashboardItem with a bogus type or non-numeric position (validate before storing)", async () => {
+      // Regression: the raw command path only checked item.id and persisted the
+      // rest verbatim, so `{ type: "bogus" }` or `{ x: "0" }` could land in
+      // dashboards.layout — but readers and layout rendering assume a known type
+      // and numeric x/y/width/height. The fix validates the shape at the write
+      // boundary (mirrors parseDashboardType + parsePosition in dashboards.ts).
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "bogus",
+              x: 0,
+              y: 0,
+              width: 3,
+              height: 3,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/type/);
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "markdown",
+              x: "0",
+              y: 0,
+              width: 3,
+              height: 3,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/must be a number/);
+
+      // Neither malformed item persisted.
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.layout as unknown[]).toHaveLength(0);
+    });
+
+    it("should drop malformed update fields instead of writing them into the layout (sanitize before merge)", async () => {
+      // Regression: UpdateDashboardItem merged `updates` verbatim, so
+      // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
+      // filters updates to recognized fields with correct primitive types
+      // (mirrors sanitizeDashboardUpdates in dashboards.ts).
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+          },
+        }),
+      );
+
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          // x is a valid number (applied); width is null and content is a number
+          // (both dropped — wrong primitive types).
+          updates: { x: 9, width: null, content: 5 } as never,
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (rows[0]?.layout as Record<string, unknown>[])[0]!;
+      expect(item.x).toBe(9); // valid numeric update applied
+      expect(item.width).toBe(3); // null dropped, original numeric kept
+      expect(item.content).toBe("A"); // wrong-typed update dropped
+    });
+
+    it("should replace the whole layout for SetDashboardLayout", async () => {
+      const dashId = id();
+      const item1 = id();
+      const item2 = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: item1,
+            type: "markdown",
+            content: "A",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+
+      // Replace-all with a new layout that includes both items at new positions.
+      const newLayout = [
+        {
+          id: item1,
+          type: "markdown" as const,
+          content: "A",
+          x: 1,
+          y: 0,
+          width: 3,
+          height: 3,
+        },
+        {
+          id: item2,
+          type: "markdown" as const,
+          content: "B",
+          x: 4,
+          y: 0,
+          width: 3,
+          height: 3,
+        },
+      ];
+      await commit(
+        cmd("SetDashboardLayout", { dashboardId: dashId, items: newLayout }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const layout = rows[0]?.layout as { id: string; x: number }[];
+      expect(layout).toHaveLength(2);
+      expect(layout.find((it) => it.id === item1)?.x).toBe(1);
+      expect(layout.find((it) => it.id === item2)?.x).toBe(4);
+    });
+
+    it("should reject duplicate item ids in SetDashboardLayout (no corrupt state for UpdateDashboardItem/RemoveDashboardItem)", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: [
+              {
+                id: itemId,
+                type: "markdown" as const,
+                content: "A",
+                x: 1,
+                y: 0,
+                width: 3,
+                height: 3,
+              },
+              {
+                id: itemId,
+                type: "markdown" as const,
+                content: "A",
+                x: 4,
+                y: 0,
+                width: 3,
+                height: 3,
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow("duplicate ids");
+    });
+
+    it("should remove a dashboard item by id", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "A",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+
+      await commit(cmd("RemoveDashboardItem", { dashboardId: dashId, itemId }));
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.layout).toEqual([]);
+    });
+
+    it("should throw on RemoveDashboardItem with a missing itemId (no silent no-op)", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+      await expect(
+        commit(
+          cmd("RemoveDashboardItem", { dashboardId: dashId, itemId: id() }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should throw on AddDashboardItem for a missing dashboard (no silent no-op)", async () => {
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: id(),
+            item: {
+              id: id(),
+              type: "markdown",
+              content: "X",
+              x: 0,
+              y: 0,
+              width: 3,
+              height: 3,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+
+  // ===========================================================================
+  // Cross-cutting — DeleteNode + extended RenameNode
+  // ===========================================================================
+
+  describe("DeleteNode (polymorphic delete)", () => {
+    it("should delete a DataSource by id", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+      expect(await sourcesById(sourceId)).toHaveLength(0);
+      // No reference-boundary nodes — orphanedNodes is empty.
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
+    });
+
+    it("should delete an Insight by id", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      const result = await commit(cmd("DeleteNode", { id: insightId }));
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
+    });
+
+    it("should delete a Visualization by id", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+      const result = await commit(cmd("DeleteNode", { id: vizId }));
+      expect(await vizsById(vizId)).toHaveLength(0);
+      // The parent Insight is untouched.
+      expect(await insightsById(insightId)).toHaveLength(1);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
+    });
+
+    it("should surface dashboards that reference a deleted Visualization in orphanedNodes (reference boundary)", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: vizId }));
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      // The dashboard is surfaced as an orphaned node (its viz item is now stale).
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]).toMatchObject({
+        id: dashId,
+        kind: "dashboard",
+      });
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
+    });
+
+    it("should delete a Dashboard by id", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+      const result = await commit(cmd("DeleteNode", { id: dashId }));
+      expect(await dashboardsById(dashId)).toHaveLength(0);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        orphanedNodes: [],
+      });
+    });
+
+    it("should throw on DeleteNode for an unknown id (no silent no-op)", async () => {
+      await expect(commit(cmd("DeleteNode", { id: id() }))).rejects.toThrow(
+        /not found/,
+      );
+    });
+  });
+
+  // ===========================================================================
+  // DeleteNode — typed-edge cascade rule + orphan-and-warn
+  // ===========================================================================
+
+  describe("DeleteNode — typed-edge cascade rule", () => {
+    // -------------------------------------------------------------------------
+    // Owned-edge cascade: Insight → Visualization (schema FK, onDelete cascade)
+    // -------------------------------------------------------------------------
+
+    it("should cascade-delete owned Visualizations when their Insight is deleted (ownership edge)", async () => {
+      // Spec — DashFrame Artifact Model: Visualization is owned by its Insight
+      // (it has no independent value without the query that produces it).
+      // The DB schema's onDelete:cascade on visualizations.insight_id enforces
+      // this; DeleteNode must not block it.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const viz2Id = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V1",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateVisualization", {
+          id: viz2Id,
+          name: "V2",
+          insightId,
+          visualizationType: "line",
+          spec: {},
+        }),
+      );
+
+      await commit(cmd("DeleteNode", { id: insightId }));
+
+      // Insight is gone.
+      expect(await insightsById(insightId)).toHaveLength(0);
+      // Both Visualizations are gone (cascade through the ownership edge).
+      expect(await vizsById(vizId)).toHaveLength(0);
+      expect(await vizsById(viz2Id)).toHaveLength(0);
+    });
+
+    it("should surface dashboards that contain an Insight's owned Visualizations in orphanedNodes when the Insight is deleted", async () => {
+      // When deleting an Insight, its Visualizations cascade-delete via FK.
+      // Any Dashboard that had a layout item referencing one of those Visualizations
+      // is now left with a stale tile — it must appear in orphanedNodes.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: insightId }));
+
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(await vizsById(vizId)).toHaveLength(0);
+      // The dashboard is surfaced as an orphaned node.
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      const dashboardOrphans = value.orphanedNodes.filter(
+        (n) => n.kind === "dashboard",
+      );
+      expect(dashboardOrphans).toHaveLength(1);
+      expect(dashboardOrphans[0]?.id).toBe(dashId);
+      // The dashboard itself is NOT deleted.
+      expect(await dashboardsById(dashId)).toHaveLength(1);
+    });
+
+    it("should cascade-delete owned DataTables when their DataSource is deleted (ownership edge)", async () => {
+      // DataSource → DataTable is the only ownership edge in the graph.
+      // Deleting a DataSource must remove all its DataTables.
+      const sourceId = id();
+      const tableId = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+
+      await commit(cmd("DeleteNode", { id: sourceId }));
+
+      expect(await sourcesById(sourceId)).toHaveLength(0);
+      expect(await tablesById(tableId)).toHaveLength(0);
+      expect(await tablesById(table2Id)).toHaveLength(0);
+    });
+
+    // -------------------------------------------------------------------------
+    // Reference-edge stop: DataTable → Insight (orphan-and-warn)
+    // -------------------------------------------------------------------------
+
+    it("should surface orphaned Insights when a DataTable they source is deleted (reference boundary)", async () => {
+      // The Artifact Model's typed-edge rule: DataTable → Insight is a reference
+      // edge. Deleting the DataTable must NOT auto-delete the Insight; instead it
+      // must return the Insight in orphanedNodes so the caller can route it to
+      // drift-repair. The Insight remains in the DB, reachable but broken.
+      const { tableId } = await makeTable();
+      const insight1Id = id();
+      const insight2Id = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insight1Id,
+          name: "I1",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: insight2Id,
+          name: "I2",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: tableId }));
+
+      // DataTable is gone.
+      expect(await tablesById(tableId)).toHaveLength(0);
+      // Insights survive — they are NOT cascade-deleted.
+      expect(await insightsById(insight1Id)).toHaveLength(1);
+      expect(await insightsById(insight2Id)).toHaveLength(1);
+      // Both are surfaced as orphanedNodes for the caller to route to repair.
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.ok).toBe(true);
+      expect(value.orphanedNodes).toHaveLength(2);
+      expect(value.orphanedNodes.map((n) => n.id).sort()).toEqual(
+        [insight1Id, insight2Id].sort(),
+      );
+      expect(value.orphanedNodes.every((n) => n.kind === "insight")).toBe(true);
+    });
+
+    it("should surface orphaned Insights when a DataSource (and its DataTables) is deleted (reference boundary through cascade)", async () => {
+      // When a DataSource is deleted, its DataTables cascade-delete (ownership).
+      // Any Insights that sourced those DataTables hit the reference boundary and
+      // must be surfaced as orphanedNodes — the delete blast-radius extends to
+      // the source's descendants at the reference edge.
+      const { sourceId, tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      expect(await sourcesById(sourceId)).toHaveLength(0);
+      expect(await tablesById(tableId)).toHaveLength(0);
+      // Insight survives — reference edge stops the cascade.
+      expect(await insightsById(insightId)).toHaveLength(1);
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]?.id).toBe(insightId);
+      expect(value.orphanedNodes[0]?.kind).toBe("insight");
+    });
+
+    // -------------------------------------------------------------------------
+    // Reference-edge stop: Insight → derived Insight (orphan-and-warn)
+    // -------------------------------------------------------------------------
+
+    it("should surface orphaned derived Insights when their upstream Insight is deleted (Insight-on-Insight reference boundary)", async () => {
+      // Insight-on-Insight composition: the derived Insight sources the deleted
+      // Insight. This is another reference edge — the derived Insight is an
+      // independently-authored artifact that must NOT be cascade-deleted.
+      const { tableId } = await makeTable();
+      const baseInsightId = id();
+      const derivedInsightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: baseInsightId,
+          name: "Base",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: derivedInsightId,
+          name: "Derived",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      // Re-point the derived Insight to source from the base.
+      await commit(
+        cmd("SetInsightSource", {
+          id: derivedInsightId,
+          source: { sourceType: "insight", sourceId: baseInsightId },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: baseInsightId }));
+
+      // Base Insight is gone.
+      expect(await insightsById(baseInsightId)).toHaveLength(0);
+      // Derived Insight survives — it is a separately-authored artifact.
+      expect(await insightsById(derivedInsightId)).toHaveLength(1);
+      const value = result.results[0]?.value as {
+        ok: boolean;
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes).toHaveLength(1);
+      expect(value.orphanedNodes[0]?.id).toBe(derivedInsightId);
+      expect(value.orphanedNodes[0]?.kind).toBe("insight");
+    });
+
+    it("should not surface duplicate orphaned Insights when two DataTables from one DataSource both feed the same Insight", async () => {
+      // Deduplication invariant: an Insight that transitively sources two
+      // DataTables from the same DataSource must appear only once in
+      // orphanedNodes. Two separate source refs → same orphan id → one entry.
+      // (This is a rare but structurally possible configuration when joins
+      // reference two tables from the same source; we test the dedup path.)
+      const sourceId = id();
+      const table1Id = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: table1Id,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+      // Single Insight sources table1; table2 doesn't have an Insight over it.
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: table1Id },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string }[];
+      };
+      // Insight appears exactly once even though the DataSource has 2 tables.
+      expect(
+        value.orphanedNodes.filter((n) => n.id === insightId),
+      ).toHaveLength(1);
+    });
+
+    it("should surface orphaned Insights when a DataTable they JOIN against is deleted (join-dependency boundary)", async () => {
+      // An Insight that uses a DataTable only as a JOIN target (not as its
+      // primary source) is still orphaned when that table is deleted. Verify
+      // that findOrphanedInsights checks joins[*].rightTableId.
+      const { tableId: primaryTableId } = await makeTable();
+      const { tableId: joinTableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: primaryTableId },
+        }),
+        // Add a join that references joinTableId as the right-hand side.
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "inner",
+            rightTableId: joinTableId,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: joinTableId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string; kind: string }[];
+      };
+      expect(value.orphanedNodes.map((n) => n.id)).toContain(insightId);
+    });
+
+    it("should surface an Insight only once when it sources AND joins against tables from the same DataSource", async () => {
+      // Dedup: an Insight whose primary source AND one of its joins both point
+      // at tables owned by a deleted DataSource must appear exactly once.
+      const sourceId = id();
+      const table1Id = id();
+      const table2Id = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: table1Id,
+          dataSourceId: sourceId,
+          name: "T1",
+          table: "t1.csv",
+        }),
+        cmd("CreateDataTable", {
+          id: table2Id,
+          dataSourceId: sourceId,
+          name: "T2",
+          table: "t2.csv",
+        }),
+      );
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: table1Id },
+        }),
+        cmd("AddJoin", {
+          id: insightId,
+          join: {
+            type: "left",
+            rightTableId: table2Id,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        }),
+      );
+
+      const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+      const value = result.results[0]?.value as {
+        orphanedNodes: { id: string }[];
+      };
+      expect(
+        value.orphanedNodes.filter((n) => n.id === insightId),
+      ).toHaveLength(1);
+    });
+
+    // -------------------------------------------------------------------------
+    // Arrow / DataFrame metadata cleanup
+    // -------------------------------------------------------------------------
+
+    it("should delete the DataFrame metadata row when an Insight is deleted (Arrow cleanup signal)", async () => {
+      // The dataFrames table stores metadata-only; the actual Arrow bytes live in
+      // the renderer's IndexedDB. Deleting the metadata row signals the client-
+      // side removeDataFrame hook to clean up Arrow bytes via deleteArrowData().
+      // Test: after DeleteNode(insight), the dataFrames row with insightId is gone.
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const frameId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      // Directly insert a DataFrame row linked to this Insight to simulate a
+      // cached result (the applyCommands vocabulary has no PutDataFrame command
+      // yet; we write the row via the raw Drizzle handle used by test helpers).
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        fieldIds: [],
+        name: `Frame for ${insightId}`,
+        insightId,
+        createdAt: new Date(),
+      });
+
+      const rows = await db.select().from(schema.dataFrames);
+      expect(rows.filter((r) => r.insightId === insightId)).toHaveLength(1);
+
+      await commit(cmd("DeleteNode", { id: insightId }));
+
+      // The DataFrame metadata row must be gone after the Insight is deleted.
+      const afterRows = await db.select().from(schema.dataFrames);
+      expect(afterRows.filter((r) => r.insightId === insightId)).toHaveLength(
+        0,
+      );
+    });
+  });
+
+  describe("RenameNode (extended to Visualization and Dashboard)", () => {
+    it("should rename a Visualization", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Old",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      await commit(cmd("RenameNode", { id: vizId, name: "New" }));
+      const rows = await vizsById(vizId);
+      expect(rows[0]?.name).toBe("New");
+    });
+
+    it("should rename a Dashboard", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "Old" }));
+      await commit(cmd("RenameNode", { id: dashId, name: "New" }));
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.name).toBe("New");
     });
   });
 });
