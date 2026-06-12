@@ -78,10 +78,6 @@ interface MosaicRequestBody {
 type RequestBody = NativeRequestBody | MosaicRequestBody;
 
 /**
- * Build a Hono router exposing the Arrow data path.
- * Mount it on the loopback host (e.g. under `/data`).
- */
-/**
  * Dispatch a parsed Arrow query body to the engine and return an HTTP Response.
  * Extracted to keep the Hono handler below the sonarjs cognitive-complexity cap.
  */
@@ -157,6 +153,10 @@ async function dispatchArrowQuery(
   });
 }
 
+/**
+ * Build a Hono router exposing the Arrow data path.
+ * Mount it on the loopback host (e.g. under `/data`).
+ */
 export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   const app = new Hono();
 
