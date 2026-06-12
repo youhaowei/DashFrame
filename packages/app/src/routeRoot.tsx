@@ -41,7 +41,7 @@ export function RouteRoot({
   providerWrapper?: ProviderWrapper;
 }) {
   return (
-    <div className="bg-neutral-bg font-sans text-neutral-fg">
+    <div className="bg-neutral-bg-emphasis font-sans text-neutral-fg">
       <ThemeProvider>
         <HostProviders>
           <TooltipProvider>
@@ -69,8 +69,11 @@ export function RouteRoot({
                   <StoreHydration>
                     <ArtifactContextProvider>
                       {/* Three-region shell:
-                          LEFT nav · CENTER artifact (hero) · RIGHT assistant. */}
-                      <div className="relative isolate flex min-h-screen flex-row bg-neutral-bg text-neutral-fg">
+                          LEFT nav · CENTER artifact (hero) · RIGHT assistant.
+                          Regions float as rounded cards on the gradient canvas
+                          (transparent here so the -z-10 backdrop shows through
+                          the gaps). */}
+                      <div className="relative isolate flex h-screen flex-row gap-3 p-3 text-neutral-fg">
                         <Navigation />
                         <AssistantRegion>
                           <Outlet />

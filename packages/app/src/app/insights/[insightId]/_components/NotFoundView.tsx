@@ -19,7 +19,7 @@ export function NotFoundView({ type }: NotFoundViewProps) {
       : "The data table for this insight no longer exists.";
 
   return (
-    <div className="flex h-screen items-center justify-center">
+    <div className="flex h-full items-center justify-center">
       <div className="text-center">
         <h2 className="text-xl font-semibold">{title}</h2>
         <p className="mt-2 text-sm text-neutral-fg-subtle">{description}</p>

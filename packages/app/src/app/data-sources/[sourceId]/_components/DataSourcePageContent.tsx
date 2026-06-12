@@ -263,7 +263,7 @@ export default function DataSourcePageContent({
 
   if (isLoading && !dataSource) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <p className="text-sm text-neutral-fg-subtle">Loading data source…</p>
         </div>
@@ -274,7 +274,7 @@ export default function DataSourcePageContent({
   // Not found state
   if (!dataSource) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data source not found</h2>
           <p className="mt-2 text-sm text-neutral-fg-subtle">

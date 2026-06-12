@@ -39,17 +39,21 @@ export function AssistantRegion({ children }: { children: ReactNode }) {
   const overlay = isOpen && !reflowRail;
 
   return (
-    <div className="relative flex min-h-0 w-full flex-1 flex-row">
-      {/* CENTER — artifact hero */}
-      <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="relative flex min-h-0 w-full flex-1 flex-row gap-3">
+      {/* CENTER — artifact hero, floating card */}
+      <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-neutral-border/60 bg-neutral-bg shadow-sm">
         <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
           {children}
         </div>
       </main>
 
-      {/* RIGHT, docked rail — reflows the artifact (wide viewports only). */}
+      {/* RIGHT, docked rail — reflows the artifact (wide viewports only).
+          Card chrome lives here so the sidebar body stays presentation-agnostic. */}
       {reflowRail && (
-        <div className="h-full shrink-0" style={{ width }}>
+        <div
+          className="h-full shrink-0 overflow-hidden rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 shadow-sm backdrop-blur"
+          style={{ width }}
+        >
           <AssistantSidebar presentation="docked" />
         </div>
       )}

@@ -30,7 +30,7 @@ export default function InsightPageContent({
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="lg" className="text-neutral-fg-subtle" />
           <p className="text-sm text-neutral-fg-subtle">Loading insight...</p>

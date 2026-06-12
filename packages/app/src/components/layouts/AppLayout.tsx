@@ -65,7 +65,7 @@ export function AppLayout({
   return (
     <div
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-neutral-bg",
+        "flex h-full flex-col overflow-hidden bg-neutral-bg",
         className,
       )}
     >

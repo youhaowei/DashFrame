@@ -44,10 +44,11 @@ export function AssistantSidebar({
     );
   }
 
-  // Docked: fill the rail the shell reserves for us.
+  // Docked: fill the rail the shell reserves for us. Card chrome (border,
+  // radius, bg) is owned by the rail wrapper in AssistantRegion.
   return (
     <div
-      className="flex h-full flex-col overflow-hidden border-l border-neutral-border/60 bg-neutral-bg/80"
+      className="flex h-full flex-col overflow-hidden"
       role="complementary"
       aria-label="Assistant"
     >

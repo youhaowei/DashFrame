@@ -263,16 +263,20 @@ export function Navigation() {
   if (isHidden) sidebarWidth = "w-0";
   else if (isCollapsed) sidebarWidth = "w-20";
 
-  let handleLeft = "18rem";
+  // Seam center = shell padding (0.75rem) + sidebar width + half the 0.75rem
+  // gap; the handle straddles it via -translate-x-1/2. Hidden pins it to the
+  // viewport edge as a flush tab (no card to straddle).
+  let handleLeft = "calc(18rem + 1.125rem)";
   if (isHidden) handleLeft = "0px";
-  else if (isCollapsed) handleLeft = "5rem";
+  else if (isCollapsed) handleLeft = "calc(5rem + 1.125rem)";
 
   return (
     <>
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "bg-neutral-bg/95/80 sticky top-0 hidden h-screen flex-col overflow-y-auto border-r border-neutral-border/60 backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-neutral-bg/80 lg:flex",
+          "hidden h-full flex-col overflow-x-hidden overflow-y-auto rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 shadow-sm backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-neutral-bg/80 lg:flex",
+          isHidden && "border-transparent shadow-none",
           sidebarWidth,
         )}
       >
@@ -287,7 +291,12 @@ export function Navigation() {
       <button
         type="button"
         onClick={() => setIsHidden((prev) => !prev)}
-        className="fixed top-9 z-40 hidden -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-all duration-300 hover:bg-neutral-bg-muted hover:text-neutral-fg lg:flex"
+        className={cn(
+          "fixed top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center border border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-all duration-300 hover:bg-neutral-bg-muted hover:text-neutral-fg lg:flex",
+          isHidden
+            ? "rounded-r-lg border-l-0"
+            : "-translate-x-1/2 rounded-full",
+        )}
         style={{
           left: handleLeft,
           height: "3rem",

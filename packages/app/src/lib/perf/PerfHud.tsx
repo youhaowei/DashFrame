@@ -105,7 +105,7 @@ function PerfHudInner() {
     // generation; `flex-col-reverse` keeps the chip pinned to the bottom with
     // the panel stacking upward above it.
     <div
-      className="pointer-events-none fixed left-3 z-50 flex flex-col-reverse items-start gap-2"
+      className="pointer-events-none fixed right-3 z-50 flex flex-col-reverse items-end gap-2"
       style={{ bottom: "0.75rem" }}
     >
       {open && (
