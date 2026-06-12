@@ -81,6 +81,82 @@ type RequestBody = NativeRequestBody | MosaicRequestBody;
  * Build a Hono router exposing the Arrow data path.
  * Mount it on the loopback host (e.g. under `/data`).
  */
+/**
+ * Dispatch a parsed Arrow query body to the engine and return an HTTP Response.
+ * Extracted to keep the Hono handler below the sonarjs cognitive-complexity cap.
+ */
+async function dispatchArrowQuery(
+  engine: ArrowQueryRunner,
+  body: RequestBody,
+): Promise<Response> {
+  const sql = typeof body.sql === "string" ? body.sql.trim() : "";
+  if (!sql) {
+    return Response.json(
+      { error: "Body must include a non-empty sql string" },
+      { status: 400 },
+    );
+  }
+
+  // Determine query type: Mosaic sends explicit `type`; the native compiled
+  // path has no `type` field and always wants Arrow IPC.
+  let queryType: "arrow" | "exec" | "json";
+  if (body.type === "exec") {
+    queryType = "exec";
+  } else if (body.type === "json") {
+    queryType = "json";
+  } else {
+    queryType = "arrow";
+  }
+
+  // Validate params on the native path (no `type` field). Mosaic never sends
+  // params, so only the native compiled-query path can hit this. A scalar
+  // params silently coerced to [] would produce a binding-mismatch 500 later;
+  // fail clearly at the request boundary instead.
+  if (
+    !body.type &&
+    "params" in body &&
+    body.params !== undefined &&
+    !Array.isArray(body.params)
+  ) {
+    return Response.json({ error: "params must be an array" }, { status: 400 });
+  }
+
+  if (queryType === "exec") {
+    try {
+      await engine.queryArrow(sql, []);
+    } catch {
+      return Response.json(
+        { error: "Query execution failed" },
+        { status: 500 },
+      );
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  let arrow: Uint8Array;
+  try {
+    arrow = await engine.queryArrow(sql, parseParams(body));
+  } catch {
+    return Response.json({ error: "Query execution failed" }, { status: 500 });
+  }
+
+  if (queryType === "json") {
+    try {
+      return Response.json(arrowIpcToJsonRows(arrow));
+    } catch {
+      return Response.json(
+        { error: "Result serialization failed" },
+        { status: 500 },
+      );
+    }
+  }
+
+  return new Response(arrow, {
+    status: 200,
+    headers: { "Content-Type": ARROW_STREAM_CONTENT_TYPE },
+  });
+}
+
 export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   const app = new Hono();
 
@@ -102,70 +178,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    const sql = typeof body.sql === "string" ? body.sql.trim() : "";
-    if (!sql) {
-      return c.json({ error: "Body must include a non-empty sql string" }, 400);
-    }
-
-    // Determine query type: Mosaic sends explicit `type`; the native compiled
-    // path has no `type` field and always wants Arrow IPC.
-    const queryType: "arrow" | "exec" | "json" =
-      body.type === "exec" ? "exec" : body.type === "json" ? "json" : "arrow";
-
-    // Validate params on the native path (no `type` field). Mosaic never sends
-    // params, so only the native compiled-query path can hit this. A scalar
-    // params silently coerced to [] would produce a binding-mismatch 500 later;
-    // fail clearly at the request boundary instead.
-    if (
-      !body.type &&
-      "params" in body &&
-      body.params !== undefined &&
-      !Array.isArray(body.params)
-    ) {
-      return c.json({ error: "params must be an array" }, 400);
-    }
-
-    // For exec queries (SET, CREATE TEMP, etc.) — run without returning data.
-    if (queryType === "exec") {
-      try {
-        // exec queries don't return data; run via queryArrow (which calls
-        // conn.runAndReadAll internally) and discard the result.
-        await options.engine.queryArrow(sql, []);
-      } catch {
-        // Keep engine errors opaque over the loopback channel.
-        return c.json({ error: "Query execution failed" }, 500);
-      }
-      // Mosaic expects an empty 200 body for exec.
-      return new Response(null, { status: 200 });
-    }
-
-    // For both arrow and json types, run the query and get Arrow IPC bytes.
-    let arrow: Uint8Array;
-    try {
-      const params = parseParams(body);
-      arrow = await options.engine.queryArrow(sql, params);
-    } catch {
-      return c.json({ error: "Query execution failed" }, 500);
-    }
-
-    if (queryType === "json") {
-      // Mosaic uses 'json' for query-planner calls (DESCRIBE, column stats,
-      // etc.) and expects a JSON array of objects. Decode our Arrow IPC bytes
-      // into rows rather than returning binary — Mosaic will parse the JSON.
-      let rows: Record<string, unknown>[];
-      try {
-        rows = arrowIpcToJsonRows(arrow);
-      } catch {
-        return c.json({ error: "Result serialization failed" }, 500);
-      }
-      return c.json(rows);
-    }
-
-    // Default: return Arrow IPC bytes.
-    return new Response(arrow, {
-      status: 200,
-      headers: { "Content-Type": ARROW_STREAM_CONTENT_TYPE },
-    });
+    return dispatchArrowQuery(options.engine, body);
   });
 
   // -------------------------------------------------------------------------
@@ -180,7 +193,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
 
     const name = c.req.param("name");
-    if (!name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) {
       return c.json(
         { error: "Table name must be a valid SQL identifier" },
         400,
