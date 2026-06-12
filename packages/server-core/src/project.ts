@@ -5,11 +5,18 @@
  *   <dir>/
  *     artifacts.db          # PGLite, tables via syncSchema
  *     data/sources/         # Parquet files, one per imported DataSource
+ *     snapshots/            # Rotating PGLite datadir tarballs (see snapshots.ts)
  *
  * On first open, `project_meta` is seeded with a freshly generated
  * `project_id`, creator version, `schema_version = ARTIFACT_DB_SCHEMA_VERSION`,
  * and the current OS user as `created_by`. Subsequent opens are no-ops on the
  * metadata row.
+ *
+ * Recovery path: if PGlite aborts during WAL replay (RuntimeError from
+ * Emscripten), the damaged datadir is quarantined with a timestamp suffix and
+ * the newest snapshot is restored. If no snapshot exists a fresh project is
+ * created. The returned `ProjectHandle` carries a `recovery` notice the host
+ * can surface to the user. See GitHub issue #88.
  */
 
 import fs from "node:fs/promises";
@@ -34,10 +41,29 @@ import {
   projectMeta,
   type ProjectMetaRow,
 } from "./schema";
+import {
+  restoreNewestSnapshot,
+  SnapshotScheduler,
+  writeSnapshot,
+  type SnapshotMeta,
+} from "./snapshots";
 import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 export const ARTIFACTS_DB_FILENAME = "artifacts.db";
 export const DATA_SOURCES_DIRNAME = path.join("data", "sources");
+
+/** Set when openProject had to quarantine a damaged datadir. */
+export interface ProjectRecoveryNotice {
+  /** What happened. */
+  reason: "wal-corruption";
+  /**
+   * The snapshot that was restored, or null when no snapshot was available
+   * and the project was re-initialized as a fresh empty project.
+   */
+  restoredSnapshot: SnapshotMeta | null;
+  /** Absolute path to the quarantined damaged datadir. */
+  quarantinedPath: string;
+}
 
 export interface ProjectHandle {
   /** Resolved absolute path to the project folder. */
@@ -50,7 +76,18 @@ export interface ProjectHandle {
   db: ArtifactDb;
   /** The single `project_meta` row. */
   meta: ProjectMetaRow;
-  /** Flush pending writes and close the underlying PGlite connection. */
+  /**
+   * Set when the project was recovered from a corrupt WAL; null on a normal
+   * open. The desktop host reads this and surfaces a dialog to the user.
+   */
+  recovery: ProjectRecoveryNotice | null;
+  /**
+   * Notify the snapshot scheduler that a write just occurred.
+   * Call this after any operation that mutates the artifact DB so the
+   * debounced snapshot timer is reset.
+   */
+  touchSnapshot(): void;
+  /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
   close(): Promise<void>;
 }
 
@@ -63,6 +100,12 @@ export interface OpenProjectOptions extends ResolveProjectDirOptions {
   createdBy?: string;
   /** DashFrame semver that created the project. */
   version?: string;
+  /**
+   * Debounce interval in ms for the post-write snapshot timer.
+   * Exposed for tests (set low to avoid real waits).
+   * Defaults to SNAPSHOT_DEBOUNCE_MS (30 s).
+   */
+  snapshotDebounceMs?: number;
 }
 
 export async function openProject(
@@ -74,7 +117,33 @@ export async function openProject(
 
   await fs.mkdir(dataSourcesDir, { recursive: true });
 
-  const db = await openArtifactDb({ path: dbPath });
+  // --- attempt normal open ---
+  let db: ArtifactDb;
+  let recovery: ProjectRecoveryNotice | null = null;
+
+  try {
+    db = await openArtifactDb({ path: dbPath });
+  } catch (err) {
+    // WAL-replay aborts surface as RuntimeError from Emscripten — check for
+    // that pattern and attempt recovery, but re-throw any other error class.
+    if (!isWalCorruptionError(err)) throw err;
+
+    // Quarantine the damaged datadir.
+    const quarantinedPath = await quarantineDamagedDb(dbPath);
+
+    // Restore from snapshot (or start fresh).
+    const restoredSnapshot = await restoreNewestSnapshot(dir, dbPath);
+
+    // Open the restored (or fresh) datadir.
+    db = await openArtifactDb({ path: dbPath });
+
+    recovery = {
+      reason: "wal-corruption",
+      restoredSnapshot,
+      quarantinedPath,
+    };
+  }
+
   let meta: ProjectMetaRow;
   try {
     meta = await ensureProjectMeta(db, {
@@ -87,8 +156,81 @@ export async function openProject(
     throw err;
   }
 
-  const close = () => db.$client.close();
-  return { dir, dbPath, dataSourcesDir, db, meta, close };
+  const scheduler = new SnapshotScheduler(
+    db.$client,
+    dir,
+    options.snapshotDebounceMs,
+  );
+
+  const close = async () => {
+    // Cancel any pending debounced snapshot before writing the final one.
+    scheduler.cancel();
+    try {
+      await writeSnapshot(db.$client, dir);
+    } catch (err) {
+      console.error("[dashframe] close-time snapshot failed:", err);
+    }
+    await db.$client.close();
+  };
+
+  return {
+    dir,
+    dbPath,
+    dataSourcesDir,
+    db,
+    meta,
+    recovery,
+    touchSnapshot: () => scheduler.touch(),
+    close,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true for the class of errors that indicate a PGlite WAL-replay
+ * abort. Emscripten surfaces unrecoverable WASM errors as WebAssembly
+ * RuntimeError instances thrown from `waitReady`. Observed forms:
+ *   RuntimeError: Aborted()              — Emscripten ASSERTIONS build
+ *   RuntimeError: Aborted(OOM)           — Emscripten ASSERTIONS build
+ *   RuntimeError: unreachable            — release WASM trap
+ *
+ * Any RuntimeError thrown during PGlite startup is an unrecoverable WASM
+ * abort; there is no pg_resetwal equivalent in WASM so recovery via snapshot
+ * is the only option.
+ *
+ * We also match the string "Aborted()" for runtimes that may not preserve the
+ * class name across module boundaries.
+ */
+function isWalCorruptionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  // RuntimeError is the WebAssembly/Emscripten error class.
+  return (
+    err.constructor.name === "RuntimeError" || err.message.includes("Aborted()")
+  );
+}
+
+/**
+ * Rename the damaged artifacts.db aside to a timestamped quarantine path.
+ * Returns the quarantine path.
+ *
+ * If the damaged path does not exist (shouldn't happen, but be defensive),
+ * returns a synthetic path without touching the filesystem.
+ */
+async function quarantineDamagedDb(dbPath: string): Promise<string> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const quarantinedPath = `${dbPath}.damaged-${timestamp}`;
+  try {
+    await fs.rename(dbPath, quarantinedPath);
+  } catch {
+    // Directory may not exist yet or rename may fail; log but proceed.
+    console.error(
+      `[dashframe] could not quarantine ${dbPath} → ${quarantinedPath}`,
+    );
+  }
+  return quarantinedPath;
 }
 
 async function ensureProjectMeta(

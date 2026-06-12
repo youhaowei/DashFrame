@@ -155,6 +155,22 @@ app
 
     console.log(`[dashframe] project ready at ${project.dir}`);
 
+    // Surface recovery notice when the project was restored from a snapshot.
+    if (project.recovery) {
+      const { restoredSnapshot, quarantinedPath } = project.recovery;
+      const snapshotLine = restoredSnapshot
+        ? `Your project was restored from a snapshot taken at ${restoredSnapshot.timestamp}.`
+        : "No snapshot was available — a fresh empty project has been created.";
+      const quarantineLine = `The damaged database has been saved to:\n${quarantinedPath}`;
+      dialog.showMessageBoxSync({
+        type: "warning",
+        title: "Project recovered",
+        message: "DashFrame recovered your project after an unclean shutdown.",
+        detail: `${snapshotLine}\n\nAny changes made since the last snapshot are not recoverable.\n\n${quarantineLine}`,
+        buttons: ["Continue"],
+      });
+    }
+
     try {
       // Dev uses the Vite origin from DEV_URL. Packaged Electron loads the
       // renderer from file://, which browsers send as Origin: null; allow that
