@@ -11,15 +11,19 @@
     "dev": "bun scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint"
+    "check": "bun run typecheck && bun run lint",
+    "verify:engine": "bun scripts/verify-native-engine.mjs"
   },
   "dependencies": {
     "@dashframe/desktop-types": "workspace:*",
+    "@dashframe/engine-server": "workspace:*",
     "@dashframe/server": "workspace:*",
     "@dashframe/server-core": "workspace:*",
+    "@duckdb/node-api": "1.5.3-r.3",
     "@electric-sql/pglite": "^0.3.14",
     "@hono/node-server": "^1.19.12",
     "@hono/node-ws": "^1.3.0",
+    "apache-arrow": "^21.1.0",
     "drizzle-orm": "^0.45.1",
     "electron": "^33.2.1",
     "hono": "^4.12.9",

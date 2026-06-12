@@ -40,7 +40,8 @@ function awaitProc(child, label) {
 // Desktop's main bundle marks workspace packages as external, so every
 // workspace dep main.ts reaches must exist as JS before it is bundled —
 // Electron 33 (Node 20) cannot load .ts entry points at runtime. Build the
-// dependency chain in order: wystack framework → server-core → server app.
+// dependency chain in order: wystack framework → server-core → engine-server
+// → server app.
 const repoRoot = path.resolve(desktopDir, "..", "..");
 
 // 1a. Build the @wystack/* packages main consumes via @dashframe/server.
@@ -58,7 +59,19 @@ await awaitProc(
   "server-core build",
 );
 
-// 1c. Build @dashframe/server (the WyStack server app main starts on loopback).
+// 1c. Build @dashframe/engine-server (native DuckDB engine + Arrow data path).
+// @dashframe/server imports createArrowDataPath from it and its `types` export
+// points at dist/index.d.ts, so the server build below needs its emitted JS +
+// declarations present in a clean checkout.
+await awaitProc(
+  spawn("bun", ["run", "--filter", "@dashframe/engine-server", "build"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  }),
+  "engine-server build",
+);
+
+// 1d. Build @dashframe/server (the WyStack server app main starts on loopback).
 await awaitProc(
   spawn("bun", ["run", "--filter", "@dashframe/server", "build"], {
     cwd: repoRoot,

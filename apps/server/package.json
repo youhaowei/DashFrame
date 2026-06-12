@@ -31,6 +31,7 @@
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/engine-server": "workspace:*",
     "@dashframe/server-core": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@hono/node-server": "^1.19.12",
