@@ -1,0 +1,47 @@
+{
+  "name": "@dashframe/engine-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./arrow-data-path": {
+      "types": "./dist/arrow-data-path.d.ts",
+      "bun": "./src/arrow-data-path.ts",
+      "default": "./dist/arrow-data-path.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run build:js && bun run build:types",
+    "build:js": "esbuild src/index.ts src/arrow-data-path.ts --bundle --platform=node --packages=external --format=esm --outdir=dist",
+    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "dependencies": {
+    "@dashframe/engine": "workspace:*",
+    "@dashframe/types": "workspace:*",
+    "@duckdb/node-api": "1.5.3-r.3",
+    "apache-arrow": "^21.1.0",
+    "hono": "^4.12.9"
+  },
+  "devDependencies": {
+    "@dashframe/eslint-config": "workspace:*",
+    "@types/node": "^22.10.1",
+    "esbuild": "^0.28.0",
+    "typescript": "5.7.2",
+    "vitest": "^4.1.6"
+  }
+}

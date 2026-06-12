@@ -1,4 +1,8 @@
 import {
+  NativeDuckDBEngine,
+  selectEngineBinding,
+} from "@dashframe/engine-server";
+import {
   ARTIFACTS_DB_FILENAME,
   openProject,
   type ProjectHandle,
@@ -16,6 +20,7 @@ const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
 let project: ProjectHandle | null = null;
 let server: DashframeServer | null = null;
+let engine: NativeDuckDBEngine | null = null;
 let isClosingProject = false;
 
 function createLoopbackToken(): string {
@@ -31,6 +36,11 @@ async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
     server?.stop();
   } catch (err) {
     console.error("[dashframe] error stopping server:", err);
+  }
+  try {
+    await engine?.dispose();
+  } catch (err) {
+    console.error("[dashframe] error disposing engine:", err);
   }
   try {
     await project.close();
@@ -143,10 +153,22 @@ app
       // origin while relying on the per-launch bearer token for authority.
       const corsOrigin = isDev ? new URL(DEV_URL).origin : "null";
       authToken = createLoopbackToken();
+
+      // Desktop resolves to the native DuckDB engine (engine selection policy,
+      // one place). It backs the dedicated Arrow IPC data path on the loopback
+      // server — Electron main stays a thin host; the engine lives in the
+      // server process, not main proper.
+      const binding = selectEngineBinding("desktop");
+      console.log(`[dashframe] engine binding: ${binding}`);
+      engine = new NativeDuckDBEngine();
+      await engine.initialize();
+      console.log("[dashframe] native DuckDB engine ready");
+
       server = await createDashframeServer({
         db: project.db,
         corsOrigin,
         authToken,
+        arrowEngine: engine,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

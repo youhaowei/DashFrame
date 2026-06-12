@@ -1,0 +1,38 @@
+/**
+ * Stage 1 — Compile: content-addressing boundary.
+ *
+ * A compiled query is `{ sql, params }`. Its content hash is the cache key used
+ * by the on-disk Parquet cache (Stage 4). Two Insights — or one Insight across
+ * two drafts — that compile to byte-identical `{ sql, params }` ARE the same
+ * query and share cache; that is why the content-hash key carries no `draftId`
+ * (per the Data Execution Pipeline spec).
+ *
+ * The SQL itself is produced upstream by `buildInsightSQL`
+ * (`@dashframe/engine`), shared by every engine. This module owns only the
+ * hashing — the boundary, not the compiler.
+ */
+import { createHash } from "node:crypto";
+
+/** A compiled query: the SQL text plus its ordered positional parameters. */
+export interface CompiledQuery {
+  sql: string;
+  params: readonly unknown[];
+}
+
+/**
+ * Stable content hash of a compiled `{ sql, params }`.
+ *
+ * Deterministic across processes: the SQL string and the JSON-serialized
+ * params feed a sha256, hex-encoded. Param order is significant (positional
+ * binding), so it is preserved. Returns a short hex digest suitable as a
+ * filename stem for the Parquet cache.
+ */
+export function hashCompiledQuery(query: CompiledQuery): string {
+  const hash = createHash("sha256");
+  hash.update(query.sql);
+  // A NUL separator keeps `sql` and the params section unambiguous: no params
+  // string can collide with a longer sql that happens to share a prefix.
+  hash.update("\x00");
+  hash.update(JSON.stringify(query.params));
+  return hash.digest("hex");
+}
