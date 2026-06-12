@@ -218,7 +218,6 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- connector identity is stable; db/connection change together
   }, [db, connection, connector]);
 
   return (
