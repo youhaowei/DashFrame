@@ -263,20 +263,20 @@ export function Navigation() {
   if (isHidden) sidebarWidth = "w-0";
   else if (isCollapsed) sidebarWidth = "w-20";
 
-  // Seam center = shell padding (0.75rem) + sidebar width + half the 0.75rem
-  // gap; the handle straddles it via -translate-x-1/2. Hidden pins it to the
-  // viewport edge as a flush tab (no card to straddle).
-  let handleLeft = "calc(18rem + 1.125rem)";
+  // Seam center = shell inset (--surface-inset, 0.5rem) + sidebar width + half
+  // the 0.5rem gap; the handle straddles it via -translate-x-1/2. Hidden pins
+  // it to the viewport edge as a flush tab (no panel to straddle).
+  let handleLeft = "calc(18rem + 0.75rem)";
   if (isHidden) handleLeft = "0px";
-  else if (isCollapsed) handleLeft = "calc(5rem + 1.125rem)";
+  else if (isCollapsed) handleLeft = "calc(5rem + 0.75rem)";
 
   return (
     <>
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden h-full flex-col overflow-x-hidden overflow-y-auto rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 shadow-sm backdrop-blur transition-all duration-300 supports-backdrop-filter:bg-neutral-bg/80 lg:flex",
-          isHidden && "border-transparent shadow-none",
+          "hidden h-full flex-col overflow-x-hidden overflow-y-auto rounded-[var(--surface-radius)] bg-neutral-bg/90 saturate-[1.2] shadow-[var(--surface-shadow)] transition-all duration-300 lg:flex",
+          isHidden && "shadow-none",
           sidebarWidth,
         )}
       >

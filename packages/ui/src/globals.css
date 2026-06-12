@@ -7,3 +7,9 @@
 /* Fonts: stdui has no opinion on typography. Tailwind's defaults for
  * `font-sans` (system-ui, -apple-system, ...) and `font-mono` (ui-monospace,
  * SFMono-Regular, ...) apply automatically — no overrides needed. */
+
+/* Surface system: panel elevation alias (mirrors workforce's app-level
+ * definition; upstream candidate for @wystack/ui once both apps agree). */
+:root {
+  --surface-shadow: var(--shadow-md);
+}

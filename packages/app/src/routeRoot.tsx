@@ -41,7 +41,7 @@ export function RouteRoot({
   providerWrapper?: ProviderWrapper;
 }) {
   return (
-    <div className="bg-neutral-bg-emphasis font-sans text-neutral-fg">
+    <div className="bg-surface-base font-sans text-neutral-fg">
       <ThemeProvider>
         <HostProviders>
           <TooltipProvider>
@@ -70,10 +70,10 @@ export function RouteRoot({
                     <ArtifactContextProvider>
                       {/* Three-region shell:
                           LEFT nav · CENTER artifact (hero) · RIGHT assistant.
-                          Regions float as rounded cards on the gradient canvas
-                          (transparent here so the -z-10 backdrop shows through
-                          the gaps). */}
-                      <div className="relative isolate flex h-screen flex-row gap-3 p-3 text-neutral-fg">
+                          Surface system (DESIGN.md): regions float as
+                          shadow-lifted panels on the bg-surface-base canvas;
+                          geometry comes from the @wystack/ui surface tokens. */}
+                      <div className="relative isolate flex h-screen flex-row gap-[var(--surface-inset)] p-[var(--surface-inset)] text-neutral-fg">
                         <Navigation />
                         <AssistantRegion>
                           <Outlet />
