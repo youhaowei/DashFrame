@@ -112,6 +112,23 @@ function FilterEditForm({
   );
   const inputType = inputTypeForField(selectedField);
 
+  // The picker normally offers only filterable fields. An existing filter may
+  // reference a field outside that set (e.g. an API-created filter on a column
+  // the picker excludes); keep the current value selectable so the Select
+  // doesn't render blank and the user can still edit operator/value.
+  const fieldOptions =
+    field && !selectedField
+      ? [
+          ...combinedFields,
+          {
+            id: `__current__${field}`,
+            name: field,
+            columnName: field,
+            displayName: field,
+          } as CombinedField,
+        ]
+      : combinedFields;
+
   const isBetween = operator === "between";
   const isIn = operator === "in";
 
@@ -169,12 +186,12 @@ function FilterEditForm({
               <SelectValue placeholder="Select a field" />
             </SelectTrigger>
             <SelectContent>
-              {combinedFields.length === 0 ? (
+              {fieldOptions.length === 0 ? (
                 <div className="p-2 text-center text-sm text-neutral-fg-subtle">
                   No fields available
                 </div>
               ) : (
-                combinedFields.map((f) => (
+                fieldOptions.map((f) => (
                   <SelectItem key={f.id} value={f.columnName ?? f.name}>
                     {f.displayName}
                   </SelectItem>
