@@ -77,8 +77,7 @@ test.describe("compound-insight field/metric editing", () => {
     // 20s timeout accommodates Playwright's click-retry loop if the button
     // momentarily detaches during a list re-render.
     const updateInsightResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 20_000 },
     );
 
@@ -89,8 +88,9 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Add field" }),
     ).not.toBeVisible({ timeout: 5_000 });
 
-    // Confirm the mutation reached the server and returned 200
-    await updateInsightResponse;
+    // Confirm the mutation reached the server. Assert the status explicitly so a
+    // non-200 surfaces as a clear assertion failure instead of a waitForResponse timeout.
+    expect((await updateInsightResponse).status()).toBe(200);
 
     // Reload the page to get fresh server state — confirms server persisted correctly
     await page.reload();
@@ -106,7 +106,9 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 15_000 });
 
     // The empty-state message should be gone
-    await expect(page.getByText("No fields selected.")).not.toBeVisible();
+    await expect(page.getByText("No fields selected.")).not.toBeVisible({
+      timeout: 5_000,
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -133,8 +135,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Intercept the updateInsight mutation to confirm it fires and succeeds
     const updateInsightResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 10_000 },
     );
 
@@ -144,8 +145,9 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Add metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
 
-    // Confirm the mutation reached the server and returned 200
-    await updateInsightResponse;
+    // Confirm the mutation reached the server. Assert the status explicitly so a
+    // non-200 surfaces as a clear assertion failure instead of a waitForResponse timeout.
+    expect((await updateInsightResponse).status()).toBe(200);
 
     // Reload the page to get fresh server state — confirms server persisted correctly
     await page.reload();
@@ -161,7 +163,9 @@ test.describe("compound-insight field/metric editing", () => {
     });
 
     // The empty-state message should be gone
-    await expect(page.getByText("No metrics configured.")).not.toBeVisible();
+    await expect(page.getByText("No metrics configured.")).not.toBeVisible({
+      timeout: 5_000,
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -186,15 +190,14 @@ test.describe("compound-insight field/metric editing", () => {
     await productBtn.waitFor({ state: "visible" });
 
     const addFieldResponse1 = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 20_000 },
     );
     await productBtn.click();
     await expect(
       page.getByRole("dialog", { name: "Add field" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await addFieldResponse1;
+    expect((await addFieldResponse1).status()).toBe(200);
 
     // Reload to verify field was persisted
     await page.reload();
@@ -219,15 +222,14 @@ test.describe("compound-insight field/metric editing", () => {
     ).toHaveValue("Count");
 
     const addMetricResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Add metric" }).click();
     await expect(
       page.getByRole("dialog", { name: "Add metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await addMetricResponse;
+    expect((await addMetricResponse).status()).toBe(200);
 
     // Reload to verify metric was persisted
     await page.reload();
@@ -253,15 +255,14 @@ test.describe("compound-insight field/metric editing", () => {
     await nameInput.fill("Row Count");
 
     const updateMetricResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Save" }).click();
     await expect(
       page.getByRole("dialog", { name: "Edit metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await updateMetricResponse;
+    expect((await updateMetricResponse).status()).toBe(200);
 
     // Reload to verify metric rename was persisted
     await page.reload();
@@ -275,7 +276,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByRole("button", { name: "Edit Count" }),
-    ).not.toBeVisible();
+    ).not.toBeVisible({ timeout: 5_000 });
 
     // ── 4. removeField ──────────────────────────────────────────────────────
     // Cause: click Remove on "Product", confirm deletion
@@ -286,15 +287,14 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     const removeFieldResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Delete field" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete field" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await removeFieldResponse;
+    expect((await removeFieldResponse).status()).toBe(200);
 
     // Reload to verify field removal was persisted
     await page.reload();
@@ -319,15 +319,14 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     const removeMetricResponse = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/updateInsight") && resp.status() === 200,
+      (resp) => resp.url().includes("/api/updateInsight"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Delete metric" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await removeMetricResponse;
+    expect((await removeMetricResponse).status()).toBe(200);
 
     // Reload to verify metric removal was persisted
     await page.reload();
