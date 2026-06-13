@@ -386,6 +386,66 @@ function isKnownPath(path: string): path is CommandPath {
  * execute-then-rollback mechanism never persists). The `error` slot is purely
  * representational: it tells the reviewer what would have applied and what fails.
  */
+/**
+ * Probe the batch to find which command fails and what message it emits.
+ * Returns the failure index (conservative default: last command) and the
+ * message from the probe run of the exact failing command.
+ *
+ * P2 fix (#65): the message is captured from the probe, not from the full-batch
+ * run, so commandIndex and message always describe the same failure.
+ */
+async function probeBatchFailure(
+  app: WyStackApp,
+  batch: Command[],
+  fallbackMessage: string,
+): Promise<{ failureIndex: number; message: string }> {
+  let failureIndex = batch.length - 1; // conservative default
+  let message = fallbackMessage;
+  for (let k = 0; k < batch.length; k++) {
+    try {
+      await applyCommands(app, batch.slice(0, k + 1), { mode: "preview" });
+    } catch (probeErr) {
+      failureIndex = k;
+      message =
+        probeErr instanceof Error
+          ? probeErr.message
+          : String(probeErr ?? "Unknown error");
+      break;
+    }
+  }
+  return { failureIndex, message };
+}
+
+/**
+ * Run the pre-failure prefix to collect handler results for direct-node
+ * building. If the prefix re-run itself throws (infrastructure failure —
+ * e.g. a concurrent canonical write between the probe and this re-run),
+ * returns empty results so buildDirectNodes sees an empty input.
+ *
+ * P1 fix (#65): guarding the prefix re-run ensures buildPreviewDiff never
+ * throws regardless of what happens in this second applyCommands call.
+ */
+async function runPrefixSafe(
+  app: WyStackApp,
+  prefixBatch: Command[],
+): Promise<{
+  safeBatch: Command[];
+  results: CommandResult[];
+  tablesWritten: string[];
+}> {
+  try {
+    const result = await applyCommands(app, prefixBatch, { mode: "preview" });
+    return {
+      safeBatch: prefixBatch,
+      results: result.results,
+      tablesWritten: [...result.tablesWritten],
+    };
+  } catch {
+    // Infrastructure failure: fall back to empty — the error slot renders.
+    return { safeBatch: [], results: [], tablesWritten: [] };
+  }
+}
+
 export async function buildPreviewDiff(
   app: WyStackApp,
   db: ArtifactDb,
@@ -405,34 +465,27 @@ export async function buildPreviewDiff(
     prefixResults = result.results;
     tablesWritten = [...result.tablesWritten];
   } catch (err) {
-    // A command threw during the full-batch preview. Find which command by
-    // probing ascending prefixes — linear scan (batches are small). The
-    // canonical DB is clean after each preview (execute-then-rollback), so
-    // repeated probing is safe and leaves canonical untouched.
-    const message =
+    // A command threw during the full-batch preview. Probe to find which command
+    // (linear scan — batches are small; canonical DB is clean after each preview).
+    const fallback =
       err instanceof Error ? err.message : String(err ?? "Unknown error");
-    let failureIndex = batch.length - 1; // conservative default
-    for (let k = 0; k < batch.length; k++) {
-      try {
-        await applyCommands(app, batch.slice(0, k + 1), { mode: "preview" });
-      } catch {
-        failureIndex = k;
-        break;
-      }
-    }
+    const { failureIndex, message } = await probeBatchFailure(
+      app,
+      batch,
+      fallback,
+    );
     error = { commandIndex: failureIndex, message };
-    // The pre-failure prefix is commands 0..failureIndex-1. Build nodes from
-    // those commands; they all succeeded and canonical DB is still clean.
+
+    // The pre-failure prefix is commands 0..failureIndex-1. Run it to build nodes.
     prefixBatch = batch.slice(0, failureIndex);
     if (prefixBatch.length > 0) {
-      const prefixResult = await applyCommands(app, prefixBatch, {
-        mode: "preview",
-      });
-      prefixResults = prefixResult.results;
-      tablesWritten = [...prefixResult.tablesWritten];
+      const prefix = await runPrefixSafe(app, prefixBatch);
+      prefixBatch = prefix.safeBatch;
+      prefixResults = prefix.results;
+      tablesWritten = prefix.tablesWritten;
     }
-    // If failureIndex === 0, prefixBatch is empty: no direct nodes, no
-    // tablesWritten — only the error slot. prefixResults stays [].
+    // If failureIndex === 0 or runPrefixSafe fell back, prefixBatch is empty: no
+    // direct nodes, no tablesWritten — only the error slot. prefixResults stays [].
   }
 
   // 2. Group the batch by the artifact node each command targets. `prefixResults`
@@ -538,6 +591,10 @@ function foldCommand(
     // already minting; merge args. (create→create is the only create-merge that
     // genuinely happens, e.g. CreateDataSource then RenameNode on a fresh id.)
     Object.assign(node.proposedDefinition, args);
+    // P2 fix (#65): sync node.name when a later command in the batch renames the
+    // node (e.g. CreateDataSource followed by RenameNode — final name is the
+    // rename, not the creation name).
+    if (typeof args.name === "string") node.name = args.name;
     return;
   }
   if (effect === "create") {
@@ -546,12 +603,17 @@ function foldCommand(
     // an update: never regress a resolved canonical node to a before:null create.
     node.change = "update";
     Object.assign(node.proposedDefinition, args);
+    if (typeof args.name === "string") node.name = args.name;
     return;
   }
   // effect === "update": a noop node becomes a real update; a create stays a
   // create (a create + later update is still a mint). Either way, merge args.
   if (node.change === "noop") node.change = "update";
   Object.assign(node.proposedDefinition, args);
+  // P2 fix (#65): an update that carries a name (e.g. RenameNode) sets the final
+  // displayed name. For update/noop nodes the seed name came from the canonical
+  // before-slice; a rename in the same batch supersedes it.
+  if (typeof args.name === "string") node.name = args.name;
 }
 
 /**

@@ -106,7 +106,7 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
           <ul className="ml-0 list-none space-y-0.5">
             {node.intent.map((intent, i) => (
               <li
-                key={i}
+                key={`${intent.command}-${i}`}
                 className="text-xs text-neutral-fg/70"
                 title={intent.command}
               >

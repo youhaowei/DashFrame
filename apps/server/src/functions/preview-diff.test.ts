@@ -1487,4 +1487,90 @@ describe("PreviewDiff builder", () => {
       expect(diff.error).toBeUndefined();
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Additional tests for fixes landed in the review pass (#65)
+  // --------------------------------------------------------------------------
+
+  describe("create-then-rename — final name shown on the consent surface", () => {
+    it("node.name reflects the rename, not the creation name", async () => {
+      // A fresh id minted by CreateDataSource then immediately renamed in the same
+      // batch. The consent surface must show the rename — "RenamedDS", not "Fresh".
+      const freshId = id();
+      const diff = await preview(
+        cmd("CreateDataSource", { id: freshId, type: "csv", name: "Fresh" }),
+        cmd("RenameNode", { id: freshId, name: "RenamedDS" }),
+      );
+
+      const node = diff.directNodes.find((n) => n.nodeId === freshId);
+      expect(node).toBeDefined();
+      expect(node!.change).toBe("create");
+      // The rename overrides the creation name — final name must be "RenamedDS".
+      expect(node!.name).toBe("RenamedDS");
+      // proposedDefinition carries the merged rename too.
+      expect(node!.proposedDefinition).toMatchObject({ name: "RenamedDS" });
+    });
+
+    it("existing-node multi-command: name reflects the rename when RenameNode follows another update", async () => {
+      // When a canonical node is updated by one command then renamed by a later one
+      // in the same batch, node.name must reflect the final rename (the foldCommand
+      // path updates it). The before-slice name ("OldName") is only the seed;
+      // a subsequent RenameNode that goes through foldCommand overwrites it.
+      const sourceId = await seedSource({ name: "OldName" });
+      const diff = await preview(
+        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "k" }),
+        cmd("RenameNode", { id: sourceId, name: "NewName" }),
+      );
+
+      const node = diff.directNodes.find((n) => n.nodeId === sourceId);
+      expect(node).toBeDefined();
+      expect(node!.change).toBe("update");
+      // The rename (second command, via foldCommand) must supersede the seed name.
+      expect(node!.name).toBe("NewName");
+      expect(node!.proposedDefinition).toMatchObject({ name: "NewName" });
+    });
+  });
+
+  describe("no-rethrow contract — partial failure always resolves", () => {
+    it("buildPreviewDiff never throws: always resolves with a renderable diff + error slot", async () => {
+      // P1 guard: the promise must resolve regardless of the failure mode.
+      // A single-command failure (failureIndex=0) is the sharpest test: prefixBatch
+      // is empty so the guarded prefix re-run is skipped entirely, and the function
+      // must still return a well-formed PreviewDiff.
+      const nonExistentId = id();
+      const diffPromise = buildPreviewDiff(app, db, [
+        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
+      ]);
+
+      // The contract: always resolves (never rejects).
+      await expect(diffPromise).resolves.toBeDefined();
+      const diff = await diffPromise;
+      expect(diff.mode).toBe("preview");
+      expect(diff.error).toBeDefined();
+      expect(diff.error!.commandIndex).toBe(0);
+      expect(diff.directNodes).toEqual([]);
+    });
+  });
+
+  describe("probe message accuracy — error.message comes from the probe, not the full-batch run", () => {
+    it("error.message and commandIndex describe the same failure (both from the probe of the failing command)", async () => {
+      // P2 fix: the message must be sourced from the probe that confirmed
+      // failureIndex=1, not from the full-batch run. We assert that the slot is
+      // coherent: commandIndex points to the failing command AND message is non-empty.
+      const nonExistentId = id();
+      const diff = await buildPreviewDiff(app, db, [
+        cmd("CreateDataSource", { id: id(), type: "csv", name: "OK" }),
+        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
+      ]);
+
+      expect(diff.error).toBeDefined();
+      expect(diff.error!.commandIndex).toBe(1);
+      // The message is from the probe of command 1 — non-empty, type string.
+      expect(typeof diff.error!.message).toBe("string");
+      expect(diff.error!.message.length).toBeGreaterThan(0);
+      // The pre-failure node (command 0) is still present.
+      expect(diff.directNodes).toHaveLength(1);
+      expect(diff.directNodes[0]!.change).toBe("create");
+    });
+  });
 });
