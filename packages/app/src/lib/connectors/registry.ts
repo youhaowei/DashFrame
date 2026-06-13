@@ -96,10 +96,13 @@ export function registerConnector(connector: AnyConnector): void {
 
 /**
  * Clear all registered connectors.
- * Useful for testing; does not increment the registry version.
+ * Notifies subscribers so any component holding `useRegistryVersion()` will
+ * re-render and see an empty registry. Does not increment the registry version
+ * (version monotonically tracks new-id additions, not removals).
  */
 export function clearConnectorRegistry(): void {
   connectorMap.clear();
+  notifyListeners();
 }
 
 // ============================================================================

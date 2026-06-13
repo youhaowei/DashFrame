@@ -2,9 +2,11 @@ import {
   type ArtifactContextValue,
   useBindArtifact,
 } from "@/components/assistant/artifact-context";
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { getConnectorById } from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
 import {
   useDataFrames,
@@ -46,8 +48,6 @@ import {
   DatabaseIcon,
   DeleteIcon,
   ChevronLeftIcon as LuArrowLeft,
-  CloudIcon as LuCloud,
-  FileIcon as LuFileSpreadsheet,
   MoreIcon as LuMoreHorizontal,
   PlusIcon,
   TableIcon,
@@ -65,18 +65,14 @@ const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
   unclassified: "Field reset to unclassified",
 };
 
-// Get icon for data source type
+// Get icon for a data source type, driven by the connector registry.
+// Renders the connector's own icon; falls back to a generic database glyph.
 function getSourceTypeIcon(type: string) {
-  switch (type) {
-    case "notion":
-      return <LuCloud className="h-5 w-5" />;
-    case "local":
-      return <LuFileSpreadsheet className="h-5 w-5" />;
-    case "postgresql":
-      return <DatabaseIcon className="h-5 w-5" />;
-    default:
-      return <DatabaseIcon className="h-5 w-5" />;
+  const connector = getConnectorById(type);
+  if (connector) {
+    return <ConnectorIcon svg={connector.icon} className="h-5 w-5" />;
   }
+  return <DatabaseIcon className="h-5 w-5" />;
 }
 
 /**
