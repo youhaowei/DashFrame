@@ -29,6 +29,37 @@
  */
 import { tableFromIPC } from "@uwdata/flechette";
 
+/** Timeout for loopback fetch calls, in milliseconds. */
+const LOOPBACK_TIMEOUT_MS = 10_000;
+
+/**
+ * Wraps `fetch` with an AbortController timeout.
+ *
+ * The loopback server is local-only, so a 10-second timeout is a clear signal
+ * that the native engine has stopped responding — not a transient network delay.
+ * Maps an `AbortError` to a human-readable "timed out" message so the engine-
+ * error UI surface always has something useful to show.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOOPBACK_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        "Native engine timed out — the local server did not respond within 10 seconds.",
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
 export interface NativeConnectorOptions {
@@ -73,7 +104,7 @@ export function createNativeConnector(
   async function query(q: { type?: string; sql: string }): Promise<unknown> {
     const type = q.type ?? "arrow";
 
-    const res = await fetch(arrowEndpoint, {
+    const res = await fetchWithTimeout(arrowEndpoint, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ type, sql: q.sql }),
@@ -107,7 +138,7 @@ export function createNativeConnector(
     arrowBytes: Uint8Array,
   ): Promise<void> {
     const tableEndpoint = `${serverUrl}/data/tables/${encodeURIComponent(name)}`;
-    const res = await fetch(tableEndpoint, {
+    const res = await fetchWithTimeout(tableEndpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

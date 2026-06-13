@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint"
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
     "@dashframe/app": "workspace:*",
@@ -32,6 +33,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^4.1.6"
   }
 }
