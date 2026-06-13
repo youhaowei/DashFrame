@@ -5,6 +5,7 @@ import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { useContainerDimensions } from "@dashframe/ui";
 import { Spinner, cn } from "@wystack/ui";
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useVisualization } from "../VisualizationProvider";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
 
 // ============================================================================
@@ -193,6 +194,37 @@ export function Chart({
   // Track registry version to detect renderer updates (for hot reload)
   const registryVersion = useRegistryVersion();
 
+  // Renderer bound to the enclosing VisualizationProvider's engine. Preferred
+  // over the global registry so this Chart routes to ITS provider's connector.
+  // This is what makes the per-insight WASM fallback work: a nested WASM
+  // provider supplies a WASM-bound renderer here that shadows the globally
+  // registered native renderer, so the fallback chart queries WASM, not native.
+  const {
+    renderer: contextRenderer,
+    isReady: providerReady,
+    error: providerError,
+  } = useVisualization();
+
+  // The enclosing provider is still spinning up its engine: it has no renderer
+  // yet but hasn't failed. We must NOT fall through to the global registry in
+  // this window — on desktop the global renderer is the native one, so a nested
+  // WASM-fallback chart would briefly query the native engine for a table it
+  // intentionally never created. Wait for the provider's own renderer instead.
+  const providerInitializing =
+    !contextRenderer && !providerReady && !providerError;
+
+  // Resolve the renderer for this type: provider context first, global second.
+  const resolveRenderer = (type: VisualizationType) => {
+    if (contextRenderer?.supportedTypes.includes(type)) {
+      return contextRenderer;
+    }
+    return getRenderer(type);
+  };
+
+  const typeIsRenderable =
+    (contextRenderer?.supportedTypes.includes(visualizationType) ?? false) ||
+    hasRenderer(visualizationType);
+
   // Determine if we need container dimensions
   const needsContainerDimensions =
     width === "container" || height === "container";
@@ -225,8 +257,15 @@ export function Chart({
       return;
     }
 
-    // Get renderer for this type
-    const renderer = getRenderer(visualizationType);
+    // Don't render against the global renderer while the enclosing provider is
+    // still bringing up its own engine — that would route to the wrong engine.
+    if (providerInitializing) {
+      return;
+    }
+
+    // Get renderer for this type — provider context first, global registry
+    // second. The context renderer is bound to the enclosing provider's engine.
+    const renderer = resolveRenderer(visualizationType);
     if (!renderer) {
       console.warn(
         `[Chart] No renderer registered for type: ${visualizationType}`,
@@ -279,6 +318,8 @@ export function Chart({
     chartColors, // Re-render when theme changes
     canRender,
     registryVersion, // Re-render when renderer is updated (hot reload)
+    contextRenderer, // Re-render when the enclosing provider's renderer changes
+    providerInitializing, // Re-render once the provider's engine is ready
   ]);
 
   // Shared loading state component with spinner
@@ -299,12 +340,15 @@ export function Chart({
     </div>
   );
 
-  // Handle unregistered type
-  // If registryVersion is 0, renderers haven't been registered yet - show loading
-  // This handles the race condition where Chart renders before RendererRegistration effect runs
-  if (!hasRenderer(visualizationType)) {
-    // Still waiting for renderers to be registered - show loading
-    if (registryVersion === 0) {
+  // Handle unrenderable type.
+  // A type is renderable if the enclosing provider's renderer supports it OR
+  // the global registry has it. When neither is available yet (provider still
+  // initializing AND nothing registered globally), show loading rather than the
+  // "no renderer" fallback — this covers the race where Chart mounts before the
+  // provider's renderer is ready or RendererRegistration's effect has run.
+  if (!typeIsRenderable) {
+    // Provider renderer not ready yet, or renderers not registered yet — wait.
+    if (providerInitializing || (!contextRenderer && registryVersion === 0)) {
       return renderLoading();
     }
     // Renderers are registered but this type isn't supported - show fallback

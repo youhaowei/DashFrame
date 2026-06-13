@@ -5,3 +5,10 @@ export {
   type AppRouterContext,
   type ProviderWrapper,
 } from "./routeRoot";
+
+export {
+  ChartEngineProvider,
+  useChartEngine,
+  type ChartEngineProviderProps,
+  type MosaicConnector,
+} from "./components/providers/ChartEngineProvider";

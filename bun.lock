@@ -66,6 +66,7 @@
         "@dashframe/desktop-types": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
+        "@uwdata/flechette": "^2.2.5",
         "@wystack/client": "workspace:*",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
@@ -81,6 +82,7 @@
         "tailwindcss": "4.1.16",
         "typescript": "5.7.2",
         "vite": "^6.0.5",
+        "vitest": "^4.1.6",
       },
     },
     "apps/server": {
