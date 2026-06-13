@@ -12,17 +12,19 @@
  * and the current OS user as `created_by`. Subsequent opens are no-ops on the
  * metadata row.
  *
- * Recovery path: if PGlite aborts during WAL replay (RuntimeError: Aborted()
- * from Emscripten) AND the WAL probe confirms structural corruption, the
- * damaged datadir is quarantined with a timestamp suffix and the newest
+ * Recovery path: if a startup failure is accompanied by a structurally torn WAL
+ * segment on disk (a `pg_wal/` file whose size is not a multiple of XLOG_BLCKSZ),
+ * the damaged datadir is quarantined with a timestamp suffix and the newest
  * snapshot is restored. If no snapshot exists a fresh project is created. The
  * returned `ProjectHandle` carries a `recovery` notice the host can surface to
  * the user. See GitHub issue #88.
  *
- * Critically, quarantine+restore only fires on POSITIVELY CONFIRMED WAL
- * corruption. Any error that cannot be confirmed as WAL corruption is
- * re-thrown immediately — data is never silently discarded on an ambiguous
- * error.
+ * Critically, quarantine+restore only fires on a POSITIVELY CONFIRMED torn WAL
+ * segment. An Emscripten abort alone is NOT sufficient — `RuntimeError("Aborted(OOM)")`
+ * (out of memory) and any other non-WAL abort leave the on-disk datadir intact,
+ * so recovering on them would overwrite a healthy database. Any failure that
+ * cannot be tied to a torn WAL segment is re-thrown immediately — data is never
+ * silently discarded on an ambiguous error.
  */
 
 import fs from "node:fs/promises";
@@ -113,6 +115,13 @@ export interface OpenProjectOptions extends ResolveProjectDirOptions {
    * Defaults to SNAPSHOT_DEBOUNCE_MS (30 s).
    */
   snapshotDebounceMs?: number;
+  /**
+   * Injected DB-open function. Exposed for tests so the open-time failure that
+   * drives the recovery decision can be simulated deterministically — e.g. a
+   * `RuntimeError("Aborted(OOM)")` against an intact datadir, which must NOT
+   * trigger quarantine. Defaults to {@link openArtifactDb}.
+   */
+  openDb?: (opts: { path: string }) => Promise<ArtifactDb>;
 }
 
 export async function openProject(
@@ -124,15 +133,20 @@ export async function openProject(
 
   await fs.mkdir(dataSourcesDir, { recursive: true });
 
+  // Injected DB-open seam (defaults to the real openArtifactDb). Used by tests
+  // to simulate the open-time failure that drives the recovery decision.
+  const openDb = options.openDb ?? openArtifactDb;
+
   // --- attempt normal open ---
   let db: ArtifactDb;
   let recovery: ProjectRecoveryNotice | null = null;
 
   try {
-    db = await openArtifactDb({ path: dbPath });
+    db = await openDb({ path: dbPath });
   } catch (err) {
-    // Only recover from confirmed WAL corruption. Any other error is re-thrown
-    // immediately — never quarantine on an ambiguous error.
+    // Only recover when a torn WAL segment is positively confirmed on disk. Any
+    // other failure — including an Aborted(OOM) abort whose datadir is intact —
+    // is re-thrown immediately; we never quarantine on ambiguous evidence.
     const confirmed = await isConfirmedWalCorruption(err, dbPath);
     if (!confirmed) throw err;
 
@@ -141,17 +155,31 @@ export async function openProject(
     // still-recoverable) data.
     const quarantinedPath = await quarantineDamagedDb(dbPath);
 
-    // Restore from snapshot (or start fresh).
-    const restoredSnapshot = await restoreNewestSnapshot(dir, dbPath);
+    try {
+      // Restore from snapshot (or start fresh).
+      const restoredSnapshot = await restoreNewestSnapshot(dir, dbPath);
 
-    // Open the restored (or fresh) datadir.
-    db = await openArtifactDb({ path: dbPath });
+      // Open the restored (or fresh) datadir.
+      db = await openArtifactDb({ path: dbPath });
 
-    recovery = {
-      reason: "wal-corruption",
-      restoredSnapshot,
-      quarantinedPath,
-    };
+      recovery = {
+        reason: "wal-corruption",
+        restoredSnapshot,
+        quarantinedPath,
+      };
+    } catch (recoveryErr) {
+      // The damaged DB has ALREADY been renamed aside to `quarantinedPath`, but
+      // the restore/re-open failed — so `dbPath` now has no usable database. A
+      // bare throw here would leave the operator with a missing DB and no clue
+      // where their data went. Surface the quarantine location in the error so
+      // the data is recoverable by hand, and chain the original cause.
+      throw new Error(
+        `[dashframe] recovery failed after quarantining the damaged database. ` +
+          `Your previous data has been preserved at: ${quarantinedPath}. ` +
+          `Restore/reopen error: ${recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)}`,
+        { cause: recoveryErr },
+      );
+    }
   }
 
   let meta: ProjectMetaRow;
@@ -200,73 +228,48 @@ export async function openProject(
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when startup failure is POSITIVELY CONFIRMED WAL corruption.
+ * Returns true ONLY when startup failure is POSITIVELY CONFIRMED WAL corruption.
  *
- * Affirmative detection uses two independent signals:
+ * Guiding rule — fail toward PRESERVING data: quarantine + restore DESTROYS the
+ * live datadir (it renames the database aside and overwrites it with an older
+ * snapshot), so it must fire only on definitive, file-level evidence of
+ * corruption. When the evidence is ambiguous the caller re-throws and surfaces
+ * the real error; it never quarantines on a signal it cannot positively tie to a
+ * structurally torn WAL.
  *
- *   1. PRIMARY — file-level probe: the pg_wal/ directory inside `dbPath`
- *      contains at least one WAL segment file whose size is not a multiple of
- *      XLOG_BLCKSZ (8192), indicating a torn write.
+ * The SOLE sufficient signal is the WAL-segment probe (`hasCorruptWalSegment`):
+ * a `pg_wal/` segment file whose byte length is not a multiple of XLOG_BLCKSZ —
+ * a torn/misaligned write, direct on-disk proof the WAL is damaged.
  *
- *   2. CONFIRMING — error class: the thrown error is a WebAssembly
- *      RuntimeError whose message contains "Aborted()", the specific
- *      Emscripten abort fired when Postgres exits non-zero during WAL replay.
+ * What is deliberately NOT trusted: the Emscripten abort signature. Earlier this
+ * helper treated any `RuntimeError("Aborted(...)")` as corruption, but that class
+ * covers unrelated failures — most importantly `Aborted(OOM)`, an out-of-memory
+ * abort that leaves the on-disk datadir perfectly intact. Recovering on an OOM
+ * would overwrite a healthy database under memory pressure: the exact data-loss
+ * mode this whole path exists to prevent. So the abort message is never an
+ * independent trigger — only a torn WAL segment authorizes recovery.
  *
- * The CONFIRMING signal alone (RuntimeError+Aborted) is sufficient to classify
- * the failure as WAL corruption when the datadir EXISTS — Emscripten aborts
- * during PGlite startup are always Postgres-internal (the only WASM module in
- * scope is PGlite itself). However we still require the RuntimeError+Aborted
- * pattern to distinguish a startup crash from an OOM or permissions error.
+ * Net rule:
+ *   torn WAL segment present  → confirmed corruption  → quarantine + restore
+ *   anything else (incl. any  → NOT confirmed         → re-throw (preserve data)
+ *   abort, OOM, EACCES probe
+ *   failure, unreachable trap)
  *
- * If the PRIMARY signal fires (torn WAL) without a matching error pattern, we
- * still return true — a structurally corrupt WAL file is definitive evidence.
- *
- * Any error that matches neither signal is NOT WAL corruption and MUST be
- * re-thrown by the caller.
+ * `err` is currently unused for the decision — recovery keys solely on the
+ * file-level probe — but is kept in the signature so a future, precisely
+ * WAL-attributable error class could become a corroborating signal alongside
+ * (never instead of) the torn-WAL probe.
  */
 async function isConfirmedWalCorruption(
-  err: unknown,
+  _err: unknown,
   dbPath: string,
 ): Promise<boolean> {
-  // The error must be from the WebAssembly/Emscripten layer.
-  // RuntimeError("Aborted()") — Emscripten ASSERTIONS build
-  // RuntimeError("Aborted(OOM)") — also from ASSERTIONS build (OOM during init)
-  // RuntimeError("unreachable") — release WASM trap
-  //
-  // We only treat the specific Aborted() family as WAL corruption — not
-  // "unreachable" (a WASM trap that can arise from bugs unrelated to WAL).
-  const isAbortedRuntimeError = isAbortedEmscriptenError(err);
-
-  // PRIMARY: probe WAL files for torn segments.
-  const tornWal = await hasCorruptWalSegment(dbPath).catch(() => false);
-
-  if (tornWal) return true;
-  if (isAbortedRuntimeError) {
-    // Confirming signal: Aborted() during startup of PGlite. Check the
-    // datadir actually exists (not a fresh project that never had a DB).
-    const dataDirExists = await fs
-      .stat(dbPath)
-      .then(() => true)
-      .catch(() => false);
-    return dataDirExists;
-  }
-
-  return false;
-}
-
-/**
- * Returns true for Emscripten `Aborted()` RuntimeErrors — the specific abort
- * fired when the Postgres process exits non-zero inside the WASM sandbox.
- *
- * Does NOT match:
- *   RuntimeError("unreachable")  — generic WASM trap, unrelated to WAL
- *   Any non-RuntimeError         — permissions, I/O errors, etc.
- */
-function isAbortedEmscriptenError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (err.constructor.name !== "RuntimeError") return false;
-  // Match "Aborted()" and "Aborted(OOM)" etc. but not "unreachable".
-  return err.message.startsWith("Aborted(") || err.message === "Aborted";
+  // The ONLY sufficient signal: a structurally torn WAL segment on disk. A probe
+  // failure (EACCES/EPERM/etc.) resolves to false — absence of positive evidence
+  // is never grounds to destroy the datadir. Every other startup failure
+  // (Aborted(OOM), a bare abort with an intact datadir, an `unreachable` trap, a
+  // permissions error) falls through to false and the caller re-throws.
+  return hasCorruptWalSegment(dbPath).catch(() => false);
 }
 
 /**

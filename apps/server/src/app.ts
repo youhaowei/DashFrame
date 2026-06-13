@@ -144,15 +144,28 @@ export async function createDashframeServer(
   // is covered automatically. The hook fires only on success (tablesWritten
   // is the WyStack signal that the transaction committed a write); a failed or
   // rolled-back call never sets tablesWritten and never reaches this branch.
+  //
+  // `onWrite` runs AFTER `rawApp.call` has already committed, so a throw from it
+  // must NOT fail the mutation — the client would see an error for a write that
+  // durably succeeded and might retry, duplicating artifacts. The hook is a
+  // best-effort side-channel (it only schedules a debounced snapshot), so we
+  // isolate its failure: log and swallow, never propagate. `result` is returned
+  // unchanged so the committed call's success is the sole determinant of the
+  // response.
+  const onWrite = opts.onWrite;
   const app: WyStackApp =
-    opts.onWrite == null
+    onWrite == null
       ? rawApp
       : {
           ...rawApp,
           async call(path, args, context) {
             const result = await rawApp.call(path, args, context);
             if (result.tablesWritten.size > 0) {
-              opts.onWrite!();
+              try {
+                onWrite();
+              } catch (err) {
+                console.error("[dashframe] onWrite hook threw:", err);
+              }
             }
             return result;
           },

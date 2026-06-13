@@ -200,13 +200,21 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
 /**
  * Restore the newest snapshot into the given target directory.
  *
- * Attempts snapshots from newest to oldest. If the newest snapshot fails to
- * restore (e.g. the tarball itself is corrupt), the next-oldest is tried, and
- * so on. A partial targetDataDir created by a failed attempt is cleaned up
+ * Attempts snapshots from newest to oldest. A snapshot is ACCEPTED only when it
+ * both loads AND validates — see {@link snapshotLooksRestorable}. This matters
+ * because PGlite does NOT throw on a truncated/corrupt `loadDataDir` blob: it
+ * silently initializes a fresh empty datadir. Without validation,
+ * `restoreNewestSnapshot` would return that empty DB as a "successful" restore,
+ * and `openProject` would seed a brand-new project over the user's data while
+ * reporting recovery succeeded. So after load we positively confirm the
+ * project's singleton `project_meta` row survived; if it did not (empty/corrupt
+ * tarball), we reject this snapshot and fall through to the next-oldest.
+ *
+ * A partial targetDataDir created by a failed or rejected attempt is cleaned up
  * before retrying.
  *
  * Returns the snapshot metadata that was restored, or null if no snapshot
- * exists or all failed (caller should create a fresh project).
+ * exists or none restored to a valid datadir (caller creates a fresh project).
  */
 export async function restoreNewestSnapshot(
   projectDir: string,
@@ -225,7 +233,21 @@ export async function restoreNewestSnapshot(
       await fs.mkdir(targetDataDir, { recursive: true });
       const restored = new PGlite(targetDataDir, { loadDataDir: blob });
       await restored.waitReady;
+      // Validate BEFORE accepting: a truncated/corrupt tarball loads as a fresh
+      // empty datadir (PGlite does not throw), so a successful waitReady is not
+      // proof the data survived. Confirm the project_meta singleton is present.
+      const valid = await snapshotLooksRestorable(restored);
       await restored.close();
+
+      if (!valid) {
+        console.error(
+          `[dashframe] snapshot ${snap.filename} restored to an empty/invalid datadir (missing project_meta); trying older snapshot`,
+        );
+        await fs
+          .rm(targetDataDir, { recursive: true, force: true })
+          .catch(() => {});
+        continue;
+      }
 
       return snap;
     } catch (err) {
@@ -240,8 +262,31 @@ export async function restoreNewestSnapshot(
     }
   }
 
-  // All snapshots failed.
+  // No snapshot restored to a valid datadir.
   return null;
+}
+
+/**
+ * Confirm a freshly-restored PGlite datadir actually carries project data —
+ * the singleton `project_meta` row. PGlite silently creates a fresh empty
+ * datadir when `loadDataDir` is given a truncated/corrupt blob, so this is the
+ * positive check that distinguishes a real restore from a phantom one.
+ *
+ * Returns false on any failure (missing table, query error, zero rows) — i.e.
+ * fail closed: an unverifiable restore is treated as not-restorable so the
+ * caller falls back rather than seeding over live data with an empty DB.
+ */
+async function snapshotLooksRestorable(client: PGlite): Promise<boolean> {
+  try {
+    const res = await client.query<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM project_meta",
+    );
+    const count = res.rows[0]?.count ?? 0;
+    return count > 0;
+  } catch {
+    // Table missing or query failed → not a valid project datadir.
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

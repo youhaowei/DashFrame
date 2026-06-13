@@ -309,4 +309,39 @@ describe("onWrite hook", () => {
     });
     expect(res.status).toBe(200);
   });
+
+  it("should isolate an onWrite that throws — the committed mutation still succeeds", async () => {
+    // onWrite runs AFTER the DB write commits. If it throws, the client must
+    // still see success — otherwise it would retry a durable write and
+    // duplicate artifacts. The hook's failure is swallowed (logged), never
+    // propagated.
+    project = await openProject({ dir: join(root, "proj") });
+    const sourceId = crypto.randomUUID();
+    server = await createDashframeServer({
+      db: project.db,
+      onWrite: () => {
+        throw new Error("snapshot scheduler exploded");
+      },
+    });
+
+    const res = await postMutation(server.url, "getOrCreateDataSource", {
+      id: sourceId,
+      type: "csv",
+      name: "Resilient",
+    });
+    // The mutation committed despite the hook throwing.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { id: string } };
+    expect(body.data.id).toBe(sourceId);
+
+    // The write is durable — a follow-up get-or-create returns the same row.
+    const verify = await postMutation(server.url, "getOrCreateDataSource", {
+      id: sourceId,
+      type: "csv",
+      name: "Resilient",
+    });
+    expect(verify.status).toBe(200);
+    const verifyBody = (await verify.json()) as { data: { id: string } };
+    expect(verifyBody.data.id).toBe(sourceId);
+  });
 });

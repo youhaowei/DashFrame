@@ -8,6 +8,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { PGlite } from "@electric-sql/pglite";
 
+import { openArtifactDb } from "./db";
 import {
   ARTIFACTS_DB_FILENAME,
   openProject,
@@ -378,6 +380,88 @@ describe("openProject WAL corruption recovery", () => {
     expect(quarantined).toHaveLength(0);
   });
 
+  test("Aborted(OOM) with a STRUCTURALLY-INTACT datadir does NOT quarantine — data survives", async () => {
+    // The regression this pins (PR #90 P1): an out-of-memory abort
+    // (`RuntimeError: Aborted(OOM)`) leaves the on-disk datadir intact, so it
+    // must NEVER trigger quarantine + restore. The decision keys solely on a
+    // torn WAL segment — and here the WAL is block-aligned (healthy), so the
+    // abort must propagate and the live datadir must be preserved untouched.
+    const dir = join(root, "oom-intact");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // Build a structurally-intact datadir: a block-aligned WAL segment so
+    // hasCorruptWalSegment returns false. A sentinel file lets us prove the
+    // exact bytes survive (not silently overwritten by a fresh/restored DB).
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ * 128),
+    );
+    const sentinel = join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION");
+    writeFileSync(sentinel, "INTACT-DATADIR\n");
+
+    // Inject an open that fails with the OOM abort — the documented case the
+    // broad `startsWith("Aborted(")` match would have mis-classified as WAL
+    // corruption. WebAssembly.RuntimeError reproduces the exact shape PGlite's
+    // Emscripten layer throws (constructor.name === "RuntimeError").
+    const oomAbort = new WebAssembly.RuntimeError("Aborted(OOM)");
+    const openDb = () => Promise.reject(oomAbort);
+
+    // The OOM abort must propagate — recovery must NOT swallow it.
+    await expect(openProject({ dir, openDb })).rejects.toBe(oomAbort);
+
+    // The live datadir is preserved: not quarantined, bytes untouched.
+    expect(existsSync(dbPath)).toBe(true);
+    const parentDir = await readdir(dir);
+    expect(parentDir.filter((f) => f.includes(".damaged-"))).toHaveLength(0);
+    expect(readFileSync(sentinel, "utf8")).toBe("INTACT-DATADIR\n");
+  });
+
+  test("Aborted(OOM) paired with a TORN WAL segment DOES quarantine — the probe, not the message, decides", async () => {
+    // The contrast case: the same OOM-shaped abort, but now the datadir has a
+    // torn (misaligned) WAL segment — positive, on-disk corruption evidence.
+    // Recovery keys on the probe, so this DOES quarantine + restore despite the
+    // abort message being identical to the intact-datadir case above.
+    const dir = join(root, "oom-torn-wal");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // 1. Seed a healthy project + snapshot so there is something to restore to.
+    const h1 = await openProject({ dir, name: "TornWalOOM" });
+    openHandles.splice(0);
+    await h1.close();
+    expect((await listSnapshots(dir)).length).toBeGreaterThan(0);
+
+    // 2. Corrupt the datadir with a TORN WAL segment (not block-aligned).
+    rmSync(dbPath, { recursive: true, force: true });
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // 3. Open with the OOM-shaped abort on the FIRST open attempt. The recovery
+    // path's second open uses the real openArtifactDb (restored datadir).
+    let firstOpen = true;
+    const openDb = (opts: { path: string }) => {
+      if (firstOpen) {
+        firstOpen = false;
+        return Promise.reject(new WebAssembly.RuntimeError("Aborted(OOM)"));
+      }
+      return openArtifactDb(opts);
+    };
+
+    const handle = await openProject({ dir, openDb });
+    openHandles.push(handle);
+
+    // The torn WAL drove recovery: quarantined + restored, despite the OOM message.
+    expect(handle.recovery).not.toBeNull();
+    expect(handle.recovery!.reason).toBe("wal-corruption");
+    expect(handle.recovery!.quarantinedPath).toMatch(/\.damaged-/);
+    expect(existsSync(handle.recovery!.quarantinedPath)).toBe(true);
+    expect(handle.meta.name).toBe("TornWalOOM");
+  });
+
   test("restoreNewestSnapshot falls back to older snapshot when newest is missing", async () => {
     const dir = join(root, "fallback-snap");
     const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
@@ -422,5 +506,50 @@ describe("openProject WAL corruption recovery", () => {
     // Should have fallen back to the second-newest snapshot.
     expect(h2.recovery!.restoredSnapshot!.absPath).toBe(secondNewest.absPath);
     expect(h2.meta.name).toBe("FallbackTest");
+  });
+
+  test("rejects a readable-but-empty newest snapshot and falls back to a valid older one", async () => {
+    // PR #90 P2: PGlite does NOT throw on a truncated/garbage tarball — it
+    // silently loads a FRESH EMPTY datadir. So a "successful" load is not proof
+    // the data survived. restoreNewestSnapshot must validate (project_meta
+    // present) and reject the empty restore, falling back to a valid older
+    // snapshot rather than accepting an empty DB as recovered.
+    const dir = join(root, "empty-newest-snap");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // 1. Healthy project → a real (valid) snapshot on close.
+    const h1 = await openProject({ dir, name: "ValidOlder" });
+    openHandles.splice(0);
+    await h1.close();
+
+    const snaps = await listSnapshots(dir);
+    expect(snaps.length).toBeGreaterThanOrEqual(1);
+    const validOlder = snaps[snaps.length - 1]!;
+
+    // 2. Plant a NEWER snapshot file that is a readable but garbage .tar.gz.
+    // Its filename sorts last (newer timestamp), so it is tried first. PGlite
+    // will load it as an empty datadir — which validation must reject.
+    const newerName = `${SNAPSHOT_PREFIX}2999-01-01T00-00-00-000Z${SNAPSHOT_EXT}`;
+    const newerPath = join(resolveSnapshotsDir(dir), newerName);
+    writeFileSync(newerPath, Buffer.from("not a real gzip tarball"));
+
+    // 3. Corrupt the datadir (torn WAL) so recovery triggers.
+    rmSync(dbPath, { recursive: true, force: true });
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // 4. Recovery must SKIP the empty newest and restore the valid older one.
+    const h2 = await openProject({ dir });
+    openHandles.push(h2);
+
+    expect(h2.recovery).not.toBeNull();
+    expect(h2.recovery!.restoredSnapshot).not.toBeNull();
+    expect(h2.recovery!.restoredSnapshot!.absPath).toBe(validOlder.absPath);
+    // The restored project carries the real data, not an empty fresh DB.
+    expect(h2.meta.name).toBe("ValidOlder");
   });
 });
