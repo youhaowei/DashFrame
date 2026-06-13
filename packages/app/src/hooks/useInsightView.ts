@@ -219,12 +219,27 @@ export function useInsightView(insight: Insight | null | undefined) {
           dataFramesToLoad.map(async ({ dataFrame }) => {
             if (!dataFrame) return;
             await ensureTableLoaded(dataFrame, connection);
-            if (uploadArrowTable && dataFrame.storage.type === "indexeddb") {
-              const arrowBytes = await loadArrowData(dataFrame.storage.key);
-              if (arrowBytes) {
-                const tableName = `df_${dataFrame.id.replace(/-/g, "_")}`;
-                await uploadArrowTable(tableName, arrowBytes);
+            // Desktop native path: upload the DataFrame's Arrow buffer so the
+            // native engine has the same df_* table the WASM engine has.
+            if (uploadArrowTable) {
+              // loadArrowData reads the local IndexedDB Arrow buffer by key.
+              // Remote-backed storage (s3/r2) has no local buffer to upload —
+              // those would need a fetch path the native engine doesn't have
+              // yet. Fail loudly rather than building a view whose source table
+              // is silently missing from the native engine (→ opaque chart 500).
+              if (dataFrame.storage.type !== "indexeddb") {
+                throw new Error(
+                  `Cannot render this chart on the native engine: DataFrame ${dataFrame.id} uses ${dataFrame.storage.type} storage, which is not yet supported for native chart compute.`,
+                );
               }
+              const arrowBytes = await loadArrowData(dataFrame.storage.key);
+              if (!arrowBytes) {
+                throw new Error(
+                  `Cannot render this chart: Arrow data for DataFrame ${dataFrame.id} was not found in local storage.`,
+                );
+              }
+              const tableName = `df_${dataFrame.id.replace(/-/g, "_")}`;
+              await uploadArrowTable(tableName, arrowBytes);
             }
           }),
         );

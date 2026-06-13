@@ -51,8 +51,18 @@ interface VisualizationSetupProps {
  *   component wraps children with VisualizationProvider once it's ready.
  * - Desktop tier / native path: the host ProviderWrapper mounts a
  *   ChartEngineProvider with a pre-built Mosaic Connector. When that connector
- *   is present, this component bypasses WASM entirely and wires the connector
- *   into VisualizationProvider instead.
+ *   is present, this component wires the connector into VisualizationProvider.
+ *   DuckDB-WASM still initializes on the desktop path because useInsightView
+ *   depends on it to load DataFrames before uploading them to the native engine.
+ *
+ * ## Error surfaces
+ *
+ * - Native bootstrap failure (connector=null, engineError set): shown as a
+ *   banner above children; WASM path used as fallback for non-chart content.
+ * - Native connector healthy but WASM failed: WASM error shown inside the
+ *   native provider (chart queries still route to native; data-viewer paths
+ *   that need WASM see the banner).
+ * - WASM-only path failure: standard ErrorState with retry.
  *
  * ## Provider Hierarchy
  *
@@ -72,6 +82,7 @@ interface VisualizationSetupProps {
  *         └── VisualizationSetup
  *               └── VisualizationProvider (native connector → Mosaic coordinator)
  *                     └── RendererRegistration (registers vgplot)
+ *                     └── [WASM error banner if DuckDB-WASM failed]
  *                     └── children
  * ```
  */
@@ -86,35 +97,48 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // ── Native engine path (desktop host supplied a connector) ──────────────
   if (connector) {
-    // Show a visible banner when the native engine is degraded/unavailable.
-    // Never surface raw engine strings (DESIGN.md anti-pattern).
-    if (engineError) {
-      return (
-        <>
-          <ErrorState
-            title="Native engine unavailable"
-            description={engineError}
-            className="min-h-[200px]"
-          />
-          {children}
-        </>
-      );
-    }
+    // Chart queries route to the native engine via the connector.
+    // DuckDB-WASM still runs for data-viewer paths (useInsightView needs
+    // connection to load DataFrames before uploading them to the native engine).
+    // If WASM fails, surface it as a banner inside the native provider so chart
+    // content still renders while the user sees what's degraded.
+    const wasmErrorBanner =
+      error && !isLoading ? (
+        <ErrorState
+          title="Failed to initialize data engine"
+          description={error.message}
+          retryAction={{ label: "Retry", onClick: handleRetry }}
+          className="min-h-[200px]"
+        />
+      ) : null;
 
     return (
       <VisualizationProvider connector={connector}>
         <RendererRegistration />
+        {wasmErrorBanner}
         {children}
       </VisualizationProvider>
     );
   }
 
-  // ── WASM path (web tier default) ─────────────────────────────────────────
+  // ── WASM path (web tier default) OR native bootstrap failure ─────────────
+  // When the Electron IPC call fails or returns missing server info, `main.tsx`
+  // sets engineError with connector=null. Show the native-engine error banner
+  // above children, then fall through to the WASM path so non-chart content
+  // still renders. Never surface raw engine strings (DESIGN.md anti-pattern).
+  const nativeErrorBanner = engineError ? (
+    <ErrorState
+      title="Native engine unavailable"
+      description={engineError}
+      className="min-h-[200px]"
+    />
+  ) : null;
 
   // Show error state if DuckDB WASM initialization failed
   if (error) {
     return (
       <>
+        {nativeErrorBanner}
         <ErrorState
           title="Failed to initialize data engine"
           description={error.message}
@@ -128,13 +152,21 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // Pass through children during loading - components handle their own loading states
   if (isLoading || !isInitialized || !db || !connection) {
-    return <>{children}</>;
+    return (
+      <>
+        {nativeErrorBanner}
+        {children}
+      </>
+    );
   }
 
   return (
-    <VisualizationProvider db={db} connection={connection}>
-      <RendererRegistration />
-      {children}
-    </VisualizationProvider>
+    <>
+      {nativeErrorBanner}
+      <VisualizationProvider db={db} connection={connection}>
+        <RendererRegistration />
+        {children}
+      </VisualizationProvider>
+    </>
   );
 }

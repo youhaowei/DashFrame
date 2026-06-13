@@ -29,8 +29,6 @@
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
 
-import type { CompiledQuery } from "./compile";
-
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
@@ -247,17 +245,6 @@ function parseParams(body: RequestBody): readonly unknown[] {
   }
   return [];
 }
-
-function parseCompiledQuery(body: NativeRequestBody): CompiledQuery | null {
-  if (typeof body.sql !== "string" || body.sql.trim() === "") return null;
-  // A present-but-non-array `params` (e.g. a scalar 42) must be a clear 400,
-  // not silently coerced to [] — that would surface later as a binding
-  // mismatch and an opaque 500 from the engine.
-  if (body.params !== undefined && !Array.isArray(body.params)) return null;
-  const params = Array.isArray(body.params) ? body.params : [];
-  return { sql: body.sql, params };
-}
-export { parseCompiledQuery };
 
 /**
  * Decode an Arrow IPC stream buffer into plain JSON rows.
