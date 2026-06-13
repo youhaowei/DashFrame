@@ -45,21 +45,6 @@ async function ensureAssistant(page, open) {
   }
 }
 
-async function setDock(page, target /* "docked" | "floating" */) {
-  const undock = page.locator('[aria-label="Undock (float)"]:visible').first();
-  const dockBtn = page.locator('[aria-label="Dock to right"]:visible').first();
-  // After toggling, the header control flips to the opposite action — wait for
-  // the target presentation's control to confirm the switch landed.
-  if (target === "floating" && (await undock.count())) {
-    await undock.click();
-    await dockBtn.waitFor({ state: "visible" });
-  }
-  if (target === "docked" && (await dockBtn.count())) {
-    await dockBtn.click();
-    await undock.waitFor({ state: "visible" });
-  }
-}
-
 const main = async () => {
   const browser = await chromium.launch();
   try {
@@ -83,60 +68,41 @@ async function capture(browser) {
   await ensureAssistant(page, false);
   await shot(page, "01-shell-home-closed");
 
-  // 2. Assistant docked + open (empty conversation surface, no artifact).
+  // 2. Assistant open in the shared right Dock (empty surface, no artifact).
+  // The Dock always reflows the Stage beside it — there is no float mode.
   await ensureAssistant(page, true);
-  await setDock(page, "docked");
   await shot(page, "02-assistant-docked-empty");
 
-  // 3. Assistant undocked / floating overlay.
-  await setDock(page, "floating");
-  await shot(page, "03-assistant-floating");
-
-  // 4. Back to docked, then a different route — proves the shell is global.
-  await setDock(page, "docked");
+  // 3. A different route with the assistant open — proves the shell is global.
   await goto(page, "/insights");
   await ensureAssistant(page, true);
-  await shot(page, "04-assistant-global-insights");
+  await shot(page, "03-assistant-global-insights");
 
-  // 5. Data-sources list route with the assistant docked.
+  // 4. Data-sources list route with the assistant open.
   await goto(page, "/data-sources");
   await ensureAssistant(page, true);
-  await shot(page, "05-assistant-global-data-sources");
+  await shot(page, "04-assistant-global-data-sources");
 
-  // 6. Assistant dismissed / collapsed — full-width artifact.
+  // 5. Assistant dismissed / collapsed — full-width artifact.
   await ensureAssistant(page, false);
-  await shot(page, "06-assistant-collapsed");
+  await shot(page, "05-assistant-collapsed");
 
-  // 7. Narrow viewport — docked preference auto-overlays (no room to reflow).
-  await ensureAssistant(page, true);
-  await setDock(page, "docked");
-  await page.setViewportSize({ width: 720, height: 900 });
-  // The overlay carries a rounded card (shadow-lg); the docked rail doesn't.
-  // Wait for the rounded overlay container to confirm the fallback engaged.
-  await page
-    .locator('[role="complementary"][aria-label="Assistant"].rounded-2xl')
-    .first()
-    .waitFor({ state: "visible" });
-  await shot(page, "07-assistant-narrow-overlay");
-  await page.setViewportSize(VIEWPORT);
-
-  // 8. Dev HUD open — visit a couple of AppLayout pages first so the HUD has
+  // 6. Dev HUD open — visit a couple of AppLayout pages first so the HUD has
   // real render-stage samples to display against budgets.
-  await ensureAssistant(page, false);
   await goto(page, "/data-sources");
   await goto(page, "/insights");
   await goto(page, "/data-sources");
   const perfChip = page.locator("button", { hasText: /^perf$/ }).first();
   await perfChip.scrollIntoViewIfNeeded();
   await perfChip.click({ force: true });
-  // Wait for the HUD panel (the "Perf" header) to render.
+  // Wait for the HUD panel (the "dev only" header label) to render.
   await page.getByText("dev only").waitFor({ state: "visible" });
-  await shot(page, "08-dev-hud-open");
+  await shot(page, "06-dev-hud-open");
 
-  // 9. Dev HUD closed (chip only, bottom-left).
+  // 7. Dev HUD closed (chip only, in the nav footer).
   await perfChip.click({ force: true });
   await page.getByText("dev only").waitFor({ state: "hidden" });
-  await shot(page, "09-dev-hud-closed");
+  await shot(page, "07-dev-hud-closed");
 }
 
 main().catch((e) => {

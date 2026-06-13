@@ -44,6 +44,9 @@ export function AppTopBar() {
               aria-hidden
             />
           )}
+          {/* Toggles the desktop nav Dock (itself `hidden lg:flex`); below lg the
+              nav is a dialog with its own menu button, so hide this to avoid a
+              control that appears to do nothing on mobile. */}
           <Button
             variant="ghost"
             icon={leftNavOpen ? PanelLeftCloseIcon : PanelLeftOpenIcon}
@@ -51,7 +54,7 @@ export function AppTopBar() {
             label={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             tooltip={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             onClick={toggleLeftNav}
-            className="h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg"
+            className="hidden h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
           />
         </div>
       }
