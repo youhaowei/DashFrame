@@ -2560,4 +2560,86 @@ describe("command vocabulary", () => {
       expect(rows[0]?.name).toBe("New");
     });
   });
+
+  describe("CSV ingest via CreateDataTable — default Count metric preserved", () => {
+    /**
+     * No-regression contract: CSV ingest that migrated from the legacy
+     * `addDataTable` mutation (which auto-injected Count via
+     * `withDefaultCountMetric`) to the `CreateDataTable` command (a
+     * PRIMITIVE — no auto-inject) must produce the same row shape.
+     * The caller is now responsible for passing the Count metric explicitly.
+     *
+     * This test asserts the contract: a DataTable created via CreateDataTable
+     * with an explicit default Count metric has exactly one Count metric and
+     * the metric matches the expected shape.
+     */
+    it("should produce a DataTable with the default Count metric when the caller passes it explicitly", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const metricId = id();
+
+      await commit(
+        cmd("GetOrCreateDataSource", {
+          id: sourceId,
+          type: "local",
+          name: "Local Files",
+        }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "sales",
+          table: "sales.csv",
+          metrics: [
+            {
+              id: metricId,
+              name: "Count",
+              tableId,
+              columnName: undefined,
+              aggregation: "count",
+            },
+          ],
+        }),
+      );
+
+      const [row] = await tablesById(tableId);
+      const metrics = (row?.metrics ?? []) as {
+        id: string;
+        name: string;
+        tableId: string;
+        columnName: unknown;
+        aggregation: string;
+      }[];
+
+      // Exactly one metric — the default Count metric the caller supplied.
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]?.id).toBe(metricId);
+      expect(metrics[0]?.name).toBe("Count");
+      expect(metrics[0]?.tableId).toBe(tableId);
+      expect(metrics[0]?.columnName).toBeUndefined();
+      expect(metrics[0]?.aggregation).toBe("count");
+    });
+
+    it("should NOT auto-inject a Count metric — CreateDataTable is a primitive (caller owns metrics)", async () => {
+      // Verifies the command's PRIMITIVE contract: unlike the legacy
+      // `addDataTable` mutation, CreateDataTable stores exactly what the caller
+      // passes. If the caller omits metrics, the row has no metrics — no
+      // silent injection.
+      const sourceId = id();
+      const tableId = id();
+
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+          // No metrics supplied — CreateDataTable stores an empty array.
+        }),
+      );
+
+      const [row] = await tablesById(tableId);
+      expect(row?.metrics).toEqual([]);
+    });
+  });
 });
