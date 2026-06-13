@@ -11,6 +11,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildInsightSQL,
   fieldIdToColumnAlias,
+  metricIdToColumnAlias,
   type BuildInsightSQLOptions,
 } from "./insight-sql";
 
@@ -292,5 +293,36 @@ describe("buildInsightSQL — null handling and edge cases", () => {
     );
     expect(sql).toContain("1=1");
     expect(sql).not.toContain("BETWEEN");
+  });
+
+  it("references COUNT(*) in HAVING for a count metric filtered by its output alias", () => {
+    // A COUNT(*) metric has no source column — HAVING must reference COUNT(*),
+    // not a quoted column. The filter targets the metric's output alias.
+    const countMetricId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID;
+    const insight: Insight = {
+      id: "66666666-6666-6666-6666-666666666666" as UUID,
+      name: "Row count by region",
+      baseTableId: TABLE_ID,
+      selectedFields: [REGION_FIELD_ID],
+      metrics: [
+        {
+          id: countMetricId,
+          name: "Rows",
+          sourceTable: TABLE_ID,
+          aggregation: "count",
+        },
+      ],
+      filters: [
+        {
+          field: metricIdToColumnAlias(countMetricId),
+          operator: "gt",
+          value: 5,
+        },
+      ],
+      createdAt: 0,
+    };
+    const sql = build(insight);
+    expect(sql).toContain("HAVING COUNT(*) > 5");
+    expect(sql).not.toContain("WHERE");
   });
 });

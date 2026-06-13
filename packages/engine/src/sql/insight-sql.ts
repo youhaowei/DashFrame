@@ -552,8 +552,10 @@ function buildFilterPredicate(
         !("low" in value) ||
         !("high" in value)
       ) {
+        // Warn on shape only — never log the value itself: filter values can be
+        // sensitive literals and must not leak into logs (privacy invariant).
         console.warn(
-          `between filter has malformed value (expected { low, high }): ${JSON.stringify(value)}`,
+          `between filter has malformed value (expected { low, high }); received ${value === null ? "null" : typeof value}`,
         );
         return "1=1";
       }
