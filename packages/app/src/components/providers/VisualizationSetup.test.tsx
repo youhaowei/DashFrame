@@ -212,7 +212,7 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
   });
 
   describe("VisualizationBoundary — fail-soft on mid-session render throw", () => {
-    it("renders children normally when no error is thrown", () => {
+    it("renders children when connector is present (native path nominal)", () => {
       const mockConnector = { query: vi.fn() };
       mockUseChartEngine.mockReturnValue({
         connector: mockConnector,
@@ -220,12 +220,14 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
         uploadArrowTable: null,
       });
 
+      // Children are inside VisualizationProvider but OUTSIDE the boundary,
+      // so they are always visible and never blanked by a boundary trip.
       renderSetup(<div data-testid="child" />);
 
       expect(screen.queryByTestId("child")).not.toBeNull();
     });
 
-    it("catches render-phase throw from child, does not re-throw, fires toast", async () => {
+    it("VisualizationBoundary catches throw from setup components, fires toast, leaves children mounted", async () => {
       const mockConnector = { query: vi.fn() };
       mockUseChartEngine.mockReturnValue({
         connector: mockConnector,
@@ -233,11 +235,12 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
         uploadArrowTable: null,
       });
 
-      // Child that throws on render — simulates Mosaic/vgplot throwing when
-      // the engine is gone mid-session.
-      function BrokenChild(): React.ReactElement {
-        throw new Error("Native engine timed out");
-      }
+      // Simulate a setup component (VisualizationErrorToast) throwing by
+      // making useVisualization throw during render. The boundary wraps the
+      // setup subtree; children are outside the boundary and must stay mounted.
+      mockUseVisualization.mockImplementation(() => {
+        throw new Error("Mosaic coordinator exploded");
+      });
 
       // Suppress React's console.error for expected error boundary events
       const consoleSpy = vi
@@ -245,7 +248,7 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
         .mockImplementation(() => {});
 
       // Must not throw at the render level (boundary catches it)
-      expect(() => renderSetup(<BrokenChild />)).not.toThrow();
+      expect(() => renderSetup(<div data-testid="child" />)).not.toThrow();
 
       // Toast must fire with crash signal
       await waitFor(() => {
@@ -256,6 +259,9 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
           }),
         );
       });
+
+      // Children (shell, toaster) must remain mounted — not blanked by the boundary.
+      expect(screen.queryByTestId("child")).not.toBeNull();
 
       consoleSpy.mockRestore();
     });

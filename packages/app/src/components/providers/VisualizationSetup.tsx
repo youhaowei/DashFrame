@@ -244,18 +244,31 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
         />
       ) : null;
 
+    // VisualizationBoundary wraps the provider's setup components (renderer
+    // registration, error toast, WASM banner) but NOT {children}. Children
+    // include the full Shell — navigation, the <Toaster>, route outlets — all
+    // of which must stay alive if the visualization setup crashes. Children are
+    // still inside VisualizationProvider (needed for useVisualization() context)
+    // but sit outside the boundary so a provider-internal throw doesn't blank
+    // the UI or swallow the toast that fires via onError.
+    //
+    // If a Chart component inside {children} throws during render (uncommon —
+    // Mosaic's Coordinator callbacks are async, not synchronous render calls),
+    // that error propagates to the nearest ancestor boundary above this tree.
+    // The primary guard for async engine-loss rejections is the
+    // unhandledrejection handler in the renderer's main.tsx.
     return (
-      <VisualizationBoundary
-        fallback={<VisualizationCrashedFallback />}
-        onError={handleBoundaryError}
-      >
-        <VisualizationProvider connector={connector}>
+      <VisualizationProvider connector={connector}>
+        <VisualizationBoundary
+          fallback={<VisualizationCrashedFallback />}
+          onError={handleBoundaryError}
+        >
           <RendererRegistration />
           <VisualizationErrorToast />
           {wasmErrorBanner}
-          {children}
-        </VisualizationProvider>
-      </VisualizationBoundary>
+        </VisualizationBoundary>
+        {children}
+      </VisualizationProvider>
     );
   }
 

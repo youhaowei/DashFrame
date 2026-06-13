@@ -128,18 +128,19 @@ bootstrap().catch(renderBootstrapError);
 // escape through mosaic-core internals (Coordinator's internal promise chains
 // have no outer catch) and surface as unhandledrejection events. In Electron,
 // an unhandled rejection in the renderer process kills the page (CDP page count
-// → 0). Catch them here: log and swallow. The VisualizationBoundary in
-// VisualizationSetup catches render-phase throws from the same cause; this
-// handles the async side of the same failure mode.
+// → 0). Catch them here: log and swallow engine-loss rejections only.
+// Pattern matches loopback-specific strings from nativeConnector.ts so we never
+// silence unrelated bugs (see the regex comment below).
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason;
   const msg =
     reason instanceof Error ? reason.message : String(reason ?? "unknown");
-  // Only intercept rejections that look like engine/loopback failures so we
-  // don't silence unrelated bugs. Loopback errors include "Native engine",
-  // "fetch", "AbortError", "Failed to fetch", and HTTP status codes.
+  // Intercept only rejections that are clearly from the loopback engine path.
+  // Match on strings our own loopback fetch code produces (see nativeConnector.ts
+  // and the fetchWithTimeout helper) — never on generic terms like "fetch",
+  // "abort", or "network" which appear in unrelated errors and would mask bugs.
   const isEngineLoss =
-    /native engine|loopback|fetch|abort|network|econnrefused|econnreset|etimedout/i.test(
+    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables/i.test(
       msg,
     );
   if (isEngineLoss) {
