@@ -36,6 +36,7 @@ export {
 export {
   ParquetCache,
   identityCacheWriteGate,
+  makeSensitivityCacheWriteGate,
   type CacheWriteGate,
   type ParquetCacheOptions,
 } from "./parquet-cache";
