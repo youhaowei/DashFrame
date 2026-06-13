@@ -14,7 +14,7 @@ import {
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { PGlite } from "@electric-sql/pglite";
 
@@ -92,15 +92,15 @@ describe("writeSnapshot + listSnapshots", () => {
 
     const pg = await openFreshPGlite(dbPath);
     try {
-      // Write KEEP_N + 2 snapshots with a small delay so filenames differ.
+      // Write KEEP_N + 2 snapshots with deterministic, distinct timestamps.
+      // We inject a nowMs function so filenames are guaranteed unique without
+      // fake timers — vi.useFakeTimers() breaks PGlite's WASM async I/O.
+      const BASE_MS = new Date(2024, 0, 1).getTime();
       const written: string[] = [];
       for (let i = 0; i < SNAPSHOT_KEEP_N + 2; i++) {
-        // Ensure timestamps differ by manipulating Date (vitest fake timers).
-        vi.setSystemTime(new Date(2024, 0, 1, 0, 0, i));
-        const p = await writeSnapshot(pg, projectDir);
+        const p = await writeSnapshot(pg, projectDir, () => BASE_MS + i * 1000);
         written.push(p);
       }
-      vi.useRealTimers();
 
       const snaps = await listSnapshots(projectDir);
       expect(snaps).toHaveLength(SNAPSHOT_KEEP_N);
@@ -113,7 +113,6 @@ describe("writeSnapshot + listSnapshots", () => {
         expect(existsSync(p)).toBe(false);
       }
     } finally {
-      vi.useRealTimers();
       await pg.close();
     }
   });

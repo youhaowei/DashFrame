@@ -52,11 +52,13 @@ export function resolveSnapshotsDir(projectDir: string): string {
 export async function writeSnapshot(
   pgliteClient: PGlite,
   projectDir: string,
+  /** Injected for testing — returns the timestamp to embed in the filename. */
+  nowMs: () => number = Date.now,
 ): Promise<string> {
   const snapshotsDir = resolveSnapshotsDir(projectDir);
   await fs.mkdir(snapshotsDir, { recursive: true });
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const timestamp = new Date(nowMs()).toISOString().replace(/[:.]/g, "-");
   const filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
   const destPath = path.join(snapshotsDir, filename);
 
