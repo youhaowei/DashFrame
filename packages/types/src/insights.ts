@@ -9,11 +9,34 @@ import type { UUID } from "./uuid";
 
 /**
  * Filter predicate for insights.
+ *
+ * `field` is the source column name (matches `Field.columnName ?? Field.name`).
+ *
+ * Operator notes:
+ * - `between`: inclusive range check. `value` must be `{ low: unknown; high: unknown }`.
+ *   Use this for date ranges and numeric ranges — a single filter, not two.
+ * - `in`: membership check. `value` must be an array.
+ * - All other operators: `value` is a scalar.
  */
 export interface InsightFilter {
   field: string;
-  operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
+  operator:
+    | "eq"
+    | "ne"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "contains"
+    | "in"
+    | "between";
   value: unknown;
+}
+
+/** Value shape for the `between` operator — inclusive on both bounds. */
+export interface InsightFilterBetweenValue {
+  low: unknown;
+  high: unknown;
 }
 
 /**

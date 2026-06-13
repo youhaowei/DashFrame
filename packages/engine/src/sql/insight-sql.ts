@@ -20,6 +20,8 @@ import type {
   DataTable,
   Field,
   Insight,
+  InsightFilter,
+  InsightFilterBetweenValue,
   InsightMetric,
   UUID,
 } from "@dashframe/types";
@@ -217,7 +219,7 @@ export function buildInsightSQL(
   }
 
   // Build joined SQL
-  const joinedSQL = buildJoinedSQL(
+  const joined = buildJoinedSQL(
     baseDFTable,
     baseDisplayName,
     baseFields,
@@ -225,30 +227,28 @@ export function buildInsightSQL(
     joinedTables,
   );
 
-  if (!joinedSQL) return null;
+  if (!joined) return null;
 
-  // Query mode: collect all fields from base + joined tables for field ID resolution
-  const allFields = [...baseFields];
-  for (const [, joinTable] of joinedTables) {
-    const joinFields = (joinTable.fields ?? []).filter(
-      (f) => !f.name.startsWith("_"),
-    );
-    allFields.push(...joinFields);
-  }
+  // `availableFields` is the exact column set present in the joined subquery —
+  // dropped right join-keys are already excluded. Using it (rather than the raw
+  // union of all table fields) ensures a filter can only resolve to a column
+  // that actually exists in the FROM clause; anything else is safely skipped.
+  const allFields = joined.availableFields;
 
-  // Model mode: raw data without transformations
+  // Model mode: raw data without transformations (never filtered — previews
+  // show raw rows).
   if (mode === "model") {
     // Build set of valid column names from all fields (no metrics in model mode)
     const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
     return appendPagination(
-      `SELECT * FROM ${joinedSQL}`,
+      `SELECT * FROM ${joined.sql}`,
       options,
       validColumns,
     );
   }
 
   // Apply aggregations with all available fields
-  return buildAggregatedSQL(joinedSQL, allFields, insight, options);
+  return buildAggregatedSQL(joined.sql, allFields, insight, options);
 }
 
 /**
@@ -277,11 +277,27 @@ function buildSimpleSQL(
     const validColumns = new Set(
       baseFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
-    return appendPagination(
-      `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`,
-      options,
-      validColumns,
-    );
+
+    // Filters apply in QUERY mode only. A model-mode preview shows the raw
+    // source rows so the user can see what they're working with *before*
+    // filtering — applying the insight's result-filters would defeat that, and
+    // the joined model path doesn't filter either (keeping both paths
+    // consistent). So only the no-config QUERY case appends a WHERE here.
+    let whereClause = "";
+    if (mode === "query") {
+      // No GROUP BY in this path → all filters map to WHERE. The FROM is the raw
+      // base table, whose columns still carry their source names — resolve refs
+      // against raw column names ("raw" mode).
+      const fieldIdMap = buildFieldIdMap(baseFields);
+      ({ whereClause } = buildFilterClauses(insight, fieldIdMap, false, "raw"));
+    }
+
+    let sql = `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`;
+    if (whereClause) {
+      sql += ` ${whereClause}`;
+    }
+
+    return appendPagination(sql, options, validColumns);
   }
 
   // Query mode with configuration: wrap table with UUID aliases, then apply aggregations
@@ -340,7 +356,7 @@ function buildJoinedSQL(
   baseFields: Field[],
   insight: Insight,
   joinedTables: Map<UUID, DataTable>,
-): string | null {
+): { sql: string; availableFields: Field[] } | null {
   // First, wrap base table with UUID-aliased columns
   const baseSelects = buildFieldSelects(baseDisplayName, baseFields);
   let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS "${baseDisplayName}")`;
@@ -357,12 +373,17 @@ function buildJoinedSQL(
 
     if (joinResult) {
       currentSQL = joinResult.sql;
-      // Accumulate fields from all joined tables for subsequent joins
+      // Accumulate fields from all joined tables for subsequent joins.
+      // `joinResult.allFields` excludes dropped right join-keys, so it is the
+      // accurate set of columns actually present in `currentSQL`.
       currentFields = joinResult.allFields;
     }
   }
 
-  return currentSQL;
+  // `currentFields` is the exact column set in the emitted subquery — dropped
+  // join keys are already excluded. Returning it lets callers build a field map
+  // that matches the FROM clause, so filters can't reference a missing column.
+  return { sql: currentSQL, availableFields: currentFields };
 }
 
 /** Result from processing a single join */
@@ -457,6 +478,302 @@ function processSingleJoin(
   ];
 
   return { sql, allFields, displayName: joinDisplayName };
+}
+
+// ============================================================================
+// Filter Clause Helpers
+// ============================================================================
+
+/**
+ * Quote a scalar value for safe SQL embedding.
+ *
+ * - Numbers and booleans are emitted as-is (no injection risk).
+ * - Strings are single-quoted with internal single-quotes escaped by doubling
+ *   (standard SQL escaping: `'` → `''`). This matches the convention used in
+ *   the rest of this module (no parameterized placeholders — values are inlined
+ *   at query-build time, not at the DB driver level).
+ * - null / undefined → `NULL`.
+ * - Anything else is coerced to string and then quoted.
+ */
+function quoteValue(val: unknown): string {
+  if (val === null || val === undefined) return "NULL";
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  // For everything else (string, Date.toISOString output, etc.) single-quote and escape
+  const str = String(val);
+  // Escape single quotes by doubling them (standard SQL)
+  return `'${str.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build a single SQL predicate from an InsightFilter.
+ *
+ * The `columnRef` is the already-resolved SQL column reference (possibly
+ * quoted as `"field_<uuid>"` or a raw column name — caller decides).
+ */
+function buildFilterPredicate(
+  columnRef: string,
+  filter: InsightFilter,
+): string {
+  const { operator, value } = filter;
+
+  switch (operator) {
+    case "eq":
+      // `= NULL` is always false in SQL — use IS NULL for null equality.
+      if (value === null || value === undefined) return `${columnRef} IS NULL`;
+      return `${columnRef} = ${quoteValue(value)}`;
+    case "ne":
+      if (value === null || value === undefined)
+        return `${columnRef} IS NOT NULL`;
+      return `${columnRef} <> ${quoteValue(value)}`;
+    case "gt":
+      return `${columnRef} > ${quoteValue(value)}`;
+    case "gte":
+      return `${columnRef} >= ${quoteValue(value)}`;
+    case "lt":
+      return `${columnRef} < ${quoteValue(value)}`;
+    case "lte":
+      return `${columnRef} <= ${quoteValue(value)}`;
+    case "contains": {
+      // LIKE '%value%' — escape the value's own % and _ to prevent wildcards
+      const escaped = String(value ?? "")
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_")
+        .replace(/'/g, "''");
+      return `${columnRef} LIKE '%${escaped}%' ESCAPE '\\'`;
+    }
+    case "in": {
+      const arr = Array.isArray(value) ? value : [value];
+      if (arr.length === 0) return "1=0"; // empty IN → always false
+      return `${columnRef} IN (${arr.map(quoteValue).join(", ")})`;
+    }
+    case "between": {
+      // Guard the value shape: a malformed `between` value (null, missing
+      // bound) must not throw or silently filter every row. Emit an always-true
+      // predicate and warn — a no-op is safer than dropping all rows.
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        !("low" in value) ||
+        !("high" in value)
+      ) {
+        // Warn on shape only — never log the value itself: filter values can be
+        // sensitive literals and must not leak into logs (privacy invariant).
+        console.warn(
+          `between filter has malformed value (expected { low, high }); received ${value === null ? "null" : typeof value}`,
+        );
+        return "1=1";
+      }
+      const bv = value as InsightFilterBetweenValue;
+      return `${columnRef} BETWEEN ${quoteValue(bv.low)} AND ${quoteValue(bv.high)}`;
+    }
+    default: {
+      // Exhaustiveness guard — TypeScript should catch this, but guard at runtime too
+      const _exhaustive: never = operator;
+      console.warn(`Unknown filter operator: ${String(_exhaustive)}`);
+      return "1=1";
+    }
+  }
+}
+
+/**
+ * How to render the SQL column reference for a filter field.
+ *
+ * - `"alias"`: reference the UUID alias (`"field_<uuid>"`). Use when the FROM
+ *   clause is a wrapped subquery whose columns are already UUID-aliased (the
+ *   aggregated / joined path).
+ * - `"raw"`: reference the source column name (`"columnName"`). Use when the
+ *   FROM clause is the raw base table whose columns still have their original
+ *   names (the model / no-config simple path) — UUID aliases there are
+ *   SELECT-only and not portably usable in WHERE.
+ */
+type FilterColumnRefMode = "alias" | "raw";
+
+/**
+ * Derive the SQL column reference for a filter field.
+ *
+ * Filters reference fields by their source column name (`Field.columnName ?? Field.name`).
+ * We look up the matching field to resolve either its UUID alias or its raw
+ * column name depending on `refMode`.
+ *
+ * Returns `null` when no field in `fieldIdMap` matches the filter field. That
+ * is the fail-safe signal: the column is NOT present in the FROM clause (e.g. a
+ * filter targeting a joined table's right-key, which `processSingleJoin` drops
+ * from the joined subquery). Emitting a reference to a missing column would make
+ * the whole query fail at runtime, so the caller skips the filter instead.
+ */
+function resolveFilterColumnRef(
+  filterField: string,
+  fieldIdMap: Map<string, Field>,
+  refMode: FilterColumnRefMode,
+): string | null {
+  const field = Array.from(fieldIdMap.values()).find(
+    (f) => (f.columnName ?? f.name) === filterField,
+  );
+  if (!field) return null;
+  if (refMode === "alias") {
+    return `"${fieldIdToColumnAlias(field.id)}"`;
+  }
+  return `"${field.columnName ?? field.name}"`;
+}
+
+/** Quote a SQL identifier, escaping embedded double-quotes by doubling them. */
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Resolve a metric filter to the aggregate SQL expression used in HAVING.
+ *
+ * The filter `field` matches either a metric's source `columnName` or its
+ * output alias (`metric_<uuid>`). We rebuild the aggregate expression
+ * (e.g. `SUM("field_<uuid>")`, `COUNT(*)`) so HAVING references the aggregate,
+ * not the (out-of-scope post-aggregation) raw column.
+ *
+ * Falls back to the quoted filter field if no metric matches (shouldn't happen
+ * since this is only called when `isMetricFilter` is true).
+ */
+function resolveMetricAggRef(
+  filterField: string,
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+): string {
+  const metric = (insight.metrics ?? []).find(
+    (m) =>
+      m.columnName === filterField ||
+      metricIdToColumnAlias(m.id) === filterField,
+  );
+  if (!metric) return quoteIdentifier(filterField);
+
+  const aggFn = metric.aggregation.toUpperCase();
+
+  // COUNT(*) - no column
+  if (metric.aggregation === "count" && !metric.columnName) {
+    return "COUNT(*)";
+  }
+
+  if (!metric.columnName) return quoteIdentifier(filterField);
+
+  // Resolve the source column to its UUID alias (columns are aliased upstream)
+  const sourceField = Array.from(fieldIdMap.values()).find(
+    (f) => (f.columnName ?? f.name) === metric.columnName,
+  );
+  const sourceRef = sourceField
+    ? fieldIdToColumnAlias(sourceField.id)
+    : metric.columnName;
+
+  if (metric.aggregation === "count_distinct") {
+    return `COUNT(DISTINCT ${quoteIdentifier(sourceRef)})`;
+  }
+
+  return `${aggFn}(${quoteIdentifier(sourceRef)})`;
+}
+
+/**
+ * Determine whether a filter targets a dimension (grouped field) or a metric.
+ *
+ * A filter field is a **dimension** when the insight's `selectedFields` list
+ * contains the ID of a Field whose column name matches the filter field.
+ *
+ * A filter field is a **metric** when the insight's `metrics` list references
+ * a column whose name matches the filter field, OR when the filter field name
+ * matches a metric's output alias (`metric_<uuid>`).
+ *
+ * **Dimension membership takes precedence.** If a column is both selected as a
+ * grouped dimension and used as a metric's source column, the dimension reading
+ * wins — the grouped value is in scope pre-aggregation, so the filter routes to
+ * WHERE. (A metric still aggregates the same source column independently.)
+ *
+ * Everything else defaults to dimension (pre-aggregation WHERE).
+ */
+function isMetricFilter(
+  filter: InsightFilter,
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+): boolean {
+  // Dimension membership wins: if the field is a selected (grouped) dimension,
+  // it is NOT a metric filter, even if the same column also feeds a metric.
+  for (const fieldId of insight.selectedFields ?? []) {
+    const field = fieldIdMap.get(fieldId);
+    if (field && (field.columnName ?? field.name) === filter.field) {
+      return false; // explicitly a dimension
+    }
+  }
+
+  // Otherwise, a match against a metric column or metric output alias → metric.
+  for (const metric of insight.metrics ?? []) {
+    if (metric.columnName === filter.field) return true;
+    if (metricIdToColumnAlias(metric.id) === filter.field) return true;
+  }
+
+  // Default: treat as dimension (pre-aggregation)
+  return false;
+}
+
+/**
+ * Build WHERE and HAVING clauses from insight filters.
+ *
+ * Routing logic (compile-time, derived from insight definition):
+ * - Filter on a grouped dimension → WHERE  (pre-aggregation)
+ * - Filter on a metric            → HAVING (post-aggregation)
+ *
+ * Returns empty strings when there are no filters of that kind.
+ */
+function buildFilterClauses(
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+  hasAggregation: boolean,
+  refMode: FilterColumnRefMode,
+): { whereClause: string; havingClause: string } {
+  const filters = insight.filters ?? [];
+  if (filters.length === 0) return { whereClause: "", havingClause: "" };
+
+  const wherePredicates: string[] = [];
+  const havingPredicates: string[] = [];
+
+  for (const filter of filters) {
+    // A metric filter routes to HAVING only when the query actually aggregates.
+    // Aggregation happens whenever metrics are present — with OR without a
+    // GROUP BY (a metrics-only insight emits e.g. COUNT(*) and still needs
+    // HAVING, not WHERE, for a predicate on the aggregate).
+    const isMetric =
+      hasAggregation && isMetricFilter(filter, insight, fieldIdMap);
+
+    if (isMetric) {
+      // HAVING: reference the aggregate expression (e.g. SUM("field_<uuid>")),
+      // since the raw metric column is not in scope post-aggregation.
+      const aggRef = resolveMetricAggRef(filter.field, insight, fieldIdMap);
+      havingPredicates.push(buildFilterPredicate(aggRef, filter));
+    } else {
+      const columnRef = resolveFilterColumnRef(
+        filter.field,
+        fieldIdMap,
+        refMode,
+      );
+      if (columnRef === null) {
+        // Fail-safe: the filter field is not a column present in the FROM
+        // clause (e.g. a joined table's right-key, dropped from the joined
+        // subquery). Emitting `WHERE "missing_col" = …` would crash the whole
+        // query at runtime, so skip this filter and warn — a dropped filter is
+        // recoverable; a broken query is not. Warn on the field name only, never
+        // the value (privacy: filter values must not reach logs).
+        console.warn(
+          `Filter on field "${filter.field}" skipped — column not present in query result set (e.g. a dropped join key).`,
+        );
+        continue;
+      }
+      wherePredicates.push(buildFilterPredicate(columnRef, filter));
+    }
+  }
+
+  const whereClause =
+    wherePredicates.length > 0 ? `WHERE ${wherePredicates.join(" AND ")}` : "";
+  const havingClause =
+    havingPredicates.length > 0
+      ? `HAVING ${havingPredicates.join(" AND ")}`
+      : "";
+
+  return { whereClause, havingClause };
 }
 
 // ============================================================================
@@ -596,11 +913,19 @@ function buildAggregatedSQL(
     const validColumns = new Set(
       allFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
-    return appendPagination(
-      `SELECT * FROM ${fromClause}`,
-      options,
-      validColumns,
+    // No GROUP BY here, so all filters map to WHERE. The fromClause is a wrapped
+    // subquery whose columns are already UUID-aliased → use "alias" refMode.
+    const { whereClause } = buildFilterClauses(
+      insight,
+      fieldIdMap,
+      false,
+      "alias",
     );
+    let sql = `SELECT * FROM ${fromClause}`;
+    if (whereClause) {
+      sql += ` ${whereClause}`;
+    }
+    return appendPagination(sql, options, validColumns);
   }
 
   // Build dimension columns with UUID aliases
@@ -624,11 +949,32 @@ function buildAggregatedSQL(
   // Build set of valid columns for sorting (all use UUID aliases now)
   const validColumns = new Set<string>([...dimensionAliases, ...metricAliases]);
 
+  // Build filter clauses (WHERE for dimension filters, HAVING for metric filters).
+  // Dimension-vs-metric is derived at compile time from the insight definition:
+  // a filter field that matches a metric column → HAVING (post-aggregation),
+  // everything else → WHERE (pre-aggregation). The query aggregates whenever
+  // metrics are present (with or without GROUP BY), so that gates HAVING.
+  const hasGroupBy = groupByParts.length > 0;
+  const { whereClause, havingClause } = buildFilterClauses(
+    insight,
+    fieldIdMap,
+    hasMetrics,
+    "alias",
+  );
+
   // Build final SQL
   let sql = `SELECT ${selectParts.join(", ")} FROM ${fromClause}`;
 
-  if (groupByParts.length > 0) {
+  if (whereClause) {
+    sql += ` ${whereClause}`;
+  }
+
+  if (hasGroupBy) {
     sql += ` GROUP BY ${groupByParts.join(", ")}`;
+  }
+
+  if (havingClause) {
+    sql += ` ${havingClause}`;
   }
 
   return appendPagination(sql, options, validColumns);
