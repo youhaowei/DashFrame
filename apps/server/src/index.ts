@@ -250,12 +250,35 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       DEFAULT_WEB_PROJECT_DIR,
     name: opts.name,
   });
+
+  // Headless parity with the desktop host: surface a WAL-recovery rollback to
+  // the operator. The renderer dialog is desktop-only, so without this the CLI
+  // would silently serve a project restored from an older snapshot (or a fresh
+  // one) with no signal that changes since the last snapshot were lost.
+  if (project.recovery) {
+    const { restoredSnapshot, quarantinedPath } = project.recovery;
+    console.warn(
+      "[dashframe] WARNING: recovered from an unclean shutdown (WAL corruption).",
+    );
+    console.warn(
+      restoredSnapshot
+        ? `[dashframe]   restored from snapshot taken ${restoredSnapshot.timestamp}; changes since then are lost.`
+        : "[dashframe]   no snapshot was available — started a fresh empty project.",
+    );
+    console.warn(
+      `[dashframe]   damaged database quarantined at: ${quarantinedPath}`,
+    );
+  }
+
   const server = await createDashframeServer({
     db: project.db,
     hostname: opts.hostname,
     port: opts.port,
     corsOrigin: opts.corsOrigin,
     authToken: opts.token,
+    // Drive the debounced snapshot scheduler on the headless serve path too, so
+    // `dashframe serve` gets the same crash-durability guarantee as desktop.
+    onWrite: () => project.touchSnapshot(),
   });
 
   closeOnSignal(project, server);

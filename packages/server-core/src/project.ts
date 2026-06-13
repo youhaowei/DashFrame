@@ -5,11 +5,26 @@
  *   <dir>/
  *     artifacts.db          # PGLite, tables via syncSchema
  *     data/sources/         # Parquet files, one per imported DataSource
+ *     snapshots/            # Rotating PGLite datadir tarballs (see snapshots.ts)
  *
  * On first open, `project_meta` is seeded with a freshly generated
  * `project_id`, creator version, `schema_version = ARTIFACT_DB_SCHEMA_VERSION`,
  * and the current OS user as `created_by`. Subsequent opens are no-ops on the
  * metadata row.
+ *
+ * Recovery path: if a startup failure is accompanied by a structurally torn WAL
+ * segment on disk (a `pg_wal/` file whose size is not a multiple of XLOG_BLCKSZ),
+ * the damaged datadir is quarantined with a timestamp suffix and the newest
+ * snapshot is restored. If no snapshot exists a fresh project is created. The
+ * returned `ProjectHandle` carries a `recovery` notice the host can surface to
+ * the user. See GitHub issue #88.
+ *
+ * Critically, quarantine+restore only fires on a POSITIVELY CONFIRMED torn WAL
+ * segment. An Emscripten abort alone is NOT sufficient — `RuntimeError("Aborted(OOM)")`
+ * (out of memory) and any other non-WAL abort leave the on-disk datadir intact,
+ * so recovering on them would overwrite a healthy database. Any failure that
+ * cannot be tied to a torn WAL segment is re-thrown immediately — data is never
+ * silently discarded on an ambiguous error.
  */
 
 import fs from "node:fs/promises";
@@ -34,10 +49,30 @@ import {
   projectMeta,
   type ProjectMetaRow,
 } from "./schema";
+import {
+  hasCorruptWalSegment,
+  restoreNewestSnapshot,
+  SnapshotScheduler,
+  writeSnapshot,
+  type SnapshotMeta,
+} from "./snapshots";
 import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 export const ARTIFACTS_DB_FILENAME = "artifacts.db";
 export const DATA_SOURCES_DIRNAME = path.join("data", "sources");
+
+/** Set when openProject had to quarantine a damaged datadir. */
+export interface ProjectRecoveryNotice {
+  /** What happened. */
+  reason: "wal-corruption";
+  /**
+   * The snapshot that was restored, or null when no snapshot was available
+   * and the project was re-initialized as a fresh empty project.
+   */
+  restoredSnapshot: SnapshotMeta | null;
+  /** Absolute path to the quarantined damaged datadir. */
+  quarantinedPath: string;
+}
 
 export interface ProjectHandle {
   /** Resolved absolute path to the project folder. */
@@ -50,7 +85,18 @@ export interface ProjectHandle {
   db: ArtifactDb;
   /** The single `project_meta` row. */
   meta: ProjectMetaRow;
-  /** Flush pending writes and close the underlying PGlite connection. */
+  /**
+   * Set when the project was recovered from a corrupt WAL; null on a normal
+   * open. The desktop host reads this and surfaces a dialog to the user.
+   */
+  recovery: ProjectRecoveryNotice | null;
+  /**
+   * Notify the snapshot scheduler that a write just occurred.
+   * Call this after any operation that mutates the artifact DB so the
+   * debounced snapshot timer is reset.
+   */
+  touchSnapshot(): void;
+  /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
   close(): Promise<void>;
 }
 
@@ -63,6 +109,19 @@ export interface OpenProjectOptions extends ResolveProjectDirOptions {
   createdBy?: string;
   /** DashFrame semver that created the project. */
   version?: string;
+  /**
+   * Debounce interval in ms for the post-write snapshot timer.
+   * Exposed for tests (set low to avoid real waits).
+   * Defaults to SNAPSHOT_DEBOUNCE_MS (30 s).
+   */
+  snapshotDebounceMs?: number;
+  /**
+   * Injected DB-open function. Exposed for tests so the open-time failure that
+   * drives the recovery decision can be simulated deterministically — e.g. a
+   * `RuntimeError("Aborted(OOM)")` against an intact datadir, which must NOT
+   * trigger quarantine. Defaults to {@link openArtifactDb}.
+   */
+  openDb?: (opts: { path: string }) => Promise<ArtifactDb>;
 }
 
 export async function openProject(
@@ -74,7 +133,55 @@ export async function openProject(
 
   await fs.mkdir(dataSourcesDir, { recursive: true });
 
-  const db = await openArtifactDb({ path: dbPath });
+  // Injected DB-open seam (defaults to the real openArtifactDb). Used by tests
+  // to simulate the open-time failure that drives the recovery decision.
+  const openDb = options.openDb ?? openArtifactDb;
+
+  // --- attempt normal open ---
+  let db: ArtifactDb;
+  let recovery: ProjectRecoveryNotice | null = null;
+
+  try {
+    db = await openDb({ path: dbPath });
+  } catch (err) {
+    // Only recover when a torn WAL segment is positively confirmed on disk. Any
+    // other failure — including an Aborted(OOM) abort whose datadir is intact —
+    // is re-thrown immediately; we never quarantine on ambiguous evidence.
+    const confirmed = await isConfirmedWalCorruption(err, dbPath);
+    if (!confirmed) throw err;
+
+    // Quarantine the damaged datadir. This MUST succeed before we proceed —
+    // if the rename fails we cannot safely overwrite the existing (possibly
+    // still-recoverable) data.
+    const quarantinedPath = await quarantineDamagedDb(dbPath);
+
+    try {
+      // Restore from snapshot (or start fresh).
+      const restoredSnapshot = await restoreNewestSnapshot(dir, dbPath);
+
+      // Open the restored (or fresh) datadir.
+      db = await openArtifactDb({ path: dbPath });
+
+      recovery = {
+        reason: "wal-corruption",
+        restoredSnapshot,
+        quarantinedPath,
+      };
+    } catch (recoveryErr) {
+      // The damaged DB has ALREADY been renamed aside to `quarantinedPath`, but
+      // the restore/re-open failed — so `dbPath` now has no usable database. A
+      // bare throw here would leave the operator with a missing DB and no clue
+      // where their data went. Surface the quarantine location in the error so
+      // the data is recoverable by hand, and chain the original cause.
+      throw new Error(
+        `[dashframe] recovery failed after quarantining the damaged database. ` +
+          `Your previous data has been preserved at: ${quarantinedPath}. ` +
+          `Restore/reopen error: ${recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)}`,
+        { cause: recoveryErr },
+      );
+    }
+  }
+
   let meta: ProjectMetaRow;
   try {
     meta = await ensureProjectMeta(db, {
@@ -84,11 +191,144 @@ export async function openProject(
     });
   } catch (err) {
     await db.$client.close().catch(() => {});
+    // If we got here via recovery, the original datadir is already quarantined
+    // aside and the restored one just failed its metadata check (e.g. an
+    // unsupported-schema snapshot after a downgrade, or a tarball that loaded
+    // but is partially corrupt). A bare throw would leave the next startup
+    // seeing only the bad restored datadir, with the user never told where their
+    // preserved data is. Surface the quarantine path, same as the recovery
+    // catch above.
+    if (recovery) {
+      throw new Error(
+        `[dashframe] recovery restored a snapshot but it failed metadata validation. ` +
+          `Your previous data has been preserved at: ${recovery.quarantinedPath}. ` +
+          `Validation error: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
+    }
     throw err;
   }
 
-  const close = () => db.$client.close();
-  return { dir, dbPath, dataSourcesDir, db, meta, close };
+  const scheduler = new SnapshotScheduler(
+    db.$client,
+    dir,
+    options.snapshotDebounceMs,
+  );
+
+  const close = async () => {
+    // Cancel the pending debounced timer, then await any snapshot already in
+    // flight before writing (and closing). Without the flush, a debounced/max-
+    // wait dump still running here would overlap the final dump on the same
+    // client — or worse, still be using the client when `close()` tears it down.
+    scheduler.cancel();
+    await scheduler.flush();
+    try {
+      await writeSnapshot(db.$client, dir);
+    } catch (err) {
+      console.error("[dashframe] close-time snapshot failed:", err);
+    }
+    await db.$client.close();
+  };
+
+  return {
+    dir,
+    dbPath,
+    dataSourcesDir,
+    db,
+    meta,
+    recovery,
+    touchSnapshot: () => scheduler.touch(),
+    close,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true ONLY when startup failure is POSITIVELY CONFIRMED WAL corruption.
+ *
+ * Guiding rule — fail toward PRESERVING data: quarantine + restore DESTROYS the
+ * live datadir (it renames the database aside and overwrites it with an older
+ * snapshot), so it must fire only on definitive, file-level evidence of
+ * corruption. When the evidence is ambiguous the caller re-throws and surfaces
+ * the real error; it never quarantines on a signal it cannot positively tie to a
+ * structurally torn WAL.
+ *
+ * The SOLE sufficient signal is the WAL-segment probe (`hasCorruptWalSegment`):
+ * a `pg_wal/` segment file whose byte length is not a multiple of XLOG_BLCKSZ —
+ * a torn/misaligned write, direct on-disk proof the WAL is damaged.
+ *
+ * What is deliberately NOT trusted: the Emscripten abort signature. Earlier this
+ * helper treated any `RuntimeError("Aborted(...)")` as corruption, but that class
+ * covers unrelated failures — most importantly `Aborted(OOM)`, an out-of-memory
+ * abort that leaves the on-disk datadir perfectly intact. Recovering on an OOM
+ * would overwrite a healthy database under memory pressure: the exact data-loss
+ * mode this whole path exists to prevent. So the abort message is never an
+ * independent trigger — only a torn WAL segment authorizes recovery.
+ *
+ * Net rule:
+ *   torn WAL segment present  → confirmed corruption  → quarantine + restore
+ *   anything else (incl. any  → NOT confirmed         → re-throw (preserve data)
+ *   abort, OOM, EACCES probe
+ *   failure, unreachable trap)
+ *
+ * `err` is currently unused for the decision — recovery keys solely on the
+ * file-level probe — but is kept in the signature so a future, precisely
+ * WAL-attributable error class could become a corroborating signal alongside
+ * (never instead of) the torn-WAL probe.
+ */
+async function isConfirmedWalCorruption(
+  _err: unknown,
+  dbPath: string,
+): Promise<boolean> {
+  // The ONLY sufficient signal: a structurally torn WAL segment on disk. A probe
+  // failure (EACCES/EPERM/etc.) resolves to false — absence of positive evidence
+  // is never grounds to destroy the datadir. Every other startup failure
+  // (Aborted(OOM), a bare abort with an intact datadir, an `unreachable` trap, a
+  // permissions error) falls through to false and the caller re-throws.
+  return hasCorruptWalSegment(dbPath).catch(() => false);
+}
+
+/**
+ * Rename the damaged artifacts.db aside to a timestamped quarantine path.
+ * Returns the quarantine path.
+ *
+ * If the rename fails for any reason other than the source not existing, an
+ * error is thrown — we cannot proceed to restore without first confirming the
+ * damaged datadir has been safely moved aside (doing so would risk overwriting
+ * data that might still be partially recoverable).
+ *
+ * If the damaged path does not exist at all (ENOENT on the source), we return
+ * the quarantine path without touching the filesystem — the DB was never
+ * created and there is nothing to move.
+ */
+async function quarantineDamagedDb(dbPath: string): Promise<string> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const quarantinedPath = `${dbPath}.damaged-${timestamp}`;
+  try {
+    await fs.rename(dbPath, quarantinedPath);
+  } catch (err) {
+    // Source doesn't exist — nothing to quarantine; proceed to fresh init.
+    if (isEnoent(err)) return quarantinedPath;
+    // Any other rename failure (permissions, cross-device, I/O) is fatal —
+    // surface the error rather than silently proceeding to restore over a DB
+    // that was NOT successfully moved aside.
+    throw new Error(
+      `[dashframe] quarantine failed: could not rename ${dbPath} → ${quarantinedPath}: ${String(err)}`,
+      { cause: err },
+    );
+  }
+  return quarantinedPath;
+}
+
+function isEnoent(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 async function ensureProjectMeta(

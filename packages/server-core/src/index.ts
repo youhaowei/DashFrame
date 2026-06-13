@@ -19,7 +19,19 @@ export {
   type OpenProjectOptions,
   type ProjectHandle,
   type ProjectMetaRow,
+  type ProjectRecoveryNotice,
 } from "./project";
+export {
+  SNAPSHOTS_DIRNAME,
+  SNAPSHOT_DEBOUNCE_MS,
+  SNAPSHOT_KEEP_N,
+  SNAPSHOT_MAX_WAIT_MS,
+  XLOG_BLCKSZ,
+  hasCorruptWalSegment,
+  listSnapshots,
+  writeSnapshot,
+  type SnapshotMeta,
+} from "./snapshots";
 
 export {
   DASHFRAME_HOME_DIRNAME,
