@@ -126,8 +126,7 @@ function EngineErrorToast({ engineError }: { engineError: string }) {
       duration: 10000,
     });
     // Only fire once per engineError value change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineError]);
+  }, [engineError, showError]);
 
   return null;
 }
