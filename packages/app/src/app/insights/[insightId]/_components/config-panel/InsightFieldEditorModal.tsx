@@ -1,3 +1,4 @@
+import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
   Badge,
@@ -163,6 +164,11 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <SensitivityBadge
+          field={field}
+          suggestedReasons={[]}
+          onConfirmSuggestion={() => {}}
+        />
         <Badge variant="outline" className="text-[10px]">
           {field.type}
         </Badge>
