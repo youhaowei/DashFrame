@@ -121,3 +121,41 @@ async function bootstrap() {
 }
 
 bootstrap().catch(renderBootstrapError);
+
+// ── Fail-soft: mid-session engine loss ──────────────────────────────────────
+// When the native DuckDB engine stops mid-session, pending Mosaic/vgplot fetch
+// calls reject with a network or timeout error. These Promise rejections can
+// escape through mosaic-core internals (Coordinator's internal promise chains
+// have no outer catch) and surface as unhandledrejection events. In Electron,
+// an unhandled rejection in the renderer process kills the page (CDP page count
+// → 0). Catch them here: log and swallow engine-loss rejections only.
+// Pattern matches loopback-specific strings from nativeConnector.ts so we never
+// silence unrelated bugs (see the regex comment below).
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const msg =
+    reason instanceof Error ? reason.message : String(reason ?? "unknown");
+  // Intercept only rejections that are clearly from the loopback engine path.
+  // The patterns cover all error strings thrown by nativeConnector.ts:
+  //   "Native engine timed out…"   → fetchWithTimeout AbortError translation
+  //   "Native engine query failed" → non-OK HTTP response on /data/arrow
+  //   "Failed to upload table"     → non-OK HTTP on /data/tables/:name
+  //   "Failed to fetch"            → browser network error (ECONNREFUSED) when
+  //      the loopback server stops mid-session. This is generic, but on desktop
+  //      the only in-session cross-origin fetch is to the loopback engine —
+  //      there is no cloud/analytics network call in the Electron renderer.
+  //      Accept this narrow false-positive risk: swallowing a genuine "Failed
+  //      to fetch" from another source on the DESKTOP path is very low risk;
+  //      failing to swallow a loopback engine-loss rejection crashes the renderer.
+  const isEngineLoss =
+    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables|failed to upload|failed to fetch/i.test(
+      msg,
+    );
+  if (isEngineLoss) {
+    console.warn(
+      "[DashFrame] Swallowed unhandled rejection (engine loss):",
+      reason,
+    );
+    event.preventDefault();
+  }
+});
