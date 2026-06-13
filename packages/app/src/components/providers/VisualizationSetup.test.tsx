@@ -1,10 +1,17 @@
 /**
  * Tests for VisualizationSetup error routing contracts (see #96).
  *
- * Contracts verified:
- * 1. Whole-engine-down (engineError set, no connector) → Sonner toast, NOT inline ErrorState.
- * 2. VisualizationProvider init failure → toast (whole-engine-down), NOT inline slab.
- * 3. VisualizationBoundary catches render-phase throws → toast + empty state, no crash.
+ * Contracts verified here:
+ * 1. Whole-engine-down does NOT fire a toast and does NOT render an inline slab
+ *    from this component — that surface moved to VisualizationDisplay (persistent
+ *    inline affordance). VisualizationSetup just passes children through.
+ * 2. VisualizationBoundary catches render-phase throws → fires a Reload-action
+ *    toast that never auto-dismisses (duration: Infinity), and leaves children
+ *    mounted (no renderer crash, navigation survives).
+ *
+ * The persistent inline engine-unavailable affordance is tested in
+ * EngineUnavailableState.test.tsx (the surface) and VisualizationDisplay reads
+ * the engine signals; this file only covers what VisualizationSetup still owns.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
@@ -55,9 +62,8 @@ vi.mock("./DuckDBProvider", () => ({
   useDuckDBContext: () => mockUseDuckDBContext(),
 }));
 
-// VisualizationProvider: stub that just renders children.
-// VisualizationErrorToast reads useVisualization() from inside the provider,
-// so stub useVisualization too.
+// VisualizationProvider: stub that just renders children. The boundary test
+// makes useVisualization throw to simulate a setup-component render crash.
 const { mockUseVisualization } = vi.hoisted(() => ({
   mockUseVisualization: vi.fn().mockReturnValue({
     error: null,
@@ -116,8 +122,8 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
     });
   });
 
-  describe("whole-engine-down → toast, NOT inline slab", () => {
-    it("fires showError toast when engineError is set and no connector", async () => {
+  describe("whole-engine-down → no toast, no inline slab from this component", () => {
+    it("does NOT fire a toast when engineError is set (surface moved to inline)", async () => {
       mockUseChartEngine.mockReturnValue({
         connector: null,
         engineError: "Native engine unavailable: connection refused",
@@ -126,17 +132,12 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
 
       renderSetup();
 
-      await waitFor(() => {
-        expect(mockShowError).toHaveBeenCalledWith(
-          "Native engine unreachable",
-          expect.objectContaining({
-            description: expect.stringContaining("Charts are unavailable"),
-          }),
-        );
-      });
+      // Give effects a tick to fire — nothing should call showError.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockShowError).not.toHaveBeenCalled();
     });
 
-    it("does NOT render an inline ErrorState slab for engine-down condition", () => {
+    it("does NOT render an inline ErrorState slab for the engine-down condition", () => {
       mockUseChartEngine.mockReturnValue({
         connector: null,
         engineError: "Native engine unavailable: connection refused",
@@ -145,12 +146,12 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
 
       renderSetup(<div data-testid="child" />);
 
-      // Inline ErrorState would render the title text directly in the DOM.
-      // With the toast-only approach, this text must not appear as an inline element.
-      expect(screen.queryByText("Native engine unavailable")).toBeNull();
+      // The raw engineError string must never reach the DOM (DESIGN.md:
+      // no raw runtime errors in UI).
+      expect(screen.queryByText(/Native engine unavailable/i)).toBeNull();
     });
 
-    it("still renders children when engine is down (degraded, not dead)", () => {
+    it("still passes children through when engine is down (degraded, not dead)", () => {
       mockUseChartEngine.mockReturnValue({
         connector: null,
         engineError: "Native engine unavailable: connection refused",
@@ -162,52 +163,11 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
       expect(screen.queryByTestId("child")).not.toBeNull();
     });
 
-    it("does NOT fire toast when engineError is null (healthy path)", async () => {
-      mockUseChartEngine.mockReturnValue({
-        connector: null,
-        engineError: null,
-        uploadArrowTable: null,
-      });
-
+    it("does NOT fire a toast on the healthy path (engineError null)", async () => {
       renderSetup();
 
-      // Give effects a tick to fire
       await new Promise((r) => setTimeout(r, 0));
-      expect(mockShowError).not.toHaveBeenCalledWith(
-        "Native engine unreachable",
-        expect.anything(),
-      );
-    });
-  });
-
-  describe("VisualizationProvider init failure → toast, NOT inline slab", () => {
-    it("fires showError toast when VisualizationProvider fails to initialize", async () => {
-      // Connector is present (desktop path), so the native VisualizationProvider
-      // branch is taken. Inside it, useVisualization().error is set.
-      const mockConnector = { query: vi.fn() };
-      mockUseChartEngine.mockReturnValue({
-        connector: mockConnector,
-        engineError: null,
-        uploadArrowTable: null,
-      });
-      mockUseVisualization.mockReturnValue({
-        error: new Error("Failed to load @uwdata/vgplot"),
-        api: null,
-        isReady: false,
-        coordinator: null,
-        renderer: null,
-      });
-
-      renderSetup();
-
-      await waitFor(() => {
-        expect(mockShowError).toHaveBeenCalledWith(
-          "Visualization engine failed to start",
-          expect.objectContaining({
-            description: expect.stringContaining("Charts may not render"),
-          }),
-        );
-      });
+      expect(mockShowError).not.toHaveBeenCalled();
     });
   });
 
@@ -227,7 +187,7 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
       expect(screen.queryByTestId("child")).not.toBeNull();
     });
 
-    it("VisualizationBoundary catches throw from setup components, fires toast, leaves children mounted", async () => {
+    it("catches a setup-component throw, fires a Reload-action toast that never auto-dismisses, and leaves children mounted", async () => {
       const mockConnector = { query: vi.fn() };
       mockUseChartEngine.mockReturnValue({
         connector: mockConnector,
@@ -235,9 +195,9 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
         uploadArrowTable: null,
       });
 
-      // Simulate a setup component (VisualizationErrorToast) throwing by
-      // making useVisualization throw during render. The boundary wraps the
-      // setup subtree; children are outside the boundary and must stay mounted.
+      // Simulate a setup component (RendererRegistration) throwing by making
+      // useVisualization throw during render. The boundary wraps the setup
+      // subtree; children are outside the boundary and must stay mounted.
       mockUseVisualization.mockImplementation(() => {
         throw new Error("Mosaic coordinator exploded");
       });
@@ -250,15 +210,25 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
       // Must not throw at the render level (boundary catches it)
       expect(() => renderSetup(<div data-testid="child" />)).not.toThrow();
 
-      // Toast must fire with crash signal
+      // Toast must fire with the plain-language crash copy, a Reload action,
+      // and Infinity duration (must not fade before the user can act).
       await waitFor(() => {
         expect(mockShowError).toHaveBeenCalledWith(
-          "Chart engine crashed mid-session",
+          "Charts were reset",
           expect.objectContaining({
-            description: expect.stringContaining("Reload to reconnect"),
+            description: expect.stringContaining("interrupted"),
+            duration: Infinity,
+            action: expect.objectContaining({
+              label: "Reload",
+              onClick: expect.any(Function),
+            }),
           }),
         );
       });
+
+      // The crash copy must NOT leak implementation terms.
+      const [, opts] = mockShowError.mock.calls[0]!;
+      expect(opts.description).not.toMatch(/native|wasm|mosaic|coordinator/i);
 
       // Children (shell, toaster) must remain mounted — not blanked by the boundary.
       expect(screen.queryByTestId("child")).not.toBeNull();

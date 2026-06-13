@@ -1,3 +1,4 @@
+import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -6,7 +7,11 @@ import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
-import { Chart, VisualizationProvider } from "@dashframe/visualization";
+import {
+  Chart,
+  VisualizationProvider,
+  useVisualization,
+} from "@dashframe/visualization";
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-icons";
 import {
@@ -17,6 +22,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { EngineUnavailableState } from "./EngineUnavailableState";
 
 /**
  * Wraps `children` in a WASM-backed VisualizationProvider when `nativeCapable`
@@ -58,6 +64,14 @@ export function VisualizationDisplay({
 }: {
   visualizationId?: string;
 }) {
+  // Whole-engine-down signals. `engineError` is the native bootstrap failure
+  // (connector never came up); `visualizationError` is the provider failing to
+  // initialize its Mosaic coordinator. Both mean the same thing to the user —
+  // charts can't load — and reloading is the fix, so they share one surface.
+  const { engineError } = useChartEngine();
+  const { error: visualizationError } = useVisualization();
+  const engineUnavailable = Boolean(engineError) || Boolean(visualizationError);
+
   // Use effect to detect mounting (avoids hydration mismatch)
   const [isMounted, setIsMounted] = useState(false);
   const [visibleRows, setVisibleRows] = useState<number>(10);
@@ -322,6 +336,19 @@ export function VisualizationDisplay({
 
     previousCanShowBothRef.current = canShowBoth;
   }, [canShowBoth, activeTab]);
+
+  // Whole-engine-down: show the persistent inline affordance where the chart
+  // would render. This takes precedence over loading/per-chart states — when
+  // the engine is unreachable there's nothing to load and no chart to compute,
+  // so spinning or surfacing a per-chart error would be misleading. The user
+  // gets a Reload button (the actual fix) instead of instruction-as-homework.
+  if (isMounted && engineUnavailable) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-6">
+        <EngineUnavailableState className="w-full max-w-lg" />
+      </div>
+    );
+  }
 
   // Surface a post-bootstrap insight-view failure instead of spinning forever.
   // When the native upload fails at runtime (loopback server stopped, auth

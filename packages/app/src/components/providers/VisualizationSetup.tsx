@@ -36,29 +36,6 @@ function RendererRegistration() {
   return null;
 }
 
-/**
- * Fires a Sonner error toast when the VisualizationProvider fails to
- * initialize its Mosaic coordinator (e.g. vgplot import failure, connector
- * rejected). This is a whole-engine-init failure, not a per-chart failure,
- * so it surfaces as a toast rather than an inline slab. Children continue
- * to render — the failure is transient/recoverable and the user can retry
- * by reloading.
- */
-function VisualizationErrorToast() {
-  const { error } = useVisualization();
-  const { showError } = useToastStore();
-
-  useEffect(() => {
-    if (!error) return;
-    showError("Visualization engine failed to start", {
-      description: "Charts may not render. Reload to retry.",
-      duration: 8000,
-    });
-  }, [error, showError]);
-
-  return null;
-}
-
 // ============================================================================
 // Error Boundary
 // ============================================================================
@@ -111,26 +88,6 @@ class VisualizationBoundary extends Component<
   }
 }
 
-/**
- * Hook that fires a toast for a whole-engine-down condition, then returns
- * nothing. Separated so the toast logic can consume hooks (useToastStore)
- * while the boundary above it is a class component.
- */
-function EngineErrorToast({ engineError }: { engineError: string }) {
-  const { showError } = useToastStore();
-
-  useEffect(() => {
-    showError("Native engine unreachable", {
-      description:
-        "Charts are unavailable. Reload to reconnect to the local engine.",
-      duration: 10000,
-    });
-    // Only fire once per engineError value change.
-  }, [engineError, showError]);
-
-  return null;
-}
-
 // VisualizationBoundary fallback: null. Nothing visible — the toast fired
 // by onError is the user-facing signal. Children (Shell, Toaster, routes)
 // are outside the boundary and stay alive; only the provider's setup
@@ -158,23 +115,27 @@ interface VisualizationSetupProps {
  *
  * ## Error surfaces
  *
- * - Native bootstrap failure (connector=null, engineError set): shown as a
- *   Sonner toast (whole-engine-down condition); WASM path used as fallback for
- *   non-chart content.
+ * - Whole engine unreachable (native bootstrap failure OR provider init
+ *   failure): shown as a PERSISTENT inline affordance where the chart would
+ *   render, with a Reload button (EngineUnavailableState in VisualizationDisplay).
+ *   It's a persistent condition — charts stay broken until reload — so a fading
+ *   toast is the wrong surface. This component still passes children through so
+ *   non-chart content (nav, routes) stays usable.
  * - Native connector healthy but WASM failed: WASM error shown as an inline
  *   ErrorState inside the native provider (chart queries still route to native;
  *   data-viewer paths that need WASM see the banner).
  * - WASM-only path failure: standard ErrorState with retry.
  * - Mid-session render throw (engine dies while rendering): caught by
- *   VisualizationBoundary → toast + empty state, never crashes the renderer.
+ *   VisualizationBoundary → toast WITH a Reload action (a momentary event, so a
+ *   toast is right), never crashes the renderer.
  *
  * ## Error routing
  *
  * | Condition                               | Surface          |
  * |-----------------------------------------|------------------|
- * | Whole engine unreachable (engineError)  | Sonner toast     |
- * | VisualizationProvider init failure      | Sonner toast     |
- * | Mid-session render-phase throw          | Boundary + toast |
+ * | Whole engine unreachable (engineError)  | Persistent inline + Reload (VisualizationDisplay) |
+ * | VisualizationProvider init failure      | Persistent inline + Reload (VisualizationDisplay) |
+ * | Mid-session render-phase throw          | Boundary → toast + Reload action |
  * | Per-chart compute failure (insightView) | Inline ErrorState (in VisualizationDisplay) |
  *
  * ## Provider Hierarchy
@@ -200,7 +161,7 @@ interface VisualizationSetupProps {
  * ```
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
-  const { connector, engineError } = useChartEngine();
+  const { connector } = useChartEngine();
   const { db, connection, isInitialized, isLoading, error, initDuckDB } =
     useDuckDBContext();
   const { showError } = useToastStore();
@@ -209,13 +170,20 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     initDuckDB();
   }, [initDuckDB]);
 
-  // Callback fired by VisualizationBoundary on a render-phase throw. Shows a
-  // toast so the user knows something degraded without crashing the renderer.
+  // Callback fired by VisualizationBoundary on a render-phase throw. A
+  // mid-session crash is a momentary event (the renderer survived; charts got
+  // reset) — so a toast is the right surface, but it carries a Reload action so
+  // the user can act, and never auto-dismisses (duration: Infinity) so it can't
+  // fade before they do. Copy stays plain-language: no "engine"/"Mosaic" terms.
   const handleBoundaryError = useCallback(
     (_err: Error) => {
-      showError("Chart engine crashed mid-session", {
-        description: "Charts have been reset. Reload to reconnect.",
-        duration: 10000,
+      showError("Charts were reset", {
+        description: "Something interrupted the data engine.",
+        duration: Infinity,
+        action: {
+          label: "Reload",
+          onClick: () => window.location.reload(),
+        },
       });
     },
     [showError],
@@ -239,12 +207,17 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       ) : null;
 
     // VisualizationBoundary wraps the provider's setup components (renderer
-    // registration, error toast, WASM banner) but NOT {children}. Children
-    // include the full Shell — navigation, the <Toaster>, route outlets — all
-    // of which must stay alive if the visualization setup crashes. Children are
-    // still inside VisualizationProvider (needed for useVisualization() context)
-    // but sit outside the boundary so a provider-internal throw doesn't blank
-    // the UI or swallow the toast that fires via onError.
+    // registration, WASM banner) but NOT {children}. Children include the full
+    // Shell — navigation, the <Toaster>, route outlets — all of which must stay
+    // alive if the visualization setup crashes. Children are still inside
+    // VisualizationProvider (needed for useVisualization() context) but sit
+    // outside the boundary so a provider-internal throw doesn't blank the UI or
+    // swallow the toast that fires via onError.
+    //
+    // Provider init failure (useVisualization().error) and engine-unreachable
+    // both surface as a persistent inline affordance in VisualizationDisplay,
+    // not here — that's where the chart would render, and it carries the Reload
+    // action. The boundary's onError handles the mid-session crash toast.
     //
     // If a Chart component inside {children} throws during render (uncommon —
     // Mosaic's Coordinator callbacks are async, not synchronous render calls),
@@ -255,7 +228,6 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       <VisualizationProvider connector={connector}>
         <VisualizationBoundary fallback={null} onError={handleBoundaryError}>
           <RendererRegistration />
-          <VisualizationErrorToast />
           {wasmErrorBanner}
         </VisualizationBoundary>
         {children}
@@ -265,15 +237,15 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // ── WASM path (web tier default) OR native bootstrap failure ─────────────
   // When the Electron IPC call fails or returns missing server info, `main.tsx`
-  // sets engineError with connector=null. Fire a toast for the whole-engine-down
-  // condition (never an inline slab — see error routing table above), then fall
-  // through to the WASM path so non-chart content still renders.
+  // sets engineError with connector=null. The whole-engine-down condition is
+  // surfaced as a persistent inline affordance in VisualizationDisplay (where
+  // the chart would render), not here — so this path just falls through to the
+  // WASM path so non-chart content still renders.
   //
   // Show error state if DuckDB WASM initialization failed
   if (error) {
     return (
       <>
-        {engineError && <EngineErrorToast engineError={engineError} />}
         <ErrorState
           title="Failed to initialize data engine"
           description={error.message}
@@ -287,22 +259,13 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // Pass through children during loading - components handle their own loading states
   if (isLoading || !isInitialized || !db || !connection) {
-    return (
-      <>
-        {engineError && <EngineErrorToast engineError={engineError} />}
-        {children}
-      </>
-    );
+    return <>{children}</>;
   }
 
   return (
-    <>
-      {engineError && <EngineErrorToast engineError={engineError} />}
-      <VisualizationProvider db={db} connection={connection}>
-        <RendererRegistration />
-        <VisualizationErrorToast />
-        {children}
-      </VisualizationProvider>
-    </>
+    <VisualizationProvider db={db} connection={connection}>
+      <RendererRegistration />
+      {children}
+    </VisualizationProvider>
   );
 }
