@@ -22,9 +22,24 @@ export function isNativeCapableDataFrame(dataFrame: DataFrame): boolean {
   return dataFrame.storage.type === "indexeddb";
 }
 
+/**
+ * What a created view needs to be re-rendered correctly after a remount/HMR.
+ *
+ * `nativeCapable` MUST travel with the view name: on the desktop path the view
+ * may have been created in DuckDB-WASM only (a DataFrame could not be uploaded
+ * to the native engine). If a remount restored only the view name and let
+ * `nativeCapable` reset to its initial `true`, VisualizationDisplay would skip
+ * the WASM fallback and route the chart to the native engine for a view that
+ * was intentionally never created there → missing-table error.
+ */
+interface CachedView {
+  viewName: string;
+  nativeCapable: boolean;
+}
+
 // Module-level cache to track which views have been created
 // This survives React Strict Mode's double-invoke and HMR remounts
-const createdViewsCache = new Map<string, string>(); // configKey -> viewName
+const createdViewsCache = new Map<string, CachedView>(); // configKey -> CachedView
 
 // Module-level set to track in-flight requests (prevents race conditions)
 const pendingRequests = new Set<string>();
@@ -53,9 +68,9 @@ export function clearInsightViewCache(): void {
 export function getCachedViewName(insightId: string): string | null {
   // The cache key format is `${insightId}:${joinsKey}` but we want to match by insightId prefix
   // since VisualizationPreview doesn't know about joins
-  for (const [key, viewName] of createdViewsCache.entries()) {
+  for (const [key, cached] of createdViewsCache.entries()) {
     if (key.startsWith(`${insightId}:`)) {
-      return viewName;
+      return cached.viewName;
     }
   }
   return null;
@@ -112,9 +127,10 @@ export function useInsightView(insight: Insight | null | undefined) {
   const configKey = insightId ? `${insightId}:${joinsKey}` : null;
 
   // Check module-level cache for existing view (survives Strict Mode remounts)
-  const cachedViewName = configKey
+  const cachedView = configKey
     ? (createdViewsCache.get(configKey) ?? null)
     : null;
+  const cachedViewName = cachedView?.viewName ?? null;
 
   // Resolved view set by the async effect. The publicly-returned viewName is
   // derived during render so we don't have to synchronously reset it inside
@@ -138,8 +154,22 @@ export function useInsightView(insight: Insight | null | undefined) {
    *
    * Only meaningful on the desktop path (when `uploadArrowTable` is set).
    * Always `true` on the WASM-only path.
+   *
+   * Seeded from the module cache so a remount/HMR that short-circuits view
+   * creation (cache hit) restores the original fallback decision instead of
+   * resetting to `true` and routing a WASM-only view to the native engine.
    */
-  const [nativeCapable, setNativeCapable] = useState<boolean>(true);
+  const [nativeCapable, setNativeCapable] = useState<boolean>(
+    cachedView?.nativeCapable ?? true,
+  );
+
+  // A cache hit for the CURRENT config restores the cached fallback decision.
+  // (Initial state only captures the FIRST configKey; this keeps nativeCapable
+  // correct when configKey changes to one already in the cache.)
+  const nativeCapableForCurrentKey =
+    cachedView && resolvedConfigKey !== configKey
+      ? cachedView.nativeCapable
+      : nativeCapable;
 
   const prerequisitesReady =
     Boolean(connection) &&
@@ -190,8 +220,10 @@ export function useInsightView(insight: Insight | null | undefined) {
         // Double-check cache in case another effect already created it
         if (createdViewsCache.has(configKey)) {
           const cached = createdViewsCache.get(configKey)!;
-          setResolvedViewName(cached);
+          setResolvedViewName(cached.viewName);
           setResolvedConfigKey(configKey);
+          // Restore the cached fallback decision — never assume native-capable.
+          setNativeCapable(cached.nativeCapable);
           pendingRequests.delete(configKey);
           return;
         }
@@ -311,8 +343,13 @@ export function useInsightView(insight: Insight | null | undefined) {
           await connector.query({ type: "exec", sql: createViewSql });
         }
 
-        // Store in module-level cache (survives Strict Mode and HMR)
-        createdViewsCache.set(configKey, newViewName);
+        // Store in module-level cache (survives Strict Mode and HMR). The
+        // fallback decision travels with the view name so a later remount that
+        // hits this cache restores the correct engine routing.
+        createdViewsCache.set(configKey, {
+          viewName: newViewName,
+          nativeCapable: allNativeCapable,
+        });
         pendingRequests.delete(configKey);
 
         setResolvedViewName(newViewName);
@@ -363,6 +400,6 @@ export function useInsightView(insight: Insight | null | undefined) {
      *
      * Only meaningful on the desktop path. Always `true` on the WASM path.
      */
-    nativeCapable,
+    nativeCapable: nativeCapableForCurrentKey,
   };
 }

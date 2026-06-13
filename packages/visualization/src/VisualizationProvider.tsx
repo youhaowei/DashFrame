@@ -1,5 +1,6 @@
 "use client";
 
+import type { ChartRenderer } from "@dashframe/core";
 import type * as duckdb from "@duckdb/duckdb-wasm";
 import {
   createContext,
@@ -8,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createVgplotRenderer } from "./renderers";
 
 /**
  * Mosaic types - using dynamic import to avoid SSR issues.
@@ -42,6 +44,19 @@ interface VisualizationContextValue {
   coordinator: MosaicCoordinator | null;
   /** vgplot API for building charts */
   api: MosaicAPI | null;
+  /**
+   * Renderer bound to THIS provider's `api` (and therefore its coordinator and
+   * connector). Chart prefers this over the global registry so each provider
+   * routes chart queries to its own engine.
+   *
+   * This is the seam that makes per-insight engine routing work: the global
+   * registry is keyed only by visualization type, so a desktop page that
+   * registers a native renderer globally would force every chart through the
+   * native engine. By reading the renderer from context, a nested WASM-backed
+   * provider (the per-insight fallback) routes its chart to WASM even while the
+   * outer provider's native renderer is registered globally.
+   */
+  renderer: ChartRenderer | null;
   /** Whether the visualization system is ready */
   isReady: boolean;
   /** Initialization error, if any */
@@ -51,6 +66,7 @@ interface VisualizationContextValue {
 const VisualizationContext = createContext<VisualizationContextValue>({
   coordinator: null,
   api: null,
+  renderer: null,
   isReady: false,
   error: null,
 });
@@ -144,6 +160,7 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
   const [state, setState] = useState<VisualizationContextValue>({
     coordinator: null,
     api: null,
+    renderer: null,
     isReady: false,
     error: null,
   });
@@ -196,9 +213,15 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
 
         if (cancelled) return;
 
+        // Build a renderer bound to THIS provider's api. Chart reads it from
+        // context so the chart routes to this provider's engine, independent of
+        // whatever renderer is registered in the global registry.
+        const renderer = createVgplotRenderer(api);
+
         setState({
           coordinator,
           api,
+          renderer,
           isReady: true,
           error: null,
         });
@@ -209,6 +232,7 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
         setState({
           coordinator: null,
           api: null,
+          renderer: null,
           isReady: false,
           error: err instanceof Error ? err : new Error(String(err)),
         });

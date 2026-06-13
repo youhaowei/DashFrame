@@ -1489,4 +1489,88 @@ describe("useInsightView — per-insight native fallback", () => {
     expect(mockUploadArrowTable).not.toHaveBeenCalled();
     expect(mockConnectorQuery).not.toHaveBeenCalled();
   });
+
+  it("restores nativeCapable=false from cache on remount (does not reset to true)", async () => {
+    // Regression: the fallback decision must travel with the cached view. A
+    // remount that hits createdViewsCache used to reset nativeCapable to its
+    // initial `true`, which would route a WASM-only view to the native engine.
+    const connector = { query: mockConnectorQuery };
+    mockUseChartEngine.mockReturnValue({
+      connector,
+      engineError: null,
+      uploadArrowTable: mockUploadArrowTable,
+    });
+
+    const insight = createMockInsight({
+      id: "iv-cache-fallback",
+      baseTableId: "t-cf",
+    });
+    const baseTable = createMockDataTable({ id: "t-cf", dataFrameId: "df-cf" });
+    const baseDataFrame = createMockDataFrame("df-cf", "s3"); // non-indexeddb
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    // First mount: creates the WASM-only view, caches nativeCapable=false.
+    const { result: first, unmount } = renderHook(() =>
+      useInsightView(insight),
+    );
+    await waitFor(() => {
+      expect(first.current.isReady).toBe(true);
+    });
+    expect(first.current.nativeCapable).toBe(false);
+    unmount();
+
+    // Second mount: short-circuits on the cache. nativeCapable MUST stay false.
+    const { result: second } = renderHook(() => useInsightView(insight));
+    await waitFor(() => {
+      expect(second.current.isReady).toBe(true);
+    });
+    expect(second.current.nativeCapable).toBe(false);
+    // No second native-view creation attempt on the cache-hit path.
+    expect(mockConnectorQuery).not.toHaveBeenCalled();
+  });
+
+  it("surfaces error (and stays not-ready) when the native upload fails at runtime", async () => {
+    // Regression: a runtime upload failure (loopback down, 500) must become a
+    // consumable error, not an indefinite loading state. The view never becomes
+    // ready; VisualizationDisplay reads `error` to show an error state.
+    const connector = { query: mockConnectorQuery };
+    mockUseChartEngine.mockReturnValue({
+      connector,
+      engineError: null,
+      uploadArrowTable: mockUploadArrowTable,
+    });
+    mockLoadArrowData.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    // Upload rejects — the native engine is unreachable / returned 500.
+    mockUploadArrowTable.mockRejectedValue(
+      new Error("Native engine timed out — the local server did not respond."),
+    );
+
+    const insight = createMockInsight({
+      id: "iv-upload-fail",
+      baseTableId: "t-uf",
+    });
+    const baseTable = createMockDataTable({ id: "t-uf", dataFrameId: "df-uf" });
+    const baseDataFrame = createMockDataFrame("df-uf", "indexeddb");
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInsightView(insight));
+
+    await waitFor(() => {
+      expect(result.current.error).toBe(
+        "Native engine timed out — the local server did not respond.",
+      );
+    });
+    // Must NOT report ready — the caller renders an error state, not a chart.
+    expect(result.current.isReady).toBe(false);
+  });
 });
