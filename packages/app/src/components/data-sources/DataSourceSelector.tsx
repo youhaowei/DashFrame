@@ -1,3 +1,4 @@
+import { getConnectorById } from "@/lib/connectors/registry";
 import { useDataSources, useDataTables } from "@dashframe/core";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
@@ -45,16 +46,22 @@ export function DataSourceSelector({
       const isActive = source.id === selectedId;
       const tableCount = tableCountBySource.get(source.id) ?? 0;
 
-      let icon;
-      let metadata = "";
+      const connector = getConnectorById(source.type);
+      const isFileSource = connector?.sourceType === "file";
 
+      // ItemSelector expects a React component type, not an SVG string.
+      // Map known connector ids to the appropriate icon component.
+      let icon: React.ComponentType<{ className?: string }> | undefined;
       if (source.type === "notion") {
         icon = NotionIcon;
-        metadata = `${tableCount} ${tableCount === 1 ? "table" : "tables"}`;
-      } else if (source.type === "csv") {
+      } else if (source.type === "local") {
         icon = FileIcon;
-        metadata = `${tableCount} ${tableCount === 1 ? "file" : "files"}`;
       }
+
+      const itemLabel = isFileSource ? "file" : "table";
+      const itemLabelPlural = isFileSource ? "files" : "tables";
+      const countLabel = tableCount === 1 ? itemLabel : itemLabelPlural;
+      const metadata = connector ? `${tableCount} ${countLabel}` : "";
 
       return {
         id: source.id,

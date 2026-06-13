@@ -6,6 +6,7 @@ import { AssistantRegion } from "@/components/assistant/AssistantRegion";
 import { ArtifactContextProvider } from "@/components/assistant/artifact-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
+import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
@@ -76,6 +77,7 @@ export function RouteRoot({
           <TooltipProvider>
             <DatabaseProvider>
               <DuckDBProvider>
+                <ConnectorSetup />
                 <VisualizationSetup>
                   <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
                     <div

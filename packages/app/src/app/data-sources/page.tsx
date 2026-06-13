@@ -1,4 +1,6 @@
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { getConnectorById } from "@/lib/connectors/registry";
 import {
   useDataSourceMutations,
   useDataSources,
@@ -18,14 +20,12 @@ import {
   Input,
 } from "@wystack/ui";
 import {
-  CloudIcon,
   DatabaseIcon,
   DeleteIcon,
   ExternalLinkIcon,
   MoreIcon,
   PlusIcon,
   SearchIcon,
-  SpreadsheetIcon,
   TableIcon,
 } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
@@ -80,33 +80,18 @@ export default function DataSourcesPage() {
     );
   }, [allDataSources, searchQuery]);
 
-  // Get icon for data source type
+  // Resolve icon and label from the connector registry.
+  // Falls back gracefully for unregistered kinds (e.g. postgresql not yet
+  // registered) — adding a connector kind and registering it is all that's
+  // needed to make it appear with the correct icon/label everywhere.
   const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "notion":
-        return <CloudIcon className="h-5 w-5" />;
-      case "local":
-        return <SpreadsheetIcon className="h-5 w-5" />;
-      case "postgresql":
-        return <DatabaseIcon className="h-5 w-5" />;
-      default:
-        return <DatabaseIcon className="h-5 w-5" />;
-    }
+    const connector = getConnectorById(type);
+    if (!connector) return <DatabaseIcon className="h-5 w-5" />;
+    return <ConnectorIcon svg={connector.icon} className="h-5 w-5" />;
   };
 
-  // Get label for data source type
   const getTypeLabel = (type: string) => {
-    switch (type) {
-      case "notion":
-        return "Notion";
-      case "csv":
-      case "local":
-        return "Uploaded CSV";
-      case "postgresql":
-        return "PostgreSQL";
-      default:
-        return "Unknown";
-    }
+    return getConnectorById(type)?.name ?? type;
   };
 
   // Handle delete data source
