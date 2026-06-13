@@ -7,8 +7,10 @@
  * - hasConnector() reflects registration state
  * - getConnectorIds() / getConnectors() enumerate registered kinds
  * - Registering the same id twice is idempotent (no duplicate; version unchanged)
- * - clearConnectorRegistry() resets the map; re-registration works afterward
- * - getRegistryVersion() increments only on genuinely new ids
+ * - clearConnectorRegistry() resets the map and bumps the version (so
+ *   subscribers re-render); re-registration works afterward
+ * - getRegistryVersion() increments on a genuinely new id or a clear, not on
+ *   read-only ops or same-id re-registration
  * - Known connector kinds (local, notion) are resolvable after boot registration
  */
 
@@ -272,11 +274,14 @@ describe("connector registry", () => {
       expect(getRegistryVersion()).toBe(v);
     });
 
-    it("does not change when the registry is cleared", () => {
+    it("bumps when the registry is cleared so subscribers re-render", () => {
+      // useSyncExternalStore ignores a notification when the snapshot value is
+      // unchanged, so clearing must change the version — otherwise a subscribed
+      // component would not re-render and would keep showing stale connectors.
       registerConnector(makeConnector("local"));
       const v = getRegistryVersion();
       clearConnectorRegistry();
-      expect(getRegistryVersion()).toBe(v);
+      expect(getRegistryVersion()).toBe(v + 1);
     });
   });
 

@@ -96,12 +96,18 @@ export function registerConnector(connector: AnyConnector): void {
 
 /**
  * Clear all registered connectors.
- * Notifies subscribers so any component holding `useRegistryVersion()` will
- * re-render and see an empty registry. Does not increment the registry version
- * (version monotonically tracks new-id additions, not removals).
+ *
+ * Bumps the registry version and notifies subscribers. The version bump is what
+ * actually drives a re-render: `useSyncExternalStore` compares the snapshot
+ * (`getRegistryVersion()`) with `Object.is` and ignores a notification when the
+ * value is unchanged, so notifying without changing the version would be a
+ * no-op. The version counter is monotonic — it tracks "the set of connectors
+ * changed", not the connector count — so an empty registry can still carry a
+ * higher version than before.
  */
 export function clearConnectorRegistry(): void {
   connectorMap.clear();
+  registryVersion++;
   notifyListeners();
 }
 
