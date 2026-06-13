@@ -13,23 +13,23 @@
  * the renderer side and stays in one well-exercised library.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer from the renderer,
- * decodes it with apache-arrow, writes each row as NDJSON to a temp file, and
- * ingests into an in-memory DuckDB table via `read_json_auto`. Chart-compute
- * queries work on aggregated results (small row counts), so the JSON round-trip
- * is acceptable for v1. Tables persist for the session lifetime and are
- * re-registered on reconnect.
+ * decodes it with apache-arrow, and ingests it into an in-memory DuckDB table
+ * via the typed Appender API. The entire path stays in process memory — row
+ * data is NEVER serialized to the filesystem (privacy floor: sensitive data is
+ * never at rest outside the gated cache; see #67). Tables persist for the
+ * session lifetime and are re-registered on reconnect.
  */
 import type { DataFrame, QueryEngine, QueryResult } from "@dashframe/engine";
 import type { TableColumn } from "@dashframe/types";
 import {
+  DuckDBDateValue,
   DuckDBInstance,
+  DuckDBTimestampValue,
   type DuckDBConnection as Connection,
+  type DuckDBAppender,
   type DuckDBValue,
 } from "@duckdb/node-api";
-import { tableFromIPC } from "apache-arrow";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { Type as ArrowType, tableFromIPC, type Field } from "apache-arrow";
 
 import {
   duckdbColumnsToArrowIpc,
@@ -172,10 +172,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    * the duration of the session. On reconnect the renderer re-registers any
    * tables it needs.
    *
-   * Implementation: decode with apache-arrow, serialize each row as NDJSON to
-   * a temp file, then `CREATE OR REPLACE TABLE ... AS SELECT * FROM
-   * read_json_auto(...)`. Chart queries run on aggregated/small datasets, so
-   * the JSON round-trip is acceptable for v1.
+   * Implementation: decode with apache-arrow, create the table with a schema
+   * derived from the Arrow schema, and stream rows in through DuckDB's typed
+   * Appender. The whole path is in-memory — row data never touches the
+   * filesystem (privacy floor: sensitive data is never at rest outside the
+   * gated cache), and typed appends preserve timestamps/dates exactly instead
+   * of round-tripping through JSON strings.
    */
   async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
     await this.initialize();
@@ -183,35 +185,41 @@ export class NativeDuckDBEngine implements QueryEngine {
 
     // Decode the Arrow IPC stream buffer.
     const arrowTable = tableFromIPC(arrow);
-    const rowCount = arrowTable.numRows;
-
-    // Serialize each row to NDJSON.
-    const lines: string[] = [];
-    for (let i = 0; i < rowCount; i++) {
-      const row: Record<string, unknown> = {};
-      for (const field of arrowTable.schema.fields) {
-        const col = arrowTable.getChild(field.name);
-        // Apache-arrow column.get(i) returns the typed value.
-        const val = col?.get(i);
-        // Coerce BigInt to number (JSON can't serialize BigInt).
-        row[field.name] = typeof val === "bigint" ? Number(val) : val;
-      }
-      lines.push(JSON.stringify(row));
+    const fields = arrowTable.schema.fields;
+    if (fields.length === 0) {
+      throw new Error(`Arrow buffer for table "${name}" has no columns`);
     }
 
-    // Write NDJSON to a temp file. Use a sanitised table name as part of the
-    // filename so temp files are identifiable in crash dumps.
-    const safe = name.replace(/[^a-z0-9_]/gi, "_").slice(0, 40);
-    const tmpFile = path.join(os.tmpdir(), `df_${safe}_${Date.now()}.ndjson`);
+    // Create the table with a schema mapped from the Arrow schema.
+    const columnDefs = fields
+      .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
+      .join(", ");
+    await conn.run(
+      `CREATE OR REPLACE TABLE ${quoteIdent(name)} (${columnDefs})`,
+    );
+
+    // Stream rows through the typed Appender — no disk, no string round-trip.
+    const appender = await conn.createAppender(name);
     try {
-      await fs.writeFile(tmpFile, lines.join("\n"), "utf8");
-      const quotedPath = quoteLiteral(tmpFile);
-      await conn.run(
-        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM read_json_auto(${quotedPath})`,
-      );
+      const columns = fields.map((f) => ({
+        typeId: f.type.typeId as ArrowType,
+        vector: arrowTable.getChild(f.name),
+      }));
+      const rowCount = arrowTable.numRows;
+      for (let i = 0; i < rowCount; i++) {
+        for (const col of columns) {
+          appendArrowValue(appender, col.typeId, col.vector?.get(i));
+        }
+        appender.endRow();
+      }
+      appender.flushSync();
     } finally {
-      // Best-effort cleanup — leave no temp files behind.
-      await fs.unlink(tmpFile).catch(() => {});
+      try {
+        appender.closeSync();
+      } catch {
+        // flushSync already surfaced any data error; a close failure after
+        // that (or while an exception is propagating) must not mask it.
+      }
     }
 
     this._registeredTables.add(name);
@@ -278,6 +286,79 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function quoteLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Map an Arrow schema field to a DuckDB column type for table DDL.
+ *
+ * The renderer's producer (`createArrowIPCBufferFromRows` in engine-browser)
+ * emits exactly four Arrow types — Float64, Bool, TimestampMillisecond, Utf8 —
+ * which map losslessly here. Int/Date are covered for robustness against
+ * future producers; anything else degrades to VARCHAR via String().
+ */
+function arrowFieldToDuckDBType(field: Field): string {
+  switch (field.type.typeId) {
+    case ArrowType.Bool:
+      return "BOOLEAN";
+    case ArrowType.Int:
+      return "BIGINT";
+    case ArrowType.Float:
+      return "DOUBLE";
+    case ArrowType.Timestamp:
+      return "TIMESTAMP";
+    case ArrowType.Date:
+      return "DATE";
+    case ArrowType.Utf8:
+    case ArrowType.LargeUtf8:
+      return "VARCHAR";
+    default:
+      return "VARCHAR";
+  }
+}
+
+/**
+ * Append one Arrow value to a DuckDB Appender using the typed append method
+ * matching the column type chosen by `arrowFieldToDuckDBType`.
+ *
+ * apache-arrow's `.get()` normalizes values per logical type: Timestamp and
+ * Date come back as epoch milliseconds (number), Int64 as bigint, the rest as
+ * their natural JS primitives.
+ */
+function appendArrowValue(
+  appender: DuckDBAppender,
+  typeId: ArrowType,
+  value: unknown,
+): void {
+  if (value === null || value === undefined) {
+    appender.appendNull();
+    return;
+  }
+  switch (typeId) {
+    case ArrowType.Bool:
+      appender.appendBoolean(Boolean(value));
+      break;
+    case ArrowType.Int:
+      appender.appendBigInt(
+        typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value))),
+      );
+      break;
+    case ArrowType.Float:
+      appender.appendDouble(Number(value));
+      break;
+    case ArrowType.Timestamp:
+      // Arrow JS yields epoch millis; DuckDB TIMESTAMP stores micros.
+      appender.appendTimestamp(
+        new DuckDBTimestampValue(BigInt(Math.round(Number(value))) * 1000n),
+      );
+      break;
+    case ArrowType.Date:
+      // Arrow JS yields epoch millis; DuckDB DATE stores days.
+      appender.appendDate(
+        new DuckDBDateValue(Math.floor(Number(value) / MS_PER_DAY)),
+      );
+      break;
+    default:
+      appender.appendVarchar(String(value));
+      break;
+  }
 }

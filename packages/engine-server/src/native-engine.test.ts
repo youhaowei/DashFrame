@@ -1,7 +1,20 @@
-import { tableFromIPC } from "apache-arrow";
+import {
+  Bool,
+  Float64,
+  Table,
+  tableFromIPC,
+  tableToIPC,
+  TimestampMillisecond,
+  Utf8,
+  vectorFromArray,
+} from "apache-arrow";
+import fs from "node:fs/promises";
+import os from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { NativeDuckDBEngine } from "./native-engine";
+
+const MS_PER_HOUR = 3_600_000;
 
 describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   let engine: NativeDuckDBEngine | null = null;
@@ -139,5 +152,88 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       "row1",
       "row2",
     ]);
+  });
+
+  describe("registerArrowTable — in-memory Arrow ingest", () => {
+    /**
+     * Build an Arrow IPC buffer the same way the renderer's producer does
+     * (engine-browser createArrowIPCBufferFromRows): Float64 / Bool /
+     * TimestampMillisecond / Utf8 columns.
+     */
+    function producerBuffer(): Uint8Array {
+      const ts = Date.UTC(2026, 0, 15, 12, 30, 0); // 2026-01-15T12:30:00Z
+      return tableToIPC(
+        new Table({
+          amount: vectorFromArray([10.5, null, 33.25], new Float64()),
+          active: vectorFromArray([true, false, null], new Bool()),
+          created: vectorFromArray(
+            [ts, null, ts + MS_PER_HOUR],
+            new TimestampMillisecond(),
+          ),
+          label: vectorFromArray(["a", "b", null], new Utf8()),
+        }),
+      );
+    }
+
+    it("registers a table that is queryable with exact values and nulls", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowTable("df_test", producerBuffer());
+
+      const result = await engine.query(
+        'SELECT amount, active, label FROM "df_test" ORDER BY amount NULLS LAST',
+      );
+      expect(result.rowCount).toBe(3);
+      expect(result.rows[0]).toMatchObject({
+        amount: 10.5,
+        active: true,
+        label: "a",
+      });
+      expect(result.rows[1]).toMatchObject({ amount: 33.25, label: null });
+      expect(result.rows[2]).toMatchObject({ amount: null, label: "b" });
+    });
+
+    it("preserves timestamps as native TIMESTAMP, not strings (type fidelity)", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowTable("df_ts", producerBuffer());
+
+      // typeof() proves the column landed as TIMESTAMP — a JSON round-trip
+      // would have degraded it to VARCHAR. epoch_ms proves value fidelity.
+      const result = await engine.query(
+        `SELECT typeof(created) AS t, epoch_ms(created) AS ms
+         FROM "df_ts" WHERE created IS NOT NULL ORDER BY created`,
+      );
+      expect(result.rows.map((r) => r.t)).toEqual(["TIMESTAMP", "TIMESTAMP"]);
+      const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
+      expect(result.rows.map((r) => Number(r.ms))).toEqual([
+        ts,
+        ts + MS_PER_HOUR,
+      ]);
+    });
+
+    it("never writes row data to the filesystem (privacy floor)", async () => {
+      // The old implementation staged rows as an NDJSON temp file. The privacy
+      // floor forbids row data at rest outside the gated cache — pin the
+      // in-memory contract by checking no staging file appears in tmpdir.
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowTable("df_privacy_probe", producerBuffer());
+
+      const tmpEntries = await fs.readdir(os.tmpdir());
+      expect(tmpEntries.filter((f) => f.includes("df_privacy_probe"))).toEqual(
+        [],
+      );
+    });
+
+    it("tracks registered tables and unregisters cleanly", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowTable("df_tracked", producerBuffer());
+      expect(engine.hasTable("df_tracked")).toBe(true);
+      expect(engine.getTableNames()).toContain("df_tracked");
+
+      await engine.unregisterTable("df_tracked");
+      expect(engine.hasTable("df_tracked")).toBe(false);
+      await expect(
+        engine.query('SELECT * FROM "df_tracked"'),
+      ).rejects.toThrow();
+    });
   });
 });

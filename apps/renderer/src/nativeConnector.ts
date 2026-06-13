@@ -18,14 +18,16 @@
  * uploaded to the native engine's in-memory store via `POST /data/tables/:name`.
  * Call `uploadArrowTable(name, arrowBytes)` before issuing chart queries.
  *
- * ## Arrow IPC from Apache Arrow
+ * ## Arrow IPC decoding — flechette, not apache-arrow
  *
  * The response body for `type: 'arrow'` queries is a raw Arrow IPC stream
- * (`application/vnd.apache.arrow.stream`). Mosaic's wasmConnector returns a
- * flechette Table; this connector returns the same shape by parsing the
- * ArrayBuffer with `tableFromIPC` from apache-arrow.
+ * (`application/vnd.apache.arrow.stream`). vgplot consumes the decoded result
+ * through the flechette Table API (`toColumns()` etc.) — the same shape
+ * Mosaic's own connectors produce via its decodeIPC util — so this connector
+ * decodes with `@uwdata/flechette` (with `useDate` matching Mosaic's default),
+ * NOT apache-arrow, whose Table class has a different surface.
  */
-import { tableFromIPC } from "apache-arrow";
+import { tableFromIPC } from "@uwdata/flechette";
 
 const ARROW_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
@@ -93,10 +95,11 @@ export function createNativeConnector(
       return (await res.json()) as Record<string, unknown>[];
     }
 
-    // arrow (default): server returns raw Arrow IPC bytes. Decode into an
-    // apache-arrow Table matching the shape mosaic-core / flechette expects.
+    // arrow (default): server returns raw Arrow IPC bytes. Decode into a
+    // flechette Table — the surface vgplot consumes (toColumns() etc.).
+    // useDate matches Mosaic's own decodeIPC default.
     const buf = await res.arrayBuffer();
-    return tableFromIPC(new Uint8Array(buf));
+    return tableFromIPC(new Uint8Array(buf), { useDate: true });
   }
 
   async function uploadArrowTable(

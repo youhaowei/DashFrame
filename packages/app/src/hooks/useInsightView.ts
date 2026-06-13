@@ -78,7 +78,7 @@ export function getCachedViewName(insightId: string): string | null {
  */
 export function useInsightView(insight: Insight | null | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
-  const { uploadArrowTable } = useChartEngine();
+  const { connector, uploadArrowTable } = useChartEngine();
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;
@@ -251,9 +251,14 @@ export function useInsightView(insight: Insight | null | undefined) {
 
         // Always create a view with unique name based on insight ID
         const newViewName = `insight_view_${insightId.replace(/-/g, "_")}`;
-        await connection.query(
-          `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`,
-        );
+        const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`;
+        await connection.query(createViewSql);
+
+        // Desktop: chart queries run against the native engine, so the view
+        // must exist there too (the df_* tables were uploaded above).
+        if (connector) {
+          await connector.query({ type: "exec", sql: createViewSql });
+        }
 
         // Store in module-level cache (survives Strict Mode and HMR)
         createdViewsCache.set(configKey, newViewName);
@@ -277,8 +282,8 @@ export function useInsightView(insight: Insight | null | undefined) {
     // - Do NOT include `insight` (object reference changes every render)
     // - Do NOT include `isReady` (would create feedback loop when we setIsReady)
     // - `joinsKey` is a serialized representation of `insight.joins`, so we don't need `insight.joins` directly
-    // - `uploadArrowTable` is stable (set once at bootstrap in the renderer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes; uploadArrowTable is stable
+    // - `connector`/`uploadArrowTable` are stable (set once at bootstrap)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes; connector/uploadArrowTable are stable
   }, [
     connection,
     isInitialized,
@@ -287,6 +292,7 @@ export function useInsightView(insight: Insight | null | undefined) {
     baseTableId,
     joinsKey,
     configKey,
+    connector,
     uploadArrowTable,
   ]);
 
