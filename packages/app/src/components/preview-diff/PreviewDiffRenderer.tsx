@@ -162,7 +162,10 @@ export function PreviewDiffRenderer({
     <div className={cn("flex flex-col gap-4", className)}>
       {/* Partial-failure banner — shown first so the reviewer can't miss it */}
       {hasError && (
-        <div className="rounded-[var(--surface-radius)] bg-neutral-bg/80 px-4 py-3 shadow-[var(--surface-shadow)]">
+        <div
+          role="alert"
+          className="rounded-[var(--surface-radius)] bg-neutral-bg/80 px-4 py-3 shadow-[var(--surface-shadow)]"
+        >
           <p className="text-sm font-semibold text-palette-danger">
             Command {diff.error!.commandIndex + 1} failed
           </p>
