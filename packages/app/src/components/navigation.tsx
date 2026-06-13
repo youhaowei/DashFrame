@@ -1,5 +1,7 @@
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
+import { useShellStore } from "@/lib/stores/shell-store";
 import { clearAllData } from "@dashframe/core";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -10,6 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Dock,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -19,10 +22,6 @@ import {
 import {
   type LucideIcon,
   ChartIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
   CloseIcon,
   DashboardIcon,
   DatabaseIcon,
@@ -33,7 +32,7 @@ import {
   SettingsIcon,
   SparklesIcon,
 } from "@wystack/ui-icons";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 type NavItem = {
   name: string;
@@ -70,79 +69,40 @@ const navItems: NavItem[] = [
 ];
 
 interface SidebarContentProps {
-  isCollapsed?: boolean;
-  onToggleCollapse?: () => void;
   onClearData?: () => void;
+  /**
+   * Extra rows for the footer, below Settings/Open source — dev tooling like
+   * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
+   * mount a second instance (duplicate hotkey listeners, duplicate panels).
+   */
+  footerSlot?: ReactNode;
 }
 
-function SidebarContent({
-  isCollapsed = false,
-  onToggleCollapse,
-  onClearData,
-}: SidebarContentProps) {
+function SidebarContent({ onClearData, footerSlot }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-neutral-border/60 px-4 py-4">
-        <div
-          className={cn(
-            "flex items-center gap-3",
-            isCollapsed ? "flex-col" : "justify-between",
-          )}
-        >
+      <div className="px-3 py-3">
+        <div className="flex items-center justify-between gap-3">
           <Link
             to="/"
-            className={cn(
-              "flex items-center gap-3 transition-colors hover:text-palette-primary",
-              isCollapsed && "justify-center",
-            )}
+            className="flex items-center gap-2.5 transition-colors hover:text-palette-primary"
           >
-            <span className="flex size-10 items-center justify-center rounded-2xl bg-palette-primary/10 text-palette-primary">
-              <ChartIcon className="h-5 w-5" />
+            <span className="flex size-8 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
+              <ChartIcon className="h-4 w-4" />
             </span>
-            {!isCollapsed && (
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold tracking-tight">
-                  DashFrame
-                </span>
-              </div>
-            )}
+            <span className="text-sm font-semibold tracking-tight">
+              DashFrame
+            </span>
           </Link>
-          {(onToggleCollapse || !isCollapsed) && (
-            <div
-              className={cn(
-                "flex items-center gap-1.5",
-                isCollapsed && "w-full justify-center",
-              )}
-            >
-              {!isCollapsed && <ThemeToggle />}
-              {onToggleCollapse && (
-                <Button
-                  variant="ghost"
-                  icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon}
-                  iconOnly
-                  label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  onClick={onToggleCollapse}
-                  className="h-7 w-7 rounded-full border border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-colors hover:bg-neutral-bg"
-                  tooltip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                />
-              )}
-            </div>
-          )}
+          <ThemeToggle />
         </div>
       </div>
 
       {/* Navigation Links */}
-      <nav
-        className={cn(
-          "flex-1 overflow-y-auto py-4",
-          isCollapsed
-            ? "flex flex-col items-center gap-2 px-0"
-            : "space-y-3 px-3",
-        )}
-      >
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
 
@@ -151,87 +111,58 @@ function SidebarContent({
               key={item.name}
               to={item.href as never}
               className={cn(
-                "group relative flex transition-all duration-200",
-                isCollapsed
-                  ? "h-10 w-10 items-center justify-center rounded-lg border border-transparent hover:bg-neutral-bg-muted/50"
-                  : "items-center gap-3 rounded-2xl border border-transparent px-3 py-2",
-                isActive && !isCollapsed
-                  ? "bg-palette-primary/10 text-palette-primary shadow-[0_0_0_1px_rgba(59,130,246,0.25)] dark:shadow-[0_0_0_1px_rgba(59,130,246,0.45)]"
-                  : !isCollapsed &&
-                      "text-neutral-fg-subtle hover:bg-neutral-bg-muted/50 hover:text-neutral-fg",
-                isActive &&
-                  isCollapsed &&
-                  "bg-palette-primary/10 text-palette-primary",
+                "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
+                isActive
+                  ? "bg-neutral-bg text-neutral-fg shadow-[var(--surface-shadow)]"
+                  : "text-neutral-fg-subtle hover:bg-neutral-bg/60 hover:text-neutral-fg",
               )}
-              title={isCollapsed ? item.name : undefined}
             >
-              {isCollapsed ? (
-                <item.icon className="h-5 w-5" />
-              ) : (
-                <>
-                  <span
-                    className={cn(
-                      "rounded-lg border border-neutral-border/50 bg-neutral-bg/90 p-2 text-neutral-fg-subtle transition-colors group-hover:text-neutral-fg",
-                      isActive &&
-                        "border-palette-primary/30 text-palette-primary",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                  </span>
-                  <div className="flex flex-1 flex-col">
-                    <span className="text-sm font-medium text-neutral-fg">
-                      {item.name}
-                    </span>
-                    <span className="text-xs text-neutral-fg-subtle">
-                      {item.description}
-                    </span>
-                  </div>
-                  {isActive && (
-                    <span
-                      className="absolute inset-0 rounded-2xl border border-palette-primary/40"
-                      aria-hidden
-                    />
-                  )}
-                </>
-              )}
+              <item.icon
+                className={cn(
+                  "h-4 w-4 shrink-0",
+                  isActive
+                    ? "text-palette-primary"
+                    : "text-neutral-fg-subtle group-hover:text-neutral-fg",
+                )}
+              />
+              <span className="truncate text-sm font-medium">{item.name}</span>
             </Link>
           );
         })}
       </nav>
 
       {/* Footer with Settings and GitHub */}
-      {!isCollapsed && (
-        <div className="space-y-2 border-t border-neutral-border/60 px-4 py-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
-                  <SettingsIcon className="h-4 w-4" />
-                  <span>Settings</span>
-                </button>
-              }
-            />
-            <DropdownMenuContent align="start" side="top">
-              <DropdownMenuItem
-                onClick={onClearData}
-                className="text-palette-danger focus:text-palette-danger"
-              >
-                <DeleteIcon className="mr-2 h-4 w-4" />
-                Clear all data
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <a
-            href="https://github.com/youhaowei/dashframe"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg"
-          >
-            <GithubIcon className="h-4 w-4" />
-            <span>Open source</span>
-          </a>
-        </div>
-      )}
+      <div className="space-y-2 px-4 py-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
+                <SettingsIcon className="h-4 w-4" />
+                <span>Settings</span>
+              </button>
+            }
+          />
+          <DropdownMenuContent align="start" side="top">
+            <DropdownMenuItem
+              onClick={onClearData}
+              className="text-palette-danger focus:text-palette-danger"
+            >
+              <DeleteIcon className="mr-2 h-4 w-4" />
+              Clear all data
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <a
+          href="https://github.com/youhaowei/dashframe"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg"
+        >
+          <GithubIcon className="h-4 w-4" />
+          <span>Open source</span>
+        </a>
+        {footerSlot}
+      </div>
     </div>
   );
 }
@@ -239,9 +170,9 @@ function SidebarContent({
 export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isHidden, setIsHidden] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
   const { showError, showSuccess } = useToastStore();
 
@@ -259,58 +190,26 @@ export function Navigation() {
     }
   };
 
-  let sidebarWidth = "w-72";
-  if (isHidden) sidebarWidth = "w-0";
-  else if (isCollapsed) sidebarWidth = "w-20";
-
-  // Seam center = shell inset (--surface-inset, 0.5rem) + sidebar width + half
-  // the 0.5rem gap; the handle straddles it via -translate-x-1/2. Hidden pins
-  // it to the viewport edge as a flush tab (no panel to straddle).
-  let handleLeft = "calc(18rem + 0.75rem)";
-  if (isHidden) handleLeft = "0px";
-  else if (isCollapsed) handleLeft = "calc(5rem + 0.75rem)";
-
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside
-        className={cn(
-          "hidden h-full flex-col overflow-x-hidden overflow-y-auto rounded-[var(--surface-radius)] bg-neutral-bg/90 saturate-[1.2] shadow-[var(--surface-shadow)] transition-all duration-300 lg:flex",
-          isHidden && "shadow-none",
-          sidebarWidth,
-        )}
+      {/* Desktop nav — a flat left Dock (surface={false}): window chrome on the
+          canvas, not a floating card, so the Stage stays the primary surface.
+          Visibility is driven from the top-bar toggle via the shell store. */}
+      <Dock
+        side="left"
+        open={leftNavOpen}
+        width={240}
+        surface={false}
+        className="hidden lg:flex"
+        aria-label="Primary navigation"
       >
-        <SidebarContent
-          isCollapsed={isCollapsed}
-          onToggleCollapse={() => setIsCollapsed((prev) => !prev)}
-          onClearData={() => setShowClearConfirm(true)}
-        />
-      </aside>
-
-      {/* Sidebar toggle handle */}
-      <button
-        type="button"
-        onClick={() => setIsHidden((prev) => !prev)}
-        className={cn(
-          "fixed top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center border border-neutral-border/60 bg-neutral-bg text-neutral-fg-subtle shadow-sm transition-all duration-300 hover:bg-neutral-bg-muted hover:text-neutral-fg lg:flex",
-          isHidden
-            ? "rounded-r-lg border-l-0"
-            : "-translate-x-1/2 rounded-full",
-        )}
-        style={{
-          left: handleLeft,
-          height: "3rem",
-          width: "1.5rem",
-        }}
-        aria-label={isHidden ? "Show sidebar" : "Hide sidebar"}
-        title={isHidden ? "Show sidebar" : "Hide sidebar"}
-      >
-        {isHidden ? (
-          <ChevronsRightIcon className="h-4 w-4" />
-        ) : (
-          <ChevronsLeftIcon className="h-4 w-4" />
-        )}
-      </button>
+        <div className="flex h-full w-60 flex-col">
+          <SidebarContent
+            onClearData={() => setShowClearConfirm(true)}
+            footerSlot={<PerfHud />}
+          />
+        </div>
+      </Dock>
 
       {/* Mobile Toggle Button */}
       <Button

@@ -55,6 +55,10 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // Hide the OS title bar but keep the macOS traffic lights, inset over the
+    // app's own top bar. The renderer reserves a spacer for them (AppTopBar).
+    // On non-macOS this falls back to a frameless-but-standard top.
+    titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,

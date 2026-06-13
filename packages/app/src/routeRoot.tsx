@@ -1,5 +1,7 @@
 import type { FC, ReactNode } from "react";
 
+import { AppTopBar } from "@/components/AppTopBar";
+import { RightDock } from "@/components/RightDock";
 import { AssistantRegion } from "@/components/assistant/AssistantRegion";
 import { ArtifactContextProvider } from "@/components/assistant/artifact-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -8,7 +10,7 @@ import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
-import { PerfHud } from "@/lib/perf";
+import { PlatformProvider } from "@/lib/platform";
 import { DatabaseProvider } from "@dashframe/core";
 import { Outlet } from "@tanstack/react-router";
 import { TooltipProvider } from "@wystack/ui";
@@ -34,6 +36,33 @@ export interface AppRouterContext {
 }
 
 const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
+
+/**
+ * The chrome layout, built on the @wystack/ui layout shell:
+ *
+ *   TopBar  (full-width window chrome)
+ *   ├── Dock side=left   — Navigation (flat, on the canvas)
+ *   ├── Stage            — the primary content surface (artifact/page)
+ *   └── Dock side=right  — appearance panel ⊕ docked assistant (shared slot)
+ *
+ * The left nav and top bar sit *flat* on the canvas (window chrome); the Stage
+ * is the elevated primary surface; side panels float as vibrancy Docks. Region
+ * roles are owned here — the primitives only own shape.
+ */
+function Shell() {
+  return (
+    <div className="relative isolate flex h-screen flex-col text-neutral-fg">
+      <AppTopBar />
+      <div className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] pb-[var(--surface-inset)]">
+        <Navigation />
+        <AssistantRegion>
+          <Outlet />
+        </AssistantRegion>
+        <RightDock />
+      </div>
+    </div>
+  );
+}
 
 export function RouteRoot({
   providerWrapper: HostProviders = PassThrough,
@@ -68,18 +97,9 @@ export function RouteRoot({
 
                   <StoreHydration>
                     <ArtifactContextProvider>
-                      {/* Three-region shell:
-                          LEFT nav · CENTER artifact (hero) · RIGHT assistant.
-                          Surface system (DESIGN.md): regions float as
-                          shadow-lifted panels on the bg-surface-base canvas;
-                          geometry comes from the @wystack/ui surface tokens. */}
-                      <div className="relative isolate flex h-screen flex-row gap-[var(--surface-inset)] p-[var(--surface-inset)] text-neutral-fg">
-                        <Navigation />
-                        <AssistantRegion>
-                          <Outlet />
-                        </AssistantRegion>
-                      </div>
-                      <PerfHud />
+                      <PlatformProvider>
+                        <Shell />
+                      </PlatformProvider>
                     </ArtifactContextProvider>
                   </StoreHydration>
                   <Toaster

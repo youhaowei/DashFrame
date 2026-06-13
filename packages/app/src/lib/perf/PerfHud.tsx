@@ -6,8 +6,9 @@ import { type BudgetVerdict, type PerfStage, STAGE_BUDGET_MS } from "./stages";
 
 /**
  * Dev-only performance HUD. Renders nothing outside dev builds — gated on
- * `import.meta.env.DEV` so it is tree-shaken from production. Toggle with the
- * floating chip or the `⌥⇧P` (Alt+Shift+P) shortcut.
+ * `import.meta.env.DEV` so it is tree-shaken from production. Lives as a row in
+ * the nav footer (dev tooling next to Settings, not floating over content);
+ * toggle the panel with the row or the `⌥⇧P` (Alt+Shift+P) shortcut.
  *
  * Shows per-stage timings against their budgets (green/amber/red). Stages with
  * no budget (unowned waits like connector fetches) render neutrally — for them
@@ -101,15 +102,11 @@ function PerfHudInner() {
   }, []);
 
   return (
-    // Inline bottom/left so the anchor is deterministic regardless of utility
-    // generation; `flex-col-reverse` keeps the chip pinned to the bottom with
-    // the panel stacking upward above it.
-    <div
-      className="pointer-events-none fixed right-3 z-50 flex flex-col-reverse items-end gap-2"
-      style={{ bottom: "0.75rem" }}
-    >
+    <>
+      {/* The panel escapes the nav Dock's overflow-hidden via fixed positioning,
+          anchored just above the footer row that toggles it. */}
       {open && (
-        <div className="pointer-events-auto w-72 overflow-hidden rounded-xl border border-neutral-border bg-neutral-bg/95 shadow-lg backdrop-blur supports-backdrop-filter:bg-neutral-bg/80">
+        <div className="fixed bottom-12 left-3 z-50 w-72 overflow-hidden rounded-xl border border-neutral-border bg-neutral-bg/95 shadow-lg backdrop-blur supports-backdrop-filter:bg-neutral-bg/80">
           <div className="flex items-center justify-between border-b border-neutral-border/60 px-3 py-2">
             <span className="text-xs font-semibold tracking-tight text-neutral-fg">
               Perf
@@ -191,25 +188,27 @@ function PerfHudInner() {
         </div>
       )}
 
+      {/* Footer row — same shape as the Settings / Open source rows beside it. */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "pointer-events-auto flex items-center gap-1.5 rounded-full border border-neutral-border bg-neutral-bg/95 px-2.5 py-1 text-[11px] font-medium text-neutral-fg-subtle shadow-sm backdrop-blur transition-colors hover:text-neutral-fg",
+          "flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg",
           open && "text-neutral-fg",
         )}
         title="Toggle perf HUD (⌥⇧P)"
         aria-pressed={open}
       >
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            enabled ? "bg-palette-success" : "bg-neutral-bg-strongest",
-          )}
-          aria-hidden
-        />
-        perf
+        <span className="flex h-4 w-4 items-center justify-center" aria-hidden>
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              enabled ? "bg-palette-success" : "bg-neutral-bg-strongest",
+            )}
+          />
+        </span>
+        <span>Perf</span>
       </button>
-    </div>
+    </>
   );
 }
