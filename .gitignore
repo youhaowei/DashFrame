@@ -67,3 +67,6 @@ coverage
 .wystack.*.bak
 .wystack.*.bak/
 .clawpatch/
+
+# Generated shell capture output (regenerate via scripts/capture-shell.mjs)
+docs/screenshots/
