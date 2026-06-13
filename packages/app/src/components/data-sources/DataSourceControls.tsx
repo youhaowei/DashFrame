@@ -520,8 +520,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         </Collapsible>
       )}
 
-      {/* Files count for CSV */}
-      {dataSource.type === "csv" && (
+      {/* Files count for local (file-upload) sources */}
+      {dataSource.type === "local" && (
         <div className="border-b border-neutral-border/40 px-4 py-3">
           <p className="text-xs font-medium text-neutral-fg-subtle">Files</p>
           <p className="mt-1 text-sm font-medium text-neutral-fg">

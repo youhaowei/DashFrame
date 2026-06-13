@@ -1,3 +1,4 @@
+import { getConnectorById } from "@/lib/connectors/registry";
 import { useDataFrames, useDataSources, useDataTables } from "@dashframe/core";
 import { Button, EmptyState, Panel, cn } from "@wystack/ui";
 import { DeleteIcon, FileIcon } from "@wystack/ui-icons";
@@ -34,7 +35,7 @@ export function DataSourceTree({
     return map;
   }, [dataFrames]);
 
-  const isLocal = dataSource?.type === "csv";
+  const isLocal = dataSource?.type === "local";
 
   if (!dataSource) {
     return (
@@ -55,7 +56,7 @@ export function DataSourceTree({
                 {dataSource.name}
               </h2>
               <p className="text-xs text-neutral-fg-subtle">
-                {dataSource.type === "csv" ? "CSV files" : "Data source"}
+                {getConnectorById(dataSource.type)?.name ?? "Data source"}
               </p>
             </div>
 

@@ -1,15 +1,43 @@
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
+import { getConnectorById } from "@/lib/connectors/registry";
 import { useDataSources, useDataTables } from "@dashframe/core";
+import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
 import { Button, Surface, type ItemAction } from "@wystack/ui";
-import {
-  ChartIcon,
-  DatabaseIcon,
-  FileIcon,
-  NotionIcon,
-  PlusIcon,
-} from "@wystack/ui-icons";
+import { ChartIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-icons";
 import { useMemo } from "react";
+
+/**
+ * `ItemSelector` expects a React component type for an item's icon, but
+ * connectors expose their icon as an SVG string. This bridges the two by
+ * wrapping the SVG in a `ConnectorIcon`-rendering component.
+ *
+ * The wrapper is cached per connector instance so the same component identity
+ * is returned on every render. Without a stable identity React would treat the
+ * icon as a new component type each render and remount it. Connectors are boot-
+ * time singletons, so keying on the instance is safe and the cache never grows
+ * unbounded.
+ */
+const iconComponentCache = new WeakMap<
+  AnyConnector,
+  React.ComponentType<{ className?: string }>
+>();
+
+function connectorIconComponent(
+  connector: AnyConnector,
+): React.ComponentType<{ className?: string }> {
+  const cached = iconComponentCache.get(connector);
+  if (cached) return cached;
+
+  const svg = connector.icon;
+  function SvgIcon({ className }: { className?: string }) {
+    return <ConnectorIcon svg={svg} className={className} />;
+  }
+  SvgIcon.displayName = `ConnectorIcon(${connector.id})`;
+  iconComponentCache.set(connector, SvgIcon);
+  return SvgIcon;
+}
 
 interface DataSourceSelectorProps {
   selectedId: string | null;
@@ -45,16 +73,17 @@ export function DataSourceSelector({
       const isActive = source.id === selectedId;
       const tableCount = tableCountBySource.get(source.id) ?? 0;
 
-      let icon;
-      let metadata = "";
+      const connector = getConnectorById(source.type);
+      const isFileSource = connector?.sourceType === "file";
 
-      if (source.type === "notion") {
-        icon = NotionIcon;
-        metadata = `${tableCount} ${tableCount === 1 ? "table" : "tables"}`;
-      } else if (source.type === "csv") {
-        icon = FileIcon;
-        metadata = `${tableCount} ${tableCount === 1 ? "file" : "files"}`;
-      }
+      // Icon comes from the registry — any registered connector kind renders its
+      // own icon with no per-type branching here.
+      const icon = connector ? connectorIconComponent(connector) : undefined;
+
+      const itemLabel = isFileSource ? "file" : "table";
+      const itemLabelPlural = isFileSource ? "files" : "tables";
+      const countLabel = tableCount === 1 ? itemLabel : itemLabelPlural;
+      const metadata = connector ? `${tableCount} ${countLabel}` : "";
 
       return {
         id: source.id,

@@ -539,7 +539,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  const isLocal = dataSource.type === "csv";
+  const isLocal = dataSource.type === "local";
 
   // For CSV sources, show DataTables with async data loading
   if (isLocal) {
