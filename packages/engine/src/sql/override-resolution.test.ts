@@ -377,6 +377,53 @@ describe("override-resolution — explicit clear widens (removes insight filter 
       Object.prototype.hasOwnProperty.call(params.filters[0], "cleared"),
     ).toBe(false);
   });
+
+  it("clear-then-replace on the SAME field: the concrete replacement WINS (not removed, not the insight default)", () => {
+    // A field group carries BOTH a clear entry AND a concrete value for the same
+    // field. The clear removes the insight default; the concrete value is the
+    // cell's replacement and must survive — it must NOT be discarded by the
+    // co-present clear (the bug: early-return on any clear dropped the value).
+    const params = resolveEffectiveParams(
+      [{ field: "region", operator: "eq", value: "EMEA" }], // insight default
+      undefined,
+      undefined,
+      {
+        filters: [
+          { field: "region", operator: "eq", value: "EMEA", cleared: true }, // clear the default
+          { field: "region", operator: "eq", value: "APAC" }, // and set a new value
+        ],
+      },
+    );
+
+    // Effective: region='APAC' — the replacement, not removed, not 'EMEA'.
+    expect(params.filters).toHaveLength(1);
+    expect(params.filters[0]!.field).toBe("region");
+    expect(params.filters[0]!.value).toBe("APAC");
+  });
+
+  it("clear-then-replace on a field the insight never had: the concrete value is added", () => {
+    // Additive path: a field new to the insight carrying both a clear and a
+    // concrete value resolves to the concrete value (the clear is a no-op since
+    // there is no insight default to remove).
+    const params = resolveEffectiveParams(
+      [{ field: "region", operator: "eq", value: "EMEA" }],
+      undefined,
+      undefined,
+      {
+        filters: [
+          { field: "month", operator: "eq", value: "Oct", cleared: true },
+          { field: "month", operator: "eq", value: "Nov" },
+        ],
+      },
+    );
+
+    // region inherited + month='Nov' added (the replacement wins).
+    expect(params.filters).toHaveLength(2);
+    expect(params.filters.find((f) => f.field === "region")?.value).toBe(
+      "EMEA",
+    );
+    expect(params.filters.find((f) => f.field === "month")?.value).toBe("Nov");
+  });
 });
 
 // ---------------------------------------------------------------------------

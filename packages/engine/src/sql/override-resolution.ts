@@ -180,24 +180,29 @@ function stripClearedFlag(ov: InsightFilterOverride): InsightFilter {
 /**
  * Apply override entries for a single field onto the effective-filters array.
  *
- * - cleared entry → drop insight filters for this field (widen).
- * - non-cleared entries → replace insight filters for this field.
+ * In all cases the insight's filter(s) for this field are dropped — either by a
+ * clear (widen) or by being replaced. The remaining question is what the cell
+ * contributes for the field:
  *
- * Returns the override entries if they replace (so the caller skips inherited
- * insight entries), or `null` if the field is cleared (same outcome — no entries
- * added for that field).
+ * - field group has CONCRETE (non-cleared) entries → those are the cell's
+ *   replacement and WIN. A co-present clear is moot: clearing the insight
+ *   default only matters when no replacement is supplied, and one is. Push the
+ *   concrete entries.
+ * - field group has ONLY clear entries → widen: the insight's filter is removed
+ *   and the cell supplies nothing. Push nothing.
+ *
+ * Crucially, a co-present clear must NEVER discard a concrete replacement — that
+ * was the clear-then-replace bug. We push the concrete entries first, then only
+ * widen (push nothing) when there are none.
  */
 function applyFieldOverride(
   fieldOverrides: InsightFilterOverride[],
   effectiveFilters: InsightFilter[],
 ): void {
-  const hasClear = fieldOverrides.some((ov) => ov.cleared);
-  if (hasClear) {
-    // Explicit clear → widen: drop insight filters for this field entirely.
-    return;
-  }
-  // Replace: add override filters for this field.
-  for (const ov of fieldOverrides) {
+  // Replacement (concrete) entries win, even if a clear entry is also present.
+  // When there are none, the field group is clear-only → widen (push nothing).
+  const concrete = fieldOverrides.filter((ov) => !ov.cleared);
+  for (const ov of concrete) {
     effectiveFilters.push(stripClearedFlag(ov));
   }
 }
@@ -241,10 +246,15 @@ function appendAdditiveOverrides(
  * most-specific-wins semantics.
  *
  * Rules (applied per field name):
- * 1. Override on field F with `cleared: true` → REMOVE insight's filter(s) on F.
- * 2. Override on field F (not cleared) → REPLACE insight's filter(s) on F.
+ * 1. Override on field F with ONLY a `cleared: true` entry → REMOVE insight's
+ *    filter(s) on F (widen).
+ * 2. Override on field F with a concrete (non-cleared) entry → REPLACE insight's
+ *    filter(s) on F with the concrete entry. A co-present clear entry is moot —
+ *    the concrete replacement WINS (clear-then-replace yields the new value, not
+ *    a removal).
  * 3. Field F present in insight but NOT in override → carry through (inherit).
- * 4. Field G present in override but NOT in insight → ADD to effective filters.
+ * 4. Field G present in override but NOT in insight → ADD to effective filters
+ *    (a clear-only entry for a field the insight never had is a no-op).
  *
  * The function never mutates its inputs; always returns a new array.
  */
