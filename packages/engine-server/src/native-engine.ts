@@ -18,6 +18,14 @@
  * data is NEVER serialized to the filesystem (privacy floor: sensitive data is
  * never at rest outside the gated cache; see #67). Tables persist for the
  * session lifetime and are re-registered on reconnect.
+ *
+ * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
+ * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
+ * They share the wire format but NOT JS value semantics (`.get()` differs per
+ * type — Date32/64 is the known case). Value-translation knowledge currently
+ * lives in the type switches below; the planned consolidation into one
+ * anti-corruption bridge is tracked in #95 (triggered at the 3rd cross-library
+ * type). When adding an Arrow type here, pin a value-equality check across the seam.
  */
 import type { DataFrame, QueryEngine, QueryResult } from "@dashframe/engine";
 import type { TableColumn } from "@dashframe/types";
