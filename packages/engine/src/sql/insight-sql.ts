@@ -219,7 +219,7 @@ export function buildInsightSQL(
   }
 
   // Build joined SQL
-  const joinedSQL = buildJoinedSQL(
+  const joined = buildJoinedSQL(
     baseDFTable,
     baseDisplayName,
     baseFields,
@@ -227,30 +227,28 @@ export function buildInsightSQL(
     joinedTables,
   );
 
-  if (!joinedSQL) return null;
+  if (!joined) return null;
 
-  // Query mode: collect all fields from base + joined tables for field ID resolution
-  const allFields = [...baseFields];
-  for (const [, joinTable] of joinedTables) {
-    const joinFields = (joinTable.fields ?? []).filter(
-      (f) => !f.name.startsWith("_"),
-    );
-    allFields.push(...joinFields);
-  }
+  // `availableFields` is the exact column set present in the joined subquery —
+  // dropped right join-keys are already excluded. Using it (rather than the raw
+  // union of all table fields) ensures a filter can only resolve to a column
+  // that actually exists in the FROM clause; anything else is safely skipped.
+  const allFields = joined.availableFields;
 
-  // Model mode: raw data without transformations
+  // Model mode: raw data without transformations (never filtered — previews
+  // show raw rows).
   if (mode === "model") {
     // Build set of valid column names from all fields (no metrics in model mode)
     const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
     return appendPagination(
-      `SELECT * FROM ${joinedSQL}`,
+      `SELECT * FROM ${joined.sql}`,
       options,
       validColumns,
     );
   }
 
   // Apply aggregations with all available fields
-  return buildAggregatedSQL(joinedSQL, allFields, insight, options);
+  return buildAggregatedSQL(joined.sql, allFields, insight, options);
 }
 
 /**
@@ -280,17 +278,19 @@ function buildSimpleSQL(
       baseFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
 
-    // Filters apply pre-aggregation only here (no GROUP BY), so all map to WHERE.
-    // The WHERE references the original source column names (still in scope on
-    // the base table) — UUID aliases are SELECT-only and not portably usable in
-    // WHERE — so resolve refs against raw column names.
-    const fieldIdMap = buildFieldIdMap(baseFields);
-    const { whereClause } = buildFilterClauses(
-      insight,
-      fieldIdMap,
-      false,
-      "raw",
-    );
+    // Filters apply in QUERY mode only. A model-mode preview shows the raw
+    // source rows so the user can see what they're working with *before*
+    // filtering — applying the insight's result-filters would defeat that, and
+    // the joined model path doesn't filter either (keeping both paths
+    // consistent). So only the no-config QUERY case appends a WHERE here.
+    let whereClause = "";
+    if (mode === "query") {
+      // No GROUP BY in this path → all filters map to WHERE. The FROM is the raw
+      // base table, whose columns still carry their source names — resolve refs
+      // against raw column names ("raw" mode).
+      const fieldIdMap = buildFieldIdMap(baseFields);
+      ({ whereClause } = buildFilterClauses(insight, fieldIdMap, false, "raw"));
+    }
 
     let sql = `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`;
     if (whereClause) {
@@ -356,7 +356,7 @@ function buildJoinedSQL(
   baseFields: Field[],
   insight: Insight,
   joinedTables: Map<UUID, DataTable>,
-): string | null {
+): { sql: string; availableFields: Field[] } | null {
   // First, wrap base table with UUID-aliased columns
   const baseSelects = buildFieldSelects(baseDisplayName, baseFields);
   let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS "${baseDisplayName}")`;
@@ -373,12 +373,17 @@ function buildJoinedSQL(
 
     if (joinResult) {
       currentSQL = joinResult.sql;
-      // Accumulate fields from all joined tables for subsequent joins
+      // Accumulate fields from all joined tables for subsequent joins.
+      // `joinResult.allFields` excludes dropped right join-keys, so it is the
+      // accurate set of columns actually present in `currentSQL`.
       currentFields = joinResult.allFields;
     }
   }
 
-  return currentSQL;
+  // `currentFields` is the exact column set in the emitted subquery — dropped
+  // join keys are already excluded. Returning it lets callers build a field map
+  // that matches the FROM clause, so filters can't reference a missing column.
+  return { sql: currentSQL, availableFields: currentFields };
 }
 
 /** Result from processing a single join */
@@ -591,26 +596,25 @@ type FilterColumnRefMode = "alias" | "raw";
  * We look up the matching field to resolve either its UUID alias or its raw
  * column name depending on `refMode`.
  *
- * If no matching field is found, fall back to the raw field name (quoted).
+ * Returns `null` when no field in `fieldIdMap` matches the filter field. That
+ * is the fail-safe signal: the column is NOT present in the FROM clause (e.g. a
+ * filter targeting a joined table's right-key, which `processSingleJoin` drops
+ * from the joined subquery). Emitting a reference to a missing column would make
+ * the whole query fail at runtime, so the caller skips the filter instead.
  */
 function resolveFilterColumnRef(
   filterField: string,
   fieldIdMap: Map<string, Field>,
   refMode: FilterColumnRefMode,
-): string {
+): string | null {
   const field = Array.from(fieldIdMap.values()).find(
     (f) => (f.columnName ?? f.name) === filterField,
   );
-  if (field) {
-    if (refMode === "alias") {
-      return `"${fieldIdToColumnAlias(field.id)}"`;
-    }
-    return `"${field.columnName ?? field.name}"`;
+  if (!field) return null;
+  if (refMode === "alias") {
+    return `"${fieldIdToColumnAlias(field.id)}"`;
   }
-  // Fallback: quote the raw column name, escaping any embedded double-quote
-  // (standard SQL identifier escaping: `"` → `""`) so an odd field name can't
-  // break out of the identifier.
-  return quoteIdentifier(filterField);
+  return `"${field.columnName ?? field.name}"`;
 }
 
 /** Quote a SQL identifier, escaping embedded double-quotes by doubling them. */
@@ -746,6 +750,18 @@ function buildFilterClauses(
         fieldIdMap,
         refMode,
       );
+      if (columnRef === null) {
+        // Fail-safe: the filter field is not a column present in the FROM
+        // clause (e.g. a joined table's right-key, dropped from the joined
+        // subquery). Emitting `WHERE "missing_col" = …` would crash the whole
+        // query at runtime, so skip this filter and warn — a dropped filter is
+        // recoverable; a broken query is not. Warn on the field name only, never
+        // the value (privacy: filter values must not reach logs).
+        console.warn(
+          `Filter on field "${filter.field}" skipped — column not present in query result set (e.g. a dropped join key).`,
+        );
+        continue;
+      }
       wherePredicates.push(buildFilterPredicate(columnRef, filter));
     }
   }

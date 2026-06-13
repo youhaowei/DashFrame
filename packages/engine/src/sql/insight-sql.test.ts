@@ -326,3 +326,179 @@ describe("buildInsightSQL — null handling and edge cases", () => {
     expect(sql).not.toContain("WHERE");
   });
 });
+
+describe("buildInsightSQL — model-mode previews are unfiltered", () => {
+  it("does NOT emit a filter clause in model mode even when the insight has saved filters", () => {
+    // A preview shows raw source rows so the user can see what they're working
+    // with before filtering. Applying result-filters would defeat that, and the
+    // joined model path doesn't filter either — both paths stay consistent.
+    const insight = groupedInsight([
+      { field: "region", operator: "eq", value: "EMEA" },
+    ]);
+
+    const modelSQL = build(insight, { mode: "model" });
+    expect(modelSQL).not.toContain("WHERE");
+    expect(modelSQL).not.toContain("HAVING");
+
+    // Same insight in query mode DOES filter — proves the gate is mode-based,
+    // not a blanket drop.
+    const querySQL = build(insight, { mode: "query" });
+    expect(querySQL).toContain(`WHERE "${regionAlias}" = 'EMEA'`);
+  });
+});
+
+describe("buildInsightSQL — filter on a dropped join key is safely skipped", () => {
+  // Join fixtures: a base "orders" table joined to a "customers" table on
+  // customer_id. processSingleJoin drops the right-side join key (customer_id
+  // from customers) from the joined subquery to avoid duplication — so a filter
+  // targeting that dropped column must NOT emit a reference to it.
+  const ORDERS_ID = "12121212-1212-1212-1212-121212121212" as UUID;
+  const ORDERS_DF = "34343434-3434-3434-3434-343434343434" as UUID;
+  const CUSTOMERS_ID = "56565656-5656-5656-5656-565656565656" as UUID;
+  const CUSTOMERS_DF = "78787878-7878-7878-7878-787878787878" as UUID;
+
+  const O_ID_FIELD = {
+    id: "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1" as UUID,
+    name: "Order ID",
+    tableId: ORDERS_ID,
+    columnName: "order_id",
+    type: "string" as const,
+  };
+  const O_CUSTID_FIELD = {
+    id: "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2" as UUID,
+    name: "Customer ID (orders)",
+    tableId: ORDERS_ID,
+    columnName: "customer_id",
+    type: "string" as const,
+  };
+  // Right-side join key — this is the column processSingleJoin drops.
+  const C_CUSTID_FIELD = {
+    id: "c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3" as UUID,
+    name: "Customer ID (customers)",
+    tableId: CUSTOMERS_ID,
+    columnName: "customer_id",
+    type: "string" as const,
+  };
+  const C_NAME_FIELD = {
+    id: "d4d4d4d4-d4d4-d4d4-d4d4-d4d4d4d4d4d4" as UUID,
+    name: "Customer Name",
+    tableId: CUSTOMERS_ID,
+    columnName: "customer_name",
+    type: "string" as const,
+  };
+
+  const ordersTable: DataTable = {
+    id: ORDERS_ID,
+    name: "orders",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "orders.csv",
+    fields: [O_ID_FIELD, O_CUSTID_FIELD],
+    metrics: [],
+    dataFrameId: ORDERS_DF,
+    createdAt: 0,
+  };
+  const customersTable: DataTable = {
+    id: CUSTOMERS_ID,
+    name: "customers",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "customers.csv",
+    fields: [C_CUSTID_FIELD, C_NAME_FIELD],
+    metrics: [],
+    dataFrameId: CUSTOMERS_DF,
+    createdAt: 0,
+  };
+
+  const droppedRightKeyAlias = fieldIdToColumnAlias(C_CUSTID_FIELD.id);
+
+  it("skips a filter on the dropped right join-key instead of emitting a broken column ref", () => {
+    const insight: Insight = {
+      id: "11112222-3333-4444-5555-666677778888" as UUID,
+      name: "Orders joined to customers",
+      baseTableId: ORDERS_ID,
+      selectedFields: [O_ID_FIELD.id],
+      metrics: [],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: CUSTOMERS_ID,
+          leftKey: "customer_id",
+          rightKey: "customer_id",
+        },
+      ],
+      // Filter targets the right-side customer_id — the column that gets dropped
+      // from the joined subquery. Pre-fix this emitted a reference to a
+      // non-existent alias and crashed the whole query.
+      filters: [{ field: "customer_id", operator: "eq", value: "C-1" }],
+      createdAt: 0,
+    };
+
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[CUSTOMERS_ID, customersTable]]),
+      insight,
+      { mode: "query" },
+    );
+    expect(sql).not.toBeNull();
+
+    // The dropped right-key alias must NOT appear anywhere in a WHERE clause.
+    // The filter resolves to the left "customer_id" (retained, id b2b2…), which
+    // IS in the subquery — so either it routes to the retained alias OR is
+    // skipped; either way the dropped right alias (c3c3…) is never referenced.
+    expect(sql!).not.toContain(`WHERE "${droppedRightKeyAlias}"`);
+    expect(sql!).not.toContain(`"${droppedRightKeyAlias}" =`);
+  });
+
+  it("still filters on a RETAINED joined-table column (the fix must not drop legitimate joined filters)", () => {
+    // customer_name is a non-key column from the joined table — it survives into
+    // the subquery and must remain filterable.
+    const nameAlias = fieldIdToColumnAlias(C_NAME_FIELD.id);
+    const insight: Insight = {
+      id: "abababab-cdcd-efef-0101-202020202020" as UUID,
+      name: "Orders filtered by customer name",
+      baseTableId: ORDERS_ID,
+      selectedFields: [O_ID_FIELD.id],
+      metrics: [],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: CUSTOMERS_ID,
+          leftKey: "customer_id",
+          rightKey: "customer_id",
+        },
+      ],
+      filters: [{ field: "customer_name", operator: "eq", value: "Acme" }],
+      createdAt: 0,
+    };
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[CUSTOMERS_ID, customersTable]]),
+      insight,
+      { mode: "query" },
+    );
+    expect(sql).not.toBeNull();
+    expect(sql!).toContain(`WHERE "${nameAlias}" = 'Acme'`);
+  });
+
+  it("safely skips a filter whose field is absent from the result set entirely (no broken ref, no throw)", () => {
+    // A filter on a column that exists in NEITHER table (e.g. stale saved filter
+    // after a schema change) must not emit `WHERE "ghost_col" = …` — that would
+    // crash the query. It is dropped fail-safe.
+    const insight: Insight = {
+      id: "99990000-1111-2222-3333-444455556666" as UUID,
+      name: "Orders with a stale filter",
+      baseTableId: ORDERS_ID,
+      selectedFields: [O_ID_FIELD.id],
+      metrics: [],
+      filters: [{ field: "ghost_column", operator: "eq", value: "x" }],
+      createdAt: 0,
+    };
+
+    const sql = buildInsightSQL(ordersTable, new Map(), insight, {
+      mode: "query",
+    });
+    expect(sql).not.toBeNull();
+    // No reference to the ghost column, and no dangling WHERE.
+    expect(sql!).not.toContain("ghost_column");
+    expect(sql!).not.toContain("WHERE");
+  });
+});
