@@ -14,18 +14,9 @@ describe("useShellStore — right dock", () => {
     useShellStore.setState({
       leftNavOpen: true,
       rightPanelOpen: false,
-      rightDockMode: "separate",
       rightDockWidth: RIGHT_DOCK_DEFAULT_WIDTH,
     });
     useAssistantStore.setState({ isOpen: false });
-  });
-
-  it("toggles the right-dock mode between separate and overlay", () => {
-    expect(useShellStore.getState().rightDockMode).toBe("separate");
-    useShellStore.getState().toggleRightDockMode();
-    expect(useShellStore.getState().rightDockMode).toBe("overlay");
-    useShellStore.getState().toggleRightDockMode();
-    expect(useShellStore.getState().rightDockMode).toBe("separate");
   });
 
   it("clamps right-dock width to its bounds", () => {

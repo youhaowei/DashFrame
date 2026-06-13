@@ -11,16 +11,15 @@ import { AssistantSidebar } from "./assistant/AssistantSidebar";
 
 /**
  * The single shared right panel. Holds the appearance panel or the assistant —
- * never both (the right-dock coordinator enforces mutual exclusion). Geometry
- * (separate vs. overlay, width) is global: set once on the Dock, identical for
- * whichever content is showing, and resizable by dragging the inner edge.
+ * never both (the right-dock coordinator enforces mutual exclusion). Width is
+ * global and identical for whichever content is showing, and resizable by
+ * dragging the inner edge.
  */
 export function RightDock() {
   const appearanceOpen = useShellStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useShellStore((s) => s.setRightPanelOpen);
   const assistantOpen = useAssistantStore((s) => s.isOpen);
 
-  const mode = useShellStore((s) => s.rightDockMode);
   const width = useShellStore((s) => s.rightDockWidth);
   const setWidth = useShellStore((s) => s.setRightDockWidth);
 
@@ -34,7 +33,6 @@ export function RightDock() {
     <Dock
       side="right"
       open={open}
-      mode={mode}
       width={width}
       resizable
       onResize={setWidth}

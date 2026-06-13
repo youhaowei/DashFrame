@@ -2,10 +2,10 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 /**
- * Whether the assistant is visible. Panel *geometry* (separate vs. overlay,
- * width) is no longer the assistant's concern — it shares the shell's right
- * Dock, whose mode/width live in the shell store (see RightDock). This store
- * holds only the open/closed state and its ⌘J summon.
+ * Whether the assistant is visible. Panel *geometry* (width) is no longer the
+ * assistant's concern — it shares the shell's right Dock, whose width lives in
+ * the shell store (see RightDock). This store holds only the open/closed state
+ * and its ⌘J summon.
  */
 interface AssistantState {
   /** Whether the assistant panel is visible. */

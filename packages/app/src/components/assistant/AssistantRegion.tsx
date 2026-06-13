@@ -8,8 +8,7 @@ import { useAssistantHotkey } from "./useAssistantHotkey";
 /**
  * The center Stage. Registers the global ⌘J assistant summon and the per-route
  * render-perf boundary. The assistant itself lives in the shared right Dock
- * (see RightDock) — whether it reflows the Stage (`separate`) or floats over it
- * (`overlay`) is the right Dock's mode, owned globally by the shell store.
+ * (see RightDock), which reflows the Stage when open.
  */
 export function AssistantRegion({ children }: { children: ReactNode }) {
   useAssistantHotkey();

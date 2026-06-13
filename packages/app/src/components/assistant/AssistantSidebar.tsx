@@ -1,14 +1,13 @@
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { useShellStore } from "@/lib/stores/shell-store";
-import { Button, cn } from "@wystack/ui";
-import { CloseIcon, ExternalLinkIcon, SparklesIcon } from "@wystack/ui-icons";
+import { Button } from "@wystack/ui";
+import { CloseIcon, SparklesIcon } from "@wystack/ui-icons";
 
 import { AssistantEmptyState } from "./AssistantEmptyState";
 import { useArtifactContext } from "./artifact-context";
 
 /**
  * The assistant panel body — rendered inside the shared right Dock, which owns
- * the panel chrome (surface, width) and its presentation (separate vs. overlay).
+ * the panel chrome (surface, width).
  *
  * Slack-assistant shape: summonable, contextual to the current artifact,
  * dismissable. The artifact (center) stays primary; this is an input method
@@ -31,9 +30,6 @@ export function AssistantSidebar() {
 function AssistantPanelBody() {
   const artifact = useArtifactContext();
   const close = useAssistantStore((s) => s.close);
-  const mode = useShellStore((s) => s.rightDockMode);
-  const toggleMode = useShellStore((s) => s.toggleRightDockMode);
-  const floating = mode === "overlay";
 
   return (
     <>
@@ -50,19 +46,6 @@ function AssistantPanelBody() {
             {artifact ? artifact.title : "No artifact in focus"}
           </span>
         </div>
-        <Button
-          variant="ghost"
-          icon={ExternalLinkIcon}
-          iconOnly
-          size="sm"
-          label={floating ? "Dock beside content" : "Float over content"}
-          tooltip={floating ? "Dock beside content" : "Float over content"}
-          onClick={toggleMode}
-          className={cn(
-            "size-7 shrink-0 text-neutral-fg-subtle hover:text-neutral-fg",
-            floating && "text-palette-primary",
-          )}
-        />
         <Button
           variant="ghost"
           icon={CloseIcon}

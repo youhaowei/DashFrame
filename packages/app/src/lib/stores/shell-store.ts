@@ -8,15 +8,10 @@ import { useAssistantStore } from "./assistant-store";
  * right appearance panel are toggled from the top bar. Persisted so the layout
  * the user left it in survives a reload.
  *
- * Right-dock arbitration: the appearance panel and a *docked* assistant share
- * the single right Dock slot, so they are mutually exclusive — opening one
- * closes the other. A *floating* assistant is an overlay, not in the slot, so
- * it is exempt (the assistant store owns its dock/width/floating preference;
- * this store only arbitrates the shared docked slot).
+ * Right-dock arbitration: the appearance panel and the assistant share the
+ * single right Dock slot, so they are mutually exclusive — opening one closes
+ * the other.
  */
-/** How the shared right panel presents — global across its contents. */
-export type RightDockMode = "separate" | "overlay";
-
 export const RIGHT_DOCK_MIN_WIDTH = 280;
 export const RIGHT_DOCK_MAX_WIDTH = 640;
 export const RIGHT_DOCK_DEFAULT_WIDTH = 384;
@@ -30,8 +25,6 @@ interface ShellState {
   leftNavOpen: boolean;
   /** Right appearance (theme) panel visible. */
   rightPanelOpen: boolean;
-  /** Presentation of the shared right panel — applies to whatever it holds. */
-  rightDockMode: RightDockMode;
   /** Width of the shared right panel, in px. */
   rightDockWidth: number;
 }
@@ -41,8 +34,6 @@ interface ShellActions {
   setLeftNavOpen: (open: boolean) => void;
   toggleRightPanel: () => void;
   setRightPanelOpen: (open: boolean) => void;
-  setRightDockMode: (mode: RightDockMode) => void;
-  toggleRightDockMode: () => void;
   setRightDockWidth: (width: number) => void;
 }
 
@@ -88,7 +79,6 @@ export const useShellStore = create<ShellState & ShellActions>()(
     (set) => ({
       leftNavOpen: true,
       rightPanelOpen: false,
-      rightDockMode: "separate",
       rightDockWidth: RIGHT_DOCK_DEFAULT_WIDTH,
       toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
       setLeftNavOpen: (open) => set({ leftNavOpen: open }),
@@ -102,12 +92,6 @@ export const useShellStore = create<ShellState & ShellActions>()(
         if (open) evictAssistant();
         set({ rightPanelOpen: open });
       },
-      setRightDockMode: (mode) => set({ rightDockMode: mode }),
-      toggleRightDockMode: () =>
-        set((s) => ({
-          rightDockMode:
-            s.rightDockMode === "separate" ? "overlay" : "separate",
-        })),
       setRightDockWidth: (width) =>
         set({ rightDockWidth: clampRightDockWidth(width) }),
     }),
