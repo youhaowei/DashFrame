@@ -1,4 +1,6 @@
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
+import { getConnectorById } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import {
   useDataFrames,
@@ -16,12 +18,9 @@ import {
 } from "@wystack/ui";
 import {
   CloseIcon,
-  CloudIcon,
   DatabaseIcon,
   ExternalLinkIcon,
-  FileIcon,
   PlusIcon,
-  TableIcon,
 } from "@wystack/ui-icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
@@ -44,31 +43,17 @@ interface DataModelSectionProps {
  */
 
 /**
- * Get icon for data source type (card icon)
+ * Get icon for a data source type, driven by the connector registry.
+ * Renders the connector's own icon; falls back to a generic database glyph for
+ * any unregistered type. `size` controls the rendered dimensions.
  */
-function getSourceTypeIcon(type: string) {
-  switch (type) {
-    case "notion":
-      return <CloudIcon className="h-4 w-4" />;
-    case "local":
-      return <TableIcon className="h-4 w-4" />;
-    default:
-      return <DatabaseIcon className="h-4 w-4" />;
+function getSourceTypeIcon(type: string, size: "sm" | "xs") {
+  const className = size === "sm" ? "h-4 w-4" : "h-3 w-3";
+  const connector = getConnectorById(type);
+  if (connector) {
+    return <ConnectorIcon svg={connector.icon} className={className} />;
   }
-}
-
-/**
- * Get small inline icon for file type display in content
- */
-function getFileTypeIcon(type: string) {
-  switch (type) {
-    case "notion":
-      return <CloudIcon className="h-3 w-3" />;
-    case "local":
-      return <FileIcon className="h-3 w-3" />;
-    default:
-      return <DatabaseIcon className="h-3 w-3" />;
-  }
+  return <DatabaseIcon className={className} />;
 }
 
 /**
@@ -183,7 +168,7 @@ export const DataModelSection = memo(function DataModelSection({
       id: "base",
       title: dataTable.name,
       icon: baseDataSource ? (
-        getSourceTypeIcon(baseDataSource.type)
+        getSourceTypeIcon(baseDataSource.type, "sm")
       ) : (
         <DatabaseIcon className="h-4 w-4" />
       ),
@@ -195,7 +180,7 @@ export const DataModelSection = memo(function DataModelSection({
             {baseRowCount.toLocaleString()} rows • {baseFieldCount} fields
           </div>
           <div className="flex items-center gap-1 text-neutral-fg-subtle/70">
-            {baseDataSource && getFileTypeIcon(baseDataSource.type)}
+            {baseDataSource && getSourceTypeIcon(baseDataSource.type, "xs")}
             <span>{getDisplayFileName(dataTable)}</span>
           </div>
         </div>
@@ -253,7 +238,7 @@ export const DataModelSection = memo(function DataModelSection({
             </div>
             {joinTable && joinDataSource && (
               <div className="flex items-center gap-1 text-neutral-fg-subtle/70">
-                {getFileTypeIcon(joinDataSource.type)}
+                {getSourceTypeIcon(joinDataSource.type, "xs")}
                 <span>{getDisplayFileName(joinTable)}</span>
               </div>
             )}

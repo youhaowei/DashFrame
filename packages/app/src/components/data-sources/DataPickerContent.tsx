@@ -117,7 +117,7 @@ export function DataPickerContent({
         tableId: t.id,
         tableName: t.name,
         fieldCount: t.fields?.length || 0,
-        isLocal: source?.type === "csv",
+        isLocal: source?.type === "local",
       };
     });
   }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);

@@ -1,38 +1,119 @@
 /**
- * Connector Registry - Central registration for all data source connectors.
+ * Connector Registry
  *
- * The web app decides which connectors are available. This allows:
- * - Enabling/disabling connectors via feature flags
- * - Adding new connectors without modifying components
- * - Type-safe connector access
+ * Pluggable connector architecture: new connector kinds register themselves
+ * at boot time instead of being hard-coded in a static array. Mirrors the
+ * chart renderer registry in @dashframe/visualization.
  *
  * @example
- * ```tsx
- * import { getConnectors } from '@/lib/connectors/registry';
+ * ```ts
+ * // Register at boot
+ * registerConnector(localFileConnector);
+ * registerConnector(notionConnector);
  *
- * // Get all file connectors
- * const fileConnectors = getConnectors({ sourceType: 'file' });
- *
- * // Get connector by ID
- * const localConnector = getConnectorById('local');
+ * // Resolve in a component
+ * const connector = getConnectorById(source.type);
  * ```
  */
 
-import { localFileConnector } from "@dashframe/connector-local";
-import { notionConnector } from "@dashframe/connector-notion";
-import {
-  isFileConnector,
-  isRemoteApiConnector,
-  type AnyConnector,
-  type FileSourceConnector,
-  type RemoteApiConnector,
+import type {
+  AnyConnector,
+  FileSourceConnector,
+  RemoteApiConnector,
 } from "@dashframe/engine";
+import { isFileConnector, isRemoteApiConnector } from "@dashframe/engine";
+import { useSyncExternalStore } from "react";
+
+// ============================================================================
+// Registry Implementation
+// ============================================================================
 
 /**
- * All registered connectors (singletons - stateless).
- * Order determines display order in the UI.
+ * Internal registry map.
+ * Maps connector id to connector instance.
  */
-const allConnectors: AnyConnector[] = [localFileConnector, notionConnector];
+const connectorMap = new Map<string, AnyConnector>();
+
+/**
+ * Registry version counter.
+ * Increments each time a genuinely new connector id is registered.
+ */
+let registryVersion = 0;
+
+/**
+ * Listeners for registry changes.
+ */
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notifyListeners(): void {
+  listeners.forEach((l) => l());
+}
+
+/**
+ * Get the current registry version.
+ * Used by components to detect when the connector list changes.
+ */
+export function getRegistryVersion(): number {
+  return registryVersion;
+}
+
+/**
+ * React hook — subscribe to registry changes.
+ * Returns the current version; triggers re-render on first registration of any
+ * connector kind (idempotent on re-registration of the same id).
+ */
+export function useRegistryVersion(): number {
+  return useSyncExternalStore(
+    subscribe,
+    getRegistryVersion,
+    getRegistryVersion,
+  );
+}
+
+/**
+ * Register a connector kind.
+ *
+ * Overwrites any existing registration for the same id (idempotent — HMR-safe).
+ * Only increments the registry version when a genuinely new id is registered,
+ * not when re-registering the same id with the same singleton.
+ *
+ * @param connector - The connector instance to register
+ */
+export function registerConnector(connector: AnyConnector): void {
+  const isNew = !connectorMap.has(connector.id);
+  connectorMap.set(connector.id, connector);
+
+  if (isNew) {
+    registryVersion++;
+    notifyListeners();
+  }
+}
+
+/**
+ * Clear all registered connectors.
+ *
+ * Bumps the registry version and notifies subscribers. The version bump is what
+ * actually drives a re-render: `useSyncExternalStore` compares the snapshot
+ * (`getRegistryVersion()`) with `Object.is` and ignores a notification when the
+ * value is unchanged, so notifying without changing the version would be a
+ * no-op. The version counter is monotonic — it tracks "the set of connectors
+ * changed", not the connector count — so an empty registry can still carry a
+ * higher version than before.
+ */
+export function clearConnectorRegistry(): void {
+  connectorMap.clear();
+  registryVersion++;
+  notifyListeners();
+}
+
+// ============================================================================
+// Query API
+// ============================================================================
 
 /**
  * Options for filtering connectors
@@ -46,12 +127,10 @@ export interface GetConnectorsOptions {
 
 /**
  * Get available connectors, optionally filtered.
- *
- * @param options - Filter options
- * @returns Array of connectors matching the filter criteria
+ * Order reflects registration order.
  */
 export function getConnectors(options?: GetConnectorsOptions): AnyConnector[] {
-  return allConnectors.filter((connector) => {
+  return Array.from(connectorMap.values()).filter((connector) => {
     // Feature flag: Notion
     if (connector.id === "notion" && !(options?.showNotion ?? false)) {
       return false;
@@ -67,18 +146,31 @@ export function getConnectors(options?: GetConnectorsOptions): AnyConnector[] {
 }
 
 /**
- * Get a specific connector by ID.
+ * Get a specific connector by its id.
  *
- * @param id - Connector ID (e.g., 'csv', 'notion')
- * @returns The connector, or undefined if not found
+ * @param id - The connector id (e.g. "local", "notion")
+ * @returns The registered connector, or undefined if not found
  */
 export function getConnectorById(id: string): AnyConnector | undefined {
-  return allConnectors.find((connector) => connector.id === id);
+  return connectorMap.get(id);
 }
 
 /**
- * Get all file source connectors.
- * Uses type guard filter for type-safe narrowing.
+ * Check whether a connector id has been registered.
+ */
+export function hasConnector(id: string): boolean {
+  return connectorMap.has(id);
+}
+
+/**
+ * Get all registered connector ids, in insertion order.
+ */
+export function getConnectorIds(): string[] {
+  return Array.from(connectorMap.keys());
+}
+
+/**
+ * Get all registered file source connectors.
  */
 export function getFileConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
@@ -89,8 +181,7 @@ export function getFileConnectors(
 }
 
 /**
- * Get all remote API connectors.
- * Uses type guard filter for type-safe narrowing.
+ * Get all registered remote API connectors.
  */
 export function getRemoteConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
@@ -98,11 +189,4 @@ export function getRemoteConnectors(
   return getConnectors({ ...options, sourceType: "remote-api" }).filter(
     isRemoteApiConnector,
   );
-}
-
-/**
- * Get all connector IDs.
- */
-export function getConnectorIds(): string[] {
-  return allConnectors.map((c) => c.id);
 }
