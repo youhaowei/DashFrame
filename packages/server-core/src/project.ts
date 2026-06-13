@@ -191,6 +191,21 @@ export async function openProject(
     });
   } catch (err) {
     await db.$client.close().catch(() => {});
+    // If we got here via recovery, the original datadir is already quarantined
+    // aside and the restored one just failed its metadata check (e.g. an
+    // unsupported-schema snapshot after a downgrade, or a tarball that loaded
+    // but is partially corrupt). A bare throw would leave the next startup
+    // seeing only the bad restored datadir, with the user never told where their
+    // preserved data is. Surface the quarantine path, same as the recovery
+    // catch above.
+    if (recovery) {
+      throw new Error(
+        `[dashframe] recovery restored a snapshot but it failed metadata validation. ` +
+          `Your previous data has been preserved at: ${recovery.quarantinedPath}. ` +
+          `Validation error: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
+    }
     throw err;
   }
 
@@ -201,8 +216,12 @@ export async function openProject(
   );
 
   const close = async () => {
-    // Cancel any pending debounced snapshot before writing the final one.
+    // Cancel the pending debounced timer, then await any snapshot already in
+    // flight before writing (and closing). Without the flush, a debounced/max-
+    // wait dump still running here would overlap the final dump on the same
+    // client — or worse, still be using the client when `close()` tears it down.
     scheduler.cancel();
+    await scheduler.flush();
     try {
       await writeSnapshot(db.$client, dir);
     } catch (err) {

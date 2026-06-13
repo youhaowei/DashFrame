@@ -340,6 +340,17 @@ export class SnapshotScheduler {
    * anchor the max-wait is measured from. null when no write is pending.
    */
   private firstPendingAt: number | null = null;
+  /**
+   * Serializes snapshot writes. `writeSnapshot` reads the live PGlite client
+   * (dumpDataDir) and writes a temp file + rename, all async. Two overlapping
+   * writes would race the same client and the same temp/destination paths — and
+   * worse, `ProjectHandle.close()` could start its final snapshot (and close the
+   * client) while a debounced/max-wait dump is still mid-flight, turning the
+   * clean-close snapshot into a logged failure. Every snapshot chains onto this
+   * tail so they run strictly one-at-a-time; `flush()` lets `close()` await the
+   * in-flight write before its own.
+   */
+  private inFlight: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly pgliteClient: PGlite,
@@ -379,9 +390,25 @@ export class SnapshotScheduler {
       this.timer = null;
     }
     this.firstPendingAt = null;
-    writeSnapshot(this.pgliteClient, this.projectDir).catch((err) => {
-      console.error("[dashframe] debounced snapshot failed:", err);
-    });
+    // Chain onto the in-flight tail so writes never overlap on the shared
+    // client. A failed write is logged and swallowed so it doesn't poison the
+    // chain for the next snapshot.
+    this.inFlight = this.inFlight
+      .catch(() => {})
+      .then(() =>
+        writeSnapshot(this.pgliteClient, this.projectDir).catch((err) => {
+          console.error("[dashframe] debounced snapshot failed:", err);
+        }),
+      );
+  }
+
+  /**
+   * Await any in-flight snapshot write. `ProjectHandle.close()` calls this
+   * before its own final `writeSnapshot` so the final dump never overlaps (or
+   * outlives, into a closed client) a debounced/max-wait dump still in flight.
+   */
+  async flush(): Promise<void> {
+    await this.inFlight.catch(() => {});
   }
 
   /** Cancel any pending debounced snapshot (call before close). */

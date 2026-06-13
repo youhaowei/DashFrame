@@ -19,12 +19,13 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { PGlite } from "@electric-sql/pglite";
 
-import { openArtifactDb } from "./db";
+import { ARTIFACT_DB_SCHEMA_VERSION, openArtifactDb } from "./db";
 import {
   ARTIFACTS_DB_FILENAME,
   openProject,
   type ProjectHandle,
 } from "./project";
+import { projectMeta } from "./schema";
 import {
   hasCorruptWalSegment,
   listSnapshots,
@@ -291,6 +292,55 @@ describe("SnapshotScheduler", () => {
     await new Promise((r) => setTimeout(r, 1100));
     await flush();
     expect(fires()).toBe(0);
+  });
+
+  test("serializes overlapping snapshot writes — dumps never run concurrently", async () => {
+    const projectDir = join(root, "serialize");
+    mkdirSync(projectDir, { recursive: true });
+
+    // A client whose dumpDataDir is slow and records peak concurrency. If two
+    // snapshots ran in parallel, `active` would exceed 1 at some point.
+    let active = 0;
+    let maxActive = 0;
+    let calls = 0;
+    const client = {
+      dumpDataDir: async () => {
+        calls += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 30));
+        active -= 1;
+        return new Blob([Buffer.from("snap")]);
+      },
+    } as unknown as PGlite;
+
+    let now = 0;
+    const maxWaitMs = 1000;
+    const sched = new SnapshotScheduler(
+      client,
+      projectDir,
+      500, // debounceMs
+      maxWaitMs,
+      () => now,
+    );
+
+    // Force two immediate max-wait fires back-to-back: anchor at t=0, then jump
+    // past the cap twice so fireNow runs twice without the first dump finishing.
+    sched.touch(); // anchor at t=0
+    now = 1000;
+    sched.touch(); // cap reached → fire #1 (dump in flight, ~30ms)
+    sched.touch(); // anchor resets to t=1000
+    now = 2000;
+    sched.touch(); // cap reached again → fire #2, chained behind #1
+
+    // Await the serialized chain.
+    await sched.flush();
+
+    expect(calls).toBe(2);
+    // The contract: the two dumps were serialized, never concurrent.
+    expect(maxActive).toBe(1);
+
+    sched.cancel();
   });
 });
 
@@ -700,5 +750,44 @@ describe("openProject WAL corruption recovery", () => {
     expect(h2.recovery!.restoredSnapshot!.absPath).toBe(validOlder.absPath);
     // The restored project carries the real data, not an empty fresh DB.
     expect(h2.meta.name).toBe("ValidOlder");
+  });
+
+  test("metadata failure on a restored snapshot still surfaces the quarantine path", async () => {
+    // PR #90 P2: if recovery restores a snapshot that opens but then fails
+    // ensureProjectMeta (e.g. an unsupported-schema snapshot after a downgrade),
+    // the error must still tell the operator where their preserved data is —
+    // the original datadir has already been renamed aside.
+    const dir = join(root, "meta-fail-recovery");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // 1. Healthy project, then poison project_meta with an unsupported schema
+    // version and snapshot that poisoned state.
+    const h1 = await openProject({ dir, name: "PoisonedSchema" });
+    openHandles.splice(0);
+    await h1.db
+      .update(projectMeta)
+      .set({ schemaVersion: ARTIFACT_DB_SCHEMA_VERSION + 99 });
+    await writeSnapshot(h1.db.$client, dir);
+    await h1.db.$client.close();
+
+    // 2. Corrupt the live datadir (torn WAL) so recovery triggers.
+    rmSync(dbPath, { recursive: true, force: true });
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // 3. Recovery restores the poisoned snapshot; ensureProjectMeta then rejects
+    // the unsupported schema. The thrown error must carry the quarantine path so
+    // the user can recover their preserved data.
+    await expect(openProject({ dir })).rejects.toThrow(
+      /preserved at:.*\.damaged-/,
+    );
+
+    // The quarantined original must exist on disk.
+    const parentDir = await readdir(dir);
+    expect(parentDir.filter((f) => f.includes(".damaged-")).length).toBe(1);
   });
 });
