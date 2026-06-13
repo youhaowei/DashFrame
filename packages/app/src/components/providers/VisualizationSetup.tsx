@@ -35,6 +35,32 @@ function RendererRegistration() {
   return null;
 }
 
+/**
+ * Surfaces post-mount VisualizationProvider failures as a visible ErrorState.
+ *
+ * VisualizationProvider may throw AFTER mount (e.g. vgplot import failure,
+ * wasmConnector/databaseConnector throw). Without this component the error
+ * lives only in `useVisualization().error` and nothing renders — a silent
+ * failure. Mounted inside each VisualizationProvider branch, this component
+ * reads the provider's error and shows ErrorState so the user always sees
+ * something actionable.
+ *
+ * Note: YW-228 will move engine-unreachable errors to a toast later. This
+ * component only ensures the post-mount failure path is VISIBLE — matching the
+ * existing ErrorState pattern — without changing the UX for the common case.
+ */
+function VisualizationErrorBanner() {
+  const { error } = useVisualization();
+  if (!error) return null;
+  return (
+    <ErrorState
+      title="Visualization engine error"
+      description={error.message}
+      className="min-h-[200px]"
+    />
+  );
+}
+
 // ============================================================================
 // Provider Wrapper
 // ============================================================================
@@ -115,6 +141,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     return (
       <VisualizationProvider connector={connector}>
         <RendererRegistration />
+        <VisualizationErrorBanner />
         {wasmErrorBanner}
         {children}
       </VisualizationProvider>
@@ -165,6 +192,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       {nativeErrorBanner}
       <VisualizationProvider db={db} connection={connection}>
         <RendererRegistration />
+        <VisualizationErrorBanner />
         {children}
       </VisualizationProvider>
     </>

@@ -6,8 +6,21 @@ import {
   ensureTableLoaded,
   loadArrowData,
 } from "@dashframe/engine-browser";
-import type { DataTable, Insight, UUID } from "@dashframe/types";
+import type { DataFrame, DataTable, Insight, UUID } from "@dashframe/types";
 import { useEffect, useState } from "react";
+
+/**
+ * Check whether a DataFrame can be served to the native chart engine.
+ *
+ * The native engine receives data via `uploadArrowTable`, which reads the
+ * local IndexedDB Arrow buffer. Remote-backed storage (s3/r2) has no local
+ * buffer, so the upload path is not available for those DataFrames.
+ *
+ * @returns `true` when the DataFrame can be uploaded to the native engine.
+ */
+export function isNativeCapableDataFrame(dataFrame: DataFrame): boolean {
+  return dataFrame.storage.type === "indexeddb";
+}
 
 // Module-level cache to track which views have been created
 // This survives React Strict Mode's double-invoke and HMR remounts
@@ -113,6 +126,20 @@ export function useInsightView(insight: Insight | null | undefined) {
     cachedViewName ? configKey : null,
   );
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether all DataFrames for this insight can be served to the native engine.
+   *
+   * `true`  — all DataFrames use indexeddb storage and were uploaded successfully;
+   *            chart queries will run against the native DuckDB engine.
+   * `false` — at least one DataFrame uses remote storage (s3/r2) or had a missing
+   *            local Arrow buffer; the view exists in DuckDB-WASM only.
+   *            VisualizationDisplay wraps the Chart in a WASM VisualizationProvider
+   *            so queries route to WASM instead of hard-failing on the native engine.
+   *
+   * Only meaningful on the desktop path (when `uploadArrowTable` is set).
+   * Always `true` on the WASM-only path.
+   */
+  const [nativeCapable, setNativeCapable] = useState<boolean>(true);
 
   const prerequisitesReady =
     Boolean(connection) &&
@@ -215,6 +242,15 @@ export function useInsightView(insight: Insight | null | undefined) {
         // so chart queries running via the loopback connector can reference
         // the same table names (df_<id>). The table name formula mirrors
         // engine-browser's makeTableName: `df_${dataFrameId.replace(/-/g, "_")}`.
+        //
+        // Per-insight fallback: if any DataFrame cannot be uploaded to the native
+        // engine (remote storage, missing local buffer), we record `allNativeCapable
+        // = false` rather than throwing. The view is still created in DuckDB-WASM so
+        // the WASM path can render it. VisualizationDisplay reads `nativeCapable` and
+        // wraps the Chart in a WASM VisualizationProvider when false, so chart
+        // queries route to WASM instead of hard-failing on the native engine.
+        let allNativeCapable = true;
+
         await Promise.all(
           dataFramesToLoad.map(async ({ dataFrame }) => {
             if (!dataFrame) return;
@@ -222,21 +258,18 @@ export function useInsightView(insight: Insight | null | undefined) {
             // Desktop native path: upload the DataFrame's Arrow buffer so the
             // native engine has the same df_* table the WASM engine has.
             if (uploadArrowTable) {
-              // loadArrowData reads the local IndexedDB Arrow buffer by key.
-              // Remote-backed storage (s3/r2) has no local buffer to upload —
-              // those would need a fetch path the native engine doesn't have
-              // yet. Fail loudly rather than building a view whose source table
-              // is silently missing from the native engine (→ opaque chart 500).
-              if (dataFrame.storage.type !== "indexeddb") {
-                throw new Error(
-                  `Cannot render this chart on the native engine: DataFrame ${dataFrame.id} uses ${dataFrame.storage.type} storage, which is not yet supported for native chart compute.`,
-                );
+              if (!isNativeCapableDataFrame(dataFrame)) {
+                // Remote storage (s3/r2) — no local buffer to upload.
+                // Fall back to WASM for this insight rather than hard-failing.
+                allNativeCapable = false;
+                return;
               }
               const arrowBytes = await loadArrowData(dataFrame.storage.key);
               if (!arrowBytes) {
-                throw new Error(
-                  `Cannot render this chart: Arrow data for DataFrame ${dataFrame.id} was not found in local storage.`,
-                );
+                // Local Arrow buffer is missing (e.g. data was evicted from
+                // IndexedDB). Fall back to WASM rather than hard-failing.
+                allNativeCapable = false;
+                return;
               }
               const tableName = `df_${dataFrame.id.replace(/-/g, "_")}`;
               await uploadArrowTable(tableName, arrowBytes);
@@ -270,8 +303,11 @@ export function useInsightView(insight: Insight | null | undefined) {
         await connection.query(createViewSql);
 
         // Desktop: chart queries run against the native engine, so the view
-        // must exist there too (the df_* tables were uploaded above).
-        if (connector) {
+        // must also exist there — but only when all DataFrames were successfully
+        // uploaded (nativeCapable path). When any DataFrame fell back to WASM,
+        // skip the native view creation; VisualizationDisplay will route the
+        // Chart's queries to the WASM engine instead.
+        if (connector && allNativeCapable) {
           await connector.query({ type: "exec", sql: createViewSql });
         }
 
@@ -281,6 +317,7 @@ export function useInsightView(insight: Insight | null | undefined) {
 
         setResolvedViewName(newViewName);
         setResolvedConfigKey(configKey);
+        setNativeCapable(allNativeCapable);
         setError(null);
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);
@@ -318,5 +355,14 @@ export function useInsightView(insight: Insight | null | undefined) {
     isReady,
     /** Error message if view creation failed */
     error,
+    /**
+     * Whether all DataFrames for this insight were successfully uploaded to
+     * the native engine. `false` means at least one DataFrame uses remote
+     * storage (s3/r2) or had a missing local Arrow buffer; the view exists in
+     * DuckDB-WASM only and the Chart must route queries there instead.
+     *
+     * Only meaningful on the desktop path. Always `true` on the WASM path.
+     */
+    nativeCapable,
   };
 }

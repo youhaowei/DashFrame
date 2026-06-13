@@ -11,13 +11,15 @@
  * - Configuration changes (insight ID changes, join changes)
  * - DuckDB connection requirements
  * - View name format and uniqueness
+ * - Per-insight native fallback (non-indexeddb storage → nativeCapable: false)
  */
-import type { DataTable, Insight } from "@dashframe/types";
+import type { DataFrame, DataTable, Insight } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearInsightViewCache,
   getCachedViewName,
+  isNativeCapableDataFrame,
   useInsightView,
 } from "./useInsightView";
 
@@ -45,14 +47,39 @@ vi.mock("@dashframe/core", () => ({
   getDataTable: mockGetDataTable,
 }));
 
-const { mockBuildInsightSQL, mockEnsureTableLoaded } = vi.hoisted(() => ({
-  mockBuildInsightSQL: vi.fn(),
-  mockEnsureTableLoaded: vi.fn(),
-}));
+const { mockBuildInsightSQL, mockEnsureTableLoaded, mockLoadArrowData } =
+  vi.hoisted(() => ({
+    mockBuildInsightSQL: vi.fn(),
+    mockEnsureTableLoaded: vi.fn(),
+    mockLoadArrowData: vi.fn(),
+  }));
 
 vi.mock("@dashframe/engine-browser", () => ({
   buildInsightSQL: mockBuildInsightSQL,
   ensureTableLoaded: mockEnsureTableLoaded,
+  loadArrowData: (...args: unknown[]) => mockLoadArrowData(...args),
+}));
+
+const { mockUploadArrowTable, mockConnectorQuery, mockUseChartEngine } =
+  vi.hoisted(() => {
+    const upload = vi.fn();
+    const connectorQuery = vi.fn();
+    // Default: WASM-only path (no native connector) — tests that need the
+    // native path override this via mockUseChartEngine.mockReturnValue(...)
+    const useChartEngine = vi.fn().mockReturnValue({
+      connector: null,
+      engineError: null,
+      uploadArrowTable: null,
+    });
+    return {
+      mockUploadArrowTable: upload,
+      mockConnectorQuery: connectorQuery,
+      mockUseChartEngine: useChartEngine,
+    };
+  });
+
+vi.mock("@/components/providers/ChartEngineProvider", () => ({
+  useChartEngine: () => mockUseChartEngine(),
 }));
 
 /**
@@ -102,13 +129,34 @@ function createMockDataTable(options: {
 }
 
 /**
- * Helper to create a mock DataFrame object
+ * Helper to create a mock DataFrame object with explicit storage type.
+ * Defaults to indexeddb (native-capable) unless overridden.
  */
-function createMockDataFrame(id: string) {
+function createMockDataFrame(
+  id: string,
+  storageType: "indexeddb" | "s3" | "r2" = "indexeddb",
+): DataFrame {
+  let storage: DataFrame["storage"];
+  if (storageType === "s3") {
+    storage = { type: "s3", bucket: "my-bucket", key: `data/${id}.arrow` };
+  } else if (storageType === "r2") {
+    storage = { type: "r2", accountId: "acct-123", key: `data/${id}.arrow` };
+  } else {
+    storage = { type: "indexeddb", key: `arrow-${id}` };
+  }
+
   return {
     id,
-    name: `DataFrame ${id}`,
-    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    storage,
+    fieldIds: [],
+    createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    toJSON: () => ({
+      id,
+      storage,
+      fieldIds: [],
+      createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
+    }),
+    getStorageType: () => storageType,
   };
 }
 
@@ -155,6 +203,12 @@ describe("getCachedViewName", () => {
   beforeEach(() => {
     clearInsightViewCache();
     vi.clearAllMocks();
+    // Re-apply WASM default after clearAllMocks wipes mockReturnValue
+    mockUseChartEngine.mockReturnValue({
+      connector: null,
+      engineError: null,
+      uploadArrowTable: null,
+    });
   });
 
   it("should return null for non-existent insight", () => {
@@ -272,6 +326,15 @@ describe("useInsightView", () => {
       isInitialized: true,
       db: {},
       error: null,
+    });
+
+    // Restore default: WASM-only path (no native connector).
+    // vi.clearAllMocks() wipes mockReturnValue; re-apply the default so any
+    // test that doesn't explicitly set the native path gets WASM behaviour.
+    mockUseChartEngine.mockReturnValue({
+      connector: null,
+      engineError: null,
+      uploadArrowTable: null,
     });
 
     // Clear console.error mock
@@ -1237,5 +1300,193 @@ describe("useInsightView", () => {
         { mode: "model" },
       );
     });
+  });
+});
+
+// ============================================================================
+// isNativeCapableDataFrame
+// ============================================================================
+
+describe("isNativeCapableDataFrame", () => {
+  it("returns true for indexeddb-backed DataFrames", () => {
+    const df = createMockDataFrame("df-local", "indexeddb");
+    expect(isNativeCapableDataFrame(df)).toBe(true);
+  });
+
+  it("returns false for s3-backed DataFrames", () => {
+    const df = createMockDataFrame("df-s3", "s3");
+    expect(isNativeCapableDataFrame(df)).toBe(false);
+  });
+
+  it("returns false for r2-backed DataFrames", () => {
+    const df = createMockDataFrame("df-r2", "r2");
+    expect(isNativeCapableDataFrame(df)).toBe(false);
+  });
+});
+
+// ============================================================================
+// Per-insight native-path fallback (nativeCapable signal)
+// ============================================================================
+
+describe("useInsightView — per-insight native fallback", () => {
+  beforeEach(() => {
+    clearInsightViewCache();
+    vi.clearAllMocks();
+
+    mockUseDuckDB.mockReturnValue({
+      connection: mockConnection,
+      isInitialized: true,
+      db: {},
+      error: null,
+    });
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("nativeCapable is true on the WASM-only path (no uploadArrowTable)", async () => {
+    // WASM path: no connector, no uploadArrowTable
+    mockUseChartEngine.mockReturnValue({
+      connector: null,
+      engineError: null,
+      uploadArrowTable: null,
+    });
+
+    const insight = createMockInsight({ id: "iv-wasm", baseTableId: "t-wasm" });
+    const baseTable = createMockDataTable({
+      id: "t-wasm",
+      dataFrameId: "df-wasm",
+    });
+    const baseDataFrame = createMockDataFrame("df-wasm", "indexeddb");
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInsightView(insight));
+
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    expect(result.current.nativeCapable).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("nativeCapable is true when indexeddb DataFrame is uploaded successfully", async () => {
+    const connector = { query: mockConnectorQuery };
+    mockUseChartEngine.mockReturnValue({
+      connector,
+      engineError: null,
+      uploadArrowTable: mockUploadArrowTable,
+    });
+    mockConnectorQuery.mockResolvedValue(undefined);
+    mockUploadArrowTable.mockResolvedValue(undefined);
+    mockLoadArrowData.mockResolvedValue(new Uint8Array([1, 2, 3]));
+
+    const insight = createMockInsight({
+      id: "iv-native",
+      baseTableId: "t-native",
+    });
+    const baseTable = createMockDataTable({
+      id: "t-native",
+      dataFrameId: "df-native",
+    });
+    const baseDataFrame = createMockDataFrame("df-native", "indexeddb");
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInsightView(insight));
+
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    expect(result.current.nativeCapable).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(mockUploadArrowTable).toHaveBeenCalledWith(
+      "df_df_native",
+      expect.any(Uint8Array),
+    );
+    // View should be created in the native engine too
+    expect(mockConnectorQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "exec" }),
+    );
+  });
+
+  it("nativeCapable is false for s3-backed DataFrame — view created in WASM, not thrown", async () => {
+    // Contract: non-indexeddb storage must NOT throw. The insight renders via
+    // WASM; the caller sees nativeCapable=false and routes the Chart to WASM.
+    const connector = { query: mockConnectorQuery };
+    mockUseChartEngine.mockReturnValue({
+      connector,
+      engineError: null,
+      uploadArrowTable: mockUploadArrowTable,
+    });
+
+    const insight = createMockInsight({ id: "iv-s3", baseTableId: "t-s3" });
+    const baseTable = createMockDataTable({ id: "t-s3", dataFrameId: "df-s3" });
+    const baseDataFrame = createMockDataFrame("df-s3", "s3"); // non-indexeddb
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInsightView(insight));
+
+    // Should become ready (not hard-fail) via the WASM view
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    expect(result.current.nativeCapable).toBe(false);
+    expect(result.current.error).toBeNull();
+    // Upload must NOT be attempted for remote storage
+    expect(mockUploadArrowTable).not.toHaveBeenCalled();
+    // The native-engine view creation must be skipped (no native connector.query)
+    expect(mockConnectorQuery).not.toHaveBeenCalled();
+  });
+
+  it("nativeCapable is false when Arrow buffer is missing from local storage — no hard-fail", async () => {
+    // Contract: missing Arrow buffer (evicted from IndexedDB) must not throw.
+    const connector = { query: mockConnectorQuery };
+    mockUseChartEngine.mockReturnValue({
+      connector,
+      engineError: null,
+      uploadArrowTable: mockUploadArrowTable,
+    });
+    // loadArrowData returns null (buffer missing)
+    mockLoadArrowData.mockResolvedValue(null);
+
+    const insight = createMockInsight({
+      id: "iv-missing-buf",
+      baseTableId: "t-mb",
+    });
+    const baseTable = createMockDataTable({ id: "t-mb", dataFrameId: "df-mb" });
+    const baseDataFrame = createMockDataFrame("df-mb", "indexeddb");
+
+    mockGetDataTable.mockResolvedValue(baseTable);
+    mockGetDataFrame.mockResolvedValue(baseDataFrame);
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+    mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+    mockQuery.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInsightView(insight));
+
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    expect(result.current.nativeCapable).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(mockUploadArrowTable).not.toHaveBeenCalled();
+    expect(mockConnectorQuery).not.toHaveBeenCalled();
   });
 });

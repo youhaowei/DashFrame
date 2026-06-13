@@ -1,3 +1,4 @@
+import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
@@ -5,10 +6,49 @@ import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
-import { Chart } from "@dashframe/visualization";
+import { Chart, VisualizationProvider } from "@dashframe/visualization";
 import { Spinner, Surface, Toggle } from "@wystack/ui";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-icons";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+/**
+ * Wraps `children` in a WASM-backed VisualizationProvider when `nativeCapable`
+ * is false (insight has non-indexeddb DataFrames that could not be uploaded to
+ * the native engine). The inner WASM provider shadows the outer native-connector
+ * provider, so Mosaic queries for this insight route to DuckDB-WASM instead of
+ * hard-failing on the native engine with a missing-table error.
+ *
+ * When `nativeCapable` is true (or on the WASM-only web path), this is a
+ * transparent pass-through — no extra provider is mounted.
+ */
+function WasmFallbackWrapper({
+  nativeCapable,
+  children,
+}: {
+  nativeCapable: boolean;
+  children: ReactNode;
+}) {
+  const { db, connection } = useDuckDBContext();
+
+  // Only wrap when native is incapable AND we have a live WASM connection.
+  // If WASM is also unavailable (e.g. still loading), render children as-is —
+  // the caller's loading state guard will handle that path.
+  if (!nativeCapable && db && connection) {
+    return (
+      <VisualizationProvider db={db} connection={connection}>
+        {children}
+      </VisualizationProvider>
+    );
+  }
+  return <>{children}</>;
+}
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
@@ -67,9 +107,14 @@ export function VisualizationDisplay({
     } as Insight;
   }, [insight]);
 
-  // Use insight view hook to get the proper table name (handles joins)
-  const { viewName: insightViewName, isReady: isInsightViewReady } =
-    useInsightView(insightForView);
+  // Use insight view hook to get the proper table name (handles joins).
+  // `nativeCapable` is false when any DataFrame uses non-indexeddb storage —
+  // Chart queries must route to WASM in that case (WasmFallbackWrapper below).
+  const {
+    viewName: insightViewName,
+    isReady: isInsightViewReady,
+    nativeCapable,
+  } = useInsightView(insightForView);
 
   // Use insight pagination for table data (queries DuckDB directly)
   const {
@@ -381,12 +426,14 @@ export function VisualizationDisplay({
 
       {activeTab === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
-          <Chart
-            tableName={tableName}
-            visualizationType={activeViz.visualizationType}
-            encoding={resolvedEncoding}
-            className="h-full w-full"
-          />
+          <WasmFallbackWrapper nativeCapable={nativeCapable}>
+            <Chart
+              tableName={tableName}
+              visualizationType={activeViz.visualizationType}
+              encoding={resolvedEncoding}
+              className="h-full w-full"
+            />
+          </WasmFallbackWrapper>
         </div>
       )}
 
@@ -411,12 +458,14 @@ export function VisualizationDisplay({
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
-            <Chart
-              tableName={tableName}
-              visualizationType={activeViz.visualizationType}
-              encoding={resolvedEncoding}
-              className="h-full w-full"
-            />
+            <WasmFallbackWrapper nativeCapable={nativeCapable}>
+              <Chart
+                tableName={tableName}
+                visualizationType={activeViz.visualizationType}
+                encoding={resolvedEncoding}
+                className="h-full w-full"
+              />
+            </WasmFallbackWrapper>
           </div>
           {/* Table capped at 40% of space */}
           <div className="flex h-[40%] max-h-[40%] min-h-0 flex-col overflow-hidden px-4">
