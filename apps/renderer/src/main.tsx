@@ -121,3 +121,32 @@ async function bootstrap() {
 }
 
 bootstrap().catch(renderBootstrapError);
+
+// ── Fail-soft: mid-session engine loss ──────────────────────────────────────
+// When the native DuckDB engine stops mid-session, pending Mosaic/vgplot fetch
+// calls reject with a network or timeout error. These Promise rejections can
+// escape through mosaic-core internals (Coordinator's internal promise chains
+// have no outer catch) and surface as unhandledrejection events. In Electron,
+// an unhandled rejection in the renderer process kills the page (CDP page count
+// → 0). Catch them here: log and swallow. The VisualizationBoundary in
+// VisualizationSetup catches render-phase throws from the same cause; this
+// handles the async side of the same failure mode.
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const msg =
+    reason instanceof Error ? reason.message : String(reason ?? "unknown");
+  // Only intercept rejections that look like engine/loopback failures so we
+  // don't silence unrelated bugs. Loopback errors include "Native engine",
+  // "fetch", "AbortError", "Failed to fetch", and HTTP status codes.
+  const isEngineLoss =
+    /native engine|loopback|fetch|abort|network|econnrefused|econnreset|etimedout/i.test(
+      msg,
+    );
+  if (isEngineLoss) {
+    console.warn(
+      "[DashFrame] Swallowed unhandled rejection (engine loss):",
+      reason,
+    );
+    event.preventDefault();
+  }
+});

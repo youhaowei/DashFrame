@@ -1,3 +1,4 @@
+import { useToastStore } from "@/lib/stores/toast-store";
 import {
   VisualizationProvider,
   createVgplotRenderer,
@@ -5,7 +6,7 @@ import {
   useVisualization,
 } from "@dashframe/visualization";
 import { ErrorState } from "@wystack/ui";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { Component, useCallback, useEffect, type ReactNode } from "react";
 import { useChartEngine } from "./ChartEngineProvider";
 import { useDuckDBContext } from "./DuckDBProvider";
 
@@ -36,29 +37,109 @@ function RendererRegistration() {
 }
 
 /**
- * Surfaces post-mount VisualizationProvider failures as a visible ErrorState.
- *
- * VisualizationProvider may throw AFTER mount (e.g. vgplot import failure,
- * wasmConnector/databaseConnector throw). Without this component the error
- * lives only in `useVisualization().error` and nothing renders — a silent
- * failure. Mounted inside each VisualizationProvider branch, this component
- * reads the provider's error and shows ErrorState so the user always sees
- * something actionable.
- *
- * A separate ticket tracks moving engine-unreachable errors to a toast. This
- * component only ensures the post-mount failure path is VISIBLE — matching the
- * existing ErrorState pattern — without changing the UX for the common case.
+ * Fires a Sonner error toast when the VisualizationProvider fails to
+ * initialize its Mosaic coordinator (e.g. vgplot import failure, connector
+ * rejected). This is a whole-engine-init failure, not a per-chart failure,
+ * so it surfaces as a toast rather than an inline slab. Children continue
+ * to render — the failure is transient/recoverable and the user can retry
+ * by reloading.
  */
-function VisualizationErrorBanner() {
+function VisualizationErrorToast() {
   const { error } = useVisualization();
-  if (!error) return null;
-  return (
-    <ErrorState
-      title="Visualization engine error"
-      description={error.message}
-      className="min-h-[200px]"
-    />
-  );
+  const { showError } = useToastStore();
+
+  useEffect(() => {
+    if (!error) return;
+    showError("Visualization engine failed to start", {
+      description: "Charts may not render. Reload to retry.",
+      duration: 8000,
+    });
+  }, [error, showError]);
+
+  return null;
+}
+
+// ============================================================================
+// Error Boundary
+// ============================================================================
+
+/**
+ * Catches render-phase throws from the visualization subtree.
+ *
+ * When the engine dies mid-session, pending Mosaic/vgplot updates can throw
+ * synchronously during a render (e.g. a coordinator callback that runs after
+ * the connector is gone). Without a boundary these throws propagate to React's
+ * root and kill the renderer process. The boundary catches them, shows the
+ * `fallback` (empty state + toast via `onError`), and prevents a renderer crash.
+ *
+ * This is the "fail-soft" layer: an unhandled throw that would otherwise take
+ * the renderer down degrades to a visible empty state instead.
+ */
+interface VisualizationBoundaryState {
+  hasError: boolean;
+}
+
+interface VisualizationBoundaryProps {
+  children: ReactNode;
+  fallback: ReactNode;
+  onError?: (err: Error) => void;
+}
+
+class VisualizationBoundary extends Component<
+  VisualizationBoundaryProps,
+  VisualizationBoundaryState
+> {
+  constructor(props: VisualizationBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): VisualizationBoundaryState {
+    return { hasError: true };
+  }
+
+  override componentDidCatch(err: Error, info: React.ErrorInfo) {
+    console.error("[VisualizationBoundary] caught render error:", err, info);
+    this.props.onError?.(err);
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * Hook that fires a toast for a whole-engine-down condition, then returns
+ * nothing. Separated so the toast logic can consume hooks (useToastStore)
+ * while the boundary above it is a class component.
+ */
+function EngineErrorToast({ engineError }: { engineError: string }) {
+  const { showError } = useToastStore();
+
+  useEffect(() => {
+    showError("Native engine unreachable", {
+      description:
+        "Charts are unavailable. Reload to reconnect to the local engine.",
+      duration: 10000,
+    });
+    // Only fire once per engineError value change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineError]);
+
+  return null;
+}
+
+/**
+ * Fallback shown inside the VisualizationBoundary when a mid-session engine
+ * crash causes a render-phase throw. Renders nothing visible — the toast (fired
+ * by the onError callback) is the user-facing signal. Children outside the
+ * visualization subtree (navigation, data sources, etc.) are unaffected.
+ */
+function VisualizationCrashedFallback() {
+  return null;
 }
 
 // ============================================================================
@@ -84,11 +165,23 @@ interface VisualizationSetupProps {
  * ## Error surfaces
  *
  * - Native bootstrap failure (connector=null, engineError set): shown as a
- *   banner above children; WASM path used as fallback for non-chart content.
- * - Native connector healthy but WASM failed: WASM error shown inside the
- *   native provider (chart queries still route to native; data-viewer paths
- *   that need WASM see the banner).
+ *   Sonner toast (whole-engine-down condition); WASM path used as fallback for
+ *   non-chart content.
+ * - Native connector healthy but WASM failed: WASM error shown as an inline
+ *   ErrorState inside the native provider (chart queries still route to native;
+ *   data-viewer paths that need WASM see the banner).
  * - WASM-only path failure: standard ErrorState with retry.
+ * - Mid-session render throw (engine dies while rendering): caught by
+ *   VisualizationBoundary → toast + empty state, never crashes the renderer.
+ *
+ * ## Error routing
+ *
+ * | Condition                               | Surface          |
+ * |-----------------------------------------|------------------|
+ * | Whole engine unreachable (engineError)  | Sonner toast     |
+ * | VisualizationProvider init failure      | Sonner toast     |
+ * | Mid-session render-phase throw          | Boundary + toast |
+ * | Per-chart compute failure (insightView) | Inline ErrorState (in VisualizationDisplay) |
  *
  * ## Provider Hierarchy
  *
@@ -116,10 +209,23 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
   const { connector, engineError } = useChartEngine();
   const { db, connection, isInitialized, isLoading, error, initDuckDB } =
     useDuckDBContext();
+  const { showError } = useToastStore();
 
   const handleRetry = useCallback(() => {
     initDuckDB();
   }, [initDuckDB]);
+
+  // Callback fired by VisualizationBoundary on a render-phase throw. Shows a
+  // toast so the user knows something degraded without crashing the renderer.
+  const handleBoundaryError = useCallback(
+    (_err: Error) => {
+      showError("Chart engine crashed mid-session", {
+        description: "Charts have been reset. Reload to reconnect.",
+        duration: 10000,
+      });
+    },
+    [showError],
+  );
 
   // ── Native engine path (desktop host supplied a connector) ──────────────
   if (connector) {
@@ -139,33 +245,31 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       ) : null;
 
     return (
-      <VisualizationProvider connector={connector}>
-        <RendererRegistration />
-        <VisualizationErrorBanner />
-        {wasmErrorBanner}
-        {children}
-      </VisualizationProvider>
+      <VisualizationBoundary
+        fallback={<VisualizationCrashedFallback />}
+        onError={handleBoundaryError}
+      >
+        <VisualizationProvider connector={connector}>
+          <RendererRegistration />
+          <VisualizationErrorToast />
+          {wasmErrorBanner}
+          {children}
+        </VisualizationProvider>
+      </VisualizationBoundary>
     );
   }
 
   // ── WASM path (web tier default) OR native bootstrap failure ─────────────
   // When the Electron IPC call fails or returns missing server info, `main.tsx`
-  // sets engineError with connector=null. Show the native-engine error banner
-  // above children, then fall through to the WASM path so non-chart content
-  // still renders. Never surface raw engine strings (DESIGN.md anti-pattern).
-  const nativeErrorBanner = engineError ? (
-    <ErrorState
-      title="Native engine unavailable"
-      description={engineError}
-      className="min-h-[200px]"
-    />
-  ) : null;
-
+  // sets engineError with connector=null. Fire a toast for the whole-engine-down
+  // condition (never an inline slab — see error routing table above), then fall
+  // through to the WASM path so non-chart content still renders.
+  //
   // Show error state if DuckDB WASM initialization failed
   if (error) {
     return (
       <>
-        {nativeErrorBanner}
+        {engineError && <EngineErrorToast engineError={engineError} />}
         <ErrorState
           title="Failed to initialize data engine"
           description={error.message}
@@ -181,7 +285,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
   if (isLoading || !isInitialized || !db || !connection) {
     return (
       <>
-        {nativeErrorBanner}
+        {engineError && <EngineErrorToast engineError={engineError} />}
         {children}
       </>
     );
@@ -189,10 +293,10 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   return (
     <>
-      {nativeErrorBanner}
+      {engineError && <EngineErrorToast engineError={engineError} />}
       <VisualizationProvider db={db} connection={connection}>
         <RendererRegistration />
-        <VisualizationErrorBanner />
+        <VisualizationErrorToast />
         {children}
       </VisualizationProvider>
     </>
