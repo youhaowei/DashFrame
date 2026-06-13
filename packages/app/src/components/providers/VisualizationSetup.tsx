@@ -132,15 +132,10 @@ function EngineErrorToast({ engineError }: { engineError: string }) {
   return null;
 }
 
-/**
- * Fallback shown inside the VisualizationBoundary when a mid-session engine
- * crash causes a render-phase throw. Renders nothing visible — the toast (fired
- * by the onError callback) is the user-facing signal. Children outside the
- * visualization subtree (navigation, data sources, etc.) are unaffected.
- */
-function VisualizationCrashedFallback() {
-  return null;
-}
+// VisualizationBoundary fallback: null. Nothing visible — the toast fired
+// by onError is the user-facing signal. Children (Shell, Toaster, routes)
+// are outside the boundary and stay alive; only the provider's setup
+// components go blank.
 
 // ============================================================================
 // Provider Wrapper
@@ -259,10 +254,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     // unhandledrejection handler in the renderer's main.tsx.
     return (
       <VisualizationProvider connector={connector}>
-        <VisualizationBoundary
-          fallback={<VisualizationCrashedFallback />}
-          onError={handleBoundaryError}
-        >
+        <VisualizationBoundary fallback={null} onError={handleBoundaryError}>
           <RendererRegistration />
           <VisualizationErrorToast />
           {wasmErrorBanner}

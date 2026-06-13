@@ -136,11 +136,19 @@ window.addEventListener("unhandledrejection", (event) => {
   const msg =
     reason instanceof Error ? reason.message : String(reason ?? "unknown");
   // Intercept only rejections that are clearly from the loopback engine path.
-  // Match on strings our own loopback fetch code produces (see nativeConnector.ts
-  // and the fetchWithTimeout helper) — never on generic terms like "fetch",
-  // "abort", or "network" which appear in unrelated errors and would mask bugs.
+  // The patterns cover all error strings thrown by nativeConnector.ts:
+  //   "Native engine timed out…"   → fetchWithTimeout AbortError translation
+  //   "Native engine query failed" → non-OK HTTP response on /data/arrow
+  //   "Failed to upload table"     → non-OK HTTP on /data/tables/:name
+  //   "Failed to fetch"            → browser network error (ECONNREFUSED) when
+  //      the loopback server stops mid-session. This is generic, but on desktop
+  //      the only in-session cross-origin fetch is to the loopback engine —
+  //      there is no cloud/analytics network call in the Electron renderer.
+  //      Accept this narrow false-positive risk: swallowing a genuine "Failed
+  //      to fetch" from another source on the DESKTOP path is very low risk;
+  //      failing to swallow a loopback engine-loss rejection crashes the renderer.
   const isEngineLoss =
-    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables/i.test(
+    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables|failed to upload|failed to fetch/i.test(
       msg,
     );
   if (isEngineLoss) {
