@@ -64,19 +64,25 @@ test.describe("compound-insight field/metric editing", () => {
     // contain "Product" in their accessible name) that are visible in the background.
     const addFieldDialog = page.getByRole("dialog", { name: "Add field" });
 
-    // Wait for field buttons to populate inside the dialog
-    await expect(
-      addFieldDialog.getByRole("button", { name: /Product/i }),
-    ).toBeVisible({ timeout: 10_000 });
+    // Wait for field buttons to populate inside the dialog, then wait a beat for
+    // the list to finish rendering (avoids DOM-detach flake when the field list
+    // re-renders while the click is in flight).
+    const productButton = addFieldDialog.getByRole("button", {
+      name: /Product/i,
+    });
+    await expect(productButton).toBeVisible({ timeout: 10_000 });
+    await productButton.waitFor({ state: "visible" });
 
-    // Intercept the updateInsight mutation to confirm it fires and succeeds
+    // Intercept the updateInsight mutation to confirm it fires and succeeds.
+    // 20s timeout accommodates Playwright's click-retry loop if the button
+    // momentarily detaches during a list re-render.
     const updateInsightResponse = page.waitForResponse(
       (resp) =>
         resp.url().includes("/api/updateInsight") && resp.status() === 200,
-      { timeout: 10_000 },
+      { timeout: 20_000 },
     );
 
-    await addFieldDialog.getByRole("button", { name: /Product/i }).click();
+    await productButton.click();
 
     // Dialog closes after selection
     await expect(
@@ -175,16 +181,16 @@ test.describe("compound-insight field/metric editing", () => {
     });
 
     const addFieldDialog = page.getByRole("dialog", { name: "Add field" });
-    await expect(
-      addFieldDialog.getByRole("button", { name: /Product/i }),
-    ).toBeVisible({ timeout: 10_000 });
+    const productBtn = addFieldDialog.getByRole("button", { name: /Product/i });
+    await expect(productBtn).toBeVisible({ timeout: 10_000 });
+    await productBtn.waitFor({ state: "visible" });
 
     const addFieldResponse1 = page.waitForResponse(
       (resp) =>
         resp.url().includes("/api/updateInsight") && resp.status() === 200,
-      { timeout: 10_000 },
+      { timeout: 20_000 },
     );
-    await addFieldDialog.getByRole("button", { name: /Product/i }).click();
+    await productBtn.click();
     await expect(
       page.getByRole("dialog", { name: "Add field" }),
     ).not.toBeVisible({ timeout: 5_000 });
