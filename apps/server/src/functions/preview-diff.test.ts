@@ -659,7 +659,7 @@ describe("PreviewDiff builder", () => {
       expect(insB).toMatchObject({
         kind: "insight",
         edge: "insight->insight",
-        via: insightAId,
+        via: { kind: "insight", id: insightAId },
       });
       // Transitive fan-out continues past B to B's own visualization.
       const vizB = diff.affectedDownstream.find((n) => n.nodeId === vizBId);
