@@ -44,6 +44,7 @@ export {
 
 export {
   addDataTable,
+  createDataTable,
   getAllDataTables,
   getDataTable,
   getDataTablesBySource,

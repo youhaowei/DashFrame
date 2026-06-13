@@ -1,6 +1,6 @@
 import {
   addDataFrameEntry,
-  addDataTable,
+  createDataTable,
   getDataTable,
   getOrCreateDataSourceByType,
   replaceDataFrame,
@@ -10,6 +10,24 @@ import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
 import type { Metric } from "@dashframe/types";
+
+/**
+ * Build the default Count metric for a new DataTable.
+ *
+ * `CreateDataTable` is a PRIMITIVE — it does not auto-inject metrics.
+ * Callers that want the default Count metric must pass it explicitly.
+ * This helper produces the same shape that `withDefaultCountMetric` in
+ * `app-artifacts.ts` used to inject, preserving the row-shape contract.
+ */
+function makeDefaultCountMetric(tableId: string): Metric {
+  return {
+    id: crypto.randomUUID(),
+    name: "Count",
+    tableId,
+    columnName: undefined,
+    aggregation: "count",
+  };
+}
 
 const ensureCountMetric = (
   existing: Metric[] = [],
@@ -21,16 +39,7 @@ const ensureCountMetric = (
 
   if (hasCount) return existing;
 
-  return [
-    {
-      id: crypto.randomUUID(),
-      name: "Count",
-      tableId,
-      columnName: undefined,
-      aggregation: "count",
-    },
-    ...existing,
-  ];
+  return [makeDefaultCountMetric(tableId), ...existing];
 };
 
 /**
@@ -110,22 +119,18 @@ export async function handleLocalCSVUpload(
     // Ensure the DataTable points to the updated DataFrame
     await updateDataTable(dataTableId, { dataFrameId });
   } else {
-    // 3b. Add DataTable
-    const defaultMetrics: Metric[] = [
-      {
-        id: crypto.randomUUID(),
-        name: "Count",
-        tableId: dataTableId,
-        columnName: undefined,
-        aggregation: "count",
-      },
-    ];
-
-    await addDataTable(dataSource.id, tableName, file.name, {
+    // 3b. Create DataTable via the CreateDataTable command — PRIMITIVE path.
+    // CreateDataTable does NOT auto-inject metrics, so we pass the default
+    // Count metric explicitly here. This mirrors the shape that the legacy
+    // `addDataTable` mutation produced via `withDefaultCountMetric`.
+    await createDataTable({
       id: dataTableId,
+      dataSourceId: dataSource.id,
+      name: tableName,
+      table: file.name,
       sourceSchema,
       fields,
-      metrics: defaultMetrics,
+      metrics: [makeDefaultCountMetric(dataTableId)],
     });
 
     // 4. Create DataFrame entry
@@ -208,22 +213,18 @@ export async function handleFileConnectorResult(
 
     await updateDataTable(dataTableId, { dataFrameId });
   } else {
-    // Add new DataTable
-    const defaultMetrics: Metric[] = [
-      {
-        id: crypto.randomUUID(),
-        name: "Count",
-        tableId: dataTableId,
-        columnName: undefined,
-        aggregation: "count",
-      },
-    ];
-
-    await addDataTable(dataSource.id, tableName, fileName, {
+    // Create DataTable via the CreateDataTable command — PRIMITIVE path.
+    // CreateDataTable does NOT auto-inject metrics, so we pass the default
+    // Count metric explicitly here. This mirrors the shape that the legacy
+    // `addDataTable` mutation produced via `withDefaultCountMetric`.
+    await createDataTable({
       id: dataTableId,
+      dataSourceId: dataSource.id,
+      name: tableName,
+      table: fileName,
       sourceSchema,
       fields,
-      metrics: defaultMetrics,
+      metrics: [makeDefaultCountMetric(dataTableId)],
     });
 
     // Create DataFrame entry
