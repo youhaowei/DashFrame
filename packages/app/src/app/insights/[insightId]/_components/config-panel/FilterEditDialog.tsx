@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui";
-import { useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useState } from "react";
 import type { FilterWithId } from "./FiltersSection";
 
 // ============================================================================
@@ -49,6 +49,7 @@ const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
   { value: "lte", label: "less than or equal (≤)" },
   { value: "contains", label: "contains" },
   { value: "between", label: "between" },
+  { value: "in", label: "in (list)" },
 ];
 
 /** Auto-detect the HTML input type from a field's normalized ColumnType */
@@ -84,9 +85,13 @@ function FilterEditForm({
   const [field, setField] = useState<string>(filter.field);
   const [operator, setOperator] = useState<Operator>(filter.operator);
 
-  // Scalar value state
+  // Scalar value state (also used for the `in` operator as comma-separated string)
   const initialScalar = (() => {
-    if (filter.operator === "between" || Array.isArray(filter.value)) return "";
+    if (filter.operator === "between") return "";
+    if (filter.operator === "in" && Array.isArray(filter.value)) {
+      return (filter.value as unknown[]).map(String).join(", ");
+    }
+    if (Array.isArray(filter.value)) return "";
     return String(filter.value ?? "");
   })();
   const [scalarValue, setScalarValue] = useState(initialScalar);
@@ -113,6 +118,7 @@ function FilterEditForm({
   const inputType = inputTypeForField(selectedField);
 
   const isBetween = operator === "between";
+  const isIn = operator === "in";
 
   const buildValue = (): unknown => {
     if (isBetween) {
@@ -120,15 +126,37 @@ function FilterEditForm({
       const high = inputType === "number" ? Number(betweenHigh) : betweenHigh;
       return { low, high } satisfies InsightFilterBetweenValue;
     }
-    if (inputType === "number") return Number(scalarValue);
+    if (isIn) {
+      // Parse comma-separated values; coerce to number if field is numeric
+      const items = scalarValue
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return inputType === "number" ? items.map(Number) : items;
+    }
+    if (inputType === "number") {
+      const n = Number(scalarValue);
+      return isFinite(n) ? n : scalarValue;
+    }
     return scalarValue;
   };
 
   const isValid = (() => {
     if (!field) return false;
-    if (isBetween) return betweenLow.trim() !== "" && betweenHigh.trim() !== "";
-    return scalarValue.trim() !== "";
+    if (isBetween) {
+      if (betweenLow.trim() === "" || betweenHigh.trim() === "") return false;
+      if (inputType === "number")
+        return isFinite(Number(betweenLow)) && isFinite(Number(betweenHigh));
+      return true;
+    }
+    if (scalarValue.trim() === "") return false;
+    if (!isIn && inputType === "number") return isFinite(Number(scalarValue));
+    return true;
   })();
+
+  let valuePlaceholder = "Enter a value";
+  if (isIn) valuePlaceholder = "e.g. a, b, c";
+  else if (inputType === "number") valuePlaceholder = "Enter a number";
 
   const handleSave = () => {
     if (!isValid) return;
@@ -158,7 +186,7 @@ function FilterEditForm({
           <Label htmlFor="filter-field">Field</Label>
           <Select
             value={field}
-            onValueChange={(v) => {
+            onValueChange={(v: string) => {
               if (v) setField(v);
               // Reset values when field changes
               setScalarValue("");
@@ -190,7 +218,7 @@ function FilterEditForm({
           <Label htmlFor="filter-operator">Operator</Label>
           <Select
             value={operator}
-            onValueChange={(v) => {
+            onValueChange={(v: string) => {
               setOperator(v as Operator);
               // Reset values on operator change
               setScalarValue("");
@@ -220,7 +248,9 @@ function FilterEditForm({
                 type={inputType}
                 placeholder="Low"
                 value={betweenLow}
-                onChange={(e) => setBetweenLow(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setBetweenLow(e.target.value)
+                }
                 className="flex-1"
                 aria-label="Range low bound"
               />
@@ -231,7 +261,9 @@ function FilterEditForm({
                 type={inputType}
                 placeholder="High"
                 value={betweenHigh}
-                onChange={(e) => setBetweenHigh(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setBetweenHigh(e.target.value)
+                }
                 className="flex-1"
                 aria-label="Range high bound"
               />
@@ -239,15 +271,17 @@ function FilterEditForm({
           </div>
         ) : (
           <div className="space-y-2">
-            <Label htmlFor="filter-value">Value</Label>
+            <Label htmlFor="filter-value">
+              {isIn ? "Values (comma-separated)" : "Value"}
+            </Label>
             <Input
               id="filter-value"
-              type={inputType}
-              placeholder={
-                inputType === "number" ? "Enter a number" : "Enter a value"
-              }
+              type={isIn ? "text" : inputType}
+              placeholder={valuePlaceholder}
               value={scalarValue}
-              onChange={(e) => setScalarValue(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setScalarValue(e.target.value)
+              }
             />
           </div>
         )}
