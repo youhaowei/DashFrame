@@ -25,6 +25,7 @@ export {
   SNAPSHOTS_DIRNAME,
   SNAPSHOT_DEBOUNCE_MS,
   SNAPSHOT_KEEP_N,
+  SNAPSHOT_MAX_WAIT_MS,
   XLOG_BLCKSZ,
   hasCorruptWalSegment,
   listSnapshots,

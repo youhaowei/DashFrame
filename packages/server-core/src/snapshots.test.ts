@@ -32,6 +32,7 @@ import {
   SNAPSHOT_EXT,
   SNAPSHOT_KEEP_N,
   SNAPSHOT_PREFIX,
+  SnapshotScheduler,
   writeSnapshot,
   XLOG_BLCKSZ,
 } from "./snapshots";
@@ -142,6 +143,154 @@ describe("writeSnapshot + listSnapshots", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SnapshotScheduler — debounce + max-wait cap
+// ---------------------------------------------------------------------------
+
+describe("SnapshotScheduler", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = tempDir();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // A fake PGlite whose dumpDataDir records each call (a fired snapshot) and
+  // resolves to a tiny blob. It captures the in-flight writeSnapshot promise so
+  // teardown can await it — otherwise the real fs rename inside writeSnapshot
+  // could race the afterEach rmSync and emit a stray ENOENT. The fire counter
+  // increments synchronously at the start of each snapshot, so `fires()` is
+  // accurate the moment a snapshot is triggered.
+  function fakeClient(): {
+    client: PGlite;
+    fires: () => number;
+    settle: () => Promise<void>;
+  } {
+    let count = 0;
+    let inFlight: Promise<unknown> = Promise.resolve();
+    const client = {
+      dumpDataDir: () => {
+        count += 1;
+        // Defer one microtask so the synchronous fireNow() returns first, then
+        // the fs work runs; capture it so the test can await completion.
+        const p = Promise.resolve(new Blob([Buffer.from("snap")]));
+        inFlight = p;
+        return p;
+      },
+    } as unknown as PGlite;
+    return {
+      client,
+      fires: () => count,
+      // Await any in-flight snapshot fs work before teardown.
+      settle: async () => {
+        await inFlight;
+        await new Promise((r) => setTimeout(r, 20));
+      },
+    };
+  }
+
+  // Let the snapshot's dumpDataDir + fs microtasks settle.
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  test("N rapid touches within the debounce window fire exactly ONE snapshot", async () => {
+    const projectDir = join(root, "debounce-once");
+    mkdirSync(projectDir, { recursive: true });
+    const { client, fires, settle } = fakeClient();
+
+    let now = 0;
+    const sched = new SnapshotScheduler(
+      client,
+      projectDir,
+      1000, // debounceMs
+      100_000, // maxWaitMs (far away; debounce wins here)
+      () => now,
+    );
+
+    // 5 touches, each 10ms apart — all inside the 1000ms debounce, max-wait far.
+    for (let i = 0; i < 5; i++) {
+      now = i * 10;
+      sched.touch();
+    }
+    expect(fires()).toBe(0); // nothing fired yet — still debouncing
+
+    // Quiet gap → the single debounced timer fires.
+    await new Promise((r) => setTimeout(r, 1100));
+    await flush();
+    expect(fires()).toBe(1);
+
+    sched.cancel();
+    await settle();
+  });
+
+  test("a continuous touch stream still snapshots once max-wait is exceeded (no infinite deferral)", async () => {
+    const projectDir = join(root, "maxwait-cap");
+    mkdirSync(projectDir, { recursive: true });
+    const { client, fires, settle } = fakeClient();
+
+    let now = 0;
+    const debounceMs = 1000;
+    const maxWaitMs = 5000;
+    const sched = new SnapshotScheduler(
+      client,
+      projectDir,
+      debounceMs,
+      maxWaitMs,
+      () => now,
+    );
+
+    // Writes arrive every 500ms — faster than the 1000ms debounce, so a pure
+    // debounce would NEVER fire. With the cap, once writes have been pending
+    // maxWaitMs (5000ms) the next touch fires immediately.
+    // First write at t=0 anchors the burst.
+    sched.touch();
+    for (let t = 500; t < 5000; t += 500) {
+      now = t;
+      sched.touch();
+      expect(fires()).toBe(0); // still under the cap — keeps deferring
+    }
+
+    // At t=5000 the burst has been pending exactly maxWaitMs → fire now.
+    now = 5000;
+    sched.touch();
+    await flush();
+    expect(fires()).toBe(1);
+
+    // The burst tracker reset: subsequent fast touches defer again until the
+    // next cap window, so we don't snapshot on every write after the first cap.
+    now = 5200;
+    sched.touch();
+    expect(fires()).toBe(1);
+
+    sched.cancel();
+    await settle();
+  });
+
+  test("cancel() clears a pending debounced snapshot and resets the burst anchor", async () => {
+    const projectDir = join(root, "cancel");
+    mkdirSync(projectDir, { recursive: true });
+    const { client, fires } = fakeClient();
+
+    const now = 0;
+    const sched = new SnapshotScheduler(
+      client,
+      projectDir,
+      1000,
+      100_000,
+      () => now,
+    );
+    sched.touch();
+    sched.cancel();
+
+    // The debounce timer was cleared — even after the window elapses, no fire.
+    await new Promise((r) => setTimeout(r, 1100));
+    await flush();
+    expect(fires()).toBe(0);
   });
 });
 

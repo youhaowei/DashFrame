@@ -48,6 +48,17 @@ export const SNAPSHOT_KEEP_N = 3;
 /** Milliseconds of inactivity after a write before a debounced snapshot fires. */
 export const SNAPSHOT_DEBOUNCE_MS = 30_000;
 
+/**
+ * Maximum milliseconds a snapshot may be deferred by a continuous write stream.
+ * The pure debounce resets on every write, so a session that writes faster than
+ * SNAPSHOT_DEBOUNCE_MS would NEVER snapshot until it goes quiet — an unclean
+ * shutdown mid-burst would then fall back to the last clean-close snapshot and
+ * lose the whole active session. This cap forces a snapshot once writes have
+ * been pending this long, so a long burst still produces periodic snapshots and
+ * the crash window stays bounded. Default 5 min (10× the debounce).
+ */
+export const SNAPSHOT_MAX_WAIT_MS = 300_000;
+
 export interface SnapshotMeta {
   filename: string;
   absPath: string;
@@ -302,7 +313,18 @@ function isEnoent(err: unknown): boolean {
 }
 
 /**
- * Manages the debounced post-write snapshot schedule.
+ * Manages the debounced post-write snapshot schedule, with a max-wait cap so a
+ * sustained write stream still produces periodic snapshots.
+ *
+ * Debounce: each `touch()` resets a `debounceMs` timer, so a quiet gap after a
+ * burst triggers one snapshot rather than one-per-write.
+ *
+ * Max-wait: a pure debounce would never fire while writes keep arriving faster
+ * than `debounceMs`. So the scheduler also remembers when the FIRST
+ * un-snapshotted write of the current burst arrived; once writes have been
+ * pending `maxWaitMs`, the next `touch()` snapshots immediately instead of
+ * deferring again. This bounds the crash window during a long active session
+ * (import/autosave) to at most `maxWaitMs`, not "until the session goes quiet".
  *
  * Usage:
  *   const scheduler = new SnapshotScheduler(pgliteClient, projectDir);
@@ -312,24 +334,54 @@ function isEnoent(err: unknown): boolean {
 export class SnapshotScheduler {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly debounceMs: number;
+  private readonly maxWaitMs: number;
+  /**
+   * Timestamp (ms) of the first write since the last snapshot/cancel — the
+   * anchor the max-wait is measured from. null when no write is pending.
+   */
+  private firstPendingAt: number | null = null;
 
   constructor(
     private readonly pgliteClient: PGlite,
     private readonly projectDir: string,
     debounceMs: number = SNAPSHOT_DEBOUNCE_MS,
+    maxWaitMs: number = SNAPSHOT_MAX_WAIT_MS,
+    /** Injected for tests; the clock the max-wait is measured against. */
+    private readonly nowMs: () => number = Date.now,
   ) {
     this.debounceMs = debounceMs;
+    // The cap must be at least the debounce, otherwise it would fire before a
+    // normal quiet-gap debounce ever could. Clamp defensively.
+    this.maxWaitMs = Math.max(maxWaitMs, debounceMs);
   }
 
   /** Notify the scheduler that a write just happened. */
   touch(): void {
+    const now = this.nowMs();
+    if (this.firstPendingAt === null) this.firstPendingAt = now;
+
+    // Max-wait reached: writes have been pending at least maxWaitMs and the
+    // debounce keeps resetting. Snapshot now instead of deferring again, so a
+    // continuous burst still produces periodic snapshots.
+    if (now - this.firstPendingAt >= this.maxWaitMs) {
+      this.fireNow();
+      return;
+    }
+
     if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
+    this.timer = setTimeout(() => this.fireNow(), this.debounceMs);
+  }
+
+  /** Write a snapshot now and reset the pending-burst tracking. */
+  private fireNow(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
       this.timer = null;
-      writeSnapshot(this.pgliteClient, this.projectDir).catch((err) => {
-        console.error("[dashframe] debounced snapshot failed:", err);
-      });
-    }, this.debounceMs);
+    }
+    this.firstPendingAt = null;
+    writeSnapshot(this.pgliteClient, this.projectDir).catch((err) => {
+      console.error("[dashframe] debounced snapshot failed:", err);
+    });
   }
 
   /** Cancel any pending debounced snapshot (call before close). */
@@ -338,5 +390,6 @@ export class SnapshotScheduler {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.firstPendingAt = null;
   }
 }
