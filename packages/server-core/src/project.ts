@@ -12,11 +12,17 @@
  * and the current OS user as `created_by`. Subsequent opens are no-ops on the
  * metadata row.
  *
- * Recovery path: if PGlite aborts during WAL replay (RuntimeError from
- * Emscripten), the damaged datadir is quarantined with a timestamp suffix and
- * the newest snapshot is restored. If no snapshot exists a fresh project is
- * created. The returned `ProjectHandle` carries a `recovery` notice the host
- * can surface to the user. See GitHub issue #88.
+ * Recovery path: if PGlite aborts during WAL replay (RuntimeError: Aborted()
+ * from Emscripten) AND the WAL probe confirms structural corruption, the
+ * damaged datadir is quarantined with a timestamp suffix and the newest
+ * snapshot is restored. If no snapshot exists a fresh project is created. The
+ * returned `ProjectHandle` carries a `recovery` notice the host can surface to
+ * the user. See GitHub issue #88.
+ *
+ * Critically, quarantine+restore only fires on POSITIVELY CONFIRMED WAL
+ * corruption. Any error that cannot be confirmed as WAL corruption is
+ * re-thrown immediately — data is never silently discarded on an ambiguous
+ * error.
  */
 
 import fs from "node:fs/promises";
@@ -42,6 +48,7 @@ import {
   type ProjectMetaRow,
 } from "./schema";
 import {
+  hasCorruptWalSegment,
   restoreNewestSnapshot,
   SnapshotScheduler,
   writeSnapshot,
@@ -124,11 +131,14 @@ export async function openProject(
   try {
     db = await openArtifactDb({ path: dbPath });
   } catch (err) {
-    // WAL-replay aborts surface as RuntimeError from Emscripten — check for
-    // that pattern and attempt recovery, but re-throw any other error class.
-    if (!isWalCorruptionError(err)) throw err;
+    // Only recover from confirmed WAL corruption. Any other error is re-thrown
+    // immediately — never quarantine on an ambiguous error.
+    const confirmed = await isConfirmedWalCorruption(err, dbPath);
+    if (!confirmed) throw err;
 
-    // Quarantine the damaged datadir.
+    // Quarantine the damaged datadir. This MUST succeed before we proceed —
+    // if the rename fails we cannot safely overwrite the existing (possibly
+    // still-recoverable) data.
     const quarantinedPath = await quarantineDamagedDb(dbPath);
 
     // Restore from snapshot (or start fresh).
@@ -190,47 +200,113 @@ export async function openProject(
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true for the class of errors that indicate a PGlite WAL-replay
- * abort. Emscripten surfaces unrecoverable WASM errors as WebAssembly
- * RuntimeError instances thrown from `waitReady`. Observed forms:
- *   RuntimeError: Aborted()              — Emscripten ASSERTIONS build
- *   RuntimeError: Aborted(OOM)           — Emscripten ASSERTIONS build
- *   RuntimeError: unreachable            — release WASM trap
+ * Returns true when startup failure is POSITIVELY CONFIRMED WAL corruption.
  *
- * Any RuntimeError thrown during PGlite startup is an unrecoverable WASM
- * abort; there is no pg_resetwal equivalent in WASM so recovery via snapshot
- * is the only option.
+ * Affirmative detection uses two independent signals:
  *
- * We also match the string "Aborted()" for runtimes that may not preserve the
- * class name across module boundaries.
+ *   1. PRIMARY — file-level probe: the pg_wal/ directory inside `dbPath`
+ *      contains at least one WAL segment file whose size is not a multiple of
+ *      XLOG_BLCKSZ (8192), indicating a torn write.
+ *
+ *   2. CONFIRMING — error class: the thrown error is a WebAssembly
+ *      RuntimeError whose message contains "Aborted()", the specific
+ *      Emscripten abort fired when Postgres exits non-zero during WAL replay.
+ *
+ * The CONFIRMING signal alone (RuntimeError+Aborted) is sufficient to classify
+ * the failure as WAL corruption when the datadir EXISTS — Emscripten aborts
+ * during PGlite startup are always Postgres-internal (the only WASM module in
+ * scope is PGlite itself). However we still require the RuntimeError+Aborted
+ * pattern to distinguish a startup crash from an OOM or permissions error.
+ *
+ * If the PRIMARY signal fires (torn WAL) without a matching error pattern, we
+ * still return true — a structurally corrupt WAL file is definitive evidence.
+ *
+ * Any error that matches neither signal is NOT WAL corruption and MUST be
+ * re-thrown by the caller.
  */
-function isWalCorruptionError(err: unknown): boolean {
+async function isConfirmedWalCorruption(
+  err: unknown,
+  dbPath: string,
+): Promise<boolean> {
+  // The error must be from the WebAssembly/Emscripten layer.
+  // RuntimeError("Aborted()") — Emscripten ASSERTIONS build
+  // RuntimeError("Aborted(OOM)") — also from ASSERTIONS build (OOM during init)
+  // RuntimeError("unreachable") — release WASM trap
+  //
+  // We only treat the specific Aborted() family as WAL corruption — not
+  // "unreachable" (a WASM trap that can arise from bugs unrelated to WAL).
+  const isAbortedRuntimeError = isAbortedEmscriptenError(err);
+
+  // PRIMARY: probe WAL files for torn segments.
+  const tornWal = await hasCorruptWalSegment(dbPath).catch(() => false);
+
+  if (tornWal) return true;
+  if (isAbortedRuntimeError) {
+    // Confirming signal: Aborted() during startup of PGlite. Check the
+    // datadir actually exists (not a fresh project that never had a DB).
+    const dataDirExists = await fs
+      .stat(dbPath)
+      .then(() => true)
+      .catch(() => false);
+    return dataDirExists;
+  }
+
+  return false;
+}
+
+/**
+ * Returns true for Emscripten `Aborted()` RuntimeErrors — the specific abort
+ * fired when the Postgres process exits non-zero inside the WASM sandbox.
+ *
+ * Does NOT match:
+ *   RuntimeError("unreachable")  — generic WASM trap, unrelated to WAL
+ *   Any non-RuntimeError         — permissions, I/O errors, etc.
+ */
+function isAbortedEmscriptenError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  // RuntimeError is the WebAssembly/Emscripten error class.
-  return (
-    err.constructor.name === "RuntimeError" || err.message.includes("Aborted()")
-  );
+  if (err.constructor.name !== "RuntimeError") return false;
+  // Match "Aborted()" and "Aborted(OOM)" etc. but not "unreachable".
+  return err.message.startsWith("Aborted(") || err.message === "Aborted";
 }
 
 /**
  * Rename the damaged artifacts.db aside to a timestamped quarantine path.
  * Returns the quarantine path.
  *
- * If the damaged path does not exist (shouldn't happen, but be defensive),
- * returns a synthetic path without touching the filesystem.
+ * If the rename fails for any reason other than the source not existing, an
+ * error is thrown — we cannot proceed to restore without first confirming the
+ * damaged datadir has been safely moved aside (doing so would risk overwriting
+ * data that might still be partially recoverable).
+ *
+ * If the damaged path does not exist at all (ENOENT on the source), we return
+ * the quarantine path without touching the filesystem — the DB was never
+ * created and there is nothing to move.
  */
 async function quarantineDamagedDb(dbPath: string): Promise<string> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const quarantinedPath = `${dbPath}.damaged-${timestamp}`;
   try {
     await fs.rename(dbPath, quarantinedPath);
-  } catch {
-    // Directory may not exist yet or rename may fail; log but proceed.
-    console.error(
-      `[dashframe] could not quarantine ${dbPath} → ${quarantinedPath}`,
+  } catch (err) {
+    // Source doesn't exist — nothing to quarantine; proceed to fresh init.
+    if (isEnoent(err)) return quarantinedPath;
+    // Any other rename failure (permissions, cross-device, I/O) is fatal —
+    // surface the error rather than silently proceeding to restore over a DB
+    // that was NOT successfully moved aside.
+    throw new Error(
+      `[dashframe] quarantine failed: could not rename ${dbPath} → ${quarantinedPath}: ${String(err)}`,
+      { cause: err },
     );
   }
   return quarantinedPath;
+}
+
+function isEnoent(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 async function ensureProjectMeta(

@@ -23,6 +23,23 @@ import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
 
+/**
+ * WAL block size used by PGlite's embedded Postgres. Every WAL page (and
+ * therefore every WAL file) must be a multiple of this value; a file whose
+ * byte count is not a multiple indicates a torn write and therefore WAL
+ * corruption.
+ *
+ * PGlite ships with a 1 MB WAL segment size (128 × XLOG_BLCKSZ) rather than
+ * the standard 16 MB, but the page granularity is the same.
+ */
+export const XLOG_BLCKSZ = 8192;
+
+/**
+ * Pattern that matches a standard PostgreSQL WAL segment filename (24 hex
+ * characters, no extension). These live under <dataDir>/pg_wal/.
+ */
+const WAL_SEGMENT_FILENAME_RE = /^[0-9A-F]{24}$/i;
+
 export const SNAPSHOTS_DIRNAME = "snapshots";
 export const SNAPSHOT_PREFIX = "snap-";
 export const SNAPSHOT_EXT = ".tar.gz";
@@ -44,7 +61,46 @@ export function resolveSnapshotsDir(projectDir: string): string {
 }
 
 /**
+ * Probe the WAL directory of a PGlite datadir for structurally corrupt
+ * (torn/truncated) segments.
+ *
+ * Returns true when the datadir exists, has a `pg_wal/` subdirectory, and at
+ * least one WAL segment file has a byte length that is not a multiple of
+ * XLOG_BLCKSZ. A healthy database may also have no WAL files yet (right after
+ * initdb), so an empty pg_wal is not considered corrupt.
+ *
+ * This is the PRIMARY affirmative-detection signal for WAL corruption. It runs
+ * BEFORE attempting to open PGlite so the caller can distinguish corruption
+ * from completely unrelated startup failures.
+ */
+export async function hasCorruptWalSegment(dataDir: string): Promise<boolean> {
+  const walDir = path.join(dataDir, "pg_wal");
+  let entries: string[];
+  try {
+    entries = await fs.readdir(walDir);
+  } catch {
+    // pg_wal doesn't exist → can't be WAL corruption; fresh DB or wrong path.
+    return false;
+  }
+
+  const segmentFiles = entries.filter((f) => WAL_SEGMENT_FILENAME_RE.test(f));
+  if (segmentFiles.length === 0) return false;
+
+  for (const seg of segmentFiles) {
+    const stat = await fs.stat(path.join(walDir, seg)).catch(() => null);
+    if (stat && stat.size % XLOG_BLCKSZ !== 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Write a snapshot of the current datadir to disk.
+ *
+ * The write is atomic: the tarball is first flushed to a temporary file in the
+ * same directory, then renamed over the destination. A crash mid-write cannot
+ * leave a partial .tar.gz visible to restoreNewestSnapshot.
  *
  * The caller MUST only call this on a healthy, fully-open PGlite instance.
  * Returns the absolute path of the written snapshot file.
@@ -61,10 +117,20 @@ export async function writeSnapshot(
   const timestamp = new Date(nowMs()).toISOString().replace(/[:.]/g, "-");
   const filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
   const destPath = path.join(snapshotsDir, filename);
+  const tempPath = path.join(snapshotsDir, `.tmp-${filename}`);
 
   const blob = await pgliteClient.dumpDataDir("gzip");
   const buffer = Buffer.from(await blob.arrayBuffer());
-  await fs.writeFile(destPath, buffer);
+
+  // Write to a temp file first; rename to final path atomically.
+  try {
+    await fs.writeFile(tempPath, buffer);
+    await fs.rename(tempPath, destPath);
+  } catch (err) {
+    // Clean up temp file on any error so it doesn't accumulate.
+    await fs.unlink(tempPath).catch(() => {});
+    throw err;
+  }
 
   await pruneSnapshots(snapshotsDir);
   return destPath;
@@ -72,6 +138,9 @@ export async function writeSnapshot(
 
 /**
  * List all snapshots for a project, sorted oldest-first.
+ *
+ * Returns an empty array only when the snapshots directory does not exist yet
+ * (ENOENT). All other readdir failures are propagated as thrown errors.
  */
 export async function listSnapshots(
   projectDir: string,
@@ -80,8 +149,11 @@ export async function listSnapshots(
   let entries: string[];
   try {
     entries = await fs.readdir(snapshotsDir);
-  } catch {
-    return [];
+  } catch (err) {
+    // Only swallow "directory doesn't exist yet"; propagate all other errors
+    // (permission denied, I/O error, …) so callers know something is wrong.
+    if (isEnoent(err)) return [];
+    throw err;
   }
 
   const snaps: SnapshotMeta[] = entries
@@ -128,12 +200,13 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
 /**
  * Restore the newest snapshot into the given target directory.
  *
- * Opens a temporary PGlite instance with `loadDataDir` (a constructor option
- * that imports a previously dumped tarball) pointing to `targetDataDir`, then
- * closes it so the datadir is materialized on disk.
+ * Attempts snapshots from newest to oldest. If the newest snapshot fails to
+ * restore (e.g. the tarball itself is corrupt), the next-oldest is tried, and
+ * so on. A partial targetDataDir created by a failed attempt is cleaned up
+ * before retrying.
  *
  * Returns the snapshot metadata that was restored, or null if no snapshot
- * exists (caller should create a fresh project).
+ * exists or all failed (caller should create a fresh project).
  */
 export async function restoreNewestSnapshot(
   projectDir: string,
@@ -142,16 +215,45 @@ export async function restoreNewestSnapshot(
   const snaps = await listSnapshots(projectDir);
   if (snaps.length === 0) return null;
 
-  const newest = snaps[snaps.length - 1]!;
-  const rawBuffer = await fs.readFile(newest.absPath);
-  const blob = new Blob([rawBuffer]);
+  // Iterate newest-first.
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    const snap = snaps[i]!;
+    try {
+      const rawBuffer = await fs.readFile(snap.absPath);
+      const blob = new Blob([rawBuffer]);
 
-  await fs.mkdir(targetDataDir, { recursive: true });
-  const restored = new PGlite(targetDataDir, { loadDataDir: blob });
-  await restored.waitReady;
-  await restored.close();
+      await fs.mkdir(targetDataDir, { recursive: true });
+      const restored = new PGlite(targetDataDir, { loadDataDir: blob });
+      await restored.waitReady;
+      await restored.close();
 
-  return newest;
+      return snap;
+    } catch (err) {
+      console.error(
+        `[dashframe] snapshot restore failed for ${snap.filename}:`,
+        err,
+      );
+      // Clean up any partial targetDataDir before trying the next snapshot.
+      await fs
+        .rm(targetDataDir, { recursive: true, force: true })
+        .catch(() => {});
+    }
+  }
+
+  // All snapshots failed.
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function isEnoent(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 /**

@@ -159,7 +159,7 @@ app
     if (project.recovery) {
       const { restoredSnapshot, quarantinedPath } = project.recovery;
       const snapshotLine = restoredSnapshot
-        ? `Your project was restored from a snapshot taken at ${restoredSnapshot.timestamp}.`
+        ? `Your project was restored from a snapshot taken at ${new Date(restoredSnapshot.timestamp).toLocaleString()}.`
         : "No snapshot was available — a fresh empty project has been created.";
       const quarantineLine = `The damaged database has been saved to:\n${quarantinedPath}`;
       dialog.showMessageBoxSync({

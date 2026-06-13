@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -24,12 +24,14 @@ import {
   type ProjectHandle,
 } from "./project";
 import {
+  hasCorruptWalSegment,
   listSnapshots,
   resolveSnapshotsDir,
   SNAPSHOT_EXT,
   SNAPSHOT_KEEP_N,
   SNAPSHOT_PREFIX,
   writeSnapshot,
+  XLOG_BLCKSZ,
 } from "./snapshots";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +122,83 @@ describe("writeSnapshot + listSnapshots", () => {
   test("listSnapshots returns empty array when no snapshots dir exists", async () => {
     const snaps = await listSnapshots(join(root, "nonexistent"));
     expect(snaps).toEqual([]);
+  });
+
+  test("writeSnapshot is atomic: no .tmp- file left on disk after write", async () => {
+    const projectDir = join(root, "atomic");
+    const dbPath = join(projectDir, "artifacts.db");
+    mkdirSync(projectDir, { recursive: true });
+
+    const pg = await openFreshPGlite(dbPath);
+    try {
+      await writeSnapshot(pg, projectDir);
+
+      const snapsDir = resolveSnapshotsDir(projectDir);
+      const files = await readdir(snapsDir);
+      const tmpFiles = files.filter((f) => f.startsWith(".tmp-"));
+      expect(tmpFiles).toHaveLength(0);
+    } finally {
+      await pg.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WAL probe
+// ---------------------------------------------------------------------------
+
+describe("hasCorruptWalSegment", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = tempDir();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("returns false for a healthy PGlite datadir", async () => {
+    const dbPath = join(root, "healthy.db");
+    const pg = await openFreshPGlite(dbPath);
+    await pg.close();
+
+    const corrupt = await hasCorruptWalSegment(dbPath);
+    expect(corrupt).toBe(false);
+  });
+
+  test("returns false when pg_wal does not exist", async () => {
+    const corrupt = await hasCorruptWalSegment(join(root, "nonexistent"));
+    expect(corrupt).toBe(false);
+  });
+
+  test("returns true when a WAL segment has a torn size", async () => {
+    const dbPath = join(root, "torn.db");
+    const walDir = join(dbPath, "pg_wal");
+    mkdirSync(walDir, { recursive: true });
+    // Write a 24-hex-char WAL segment file with a non-block-aligned size.
+    const tornSize = XLOG_BLCKSZ - 1; // deliberately not a multiple of 8192
+    writeFileSync(
+      join(walDir, "000000010000000000000001"),
+      Buffer.alloc(tornSize),
+    );
+
+    const corrupt = await hasCorruptWalSegment(dbPath);
+    expect(corrupt).toBe(true);
+  });
+
+  test("returns false when WAL segment is correctly block-aligned", async () => {
+    const dbPath = join(root, "clean.db");
+    const walDir = join(dbPath, "pg_wal");
+    mkdirSync(walDir, { recursive: true });
+    // Write a 24-hex-char WAL segment file with a block-aligned size.
+    writeFileSync(
+      join(walDir, "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ * 128), // 1 MB — canonical PGlite segment size
+    );
+
+    const corrupt = await hasCorruptWalSegment(dbPath);
+    expect(corrupt).toBe(false);
   });
 });
 
@@ -220,6 +299,11 @@ describe("openProject WAL corruption recovery", () => {
       join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"),
       "THIS IS GARBAGE\n",
     );
+    // Write a torn WAL segment (not block-aligned) for affirmative WAL detection.
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
 
     // 3. Open — should trigger recovery.
     const h2 = await openProject({ dir });
@@ -247,6 +331,11 @@ describe("openProject WAL corruption recovery", () => {
     // prior snapshot.
     mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
     writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+    // Torn WAL segment for affirmative detection.
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
 
     const handle = await openProject({ dir });
     openHandles.push(handle);
@@ -256,6 +345,82 @@ describe("openProject WAL corruption recovery", () => {
     expect(handle.recovery!.restoredSnapshot).toBeNull();
 
     // Fresh project should be openable and seeded correctly.
-    expect(handle.meta.name).toBe(dir.split("/").at(-1));
+    // Use path.basename() instead of split("/").at(-1) for cross-platform safety.
+    expect(handle.meta.name).toBe(basename(dir));
+  });
+
+  test("non-WAL RuntimeError does NOT trigger quarantine — data is preserved", async () => {
+    // Verify that the openProject catch path only fires for confirmed WAL
+    // corruption. An unrelated Error (e.g. permissions, schema mismatch) must
+    // bubble up unchanged and must NOT move the datadir aside.
+    const dir = join(root, "non-wal-error");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // Create a valid-looking datadir with a properly-sized WAL segment so
+    // hasCorruptWalSegment returns false. The directory layout is otherwise
+    // garbage (not a real PGlite DB) but the WAL probe must pass.
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    // Block-aligned WAL segment → hasCorruptWalSegment returns false.
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ * 128),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // The open should throw (garbage datadir, no corruption signal).
+    await expect(openProject({ dir })).rejects.toThrow();
+
+    // The original datadir must NOT have been quarantined.
+    expect(existsSync(dbPath)).toBe(true);
+    // No .damaged- quarantine path should have been created.
+    const parentDir = await readdir(dir);
+    const quarantined = parentDir.filter((f) => f.includes(".damaged-"));
+    expect(quarantined).toHaveLength(0);
+  });
+
+  test("restoreNewestSnapshot falls back to older snapshot when newest is missing", async () => {
+    const dir = join(root, "fallback-snap");
+    const dbPath = join(dir, ARTIFACTS_DB_FILENAME);
+
+    // 1. Create a healthy project and write two snapshots.
+    const h1 = await openProject({ dir, name: "FallbackTest" });
+    openHandles.splice(0);
+
+    const BASE_MS = new Date(2024, 0, 1).getTime();
+    // Write first (older) snapshot via the public writeSnapshot.
+    await writeSnapshot(h1.db.$client, dir, () => BASE_MS);
+    // Write second (newer) snapshot.
+    await writeSnapshot(h1.db.$client, dir, () => BASE_MS + 1000);
+    await h1.close(); // writes a third snapshot
+
+    const snaps = await listSnapshots(dir);
+    expect(snaps.length).toBeGreaterThanOrEqual(2);
+
+    // 2. Delete the newest snapshot so fs.readFile throws ENOENT.
+    // NOTE: PGlite silently ignores a corrupt/truncated tarball (it just
+    // creates a fresh DB), so to test the fallback path we need readFile to
+    // throw, which only happens if the file is missing or unreadable.
+    const newest = snaps[snaps.length - 1]!;
+    const secondNewest = snaps[snaps.length - 2]!;
+    rmSync(newest.absPath);
+
+    // 3. Corrupt the datadir with a torn WAL segment so recovery triggers.
+    rmSync(dbPath, { recursive: true, force: true });
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // 4. Open should recover using the second-newest snapshot.
+    const h2 = await openProject({ dir });
+    openHandles.push(h2);
+
+    expect(h2.recovery).not.toBeNull();
+    expect(h2.recovery!.restoredSnapshot).not.toBeNull();
+    // Should have fallen back to the second-newest snapshot.
+    expect(h2.recovery!.restoredSnapshot!.absPath).toBe(secondNewest.absPath);
+    expect(h2.meta.name).toBe("FallbackTest");
   });
 });

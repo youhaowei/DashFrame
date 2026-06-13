@@ -25,6 +25,8 @@ export {
   SNAPSHOTS_DIRNAME,
   SNAPSHOT_DEBOUNCE_MS,
   SNAPSHOT_KEEP_N,
+  XLOG_BLCKSZ,
+  hasCorruptWalSegment,
   listSnapshots,
   writeSnapshot,
   type SnapshotMeta,
