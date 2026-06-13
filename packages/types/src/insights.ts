@@ -19,6 +19,13 @@ import type { UUID } from "./uuid";
  * - All other operators: `value` is a scalar.
  */
 export interface InsightFilter {
+  /**
+   * Stable identity for a filter predicate. Optional because filters created
+   * via the API/agent path may omit it; the UI generates one on add and
+   * preserves it across persistence round-trips so concurrent subscription
+   * updates can't misroute an in-flight edit to the wrong predicate.
+   */
+  id?: string;
   field: string;
   operator:
     | "eq"

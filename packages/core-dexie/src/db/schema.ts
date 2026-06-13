@@ -57,6 +57,7 @@ export interface InsightEntity {
   selectedFields: UUID[];
   metrics: InsightMetric[];
   filters?: Array<{
+    id?: string;
     field: string;
     operator: string;
     value: unknown;

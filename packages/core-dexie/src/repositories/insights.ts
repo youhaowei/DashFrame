@@ -23,6 +23,7 @@ function entityToInsight(entity: InsightEntity): Insight {
     selectedFields: entity.selectedFields,
     metrics: entity.metrics,
     filters: entity.filters?.map((f) => ({
+      id: f.id,
       field: f.field,
       operator: f.operator as InsightFilter["operator"],
       value: f.value,
