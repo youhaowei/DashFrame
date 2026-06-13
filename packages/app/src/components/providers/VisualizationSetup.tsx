@@ -45,7 +45,7 @@ function RendererRegistration() {
  * reads the provider's error and shows ErrorState so the user always sees
  * something actionable.
  *
- * Note: YW-228 will move engine-unreachable errors to a toast later. This
+ * A separate ticket tracks moving engine-unreachable errors to a toast. This
  * component only ensures the post-mount failure path is VISIBLE — matching the
  * existing ErrorState pattern — without changing the UX for the common case.
  */
