@@ -64,6 +64,7 @@ export type {
   CompiledInsight,
   Insight,
   InsightFilter,
+  InsightFilterBetweenValue,
   InsightJoinConfig,
   InsightMutations,
   InsightSort,

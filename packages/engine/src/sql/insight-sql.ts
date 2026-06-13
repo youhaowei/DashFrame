@@ -20,6 +20,8 @@ import type {
   DataTable,
   Field,
   Insight,
+  InsightFilter,
+  InsightFilterBetweenValue,
   InsightMetric,
   UUID,
 } from "@dashframe/types";
@@ -277,11 +279,25 @@ function buildSimpleSQL(
     const validColumns = new Set(
       baseFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
-    return appendPagination(
-      `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`,
-      options,
-      validColumns,
+
+    // Filters apply pre-aggregation only here (no GROUP BY), so all map to WHERE.
+    // The WHERE references the original source column names (still in scope on
+    // the base table) — UUID aliases are SELECT-only and not portably usable in
+    // WHERE — so resolve refs against raw column names.
+    const fieldIdMap = buildFieldIdMap(baseFields);
+    const { whereClause } = buildFilterClauses(
+      insight,
+      fieldIdMap,
+      false,
+      "raw",
     );
+
+    let sql = `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`;
+    if (whereClause) {
+      sql += ` ${whereClause}`;
+    }
+
+    return appendPagination(sql, options, validColumns);
   }
 
   // Query mode with configuration: wrap table with UUID aliases, then apply aggregations
@@ -460,6 +476,253 @@ function processSingleJoin(
 }
 
 // ============================================================================
+// Filter Clause Helpers
+// ============================================================================
+
+/**
+ * Quote a scalar value for safe SQL embedding.
+ *
+ * - Numbers and booleans are emitted as-is (no injection risk).
+ * - Strings are single-quoted with internal single-quotes escaped by doubling
+ *   (standard SQL escaping: `'` → `''`). This matches the convention used in
+ *   the rest of this module (no parameterized placeholders — values are inlined
+ *   at query-build time, not at the DB driver level).
+ * - null / undefined → `NULL`.
+ * - Anything else is coerced to string and then quoted.
+ */
+function quoteValue(val: unknown): string {
+  if (val === null || val === undefined) return "NULL";
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  // For everything else (string, Date.toISOString output, etc.) single-quote and escape
+  const str = String(val);
+  // Escape single quotes by doubling them (standard SQL)
+  return `'${str.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build a single SQL predicate from an InsightFilter.
+ *
+ * The `columnRef` is the already-resolved SQL column reference (possibly
+ * quoted as `"field_<uuid>"` or a raw column name — caller decides).
+ */
+function buildFilterPredicate(
+  columnRef: string,
+  filter: InsightFilter,
+): string {
+  const { operator, value } = filter;
+
+  switch (operator) {
+    case "eq":
+      return `${columnRef} = ${quoteValue(value)}`;
+    case "ne":
+      return `${columnRef} <> ${quoteValue(value)}`;
+    case "gt":
+      return `${columnRef} > ${quoteValue(value)}`;
+    case "gte":
+      return `${columnRef} >= ${quoteValue(value)}`;
+    case "lt":
+      return `${columnRef} < ${quoteValue(value)}`;
+    case "lte":
+      return `${columnRef} <= ${quoteValue(value)}`;
+    case "contains": {
+      // LIKE '%value%' — escape the value's own % and _ to prevent wildcards
+      const escaped = String(value ?? "")
+        .replace(/\\/g, "\\\\")
+        .replace(/%/g, "\\%")
+        .replace(/_/g, "\\_")
+        .replace(/'/g, "''");
+      return `${columnRef} LIKE '%${escaped}%' ESCAPE '\\'`;
+    }
+    case "in": {
+      const arr = Array.isArray(value) ? value : [value];
+      if (arr.length === 0) return "1=0"; // empty IN → always false
+      return `${columnRef} IN (${arr.map(quoteValue).join(", ")})`;
+    }
+    case "between": {
+      const bv = value as InsightFilterBetweenValue;
+      return `${columnRef} BETWEEN ${quoteValue(bv.low)} AND ${quoteValue(bv.high)}`;
+    }
+    default: {
+      // Exhaustiveness guard — TypeScript should catch this, but guard at runtime too
+      const _exhaustive: never = operator;
+      console.warn(`Unknown filter operator: ${String(_exhaustive)}`);
+      return "1=1";
+    }
+  }
+}
+
+/**
+ * How to render the SQL column reference for a filter field.
+ *
+ * - `"alias"`: reference the UUID alias (`"field_<uuid>"`). Use when the FROM
+ *   clause is a wrapped subquery whose columns are already UUID-aliased (the
+ *   aggregated / joined path).
+ * - `"raw"`: reference the source column name (`"columnName"`). Use when the
+ *   FROM clause is the raw base table whose columns still have their original
+ *   names (the model / no-config simple path) — UUID aliases there are
+ *   SELECT-only and not portably usable in WHERE.
+ */
+type FilterColumnRefMode = "alias" | "raw";
+
+/**
+ * Derive the SQL column reference for a filter field.
+ *
+ * Filters reference fields by their source column name (`Field.columnName ?? Field.name`).
+ * We look up the matching field to resolve either its UUID alias or its raw
+ * column name depending on `refMode`.
+ *
+ * If no matching field is found, fall back to the raw field name (quoted).
+ */
+function resolveFilterColumnRef(
+  filterField: string,
+  fieldIdMap: Map<string, Field>,
+  refMode: FilterColumnRefMode,
+): string {
+  const field = Array.from(fieldIdMap.values()).find(
+    (f) => (f.columnName ?? f.name) === filterField,
+  );
+  if (field) {
+    if (refMode === "alias") {
+      return `"${fieldIdToColumnAlias(field.id)}"`;
+    }
+    return `"${field.columnName ?? field.name}"`;
+  }
+  // Fallback: quote the raw column name
+  return `"${filterField}"`;
+}
+
+/**
+ * Resolve a metric filter to the aggregate SQL expression used in HAVING.
+ *
+ * The filter `field` matches either a metric's source `columnName` or its
+ * output alias (`metric_<uuid>`). We rebuild the aggregate expression
+ * (e.g. `SUM("field_<uuid>")`, `COUNT(*)`) so HAVING references the aggregate,
+ * not the (out-of-scope post-aggregation) raw column.
+ *
+ * Falls back to the quoted filter field if no metric matches (shouldn't happen
+ * since this is only called when `isMetricFilter` is true).
+ */
+function resolveMetricAggRef(
+  filterField: string,
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+): string {
+  const metric = (insight.metrics ?? []).find(
+    (m) =>
+      m.columnName === filterField ||
+      metricIdToColumnAlias(m.id) === filterField,
+  );
+  if (!metric) return `"${filterField}"`;
+
+  const aggFn = metric.aggregation.toUpperCase();
+
+  // COUNT(*) - no column
+  if (metric.aggregation === "count" && !metric.columnName) {
+    return "COUNT(*)";
+  }
+
+  if (!metric.columnName) return `"${filterField}"`;
+
+  // Resolve the source column to its UUID alias (columns are aliased upstream)
+  const sourceField = Array.from(fieldIdMap.values()).find(
+    (f) => (f.columnName ?? f.name) === metric.columnName,
+  );
+  const sourceRef = sourceField
+    ? fieldIdToColumnAlias(sourceField.id)
+    : metric.columnName;
+
+  if (metric.aggregation === "count_distinct") {
+    return `COUNT(DISTINCT "${sourceRef}")`;
+  }
+
+  return `${aggFn}("${sourceRef}")`;
+}
+
+/**
+ * Determine whether a filter targets a dimension (grouped field) or a metric.
+ *
+ * A filter field is a **dimension** when the insight's `selectedFields` list
+ * contains the ID of a Field whose column name matches the filter field.
+ *
+ * A filter field is a **metric** when the insight's `metrics` list references
+ * a column whose name matches the filter field, OR when the filter field name
+ * matches a metric's output alias (`metric_<uuid>`).
+ *
+ * Everything else defaults to dimension (pre-aggregation WHERE).
+ */
+function isMetricFilter(
+  filter: InsightFilter,
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+): boolean {
+  // Check if it matches any metric by column name or metric output alias
+  for (const metric of insight.metrics ?? []) {
+    if (metric.columnName === filter.field) return true;
+    if (metricIdToColumnAlias(metric.id) === filter.field) return true;
+  }
+
+  // Check if it matches a selectedField dimension → it's NOT a metric
+  for (const fieldId of insight.selectedFields ?? []) {
+    const field = fieldIdMap.get(fieldId);
+    if (field && (field.columnName ?? field.name) === filter.field) {
+      return false; // explicitly a dimension
+    }
+  }
+
+  // Default: treat as dimension (pre-aggregation)
+  return false;
+}
+
+/**
+ * Build WHERE and HAVING clauses from insight filters.
+ *
+ * Routing logic (compile-time, derived from insight definition):
+ * - Filter on a grouped dimension → WHERE  (pre-aggregation)
+ * - Filter on a metric            → HAVING (post-aggregation)
+ *
+ * Returns empty strings when there are no filters of that kind.
+ */
+function buildFilterClauses(
+  insight: Insight,
+  fieldIdMap: Map<string, Field>,
+  hasGroupBy: boolean,
+  refMode: FilterColumnRefMode,
+): { whereClause: string; havingClause: string } {
+  const filters = insight.filters ?? [];
+  if (filters.length === 0) return { whereClause: "", havingClause: "" };
+
+  const wherePredicates: string[] = [];
+  const havingPredicates: string[] = [];
+
+  for (const filter of filters) {
+    const isMetric = hasGroupBy && isMetricFilter(filter, insight, fieldIdMap);
+
+    if (isMetric) {
+      // HAVING: reference the aggregate expression (e.g. SUM("field_<uuid>")),
+      // since the raw metric column is not in scope post-aggregation.
+      const aggRef = resolveMetricAggRef(filter.field, insight, fieldIdMap);
+      havingPredicates.push(buildFilterPredicate(aggRef, filter));
+    } else {
+      const columnRef = resolveFilterColumnRef(
+        filter.field,
+        fieldIdMap,
+        refMode,
+      );
+      wherePredicates.push(buildFilterPredicate(columnRef, filter));
+    }
+  }
+
+  const whereClause =
+    wherePredicates.length > 0 ? `WHERE ${wherePredicates.join(" AND ")}` : "";
+  const havingClause =
+    havingPredicates.length > 0
+      ? `HAVING ${havingPredicates.join(" AND ")}`
+      : "";
+
+  return { whereClause, havingClause };
+}
+
+// ============================================================================
 // Aggregation SQL Helpers
 // ============================================================================
 
@@ -596,11 +859,19 @@ function buildAggregatedSQL(
     const validColumns = new Set(
       allFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
-    return appendPagination(
-      `SELECT * FROM ${fromClause}`,
-      options,
-      validColumns,
+    // No GROUP BY here, so all filters map to WHERE. The fromClause is a wrapped
+    // subquery whose columns are already UUID-aliased → use "alias" refMode.
+    const { whereClause } = buildFilterClauses(
+      insight,
+      fieldIdMap,
+      false,
+      "alias",
     );
+    let sql = `SELECT * FROM ${fromClause}`;
+    if (whereClause) {
+      sql += ` ${whereClause}`;
+    }
+    return appendPagination(sql, options, validColumns);
   }
 
   // Build dimension columns with UUID aliases
@@ -624,11 +895,31 @@ function buildAggregatedSQL(
   // Build set of valid columns for sorting (all use UUID aliases now)
   const validColumns = new Set<string>([...dimensionAliases, ...metricAliases]);
 
+  // Build filter clauses (WHERE for dimension filters, HAVING for metric filters).
+  // Dimension-vs-metric is derived at compile time from the insight definition:
+  // a filter field that matches a metric column → HAVING (post-aggregation),
+  // everything else → WHERE (pre-aggregation).
+  const hasGroupBy = groupByParts.length > 0;
+  const { whereClause, havingClause } = buildFilterClauses(
+    insight,
+    fieldIdMap,
+    hasGroupBy,
+    "alias",
+  );
+
   // Build final SQL
   let sql = `SELECT ${selectParts.join(", ")} FROM ${fromClause}`;
 
-  if (groupByParts.length > 0) {
+  if (whereClause) {
+    sql += ` ${whereClause}`;
+  }
+
+  if (hasGroupBy) {
     sql += ` GROUP BY ${groupByParts.join(", ")}`;
+  }
+
+  if (havingClause) {
+    sql += ` ${havingClause}`;
   }
 
   return appendPagination(sql, options, validColumns);
