@@ -113,4 +113,38 @@ describe("computeFilterableFields", () => {
     const result = computeFilterableFields(fields, joins);
     expect(result.map((f) => f.columnName)).toEqual(["amount"]);
   });
+
+  it("keeps a base column whose name matches a dropped joined join-key", () => {
+    // Base `id` and joined `id` share a name, and the join's rightKey IS `id`.
+    // The JOINED `id` is the dropped right join-key and must be excluded — but
+    // the BASE `id` stays in the emitted query, is unambiguous once the joined
+    // key is gone, and MUST remain filterable. (Regression: an earlier version
+    // dropped every field whose name matched any rightKey, hiding the base id.)
+    const fields = [
+      field({ id: "base-id", name: "id", columnName: "id" }), // base table
+      field({
+        id: "join-id",
+        name: "id",
+        columnName: "id",
+        sourceTableId: "t2", // joined table — this is the right join-key
+        displayName: "rooms.id",
+      }),
+      field({ id: "amount", name: "amount", columnName: "amount" }),
+    ];
+    const joins: InsightJoinConfig[] = [
+      {
+        type: "inner",
+        rightTableId: "t2",
+        leftKey: "id",
+        rightKey: "id",
+      },
+    ];
+    const result = computeFilterableFields(fields, joins);
+    // Base `id` survives (and is the only `id` left, so unambiguous); the
+    // joined `id` is dropped as the right join-key.
+    expect(result.map((f) => f.id).sort()).toEqual(["amount", "base-id"]);
+    const ids = result.filter((f) => f.columnName === "id");
+    expect(ids).toHaveLength(1);
+    expect(ids[0].id).toBe("base-id");
+  });
 });

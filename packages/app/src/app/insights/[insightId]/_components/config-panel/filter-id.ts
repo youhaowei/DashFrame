@@ -25,6 +25,25 @@ export function withFilterIds(
 }
 
 /**
+ * Stamp a stable identity onto a filter at save time.
+ *
+ * A new filter (no persisted `id`) is assigned a freshly generated id, which
+ * also becomes its client `_id`. An existing filter keeps its `id` and `_id`,
+ * so edits route back to the same predicate. Generating the id *here, per save*
+ * (rather than once per dialog mount) is what makes two consecutive Adds yield
+ * two distinct filters instead of the second overwriting the first.
+ *
+ * `genId` is injectable for tests; defaults to `crypto.randomUUID`.
+ */
+export function prepareFilterForSave(
+  filter: FilterWithId,
+  genId: () => string = () => crypto.randomUUID(),
+): FilterWithId {
+  const id = filter.id ?? genId();
+  return { ...filter, id, _id: filter.id ? filter._id : id };
+}
+
+/**
  * Merge a saved filter into the current list: update the row whose `_id`
  * matches, else append. Matching on the persisted-id-derived `_id` means a
  * concurrent reorder between open and save cannot route the edit to the wrong

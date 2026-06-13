@@ -133,45 +133,55 @@ export function computeCombinedFields(
  *
  * The insight SQL builder keys filter resolution on a field's bare column name
  * (`columnName ?? name`) and emits the join only over columns present in the
- * joined subquery. Two classes of combined field therefore produce a filter
- * that is silently dropped at query time:
+ * joined subquery. Two classes of combined field produce a filter that is
+ * silently dropped or misrouted at query time, applied in order:
  *
- * 1. **Dropped right join-keys** — for each join, the right-side field whose
- *    column name equals `join.rightKey` is excluded from the emitted subquery
- *    (it is redundant with the left key it joins on). A filter on it resolves
- *    to a missing column and is skipped.
- * 2. **Ambiguous duplicate column names** — when base and joined tables share a
- *    column name, both fields persist the same bare `field` value, so the
- *    resolver cannot tell them apart and picks the first match. Offering either
- *    risks filtering the wrong table's column.
+ * 1. **Dropped right join-keys** — for each join, the field on that join's
+ *    *right table* whose column name equals `join.rightKey` is excluded from
+ *    the emitted subquery (redundant with the left key it joins on). Only that
+ *    specific field is dropped — a base-table column that merely shares the
+ *    name stays in the query and remains filterable.
+ * 2. **Ambiguous duplicate column names** — computed on what survives step 1.
+ *    If two queryable fields still share a bare column name, the resolver can't
+ *    tell them apart, so both are excluded. (A base/joined name collision where
+ *    the joined side was the dropped right key is NOT a duplicate here — the
+ *    base column is unambiguous once the joined key is gone.)
  *
- * Excluding both classes guarantees every offered field yields a working,
- * unambiguous predicate. (Disambiguating duplicates by a stable per-field
- * identifier instead of dropping them requires the SQL builder to resolve
- * filters by field id rather than column name — a separate change.)
+ * Applying step 1 before counting duplicates is what keeps a base column with
+ * the same name as a dropped join key filterable. Disambiguating genuine
+ * duplicates by a stable per-field identifier (rather than dropping them) would
+ * require the SQL builder to resolve filters by field id — a separate change.
  */
 export function computeFilterableFields(
   combinedFields: CombinedField[],
   joins: InsightJoinConfig[] | undefined,
 ): CombinedField[] {
-  // Column names that are the right-side key of some join (dropped from the
-  // emitted subquery), compared case-insensitively to match the builder.
-  const droppedRightKeysLower = new Set(
-    (joins ?? []).map((j) => j.rightKey.toLowerCase()),
-  );
+  const joinList = joins ?? [];
 
-  // Column names that appear more than once across the combined set — the
-  // resolver cannot disambiguate these by bare column name.
+  // Step 1: drop only the right-side join-key field of each join — matched by
+  // (source table === join.rightTableId AND column name === join.rightKey),
+  // not by bare-name-matches-any-rightKey. Case-insensitive on the column name
+  // to mirror the builder.
+  const afterJoinKeyDrop = combinedFields.filter((f) => {
+    const colNameLower = (f.columnName ?? f.name).toLowerCase();
+    const isDroppedRightKey = joinList.some(
+      (j) =>
+        f.sourceTableId === j.rightTableId &&
+        colNameLower === j.rightKey.toLowerCase(),
+    );
+    return !isDroppedRightKey;
+  });
+
+  // Step 2: among the queryable fields, exclude any column name that still
+  // appears more than once (the resolver cannot disambiguate by bare name).
   const colNameCounts = new Map<string, number>();
-  for (const f of combinedFields) {
+  for (const f of afterJoinKeyDrop) {
     const key = (f.columnName ?? f.name).toLowerCase();
     colNameCounts.set(key, (colNameCounts.get(key) ?? 0) + 1);
   }
 
-  return combinedFields.filter((f) => {
-    const colNameLower = (f.columnName ?? f.name).toLowerCase();
-    if (droppedRightKeysLower.has(colNameLower)) return false;
-    if ((colNameCounts.get(colNameLower) ?? 0) > 1) return false;
-    return true;
-  });
+  return afterJoinKeyDrop.filter(
+    (f) =>
+      (colNameCounts.get((f.columnName ?? f.name).toLowerCase()) ?? 0) === 1,
+  );
 }

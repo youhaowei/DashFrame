@@ -1,6 +1,11 @@
 import type { InsightFilter } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
-import { applyFilterSave, deriveFilterId, withFilterIds } from "./filter-id";
+import {
+  applyFilterSave,
+  deriveFilterId,
+  prepareFilterForSave,
+  withFilterIds,
+} from "./filter-id";
 import type { FilterWithId } from "./FiltersSection";
 
 /**
@@ -92,5 +97,66 @@ describe("applyFilterSave with a stable persisted id", () => {
 
     // The stale id "amount-gt-1" no longer matches → duplicate appended.
     expect(result).toHaveLength(3);
+  });
+});
+
+describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () => {
+  it("assigns a fresh id to a new filter and leaves an existing filter's id intact", () => {
+    const draftNew: FilterWithId = {
+      _id: "__new__",
+      field: "amount",
+      operator: "eq",
+      value: 1,
+    };
+    const stamped = prepareFilterForSave(draftNew, () => "uuid-fresh");
+    expect(stamped.id).toBe("uuid-fresh");
+    expect(stamped._id).toBe("uuid-fresh");
+
+    const existing: FilterWithId = {
+      id: "uuid-existing",
+      _id: "uuid-existing",
+      field: "region",
+      operator: "eq",
+      value: "north",
+    };
+    const reStamped = prepareFilterForSave(
+      existing,
+      () => "uuid-SHOULD-NOT-USE",
+    );
+    expect(reStamped.id).toBe("uuid-existing");
+    expect(reStamped._id).toBe("uuid-existing");
+  });
+
+  it("two consecutive Adds yield distinct ids — second does NOT overwrite first", () => {
+    // Repro of the data-loss bug: FilterEditDialog is permanently mounted, so a
+    // mount-scoped id would be reused. prepareFilterForSave generates per save,
+    // so Add A then Add B produce two distinct filters.
+    const ids = ["uuid-A", "uuid-B"];
+    let i = 0;
+    const gen = () => ids[i++];
+
+    let list: FilterWithId[] = [];
+
+    // Add filter A.
+    const a = prepareFilterForSave(
+      { _id: "__new__", field: "amount", operator: "eq", value: 1 },
+      gen,
+    );
+    list = applyFilterSave(list, a);
+
+    // Re-derive client ids from the persisted list (as InsightConfigPanel does
+    // after the array updates), then Add filter B from a fresh "new" draft.
+    list = withFilterIds(list);
+    const b = prepareFilterForSave(
+      { _id: "__new__", field: "region", operator: "eq", value: "north" },
+      gen,
+    );
+    list = applyFilterSave(list, b);
+
+    // BOTH filters persist, with distinct ids — no overwrite.
+    expect(list).toHaveLength(2);
+    expect(list.map((f) => f.id).sort()).toEqual(["uuid-A", "uuid-B"]);
+    expect(list.find((f) => f.id === "uuid-A")?.value).toBe(1);
+    expect(list.find((f) => f.id === "uuid-B")?.value).toBe("north");
   });
 });

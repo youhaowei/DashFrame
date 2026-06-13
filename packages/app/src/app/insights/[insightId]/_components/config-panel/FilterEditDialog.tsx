@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui";
-import { type ChangeEvent, useMemo, useState } from "react";
+import { type ChangeEvent, useState } from "react";
+import { prepareFilterForSave } from "./filter-id";
 import {
   buildFilterValue,
   type FilterDraft,
@@ -148,12 +149,19 @@ function FilterEditForm({
 
   const handleSave = () => {
     if (!isValid) return;
-    onSave({
-      ...filter,
-      field,
-      operator,
-      value: buildFilterValue(draft),
-    });
+    // prepareFilterForSave stamps a fresh persisted id on a new filter (and
+    // sources its client `_id` from it). Generated per save, not per dialog
+    // mount — FilterEditDialog is permanently mounted, so a mount-scoped id
+    // would hand every Add the same value and make the second filter overwrite
+    // the first. An existing filter keeps its id/_id so edits route correctly.
+    onSave(
+      prepareFilterForSave({
+        ...filter,
+        field,
+        operator,
+        value: buildFilterValue(draft),
+      }),
+    );
     onClose();
   };
 
@@ -310,30 +318,16 @@ export function FilterEditDialog({
   const isOpen = filter !== null;
   const isNew = filter === "new";
 
-  /**
-   * Stable UUID for the "new" session. Memoized so a parent re-render while
-   * the dialog is open (e.g. an insight subscription firing) does not generate
-   * a new UUID and silently remount FilterEditForm mid-fill, discarding the
-   * user's in-progress input.
-   *
-   * This UUID becomes the filter's persisted `id`, so it survives subscription
-   * round-trips and InsightConfigPanel can match the saved filter by a stable
-   * identity rather than a fragile array index.
-   */
-  const newFilterId = useMemo(
-    () => crypto.randomUUID(),
-    // Intentionally empty: we want one UUID per mount of FilterEditDialog,
-    // not per render. A new session (filter null→"new") unmounts+remounts this
-    // component because the parent sets filterToEdit=null on close first.
-    [],
-  );
-
   const effectiveFilter: FilterWithId | null = (() => {
     if (filter === null) return null;
     if (filter === "new") {
+      // A new-filter draft carries NO persisted `id` — the id is assigned at
+      // save time (FilterEditForm.handleSave), so each Add yields a distinct
+      // filter. `_id` here is only the client key for the form below; it is a
+      // fixed sentinel because the form fully unmounts when the dialog closes
+      // (filter → null), which already resets its state between Add sessions.
       return {
-        id: newFilterId,
-        _id: newFilterId,
+        _id: "__new__",
         field: combinedFields[0]
           ? (combinedFields[0].columnName ?? combinedFields[0].name)
           : "",
