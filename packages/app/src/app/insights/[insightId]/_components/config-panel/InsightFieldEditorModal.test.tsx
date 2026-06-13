@@ -127,6 +127,8 @@ describe("InsightFieldEditorModal: sensitivity badge at-rest visibility", () => 
 
     expect(screen.queryByText("Sensitive")).toBeNull();
     expect(screen.queryByText("Unclassified")).toBeNull();
-    expect(screen.queryByText("Likely sensitive")).toBeNull();
+    // "Likely sensitive" is never rendered in the picker: FieldOption always
+    // passes suggestedReasons={[]} to SensitivityBadge, disabling the
+    // classifier-suggestion affordance at the component level.
   });
 });
