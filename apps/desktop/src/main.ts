@@ -193,6 +193,12 @@ app
         corsOrigin,
         authToken,
         arrowEngine: engine,
+        // Wire the debounced snapshot scheduler: fire touchSnapshot after every
+        // committed artifact-DB write so a crash mid-session loses at most
+        // SNAPSHOT_DEBOUNCE_MS (30 s) of changes rather than the whole session.
+        // The server owns no reference to ProjectHandle — the narrow callback
+        // is the boundary (#88).
+        onWrite: () => project?.touchSnapshot(),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

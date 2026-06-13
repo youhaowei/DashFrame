@@ -40,7 +40,7 @@ import {
 } from "@dashframe/engine-server/arrow-data-path";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
-import { createRoutes, createWyStack } from "@wystack/server";
+import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -97,6 +97,18 @@ export interface DashframeServerOptions {
    * result already lives in renderer WASM, so there is no server data path.
    */
   arrowEngine?: ArrowQueryRunner;
+  /**
+   * Optional hook fired after every SUCCESSFUL artifact-DB write mutation.
+   * Called once per committed write (after the DB transaction commits, never
+   * on a failed or rolled-back write). The host owns the semantics — desktop
+   * passes `() => project?.touchSnapshot()` to drive the debounced snapshot
+   * scheduler (#88); other surfaces may omit it entirely.
+   *
+   * The server does NOT import or depend on ProjectHandle — this narrow
+   * callback is the dependency boundary (same injection pattern as
+   * `arrowEngine`).
+   */
+  onWrite?: () => void;
 }
 
 export interface DashframeServer {
@@ -122,7 +134,29 @@ export async function createDashframeServer(
     ? createTokenResolver(opts.authToken)
     : undefined;
 
-  const app = await createWyStack({ db: opts.db, functions });
+  const rawApp = await createWyStack({ db: opts.db, functions });
+
+  // Wrap the WyStack app's `call` method so `opts.onWrite` fires after any
+  // successful mutation. This is the single chokepoint: both the HTTP POST
+  // handler and the WS `call` frame path in @wystack/server route every
+  // mutation through `app.call`. Wrapping here — rather than sprinkling calls
+  // across individual handlers — means a new command or mutation added later
+  // is covered automatically. The hook fires only on success (tablesWritten
+  // is the WyStack signal that the transaction committed a write); a failed or
+  // rolled-back call never sets tablesWritten and never reaches this branch.
+  const app: WyStackApp =
+    opts.onWrite == null
+      ? rawApp
+      : {
+          ...rawApp,
+          async call(path, args, context) {
+            const result = await rawApp.call(path, args, context);
+            if (result.tablesWritten.size > 0) {
+              opts.onWrite!();
+            }
+            return result;
+          },
+        };
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();

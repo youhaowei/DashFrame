@@ -172,3 +172,141 @@ describe("createDashframeServer", () => {
     });
   });
 });
+
+describe("onWrite hook", () => {
+  /**
+   * Tests for the `onWrite` durability hook (see GitHub issue #88 / #90).
+   *
+   * Contracts:
+   *   - A successful artifact-DB mutation fires onWrite exactly once.
+   *   - N rapid successful mutations fire onWrite exactly N times (the
+   *     debounce lives in SnapshotScheduler.touch(), not in the server).
+   *   - A failed/invalid mutation does NOT fire onWrite.
+   *   - A read-only query does NOT fire onWrite.
+   *
+   * Testing strategy: inject a mock onWrite callback and route real HTTP
+   * mutations through the server (same path the renderer uses) — no
+   * dependency on wall-clock or real PGlite snapshots.
+   */
+  let root: string;
+  let project: ProjectHandle | null;
+  let server: DashframeServer | null;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-onwrite-"));
+    project = null;
+    server = null;
+  });
+
+  afterEach(async () => {
+    server?.stop();
+    await project?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function postMutation(
+    url: string,
+    path: string,
+    body: unknown,
+  ): Promise<Response> {
+    return fetch(`${url}/api/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("should fire onWrite once after a successful mutation", async () => {
+    const onWriteCalls: number[] = [];
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      onWrite: () => {
+        onWriteCalls.push(Date.now());
+      },
+    });
+
+    const res = await postMutation(server.url, "getOrCreateDataSource", {
+      id: crypto.randomUUID(),
+      type: "csv",
+      name: "My Source",
+    });
+    expect(res.status).toBe(200);
+    expect(onWriteCalls).toHaveLength(1);
+  });
+
+  it("should fire onWrite once per successful mutation (N writes → N calls, no server-level debounce)", async () => {
+    let callCount = 0;
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      onWrite: () => {
+        callCount++;
+      },
+    });
+
+    // Three rapid creates — each is a separate committed transaction.
+    for (let i = 0; i < 3; i++) {
+      const res = await postMutation(server.url, "getOrCreateDataSource", {
+        id: crypto.randomUUID(),
+        type: "csv",
+        name: `Source ${i}`,
+      });
+      expect(res.status).toBe(200);
+    }
+    // The server fires onWrite once per committed write — debounce is the
+    // scheduler's job, not the server's. The host (SnapshotScheduler.touch)
+    // collapses rapid bursts; the server must not under-count them.
+    expect(callCount).toBe(3);
+  });
+
+  it("should NOT fire onWrite when the mutation fails (invalid args)", async () => {
+    let callCount = 0;
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      onWrite: () => {
+        callCount++;
+      },
+    });
+
+    // Send a mutation with a missing required field — Zod validation rejects it
+    // before any DB write occurs, so no transaction commits.
+    const res = await postMutation(server.url, "getOrCreateDataSource", {
+      // Missing required `id` and `name` fields → validation error, no write.
+      type: "csv",
+    });
+    expect(res.status).toBe(400);
+    expect(callCount).toBe(0);
+  });
+
+  it("should NOT fire onWrite for a read-only query", async () => {
+    let callCount = 0;
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      onWrite: () => {
+        callCount++;
+      },
+    });
+
+    const res = await fetch(
+      `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+    );
+    expect(res.status).toBe(200);
+    expect(callCount).toBe(0);
+  });
+
+  it("should work without onWrite (backward-compatible — omitting it changes nothing)", async () => {
+    // No onWrite configured — server should start and mutations should succeed.
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({ db: project.db });
+
+    const res = await postMutation(server.url, "getOrCreateDataSource", {
+      id: crypto.randomUUID(),
+      type: "csv",
+      name: "Compat Test",
+    });
+    expect(res.status).toBe(200);
+  });
+});
