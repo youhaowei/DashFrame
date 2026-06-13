@@ -25,13 +25,25 @@ export function withFilterIds(
 }
 
 /**
+ * Client `_id` sentinel for a not-yet-saved new-filter draft. Distinguishes a
+ * brand-new filter (which must get a fresh identity and append) from an
+ * existing row being edited (which must preserve its `_id` so the save routes
+ * back to the same predicate — even if the existing filter has no persisted
+ * `id`, e.g. one created via the API/agent path).
+ */
+export const NEW_FILTER_ID = "__new__";
+
+/**
  * Stamp a stable identity onto a filter at save time.
  *
- * A new filter (no persisted `id`) is assigned a freshly generated id, which
- * also becomes its client `_id`. An existing filter keeps its `id` and `_id`,
- * so edits route back to the same predicate. Generating the id *here, per save*
- * (rather than once per dialog mount) is what makes two consecutive Adds yield
- * two distinct filters instead of the second overwriting the first.
+ * - **New draft** (`_id === NEW_FILTER_ID`): assign a freshly generated id and
+ *   make it the client `_id` too, so `applyFilterSave` appends a distinct row.
+ *   Generating the id *here, per save* (not once per dialog mount) is what makes
+ *   two consecutive Adds yield two distinct filters instead of the second
+ *   overwriting the first.
+ * - **Existing row** (any other `_id`): preserve `_id` so the save updates the
+ *   matching predicate. Backfill a persisted `id` if it lacks one (API/agent
+ *   filters), without disturbing the `_id` used for matching.
  *
  * `genId` is injectable for tests; defaults to `crypto.randomUUID`.
  */
@@ -39,8 +51,12 @@ export function prepareFilterForSave(
   filter: FilterWithId,
   genId: () => string = () => crypto.randomUUID(),
 ): FilterWithId {
-  const id = filter.id ?? genId();
-  return { ...filter, id, _id: filter.id ? filter._id : id };
+  if (filter._id === NEW_FILTER_ID) {
+    const id = filter.id ?? genId();
+    return { ...filter, id, _id: id };
+  }
+  // Existing row: keep _id for matching; backfill a persisted id if missing.
+  return { ...filter, id: filter.id ?? genId() };
 }
 
 /**

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyFilterSave,
   deriveFilterId,
+  NEW_FILTER_ID,
   prepareFilterForSave,
   withFilterIds,
 } from "./filter-id";
@@ -101,9 +102,9 @@ describe("applyFilterSave with a stable persisted id", () => {
 });
 
 describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () => {
-  it("assigns a fresh id to a new filter and leaves an existing filter's id intact", () => {
+  it("assigns a fresh id (and matching _id) to a new-draft filter", () => {
     const draftNew: FilterWithId = {
-      _id: "__new__",
+      _id: NEW_FILTER_ID,
       field: "amount",
       operator: "eq",
       value: 1,
@@ -111,7 +112,9 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     const stamped = prepareFilterForSave(draftNew, () => "uuid-fresh");
     expect(stamped.id).toBe("uuid-fresh");
     expect(stamped._id).toBe("uuid-fresh");
+  });
 
+  it("leaves an existing filter's id and _id intact on edit", () => {
     const existing: FilterWithId = {
       id: "uuid-existing",
       _id: "uuid-existing",
@@ -127,6 +130,31 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(reStamped._id).toBe("uuid-existing");
   });
 
+  it("edits an id-less (API-created) filter in place — backfills id, keeps _id", () => {
+    // Regression: an existing filter with no persisted `id` (its `_id` is the
+    // content+index fallback) must NOT have its `_id` overwritten on save, or
+    // applyFilterSave would fail to match and APPEND A DUPLICATE instead of
+    // updating. The persisted `id` is backfilled, but `_id` is preserved.
+    const list = withFilterIds([
+      { field: "region", operator: "eq", value: "north" }, // no id → _id "region-eq-0"
+    ]);
+    const openedForEdit = list[0];
+    expect(openedForEdit.id).toBeUndefined();
+    expect(openedForEdit._id).toBe("region-eq-0");
+
+    const saved = prepareFilterForSave(
+      { ...openedForEdit, value: "south" },
+      () => "uuid-backfilled",
+    );
+    expect(saved._id).toBe("region-eq-0"); // preserved for matching
+    expect(saved.id).toBe("uuid-backfilled"); // backfilled
+
+    const result = applyFilterSave(list, saved);
+    expect(result).toHaveLength(1); // updated in place, NOT duplicated
+    expect(result[0].value).toBe("south");
+    expect(result[0].id).toBe("uuid-backfilled");
+  });
+
   it("two consecutive Adds yield distinct ids — second does NOT overwrite first", () => {
     // Repro of the data-loss bug: FilterEditDialog is permanently mounted, so a
     // mount-scoped id would be reused. prepareFilterForSave generates per save,
@@ -139,7 +167,7 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
 
     // Add filter A.
     const a = prepareFilterForSave(
-      { _id: "__new__", field: "amount", operator: "eq", value: 1 },
+      { _id: NEW_FILTER_ID, field: "amount", operator: "eq", value: 1 },
       gen,
     );
     list = applyFilterSave(list, a);
@@ -148,7 +176,7 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     // after the array updates), then Add filter B from a fresh "new" draft.
     list = withFilterIds(list);
     const b = prepareFilterForSave(
-      { _id: "__new__", field: "region", operator: "eq", value: "north" },
+      { _id: NEW_FILTER_ID, field: "region", operator: "eq", value: "north" },
       gen,
     );
     list = applyFilterSave(list, b);

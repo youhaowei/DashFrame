@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@wystack/ui";
 import { type ChangeEvent, useState } from "react";
-import { prepareFilterForSave } from "./filter-id";
+import { NEW_FILTER_ID, prepareFilterForSave } from "./filter-id";
 import {
   buildFilterValue,
   type FilterDraft,
@@ -327,7 +327,7 @@ export function FilterEditDialog({
       // fixed sentinel because the form fully unmounts when the dialog closes
       // (filter → null), which already resets its state between Add sessions.
       return {
-        _id: "__new__",
+        _id: NEW_FILTER_ID,
         field: combinedFields[0]
           ? (combinedFields[0].columnName ?? combinedFields[0].name)
           : "",
