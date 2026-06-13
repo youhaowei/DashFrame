@@ -79,6 +79,19 @@ function groupedInsight(filters?: InsightFilter[]): Insight {
   };
 }
 
+/** Build a metrics-only insight (SUM(amount), no selected dimensions → no GROUP BY). */
+function metricsOnlyInsight(filters?: InsightFilter[]): Insight {
+  return {
+    id: "88888888-8888-8888-8888-888888888888" as UUID,
+    name: "Total Revenue",
+    baseTableId: TABLE_ID,
+    selectedFields: [],
+    metrics: [REVENUE_METRIC],
+    filters,
+    createdAt: 0,
+  };
+}
+
 const QUERY_OPTS: BuildInsightSQLOptions = { mode: "query" };
 
 function build(
@@ -220,5 +233,64 @@ describe("buildInsightSQL — value quoting / injection guard", () => {
     );
     expect(injection).toContain(`'x''; DROP TABLE sales; --'`);
     expect(injection).not.toContain(`'x'; DROP`);
+  });
+});
+
+describe("buildInsightSQL — null handling and edge cases", () => {
+  it("emits IS NULL for an eq filter with a null value (not = NULL)", () => {
+    const sql = build(
+      groupedInsight([{ field: "region", operator: "eq", value: null }]),
+    );
+    expect(sql).toContain(`"${regionAlias}" IS NULL`);
+    expect(sql).not.toContain("= NULL");
+  });
+
+  it("emits IS NOT NULL for a ne filter with a null value", () => {
+    const sql = build(
+      groupedInsight([{ field: "region", operator: "ne", value: null }]),
+    );
+    expect(sql).toContain(`"${regionAlias}" IS NOT NULL`);
+    expect(sql).not.toContain("<> NULL");
+  });
+
+  it("routes a metric filter to HAVING even with no GROUP BY (metrics-only insight)", () => {
+    // No selectedFields → no GROUP BY, but the query still aggregates (SUM).
+    // A predicate on the metric must land in HAVING, not WHERE.
+    const sql = build(
+      metricsOnlyInsight([{ field: "amount", operator: "gt", value: 1000 }]),
+    );
+    expect(sql).toContain(`HAVING SUM("${amountAlias}") > 1000`);
+    expect(sql).not.toContain("WHERE");
+    expect(sql).not.toContain("GROUP BY");
+  });
+
+  it("routes a shared dimension+metric column to WHERE (dimension membership wins)", () => {
+    // `amount` is both selected as a grouped dimension AND the metric's source.
+    // Dimension membership takes precedence → WHERE (the grouped value is in
+    // scope pre-aggregation).
+    const insight: Insight = {
+      id: "77777777-7777-7777-7777-777777777777" as UUID,
+      name: "Amount grouped + summed",
+      baseTableId: TABLE_ID,
+      selectedFields: [AMOUNT_FIELD_ID],
+      metrics: [REVENUE_METRIC], // SUM(amount)
+      filters: [{ field: "amount", operator: "gt", value: 10 }],
+      createdAt: 0,
+    };
+    const sql = build(insight);
+    expect(sql).toContain(`WHERE "${amountAlias}" > 10`);
+    expect(sql).not.toContain("HAVING");
+  });
+
+  it("emits a no-op predicate (not a throw) for a malformed between value", () => {
+    // A persisted/garbled between value missing its bounds must not throw or
+    // silently drop every row — it emits an always-true guard instead.
+    const sql = build(
+      groupedInsight([
+        { field: "order_date", operator: "between", value: null },
+      ]),
+    );
+    expect(sql).toContain("1=1");
+    expect(sql).not.toContain("BETWEEN");
   });
 });

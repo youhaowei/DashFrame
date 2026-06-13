@@ -513,8 +513,12 @@ function buildFilterPredicate(
 
   switch (operator) {
     case "eq":
+      // `= NULL` is always false in SQL — use IS NULL for null equality.
+      if (value === null || value === undefined) return `${columnRef} IS NULL`;
       return `${columnRef} = ${quoteValue(value)}`;
     case "ne":
+      if (value === null || value === undefined)
+        return `${columnRef} IS NOT NULL`;
       return `${columnRef} <> ${quoteValue(value)}`;
     case "gt":
       return `${columnRef} > ${quoteValue(value)}`;
@@ -539,6 +543,20 @@ function buildFilterPredicate(
       return `${columnRef} IN (${arr.map(quoteValue).join(", ")})`;
     }
     case "between": {
+      // Guard the value shape: a malformed `between` value (null, missing
+      // bound) must not throw or silently filter every row. Emit an always-true
+      // predicate and warn — a no-op is safer than dropping all rows.
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        !("low" in value) ||
+        !("high" in value)
+      ) {
+        console.warn(
+          `between filter has malformed value (expected { low, high }): ${JSON.stringify(value)}`,
+        );
+        return "1=1";
+      }
       const bv = value as InsightFilterBetweenValue;
       return `${columnRef} BETWEEN ${quoteValue(bv.low)} AND ${quoteValue(bv.high)}`;
     }
@@ -587,8 +605,15 @@ function resolveFilterColumnRef(
     }
     return `"${field.columnName ?? field.name}"`;
   }
-  // Fallback: quote the raw column name
-  return `"${filterField}"`;
+  // Fallback: quote the raw column name, escaping any embedded double-quote
+  // (standard SQL identifier escaping: `"` → `""`) so an odd field name can't
+  // break out of the identifier.
+  return quoteIdentifier(filterField);
+}
+
+/** Quote a SQL identifier, escaping embedded double-quotes by doubling them. */
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -612,7 +637,7 @@ function resolveMetricAggRef(
       m.columnName === filterField ||
       metricIdToColumnAlias(m.id) === filterField,
   );
-  if (!metric) return `"${filterField}"`;
+  if (!metric) return quoteIdentifier(filterField);
 
   const aggFn = metric.aggregation.toUpperCase();
 
@@ -621,7 +646,7 @@ function resolveMetricAggRef(
     return "COUNT(*)";
   }
 
-  if (!metric.columnName) return `"${filterField}"`;
+  if (!metric.columnName) return quoteIdentifier(filterField);
 
   // Resolve the source column to its UUID alias (columns are aliased upstream)
   const sourceField = Array.from(fieldIdMap.values()).find(
@@ -632,10 +657,10 @@ function resolveMetricAggRef(
     : metric.columnName;
 
   if (metric.aggregation === "count_distinct") {
-    return `COUNT(DISTINCT "${sourceRef}")`;
+    return `COUNT(DISTINCT ${quoteIdentifier(sourceRef)})`;
   }
 
-  return `${aggFn}("${sourceRef}")`;
+  return `${aggFn}(${quoteIdentifier(sourceRef)})`;
 }
 
 /**
@@ -648,6 +673,11 @@ function resolveMetricAggRef(
  * a column whose name matches the filter field, OR when the filter field name
  * matches a metric's output alias (`metric_<uuid>`).
  *
+ * **Dimension membership takes precedence.** If a column is both selected as a
+ * grouped dimension and used as a metric's source column, the dimension reading
+ * wins — the grouped value is in scope pre-aggregation, so the filter routes to
+ * WHERE. (A metric still aggregates the same source column independently.)
+ *
  * Everything else defaults to dimension (pre-aggregation WHERE).
  */
 function isMetricFilter(
@@ -655,18 +685,19 @@ function isMetricFilter(
   insight: Insight,
   fieldIdMap: Map<string, Field>,
 ): boolean {
-  // Check if it matches any metric by column name or metric output alias
-  for (const metric of insight.metrics ?? []) {
-    if (metric.columnName === filter.field) return true;
-    if (metricIdToColumnAlias(metric.id) === filter.field) return true;
-  }
-
-  // Check if it matches a selectedField dimension → it's NOT a metric
+  // Dimension membership wins: if the field is a selected (grouped) dimension,
+  // it is NOT a metric filter, even if the same column also feeds a metric.
   for (const fieldId of insight.selectedFields ?? []) {
     const field = fieldIdMap.get(fieldId);
     if (field && (field.columnName ?? field.name) === filter.field) {
       return false; // explicitly a dimension
     }
+  }
+
+  // Otherwise, a match against a metric column or metric output alias → metric.
+  for (const metric of insight.metrics ?? []) {
+    if (metric.columnName === filter.field) return true;
+    if (metricIdToColumnAlias(metric.id) === filter.field) return true;
   }
 
   // Default: treat as dimension (pre-aggregation)
@@ -685,7 +716,7 @@ function isMetricFilter(
 function buildFilterClauses(
   insight: Insight,
   fieldIdMap: Map<string, Field>,
-  hasGroupBy: boolean,
+  hasAggregation: boolean,
   refMode: FilterColumnRefMode,
 ): { whereClause: string; havingClause: string } {
   const filters = insight.filters ?? [];
@@ -695,7 +726,12 @@ function buildFilterClauses(
   const havingPredicates: string[] = [];
 
   for (const filter of filters) {
-    const isMetric = hasGroupBy && isMetricFilter(filter, insight, fieldIdMap);
+    // A metric filter routes to HAVING only when the query actually aggregates.
+    // Aggregation happens whenever metrics are present — with OR without a
+    // GROUP BY (a metrics-only insight emits e.g. COUNT(*) and still needs
+    // HAVING, not WHERE, for a predicate on the aggregate).
+    const isMetric =
+      hasAggregation && isMetricFilter(filter, insight, fieldIdMap);
 
     if (isMetric) {
       // HAVING: reference the aggregate expression (e.g. SUM("field_<uuid>")),
@@ -898,12 +934,13 @@ function buildAggregatedSQL(
   // Build filter clauses (WHERE for dimension filters, HAVING for metric filters).
   // Dimension-vs-metric is derived at compile time from the insight definition:
   // a filter field that matches a metric column → HAVING (post-aggregation),
-  // everything else → WHERE (pre-aggregation).
+  // everything else → WHERE (pre-aggregation). The query aggregates whenever
+  // metrics are present (with or without GROUP BY), so that gates HAVING.
   const hasGroupBy = groupByParts.length > 0;
   const { whereClause, havingClause } = buildFilterClauses(
     insight,
     fieldIdMap,
-    hasGroupBy,
+    hasMetrics,
     "alias",
   );
 
