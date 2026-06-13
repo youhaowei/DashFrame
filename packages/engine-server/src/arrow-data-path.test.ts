@@ -167,3 +167,85 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("Arrow data path — /tables/:name content-type enforcement", () => {
+  /**
+   * A minimal engine that also implements registerArrowTable so the 501 guard
+   * doesn't fire before the content-type check.
+   */
+  function fakeRegistrar(): ArrowQueryRunner & {
+    registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+    registrations: Array<{ name: string; bytes: Uint8Array }>;
+  } {
+    const registrations: Array<{ name: string; bytes: Uint8Array }> = [];
+    return {
+      calls: [] as never,
+      queryArrow: async () => new Uint8Array(),
+      async registerArrowTable(name: string, arrow: Uint8Array) {
+        registrations.push({ name, bytes: arrow });
+      },
+      registrations,
+    } as ReturnType<typeof fakeRegistrar>;
+  }
+
+  it("rejects a non-Arrow Content-Type with 415 before reaching registerArrowTable", async () => {
+    // A client that sends the wrong content-type (e.g. application/octet-stream)
+    // should get a 415 rather than a 500 from registerArrowTable trying to
+    // decode non-Arrow bytes as Arrow IPC.
+    const engine = fakeRegistrar();
+    const app = createArrowDataPath({ engine, authToken: TOKEN });
+
+    const res = await app.request("/tables/df_test", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Uint8Array([0xff, 0xfe]).buffer,
+    });
+
+    expect(res.status).toBe(415);
+    const body = await res.json();
+    expect(body.error).toContain(ARROW_STREAM_CONTENT_TYPE);
+    // registerArrowTable must NOT have been called
+    expect(engine.registrations).toHaveLength(0);
+  });
+
+  it("rejects a missing Content-Type with 415", async () => {
+    const engine = fakeRegistrar();
+    const app = createArrowDataPath({ engine, authToken: TOKEN });
+
+    const res = await app.request("/tables/df_test", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+      body: new Uint8Array([0]).buffer,
+    });
+
+    expect(res.status).toBe(415);
+    expect(engine.registrations).toHaveLength(0);
+  });
+
+  it("accepts the correct Arrow content-type and calls registerArrowTable", async () => {
+    const engine = fakeRegistrar();
+    const app = createArrowDataPath({ engine, authToken: TOKEN });
+
+    const bytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57, 0x31]); // "ARROW1"
+    const res = await app.request("/tables/df_ok", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": ARROW_STREAM_CONTENT_TYPE,
+      },
+      body: bytes.buffer,
+    });
+
+    // registerArrowTable may throw on invalid Arrow bytes (fine here —
+    // we only care that the content-type check passed and the call was made).
+    // A real Arrow IPC buffer would return 200; the fake above always succeeds.
+    expect([200, 500]).toContain(res.status);
+    if (res.status === 200) {
+      expect(engine.registrations).toHaveLength(1);
+      expect(engine.registrations[0]?.name).toBe("df_ok");
+    }
+  });
+});

@@ -198,6 +198,19 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       );
     }
 
+    // Reject non-Arrow content at the boundary — a wrong Content-Type means
+    // the client sent the wrong format; a 415 is clearer than a 500 from
+    // registerArrowTable trying to decode garbage as Arrow IPC.
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.includes(ARROW_STREAM_CONTENT_TYPE)) {
+      return c.json(
+        {
+          error: `Content-Type must be ${ARROW_STREAM_CONTENT_TYPE}`,
+        },
+        415,
+      );
+    }
+
     // Engine must support Arrow table registration (native engine only).
     if (typeof options.engine.registerArrowTable !== "function") {
       return c.json(
