@@ -8,7 +8,12 @@ import {
   useVisualizationMutations,
   useVisualizations,
 } from "@dashframe/core";
-import type { DataTable, Insight, InsightMetric } from "@dashframe/types";
+import type {
+  DataTable,
+  Insight,
+  InsightFilter,
+  InsightMetric,
+} from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
 import { Panel } from "@wystack/ui";
 import { useCallback, useMemo, useState } from "react";
@@ -21,6 +26,8 @@ import {
 } from "./DeleteConfirmDialog";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FieldsSection } from "./FieldsSection";
+import { FilterEditDialog } from "./FilterEditDialog";
+import { FiltersSection, type FilterWithId } from "./FiltersSection";
 import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
 import { MetricEditDialog } from "./MetricEditDialog";
@@ -72,6 +79,10 @@ export function InsightConfigPanel({
     null,
   );
   const [metricToEdit, setMetricToEdit] = useState<InsightMetric | null>(null);
+  /** null = closed; FilterWithId = edit; "new" = add */
+  const [filterToEdit, setFilterToEdit] = useState<FilterWithId | "new" | null>(
+    null,
+  );
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(
     initialDeleteDialogState,
   );
@@ -128,6 +139,22 @@ export function InsightConfigPanel({
     () => (insight.metrics ?? []).filter((m) => !m.name.startsWith("_")),
     [insight.metrics],
   );
+
+  /**
+   * Stable client-side ids for filters (filters have no id in the domain type).
+   * Derived from the filter list; re-generated only when the raw filter array
+   * reference changes (i.e., after a save). The index-based id scheme is
+   * intentionally simple — filters are always edited via a close-then-reopen
+   * dialog, so stale ids are never in flight. FilterEditDialog's "new" session
+   * generates a UUID for its own key-reset scope; that UUID is dropped here on
+   * the next derivation after save.
+   */
+  const filtersWithIds = useMemo((): FilterWithId[] => {
+    return (insight.filters ?? []).map((f, i) => ({
+      ...f,
+      _id: `${f.field}-${f.operator}-${i}`,
+    }));
+  }, [insight.filters]);
 
   // --- Field handlers ---
   const handleFieldsReorder = useCallback(
@@ -217,6 +244,40 @@ export function InsightConfigPanel({
       updateInsight(insight.id, { metrics: updated });
     },
     [insight.id, insight.metrics, updateInsight],
+  );
+
+  // --- Filter handlers ---
+  /** Strip client-only _id before persisting */
+  const stripFilterIds = useCallback(
+    (fs: FilterWithId[]): InsightFilter[] =>
+      fs.map(({ _id: _discarded, ...rest }) => rest),
+    [],
+  );
+
+  const handleFiltersReorder = useCallback(
+    (reordered: FilterWithId[]) => {
+      updateInsight(insight.id, { filters: stripFilterIds(reordered) });
+    },
+    [insight.id, stripFilterIds, updateInsight],
+  );
+
+  const handleRemoveFilter = useCallback(
+    (filterId: string) => {
+      const updated = filtersWithIds.filter((f) => f._id !== filterId);
+      updateInsight(insight.id, { filters: stripFilterIds(updated) });
+    },
+    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
+  );
+
+  const handleSaveFilter = useCallback(
+    (saved: FilterWithId) => {
+      const exists = filtersWithIds.some((f) => f._id === saved._id);
+      const updated = exists
+        ? filtersWithIds.map((f) => (f._id === saved._id ? saved : f))
+        : [...filtersWithIds, saved];
+      updateInsight(insight.id, { filters: stripFilterIds(updated) });
+    },
+    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
   );
 
   // --- Delete dialog handlers ---
@@ -325,6 +386,16 @@ export function InsightConfigPanel({
           onEditClick={setMetricToEdit}
           onAddClick={() => setIsMetricEditorOpen(true)}
         />
+
+        {/* Filters Section */}
+        <FiltersSection
+          filters={filtersWithIds}
+          combinedFields={combinedFields}
+          onReorder={handleFiltersReorder}
+          onRemove={handleRemoveFilter}
+          onEditClick={setFilterToEdit}
+          onAddClick={() => setFilterToEdit("new")}
+        />
       </div>
 
       <InsightFieldEditorModal
@@ -356,6 +427,12 @@ export function InsightConfigPanel({
         dataTable={dataTable}
         onOpenChange={(open) => !open && setMetricToEdit(null)}
         onSave={handleEditMetric}
+      />
+      <FilterEditDialog
+        filter={filterToEdit}
+        combinedFields={combinedFields}
+        onOpenChange={(open) => !open && setFilterToEdit(null)}
+        onSave={handleSaveFilter}
       />
       <DeleteConfirmDialog
         isOpen={deleteDialog.isOpen}
