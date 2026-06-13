@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 
-import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { useRightDock } from "@/lib/stores/useRightDock";
 
 /**
  * Global keyboard summon for the assistant: ⌘J (mac) / Ctrl+J toggles the
  * panel. Route-independent — registered once in the shell so the assistant is
- * reachable from anywhere, matching the "global, summonable" shape.
+ * reachable from anywhere, matching the "global, summonable" shape. Routes
+ * through the right-dock coordinator so a docked summon evicts the appearance
+ * panel (shared slot).
  */
 export function useAssistantHotkey(): void {
-  const toggle = useAssistantStore((s) => s.toggle);
+  const { toggleAssistant: toggle } = useRightDock();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
