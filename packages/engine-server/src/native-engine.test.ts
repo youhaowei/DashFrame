@@ -1,6 +1,9 @@
 import {
   Bool,
+  DateDay,
+  DateMillisecond,
   Float64,
+  Int32,
   Table,
   tableFromIPC,
   tableToIPC,
@@ -265,6 +268,88 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         'SELECT COUNT(*) AS cnt FROM "df_atomic"',
       );
       expect(Number(after.rows[0]?.cnt)).toBe(3);
+    });
+
+    it("preserves date-only (Date32/DateDay) columns without shifting to epoch", async () => {
+      // Regression for the Arrow date value-translation class: a Date32/DateDay
+      // column must round-trip to the same calendar date, not collapse to day 0
+      // or shift. The conversion divides the `.get()` result by MS_PER_DAY;
+      // apache-arrow normalizes Date32 to epoch millis, so the stored DuckDB
+      // DATE must equal the original calendar day.
+      engine = new NativeDuckDBEngine();
+      const day1 = Date.UTC(2021, 0, 2); // 2021-01-02
+      const day2 = Date.UTC(1999, 11, 31); // 1999-12-31
+      const buffer = tableToIPC(
+        new Table({
+          d: vectorFromArray([day1, null, day2], new DateDay()),
+        }),
+      );
+      await engine.registerArrowTable("df_date32", buffer);
+
+      const result = await engine.query(
+        `SELECT typeof(d) AS t, strftime(d, '%Y-%m-%d') AS iso
+         FROM "df_date32" WHERE d IS NOT NULL ORDER BY d`,
+      );
+      expect(result.rows.map((r) => r.t)).toEqual(["DATE", "DATE"]);
+      expect(result.rows.map((r) => r.iso)).toEqual([
+        "1999-12-31",
+        "2021-01-02",
+      ]);
+    });
+
+    it("preserves Date64 (DateMillisecond) columns to the correct calendar day", async () => {
+      engine = new NativeDuckDBEngine();
+      const day = Date.UTC(2024, 5, 13); // 2024-06-13
+      const buffer = tableToIPC(
+        new Table({
+          d: vectorFromArray([day], new DateMillisecond()),
+        }),
+      );
+      await engine.registerArrowTable("df_date64", buffer);
+
+      const result = await engine.query(
+        `SELECT strftime(d, '%Y-%m-%d') AS iso FROM "df_date64"`,
+      );
+      expect(result.rows[0]?.iso).toBe("2024-06-13");
+    });
+
+    it("does not corrupt concurrent registrations of the same table name", async () => {
+      // Two in-flight registrations of the same live table must not clobber
+      // each other's staging table mid-append. Per-call unique staging names
+      // isolate them; the live table ends with one upload's full contents
+      // (last-writer-wins), never a partial/mixed result or a thrown error.
+      engine = new NativeDuckDBEngine();
+
+      const bufferA = tableToIPC(
+        new Table({
+          v: vectorFromArray([1, 2, 3, 4, 5], new Int32()),
+        }),
+      );
+      const bufferB = tableToIPC(
+        new Table({
+          v: vectorFromArray([10, 20, 30, 40, 50, 60, 70], new Int32()),
+        }),
+      );
+
+      // Fire both at once against the same target name.
+      await Promise.all([
+        engine.registerArrowTable("df_concurrent", bufferA),
+        engine.registerArrowTable("df_concurrent", bufferB),
+      ]);
+
+      // The table must hold exactly one upload's rows (5 or 7), never a mix.
+      const result = await engine.query(
+        'SELECT COUNT(*) AS cnt FROM "df_concurrent"',
+      );
+      const cnt = Number(result.rows[0]?.cnt);
+      expect([5, 7]).toContain(cnt);
+
+      // No leaked staging tables remain after the swaps.
+      const staging = await engine.query(
+        `SELECT COUNT(*) AS cnt FROM duckdb_tables()
+         WHERE table_name LIKE '__staging_df_concurrent%'`,
+      );
+      expect(Number(staging.rows[0]?.cnt)).toBe(0);
     });
   });
 });

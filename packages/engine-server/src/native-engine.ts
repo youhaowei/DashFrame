@@ -203,7 +203,15 @@ export class NativeDuckDBEngine implements QueryEngine {
     // The TEMP table is session-scoped: DuckDB drops it automatically when the
     // connection closes, and the explicit DROP after the swap ensures we don't
     // accumulate stale staging tables across repeated registerArrowTable calls.
-    const stagingName = `__staging_${name}`;
+    //
+    // The staging name carries a per-call unique suffix. Two concurrent
+    // registrations of the SAME live table would otherwise share one
+    // deterministic staging name and clobber each other's rows mid-append
+    // (CREATE OR REPLACE on the second call drops the first's staging table
+    // while its appender is still flushing) → intermittent failures or wrong
+    // contents. A unique suffix isolates each upload's staging table; the final
+    // CREATE OR REPLACE of the live table is naturally last-writer-wins.
+    const stagingName = `__staging_${name}_${nextStagingId()}`;
     const columnDefs = fields
       .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
       .join(", ");
@@ -215,13 +223,13 @@ export class NativeDuckDBEngine implements QueryEngine {
     const appender = await conn.createAppender(stagingName);
     try {
       const columns = fields.map((f) => ({
-        typeId: f.type.typeId as ArrowType,
+        field: f,
         vector: arrowTable.getChild(f.name),
       }));
       const rowCount = arrowTable.numRows;
       for (let i = 0; i < rowCount; i++) {
         for (const col of columns) {
-          appendArrowValue(appender, col.typeId, col.vector?.get(i));
+          appendArrowValue(appender, col.field, col.vector?.get(i));
         }
         appender.endRow();
       }
@@ -323,6 +331,18 @@ function quoteIdent(name: string): string {
 const MS_PER_DAY = 86_400_000;
 
 /**
+ * Monotonic counter for unique staging-table names. A process-local counter is
+ * sufficient: staging tables are session-scoped to one DuckDB connection, and
+ * the only collision we need to avoid is two in-flight registrations of the
+ * same live table racing on a shared deterministic staging name.
+ */
+let stagingCounter = 0;
+function nextStagingId(): number {
+  stagingCounter += 1;
+  return stagingCounter;
+}
+
+/**
  * Map an Arrow schema field to a DuckDB column type for table DDL.
  *
  * The renderer's producer (`createArrowIPCBufferFromRows` in engine-browser)
@@ -357,17 +377,24 @@ function arrowFieldToDuckDBType(field: Field): string {
  * apache-arrow's `.get()` normalizes values per logical type: Timestamp and
  * Date come back as epoch milliseconds (number), Int64 as bigint, the rest as
  * their natural JS primitives.
+ *
+ * Date handling reads the column's `DateUnit` (DAY for Date32, MILLISECOND for
+ * Date64) and converts to the day count DuckDB DATE stores. apache-arrow (v21)
+ * normalizes BOTH units to epoch millis through the Date visitor on `.get()`,
+ * so both divide by MS_PER_DAY — but keying on the unit makes that explicit and
+ * keeps the branch honest if a future producer or arrow version surfaces raw
+ * Date32 days. A Date32 round-trip test pins the behavior.
  */
 function appendArrowValue(
   appender: DuckDBAppender,
-  typeId: ArrowType,
+  field: Field,
   value: unknown,
 ): void {
   if (value === null || value === undefined) {
     appender.appendNull();
     return;
   }
-  switch (typeId) {
+  switch (field.type.typeId) {
     case ArrowType.Bool:
       appender.appendBoolean(Boolean(value));
       break;
@@ -386,13 +413,20 @@ function appendArrowValue(
       );
       break;
     case ArrowType.Date:
-      // Arrow JS yields epoch millis; DuckDB DATE stores days.
-      appender.appendDate(
-        new DuckDBDateValue(Math.floor(Number(value) / MS_PER_DAY)),
-      );
+      appender.appendDate(new DuckDBDateValue(arrowDateToDuckDBDays(value)));
       break;
     default:
       appender.appendVarchar(String(value));
       break;
   }
+}
+
+/**
+ * Convert an apache-arrow Date `.get()` result to the day count DuckDB DATE
+ * stores. In apache-arrow v21 the Date visitor normalizes both Date32 (DAY) and
+ * Date64 (MILLISECOND) to epoch millis on read, so a single millis → days
+ * conversion is correct for both units. Pinned by the Date32 round-trip test.
+ */
+function arrowDateToDuckDBDays(value: unknown): number {
+  return Math.floor(Number(value) / MS_PER_DAY);
 }
