@@ -7,10 +7,16 @@
  *
  * Every write threads through a single `CacheWriteGate.shouldWrite` seam, and
  * the gate is a REQUIRED constructor option — there is no fail-open default. The
- * sensitivity gate (#67) enforces the fail-closed rule: only `cleared` columns
- * reach the on-disk Parquet file. `sensitive` and `unclassified` columns are
- * memory-only — they load into in-memory DuckDB and evaporate on session close.
- * No encryption is added; the protection is absence from disk, not ciphertext.
+ * sensitivity gate (#67) enforces the fail-closed rule: a result reaches the
+ * on-disk Parquet file ONLY when every column is `cleared`. If the gate would
+ * drop ANY column (a `sensitive`/`unclassified` column present, or a denied
+ * result), the WHOLE result stays memory-only — it is uncacheable under the
+ * full-query key, not partially written. A partial file under that key would
+ * later be served as if complete, returning an incomplete schema instead of
+ * re-reading the restricted columns from source (#89). `sensitive` and
+ * `unclassified` columns thus only ever live in in-memory DuckDB and evaporate
+ * on session close. No encryption is added; the protection is absence from
+ * disk, not ciphertext.
  *
  * Writing every column to disk (the public/cleared-only path) is possible but
  * must be opted into EXPLICITLY by passing `identityCacheWriteGate` — the unsafe
@@ -40,13 +46,18 @@ import { hashCompiledQuery } from "./compile";
  */
 export interface CacheWriteGate {
   /**
-   * Decide whether (and how) a compiled query's result may be written to the
-   * on-disk Parquet cache. Returns the columns to persist — `null`/empty means
-   * "do not write to disk" (e.g. a fully-sensitive result stays memory-only).
+   * Decide whether a compiled query's result may be written to the on-disk
+   * Parquet cache. Returns the cleared columns; `null`/empty means "do not write
+   * to disk" (e.g. a fully-sensitive result stays memory-only).
+   *
+   * The returned column set is interpreted all-or-nothing by `ParquetCache`: if
+   * it is missing ANY input column the whole result is uncacheable (a partial
+   * file under the full-query key would later be served as complete — #89). The
+   * gate need only report which columns are cleared; the cache decides cacheability.
    *
    * @param ctx.query   the compiled query whose result is being cached
    * @param ctx.columns result column names available to write
-   * @returns the subset of columns to persist; `null` to skip the disk write
+   * @returns the cleared columns; `null` to skip the disk write
    */
   shouldWrite(ctx: {
     query: CompiledQuery;
@@ -134,21 +145,73 @@ export class ParquetCache {
   }
 
   /**
+   * Remove any existing on-disk Parquet file for this query.
+   *
+   * Called whenever a write is declined (deny, narrow, or duplicate-name
+   * ambiguity) so a stale full-result file — written earlier when the columns
+   * were cleared, or before the gate existed — cannot survive a reclassification
+   * and keep `has(query)` reporting a hit. Fail toward NOT leaking: the cache
+   * floor is "no restricted bytes on disk", so a stale file is treated as
+   * untrusted and erased rather than left in place.
+   */
+  private async invalidate(query: CompiledQuery): Promise<void> {
+    await fs.rm(this.pathFor(query), { force: true });
+  }
+
+  /**
    * Write a query's result to the Parquet cache via DuckDB's `COPY ... TO`,
    * threading the write through the gate. Returns the written path, or `null`
-   * when the gate declined the disk write (memory-only result).
+   * when the result is uncacheable (memory-only).
    *
-   * `columns` is the result's column set; the gate may narrow it (see #67
-   * excludes sensitive columns). When the gate returns no columns, nothing is
-   * written — the audit invariant holds by construction.
+   * The on-disk cache holds ONLY a complete, all-cleared result under
+   * `pathFor(query)` — a hash of the FULL query. Anything less is uncacheable
+   * and additionally invalidates any stale file already at that path:
+   *
+   *   - **Gate deny** (`null`/empty decision): the whole result stays
+   *     memory-only (#67 — all columns restricted).
+   *   - **Gate narrow** (decision drops ANY column): a partial result must NOT
+   *     be written under the full-query key, or a later `has(query)` hit would
+   *     return an INCOMPLETE schema instead of re-reading the restricted columns
+   *     from source. A narrowed result is uncacheable — full result stays
+   *     memory-only / re-read from source. Owner decision (#89).
+   *   - **Duplicate column names**: the gate keys sensitivity by display name,
+   *     so two columns named `id` (one cleared, one sensitive) collapse and the
+   *     sensitive one could survive to disk. Duplicate names are ambiguous —
+   *     fail closed and treat the whole result as uncacheable.
+   *
+   * In every uncacheable case the audit invariant ("zero restricted bytes on
+   * disk") holds by construction: no COPY runs, and any stale file is erased.
    */
   async write(
     conn: DuckDBConnection,
     query: CompiledQuery,
     columns: string[],
   ): Promise<string | null> {
+    // Duplicate result column names are ambiguous for the name-keyed gate — a
+    // sensitive column can hide behind a cleared one sharing its name. Fail
+    // closed: uncacheable, and erase any stale file under this key.
+    if (new Set(columns).size !== columns.length) {
+      await this.invalidate(query);
+      return null;
+    }
+
     const decision = this.gate.shouldWrite({ query, columns });
+    // Gate denied the write entirely (all columns restricted).
     if (!decision || decision.columns.length === 0) {
+      await this.invalidate(query);
+      return null;
+    }
+
+    // Gate narrowed the result (dropped at least one column). A partial result
+    // under the full-query key would later be served as if complete — skip the
+    // disk write and erase any stale full-result file. Only an all-cleared,
+    // complete result may be cached. Compared as sets: order is irrelevant.
+    const writeSet = new Set(decision.columns);
+    const narrowed =
+      writeSet.size !== columns.length ||
+      columns.some((col) => !writeSet.has(col));
+    if (narrowed) {
+      await this.invalidate(query);
       return null;
     }
 
@@ -159,9 +222,9 @@ export class ParquetCache {
     // `?` placeholders inside the COPY wrapper's inner SELECT and fills them from
     // `values`. This avoids text-scanning the SQL for `?` (which would also
     // rewrite question marks inside string literals/comments and corrupt the
-    // query — e.g. `SELECT '?' AS marker, ? AS v`). The gate's column narrowing
-    // (the sensitivity-gate seam, see #67) is unchanged — it still shapes `selectList`, the only
-    // thing that decides what lands on disk.
+    // query — e.g. `SELECT '?' AS marker, ? AS v`). By the time we reach here
+    // the decision is a complete, all-cleared column set (narrowed results are
+    // rejected above), so `selectList` is every result column.
     await conn.run(
       `COPY (SELECT ${selectList} FROM (${query.sql})) TO ${quoteLiteral(
         target,
