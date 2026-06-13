@@ -489,6 +489,78 @@ describe("override-resolution — read-only invariant: insight is never mutated"
     expect(insightFilters).toHaveLength(1);
     expect(insightFilters[0]!.value).toBe("EMEA");
   });
+
+  it("OBJECT-valued filter values (between {low,high} + in array) are deep-cloned — mutating the effective set does not reach the insight", () => {
+    // The load-bearing case the scalar tests missed: `between` value is an
+    // object and `in` value is an array.  A shallow filter copy would SHARE
+    // those nested references, so mutating effective.filters[*].value would
+    // mutate the original insight through the shared reference.
+    const insightFilters: InsightFilter[] = [
+      {
+        field: "order_date",
+        operator: "between",
+        value: { low: "2024-01-01", high: "2024-12-31" },
+      },
+      { field: "region", operator: "in", value: ["EMEA", "APAC"] },
+    ];
+    const snapshotBefore = JSON.stringify(insightFilters);
+
+    // Resolve a cell override on a DIFFERENT field so both object-valued
+    // insight filters are inherited (carried through) into the effective set.
+    const params = resolveEffectiveParams(
+      insightFilters,
+      undefined,
+      undefined,
+      {
+        filters: [{ field: "month", operator: "eq", value: "Nov" }],
+      },
+    );
+
+    const betweenFilter = params.filters.find((f) => f.field === "order_date")!;
+    const inFilter = params.filters.find((f) => f.field === "region")!;
+
+    // Mutate the NESTED values of the effective set.
+    (betweenFilter.value as { low: unknown; high: unknown }).low = 999;
+    (inFilter.value as unknown[]).push("AMER");
+
+    // The original insight's filter values must be UNCHANGED.
+    expect(JSON.stringify(insightFilters)).toBe(snapshotBefore);
+    expect((insightFilters[0]!.value as { low: unknown }).low).toBe(
+      "2024-01-01",
+    );
+    expect(insightFilters[1]!.value).toEqual(["EMEA", "APAC"]);
+  });
+
+  it("OBJECT-valued override filter values are deep-cloned — mutating the effective set does not reach the override bag", () => {
+    // Same hole, but for the OTHER source of effective filters: a cell override
+    // entry's value.  `stripClearedFlag` must deep-clone the value too.
+    const overrideBag = {
+      filters: [
+        {
+          field: "order_date",
+          operator: "between" as const,
+          value: { low: "2025-01-01", high: "2025-06-30" },
+        },
+        { field: "region", operator: "in" as const, value: ["AMER"] },
+      ],
+    };
+    const overrideSnapshot = JSON.stringify(overrideBag);
+
+    const params = resolveEffectiveParams(
+      [],
+      undefined,
+      undefined,
+      overrideBag,
+    );
+
+    const betweenFilter = params.filters.find((f) => f.field === "order_date")!;
+    const inFilter = params.filters.find((f) => f.field === "region")!;
+    (betweenFilter.value as { high: unknown }).high = "MUTATED";
+    (inFilter.value as unknown[]).push("EMEA");
+
+    // The override bag's nested values must be untouched.
+    expect(JSON.stringify(overrideBag)).toBe(overrideSnapshot);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -57,9 +57,34 @@ export interface EffectiveParams {
 // Core resolution
 // ---------------------------------------------------------------------------
 
-/** Deep-clone an array of filters (shallow-object clone per element). */
+/**
+ * Deep-clone a filter's `value`.  `value` is NOT always a scalar:
+ * - `between` → `{ low, high }` (an object)
+ * - `in`      → an array
+ * A shallow `{ ...filter }` copy would SHARE these nested references with the
+ * insight's filter, so mutating `effective.filters[*].value` would mutate the
+ * original insight — breaking the read-only invariant for object-valued
+ * filters.  Values are plain JSON data, so `structuredClone` is safe and total.
+ */
+function cloneFilterValue(
+  value: InsightFilter["value"],
+): InsightFilter["value"] {
+  if (value === null || typeof value !== "object") return value;
+  return structuredClone(value);
+}
+
+/** Fully clone a filter, including its (possibly object/array-shaped) `value`. */
+function cloneFilter(filter: InsightFilter): InsightFilter {
+  return { ...filter, value: cloneFilterValue(filter.value) };
+}
+
+/**
+ * Clone an array of filters so every element — and every element's nested
+ * `value` — is independent of the source.  The effective param set must share
+ * NO reference with the insight's filters (read-only invariant).
+ */
 function cloneFilters(filters: InsightFilter[]): InsightFilter[] {
-  return filters.map((f) => ({ ...f }));
+  return filters.map(cloneFilter);
 }
 
 /** Deep-clone an array of sorts (shallow-object clone per element). */
@@ -138,14 +163,15 @@ function groupByField(
 
 /**
  * Return a plain `InsightFilter` from an `InsightFilterOverride`, stripping
- * the `cleared` extension flag.  The returned object is a shallow clone, so
- * the original override entry is never mutated.
+ * the `cleared` extension flag.  The returned object — including its nested
+ * `value` — is fully independent of the source override entry, so neither the
+ * override nor any insight filter is reachable through the effective set.
  */
 function stripClearedFlag(ov: InsightFilterOverride): InsightFilter {
   const base: InsightFilter = {
     field: ov.field,
     operator: ov.operator,
-    value: ov.value,
+    value: cloneFilterValue(ov.value),
   };
   if (ov.id !== undefined) base.id = ov.id;
   return base;
@@ -186,7 +212,9 @@ function inheritInsightFilters(
   effectiveFilters: InsightFilter[],
 ): void {
   for (const f of insightFilters) {
-    if (f.field === field) effectiveFilters.push({ ...f });
+    // Full clone (incl. nested `value`) — the inherited filter must not share
+    // any reference with the insight (read-only invariant).
+    if (f.field === field) effectiveFilters.push(cloneFilter(f));
   }
 }
 
