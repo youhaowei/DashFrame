@@ -1,3 +1,4 @@
+import type { InsightFilter, InsightSort } from "./insights";
 import type { UseQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
@@ -9,6 +10,52 @@ import type { UUID } from "./uuid";
  * Dashboard item type - supports visualizations and markdown content.
  */
 export type DashboardItemType = "visualization" | "markdown";
+
+/**
+ * Per-cell overrides applied on top of an insight's default params at compile
+ * time.  Only shape-preserving params are overrideable — fields and metrics are
+ * excluded because changing them would alter the query's output columns and
+ * break the visualization encoding.
+ *
+ * Absent key → inherit from insight default.
+ * Explicit clear (InsightFilterOverride with `cleared: true`) → remove the
+ * insight's filter for that field so the cell widens (shows all values).
+ *
+ * Design note: `filters` here is the effective cell override.  How the value
+ * gets populated (direct pin vs a future dashboard-control binding) is upstream;
+ * the coalesce function in the engine is two-layer (`insight ⊕ effectiveCellOverride`)
+ * so a control can write into this slot without a resolution-layer change.
+ */
+export interface DashboardItemOverrides {
+  /**
+   * Per-field filter overrides.  Each entry either pins a value (normal
+   * InsightFilter) or clears the insight's filter on that field (when
+   * `cleared: true`).  Fields not mentioned fall through to the insight default.
+   */
+  filters?: InsightFilterOverride[];
+  /** Sort override — replaces the insight's sorts array when present. */
+  sorts?: InsightSort[];
+  /** Row-limit override — replaces the insight's limit when present. */
+  limit?: number;
+}
+
+/**
+ * An InsightFilter entry extended with an optional explicit-clear sentinel.
+ *
+ * When `cleared` is `true` this entry signals "remove the insight's filter for
+ * this field" rather than applying a predicate.  This is a DISTINCT signal from
+ * absence: absence means inherit, cleared means widen.
+ *
+ * v0.3: clear widens freely — no permission gate (single-user data only).
+ * Multi-tenant widening-permission logic is explicitly deferred to v0.4+.
+ */
+export interface InsightFilterOverride extends InsightFilter {
+  /**
+   * When `true`, the insight's filter(s) on this field are REMOVED from the
+   * effective params.  `operator` and `value` are ignored when `cleared` is set.
+   */
+  cleared?: boolean;
+}
 
 /**
  * Dashboard item - A positioned widget on a dashboard.
@@ -24,6 +71,12 @@ export interface DashboardItem {
   /** Grid size */
   width: number;
   height: number;
+  /**
+   * Per-cell param overrides applied on top of the insight's defaults at compile
+   * time.  Absent = no overrides (the cell renders with the insight's defaults).
+   * Only filters, sorts, and limit are overrideable; fields and metrics are not.
+   */
+  overrides?: DashboardItemOverrides;
 }
 
 /**

@@ -33,3 +33,8 @@ export {
   selectTemporalAggregation,
   temporalTransform,
 } from "./date-transforms";
+
+export {
+  resolveEffectiveParams,
+  type EffectiveParams,
+} from "./override-resolution";
