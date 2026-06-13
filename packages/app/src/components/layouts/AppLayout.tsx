@@ -1,3 +1,4 @@
+import { useRenderPerf } from "@/lib/perf";
 import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@wystack/ui";
@@ -55,10 +56,16 @@ export function AppLayout({
   className,
   childrenClassName,
 }: AppLayoutProps) {
+  // Render boundary for the shared layout: every page built on AppLayout feeds
+  // the perf HUD a time-to-paint sample, keyed by its breadcrumb trail.
+  useRenderPerf(
+    `layout:${breadcrumbs?.map((b) => b.label).join("/") ?? "page"}`,
+  );
+
   return (
     <div
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-neutral-bg",
+        "flex h-full flex-col overflow-hidden bg-neutral-bg",
         className,
       )}
     >

@@ -1,3 +1,4 @@
+import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import {
   useDashboardMutations,
@@ -52,6 +53,21 @@ export default function DashboardDetailContent({
   const dashboard = useMemo(
     () => dashboards.find((d) => d.id === dashboardId),
     [dashboards, dashboardId],
+  );
+
+  // Bind the assistant to this dashboard (cleared on unmount).
+  useBindArtifact(
+    useMemo(
+      () =>
+        dashboard
+          ? {
+              kind: "dashboard" as const,
+              id: dashboardId,
+              title: dashboard.name || "Untitled dashboard",
+            }
+          : null,
+      [dashboard, dashboardId],
+    ),
   );
 
   // Local state

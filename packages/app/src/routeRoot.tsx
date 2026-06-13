@@ -1,10 +1,16 @@
 import type { FC, ReactNode } from "react";
 
+import { AppTopBar } from "@/components/AppTopBar";
+import { RightDock } from "@/components/RightDock";
+import { AssistantRegion } from "@/components/assistant/AssistantRegion";
+import { ArtifactContextProvider } from "@/components/assistant/artifact-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
+import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PlatformProvider } from "@/lib/platform";
 import { DatabaseProvider } from "@dashframe/core";
 import { Outlet } from "@tanstack/react-router";
 import { TooltipProvider } from "@wystack/ui";
@@ -31,13 +37,40 @@ export interface AppRouterContext {
 
 const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
 
+/**
+ * The chrome layout, built on the @wystack/ui layout shell:
+ *
+ *   TopBar  (full-width window chrome)
+ *   ├── Dock side=left   — Navigation (flat, on the canvas)
+ *   ├── Stage            — the primary content surface (artifact/page)
+ *   └── Dock side=right  — appearance panel ⊕ docked assistant (shared slot)
+ *
+ * The left nav and top bar sit *flat* on the canvas (window chrome); the Stage
+ * is the elevated primary surface; side panels float as vibrancy Docks. Region
+ * roles are owned here — the primitives only own shape.
+ */
+function Shell() {
+  return (
+    <div className="relative isolate flex h-screen flex-col text-neutral-fg">
+      <AppTopBar />
+      <div className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] pb-[var(--surface-inset)]">
+        <Navigation />
+        <AssistantRegion>
+          <Outlet />
+        </AssistantRegion>
+        <RightDock />
+      </div>
+    </div>
+  );
+}
+
 export function RouteRoot({
   providerWrapper: HostProviders = PassThrough,
 }: {
   providerWrapper?: ProviderWrapper;
 }) {
   return (
-    <div className="bg-neutral-bg font-sans text-neutral-fg">
+    <div className="bg-surface-base font-sans text-neutral-fg">
       <ThemeProvider>
         <HostProviders>
           <TooltipProvider>
@@ -62,15 +95,13 @@ export function RouteRoot({
                     <div className="absolute inset-0 bg-neutral-bg/50 backdrop-blur-[2px] dark:bg-neutral-bg/75" />
                   </div>
 
-                  <div className="relative isolate flex min-h-screen flex-row bg-neutral-bg text-neutral-fg">
-                    <Navigation />
-
-                    <main className="relative z-10 flex h-full w-full flex-1 flex-col overflow-hidden">
-                      <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-                        <Outlet />
-                      </div>
-                    </main>
-                  </div>
+                  <StoreHydration>
+                    <ArtifactContextProvider>
+                      <PlatformProvider>
+                        <Shell />
+                      </PlatformProvider>
+                    </ArtifactContextProvider>
+                  </StoreHydration>
                   <Toaster
                     toastOptions={{
                       style: {

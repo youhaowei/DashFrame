@@ -55,6 +55,14 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // macOS only: hide the title bar but keep the traffic lights, inset over the
+    // app's own top bar (the renderer reserves a spacer for them in AppTopBar).
+    // On Windows/Linux `hiddenInset` would hide the title bar *without* giving
+    // back window controls, so keep the standard frame there until the app
+    // draws its own controls.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const }
+      : {}),
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,

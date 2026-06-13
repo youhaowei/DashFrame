@@ -1,3 +1,4 @@
+import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
@@ -113,6 +114,21 @@ export default function VisualizationPageContent({
   const visualization = useMemo(
     () => visualizations.find((v) => v.id === visualizationId),
     [visualizations, visualizationId],
+  );
+
+  // Bind the assistant to this visualization (cleared on unmount).
+  useBindArtifact(
+    useMemo(
+      () =>
+        visualization
+          ? {
+              kind: "visualization" as const,
+              id: visualizationId,
+              title: visualization.name || "Untitled visualization",
+            }
+          : null,
+      [visualization, visualizationId],
+    ),
   );
 
   // Find the insight (React Compiler memoizes this).
@@ -672,7 +688,7 @@ export default function VisualizationPageContent({
   // Loading state
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="lg" className="text-neutral-fg-subtle" />
           <p className="text-sm text-neutral-fg-subtle">
@@ -686,7 +702,7 @@ export default function VisualizationPageContent({
   // Not found state
   if (!visualization) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Visualization not found</h2>
           <p className="mt-2 text-sm text-neutral-fg-subtle">

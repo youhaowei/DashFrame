@@ -257,14 +257,14 @@ export default function VisualizationsPage() {
   // Show loading state
   if (isLoadingViz) {
     return (
-      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
         <div className="text-neutral-fg-subtle">Loading visualizations...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-bg">
+    <div className="flex h-full flex-col bg-neutral-bg">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">

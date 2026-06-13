@@ -760,7 +760,7 @@ export default function JoinConfigureContent({
   // Loading state - wait for all stores to hydrate before rendering
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
         <div className="flex flex-col items-center gap-4">
           <Spinner size="lg" className="text-neutral-fg-subtle" />
           <p className="text-sm text-neutral-fg-subtle">
@@ -774,7 +774,7 @@ export default function JoinConfigureContent({
   // Error states
   if (!insight) {
     return (
-      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
           <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Insight not found</h2>
@@ -793,7 +793,7 @@ export default function JoinConfigureContent({
 
   if (!baseTable) {
     return (
-      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
           <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Base table not found</h2>
@@ -812,7 +812,7 @@ export default function JoinConfigureContent({
 
   if (!joinTable) {
     return (
-      <div className="flex h-screen items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Surface elevation="raised" className="p-8 text-center">
           <AlertCircleIcon className="mx-auto mb-4 h-10 w-10 text-neutral-fg-subtle" />
           <h2 className="text-xl font-semibold">Join table not found</h2>
@@ -832,7 +832,7 @@ export default function JoinConfigureContent({
   const canJoin = leftFieldId && rightFieldId;
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-bg">
+    <div className="flex h-full flex-col bg-neutral-bg">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">

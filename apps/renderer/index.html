@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DashFrame</title>
+    <!-- Window drag regions — must live in a raw <style>, NOT processed by
+         Lightning CSS, which strips -webkit-app-region as an unknown property.
+         Active only in the Electron renderer (data-electron, set by
+         PlatformProvider) and only when not fullscreen. -->
+    <style>
+      html[data-electron]:not([data-fullscreen]) .titlebar-drag-region {
+        -webkit-app-region: drag;
+        app-region: drag;
+      }
+      .titlebar-no-drag {
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
+      }
+      /* Interactive elements opt out so they stay clickable inside the bar. */
+      button,
+      input,
+      select,
+      textarea,
+      a,
+      [role="button"] {
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

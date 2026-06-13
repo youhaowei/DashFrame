@@ -1,6 +1,11 @@
+import {
+  type ArtifactContextValue,
+  useBindArtifact,
+} from "@/components/assistant/artifact-context";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { PerfStage, withPerfAsync } from "@/lib/perf";
 import {
   useDataFrames,
   useDataSourceMutations,
@@ -83,6 +88,30 @@ function getSourceTypeIcon(type: string) {
  * - Selected table details (fields, metrics, preview)
  * - Actions to create insights from tables
  */
+/**
+ * Builds the assistant's artifact binding for a data source, memoized so the
+ * binding effect only fires on a real change. Returns null until the source
+ * loads.
+ */
+function useDataSourceArtifact(
+  dataSource: unknown,
+  sourceId: string,
+  sourceName: string,
+  tableCount: number,
+): ArtifactContextValue | null {
+  return useMemo(() => {
+    if (!dataSource) return null;
+    const unit = tableCount === 1 ? "table" : "tables";
+    const subtitle = tableCount > 0 ? `${tableCount} ${unit}` : undefined;
+    return {
+      kind: "data-source",
+      id: sourceId,
+      title: sourceName || "Untitled source",
+      subtitle,
+    };
+  }, [dataSource, sourceId, sourceName, tableCount]);
+}
+
 export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
@@ -119,6 +148,12 @@ export default function DataSourcePageContent({
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
 
+  // Bind the assistant to this data source so its sidebar is contextual to what
+  // the user is looking at. Cleared automatically on unmount.
+  useBindArtifact(
+    useDataSourceArtifact(dataSource, sourceId, sourceName, dataTables.length),
+  );
+
   // Local state for delete confirmation
   const [deleteConfirmState, setDeleteConfirmState] = useState<{
     isOpen: boolean;
@@ -141,7 +176,19 @@ export default function DataSourcePageContent({
 
   // Handle name change - directly update database, triggers re-render via hook
   const handleNameChange = async (newName: string) => {
-    await updateDataSource(sourceId, { name: newName });
+    // Command-apply boundary: a direct mutation on the artifact. Instrumented so
+    // the dev HUD can hold it against the <100ms perceived budget. Wrapped so a
+    // failed mutation surfaces a toast instead of rejecting out of the input
+    // event path (unhandled rejection).
+    try {
+      await withPerfAsync(
+        PerfStage.CommandApply,
+        () => updateDataSource(sourceId, { name: newName }),
+        `data-source:${sourceId}`,
+      );
+    } catch {
+      toast.error("Failed to rename data source");
+    }
   };
 
   // Handle create insight from table
@@ -216,7 +263,7 @@ export default function DataSourcePageContent({
 
   if (isLoading && !dataSource) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <p className="text-sm text-neutral-fg-subtle">Loading data source…</p>
         </div>
@@ -227,7 +274,7 @@ export default function DataSourcePageContent({
   // Not found state
   if (!dataSource) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold">Data source not found</h2>
           <p className="mt-2 text-sm text-neutral-fg-subtle">
