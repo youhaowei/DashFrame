@@ -186,7 +186,7 @@ function FilterEditForm({
           <Label htmlFor="filter-field">Field</Label>
           <Select
             value={field}
-            onValueChange={(v: string) => {
+            onValueChange={(v: string | null) => {
               if (v) setField(v);
               // Reset values when field changes
               setScalarValue("");
@@ -218,8 +218,8 @@ function FilterEditForm({
           <Label htmlFor="filter-operator">Operator</Label>
           <Select
             value={operator}
-            onValueChange={(v: string) => {
-              setOperator(v as Operator);
+            onValueChange={(v: string | null) => {
+              if (v) setOperator(v as Operator);
               // Reset values on operator change
               setScalarValue("");
               setBetweenLow("");
