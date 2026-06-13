@@ -235,5 +235,36 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         engine.query('SELECT * FROM "df_tracked"'),
       ).rejects.toThrow();
     });
+
+    it("atomic ingest — a failed append leaves the prior table intact (no partial replace)", async () => {
+      // Contract: if registerArrowTable throws mid-append (e.g. type mismatch),
+      // the previously registered table must be unchanged and still queryable.
+      // The staging-table swap ensures this; the old NDJSON path did NOT.
+      engine = new NativeDuckDBEngine();
+
+      // Register the initial table with known data.
+      await engine.registerArrowTable("df_atomic", producerBuffer());
+
+      // Confirm the initial data is there (3 rows).
+      const before = await engine.query(
+        'SELECT COUNT(*) AS cnt FROM "df_atomic"',
+      );
+      expect(Number(before.rows[0]?.cnt)).toBe(3);
+
+      // Attempt a second registration with corrupted (non-Arrow) bytes.
+      // This should throw during staging-table creation or append.
+      await expect(
+        engine.registerArrowTable(
+          "df_atomic",
+          new Uint8Array([0xff, 0xfe, 0x00, 0x01]), // not valid Arrow IPC
+        ),
+      ).rejects.toThrow();
+
+      // The live table must still have the original 3 rows — not 0 or partial.
+      const after = await engine.query(
+        'SELECT COUNT(*) AS cnt FROM "df_atomic"',
+      );
+      expect(Number(after.rows[0]?.cnt)).toBe(3);
+    });
   });
 });

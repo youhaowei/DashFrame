@@ -198,16 +198,21 @@ export class NativeDuckDBEngine implements QueryEngine {
       throw new Error(`Arrow buffer for table "${name}" has no columns`);
     }
 
-    // Create the table with a schema mapped from the Arrow schema.
+    // Create a session-scoped TEMP table for staging — if the append fails
+    // partway through, the live table is untouched (atomic all-or-nothing).
+    // The TEMP table is session-scoped: DuckDB drops it automatically when the
+    // connection closes, and the explicit DROP after the swap ensures we don't
+    // accumulate stale staging tables across repeated registerArrowTable calls.
+    const stagingName = `__staging_${name}`;
     const columnDefs = fields
       .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
       .join(", ");
     await conn.run(
-      `CREATE OR REPLACE TABLE ${quoteIdent(name)} (${columnDefs})`,
+      `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
     );
 
-    // Stream rows through the typed Appender — no disk, no string round-trip.
-    const appender = await conn.createAppender(name);
+    // Stream rows into the staging table — no disk, no string round-trip.
+    const appender = await conn.createAppender(stagingName);
     try {
       const columns = fields.map((f) => ({
         typeId: f.type.typeId as ArrowType,
@@ -221,14 +226,35 @@ export class NativeDuckDBEngine implements QueryEngine {
         appender.endRow();
       }
       appender.flushSync();
-    } finally {
+    } catch (err) {
+      // Append failed — staging table may be partially written; clean it up
+      // before surfacing the error so the live table is never replaced.
       try {
         appender.closeSync();
       } catch {
-        // flushSync already surfaced any data error; a close failure after
-        // that (or while an exception is propagating) must not mask it.
+        // ignore close error — propagate original
       }
+      try {
+        await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+      } catch {
+        // best-effort cleanup
+      }
+      throw err;
     }
+    // Flush succeeded — close the appender before the swap.
+    try {
+      appender.closeSync();
+    } catch {
+      // close failure after a successful flush must not abort the swap
+    }
+
+    // Atomic swap: replace the live table with the fully-ingested staging copy.
+    // Both DDL statements run in the same connection, so the live table is never
+    // observable in a half-replaced state.
+    await conn.run(
+      `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+    );
+    await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
 
     this._registeredTables.add(name);
   }
