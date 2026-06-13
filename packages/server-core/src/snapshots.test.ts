@@ -163,46 +163,25 @@ describe("SnapshotScheduler", () => {
   });
 
   // A fake PGlite whose dumpDataDir records each call (a fired snapshot) and
-  // resolves to a tiny blob. It captures the in-flight writeSnapshot promise so
-  // teardown can await it — otherwise the real fs rename inside writeSnapshot
-  // could race the afterEach rmSync and emit a stray ENOENT. The fire counter
-  // increments synchronously at the start of each snapshot, so `fires()` is
-  // accurate the moment a snapshot is triggered.
-  function fakeClient(): {
-    client: PGlite;
-    fires: () => number;
-    settle: () => Promise<void>;
-  } {
+  // resolves to a tiny blob. The fire counter increments synchronously at the
+  // start of each dump. Tests await `sched.flush()` to drain the scheduler's
+  // serialization chain — which covers both the dump AND the real writeSnapshot
+  // fs work — so no stray fs rename races the afterEach rmSync (ENOENT).
+  function fakeClient(): { client: PGlite; fires: () => number } {
     let count = 0;
-    let inFlight: Promise<unknown> = Promise.resolve();
     const client = {
-      dumpDataDir: () => {
+      dumpDataDir: async () => {
         count += 1;
-        // Defer one microtask so the synchronous fireNow() returns first, then
-        // the fs work runs; capture it so the test can await completion.
-        const p = Promise.resolve(new Blob([Buffer.from("snap")]));
-        inFlight = p;
-        return p;
+        return new Blob([Buffer.from("snap")]);
       },
     } as unknown as PGlite;
-    return {
-      client,
-      fires: () => count,
-      // Await any in-flight snapshot fs work before teardown.
-      settle: async () => {
-        await inFlight;
-        await new Promise((r) => setTimeout(r, 20));
-      },
-    };
+    return { client, fires: () => count };
   }
-
-  // Let the snapshot's dumpDataDir + fs microtasks settle.
-  const flush = () => new Promise((r) => setTimeout(r, 0));
 
   test("N rapid touches within the debounce window fire exactly ONE snapshot", async () => {
     const projectDir = join(root, "debounce-once");
     mkdirSync(projectDir, { recursive: true });
-    const { client, fires, settle } = fakeClient();
+    const { client, fires } = fakeClient();
 
     let now = 0;
     const sched = new SnapshotScheduler(
@@ -220,19 +199,20 @@ describe("SnapshotScheduler", () => {
     }
     expect(fires()).toBe(0); // nothing fired yet — still debouncing
 
-    // Quiet gap → the single debounced timer fires.
+    // Quiet gap lets the single debounced real-timer fire fireNow(); then await
+    // the scheduler's in-flight chain so the chained dump + fs write completed.
     await new Promise((r) => setTimeout(r, 1100));
-    await flush();
+    await sched.flush();
     expect(fires()).toBe(1);
 
     sched.cancel();
-    await settle();
+    await sched.flush();
   });
 
   test("a continuous touch stream still snapshots once max-wait is exceeded (no infinite deferral)", async () => {
     const projectDir = join(root, "maxwait-cap");
     mkdirSync(projectDir, { recursive: true });
-    const { client, fires, settle } = fakeClient();
+    const { client, fires } = fakeClient();
 
     let now = 0;
     const debounceMs = 1000;
@@ -257,9 +237,12 @@ describe("SnapshotScheduler", () => {
     }
 
     // At t=5000 the burst has been pending exactly maxWaitMs → fire now.
+    // Await the scheduler's own in-flight chain (not a bare tick): fireNow now
+    // chains the dump through the serialization tail, so the counter increments
+    // a couple of microtasks later — `sched.flush()` resolves once it has run.
     now = 5000;
     sched.touch();
-    await flush();
+    await sched.flush();
     expect(fires()).toBe(1);
 
     // The burst tracker reset: subsequent fast touches defer again until the
@@ -269,7 +252,7 @@ describe("SnapshotScheduler", () => {
     expect(fires()).toBe(1);
 
     sched.cancel();
-    await settle();
+    await sched.flush();
   });
 
   test("cancel() clears a pending debounced snapshot and resets the burst anchor", async () => {
@@ -290,7 +273,7 @@ describe("SnapshotScheduler", () => {
 
     // The debounce timer was cleared — even after the window elapses, no fire.
     await new Promise((r) => setTimeout(r, 1100));
-    await flush();
+    await sched.flush();
     expect(fires()).toBe(0);
   });
 
