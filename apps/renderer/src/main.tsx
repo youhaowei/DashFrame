@@ -82,17 +82,24 @@ async function bootstrap() {
     }
   }
 
+  // Bind the upload callback ONCE here, not inside the providerWrapper body.
+  // providerWrapper is rendered as a React component, so any object/function
+  // created in its body would be a fresh reference every render. That fresh
+  // reference flows through ChartEngineProvider context into useInsightView's
+  // chart-query effect dependency array, re-firing the effect on every render
+  // (→ setState → re-render → infinite loop, which crashes the renderer on the
+  // visualization route). A stable, module-lifetime callback breaks the loop.
+  const uploadArrowTable = nativeConnector
+    ? (name: string, arrowBytes: Uint8Array) =>
+        nativeConnector.uploadArrowTable(name, arrowBytes)
+    : null;
+
   const providerWrapper: ProviderWrapper = ({ children }) => (
     <Provider>
       <ChartEngineProvider
         connector={nativeConnector}
         engineError={engineError}
-        uploadArrowTable={
-          nativeConnector
-            ? (name, arrowBytes) =>
-                nativeConnector.uploadArrowTable(name, arrowBytes)
-            : null
-        }
+        uploadArrowTable={uploadArrowTable}
       >
         {children}
       </ChartEngineProvider>

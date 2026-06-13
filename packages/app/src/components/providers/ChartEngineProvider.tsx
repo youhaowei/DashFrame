@@ -16,7 +16,7 @@
  * The MosaicConnector shape mirrors `@uwdata/mosaic-core`'s `Connector`
  * interface, kept inline here so this package has no direct dep on mosaic-core.
  */
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 /**
  * Structural Mosaic Connector — subset of `@uwdata/mosaic-core` Connector.
@@ -89,10 +89,20 @@ export function ChartEngineProvider({
   uploadArrowTable = null,
   children,
 }: ChartEngineProviderProps) {
+  // Memoize the context value. Without this, a fresh object literal every render
+  // would change the context identity, forcing every useChartEngine() consumer
+  // to re-render. In useInsightView that re-render re-runs the chart-query
+  // effect (connector/uploadArrowTable are in its dep array) → setState →
+  // re-render → infinite loop, which crashes the renderer on the visualization
+  // route. The desktop host passes stable connector/uploadArrowTable references,
+  // so this memo holds steady once mounted.
+  const value = useMemo(
+    () => ({ connector, engineError, uploadArrowTable }),
+    [connector, engineError, uploadArrowTable],
+  );
+
   return (
-    <ChartEngineContext.Provider
-      value={{ connector, engineError, uploadArrowTable }}
-    >
+    <ChartEngineContext.Provider value={value}>
       {children}
     </ChartEngineContext.Provider>
   );
