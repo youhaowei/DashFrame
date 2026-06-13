@@ -1,5 +1,6 @@
 import {
   computeCombinedFields,
+  computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import {
@@ -26,6 +27,7 @@ import {
 } from "./DeleteConfirmDialog";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FieldsSection } from "./FieldsSection";
+import { applyFilterSave, withFilterIds } from "./filter-id";
 import { FilterEditDialog } from "./FilterEditDialog";
 import { FiltersSection, type FilterWithId } from "./FiltersSection";
 import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
@@ -120,6 +122,17 @@ export function InsightConfigPanel({
     [dataTable, insight.joins, allDataTables],
   );
 
+  // Fields that can actually back a filter predicate — excludes dropped right
+  // join-keys and ambiguous duplicate column names that the SQL builder cannot
+  // resolve. Offered in the FilterEditDialog picker so a saved filter always
+  // produces a working predicate. (FiltersSection still receives the full
+  // combinedFields, so an existing filter on an excluded field renders by name
+  // rather than as a stale reference.)
+  const filterableFields = useMemo(
+    () => computeFilterableFields(combinedFields, insight.joins),
+    [combinedFields, insight.joins],
+  );
+
   // Get selected fields in order (preserving insight.selectedFields order)
   const selectedFields = useMemo(() => {
     const fieldMap = new Map(combinedFields.map((f) => [f.id, f]));
@@ -141,20 +154,20 @@ export function InsightConfigPanel({
   );
 
   /**
-   * Stable client-side ids for filters (filters have no id in the domain type).
-   * Derived from the filter list; re-generated only when the raw filter array
-   * reference changes (i.e., after a save). The index-based id scheme is
-   * intentionally simple — filters are always edited via a close-then-reopen
-   * dialog, so stale ids are never in flight. FilterEditDialog's "new" session
-   * generates a UUID for its own key-reset scope; that UUID is dropped here on
-   * the next derivation after save.
+   * Stable client-side ids for filters, used for SortableList keying and for
+   * matching an in-flight edit back to its predicate on save.
+   *
+   * `_id` is sourced from the filter's persisted `id` (generated on add by
+   * FilterEditDialog and preserved across persistence round-trips). This
+   * survives a subscription firing mid-edit — a concurrent reorder no longer
+   * shifts the id, so handleSaveFilter cannot misroute the save to the wrong
+   * filter. Filters created via the API/agent path without an `id` fall back to
+   * a content+index key; those aren't expected to be edited concurrently.
    */
-  const filtersWithIds = useMemo((): FilterWithId[] => {
-    return (insight.filters ?? []).map((f, i) => ({
-      ...f,
-      _id: `${f.field}-${f.operator}-${i}`,
-    }));
-  }, [insight.filters]);
+  const filtersWithIds = useMemo(
+    (): FilterWithId[] => withFilterIds(insight.filters),
+    [insight.filters],
+  );
 
   // --- Field handlers ---
   const handleFieldsReorder = useCallback(
@@ -271,10 +284,7 @@ export function InsightConfigPanel({
 
   const handleSaveFilter = useCallback(
     (saved: FilterWithId) => {
-      const exists = filtersWithIds.some((f) => f._id === saved._id);
-      const updated = exists
-        ? filtersWithIds.map((f) => (f._id === saved._id ? saved : f))
-        : [...filtersWithIds, saved];
+      const updated = applyFilterSave(filtersWithIds, saved);
       updateInsight(insight.id, { filters: stripFilterIds(updated) });
     },
     [insight.id, filtersWithIds, stripFilterIds, updateInsight],
@@ -430,7 +440,7 @@ export function InsightConfigPanel({
       />
       <FilterEditDialog
         filter={filterToEdit}
-        combinedFields={combinedFields}
+        combinedFields={filterableFields}
         onOpenChange={(open) => !open && setFilterToEdit(null)}
         onSave={handleSaveFilter}
       />

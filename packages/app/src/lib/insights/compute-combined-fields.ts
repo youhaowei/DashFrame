@@ -127,3 +127,51 @@ export function computeCombinedFields(
 
   return { fields: combined, count: combined.length };
 }
+
+/**
+ * Narrows combined fields to those that can actually back a filter predicate.
+ *
+ * The insight SQL builder keys filter resolution on a field's bare column name
+ * (`columnName ?? name`) and emits the join only over columns present in the
+ * joined subquery. Two classes of combined field therefore produce a filter
+ * that is silently dropped at query time:
+ *
+ * 1. **Dropped right join-keys** — for each join, the right-side field whose
+ *    column name equals `join.rightKey` is excluded from the emitted subquery
+ *    (it is redundant with the left key it joins on). A filter on it resolves
+ *    to a missing column and is skipped.
+ * 2. **Ambiguous duplicate column names** — when base and joined tables share a
+ *    column name, both fields persist the same bare `field` value, so the
+ *    resolver cannot tell them apart and picks the first match. Offering either
+ *    risks filtering the wrong table's column.
+ *
+ * Excluding both classes guarantees every offered field yields a working,
+ * unambiguous predicate. (Disambiguating duplicates by a stable per-field
+ * identifier instead of dropping them requires the SQL builder to resolve
+ * filters by field id rather than column name — a separate change.)
+ */
+export function computeFilterableFields(
+  combinedFields: CombinedField[],
+  joins: InsightJoinConfig[] | undefined,
+): CombinedField[] {
+  // Column names that are the right-side key of some join (dropped from the
+  // emitted subquery), compared case-insensitively to match the builder.
+  const droppedRightKeysLower = new Set(
+    (joins ?? []).map((j) => j.rightKey.toLowerCase()),
+  );
+
+  // Column names that appear more than once across the combined set — the
+  // resolver cannot disambiguate these by bare column name.
+  const colNameCounts = new Map<string, number>();
+  for (const f of combinedFields) {
+    const key = (f.columnName ?? f.name).toLowerCase();
+    colNameCounts.set(key, (colNameCounts.get(key) ?? 0) + 1);
+  }
+
+  return combinedFields.filter((f) => {
+    const colNameLower = (f.columnName ?? f.name).toLowerCase();
+    if (droppedRightKeysLower.has(colNameLower)) return false;
+    if ((colNameCounts.get(colNameLower) ?? 0) > 1) return false;
+    return true;
+  });
+}

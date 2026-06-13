@@ -20,6 +20,12 @@ import {
   SelectValue,
 } from "@wystack/ui";
 import { type ChangeEvent, useMemo, useState } from "react";
+import {
+  buildFilterValue,
+  type FilterDraft,
+  inputTypeForField,
+  isFilterDraftValid,
+} from "./filter-value";
 import type { FilterWithId } from "./FiltersSection";
 
 // ============================================================================
@@ -51,17 +57,6 @@ const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
   { value: "between", label: "between" },
   { value: "in", label: "in (list)" },
 ];
-
-/** Auto-detect the HTML input type from a field's normalized ColumnType */
-function inputTypeForField(
-  field: CombinedField | undefined,
-): "text" | "number" | "date" {
-  if (!field) return "text";
-  const t = field.type;
-  if (t === "number") return "number";
-  if (t === "date") return "date";
-  return "text";
-}
 
 // ============================================================================
 // FilterEditForm (inner; key-reset pattern from MetricEditDialog)
@@ -120,39 +115,15 @@ function FilterEditForm({
   const isBetween = operator === "between";
   const isIn = operator === "in";
 
-  const buildValue = (): unknown => {
-    if (isBetween) {
-      const low = inputType === "number" ? Number(betweenLow) : betweenLow;
-      const high = inputType === "number" ? Number(betweenHigh) : betweenHigh;
-      return { low, high } satisfies InsightFilterBetweenValue;
-    }
-    if (isIn) {
-      // Parse comma-separated values; coerce to number if field is numeric
-      const items = scalarValue
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return inputType === "number" ? items.map(Number) : items;
-    }
-    if (inputType === "number") {
-      const n = Number(scalarValue);
-      return isFinite(n) ? n : scalarValue;
-    }
-    return scalarValue;
+  const draft: FilterDraft = {
+    field,
+    operator,
+    inputType,
+    scalarValue,
+    betweenLow,
+    betweenHigh,
   };
-
-  const isValid = (() => {
-    if (!field) return false;
-    if (isBetween) {
-      if (betweenLow.trim() === "" || betweenHigh.trim() === "") return false;
-      if (inputType === "number")
-        return isFinite(Number(betweenLow)) && isFinite(Number(betweenHigh));
-      return true;
-    }
-    if (scalarValue.trim() === "") return false;
-    if (!isIn && inputType === "number") return isFinite(Number(scalarValue));
-    return true;
-  })();
+  const isValid = isFilterDraftValid(draft);
 
   let valuePlaceholder = "Enter a value";
   if (isIn) valuePlaceholder = "e.g. a, b, c";
@@ -164,7 +135,7 @@ function FilterEditForm({
       ...filter,
       field,
       operator,
-      value: buildValue(),
+      value: buildFilterValue(draft),
     });
     onClose();
   };
@@ -328,8 +299,9 @@ export function FilterEditDialog({
    * a new UUID and silently remount FilterEditForm mid-fill, discarding the
    * user's in-progress input.
    *
-   * The UUID is ephemeral — after onSave the dialog closes and filtersWithIds
-   * in InsightConfigPanel re-derives ids from array indices, dropping this UUID.
+   * This UUID becomes the filter's persisted `id`, so it survives subscription
+   * round-trips and InsightConfigPanel can match the saved filter by a stable
+   * identity rather than a fragile array index.
    */
   const newFilterId = useMemo(
     () => crypto.randomUUID(),
@@ -343,6 +315,7 @@ export function FilterEditDialog({
     if (filter === null) return null;
     if (filter === "new") {
       return {
+        id: newFilterId,
         _id: newFilterId,
         field: combinedFields[0]
           ? (combinedFields[0].columnName ?? combinedFields[0].name)
