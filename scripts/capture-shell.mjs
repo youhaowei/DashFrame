@@ -1,15 +1,15 @@
 // One-shot visual capture for the three-region shell + assistant sidebar + HUD.
-// Drives the running worktree dev server (http://127.0.0.1:5300) through every
-// required state and writes PNGs to docs/screenshots/.
+// Drives the running dev server through every required state and writes PNGs to
+// a temp directory (these are disposable evidence, never committed). Override
+// the destination with OUT_DIR.
 //
 // Usage: node scripts/capture-shell.mjs   (run from a dir where @playwright/test resolves)
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT = process.env.OUT_DIR ?? join(__dirname, "../docs/screenshots");
+const OUT = process.env.OUT_DIR ?? join(tmpdir(), "dashframe-shell-shots");
 mkdirSync(OUT, { recursive: true });
 
 const BASE = process.env.BASE_URL ?? "http://127.0.0.1:5300";

@@ -68,5 +68,6 @@ coverage
 .wystack.*.bak/
 .clawpatch/
 
-# Generated shell capture output (regenerate via scripts/capture-shell.mjs)
+# Shell capture output — never committed. The script defaults to a temp dir;
+# this guards against an OUT_DIR=docs/screenshots run dirtying the tree.
 docs/screenshots/
