@@ -127,10 +127,15 @@ export function VisualizationDisplay({
   }, [insight, dataTables]);
 
   // Build an Insight-compatible object for useInsightView.
-  // Only structural fields (id, name, baseTableId, joins, selectedFields, metrics,
-  // filters, sorts) — everything buildInsightSQL reads from the insight param.
-  // Filters and sorts are included so that useInsightPagination (query mode)
-  // applies the insight's own defaults when there are no cell overrides.
+  // IMPORTANT: this is intentionally the minimal structural shape
+  // (id, name, baseTableId, joins) — exactly as the pre-override path.  It must
+  // NOT carry selectedFields/metrics/filters/sorts: this surface renders the
+  // RAW model view (vgplot computes aggregations from raw rows via the encoding),
+  // and useInsightPagination below queries the same raw model. Adding
+  // metrics/selectedFields here would make pagination emit aggregated/metric
+  // columns that don't exist in the raw model view the chart queries, breaking
+  // chart column resolution.  Cell overrides are layered separately via
+  // effectiveParams, which is undefined unless `overrides` is present.
   const insightForView: Insight | null = useMemo(() => {
     if (!insight) return null;
     return {
@@ -138,28 +143,25 @@ export function VisualizationDisplay({
       name: insight.name,
       baseTableId: insight.baseTableId,
       joins: insight.joins,
-      selectedFields: insight.selectedFields,
-      metrics: insight.metrics,
-      filters: insight.filters,
-      sorts: insight.sorts,
     } as Insight;
   }, [insight]);
 
   // Resolve the effective params for this cell = insight defaults ⊕ overrides.
   // Only computed when overrides are present.  When absent, both hooks get
-  // `effectiveParams: undefined` and use the insight's native filters/sorts —
-  // preserving the pre-override behaviour exactly (no-override no-regression).
+  // `effectiveParams: undefined` and follow the exact pre-override path
+  // (no-override no-regression).  The insight's own filters/sorts come from the
+  // raw Dexie `insight` object, not `insightForView` (which is kept minimal).
   const effectiveParams = useMemo(
     () =>
-      overrides && insightForView
+      overrides && insight
         ? resolveEffectiveParams(
-            insightForView.filters,
-            insightForView.sorts,
+            insight.filters,
+            insight.sorts,
             undefined, // insight-level limit (not stored on Insight type yet)
             overrides,
           )
         : undefined,
-    [insightForView, overrides],
+    [insight, overrides],
   );
 
   // Use insight view hook to get the proper table name (handles joins).
