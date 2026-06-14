@@ -164,18 +164,19 @@ describe("groupRowsBy — null/sentinel collision", () => {
 // ---------------------------------------------------------------------------
 
 describe("groupRowsBy — field without columnName", () => {
-  it("participates in grouping via field.id when columnName is absent", () => {
+  it("participates in grouping via field.name when columnName is absent", () => {
     // A computed/virtual field has no columnName. Old code treated all such
     // fields as null → every row fell into the same null-keyed group.
-    // The fix uses field.id as the row key lookup instead.
-    const computed = field({ id: "virtual_status", name: "Virtual Status" }); // no columnName
+    // The codebase convention (matching compute-combined-fields.ts) is
+    // columnName ?? name, so the row lookup key is field.name.
+    const computed = field({ id: "f-status", name: "status" }); // no columnName
     const dt = table([computed]);
-    const ins = insight(["virtual_status"]);
+    const ins = insight(["f-status"]);
 
     const data = frame([
-      { virtual_status: "active" },
-      { virtual_status: "inactive" },
-      { virtual_status: "active" },
+      { status: "active" },
+      { status: "inactive" },
+      { status: "active" },
     ]);
 
     const result = computeInsightPreview(ins, dt, data, 50);
@@ -184,16 +185,51 @@ describe("groupRowsBy — field without columnName", () => {
   });
 
   it("still extracts the field value into the output row for fields without columnName", () => {
-    const computed = field({ id: "virtual_status", name: "Virtual Status" });
+    const computed = field({ id: "f-status", name: "status" }); // no columnName
     const dt = table([computed]);
-    const ins = insight(["virtual_status"]);
+    const ins = insight(["f-status"]);
 
-    const data = frame([{ virtual_status: "active" }]);
+    const data = frame([{ status: "active" }]);
 
     const result = computeInsightPreview(ins, dt, data, 50);
-    expect(result.dataFrame.rows[0]).toMatchObject({
-      "Virtual Status": "active",
-    });
+    expect(result.dataFrame.rows[0]).toMatchObject({ status: "active" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BigInt values (DuckDB BIGINT columns surface as JS bigint)
+// ---------------------------------------------------------------------------
+
+describe("groupRowsBy — BigInt values", () => {
+  it("does not throw on bigint field values and groups them correctly", () => {
+    // JSON.stringify(1n) throws TypeError: Do not know how to serialize a BigInt.
+    // The encoder must handle bigint before passing to JSON.stringify.
+    const id = field({ id: "f1", name: "user_id", columnName: "user_id" });
+    const dt = table([id]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { user_id: 1n },
+      { user_id: 2n },
+      { user_id: 1n }, // duplicate → same group as first
+    ]);
+
+    // Must not throw, and must produce 2 groups (1n and 2n)
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(2);
+  });
+
+  it("keeps bigint 1n distinct from the number 1 and the string '1'", () => {
+    // All three would produce the same string via String(value), so type
+    // tags are required to prevent cross-type collisions.
+    const col = field({ id: "f1", name: "val", columnName: "val" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([{ val: 1n }, { val: 1 }, { val: "1" }]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(3);
   });
 });
 

@@ -123,21 +123,29 @@ function groupRowsBy(
 
   for (const row of rows) {
     // Build a collision-resistant key using typed tuples per field.
-    // Tags: ["null"] for null/undefined, ["special", str] for non-finite
-    // numbers (NaN/±Infinity — JSON.stringify coerces these to "null", so they
-    // must be normalized out before serialization), or ["v", value] for all
-    // other values. JSON.stringify over this tagged array is injective for any
-    // mix of strings, finite numbers, and booleans: a value containing the old
-    // "|||" delimiter or the string "null" cannot collide with a different
-    // value-combination.
-    // Fields without columnName participate via field.id so they don't all
-    // collapse to the same null bucket.
+    //
+    // The encoding is a TOTAL, injective function over every value DuckDB
+    // can produce (string, finite number, bigint, boolean, null/undefined,
+    // non-finite number). Two distinct values must never share a key; no
+    // value may throw. Type tags prevent cross-type collisions (e.g. the
+    // string "1" vs the number 1 vs the bigint 1n each produce distinct keys).
+    //
+    // Tags:
+    //   ["null"]           — null or undefined
+    //   ["num", str]       — non-finite numbers: "NaN", "Infinity", "-Infinity"
+    //                        (JSON.stringify coerces these to null otherwise)
+    //   ["bigint", str]    — BigInt values (JSON.stringify THROWS on bigint)
+    //   ["v", value]       — everything else: string, finite number, boolean
+    //
+    // Column lookup: field.columnName ?? field.name (codebase convention,
+    // matching compute-combined-fields.ts and the SQL builder helpers).
     const keyParts = fields.map((field) => {
-      const colKey = field.columnName ?? field.id;
+      const colKey = field.columnName ?? field.name;
       const value = row[colKey];
       if (value == null) return ["null"];
+      if (typeof value === "bigint") return ["bigint", value.toString()];
       if (typeof value === "number" && !isFinite(value)) {
-        return ["special", String(value)]; // "NaN", "Infinity", "-Infinity"
+        return ["num", String(value)]; // "NaN", "Infinity", "-Infinity"
       }
       return ["v", value];
     });
@@ -169,10 +177,11 @@ function extractGroupKeys(
   const result: Record<string, unknown> = {};
 
   for (const field of fields) {
-    // Use columnName when available; fall back to field.id so that fields
-    // without a columnName still contribute a value instead of being silently
-    // dropped from the output row.
-    const colKey = field.columnName ?? field.id;
+    // Use columnName when available; fall back to field.name (codebase
+    // convention: columnName ?? name, matching compute-combined-fields.ts)
+    // so that fields without a columnName still contribute a value instead
+    // of being silently dropped from the output row.
+    const colKey = field.columnName ?? field.name;
     result[field.name] = row[colKey];
   }
 
