@@ -95,7 +95,9 @@ function filtersToViewSuffix(
   const str = JSON.stringify(filters);
   // btoa operates on binary strings; TextEncoder gives us the UTF-8 bytes first.
   const bytes = new TextEncoder().encode(str);
-  const binary = String.fromCharCode(...bytes);
+  // Use Array.from to avoid a spread-argument RangeError on large payloads
+  // (V8/Bun cap spread args at ~65 536; a filter with many long strings can exceed it).
+  const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
   // Standard base64, then convert to base64url (replace +/ with -_ and strip =)
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
