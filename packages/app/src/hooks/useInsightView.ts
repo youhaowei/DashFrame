@@ -78,24 +78,26 @@ export function getCachedViewName(insightId: string): string | null {
 }
 
 /**
- * Produce a short (8-char) hex digest of an array of InsightFilters.
+ * Encode an array of InsightFilters as a URL-safe base64 string.
  *
  * Used to generate a SQL-safe view name suffix for per-cell filtered views so
- * that two dashboard cells on the same insight with DIFFERENT overrides map to
- * two distinct DuckDB views instead of colliding on `insight_view_<id>`.
+ * that two dashboard cells on the same insight with DIFFERENT overrides always
+ * map to two distinct DuckDB views (collision-free by construction: the suffix
+ * IS the serialised filter payload, not a lossy hash of it).
  *
- * Not a crypto hash — just a stable deterministic djb2 string hash sufficient
- * for naming uniqueness within a session.
+ * Characters that are illegal in DuckDB quoted identifiers (`"`) are already
+ * excluded from base64url, so the suffix is safe to embed directly in the view
+ * name string.
  */
-function hashFilters(
+function filtersToViewSuffix(
   filters: { field: string; operator: string; value: unknown }[],
 ): string {
   const str = JSON.stringify(filters);
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; // djb2, unsigned 32-bit
-  }
-  return h.toString(16).padStart(8, "0");
+  // btoa operates on binary strings; TextEncoder gives us the UTF-8 bytes first.
+  const bytes = new TextEncoder().encode(str);
+  const binary = String.fromCharCode(...bytes);
+  // Standard base64, then convert to base64url (replace +/ with -_ and strip =)
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 /**
@@ -398,7 +400,7 @@ export function useInsightView(
         const newViewName =
           snapshotEffectiveFilters !== null &&
           snapshotEffectiveFilters.length > 0
-            ? `insight_view_${idSafe}_cell_${hashFilters(snapshotEffectiveFilters)}`
+            ? `insight_view_${idSafe}_cell_${filtersToViewSuffix(snapshotEffectiveFilters)}`
             : `insight_view_${idSafe}`;
         const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`;
         await connection.query(createViewSql);
