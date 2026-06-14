@@ -113,7 +113,6 @@ export default function DataSourcePageContent({
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
 
-  // Dexie hooks
   const { data: allDataSources = [] } = useDataSources();
   const { update: updateDataSource } = useDataSourceMutations();
   const { remove: removeDataTable, updateField } = useDataTableMutations();
@@ -123,7 +122,6 @@ export default function DataSourcePageContent({
   const dataSource = allDataSources.find((s) => s.id === sourceId);
   const isLoading = false; // DataSources hook handles loading
 
-  // Get tables for this data source (flat in Dexie)
   const { data: dataTables = [] } = useDataTables(sourceId);
 
   // Local state for selected table - use null to indicate "not yet selected by user"

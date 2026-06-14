@@ -102,7 +102,6 @@ export function VisualizationDisplay({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Dexie hooks for data
   const { data: visualizations = [], isLoading: isVizLoading } =
     useVisualizations();
   const { data: insights = [] } = useInsights();
@@ -150,7 +149,7 @@ export function VisualizationDisplay({
   // Only computed when overrides are present.  When absent, both hooks get
   // `effectiveParams: undefined` and follow the exact pre-override path
   // (no-override no-regression).  The insight's own filters/sorts come from the
-  // raw Dexie `insight` object, not `insightForView` (which is kept minimal).
+  // raw server `insight` object, not `insightForView` (which is kept minimal).
   const effectiveParams = useMemo(
     () =>
       overrides && insight

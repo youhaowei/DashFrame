@@ -1,4 +1,4 @@
-// Core visualization components - used by Dexie-migrated pages
+// Core visualization components
 export { CreateVisualizationModal } from "./CreateVisualizationModal";
 export { DateTransformPicker } from "./DateTransformPicker";
 export { EmptyState } from "./EmptyState";

@@ -114,9 +114,8 @@ Notion `relation` fields enable automatic join detection:
 
 ## Repository Interfaces
 
-Repository interfaces define contracts for persistence. Implementations:
-
-- `@dashframe/core-dexie` - Browser persistence with Dexie/IndexedDB (default)
+Repository interfaces define contracts for persistence. The implementation is
+`@dashframe/app-data`, which routes all reads/writes through the WyStack server.
 
 ### Pattern
 
@@ -127,9 +126,9 @@ type UseDataSources = () => UseDataSourcesResult;
 // Mutation hook type
 type UseDataSourceMutations = () => DataSourceMutations;
 
-// Usage (implementation from core-dexie)
+// Usage
 const { data, isLoading } = useDataSources();
-const { addLocal, remove } = useDataSourceMutations();
+const { add, remove } = useDataSourceMutations();
 ```
 
 ### Available Repositories

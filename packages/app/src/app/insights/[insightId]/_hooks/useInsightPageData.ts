@@ -72,7 +72,6 @@ export interface InsightPageData {
  * used by the home page's clean architecture.
  */
 export function useInsightPageData(insightId: string): InsightPageData {
-  // Get data from Dexie with reactive hooks
   const { data: insights, isLoading: isInsightsLoading } = useInsights();
   const { update: updateInsight } = useInsightMutations();
   const { data: dataSources, isLoading: isSourcesLoading } = useDataSources();

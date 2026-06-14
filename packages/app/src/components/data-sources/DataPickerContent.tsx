@@ -71,7 +71,6 @@ export function DataPickerContent({
   showNotion = false,
   showInsights = true,
 }: DataPickerContentProps) {
-  // Dexie hooks
   const { data: dataSources = [] } = useDataSources();
   const { data: allDataTables = [] } = useDataTables();
   const { data: allInsights = [] } = useInsights();

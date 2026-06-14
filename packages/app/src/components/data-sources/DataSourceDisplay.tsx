@@ -320,7 +320,6 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const [notionPreviewData, setNotionPreviewData] =
     useState<PreviewData | null>(null);
 
-  // Get data source from Dexie
   const { data: dataSources } = useDataSources();
   const { data: allTables } = useDataTables(dataSourceId ?? undefined);
   const tableMutations = useDataTableMutations();

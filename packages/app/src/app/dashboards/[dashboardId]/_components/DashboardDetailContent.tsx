@@ -44,7 +44,6 @@ export default function DashboardDetailContent({
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
 
-  // Dexie hooks
   const {
     data: dashboards = [],
     isLoading,

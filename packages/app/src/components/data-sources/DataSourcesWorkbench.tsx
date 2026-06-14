@@ -35,12 +35,9 @@ export function DataSourcesWorkbench() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Dexie hooks for reading data
   const { data: dataSources, isLoading } = useDataSources();
   const { data: allTables } = useDataTables();
   const { data: allDataFrames } = useDataFrames();
-
-  // Dexie mutations
   const tableMutations = useDataTableMutations();
 
   // Sort data sources by creation time (newest first)

@@ -3,10 +3,8 @@
  *
  * Core package.
  *
- * Renderer app-data is now backed by WyStack through @dashframe/app-data.
- * Components continue importing hooks and imperative helpers from
- * @dashframe/core, but the Dexie/core-store backend selector is no longer in
- * the bundle path.
+ * All artifact CRUD is backed by the WyStack server through @dashframe/app-data.
+ * Components import hooks and imperative helpers from @dashframe/core.
  */
 
 // ============================================================================

@@ -47,7 +47,6 @@ type VisualizationWithDetails = {
 export default function VisualizationsPage() {
   const navigate = useNavigate();
 
-  // Dexie hooks for data
   const { data: visualizations = [], isLoading: isLoadingViz } =
     useVisualizations();
   const { data: insights = [] } = useInsights();

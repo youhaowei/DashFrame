@@ -20,7 +20,6 @@ import { ArrowUpDownIcon } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
 export default function DataFramesPage() {
-  // Use Dexie hooks for reactive data
   const { data: dataFrames, isLoading } = useDataFrames();
   const mutations = useDataFrameMutations();
 
@@ -77,9 +76,7 @@ export default function DataFramesPage() {
           const storageType = row.original.storage?.type;
           return (
             <span className="text-neutral-fg-subtle capitalize">
-              {storageType === "indexeddb"
-                ? "Browser"
-                : (storageType ?? "Unknown")}
+              {storageType ?? "Unknown"}
             </span>
           );
         },
