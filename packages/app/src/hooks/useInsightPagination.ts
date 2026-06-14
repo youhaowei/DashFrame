@@ -322,18 +322,35 @@ export function useInsightPagination({
 
         // Build SQL with pagination.
         // Inject effective params (per-cell overrides) when available.
+        // effectiveLimit caps the total result set — it is NOT the page fetch
+        // size.  We clamp the page fetch to the remaining rows after offset so
+        // VirtualTable never reads past the cell limit, while still fetching one
+        // page at a time (no memory blowup from fetching all rows at once).
         const mode = showModelPreview ? "model" : "query";
+        const cellLimit =
+          !showModelPreview && effectiveParams?.limit !== undefined
+            ? effectiveParams.limit
+            : undefined;
+        const pageLimit =
+          cellLimit !== undefined
+            ? Math.min(
+                params.limit,
+                Math.max(0, cellLimit - (params.offset ?? 0)),
+              )
+            : params.limit;
         const overrideOpts =
           !showModelPreview && effectiveParams
             ? {
                 effectiveFilters: effectiveParams.filters,
                 effectiveSorts: effectiveParams.sorts,
-                effectiveLimit: effectiveParams.limit,
+                // Do NOT forward effectiveLimit here — pagination limit is
+                // already clamped to the cell limit via pageLimit above.
+                // Forwarding it would replace the page size with the cell cap.
               }
             : {};
         const sql = buildInsightSQL(baseTable, joinedTables, insight, {
           mode,
-          limit: params.limit,
+          limit: pageLimit,
           offset: params.offset,
           sortColumn: params.sortColumn,
           sortDirection: params.sortDirection,

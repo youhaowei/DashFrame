@@ -126,8 +126,11 @@ export function VisualizationDisplay({
     return dataTables.find((t) => t.id === insight.baseTableId);
   }, [insight, dataTables]);
 
-  // Build an Insight-compatible object for useInsightView
-  // This transforms the store insight format to what useInsightView expects
+  // Build an Insight-compatible object for useInsightView.
+  // Only structural fields (id, name, baseTableId, joins, selectedFields, metrics,
+  // filters, sorts) — everything buildInsightSQL reads from the insight param.
+  // Filters and sorts are included so that useInsightPagination (query mode)
+  // applies the insight's own defaults when there are no cell overrides.
   const insightForView: Insight | null = useMemo(() => {
     if (!insight) return null;
     return {
@@ -135,19 +138,20 @@ export function VisualizationDisplay({
       name: insight.name,
       baseTableId: insight.baseTableId,
       joins: insight.joins,
-      // Include filters/sorts so effective params can be resolved against them
+      selectedFields: insight.selectedFields,
+      metrics: insight.metrics,
       filters: insight.filters,
       sorts: insight.sorts,
     } as Insight;
   }, [insight]);
 
   // Resolve the effective params for this cell = insight defaults ⊕ overrides.
-  // When `overrides` is absent this is a fast no-op: the result is a clone of
-  // the insight's own filters/sorts/limit with no cell-specific change (no-override
-  // no-regression path).
+  // Only computed when overrides are present.  When absent, both hooks get
+  // `effectiveParams: undefined` and use the insight's native filters/sorts —
+  // preserving the pre-override behaviour exactly (no-override no-regression).
   const effectiveParams = useMemo(
     () =>
-      insightForView
+      overrides && insightForView
         ? resolveEffectiveParams(
             insightForView.filters,
             insightForView.sorts,
@@ -165,22 +169,24 @@ export function VisualizationDisplay({
   // the loopback server stopped or returned 500). Without consuming it here the
   // view never becomes ready and the component would spin forever.
   //
-  // When the cell has overrides, we pass the effectiveParams so the view is
-  // pre-filtered.  Cells without overrides skip this (effectiveParams has no
-  // filters when overrides is absent) and get the standard unfiltered view.
+  // Effective params are forwarded to useInsightView when overrides exist so that
+  // the chart view is pre-filtered/limited.  useInsightView internally strips metric
+  // filters (which require HAVING and cannot be applied in model-mode views) before
+  // building the DuckDB view SQL.
   const {
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
     nativeCapable,
   } = useInsightView(insightForView, {
-    effectiveParams:
-      overrides && effectiveParams?.filters.length
-        ? effectiveParams
-        : undefined,
+    effectiveParams,
   });
 
-  // Use insight pagination for table data (queries DuckDB directly)
+  // Use insight pagination for table data (queries DuckDB directly).
+  // When overrides are present, effectiveParams carries the merged filter/sort/limit
+  // and buildInsightSQL replaces the insight's own params with them.
+  // When absent, effectiveParams is undefined and buildInsightSQL reads
+  // insight.filters/sorts natively — byte-identical to the pre-override path.
   const {
     fetchData,
     totalCount,
@@ -191,9 +197,7 @@ export function VisualizationDisplay({
     insight: insightForView ?? ({} as Insight),
     showModelPreview: false, // Apply full insight transformations
     enabled: !!insightForView, // Only enable when we have an insight
-    // Pass effective params when overrides are present so the table also reflects
-    // the per-cell filter/sort/limit.
-    effectiveParams: overrides ? effectiveParams : undefined,
+    effectiveParams,
   });
 
   // Helper to calculate visible rows from container dimensions

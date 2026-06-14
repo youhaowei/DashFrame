@@ -340,6 +340,16 @@ export function buildInsightSQL(
   // that actually exists in the FROM clause; anything else is safely skipped.
   const allFields = joined.availableFields;
 
+  // Re-resolve effective options against the full joined field list so that sort
+  // overrides referencing a joined-table column resolve to the correct UUID alias
+  // (the initial call used only baseTable.fields, which excludes joined columns).
+  const joinedEffectiveOptions = buildEffectiveOptions(
+    options,
+    effectiveLimit,
+    effectiveSorts,
+    allFields,
+  );
+
   // Model mode: raw data without aggregations.
   // When `effectiveFilters` was supplied, the caller is a dashboard cell that
   // needs its overridden filters applied even in model mode (so the Chart
@@ -363,14 +373,14 @@ export function buildInsightSQL(
       const base = `SELECT * FROM ${joined.sql}`;
       return appendPagination(
         whereClause ? `${base} ${whereClause}` : base,
-        effectiveOptions,
+        joinedEffectiveOptions,
         validColumns,
       );
     }
 
     return appendPagination(
       `SELECT * FROM ${joined.sql}`,
-      effectiveOptions,
+      joinedEffectiveOptions,
       validColumns,
     );
   }
@@ -380,7 +390,7 @@ export function buildInsightSQL(
     joined.sql,
     allFields,
     effectiveInsight,
-    effectiveOptions,
+    joinedEffectiveOptions,
   );
 }
 
