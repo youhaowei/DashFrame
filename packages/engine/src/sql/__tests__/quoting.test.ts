@@ -29,6 +29,10 @@ describe("quoteIdentifier", () => {
     expect(quoteIdentifier('a"b"c')).toBe('"a""b""c"');
   });
 
+  it("handles an empty identifier", () => {
+    expect(quoteIdentifier("")).toBe('""');
+  });
+
   it("does not break SQL when the result is interpolated (no injection)", () => {
     // A crafted column name that would break naive interpolation
     const malicious = 'x" FROM secrets --';
