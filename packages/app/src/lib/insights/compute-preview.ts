@@ -122,12 +122,19 @@ function groupRowsBy(
   const groupMap = new Map<string, Record<string, unknown>[]>();
 
   for (const row of rows) {
-    // Create group key from field values
+    // Build a collision-resistant key using typed tuples per field.
+    // Each entry is ["null"] for null/undefined, or ["v", value] for a real
+    // value. JSON.stringify over this array is injective: a value that
+    // contains the old "|||" delimiter or the string "null" cannot collide
+    // with a different value-combination.
+    // Fields without columnName participate via field.id so they don't all
+    // collapse to the same null bucket.
     const keyParts = fields.map((field) => {
-      const value = field.columnName ? row[field.columnName] : null;
-      return value != null ? String(value) : "__NULL__";
+      const colKey = field.columnName ?? field.id;
+      const value = row[colKey];
+      return value == null ? ["null"] : ["v", value];
     });
-    const key = keyParts.join("|||");
+    const key = JSON.stringify(keyParts);
 
     // Add row to group
     if (!groupMap.has(key)) {
@@ -155,9 +162,11 @@ function extractGroupKeys(
   const result: Record<string, unknown> = {};
 
   for (const field of fields) {
-    if (field.columnName) {
-      result[field.name] = row[field.columnName];
-    }
+    // Use columnName when available; fall back to field.id so that fields
+    // without a columnName still contribute a value instead of being silently
+    // dropped from the output row.
+    const colKey = field.columnName ?? field.id;
+    result[field.name] = row[colKey];
   }
 
   return result;
