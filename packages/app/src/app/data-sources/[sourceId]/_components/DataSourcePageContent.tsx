@@ -113,7 +113,7 @@ export default function DataSourcePageContent({
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
 
-  const { data: allDataSources = [], isLoading } = useDataSources();
+  const { data: allDataSources = [], isLoading, isFetching } = useDataSources();
   const { update: updateDataSource } = useDataSourceMutations();
   const { remove: removeDataTable, updateField } = useDataTableMutations();
   const { data: allDataFrames = [] } = useDataFrames();
@@ -254,7 +254,12 @@ export default function DataSourcePageContent({
     }
   };
 
-  if (isLoading && !dataSource) {
+  // Treat both the cold initial load (isLoading) and an in-flight background
+  // refetch (isFetching) as "loading" when the source isn't in the current
+  // cache: during a post-mutation invalidation the cached list can momentarily
+  // exclude a source the refetch is about to return, and we must not flash
+  // not-found for it. Show not-found only once the data is settled.
+  if ((isLoading || isFetching) && !dataSource) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
