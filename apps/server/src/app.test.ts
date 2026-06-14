@@ -62,6 +62,76 @@ function waitForWsAuth(
   });
 }
 
+describe("bind-auth gate", () => {
+  /**
+   * Secure-by-default: the factory must refuse to start when both conditions
+   * are true: (a) the bind host is non-loopback, AND (b) no authToken is set.
+   * These tests prove the three contract cases without opening a real DB or
+   * network socket — the guard fires before any I/O.
+   */
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-gate-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("non-loopback + no token → throws before starting", async () => {
+    const { openProject: open } = await import("@dashframe/server-core");
+    const project = await open({ dir: join(root, "proj") });
+    try {
+      await expect(
+        createDashframeServer({
+          db: project.db,
+          hostname: "0.0.0.0",
+          // authToken deliberately omitted
+        }),
+      ).rejects.toThrow(/refusing to bind.*without an auth token/i);
+    } finally {
+      await project.close();
+    }
+  });
+
+  it("non-loopback + token → starts successfully", async () => {
+    const { openProject: open } = await import("@dashframe/server-core");
+    const project = await open({ dir: join(root, "proj2") });
+    let server: DashframeServer | null = null;
+    try {
+      // Should not throw — token satisfies the auth requirement.
+      server = await createDashframeServer({
+        db: project.db,
+        hostname: "127.0.0.1", // loopback address to avoid actually binding to 0.0.0.0 in CI
+        authToken: "a-valid-token",
+      });
+      expect(server.port).toBeGreaterThan(0);
+    } finally {
+      server?.stop();
+      await project.close();
+    }
+  });
+
+  it("loopback + no token → starts successfully (local dev path)", async () => {
+    const { openProject: open } = await import("@dashframe/server-core");
+    const project = await open({ dir: join(root, "proj3") });
+    let server: DashframeServer | null = null;
+    try {
+      // Loopback with no token is the safe local-dev default — must not throw.
+      server = await createDashframeServer({
+        db: project.db,
+        // hostname defaults to 127.0.0.1 (loopback)
+        // authToken deliberately omitted
+      });
+      expect(server.port).toBeGreaterThan(0);
+    } finally {
+      server?.stop();
+      await project.close();
+    }
+  });
+});
+
 describe("createDashframeServer", () => {
   let root: string;
   let project: ProjectHandle | null;

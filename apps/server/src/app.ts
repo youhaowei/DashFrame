@@ -55,6 +55,22 @@ type CorsOrigin =
       c: Context,
     ) => Promise<string | undefined | null> | string | undefined | null);
 
+/**
+ * Returns true when `hostname` is a loopback address (127.0.0.0/8, ::1, or
+ * the "localhost" name). Loopback-only binds are reachable from this machine
+ * alone; no network auth token is required. Undefined / absent hostname
+ * defaults to 127.0.0.1 (loopback).
+ */
+function isLoopbackHost(hostname: string | undefined): boolean {
+  return (
+    hostname === undefined ||
+    hostname === "localhost" ||
+    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
+    hostname.startsWith("127.") ||
+    hostname === "::1"
+  );
+}
+
 /** Allow localhost Vite/preview origins when a caller has not pinned CORS. */
 function allowLocalhostOrigin(origin: string): string | undefined {
   try {
@@ -84,11 +100,20 @@ export interface DashframeServerOptions {
    */
   corsOrigin?: CorsOrigin;
   /**
-   * Optional bearer token required for every HTTP request and WS auth frame.
-   * Desktop mints this per launch; standalone `dashframe serve` can remain
-   * unauthenticated until its remote-bind auth policy is decided.
+   * Bearer token required for every HTTP request and WS auth frame when the
+   * server is bound to a non-loopback address. Desktop mints this per launch.
+   * Loopback binds (127.x / ::1 / localhost) may omit the token.
+   *
+   * Security: omitting this on a non-loopback bind causes `createDashframeServer`
+   * to throw. Pass `insecure: true` to deliberately opt out of this requirement.
    */
   authToken?: string;
+  /**
+   * Opt out of the non-loopback auth requirement. Use only in controlled
+   * environments where the network exposure is intentional. The factory will
+   * log a warning when this is set with a non-loopback bind and no token.
+   */
+  insecure?: boolean;
   /**
    * Optional native engine for the dedicated Arrow IPC data path. When supplied
    * (desktop / `dashframe serve` with the native engine), `POST /data/arrow`
@@ -129,6 +154,24 @@ export async function createDashframeServer(
 ): Promise<DashframeServer> {
   const hostname = opts.hostname ?? "127.0.0.1";
   const requestedPort = opts.port ?? 0;
+
+  // Secure-by-default: refuse to start an unauthenticated server on a
+  // non-loopback bind. A non-loopback bind exposes the project to the network;
+  // without a token every request is implicitly trusted by the server.
+  // Loopback (127.x / ::1 / localhost) is reachable only from this machine and
+  // may omit a token (local dev, Electron). Pass `insecure: true` to opt out.
+  if (!isLoopbackHost(hostname) && !opts.authToken && !opts.insecure) {
+    throw new Error(
+      `createDashframeServer: refusing to bind ${hostname} without an auth token. ` +
+        `A non-loopback bind exposes the project to the network. ` +
+        `Supply authToken, or set insecure: true to opt out deliberately.`,
+    );
+  }
+  if (opts.insecure && !opts.authToken && !isLoopbackHost(hostname)) {
+    console.warn(
+      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
+    );
+  }
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
   const resolveContext = opts.authToken
     ? createTokenResolver(opts.authToken)
