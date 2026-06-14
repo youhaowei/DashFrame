@@ -35,7 +35,7 @@ export function RecentInsightsSection() {
       icon={SparklesIcon}
       viewAllHref="/insights"
       items={recentInsights}
-      onItemSelect={(id) => navigate({ to: `/insights/${id}` } as never)}
+      onItemSelect={(id) => navigate({ to: `/insights/${id}` })}
     />
   );
 }
