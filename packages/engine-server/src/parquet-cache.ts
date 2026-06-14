@@ -33,6 +33,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { quoteIdentifier, quoteLiteral } from "@dashframe/engine";
 import type { FieldSensitivity } from "@dashframe/types";
 import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 
@@ -217,7 +218,7 @@ export class ParquetCache {
 
     await fs.mkdir(this.cacheDir, { recursive: true });
     const target = this.pathFor(query);
-    const selectList = decision.columns.map(quoteIdent).join(", ");
+    const selectList = decision.columns.map(quoteIdentifier).join(", ");
     // Bind the compiled query's positional params natively: DuckDB accepts the
     // `?` placeholders inside the COPY wrapper's inner SELECT and fills them from
     // `values`. This avoids text-scanning the SQL for `?` (which would also
@@ -233,12 +234,4 @@ export class ParquetCache {
     );
     return target;
   }
-}
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-function quoteLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
 }
