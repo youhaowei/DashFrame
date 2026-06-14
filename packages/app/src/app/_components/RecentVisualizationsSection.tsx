@@ -37,7 +37,7 @@ export function RecentVisualizationsSection() {
       icon={ChartIcon}
       viewAllHref="/visualizations"
       items={recentVisualizations}
-      onItemSelect={(id) => navigate({ to: `/visualizations/${id}` } as never)}
+      onItemSelect={(id) => navigate({ to: `/visualizations/${id}` })}
       gap={16}
     />
   );
