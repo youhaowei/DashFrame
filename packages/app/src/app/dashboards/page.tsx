@@ -1,3 +1,4 @@
+import { useToastStore } from "@/lib/stores";
 import { useDashboardMutations, useDashboards } from "@dashframe/core";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -19,6 +20,7 @@ export default function DashboardsPage() {
   const { data: dashboards = [], isLoading } = useDashboards();
   const { create: createDashboard, remove: removeDashboard } =
     useDashboardMutations();
+  const { showError } = useToastStore();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
@@ -26,7 +28,18 @@ export default function DashboardsPage() {
   const handleCreate = async () => {
     if (!newDashboardName.trim()) return;
 
-    const id = await createDashboard(newDashboardName);
+    let id: string | undefined;
+    try {
+      id = await createDashboard(newDashboardName);
+    } catch {
+      showError("Failed to create dashboard. Please try again.");
+      return;
+    }
+
+    if (!id) {
+      showError("Dashboard creation returned an unexpected result.");
+      return;
+    }
 
     setIsCreateOpen(false);
     setNewDashboardName("");
