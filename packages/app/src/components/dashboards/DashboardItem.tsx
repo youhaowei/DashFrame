@@ -1,6 +1,9 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDashboardMutations } from "@dashframe/core";
-import type { DashboardItem as DashboardItemType } from "@dashframe/types";
+import type {
+  DashboardItemOverrides,
+  DashboardItem as DashboardItemType,
+} from "@dashframe/types";
 import { Button, cn, Surface } from "@wystack/ui";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-icons";
 import { useState } from "react";
@@ -10,6 +13,13 @@ interface DashboardItemProps {
   item: DashboardItemType;
   dashboardId: string;
   isEditable: boolean;
+  /**
+   * Effective overrides for this cell, produced by merging the item's saved
+   * `overrides` with any active dashboard controls.  When present this
+   * replaces `item.overrides` as the override source for `VisualizationDisplay`.
+   * When absent, the item's own saved `overrides` are used as before.
+   */
+  effectiveOverrides?: DashboardItemOverrides;
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -22,6 +32,7 @@ export function DashboardItem({
   item,
   dashboardId,
   isEditable,
+  effectiveOverrides,
   className,
   style,
   onMouseDown,
@@ -97,7 +108,7 @@ export function DashboardItem({
             <div className="h-full w-full">
               <VisualizationDisplay
                 visualizationId={item.visualizationId}
-                overrides={item.overrides}
+                overrides={effectiveOverrides ?? item.overrides}
               />
             </div>
           )}

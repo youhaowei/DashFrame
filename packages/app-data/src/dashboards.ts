@@ -21,6 +21,7 @@
 import type {
   CreateItemInput,
   Dashboard,
+  DashboardControl,
   DashboardItem,
   DashboardMutations,
   UseDashboardsResult,
@@ -58,6 +59,7 @@ export function useDashboardMutations(): DashboardMutations {
   const addItem = useMutation(api.addDashboardItem);
   const updateItem = useMutation(api.updateDashboardItem);
   const removeItem = useMutation(api.removeDashboardItem);
+  const updateControlsMutation = useMutation(api.updateDashboardControls);
 
   return useMemo(
     () => ({
@@ -111,8 +113,26 @@ export function useDashboardMutations(): DashboardMutations {
       removeItem: async (dashboardId: UUID, itemId: UUID): Promise<void> => {
         await removeItem.mutateAsync({ dashboardId, itemId });
       },
+
+      updateControls: async (
+        dashboardId: UUID,
+        controls: DashboardControl[],
+      ): Promise<void> => {
+        await updateControlsMutation.mutateAsync({
+          dashboardId,
+          controls,
+        });
+      },
     }),
-    [create, update, remove, addItem, updateItem, removeItem],
+    [
+      create,
+      update,
+      remove,
+      addItem,
+      updateItem,
+      removeItem,
+      updateControlsMutation,
+    ],
   );
 }
 

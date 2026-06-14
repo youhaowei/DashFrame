@@ -1,5 +1,10 @@
+import { computeItemOverrides } from "@/lib/dashboards/controls";
 import { useDashboardMutations } from "@dashframe/core";
-import type { Dashboard } from "@dashframe/types";
+import type {
+  Dashboard,
+  DashboardItemOverrides,
+  InsightFilter,
+} from "@dashframe/types";
 import { useCallback, useMemo, useRef } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { DashboardItem } from "./DashboardItem";
@@ -9,12 +14,22 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 interface DashboardGridProps {
   dashboard: Dashboard;
   isEditable: boolean;
+  /**
+   * View-local transient values for controls (from the viewer's session).
+   * These are layered on top of saved `control.defaultValue` without mutating
+   * the saved dashboard.  Absent → use saved defaults only.
+   */
+  controlTransientValues?: Map<string, InsightFilter["value"]>;
 }
 
 /** Debounce delay in ms for layout changes during drag/resize */
 const LAYOUT_DEBOUNCE_MS = 150;
 
-export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
+export function DashboardGrid({
+  dashboard,
+  isEditable,
+  controlTransientValues,
+}: DashboardGridProps) {
   const { updateItem } = useDashboardMutations();
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingLayoutRef = useRef<Layout[] | null>(null);
@@ -134,6 +149,32 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
     flushLayoutChanges();
   }, [flushLayoutChanges]);
 
+  // Pre-compute effective overrides for every item.  Merges the item's own
+  // saved overrides with any active dashboard controls.  Controls that target
+  // an item replace the cell's filter for their field (binding = delegation).
+  // This is a stable derived value; re-computed whenever controls or transient
+  // values change.
+  const effectiveOverridesMap = useMemo<
+    Map<string, DashboardItemOverrides | undefined>
+  >(() => {
+    const controls = dashboard.controls ?? [];
+    const map = new Map<string, DashboardItemOverrides | undefined>();
+    for (const item of dashboard.items) {
+      let effective: DashboardItemOverrides | undefined;
+      if (controls.length > 0) {
+        effective = computeItemOverrides(
+          item,
+          controls,
+          controlTransientValues,
+        );
+      } else {
+        effective = item.overrides;
+      }
+      map.set(item.id, effective);
+    }
+    return map;
+  }, [dashboard.controls, dashboard.items, controlTransientValues]);
+
   return (
     <ResponsiveGridLayout
       className="layout"
@@ -175,6 +216,7 @@ export function DashboardGrid({ dashboard, isEditable }: DashboardGridProps) {
             item={item}
             dashboardId={dashboard.id}
             isEditable={isEditable}
+            effectiveOverrides={effectiveOverridesMap.get(item.id)}
           />
         </div>
       ))}

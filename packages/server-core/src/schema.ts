@@ -181,6 +181,7 @@ export const dashboards = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     layout: jsonb("layout").notNull(), // domain DashboardItem[]: [{ id, type, visualizationId?, content?, x, y, width, height }]
+    controls: jsonb("controls"), // domain DashboardControl[]: [{id, field, label?, defaultValue?, boundInstances}]
     createdBy: jsonb("created_by").$type<ArtifactProvenance>().notNull(),
     parentArtifactId: uuid("parent_artifact_id"),
     createdAt: timestamp("created_at", { withTimezone: true })

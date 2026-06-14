@@ -124,6 +124,7 @@ export {
 export type {
   CreateItemInput,
   Dashboard,
+  DashboardControl,
   DashboardItem,
   DashboardItemOverrides,
   DashboardItemType,

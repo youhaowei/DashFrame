@@ -78,6 +78,47 @@ describe("openArtifactDb", () => {
     expect(rows[0]?.name).toBe("test-project");
   });
 
+  test("reconciles a nullable column added after first materialization without data loss", async () => {
+    const dbPath = join(dir, "artifacts.db");
+    const first = await openTestArtifactDb(dbPath);
+
+    // Seed a dashboard, then simulate a pre-`controls` schema by dropping the
+    // column.  This is the exact shape of an existing v3 project DB that was
+    // created before `dashboards.controls` existed.
+    const [dash] = await first
+      .insert(schema.dashboards)
+      .values({
+        name: "pre-controls-dashboard",
+        layout: [],
+        createdBy: userProvenance,
+      })
+      .returning();
+    await first.execute(sql`ALTER TABLE dashboards DROP COLUMN controls`);
+
+    // Re-open: syncSchema must ADD COLUMN IF NOT EXISTS the nullable `controls`
+    // column back, and the pre-existing dashboard row must survive untouched.
+    const second = await openTestArtifactDb(dbPath);
+    const rows = await second.select().from(schema.dashboards);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(dash!.id);
+    expect(rows[0]?.name).toBe("pre-controls-dashboard");
+    // The reconciled column is present and NULL on the legacy row.
+    expect(rows[0]?.controls).toBeNull();
+
+    // And it is now writable — the feature works on the upgraded DB.
+    await second
+      .update(schema.dashboards)
+      .set({ controls: [{ id: "c1", field: "region", boundInstances: [] }] })
+      .where(eq(schema.dashboards.id, dash!.id));
+    const [updated] = await second
+      .select()
+      .from(schema.dashboards)
+      .where(eq(schema.dashboards.id, dash!.id));
+    expect(updated?.controls).toEqual([
+      { id: "c1", field: "region", boundInstances: [] },
+    ]);
+  });
+
   test("should enforce cascade delete from data_sources to secrets", async () => {
     const db = await openTestArtifactDb();
 

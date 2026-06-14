@@ -1,6 +1,7 @@
 import type {
   CreateItemInput,
   Dashboard,
+  DashboardControl,
   DashboardItem,
   DashboardMutations,
   UseDashboardsResult,
@@ -20,6 +21,7 @@ function entityToDashboard(entity: DashboardEntity): Dashboard {
     name: entity.name,
     description: entity.description,
     items: entity.items,
+    controls: entity.controls,
     createdAt: entity.createdAt,
     updatedAt: entity.updatedAt,
   };
@@ -124,6 +126,16 @@ export function useDashboardMutations(): DashboardMutations {
 
         await db.dashboards.update(dashboardId, {
           items: dashboard.items.filter((item) => item.id !== itemId),
+          updatedAt: Date.now(),
+        });
+      },
+
+      updateControls: async (
+        dashboardId: UUID,
+        controls: DashboardControl[],
+      ): Promise<void> => {
+        await db.dashboards.update(dashboardId, {
+          controls,
           updatedAt: Date.now(),
         });
       },
