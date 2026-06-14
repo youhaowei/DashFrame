@@ -55,6 +55,55 @@ type CorsOrigin =
       c: Context,
     ) => Promise<string | undefined | null> | string | undefined | null);
 
+/**
+ * Returns true when `hostname` is a loopback address (127.0.0.0/8, ::1, or
+ * the "localhost" name). Loopback-only binds are reachable from this machine
+ * alone; no network auth token is required. Undefined / absent hostname
+ * defaults to 127.0.0.1 (loopback).
+ */
+function isLoopbackHost(hostname: string | undefined): boolean {
+  return (
+    hostname === undefined ||
+    hostname === "localhost" ||
+    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
+    hostname.startsWith("127.") ||
+    hostname === "::1"
+  );
+}
+
+/**
+ * Secure-by-default bind-auth gate. Throws when a non-loopback bind has no
+ * `authToken` (and no explicit `insecure` opt-out) — a non-loopback bind
+ * exposes the project to the network, so the server must not serve unauthenticated
+ * traffic on it. Loopback binds (127.x / ::1 / localhost) are reachable only from
+ * this machine and may omit a token (local dev, Electron). A token always allows
+ * any bind.
+ *
+ * Extracted from `createDashframeServer` so the allow/deny decision is unit-testable
+ * on its own — the security-critical token-allows-non-loopback branch can be
+ * exercised without binding a real socket. Returns nothing on success; throws on a
+ * disallowed bind.
+ */
+export function assertBindAuthorized(opts: {
+  hostname: string | undefined;
+  authToken: string | undefined;
+  insecure?: boolean;
+}): void {
+  const loopback = isLoopbackHost(opts.hostname);
+  if (!loopback && !opts.authToken && !opts.insecure) {
+    throw new Error(
+      `createDashframeServer: refusing to bind ${opts.hostname} without an auth token. ` +
+        `A non-loopback bind exposes the project to the network. ` +
+        `Supply authToken, or set insecure: true to opt out deliberately.`,
+    );
+  }
+  if (opts.insecure && !opts.authToken && !loopback) {
+    console.warn(
+      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
+    );
+  }
+}
+
 /** Allow localhost Vite/preview origins when a caller has not pinned CORS. */
 function allowLocalhostOrigin(origin: string): string | undefined {
   try {
@@ -84,11 +133,20 @@ export interface DashframeServerOptions {
    */
   corsOrigin?: CorsOrigin;
   /**
-   * Optional bearer token required for every HTTP request and WS auth frame.
-   * Desktop mints this per launch; standalone `dashframe serve` can remain
-   * unauthenticated until its remote-bind auth policy is decided.
+   * Bearer token required for every HTTP request and WS auth frame when the
+   * server is bound to a non-loopback address. Desktop mints this per launch.
+   * Loopback binds (127.x / ::1 / localhost) may omit the token.
+   *
+   * Security: omitting this on a non-loopback bind causes `createDashframeServer`
+   * to throw. Pass `insecure: true` to deliberately opt out of this requirement.
    */
   authToken?: string;
+  /**
+   * Opt out of the non-loopback auth requirement. Use only in controlled
+   * environments where the network exposure is intentional. The factory will
+   * log a warning when this is set with a non-loopback bind and no token.
+   */
+  insecure?: boolean;
   /**
    * Optional native engine for the dedicated Arrow IPC data path. When supplied
    * (desktop / `dashframe serve` with the native engine), `POST /data/arrow`
@@ -129,6 +187,16 @@ export async function createDashframeServer(
 ): Promise<DashframeServer> {
   const hostname = opts.hostname ?? "127.0.0.1";
   const requestedPort = opts.port ?? 0;
+
+  // Secure-by-default: refuse to start an unauthenticated server on a
+  // non-loopback bind. Runs before any socket bind, so a disallowed config
+  // never opens a listener. See assertBindAuthorized for the full rationale.
+  assertBindAuthorized({
+    hostname,
+    authToken: opts.authToken,
+    insecure: opts.insecure,
+  });
+
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
   const resolveContext = opts.authToken
     ? createTokenResolver(opts.authToken)
