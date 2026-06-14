@@ -3,16 +3,16 @@
  *
  * Three contracts are locked here:
  *
- * 243A — handleExecuteJoin async error recovery:
+ * handleExecuteJoin async error recovery:
  *   If the mutation rejects, the button must return to enabled, a user-facing
  *   error must appear, and the router must NOT navigate away.
  *
- * 243B — computeJoin stale-run guard:
+ * computeJoin stale-run guard:
  *   When rapid key changes trigger overlapping async runs, only the LATEST run
  *   may write `isComputingPreview` / `error`. A stale run that finishes later
  *   is a no-op.
  *
- * 250 — SQL sink-guard (table name quoting):
+ * SQL sink-guard (table name quoting):
  *   Table names are interpolated into SQL. Even if a dataFrameId-derived name
  *   contains SQL metacharacters, quoteIdentifier must neutralize injection —
  *   the generated SQL must never contain the raw metacharacter sequence.
@@ -24,7 +24,7 @@ import { useCallback, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// YW-250 — SQL sink-guard: quoteIdentifier neutralizes table name injection
+// SQL sink-guard: quoteIdentifier neutralizes table name injection
 // ---------------------------------------------------------------------------
 
 /**
@@ -40,7 +40,7 @@ function deriveTableName(dataFrameId: string): string {
   return `df_${dataFrameId.replace(/-/g, "_")}`;
 }
 
-describe("YW-250 — SQL table name sink-guard", () => {
+describe("join SQL — table name sink-guard", () => {
   it("quoteIdentifier wraps the dataFrameId-derived table name in double-quotes", () => {
     const tableName = deriveTableName("abc-123-def");
     const quoted = quoteIdentifier(tableName);
@@ -90,17 +90,17 @@ describe("YW-250 — SQL table name sink-guard", () => {
 });
 
 // ---------------------------------------------------------------------------
-// YW-243A — handleExecuteJoin: mutation rejection must recover the button
+// handleExecuteJoin: mutation rejection must recover the button
 // ---------------------------------------------------------------------------
 //
 // The component renders a "Join Tables" button whose `loading` prop is driven
-// by `isSubmitting`. Before this fix, a rejected mutation left `isSubmitting`
-// permanently true (button stuck loading, no error, no escape).
+// by `isSubmitting`. Without a try/catch/finally, a rejected mutation left
+// `isSubmitting` permanently true (button stuck loading, no error, no escape).
 //
 // We prove the contract by testing the minimal hook logic that mirrors the
-// try/catch/finally pattern added by the fix. This is the exact control flow —
-// testing a faithful minimal reproduction at a clean seam rather than
-// mounting the full component with all its dependencies.
+// try/catch/finally pattern. This is the exact control flow — testing a
+// faithful minimal reproduction at a clean seam rather than mounting the full
+// component with all its dependencies.
 
 type SubmitState = { isSubmitting: boolean; error: string | null };
 
@@ -108,8 +108,8 @@ type SubmitState = { isSubmitting: boolean; error: string | null };
  * Minimal hook that mirrors the `handleExecuteJoin` control flow:
  * setIsSubmitting(true) → await mutation → setIsSubmitting(false) via finally.
  *
- * This is the exact pattern added by the YW-243A fix; the test asserts that
- * finally always runs regardless of mutation success or failure.
+ * The test asserts that finally always runs regardless of mutation success or
+ * failure, and that a rejected mutation surfaces an error without navigating.
  */
 function useHandleExecuteJoinLogic(mutationFn: () => Promise<void>) {
   const [state, setState] = useState<SubmitState>({
@@ -136,7 +136,7 @@ function useHandleExecuteJoinLogic(mutationFn: () => Promise<void>) {
   return { state, execute };
 }
 
-describe("YW-243A — handleExecuteJoin async error recovery", () => {
+describe("handleExecuteJoin — async error recovery", () => {
   it("resets isSubmitting to false when the mutation rejects", async () => {
     const rejection = new Error("Network error");
     const mutationFn = vi.fn().mockRejectedValue(rejection);
@@ -218,7 +218,7 @@ describe("YW-243A — handleExecuteJoin async error recovery", () => {
 });
 
 // ---------------------------------------------------------------------------
-// YW-243B — computeJoin stale-run guard: only the latest run writes state
+// computeJoin stale-run guard: only the latest run writes state
 // ---------------------------------------------------------------------------
 //
 // The component launches a new async run on every key change. Without a stale
@@ -227,8 +227,7 @@ describe("YW-243A — handleExecuteJoin async error recovery", () => {
 // while the newer run is still in flight.
 //
 // The request-token pattern (a unique object per effect run, compared by identity)
-// is the exact mechanism added by the YW-243B fix. The tests below prove the
-// invariant: state writes from a superseded run are no-ops.
+// ensures that state writes from a superseded run are no-ops.
 
 type PreviewState = {
   isComputingPreview: boolean;
@@ -237,7 +236,7 @@ type PreviewState = {
 };
 
 /**
- * Minimal hook that mirrors the request-token pattern added by YW-243B.
+ * Minimal hook that mirrors the request-token stale-run guard in the component.
  * Each `startRun` creates a new async run. Only the latest run may write state.
  *
  * Returns a `startRun(asyncWork)` function that kicks off an async computation
@@ -291,7 +290,7 @@ function useComputeJoinLogic() {
   return { state, startRun };
 }
 
-describe("YW-243B — computeJoin stale-run guard", () => {
+describe("computeJoin — stale-run guard", () => {
   it("stale run does not overwrite state written by the latest run", async () => {
     let resolveSlowRun!: (v: string) => void;
     let resolveFastRun!: (v: string) => void;
