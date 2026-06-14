@@ -50,7 +50,7 @@ export function DashboardSection({
           size="sm"
           icon={ArrowRightIcon}
           label="View all"
-          onClick={() => navigate({ to: viewAllHref } as never)}
+          onClick={() => navigate({ to: viewAllHref })}
         />
       </div>
       <ItemList
