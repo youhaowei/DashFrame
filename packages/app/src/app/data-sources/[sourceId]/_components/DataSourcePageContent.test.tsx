@@ -208,8 +208,8 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     const { rerender } = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
-    // Loading indicator must be present
-    expect(screen.getByText("Loading data source…")).not.toBeNull();
+    // Loading indicator must be present (getByText throws if absent)
+    screen.getByText("Loading data source…");
 
     // "not found" must NOT appear while loading
     expect(screen.queryByText("Data source not found")).toBeNull();
@@ -227,8 +227,9 @@ describe("DataSourcePageContent — loading state contract", () => {
     // "not found" must never appear for a source that exists
     expect(screen.queryByText("Data source not found")).toBeNull();
 
-    // The source name is rendered in the content (input value)
-    expect(screen.getByDisplayValue("My Database")).not.toBeNull();
+    // The source name is rendered in the content (input value);
+    // getByDisplayValue throws if absent
+    screen.getByDisplayValue("My Database");
   });
 
   it("shows 'not found' only after loading completes and the source is genuinely absent", async () => {
@@ -259,6 +260,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     });
 
     // Now it's correct to show not-found — source really doesn't exist
-    expect(screen.getByText("Data source not found")).not.toBeNull();
+    // (getByText throws if absent)
+    screen.getByText("Data source not found");
   });
 });
