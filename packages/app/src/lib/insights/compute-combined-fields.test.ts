@@ -27,7 +27,7 @@ function makeTable(id: string, name: string, fieldNames: string[]): DataTable {
 }
 
 describe("computeCombinedFields", () => {
-  it("disambiguates joined-vs-joined column collisions (3-way same name)", () => {
+  it("disambiguates a 2-way joined-vs-joined column collision (base lacks the name)", () => {
     // Regression: old code only checked base-vs-joined collisions. If two
     // joined tables share a column name absent from the base, both fields
     // stayed unprefixed → duplicate displayNames in the combined output.
