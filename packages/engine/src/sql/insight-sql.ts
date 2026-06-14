@@ -23,6 +23,7 @@ import type {
   InsightFilter,
   InsightFilterBetweenValue,
   InsightMetric,
+  InsightSort,
   UUID,
 } from "@dashframe/types";
 
@@ -139,6 +140,29 @@ export interface BuildInsightSQLOptions {
   sortColumn?: string;
   /** Sort direction */
   sortDirection?: "asc" | "desc";
+  /**
+   * Effective filters resolved from per-cell overrides via `resolveEffectiveParams`.
+   * When provided, REPLACES `insight.filters` for this query only — the insight
+   * object is never mutated.  Used by dashboard cells to inject their per-cell
+   * override params without modifying the shared insight definition.
+   *
+   * In "model" mode, filters are normally suppressed (raw-data preview).  When
+   * `effectiveFilters` is explicitly supplied the caller has already coalesced the
+   * cell override; the model-mode view for that cell SHOULD be filtered so the
+   * Chart component aggregates on the correct data subset.
+   */
+  effectiveFilters?: InsightFilter[];
+  /**
+   * Effective sorts resolved from per-cell overrides via `resolveEffectiveParams`.
+   * When provided, REPLACES `insight.sorts` for this query only.
+   */
+  effectiveSorts?: InsightSort[];
+  /**
+   * Effective row limit resolved from per-cell overrides via `resolveEffectiveParams`.
+   * When provided, REPLACES both `options.limit` and the insight's own limit for
+   * this query only.
+   */
+  effectiveLimit?: number;
 }
 
 /**
@@ -191,15 +215,96 @@ export function getTableName(dataFrameId: string): string {
  * );
  * ```
  */
+
+/**
+ * Resolve a sort field name (column name, e.g. "region") to its UUID column
+ * alias (e.g. "field_<uuid>") using the table's field list.  Falls back to the
+ * raw field name if no matching field is found (e.g. a metric alias) — the
+ * `appendPagination` validator will silently drop an unrecognised sort column.
+ */
+function resolveSortColumnAlias(
+  fieldName: string,
+  tableFields: Field[],
+): string {
+  const f = tableFields
+    .filter((field) => !field.name.startsWith("_"))
+    .find((field) => (field.columnName ?? field.name) === fieldName);
+  return f ? fieldIdToColumnAlias(f.id) : fieldName;
+}
+
+/**
+ * Merge effective limit and effective sorts (from per-cell overrides) into the
+ * caller-supplied `BuildInsightSQLOptions`.
+ *
+ * `appendPagination` drives ORDER BY from `options.sortColumn/sortDirection`,
+ * not from `insight.sorts`.  When the caller has already set `sortColumn` (e.g.
+ * a user-triggered interactive sort), we leave it alone — the interactive sort
+ * wins.  Otherwise the first effective sort is mapped to those scalar fields.
+ */
+function buildEffectiveOptions(
+  options: BuildInsightSQLOptions,
+  effectiveLimit: number | undefined,
+  effectiveSorts: InsightSort[] | undefined,
+  tableFields: Field[],
+): BuildInsightSQLOptions {
+  if (effectiveLimit === undefined && !effectiveSorts?.length) {
+    return options;
+  }
+  const firstSort = effectiveSorts?.[0];
+  const sortOverride =
+    firstSort && !options.sortColumn
+      ? {
+          sortColumn: resolveSortColumnAlias(firstSort.field, tableFields),
+          sortDirection: firstSort.direction,
+        }
+      : undefined;
+  return {
+    ...options,
+    ...(effectiveLimit !== undefined && { limit: effectiveLimit }),
+    ...sortOverride,
+  };
+}
+
 export function buildInsightSQL(
   baseTable: DataTable,
   joinedTables: Map<UUID, DataTable>,
   insight: Insight,
   options: BuildInsightSQLOptions,
 ): string | null {
-  const { mode } = options;
+  const { mode, effectiveFilters, effectiveSorts, effectiveLimit } = options;
 
   if (!baseTable.dataFrameId) return null;
+
+  // When the caller has pre-resolved effective params (e.g. dashboard cell with
+  // per-cell overrides), coalesce them onto a shallow copy of the insight so that
+  // every downstream helper sees the already-merged values.  The original `insight`
+  // is NEVER mutated — this is a local shadow only.
+  const effectiveInsight: Insight =
+    effectiveFilters !== undefined ||
+    effectiveSorts !== undefined ||
+    effectiveLimit !== undefined
+      ? {
+          ...insight,
+          ...(effectiveFilters !== undefined && {
+            filters: effectiveFilters,
+          }),
+          ...(effectiveSorts !== undefined && { sorts: effectiveSorts }),
+        }
+      : insight;
+
+  // Build effective options: fold `effectiveLimit` and `effectiveSorts` into the
+  // options object used by downstream helpers.
+  //
+  // `appendPagination` reads `options.sortColumn/sortDirection`, NOT `insight.sorts`,
+  // so we map the first effective sort to those scalar fields when no caller-supplied
+  // sort is already set.  The mapping is done by a dedicated helper to keep this
+  // function within the complexity budget.
+  const effectiveOptions = buildEffectiveOptions(
+    options,
+    effectiveLimit,
+    effectiveSorts,
+    baseTable.fields ?? [],
+  );
 
   const baseDFTable = getTableName(baseTable.dataFrameId);
   const baseDisplayName = shortenAutoGeneratedName(baseTable.name);
@@ -208,13 +313,13 @@ export function buildInsightSQL(
   );
 
   // No joins: simple query on base table with alias
-  if (!insight.joins?.length) {
+  if (!effectiveInsight.joins?.length) {
     return buildSimpleSQL(
       baseDFTable,
       baseDisplayName,
       baseFields,
-      insight,
-      options,
+      effectiveInsight,
+      effectiveOptions,
     );
   }
 
@@ -223,7 +328,7 @@ export function buildInsightSQL(
     baseDFTable,
     baseDisplayName,
     baseFields,
-    insight,
+    effectiveInsight,
     joinedTables,
   );
 
@@ -235,20 +340,58 @@ export function buildInsightSQL(
   // that actually exists in the FROM clause; anything else is safely skipped.
   const allFields = joined.availableFields;
 
-  // Model mode: raw data without transformations (never filtered — previews
-  // show raw rows).
+  // Re-resolve effective options against the full joined field list so that sort
+  // overrides referencing a joined-table column resolve to the correct UUID alias
+  // (the initial call used only baseTable.fields, which excludes joined columns).
+  const joinedEffectiveOptions = buildEffectiveOptions(
+    options,
+    effectiveLimit,
+    effectiveSorts,
+    allFields,
+  );
+
+  // Model mode: raw data without aggregations.
+  // When `effectiveFilters` was supplied, the caller is a dashboard cell that
+  // needs its overridden filters applied even in model mode (so the Chart
+  // aggregates on the correct data subset).  When NOT supplied (the standard
+  // insight-preview / useInsightView path) filters are suppressed as before —
+  // previews show raw rows.
   if (mode === "model") {
     // Build set of valid column names from all fields (no metrics in model mode)
     const validColumns = new Set(allFields.map((f) => f.columnName ?? f.name));
+
+    if (effectiveFilters !== undefined && effectiveFilters.length > 0) {
+      // Apply the effective filters in alias mode: the joined subquery already
+      // has UUID-aliased columns, so WHERE must reference those aliases.
+      const fieldIdMap = buildFieldIdMap(allFields);
+      const { whereClause } = buildFilterClauses(
+        effectiveInsight,
+        fieldIdMap,
+        false, // no aggregation in model mode → all filters go to WHERE
+        "alias",
+      );
+      const base = `SELECT * FROM ${joined.sql}`;
+      return appendPagination(
+        whereClause ? `${base} ${whereClause}` : base,
+        joinedEffectiveOptions,
+        validColumns,
+      );
+    }
+
     return appendPagination(
       `SELECT * FROM ${joined.sql}`,
-      options,
+      joinedEffectiveOptions,
       validColumns,
     );
   }
 
   // Apply aggregations with all available fields
-  return buildAggregatedSQL(joined.sql, allFields, insight, options);
+  return buildAggregatedSQL(
+    joined.sql,
+    allFields,
+    effectiveInsight,
+    joinedEffectiveOptions,
+  );
 }
 
 /**
@@ -278,13 +421,12 @@ function buildSimpleSQL(
       baseFields.map((f) => fieldIdToColumnAlias(f.id)),
     );
 
-    // Filters apply in QUERY mode only. A model-mode preview shows the raw
-    // source rows so the user can see what they're working with *before*
-    // filtering — applying the insight's result-filters would defeat that, and
-    // the joined model path doesn't filter either (keeping both paths
-    // consistent). So only the no-config QUERY case appends a WHERE here.
+    // Filters apply in QUERY mode OR when the caller has explicitly supplied
+    // effective filters (e.g. a dashboard cell with per-cell overrides building
+    // a filtered model view for the Chart).  Plain model-mode preview (no
+    // effectiveFilters) still shows raw source rows.
     let whereClause = "";
-    if (mode === "query") {
+    if (mode === "query" || options.effectiveFilters !== undefined) {
       // No GROUP BY in this path → all filters map to WHERE. The FROM is the raw
       // base table, whose columns still carry their source names — resolve refs
       // against raw column names ("raw" mode).

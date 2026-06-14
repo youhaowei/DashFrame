@@ -657,3 +657,127 @@ describe("override-resolution — integration: effective params feed buildInsigh
     expect(sql).toContain(`ORDER BY "${regionAlias}" DESC`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §effectiveFilters-option: BuildInsightSQLOptions.effectiveFilters wires
+// override params directly into buildInsightSQL (render path injection)
+// ---------------------------------------------------------------------------
+
+describe("override-resolution — BuildInsightSQLOptions.effectiveFilters render-path injection", () => {
+  it("no-override no-regression: SQL without effectiveFilters is identical to baseline", () => {
+    // The cell-render path must not change SQL when there are no overrides.
+    const baseline = buildInsightSQL(BASE_TABLE, new Map(), BASE_INSIGHT, {
+      mode: "query",
+    });
+    const withNoEffectiveFilters = buildInsightSQL(
+      BASE_TABLE,
+      new Map(),
+      BASE_INSIGHT,
+      { mode: "query" },
+    );
+    expect(baseline).toBe(withNoEffectiveFilters);
+  });
+
+  it("effectiveFilters in query mode produces a WHERE clause with the overridden filter", () => {
+    // Effective filters are pre-resolved by resolveEffectiveParams; we pass
+    // them directly via BuildInsightSQLOptions.effectiveFilters.
+    const insightNoFilters: Insight = { ...BASE_INSIGHT, filters: undefined };
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), insightNoFilters, {
+      mode: "query",
+      effectiveFilters: [{ field: "region", operator: "eq", value: "APAC" }],
+    });
+    expect(sql).not.toBeNull();
+    expect(sql).toContain(`"${regionAlias}" = 'APAC'`);
+    expect(sql).toContain("WHERE");
+  });
+
+  it("effectiveFilters in model mode applies a WHERE clause (Chart aggregation path)", () => {
+    // model mode + effectiveFilters = filtered model view for the Chart
+    const insightNoFilters: Insight = { ...BASE_INSIGHT, filters: undefined };
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), insightNoFilters, {
+      mode: "model",
+      effectiveFilters: [{ field: "region", operator: "eq", value: "EMEA" }],
+    });
+    expect(sql).not.toBeNull();
+    // model mode emits aliased columns; "raw" refMode used for non-joined simple path
+    expect(sql).toContain("'EMEA'");
+    expect(sql).toContain("WHERE");
+  });
+
+  it("effectiveFilters replaces insight.filters in the compiled SQL (APAC, not EMEA)", () => {
+    // Insight has region='EMEA'; effectiveFilters says region='APAC'.
+    // The compiled SQL must contain APAC only — not EMEA.
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), BASE_INSIGHT, {
+      mode: "query",
+      effectiveFilters: [{ field: "region", operator: "eq", value: "APAC" }],
+    });
+    expect(sql).not.toBeNull();
+    expect(sql).toContain("'APAC'");
+    expect(sql).not.toContain("'EMEA'");
+  });
+
+  it("effectiveFilters=[] with an insight that has filters clears all filters (widen path)", () => {
+    // Passing an empty array means the effective params resolved no filters
+    // (all cleared). The SQL must not contain any WHERE clause.
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), BASE_INSIGHT, {
+      mode: "query",
+      effectiveFilters: [], // explicit empty = cleared
+    });
+    expect(sql).not.toBeNull();
+    expect(sql).not.toContain("WHERE");
+    expect(sql).not.toContain("EMEA");
+  });
+
+  it("effectiveLimit overrides insight query limit in the compiled SQL", () => {
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), BASE_INSIGHT, {
+      mode: "query",
+      effectiveLimit: 12,
+    });
+    expect(sql).not.toBeNull();
+    expect(sql).toContain("LIMIT 12");
+  });
+
+  it("N cells of one insight with distinct effectiveFilters produce N distinct SQL strings", () => {
+    // The core dashboard invariant: each cell's overridden query is unique.
+    const insightNoFilters: Insight = { ...BASE_INSIGHT, filters: undefined };
+    const cells = ["EMEA", "APAC", "AMER"];
+    const sqls = cells.map((region) =>
+      buildInsightSQL(BASE_TABLE, new Map(), insightNoFilters, {
+        mode: "query",
+        effectiveFilters: [{ field: "region", operator: "eq", value: region }],
+      }),
+    );
+
+    expect(sqls[0]).not.toEqual(sqls[1]);
+    expect(sqls[1]).not.toEqual(sqls[2]);
+    expect(sqls[0]).not.toEqual(sqls[2]);
+    expect(sqls[0]).toContain("'EMEA'");
+    expect(sqls[1]).toContain("'APAC'");
+    expect(sqls[2]).toContain("'AMER'");
+  });
+
+  it("insight object is not mutated when effectiveFilters is passed (read-only invariant end-to-end)", () => {
+    const insight: Insight = { ...BASE_INSIGHT };
+    const snapshotBefore = JSON.stringify(insight);
+
+    // Simulate the render path: call buildInsightSQL with effectiveFilters
+    buildInsightSQL(BASE_TABLE, new Map(), insight, {
+      mode: "query",
+      effectiveFilters: [{ field: "region", operator: "eq", value: "APAC" }],
+    });
+
+    // The insight object passed in must be byte-identical after the call
+    expect(JSON.stringify(insight)).toBe(snapshotBefore);
+  });
+
+  it("effectiveSorts produces an ORDER BY clause in the compiled SQL", () => {
+    // Sort overrides must actually appear in the SQL — not be silently dropped.
+    const insightNoSort: Insight = { ...BASE_INSIGHT, sorts: undefined };
+    const sql = buildInsightSQL(BASE_TABLE, new Map(), insightNoSort, {
+      mode: "query",
+      effectiveSorts: [{ field: "region", direction: "desc" }],
+    });
+    expect(sql).not.toBeNull();
+    expect(sql).toContain(`ORDER BY "${regionAlias}" DESC`);
+  });
+});

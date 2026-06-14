@@ -3,8 +3,17 @@ import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
-import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
-import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
+import {
+  getMetricDisplayLabel,
+  resolveEffectiveParams,
+  resolveEncodingToSql,
+} from "@dashframe/engine";
+import type {
+  ChartEncoding,
+  DashboardItemOverrides,
+  Insight,
+  Visualization,
+} from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import {
@@ -61,8 +70,16 @@ const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
 export function VisualizationDisplay({
   visualizationId,
+  overrides,
 }: {
   visualizationId?: string;
+  /**
+   * Per-cell param overrides from the dashboard item.  When present, the
+   * rendered chart and table reflect `insight ⊕ cellOverride` rather than
+   * the raw insight defaults.  Absent → no change (identical to pre-override
+   * behaviour, satisfying the no-override no-regression constraint).
+   */
+  overrides?: DashboardItemOverrides;
 }) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
@@ -109,8 +126,16 @@ export function VisualizationDisplay({
     return dataTables.find((t) => t.id === insight.baseTableId);
   }, [insight, dataTables]);
 
-  // Build an Insight-compatible object for useInsightView
-  // This transforms the store insight format to what useInsightView expects
+  // Build an Insight-compatible object for useInsightView.
+  // IMPORTANT: this is intentionally the minimal structural shape
+  // (id, name, baseTableId, joins) — exactly as the pre-override path.  It must
+  // NOT carry selectedFields/metrics/filters/sorts: this surface renders the
+  // RAW model view (vgplot computes aggregations from raw rows via the encoding),
+  // and useInsightPagination below queries the same raw model. Adding
+  // metrics/selectedFields here would make pagination emit aggregated/metric
+  // columns that don't exist in the raw model view the chart queries, breaking
+  // chart column resolution.  Cell overrides are layered separately via
+  // effectiveParams, which is undefined unless `overrides` is present.
   const insightForView: Insight | null = useMemo(() => {
     if (!insight) return null;
     return {
@@ -121,20 +146,49 @@ export function VisualizationDisplay({
     } as Insight;
   }, [insight]);
 
+  // Resolve the effective params for this cell = insight defaults ⊕ overrides.
+  // Only computed when overrides are present.  When absent, both hooks get
+  // `effectiveParams: undefined` and follow the exact pre-override path
+  // (no-override no-regression).  The insight's own filters/sorts come from the
+  // raw Dexie `insight` object, not `insightForView` (which is kept minimal).
+  const effectiveParams = useMemo(
+    () =>
+      overrides && insight
+        ? resolveEffectiveParams(
+            insight.filters,
+            insight.sorts,
+            undefined, // insight-level limit (not stored on Insight type yet)
+            overrides,
+          )
+        : undefined,
+    [insight, overrides],
+  );
+
   // Use insight view hook to get the proper table name (handles joins).
   // `nativeCapable` is false when any DataFrame uses non-indexeddb storage —
   // Chart queries must route to WASM in that case (WasmFallbackWrapper below).
   // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
   // the loopback server stopped or returned 500). Without consuming it here the
   // view never becomes ready and the component would spin forever.
+  //
+  // Effective params are forwarded to useInsightView when overrides exist so that
+  // the chart view is pre-filtered/limited.  useInsightView internally strips metric
+  // filters (which require HAVING and cannot be applied in model-mode views) before
+  // building the DuckDB view SQL.
   const {
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
     nativeCapable,
-  } = useInsightView(insightForView);
+  } = useInsightView(insightForView, {
+    effectiveParams,
+  });
 
-  // Use insight pagination for table data (queries DuckDB directly)
+  // Use insight pagination for table data (queries DuckDB directly).
+  // When overrides are present, effectiveParams carries the merged filter/sort/limit
+  // and buildInsightSQL replaces the insight's own params with them.
+  // When absent, effectiveParams is undefined and buildInsightSQL reads
+  // insight.filters/sorts natively — byte-identical to the pre-override path.
   const {
     fetchData,
     totalCount,
@@ -145,6 +199,7 @@ export function VisualizationDisplay({
     insight: insightForView ?? ({} as Insight),
     showModelPreview: false, // Apply full insight transformations
     enabled: !!insightForView, // Only enable when we have an insight
+    effectiveParams,
   });
 
   // Helper to calculate visible rows from container dimensions
