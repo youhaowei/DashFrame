@@ -9,9 +9,10 @@
     "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
     "build": "bun run build:main && bun run build:preload",
     "dev": "bun scripts/dev.mjs",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint",
+    "check": "bun run typecheck && bun run lint && bun run test",
     "verify:engine": "bun scripts/verify-native-engine.mjs"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@dashframe/eslint-config": "workspace:*",
     "@types/node": "^22.10.1",
     "esbuild": "^0.28.0",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "^4.1.6"
   }
 }

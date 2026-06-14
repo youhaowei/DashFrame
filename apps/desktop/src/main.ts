@@ -27,11 +27,22 @@ function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
-  if (isClosingProject || !project) return;
-
-  event.preventDefault();
+/**
+ * Best-effort graceful shutdown.
+ *
+ * Used by BOTH the normal `before-quit` path AND every startup-error path so
+ * partially-initialised handles (engine, project) are never terminated mid-
+ * flight without a chance to flush/close. Each step is individually guarded
+ * so one failure does not skip the rest.
+ *
+ * @param exitCode Exit code to pass to `app.exit()` after cleanup.
+ */
+export async function shutdown(exitCode: number): Promise<void> {
+  // Prevent re-entrant calls (e.g. a `before-quit` firing while a startup
+  // error path is already draining).
+  if (isClosingProject) return;
   isClosingProject = true;
+
   try {
     server?.stop();
   } catch (err) {
@@ -43,15 +54,44 @@ async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
     console.error("[dashframe] error disposing engine:", err);
   }
   try {
-    await project.close();
+    await project?.close();
   } catch (err) {
     console.error("[dashframe] error closing project DB:", err);
-  } finally {
-    app.quit();
   }
+
+  app.exit(exitCode);
 }
 
-function createWindow(): void {
+/**
+ * Reset shutdown-guard state. For testing only — lets tests reset the
+ * `isClosingProject` flag between cases without re-importing the module.
+ */
+export function _resetShutdownGuard(): void {
+  isClosingProject = false;
+}
+
+/**
+ * Inject test doubles for the module-level handles. For testing only — lets
+ * tests assert that shutdown drains the mocked handles in the right order.
+ */
+export function _injectHandles(opts: {
+  project?: ProjectHandle | null;
+  server?: DashframeServer | null;
+  engine?: NativeDuckDBEngine | null;
+}): void {
+  if ("project" in opts) project = opts.project ?? null;
+  if ("server" in opts) server = opts.server ?? null;
+  if ("engine" in opts) engine = opts.engine ?? null;
+}
+
+async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
+  if (isClosingProject || !project) return;
+
+  event.preventDefault();
+  await shutdown(0);
+}
+
+async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -71,19 +111,30 @@ function createWindow(): void {
     },
   });
 
-  const loaded = isDev
-    ? win.loadURL(DEV_URL)
-    : win.loadFile(
-        path.join(
-          import.meta.dirname,
-          "..",
-          "..",
-          "renderer",
-          "dist",
-          "index.html",
-        ),
-      );
-  loaded.catch((err) => console.error("[dashframe] window load failed:", err));
+  try {
+    await (isDev
+      ? win.loadURL(DEV_URL)
+      : win.loadFile(
+          path.join(
+            import.meta.dirname,
+            "..",
+            "..",
+            "renderer",
+            "dist",
+            "index.html",
+          ),
+        ));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[dashframe] window load failed:", err);
+    dialog.showErrorBox(
+      "DashFrame failed to start",
+      `Could not load the application window: ${message}`,
+    );
+    // Window load failure is fatal — the app is running with an inert window
+    // and cannot recover. Trigger graceful shutdown and exit.
+    await shutdown(1);
+  }
 }
 
 function registerIpc(
@@ -149,7 +200,7 @@ app
         "DashFrame failed to start",
         `Could not open project: ${message}`,
       );
-      app.exit(1);
+      await shutdown(1);
       return;
     }
 
@@ -207,7 +258,7 @@ app
         "DashFrame failed to start",
         `Could not start the local server: ${message}`,
       );
-      app.exit(1);
+      await shutdown(1);
       return;
     }
     console.log(`[dashframe] loopback server ready at ${server.url}`);
@@ -216,16 +267,16 @@ app
     app.on("before-quit", closeProjectBeforeQuit);
 
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
-    createWindow();
+    await createWindow();
     console.log("[dashframe] window created");
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
+        void createWindow();
       }
     });
   })
   .catch((err) => {
     console.error("[dashframe] startup failed:", err);
-    app.exit(1);
+    void shutdown(1);
   });
