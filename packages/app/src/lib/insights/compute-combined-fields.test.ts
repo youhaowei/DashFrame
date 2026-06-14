@@ -1,6 +1,7 @@
-import type { InsightJoinConfig } from "@dashframe/types";
+import type { DataTable, InsightJoinConfig } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 import {
+  computeCombinedFields,
   computeFilterableFields,
   type CombinedField,
 } from "./compute-combined-fields";
@@ -12,6 +13,95 @@ import {
  * the insight SQL builder's join emission (right join-key dropped) and its
  * column-name-based filter resolution.
  */
+
+function makeTable(id: string, name: string, fieldNames: string[]): DataTable {
+  return {
+    id,
+    name,
+    fields: fieldNames.map((n) => ({
+      id: `${id}-${n}`,
+      name: n,
+      type: "string" as const,
+    })),
+  } as unknown as DataTable;
+}
+
+describe("computeCombinedFields", () => {
+  it("disambiguates joined-vs-joined column collisions (3-way same name)", () => {
+    // Regression: old code only checked base-vs-joined collisions. If two
+    // joined tables share a column name absent from the base, both fields
+    // stayed unprefixed → duplicate displayNames in the combined output.
+    const base = makeTable("t-base", "users", ["name"]);
+    const joinA = makeTable("t-a", "accounts", ["id", "email"]);
+    const joinB = makeTable("t-b", "bookings", ["id", "date"]);
+
+    const joins: InsightJoinConfig[] = [
+      {
+        type: "inner",
+        rightTableId: "t-a",
+        leftKey: "account_id",
+        rightKey: "id",
+      },
+      {
+        type: "inner",
+        rightTableId: "t-b",
+        leftKey: "booking_id",
+        rightKey: "id",
+      },
+    ];
+
+    const { fields } = computeCombinedFields(base, joins, [base, joinA, joinB]);
+    const displayNames = fields.map((f) => f.displayName);
+
+    // All display names must be unique — no two fields may share one.
+    const unique = new Set(displayNames);
+    expect(unique.size).toBe(displayNames.length);
+
+    // Both joined `id` fields must be prefixed (they collide with each other).
+    const idFields = fields.filter((f) => f.name === "id");
+    expect(idFields).toHaveLength(2);
+    for (const f of idFields) {
+      expect(f.displayName).toContain(".");
+    }
+    expect(idFields[0].displayName).not.toBe(idFields[1].displayName);
+  });
+
+  it("disambiguates 3-way collision: base id + join A id + join B id", () => {
+    // The ticket's canonical repro: base has `id`, both joined tables have `id`.
+    // All three must get unique prefixed display names.
+    const base = makeTable("t-base", "leads", ["id", "name"]);
+    const joinA = makeTable("t-a", "rooms", ["id", "label"]);
+    const joinB = makeTable("t-b", "owners", ["id", "email"]);
+
+    const joins: InsightJoinConfig[] = [
+      {
+        type: "inner",
+        rightTableId: "t-a",
+        leftKey: "room_id",
+        rightKey: "id",
+      },
+      {
+        type: "inner",
+        rightTableId: "t-b",
+        leftKey: "owner_id",
+        rightKey: "id",
+      },
+    ];
+
+    const { fields } = computeCombinedFields(base, joins, [base, joinA, joinB]);
+    const idFields = fields.filter((f) => f.name === "id");
+    expect(idFields).toHaveLength(3);
+
+    // Every id field must carry a prefix.
+    for (const f of idFields) {
+      expect(f.displayName).toContain(".");
+    }
+
+    // All three display names must be distinct.
+    const names = idFields.map((f) => f.displayName);
+    expect(new Set(names).size).toBe(3);
+  });
+});
 
 function field(overrides: Partial<CombinedField>): CombinedField {
   return {
