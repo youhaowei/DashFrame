@@ -38,3 +38,5 @@ export {
   resolveEffectiveParams,
   type EffectiveParams,
 } from "./override-resolution";
+
+export { quoteIdentifier, quoteLiteral } from "./quoting";
