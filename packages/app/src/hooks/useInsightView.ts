@@ -1,6 +1,7 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
+import type { EffectiveParams } from "@dashframe/engine";
 import {
   buildInsightSQL,
   ensureTableLoaded,
@@ -77,6 +78,27 @@ export function getCachedViewName(insightId: string): string | null {
 }
 
 /**
+ * Produce a short (8-char) hex digest of an array of InsightFilters.
+ *
+ * Used to generate a SQL-safe view name suffix for per-cell filtered views so
+ * that two dashboard cells on the same insight with DIFFERENT overrides map to
+ * two distinct DuckDB views instead of colliding on `insight_view_<id>`.
+ *
+ * Not a crypto hash — just a stable deterministic djb2 string hash sufficient
+ * for naming uniqueness within a session.
+ */
+function hashFilters(
+  filters: { field: string; operator: string; value: unknown }[],
+): string {
+  const str = JSON.stringify(filters);
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; // djb2, unsigned 32-bit
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
  * Hook to create a DuckDB view for an Insight.
  *
  * Always creates a view named `insight_view_<insightId>` using buildInsightSQL().
@@ -104,9 +126,39 @@ export function getCachedViewName(insightId: string): string | null {
  * ) : null;
  * ```
  */
-export function useInsightView(insight: Insight | null | undefined) {
+/**
+ * Options for `useInsightView`.
+ */
+export interface UseInsightViewOptions {
+  /**
+   * Pre-resolved effective params from `resolveEffectiveParams` (cell overrides
+   * coalesced with insight defaults).  When supplied, the view is built with
+   * these filters/sorts/limit applied — the insight object itself is not mutated.
+   *
+   * Absent → the standard model-mode view (no filters) is created, identical to
+   * the pre-override behaviour.
+   */
+  effectiveParams?: EffectiveParams;
+}
+
+export function useInsightView(
+  insight: Insight | null | undefined,
+  options: UseInsightViewOptions = {},
+) {
+  const { effectiveParams } = options;
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
   const { connector, uploadArrowTable } = useChartEngine();
+
+  // Stable key for the effective params so the cache differentiates cells that
+  // share the same insight but have distinct overrides.  We only include the
+  // filters here (sorts/limit don't affect which DuckDB view is needed for a
+  // Chart — those are applied in the pagination / query path).
+  //
+  // Serialising to a string produces a primitive that is safe to use in dep
+  // arrays without the non-simple-expression lint error.
+  const effectiveFiltersKey = effectiveParams?.filters?.length
+    ? JSON.stringify(effectiveParams.filters)
+    : null;
 
   // Extract stable dependencies from insight object BEFORE state
   const insightId = insight?.id;
@@ -123,8 +175,12 @@ export function useInsightView(insight: Insight | null | undefined) {
       )
     : null;
 
-  // Compute config key for cache lookup
-  const configKey = insightId ? `${insightId}:${joinsKey}` : null;
+  // Compute config key for cache lookup.
+  // When effective filters are present, incorporate them so cells with distinct
+  // overrides on the same insight get their own cached view.
+  const configKey = insightId
+    ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}`
+    : null;
 
   // Check module-level cache for existing view (survives Strict Mode remounts)
   const cachedView = configKey
@@ -212,8 +268,10 @@ export function useInsightView(insight: Insight | null | undefined) {
     // Mark this config as in-flight (module-level, survives unmount/remount)
     pendingRequests.add(configKey);
 
-    // Capture joins array from insight at effect start (insight may change during async)
+    // Capture stable values at effect start (insight object may change during async)
     const joins = insight?.joins ?? [];
+    // Snapshot effective filters for this view (null = no override = unfiltered model view)
+    const snapshotEffectiveFilters = effectiveParams?.filters ?? null;
 
     const createView = async () => {
       try {
@@ -309,16 +367,19 @@ export function useInsightView(insight: Insight | null | undefined) {
           }),
         );
 
-        // Build SQL for the model (all columns, no aggregation)
-        // Works for both simple insights and those with joins
-        // Note: We need insight for buildInsightSQL, but we only run this effect
-        // when the relevant primitives (insightId, baseTableId, joinsKey) change
+        // Build SQL for the model (all columns, no aggregation).
+        // When the cell has effective filters (from per-cell overrides), pass
+        // them so the view is pre-filtered for the Chart.  No override = the
+        // standard unfiltered model view (identical to pre-override behaviour).
         const sql = buildInsightSQL(
           baseTable,
           joinedTables,
           { joins } as Insight,
           {
             mode: "model",
+            ...(snapshotEffectiveFilters !== null && {
+              effectiveFilters: snapshotEffectiveFilters,
+            }),
           },
         );
 
@@ -329,8 +390,16 @@ export function useInsightView(insight: Insight | null | undefined) {
           return;
         }
 
-        // Always create a view with unique name based on insight ID
-        const newViewName = `insight_view_${insightId.replace(/-/g, "_")}`;
+        // View name: base insight view for the unfiltered case.  When effective
+        // filters are present (cell override), append a short hash of the filter
+        // JSON so each distinct override set gets its own view in DuckDB.
+        // Using a hash keeps the name SQL-safe and collision-resistant.
+        const idSafe = insightId.replace(/-/g, "_");
+        const newViewName =
+          snapshotEffectiveFilters !== null &&
+          snapshotEffectiveFilters.length > 0
+            ? `insight_view_${idSafe}_cell_${hashFilters(snapshotEffectiveFilters)}`
+            : `insight_view_${idSafe}`;
         const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`;
         await connection.query(createViewSql);
 
@@ -372,7 +441,7 @@ export function useInsightView(insight: Insight | null | undefined) {
     // - Do NOT include `isReady` (would create feedback loop when we setIsReady)
     // - `joinsKey` is a serialized representation of `insight.joins`, so we don't need `insight.joins` directly
     // - `connector`/`uploadArrowTable` are stable (set once at bootstrap)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey tracks insight.joins changes; connector/uploadArrowTable are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey/effectiveFiltersKey track insight.joins/overrides changes; connector/uploadArrowTable are stable
   }, [
     connection,
     isInitialized,
@@ -381,6 +450,7 @@ export function useInsightView(insight: Insight | null | undefined) {
     baseTableId,
     joinsKey,
     configKey,
+    effectiveFiltersKey, // re-run when the cell's overridden filters change
     connector,
     uploadArrowTable,
   ]);

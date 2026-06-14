@@ -95,7 +95,10 @@ export function DashboardItem({
             />
           ) : (
             <div className="h-full w-full">
-              <VisualizationDisplay visualizationId={item.visualizationId} />
+              <VisualizationDisplay
+                visualizationId={item.visualizationId}
+                overrides={item.overrides}
+              />
             </div>
           )}
         </div>

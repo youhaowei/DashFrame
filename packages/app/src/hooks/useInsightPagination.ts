@@ -1,5 +1,6 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
+import type { EffectiveParams } from "@dashframe/engine";
 import {
   buildInsightSQL,
   fieldIdToColumnAlias,
@@ -29,6 +30,14 @@ export interface UseInsightPaginationOptions {
    * @default true
    */
   enabled?: boolean;
+  /**
+   * Pre-resolved effective params from `resolveEffectiveParams` (cell overrides
+   * coalesced with insight defaults).  When supplied, these filters/sorts/limit
+   * are used INSTEAD of `insight.filters/sorts` — the insight is not mutated.
+   *
+   * Absent → the standard insight query behaviour (no change).
+   */
+  effectiveParams?: EffectiveParams;
 }
 
 /**
@@ -61,6 +70,7 @@ export function useInsightPagination({
   insight,
   showModelPreview = false,
   enabled = true,
+  effectiveParams,
 }: UseInsightPaginationOptions) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
 
@@ -210,10 +220,21 @@ export function useInsightPagination({
           return;
         }
 
-        // Build SQL for count query
+        // Build SQL for count query.
+        // When effective params are supplied (per-cell overrides), inject them
+        // so the count reflects the overridden filters/limit.
         const mode = showModelPreview ? "model" : "query";
+        const overrideOptions =
+          !showModelPreview && effectiveParams
+            ? {
+                effectiveFilters: effectiveParams.filters,
+                effectiveSorts: effectiveParams.sorts,
+                effectiveLimit: effectiveParams.limit,
+              }
+            : {};
         const countSQL = buildInsightSQL(baseTable, joinedTables, insight, {
           mode,
+          ...overrideOptions,
         });
 
         if (!countSQL) {
@@ -232,6 +253,7 @@ export function useInsightPagination({
         const previewSQL = buildInsightSQL(baseTable, joinedTables, insight, {
           mode,
           limit: 1,
+          ...overrideOptions,
         });
 
         if (previewSQL) {
@@ -270,6 +292,7 @@ export function useInsightPagination({
     insight,
     showModelPreview,
     enabled,
+    effectiveParams,
     resolveTables,
     loadDataFrames,
   ]);
@@ -297,14 +320,24 @@ export function useInsightPagination({
         // Ensure DataFrames are loaded (idempotent)
         await loadDataFrames(baseTable, joinedTables);
 
-        // Build SQL with pagination
+        // Build SQL with pagination.
+        // Inject effective params (per-cell overrides) when available.
         const mode = showModelPreview ? "model" : "query";
+        const overrideOpts =
+          !showModelPreview && effectiveParams
+            ? {
+                effectiveFilters: effectiveParams.filters,
+                effectiveSorts: effectiveParams.sorts,
+                effectiveLimit: effectiveParams.limit,
+              }
+            : {};
         const sql = buildInsightSQL(baseTable, joinedTables, insight, {
           mode,
           limit: params.limit,
           offset: params.offset,
           sortColumn: params.sortColumn,
           sortDirection: params.sortDirection,
+          ...overrideOpts,
         });
 
         if (!sql) {
@@ -326,6 +359,7 @@ export function useInsightPagination({
       isDuckDBLoading,
       insight,
       showModelPreview,
+      effectiveParams,
       resolveTables,
       loadDataFrames,
       totalCount,

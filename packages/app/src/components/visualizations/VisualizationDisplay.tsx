@@ -3,8 +3,17 @@ import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
-import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
-import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
+import {
+  getMetricDisplayLabel,
+  resolveEffectiveParams,
+  resolveEncodingToSql,
+} from "@dashframe/engine";
+import type {
+  ChartEncoding,
+  DashboardItemOverrides,
+  Insight,
+  Visualization,
+} from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import {
@@ -61,8 +70,16 @@ const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
 export function VisualizationDisplay({
   visualizationId,
+  overrides,
 }: {
   visualizationId?: string;
+  /**
+   * Per-cell param overrides from the dashboard item.  When present, the
+   * rendered chart and table reflect `insight ⊕ cellOverride` rather than
+   * the raw insight defaults.  Absent → no change (identical to pre-override
+   * behaviour, satisfying the no-override no-regression constraint).
+   */
+  overrides?: DashboardItemOverrides;
 }) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
@@ -118,8 +135,28 @@ export function VisualizationDisplay({
       name: insight.name,
       baseTableId: insight.baseTableId,
       joins: insight.joins,
+      // Include filters/sorts so effective params can be resolved against them
+      filters: insight.filters,
+      sorts: insight.sorts,
     } as Insight;
   }, [insight]);
+
+  // Resolve the effective params for this cell = insight defaults ⊕ overrides.
+  // When `overrides` is absent this is a fast no-op: the result is a clone of
+  // the insight's own filters/sorts/limit with no cell-specific change (no-override
+  // no-regression path).
+  const effectiveParams = useMemo(
+    () =>
+      insightForView
+        ? resolveEffectiveParams(
+            insightForView.filters,
+            insightForView.sorts,
+            undefined, // insight-level limit (not stored on Insight type yet)
+            overrides,
+          )
+        : undefined,
+    [insightForView, overrides],
+  );
 
   // Use insight view hook to get the proper table name (handles joins).
   // `nativeCapable` is false when any DataFrame uses non-indexeddb storage —
@@ -127,12 +164,21 @@ export function VisualizationDisplay({
   // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
   // the loopback server stopped or returned 500). Without consuming it here the
   // view never becomes ready and the component would spin forever.
+  //
+  // When the cell has overrides, we pass the effectiveParams so the view is
+  // pre-filtered.  Cells without overrides skip this (effectiveParams has no
+  // filters when overrides is absent) and get the standard unfiltered view.
   const {
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
     nativeCapable,
-  } = useInsightView(insightForView);
+  } = useInsightView(insightForView, {
+    effectiveParams:
+      overrides && effectiveParams?.filters.length
+        ? effectiveParams
+        : undefined,
+  });
 
   // Use insight pagination for table data (queries DuckDB directly)
   const {
@@ -145,6 +191,9 @@ export function VisualizationDisplay({
     insight: insightForView ?? ({} as Insight),
     showModelPreview: false, // Apply full insight transformations
     enabled: !!insightForView, // Only enable when we have an insight
+    // Pass effective params when overrides are present so the table also reflects
+    // the per-cell filter/sort/limit.
+    effectiveParams: overrides ? effectiveParams : undefined,
   });
 
   // Helper to calculate visible rows from container dimensions
