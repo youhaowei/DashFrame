@@ -113,14 +113,13 @@ export default function DataSourcePageContent({
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
 
-  const { data: allDataSources = [] } = useDataSources();
+  const { data: allDataSources = [], isLoading } = useDataSources();
   const { update: updateDataSource } = useDataSourceMutations();
   const { remove: removeDataTable, updateField } = useDataTableMutations();
   const { data: allDataFrames = [] } = useDataFrames();
 
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
-  const isLoading = false; // DataSources hook handles loading
 
   const { data: dataTables = [] } = useDataTables(sourceId);
 
