@@ -67,10 +67,7 @@ function extractColumns(rows: DataFrameRow[]): DataFrameColumn[] {
 }
 
 /**
- * Hook to load DataFrame data from IndexedDB via DuckDB.
- *
- * This hook handles the async loading of data that is stored in IndexedDB
- * and needs to be loaded into DuckDB for querying.
+ * Hook to load DataFrame data from the server into DuckDB for querying.
  *
  * Triggers lazy DuckDB initialization on first call and returns loading state
  * while DuckDB initializes.
@@ -134,7 +131,6 @@ export function useDataFrameData(
       return;
     }
 
-    // Get the DataFrame instance from Dexie (async)
     const dataFrame = await getDataFrame(dataFrameId);
     if (!dataFrame) {
       setError(`DataFrame not found: ${dataFrameId}`);

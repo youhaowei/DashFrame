@@ -18,7 +18,7 @@ import {
 } from "@/lib/visualizations/encoding-enforcer";
 import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
 import {
-  getDataFrame as getDexieDataFrame,
+  getDataFrame,
   useCompiledInsight,
   useDataTables,
   useInsights,
@@ -99,7 +99,6 @@ export default function VisualizationPageContent({
 }: VisualizationPageContentProps) {
   const navigate = useNavigate();
 
-  // Dexie hooks for data
   const { data: visualizations = [], isLoading: isVizLoading } =
     useVisualizations();
   const { data: insights = [] } = useInsights();
@@ -222,7 +221,7 @@ export default function VisualizationPageContent({
 
       try {
         // Get the base DataFrame
-        const baseDataFrame = await getDexieDataFrame(dataTable.dataFrameId!);
+        const baseDataFrame = await getDataFrame(dataTable.dataFrameId!);
         if (!baseDataFrame) {
           throw new Error("Base DataFrame not found");
         }
@@ -235,9 +234,7 @@ export default function VisualizationPageContent({
         for (const join of insight?.joins ?? []) {
           const joinTable = dataTables.find((t) => t.id === join.rightTableId);
           if (joinTable?.dataFrameId) {
-            const joinDataFrame = await getDexieDataFrame(
-              joinTable.dataFrameId,
-            );
+            const joinDataFrame = await getDataFrame(joinTable.dataFrameId);
             if (joinDataFrame) {
               const joinQueryBuilder =
                 await joinDataFrame.load(duckDBConnection);

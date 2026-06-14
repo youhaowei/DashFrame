@@ -45,7 +45,6 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const navigate = useNavigate();
 
-  // Dexie hooks
   const { data: dataSources = [], isLoading } = useDataSources();
   const { remove: removeDataSourceLocal } = useDataSourceMutations();
 

@@ -168,7 +168,6 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     getNowServerSnapshot,
   );
 
-  // Get data source from Dexie
   const { data: dataSources } = useDataSources();
   const { data: allTables } = useDataTables(dataSourceId ?? undefined);
   const dataSourceMutations = useDataSourceMutations();

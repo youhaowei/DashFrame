@@ -2,9 +2,9 @@
  * @dashframe/app-data
  *
  * WyStack implementation of the app's data-hook surface. Re-exports the exact
- * hook names and shapes the components already import from `@dashframe/core`,
- * but backed by the WyStack client (HTTP + WS live-invalidation) instead of
- * Dexie/IndexedDB. `@dashframe/core` re-exports from here, so components stay
+ * hook names and shapes the components import from `@dashframe/core`,
+ * backed by the WyStack client (HTTP + WS live-invalidation).
+ * `@dashframe/core` re-exports from here, so components stay
  * backend-agnostic and untouched.
  *
  * The host wires the runtime seam once at startup:

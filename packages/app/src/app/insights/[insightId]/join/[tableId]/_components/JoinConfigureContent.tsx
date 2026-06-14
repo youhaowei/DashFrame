@@ -68,7 +68,6 @@ export default function JoinConfigureContent({
 }: JoinConfigureContentProps) {
   const navigate = useNavigate();
 
-  // Dexie hooks for data access
   const { data: allInsights, isLoading: isInsightsLoading } = useInsights();
   const { data: allDataTables, isLoading: isTablesLoading } = useDataTables();
   const { update: updateInsight } = useInsightMutations();
@@ -456,7 +455,6 @@ export default function JoinConfigureContent({
 
     const analyze = async () => {
       try {
-        // Get DataFrames from Dexie (async)
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId!);
         const joinDataFrame = await getDataFrame(joinTable.dataFrameId!);
         if (!baseDataFrame || !joinDataFrame) return;
@@ -560,7 +558,6 @@ export default function JoinConfigureContent({
       setIsComputingPreview(true);
       setError(null);
       try {
-        // Get DataFrames from Dexie (async)
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId!);
         const joinDataFrame = await getDataFrame(joinTable.dataFrameId!);
 

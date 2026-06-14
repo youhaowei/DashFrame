@@ -56,12 +56,12 @@ export interface DataSourceMutations {
 
 /**
  * Hook type for reading data sources.
- * Implementations provided by core-dexie or core-convex.
+ * Implemented by @dashframe/app-data (WyStack server path).
  */
 export type UseDataSources = () => UseDataSourcesResult;
 
 /**
  * Hook type for data source mutations.
- * Implementations provided by core-dexie or core-convex.
+ * Implemented by @dashframe/app-data (WyStack server path).
  */
 export type UseDataSourceMutations = () => DataSourceMutations;

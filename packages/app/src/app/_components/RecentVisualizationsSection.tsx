@@ -9,7 +9,7 @@ import { DashboardSection } from "./DashboardSection";
 /**
  * RecentVisualizationsSection - Displays the 3 most recent visualizations
  *
- * Self-contained section that fetches its own data from Dexie.
+ * Self-contained section that fetches its own data via the WyStack server.
  */
 export function RecentVisualizationsSection() {
   const navigate = useNavigate();

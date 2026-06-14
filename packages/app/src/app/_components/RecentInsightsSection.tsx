@@ -8,7 +8,7 @@ import { DashboardSection } from "./DashboardSection";
 /**
  * RecentInsightsSection - Displays the 3 most recent insights
  *
- * Self-contained section that fetches its own data from Dexie.
+ * Self-contained section that fetches its own data via the WyStack server.
  */
 export function RecentInsightsSection() {
   const navigate = useNavigate();

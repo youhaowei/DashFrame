@@ -70,7 +70,6 @@ function getInsightState(
 export default function InsightsPage() {
   const navigate = useNavigate();
 
-  // Dexie hooks
   const { data: allInsights = [] } = useInsights();
   const { remove: removeInsightLocal } = useInsightMutations();
   const { data: visualizations = [] } = useVisualizations();
@@ -90,7 +89,6 @@ export default function InsightsPage() {
 
       const dataTableId = insight.baseTableId;
       if (dataTableId) {
-        // Find the data table (flat in Dexie)
         const table = allDataTables.find((t) => t.id === dataTableId);
         if (table) {
           dataTable = table;

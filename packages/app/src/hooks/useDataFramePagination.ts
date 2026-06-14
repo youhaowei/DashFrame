@@ -28,7 +28,6 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
   const { data: allDataFrames } = useDataFrames();
 
-  // Find the entry from reactive Dexie data (replaces Zustand subscription)
   const entry = useMemo(
     () => allDataFrames?.find((df) => df.id === dataFrameId),
     [allDataFrames, dataFrameId],
@@ -48,7 +47,6 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
 
     const init = async () => {
       try {
-        // Get DataFrame from Dexie (async)
         const dataFrame = await getDataFrame(dataFrameId);
         if (!dataFrame) {
           setError(`DataFrame not found: ${dataFrameId}`);
@@ -100,7 +98,6 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         return { rows: [], totalCount: 0 };
       }
 
-      // Get DataFrame from Dexie (async)
       const dataFrame = await getDataFrame(dataFrameId);
       if (!dataFrame) {
         return { rows: [], totalCount: 0 };

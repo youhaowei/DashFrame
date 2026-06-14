@@ -11,7 +11,7 @@ import { useMemo } from "react";
 /**
  * QuickLinksSection - Navigation links to main app sections
  *
- * Self-contained section that fetches counts from Dexie.
+ * Self-contained section that fetches counts via the WyStack server.
  */
 export function QuickLinksSection() {
   const navigate = useNavigate();

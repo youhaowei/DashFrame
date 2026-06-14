@@ -1,22 +1,10 @@
 /**
- * Dashboards data hooks — WyStack implementation of the Dexie hook surface.
+ * Dashboards data hooks — WyStack server implementation.
  *
- * Names and shapes are byte-for-byte identical to `@dashframe/core-dexie`'s
- * dashboards repository, so the ~41 app components import the same symbols and
- * never change. Only the implementation differs: reads go through WyStack
- * `useQuery` (HTTP fetch + WS live-invalidation) instead of Dexie
- * `useLiveQuery`, and writes go through `useMutation` instead of direct
- * `db.dashboards.*` calls.
- *
- * Two adaptations bridge the API gap:
- *   - Result shape: WyStack's TanStack `UseQueryResult` → the domain's
- *     `{ data, isLoading }`.
- *   - Mutation calling convention: Dexie's positional args
- *     (`create(name, description)`) → WyStack's single args object
- *     (`mutateAsync({ name, description })`).
- *
- * The server returns the domain `Dashboard` shape already (it maps row→domain
- * handler-side), so there's no entity→domain conversion on this side.
+ * Reads go through WyStack `useQuery` (HTTP fetch + WS live-invalidation)
+ * and writes go through `useMutation`. The server returns the domain
+ * `Dashboard` shape already (it maps row→domain handler-side), so there's
+ * no entity→domain conversion on this side.
  */
 import type {
   CreateItemInput,
@@ -48,9 +36,9 @@ export function useDashboards(): UseDashboardsResult {
 }
 
 /**
- * Hook to get dashboard mutations. Returns the same async-function surface as
- * Dexie; each call adapts positional args → a WyStack args object and awaits
- * the mutation. Stable across renders (the mutate fns are referentially stable).
+ * Hook to get dashboard mutations. Each call adapts positional args → a WyStack
+ * args object and awaits the mutation. Stable across renders (the mutate fns
+ * are referentially stable).
  */
 export function useDashboardMutations(): DashboardMutations {
   const create = useMutation(api.createDashboard);
