@@ -141,5 +141,8 @@ describe("DashboardsPage – handleCreate failure paths", () => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboards/dash-abc" });
     });
     expect(mockShowError).not.toHaveBeenCalled();
+
+    // Dialog is closed — the input is no longer in the document
+    expect(screen.queryByPlaceholderText(/sales overview/i)).toBeNull();
   });
 });
