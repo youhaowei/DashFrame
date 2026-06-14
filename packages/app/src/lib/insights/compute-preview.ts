@@ -123,16 +123,23 @@ function groupRowsBy(
 
   for (const row of rows) {
     // Build a collision-resistant key using typed tuples per field.
-    // Each entry is ["null"] for null/undefined, or ["v", value] for a real
-    // value. JSON.stringify over this array is injective: a value that
-    // contains the old "|||" delimiter or the string "null" cannot collide
-    // with a different value-combination.
+    // Tags: ["null"] for null/undefined, ["special", str] for non-finite
+    // numbers (NaN/±Infinity — JSON.stringify coerces these to "null", so they
+    // must be normalized out before serialization), or ["v", value] for all
+    // other values. JSON.stringify over this tagged array is injective for any
+    // mix of strings, finite numbers, and booleans: a value containing the old
+    // "|||" delimiter or the string "null" cannot collide with a different
+    // value-combination.
     // Fields without columnName participate via field.id so they don't all
     // collapse to the same null bucket.
     const keyParts = fields.map((field) => {
       const colKey = field.columnName ?? field.id;
       const value = row[colKey];
-      return value == null ? ["null"] : ["v", value];
+      if (value == null) return ["null"];
+      if (typeof value === "number" && !isFinite(value)) {
+        return ["special", String(value)]; // "NaN", "Infinity", "-Infinity"
+      }
+      return ["v", value];
     });
     const key = JSON.stringify(keyParts);
 

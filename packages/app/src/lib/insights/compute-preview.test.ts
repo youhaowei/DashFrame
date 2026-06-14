@@ -139,6 +139,24 @@ describe("groupRowsBy — null/sentinel collision", () => {
     const result = computeInsightPreview(ins, dt, data, 50);
     expect(result.rowCount).toBe(2);
   });
+
+  it("keeps NaN, Infinity, and -Infinity as distinct groups from each other and from null", () => {
+    // JSON.stringify coerces NaN/±Infinity to "null", so without special-casing
+    // they would all merge into the same group as actual null values.
+    const val = field({ id: "f1", name: "value", columnName: "value" });
+    const dt = table([val]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { value: null },
+      { value: NaN },
+      { value: Infinity },
+      { value: -Infinity },
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(4);
+  });
 });
 
 // ---------------------------------------------------------------------------
