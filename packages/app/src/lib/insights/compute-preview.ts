@@ -122,12 +122,34 @@ function groupRowsBy(
   const groupMap = new Map<string, Record<string, unknown>[]>();
 
   for (const row of rows) {
-    // Create group key from field values
+    // Build a collision-resistant key using typed tuples per field.
+    //
+    // The encoding is a TOTAL, injective function over every value DuckDB
+    // can produce (string, finite number, bigint, boolean, null/undefined,
+    // non-finite number). Two distinct values must never share a key; no
+    // value may throw. Type tags prevent cross-type collisions (e.g. the
+    // string "1" vs the number 1 vs the bigint 1n each produce distinct keys).
+    //
+    // Tags:
+    //   ["null"]           — null or undefined
+    //   ["num", str]       — non-finite numbers: "NaN", "Infinity", "-Infinity"
+    //                        (JSON.stringify coerces these to null otherwise)
+    //   ["bigint", str]    — BigInt values (JSON.stringify THROWS on bigint)
+    //   ["v", value]       — everything else: string, finite number, boolean
+    //
+    // Column lookup: field.columnName ?? field.name (codebase convention,
+    // matching compute-combined-fields.ts and the SQL builder helpers).
     const keyParts = fields.map((field) => {
-      const value = field.columnName ? row[field.columnName] : null;
-      return value != null ? String(value) : "__NULL__";
+      const colKey = field.columnName ?? field.name;
+      const value = row[colKey];
+      if (value == null) return ["null"];
+      if (typeof value === "bigint") return ["bigint", value.toString()];
+      if (typeof value === "number" && !isFinite(value)) {
+        return ["num", String(value)]; // "NaN", "Infinity", "-Infinity"
+      }
+      return ["v", value];
     });
-    const key = keyParts.join("|||");
+    const key = JSON.stringify(keyParts);
 
     // Add row to group
     if (!groupMap.has(key)) {
@@ -155,9 +177,12 @@ function extractGroupKeys(
   const result: Record<string, unknown> = {};
 
   for (const field of fields) {
-    if (field.columnName) {
-      result[field.name] = row[field.columnName];
-    }
+    // Use columnName when available; fall back to field.name (codebase
+    // convention: columnName ?? name, matching compute-combined-fields.ts)
+    // so that fields without a columnName still contribute a value instead
+    // of being silently dropped from the output row.
+    const colKey = field.columnName ?? field.name;
+    result[field.name] = row[colKey];
   }
 
   return result;
