@@ -13,7 +13,6 @@ import type {
   Insight,
   InsightFilter,
   InsightMetric,
-  InsightSort,
   UUID,
 } from "@dashframe/types";
 import { useEffect, useState } from "react";
@@ -112,18 +111,27 @@ function stripMetricFilters(
 }
 
 /**
- * Build the effective-override fields for a model-mode chart view SQL call,
- * stripping metric filters (they require HAVING, incompatible with model mode).
+ * Build the effective-override fields for a model-mode chart view SQL call.
+ *
+ * Only filters are forwarded — and metric filters are stripped (they require
+ * HAVING, incompatible with model mode).  Two things are deliberately NOT
+ * forwarded to the chart view:
+ *
+ * - `effectiveLimit`: the Chart (vgplot/Mosaic) builds its own GROUP BY
+ *   aggregation against this view (e.g. `SELECT region, SUM(sales) … GROUP BY
+ *   region`).  A `LIMIT N` in the view definition caps the RAW input rows
+ *   before aggregation, silently dropping groups and producing wrong totals.
+ *   The cell limit applies only to the VirtualTable pagination path
+ *   (`useInsightPagination`), which enforces it correctly.
+ * - `effectiveSorts`: GROUP BY ignores input row order, so a sort on the raw
+ *   model view has no effect on the aggregated chart output. Sort overrides are
+ *   applied in the pagination/table path only.
  */
 function buildViewSQLOptions(
   effectiveFilters: InsightFilter[] | null,
-  effectiveSorts: InsightSort[] | undefined,
-  effectiveLimit: number | undefined,
   metrics: InsightMetric[],
 ): {
   effectiveFilters?: InsightFilter[];
-  effectiveSorts?: InsightSort[];
-  effectiveLimit?: number;
 } {
   const viewFilters =
     effectiveFilters !== null
@@ -134,8 +142,6 @@ function buildViewSQLOptions(
       viewFilters.length > 0 && {
         effectiveFilters: viewFilters,
       }),
-    ...(effectiveSorts?.length && { effectiveSorts }),
-    ...(effectiveLimit !== undefined && { effectiveLimit }),
   };
 }
 
@@ -212,17 +218,16 @@ export function useInsightView(
   const { connector, uploadArrowTable } = useChartEngine();
 
   // Stable key for the effective params so the cache differentiates cells that
-  // share the same insight but have distinct overrides.  Includes filters, sorts,
-  // and limit so every distinct override combination gets its own cached view.
+  // share the same insight but have distinct overrides.  Keyed on FILTERS ONLY:
+  // sorts and limit are intentionally NOT applied to the model-mode chart view
+  // (sorts don't affect GROUP BY output; limit would wrongly cap pre-aggregation
+  // rows — see buildViewSQLOptions), so two cells that differ only in sort/limit
+  // share the same view.
   //
   // Serialising to a string produces a primitive that is safe to use in dep
   // arrays without the non-simple-expression lint error.
-  const effectiveParamsKey = effectiveParams
-    ? JSON.stringify({
-        f: effectiveParams.filters,
-        s: effectiveParams.sorts,
-        l: effectiveParams.limit,
-      })
+  const effectiveFiltersKey = effectiveParams?.filters?.length
+    ? JSON.stringify(effectiveParams.filters)
     : null;
 
   // Extract stable dependencies from insight object BEFORE state
@@ -241,10 +246,10 @@ export function useInsightView(
     : null;
 
   // Compute config key for cache lookup.
-  // Incorporates all override dimensions (filters + sorts + limit) so that each
-  // distinct override combination on the same insight gets its own cached view.
+  // Keyed on the effective FILTERS only (the only override dimension that changes
+  // the model-mode view); cells differing only in sort/limit reuse one view.
   const configKey = insightId
-    ? `${insightId}:${joinsKey}:${effectiveParamsKey ?? ""}`
+    ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}`
     : null;
 
   // Check module-level cache for existing view (survives Strict Mode remounts)
@@ -336,10 +341,10 @@ export function useInsightView(
     // Capture stable values at effect start (insight object may change during async)
     const joins = insight?.joins ?? [];
     const insightMetrics = insight?.metrics ?? [];
-    // Snapshot effective params for this view (null = no override = unfiltered model view)
+    // Snapshot effective filters for this view (null = no override = unfiltered
+    // model view).  Sorts/limit are NOT applied to the chart view — see
+    // buildViewSQLOptions — so only filters are snapshotted here.
     const snapshotEffectiveFilters = effectiveParams?.filters ?? null;
-    const snapshotEffectiveSorts = effectiveParams?.sorts;
-    const snapshotEffectiveLimit = effectiveParams?.limit;
 
     const createView = async () => {
       try {
@@ -444,12 +449,7 @@ export function useInsightView(
           { joins, metrics: insightMetrics } as Insight,
           {
             mode: "model",
-            ...buildViewSQLOptions(
-              snapshotEffectiveFilters,
-              snapshotEffectiveSorts,
-              snapshotEffectiveLimit,
-              insightMetrics,
-            ),
+            ...buildViewSQLOptions(snapshotEffectiveFilters, insightMetrics),
           },
         );
 
@@ -460,19 +460,17 @@ export function useInsightView(
           return;
         }
 
-        // View name: base insight view for the unfiltered/unoverridden case.
-        // When any effective override is present (filters, sorts, or limit),
-        // append a collision-free base64url suffix derived from the full params
-        // so each distinct override combination gets its own view in DuckDB.
+        // View name: base insight view for the unfiltered case.  When effective
+        // filters are present (cell override), append a collision-free base64url
+        // suffix derived from the filters so each distinct filtered subset gets
+        // its own view in DuckDB.  Sorts/limit don't affect the view, so they are
+        // not part of the name.
         const idSafe = insightId.replace(/-/g, "_");
-        const hasOverride =
-          (snapshotEffectiveFilters !== null &&
-            snapshotEffectiveFilters.length > 0) ||
-          (snapshotEffectiveSorts !== undefined &&
-            snapshotEffectiveSorts.length > 0) ||
-          snapshotEffectiveLimit !== undefined;
-        const newViewName = hasOverride
-          ? `insight_view_${idSafe}_cell_${toViewSuffix(JSON.stringify({ f: snapshotEffectiveFilters, s: snapshotEffectiveSorts, l: snapshotEffectiveLimit }))}`
+        const hasFilterOverride =
+          snapshotEffectiveFilters !== null &&
+          snapshotEffectiveFilters.length > 0;
+        const newViewName = hasFilterOverride
+          ? `insight_view_${idSafe}_cell_${toViewSuffix(JSON.stringify(snapshotEffectiveFilters))}`
           : `insight_view_${idSafe}`;
         const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`;
         await connection.query(createViewSql);
@@ -515,7 +513,7 @@ export function useInsightView(
     // - Do NOT include `isReady` (would create feedback loop when we setIsReady)
     // - `joinsKey` is a serialized representation of `insight.joins`, so we don't need `insight.joins` directly
     // - `connector`/`uploadArrowTable` are stable (set once at bootstrap)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey/effectiveParamsKey track insight.joins/overrides changes; connector/uploadArrowTable are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- joinsKey/effectiveFiltersKey track insight.joins/overrides changes; connector/uploadArrowTable are stable
   }, [
     connection,
     isInitialized,
@@ -524,7 +522,7 @@ export function useInsightView(
     baseTableId,
     joinsKey,
     configKey,
-    effectiveParamsKey, // re-run when the cell's override params change
+    effectiveFiltersKey, // re-run when the cell's filter override changes
     connector,
     uploadArrowTable,
   ]);
