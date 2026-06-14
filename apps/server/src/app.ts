@@ -71,6 +71,39 @@ function isLoopbackHost(hostname: string | undefined): boolean {
   );
 }
 
+/**
+ * Secure-by-default bind-auth gate. Throws when a non-loopback bind has no
+ * `authToken` (and no explicit `insecure` opt-out) — a non-loopback bind
+ * exposes the project to the network, so the server must not serve unauthenticated
+ * traffic on it. Loopback binds (127.x / ::1 / localhost) are reachable only from
+ * this machine and may omit a token (local dev, Electron). A token always allows
+ * any bind.
+ *
+ * Extracted from `createDashframeServer` so the allow/deny decision is unit-testable
+ * on its own — the security-critical token-allows-non-loopback branch can be
+ * exercised without binding a real socket. Returns nothing on success; throws on a
+ * disallowed bind.
+ */
+export function assertBindAuthorized(opts: {
+  hostname: string | undefined;
+  authToken: string | undefined;
+  insecure?: boolean;
+}): void {
+  const loopback = isLoopbackHost(opts.hostname);
+  if (!loopback && !opts.authToken && !opts.insecure) {
+    throw new Error(
+      `createDashframeServer: refusing to bind ${opts.hostname} without an auth token. ` +
+        `A non-loopback bind exposes the project to the network. ` +
+        `Supply authToken, or set insecure: true to opt out deliberately.`,
+    );
+  }
+  if (opts.insecure && !opts.authToken && !loopback) {
+    console.warn(
+      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
+    );
+  }
+}
+
 /** Allow localhost Vite/preview origins when a caller has not pinned CORS. */
 function allowLocalhostOrigin(origin: string): string | undefined {
   try {
@@ -156,22 +189,14 @@ export async function createDashframeServer(
   const requestedPort = opts.port ?? 0;
 
   // Secure-by-default: refuse to start an unauthenticated server on a
-  // non-loopback bind. A non-loopback bind exposes the project to the network;
-  // without a token every request is implicitly trusted by the server.
-  // Loopback (127.x / ::1 / localhost) is reachable only from this machine and
-  // may omit a token (local dev, Electron). Pass `insecure: true` to opt out.
-  if (!isLoopbackHost(hostname) && !opts.authToken && !opts.insecure) {
-    throw new Error(
-      `createDashframeServer: refusing to bind ${hostname} without an auth token. ` +
-        `A non-loopback bind exposes the project to the network. ` +
-        `Supply authToken, or set insecure: true to opt out deliberately.`,
-    );
-  }
-  if (opts.insecure && !opts.authToken && !isLoopbackHost(hostname)) {
-    console.warn(
-      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
-    );
-  }
+  // non-loopback bind. Runs before any socket bind, so a disallowed config
+  // never opens a listener. See assertBindAuthorized for the full rationale.
+  assertBindAuthorized({
+    hostname,
+    authToken: opts.authToken,
+    insecure: opts.insecure,
+  });
+
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
   const resolveContext = opts.authToken
     ? createTokenResolver(opts.authToken)

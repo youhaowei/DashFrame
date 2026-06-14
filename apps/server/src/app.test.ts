@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { openProject, type ProjectHandle } from "@dashframe/server-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createDashframeServer, type DashframeServer } from "./app";
+import {
+  assertBindAuthorized,
+  createDashframeServer,
+  type DashframeServer,
+} from "./app";
 import type { ProjectInfoResult } from "./functions";
 
 function bearer(token: string): { Authorization: string } {
@@ -64,24 +68,51 @@ function waitForWsAuth(
 
 describe("bind-auth gate", () => {
   /**
-   * Secure-by-default: the factory must refuse to start when both conditions
-   * are true: (a) the bind host is non-loopback, AND (b) no authToken is set.
-   * These tests prove the three contract cases without opening a real DB or
-   * network socket — the guard fires before any I/O.
+   * Secure-by-default: the gate decides allow/deny purely from (host, token,
+   * insecure). It is tested directly via `assertBindAuthorized` — the same
+   * function `createDashframeServer` runs before any socket bind — so each
+   * branch is exercised with no DB and no real listener. Crucially this lets
+   * the token-allows-NON-loopback branch (the security-critical allow-path)
+   * run against a genuinely non-loopback host without binding 0.0.0.0 in CI.
    */
-  let root: string;
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "dashframe-gate-"));
+  it("non-loopback + no token → refuses (the secure default)", () => {
+    expect(() =>
+      assertBindAuthorized({ hostname: "0.0.0.0", authToken: undefined }),
+    ).toThrow(/refusing to bind.*without an auth token/i);
   });
 
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
+  it("non-loopback + token → allowed (token satisfies the gate on a network bind)", () => {
+    // 0.0.0.0 is genuinely non-loopback, so this exercises the real allow-path:
+    // the gate permits the bind *because of the token*, not via any loopback
+    // short-circuit. If the token branch were removed, this would throw.
+    expect(() =>
+      assertBindAuthorized({ hostname: "0.0.0.0", authToken: "a-valid-token" }),
+    ).not.toThrow();
   });
 
-  it("non-loopback + no token → throws before starting", async () => {
-    const { openProject: open } = await import("@dashframe/server-core");
-    const project = await open({ dir: join(root, "proj") });
+  it("loopback + no token → allowed (local dev path)", () => {
+    // 127.0.0.1 is loopback and reachable only from this machine, so no token
+    // is required.
+    expect(() =>
+      assertBindAuthorized({ hostname: "127.0.0.1", authToken: undefined }),
+    ).not.toThrow();
+  });
+
+  it("non-loopback + no token + insecure → allowed (deliberate opt-out)", () => {
+    expect(() =>
+      assertBindAuthorized({
+        hostname: "0.0.0.0",
+        authToken: undefined,
+        insecure: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("createDashframeServer refuses a non-loopback bind without a token end-to-end", async () => {
+    // The factory routes the same config through the gate, so a disallowed bind
+    // throws before any socket opens — covers the wiring, not just the gate.
+    const root = mkdtempSync(join(tmpdir(), "dashframe-gate-"));
+    const project = await openProject({ dir: join(root, "proj") });
     try {
       await expect(
         createDashframeServer({
@@ -92,42 +123,7 @@ describe("bind-auth gate", () => {
       ).rejects.toThrow(/refusing to bind.*without an auth token/i);
     } finally {
       await project.close();
-    }
-  });
-
-  it("non-loopback + token → starts successfully", async () => {
-    const { openProject: open } = await import("@dashframe/server-core");
-    const project = await open({ dir: join(root, "proj2") });
-    let server: DashframeServer | null = null;
-    try {
-      // Should not throw — token satisfies the auth requirement.
-      server = await createDashframeServer({
-        db: project.db,
-        hostname: "127.0.0.1", // loopback address to avoid actually binding to 0.0.0.0 in CI
-        authToken: "a-valid-token",
-      });
-      expect(server.port).toBeGreaterThan(0);
-    } finally {
-      server?.stop();
-      await project.close();
-    }
-  });
-
-  it("loopback + no token → starts successfully (local dev path)", async () => {
-    const { openProject: open } = await import("@dashframe/server-core");
-    const project = await open({ dir: join(root, "proj3") });
-    let server: DashframeServer | null = null;
-    try {
-      // Loopback with no token is the safe local-dev default — must not throw.
-      server = await createDashframeServer({
-        db: project.db,
-        // hostname defaults to 127.0.0.1 (loopback)
-        // authToken deliberately omitted
-      });
-      expect(server.port).toBeGreaterThan(0);
-    } finally {
-      server?.stop();
-      await project.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
