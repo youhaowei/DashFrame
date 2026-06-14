@@ -28,10 +28,12 @@ import { computeInsightPreview } from "./compute-preview";
 
 function field(overrides: Partial<Field> & Pick<Field, "id" | "name">): Field {
   return {
-    tableId: "t1",
-    type: "string",
+    id: overrides.id,
+    name: overrides.name,
+    tableId: overrides.tableId ?? "t1",
+    type: overrides.type ?? "string",
     ...overrides,
-  } as Field;
+  };
 }
 
 function table(fields: Field[]): DataTable {
