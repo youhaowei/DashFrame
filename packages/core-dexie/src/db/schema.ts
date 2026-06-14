@@ -1,4 +1,5 @@
 import type {
+  DashboardControl,
   DataFrameAnalysis,
   DataFrameJSON,
   Field,
@@ -113,13 +114,15 @@ export interface DashboardItemEntity {
 }
 
 /**
- * Dashboard entity - layout of items.
+ * Dashboard entity - layout of items + dashboard-level controls.
  */
 export interface DashboardEntity {
   id: UUID;
   name: string;
   description?: string;
   items: DashboardItemEntity[];
+  /** Dashboard-level controls — broadcast overrides to bound cells. */
+  controls?: DashboardControl[];
   createdAt: number;
   updatedAt?: number;
 }

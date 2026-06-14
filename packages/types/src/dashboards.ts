@@ -57,6 +57,56 @@ export interface InsightFilterOverride extends InsightFilter {
   cleared?: boolean;
 }
 
+// ============================================================================
+// Dashboard Controls
+// ============================================================================
+
+/**
+ * A dashboard-level control bound to a single insight field.
+ *
+ * A control broadcasts its current value into the override slot of explicitly
+ * listed cells (`boundInstances`).  Binding is ALWAYS explicit opt-in — a
+ * control NEVER silently reaches cells.  `defaultValue` is applied immediately
+ * on dashboard load.
+ *
+ * Source-schema applicability: a control on field F can only be bound to cells
+ * whose insight's source table has F in its schema (even if F is dropped by
+ * GROUP BY in the result).  This check is enforced at the binding site, not here.
+ *
+ * Per §6 of the override spec: binding = delegation.  When a cell is in
+ * `boundInstances`, the control OWNS the field; the cell's own pinned value is
+ * shadowed while bound.
+ *
+ * Viewer turns: a viewer changing a control must NOT mutate the saved
+ * `defaultValue`.  The resolution layer supports a transient overlay on top of
+ * the saved value — the full viewer-transient UX is deferred to a later ticket.
+ */
+export interface DashboardControl {
+  /** Stable client-generated id (UUID). */
+  id: UUID;
+  /**
+   * The source column name this control is keyed on
+   * (matches `Field.columnName ?? Field.name`).
+   */
+  field: string;
+  /**
+   * Human-readable label shown in the control bar.  Defaults to the field name
+   * when absent.
+   */
+  label?: string;
+  /**
+   * The saved author default.  Applied to bound cells immediately on dashboard
+   * load.  A viewer's transient turn does NOT write back here.
+   */
+  defaultValue?: InsightFilter["value"];
+  /**
+   * Explicit allowlist of `DashboardItem.id` values this control drives.
+   * NEVER auto-populated — binding is always a deliberate author act.
+   * A cell not listed here is not affected even if its source schema has F.
+   */
+  boundInstances: UUID[];
+}
+
 /**
  * Dashboard item - A positioned widget on a dashboard.
  */
@@ -87,6 +137,14 @@ export interface Dashboard {
   name: string;
   description?: string;
   items: DashboardItem[];
+  /**
+   * Dashboard-level controls.  Each control broadcasts its value to the
+   * override slot of its `boundInstances` cells, driving per-field filters
+   * across multiple panels from a single input.
+   *
+   * Absent or empty = no controls.
+   */
+  controls?: DashboardControl[];
   createdAt: number;
   updatedAt?: number;
 }
@@ -138,6 +196,17 @@ export interface DashboardMutations {
 
   /** Remove an item */
   removeItem: (dashboardId: UUID, itemId: UUID) => Promise<void>;
+
+  /**
+   * Persist the dashboard's controls array.  Replaces the entire array — the
+   * caller is responsible for merging if only a single control changed.
+   * Only the author uses this; viewer turns go through the transient overlay
+   * in `useDashboardControls`.
+   */
+  updateControls: (
+    dashboardId: UUID,
+    controls: DashboardControl[],
+  ) => Promise<void>;
 }
 
 /**

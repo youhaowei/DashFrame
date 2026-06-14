@@ -1,11 +1,15 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
+import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
   useDashboardMutations,
   useDashboards,
+  useDataTables,
+  useInsights,
   useVisualizations,
 } from "@dashframe/core";
-import type { DashboardItemType } from "@dashframe/types";
+import type { DashboardItemType, InsightFilter } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
@@ -47,6 +51,8 @@ export default function DashboardDetailContent({
     isFetching = false,
   } = useDashboards();
   const { data: visualizations = [] } = useVisualizations();
+  const { data: insights = [] } = useInsights();
+  const { data: dataTables = [] } = useDataTables();
   const { addItem } = useDashboardMutations();
 
   // Find the dashboard
@@ -70,7 +76,56 @@ export default function DashboardDetailContent({
     ),
   );
 
-  // Local state
+  // ── Controls ─────────────────────────────────────────────────────────────
+  // View-local transient values for dashboard controls.  A viewer (or author)
+  // turning a control writes here, NOT back to the saved dashboard.  This is
+  // the ephemeral overlay described in the spec; the full promote-to-saved UX
+  // is deferred to a later ticket.  Reset when the dashboard changes.
+  const [controlTransientValues, setControlTransientValues] = useState<
+    Map<string, InsightFilter["value"]>
+  >(new Map());
+
+  // Build fieldsByName map from all data tables referenced by the dashboard's
+  // visualizations/insights.  Used by DashboardControlBar to detect field type
+  // so the correct input (text/number/date) is rendered per control.
+  const fieldsByName = useMemo<Map<string, CombinedField>>(() => {
+    const map = new Map<string, CombinedField>();
+    if (!dashboard) return map;
+
+    // Collect the base table ids referenced by the dashboard's items.
+    const vizIds = new Set(
+      dashboard.items
+        .filter((i) => i.type === "visualization")
+        .map((i) => i.visualizationId)
+        .filter(Boolean),
+    );
+    const insightIds = new Set(
+      visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
+    );
+    const tableIds = new Set(
+      insights.filter((i) => insightIds.has(i.id)).map((i) => i.baseTableId),
+    );
+
+    for (const tableId of tableIds) {
+      const table = dataTables.find((t) => t.id === tableId);
+      if (!table) continue;
+      for (const field of table.fields ?? []) {
+        const key = field.columnName ?? field.name;
+        if (!map.has(key)) {
+          // Cast to CombinedField — no display-name dedup needed here since we
+          // only use it for type detection in the control bar.
+          map.set(key, {
+            ...field,
+            sourceTableId: table.id,
+            displayName: field.name,
+          });
+        }
+      }
+    }
+    return map;
+  }, [dashboard, visualizations, insights, dataTables]);
+
+  // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
@@ -185,9 +240,23 @@ export default function DashboardDetailContent({
         </div>
       </div>
 
+      {/* Control Bar — only rendered when the dashboard has controls */}
+      {(dashboard.controls ?? []).length > 0 && (
+        <DashboardControlBar
+          controls={dashboard.controls!}
+          fieldsByName={fieldsByName}
+          transientValues={controlTransientValues}
+          onTransientChange={setControlTransientValues}
+        />
+      )}
+
       {/* Grid Content */}
       <div className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6">
-        <DashboardGrid dashboard={dashboard} isEditable={isEditable} />
+        <DashboardGrid
+          dashboard={dashboard}
+          isEditable={isEditable}
+          controlTransientValues={controlTransientValues}
+        />
       </div>
 
       {/* Add Widget Dialog */}

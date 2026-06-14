@@ -36,6 +36,19 @@ export async function syncSchema(
   for (const table of ordered) {
     await db.execute(sql.raw(renderCreateTableIfNotExists(table)));
   }
+  // Reconcile additively-safe columns on tables that already exist from an
+  // earlier schema.  CREATE TABLE IF NOT EXISTS is a no-op once the table is
+  // present, so a nullable column added to the schema after a project's DB was
+  // first materialized would otherwise be missing.  An `ADD COLUMN IF NOT
+  // EXISTS` for nullable, default-less columns backfills them with NULL on
+  // existing rows — no data loss, no version bump.  NOT NULL / defaulted
+  // columns are intentionally skipped: those cannot be added to a populated
+  // table safely and still belong to the wipe-and-recreate migration ladder.
+  for (const table of ordered) {
+    for (const stmt of renderAddNullableColumnsIfNotExists(table)) {
+      await db.execute(sql.raw(stmt));
+    }
+  }
   for (const table of ordered) {
     for (const stmt of renderCreateIndexesIfNotExists(table)) {
       await db.execute(sql.raw(stmt));
@@ -145,6 +158,35 @@ export function renderCreateTableIfNotExists(table: PgTable): string {
   }
 
   return `CREATE TABLE IF NOT EXISTS ${quoteIdent(cfg.name)} (\n  ${lines.join(",\n  ")}\n);`;
+}
+
+/**
+ * Emit `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for each NULLABLE, default-less
+ * column of the table.  This reconciles columns that were added to the schema
+ * AFTER a project DB was first materialized (CREATE TABLE IF NOT EXISTS skips
+ * the table entirely once it exists), preserving existing rows.
+ *
+ * Only nullable, default-less columns are reconciled.  Adding a NOT NULL or
+ * defaulted column to a table that already has rows requires a backfill the
+ * Drizzle schema can't express here, so those remain a wipe-and-recreate
+ * migration concern (and would error out loudly rather than corrupt data).
+ */
+export function renderAddNullableColumnsIfNotExists(table: PgTable): string[] {
+  const cfg = getTableConfig(table);
+  const stmts: string[] = [];
+  for (const rawCol of cfg.columns) {
+    // `isArray` is a Drizzle-internal flag not on the public column type
+    // (matching the cast in `renderColumn`).
+    const col = rawCol as any;
+    // Skip columns that can't be added safely to a populated table.
+    if (col.notNull || col.primary || col.hasDefault) continue;
+    let type = col.getSQLType();
+    if (col.isArray) type += "[]";
+    stmts.push(
+      `ALTER TABLE ${quoteIdent(cfg.name)} ADD COLUMN IF NOT EXISTS ${quoteIdent(col.name)} ${type};`,
+    );
+  }
+  return stmts;
 }
 
 export function renderCreateIndexesIfNotExists(table: PgTable): string[] {

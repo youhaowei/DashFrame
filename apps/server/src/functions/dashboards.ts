@@ -35,6 +35,21 @@ interface DashboardItem {
   y: number;
   width: number;
   height: number;
+  /** Per-cell override bag (filters/sorts/limit) */
+  overrides?: {
+    filters?: unknown[];
+    sorts?: unknown[];
+    limit?: number;
+  };
+}
+
+/** Dashboard-level control — mirrors the domain `DashboardControl`. */
+interface DashboardControl {
+  id: string;
+  field: string;
+  label?: string;
+  defaultValue?: unknown;
+  boundInstances: string[];
 }
 
 /** Domain `Dashboard` shape returned to the client (matches @dashframe/types). */
@@ -43,6 +58,7 @@ export interface DashboardResult {
   name: string;
   description?: string;
   items: DashboardItem[];
+  controls?: DashboardControl[];
   createdAt: number;
   updatedAt?: number;
 }
@@ -54,6 +70,7 @@ function rowToDashboard(row: DashboardRow): DashboardResult {
     name: row.name,
     description: row.description ?? undefined,
     items: (row.layout as DashboardItem[]) ?? [],
+    controls: (row.controls as DashboardControl[] | null) ?? undefined,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt?.getTime(),
   };
@@ -249,6 +266,17 @@ const removeDashboardItem = mutation({
   },
 });
 
+const updateDashboardControls = mutation({
+  args: { dashboardId: uuid, controls: jsonb },
+  handler: async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ controls: controls as DashboardControl[] });
+    return { ok: true };
+  },
+});
+
 /** Dashboard slice of the registry. Spread into the root `functions` object. */
 export const dashboardFunctions = {
   listDashboards,
@@ -259,4 +287,5 @@ export const dashboardFunctions = {
   addDashboardItem,
   updateDashboardItem,
   removeDashboardItem,
+  updateDashboardControls,
 };

@@ -16,16 +16,20 @@ import { applyDataFrameWriteGate } from "./write-gate";
 
 export type ArtifactDb = ReturnType<typeof drizzle<typeof schema>>;
 
-// Bump on any artifact-schema change. syncSchema is CREATE TABLE IF NOT EXISTS
-// (no ALTER), so existing project DBs do NOT pick up column additions. The
-// version check in openProject() rejects a stale DB with an explicit
-// "Unsupported project schema version" error instead of letting a later query
-// fail on a missing column. Pre-release policy is wipe-and-recreate, not a
-// migration ladder.
+// Bump on any artifact-schema change that CANNOT be reconciled in place.
+// syncSchema emits CREATE TABLE IF NOT EXISTS plus ADD COLUMN IF NOT EXISTS for
+// nullable, default-less columns — so a NULLABLE column addition is picked up
+// by existing project DBs without a version bump and without data loss. Only
+// changes that need a real backfill/rewrite (NOT NULL columns, value
+// migrations) bump this version; the check in openProject() then rejects a
+// stale DB with an explicit "Unsupported project schema version" error.
+// Pre-release policy is wipe-and-recreate for those, not a migration ladder.
 // v2: added dashboards.description; added data_tables, data_frames.
 // v3: strip raw sampleValues from data_frames.analysis (privacy floor).
 // The write gate added later is a runtime wrapper, not a schema change.
 // Existing v3 databases are already clean (migrated with v3).
+// dashboards.controls (nullable) is reconciled by syncSchema's ADD COLUMN
+// path — no version bump, existing v3 dashboards are preserved.
 export const ARTIFACT_DB_SCHEMA_VERSION = 3;
 
 export interface OpenArtifactDbOptions {
