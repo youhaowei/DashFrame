@@ -357,7 +357,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         !selectedDataTable ||
         !dataSource ||
         dataSource.type !== "notion" ||
-        !dataSource.apiKey
+        !dataSource.hasApiKey
       ) {
         return;
       }
@@ -365,7 +365,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       setIsFetchingSchema(true);
       try {
         const schema = await getSchemaMutation.mutateAsync({
-          apiKey: dataSource.apiKey,
+          dataSourceId: dataSource.id,
           databaseId: selectedDataTable.table,
         });
         setDatabaseSchema(schema);
@@ -414,7 +414,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
-      !dataSource.apiKey
+      !dataSource.hasApiKey
     ) {
       return;
     }
@@ -429,7 +429,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       // Fetch data from Notion API with selected properties
       // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
       const result = await queryDatabaseMutation.mutateAsync({
-        apiKey: dataSource.apiKey,
+        dataSourceId: dataSource.id,
         databaseId: selectedDataTable.table,
         selectedPropertyIds,
       });
@@ -471,7 +471,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
-      !dataSource.apiKey
+      !dataSource.hasApiKey
     ) {
       return;
     }
@@ -486,7 +486,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       // Re-fetch data from Notion API
       // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
       const result = await queryDatabaseMutation.mutateAsync({
-        apiKey: dataSource.apiKey,
+        dataSourceId: dataSource.id,
         databaseId: selectedDataTable.table,
         selectedPropertyIds,
       });
