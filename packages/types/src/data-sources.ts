@@ -8,14 +8,19 @@ import type { UUID } from "./uuid";
 /**
  * DataSource interface - generic for any connector type.
  * Type is the connector ID from the registry (e.g., "csv", "notion").
+ *
+ * SECURITY: this is a read DTO. Raw credential values are NEVER returned
+ * by the read path. Presence is indicated by boolean flags so the UI can
+ * show "key is set" without receiving the secret itself.
  */
 export interface DataSource {
   id: UUID;
   type: string; // Connector ID from registry
   name: string;
-  // Connector-specific fields (optional based on connector type)
-  apiKey?: string; // For remote API connectors (e.g., Notion)
-  connectionString?: string; // For database connectors (future)
+  // Credential presence flags — true when the config field is non-empty.
+  // The actual secret is never returned by list/get queries.
+  hasApiKey?: boolean; // For remote API connectors (e.g., Notion)
+  hasConnectionString?: boolean; // For database connectors (future)
   createdAt: number;
 }
 
@@ -45,10 +50,14 @@ export type UseDataSourcesResult = UseQueryResult<DataSource[]>;
 export interface DataSourceMutations {
   /** Add a new data source */
   add: (input: CreateDataSourceInput) => Promise<UUID>;
-  /** Update a data source by ID */
+  /** Update a data source by ID.
+   * `apiKey` and `connectionString` are write-only fields accepted here
+   * but never returned by the read path.
+   */
   update: (
     id: UUID,
-    updates: Partial<Pick<DataSource, "name" | "apiKey" | "connectionString">>,
+    updates: Partial<Pick<DataSource, "name">> &
+      Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
   ) => Promise<void>;
   /** Remove a data source by ID */
   remove: (id: UUID) => Promise<void>;
