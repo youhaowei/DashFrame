@@ -11,47 +11,25 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
-import type { Event as ElectronEvent } from "electron";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
+import { Lifecycle } from "./lifecycle.js";
+
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
-let project: ProjectHandle | null = null;
-let server: DashframeServer | null = null;
-let engine: NativeDuckDBEngine | null = null;
-let isClosingProject = false;
+
+// Single owner of this launch's closable handles + the shutdown guard. main.ts
+// holds exactly one instance; shutdown drains whatever has been registered so
+// far, so a startup error that fired after engine init still disposes it.
+const lifecycle = new Lifecycle((code) => app.exit(code));
 
 function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-async function closeProjectBeforeQuit(event: ElectronEvent): Promise<void> {
-  if (isClosingProject || !project) return;
-
-  event.preventDefault();
-  isClosingProject = true;
-  try {
-    server?.stop();
-  } catch (err) {
-    console.error("[dashframe] error stopping server:", err);
-  }
-  try {
-    await engine?.dispose();
-  } catch (err) {
-    console.error("[dashframe] error disposing engine:", err);
-  }
-  try {
-    await project.close();
-  } catch (err) {
-    console.error("[dashframe] error closing project DB:", err);
-  } finally {
-    app.quit();
-  }
-}
-
-function createWindow(): void {
+async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -71,19 +49,30 @@ function createWindow(): void {
     },
   });
 
-  const loaded = isDev
-    ? win.loadURL(DEV_URL)
-    : win.loadFile(
-        path.join(
-          import.meta.dirname,
-          "..",
-          "..",
-          "renderer",
-          "dist",
-          "index.html",
-        ),
-      );
-  loaded.catch((err) => console.error("[dashframe] window load failed:", err));
+  try {
+    await (isDev
+      ? win.loadURL(DEV_URL)
+      : win.loadFile(
+          path.join(
+            import.meta.dirname,
+            "..",
+            "..",
+            "renderer",
+            "dist",
+            "index.html",
+          ),
+        ));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[dashframe] window load failed:", err);
+    dialog.showErrorBox(
+      "DashFrame failed to start",
+      `Could not load the application window: ${message}`,
+    );
+    // Window load failure is fatal — the app is running with an inert window
+    // and cannot recover. Trigger graceful shutdown and exit.
+    await lifecycle.shutdown(1);
+  }
 }
 
 function registerIpc(
@@ -119,6 +108,14 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("before-quit", (event) => {
+  if (!lifecycle.hasProject()) return;
+  event.preventDefault();
+  lifecycle.shutdown(0).catch((err: unknown) => {
+    console.error("[dashframe] shutdown failed:", err);
+  });
+});
+
 app
   .whenReady()
   .then(async () => {
@@ -139,9 +136,11 @@ app
       });
     });
 
+    let project: ProjectHandle;
     let authToken: string;
     try {
       project = await openProject();
+      lifecycle.setProject(project);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[dashframe] failed to open project:", err);
@@ -149,7 +148,7 @@ app
         "DashFrame failed to start",
         `Could not open project: ${message}`,
       );
-      app.exit(1);
+      await lifecycle.shutdown(1);
       return;
     }
 
@@ -171,6 +170,7 @@ app
       });
     }
 
+    let server: DashframeServer;
     try {
       // Dev uses the Vite origin from DEV_URL. Packaged Electron loads the
       // renderer from file://, which browsers send as Origin: null; allow that
@@ -184,8 +184,9 @@ app
       // server process, not main proper.
       const binding = selectEngineBinding("desktop");
       console.log(`[dashframe] engine binding: ${binding}`);
-      engine = new NativeDuckDBEngine();
+      const engine = new NativeDuckDBEngine();
       await engine.initialize();
+      lifecycle.setEngine(engine);
       console.log("[dashframe] native DuckDB engine ready");
 
       server = await createDashframeServer({
@@ -198,8 +199,9 @@ app
         // SNAPSHOT_DEBOUNCE_MS (30 s) of changes rather than the whole session.
         // The server owns no reference to ProjectHandle — the narrow callback
         // is the boundary (#88).
-        onWrite: () => project?.touchSnapshot(),
+        onWrite: () => project.touchSnapshot(),
       });
+      lifecycle.setServer(server);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[dashframe] failed to start server:", err);
@@ -207,25 +209,28 @@ app
         "DashFrame failed to start",
         `Could not start the local server: ${message}`,
       );
-      app.exit(1);
+      await lifecycle.shutdown(1);
       return;
     }
     console.log(`[dashframe] loopback server ready at ${server.url}`);
 
     registerIpc(project, server, authToken);
-    app.on("before-quit", closeProjectBeforeQuit);
 
     console.log(`[dashframe] creating window with DEV_URL=${DEV_URL}...`);
-    createWindow();
+    await createWindow();
     console.log("[dashframe] window created");
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
+        createWindow().catch((err: unknown) => {
+          console.error("[dashframe] window re-creation failed:", err);
+        });
       }
     });
   })
-  .catch((err) => {
+  .catch((err: unknown) => {
     console.error("[dashframe] startup failed:", err);
-    app.exit(1);
+    lifecycle.shutdown(1).catch((shutdownErr: unknown) => {
+      console.error("[dashframe] shutdown failed:", shutdownErr);
+    });
   });
