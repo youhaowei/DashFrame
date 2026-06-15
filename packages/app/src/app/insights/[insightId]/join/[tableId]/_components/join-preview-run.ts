@@ -99,12 +99,19 @@ export interface JoinSubmitOptions {
 }
 
 /**
- * Runs the join-submit flow with full async error recovery.
+ * Runs the join-submit flow with retry-correct error handling.
  *
- * Always restores the button via `finally`, surfaces an error on rejection
- * without navigating, and only calls `onSuccess` when the persist resolves.
- * This is the contract a rejected mutation must satisfy: the button never gets
- * stuck loading, the user sees why it failed, and they stay on the page.
+ * The two phases have different failure semantics, so they get separate
+ * try/catch blocks — collapsing them is a data-integrity bug:
+ *
+ * - `persist()` fails → nothing was written. Surface "Failed to save join…"
+ *   so the user can safely retry; the button is restored.
+ * - `persist()` succeeds, then `onSuccess()` (e.g. navigation) throws → the
+ *   join IS already committed. We must NOT present this as a save failure or
+ *   invite a retry, or the user re-submits and creates a duplicate join
+ *   config. The post-save error is logged, not surfaced as save-failed.
+ *
+ * `setSubmitting(false)` always runs so the button is never stuck loading.
  */
 export async function runJoinSubmit({
   persist,
@@ -114,12 +121,26 @@ export async function runJoinSubmit({
 }: JoinSubmitOptions): Promise<void> {
   setSubmitting(true);
   try {
-    await persist();
-    onSuccess();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    setError(`Failed to save join: ${message}`);
-    // Intentionally do NOT call onSuccess — keep the user on the page to retry.
+    try {
+      await persist();
+    } catch (err) {
+      // Persist failed: nothing was written, so a retry is safe and correct.
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to save join: ${message}`);
+      return;
+    }
+
+    // Persist committed. From here the write is durable — a failure in the
+    // post-save step (navigation) must not be reported as a save failure, or
+    // the user retries and writes a duplicate join config.
+    try {
+      onSuccess();
+    } catch (err) {
+      // Swallow + log: the join is saved. Re-presenting this as a retryable
+      // save error would corrupt data; the worst case is the user stays on the
+      // page with a persisted join, which is harmless.
+      console.error("Join saved, but post-save navigation failed:", err);
+    }
   } finally {
     setSubmitting(false);
   }

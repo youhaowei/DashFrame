@@ -174,23 +174,52 @@ describe("runJoinSubmit", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("always restores the button via finally even if onSuccess throws", async () => {
+  it("does NOT present a save-failed error or invite retry when onSuccess fails after a successful persist", async () => {
+    // The data-integrity contract: persist committed, so a post-save failure
+    // (e.g. navigation throwing) must NOT be reported as "Failed to save…".
+    // Otherwise the user retries and writes a duplicate join config.
+    const persist = vi.fn(() => Promise.resolve());
+    const setError = vi.fn();
     const setSubmitting = vi.fn();
+    // Silence the expected post-save console.error.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
-    // onSuccess runs inside the try, so a throw is caught and the promise still
-    // resolves — the key contract is that finally always restores the button.
-    await expect(
-      runJoinSubmit({
-        persist: () => Promise.resolve(),
-        onSuccess: () => {
-          throw new Error("navigate blew up");
-        },
-        setError: vi.fn(),
-        setSubmitting,
-      }),
-    ).resolves.toBeUndefined();
+    await runJoinSubmit({
+      persist,
+      onSuccess: () => {
+        throw new Error("navigate blew up");
+      },
+      setError,
+      setSubmitting,
+    });
 
-    // finally still runs — the button is not left stuck loading.
+    // The write happened exactly once — no retry.
+    expect(persist).toHaveBeenCalledTimes(1);
+    // No retry-inviting "Failed to save join" error surfaced to the user.
+    expect(setError).not.toHaveBeenCalled();
+    // Button restored, not stuck loading.
     expect(setSubmitting).toHaveBeenLastCalledWith(false);
+
+    consoleError.mockRestore();
+  });
+
+  it("calls persist exactly once when it fails (no implicit retry)", async () => {
+    // Guards the persist-failure branch: a single attempt, error surfaced.
+    const persist = vi.fn(() => Promise.reject(new Error("write failed")));
+    const onSuccess = vi.fn();
+    const setError = vi.fn();
+
+    await runJoinSubmit({
+      persist,
+      onSuccess,
+      setError,
+      setSubmitting: vi.fn(),
+    });
+
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(setError).toHaveBeenCalledWith("Failed to save join: write failed");
   });
 });
