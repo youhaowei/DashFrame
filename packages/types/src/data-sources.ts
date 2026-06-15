@@ -18,9 +18,12 @@ export interface DataSource {
   type: string; // Connector ID from registry
   name: string;
   // Credential presence flags — true when the config field is non-empty.
+  // Always set by the read path (rowToDataSource), so non-optional: this
+  // avoids a three-state `true | false | undefined` where a missing field
+  // and a stored `false` would be indistinguishable.
   // The actual secret is never returned by list/get queries.
-  hasApiKey?: boolean; // For remote API connectors (e.g., Notion)
-  hasConnectionString?: boolean; // For database connectors (future)
+  hasApiKey: boolean; // For remote API connectors (e.g., Notion)
+  hasConnectionString: boolean; // For database connectors (future)
   createdAt: number;
 }
 
