@@ -53,7 +53,7 @@ import {
   DataPointIcon,
   DeleteIcon,
 } from "@wystack/ui-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
@@ -422,14 +422,14 @@ export default function VisualizationPageContent({
   // Local edit buffer for the visualization name. While the user has not
   // typed an override, we render whatever is on the visualization itself.
   const [vizNameOverride, setVizNameOverride] = useState<string | null>(null);
-  const [lastSyncedName, setLastSyncedName] = useState<string | undefined>(
-    visualization?.name,
-  );
-  if (lastSyncedName !== visualization?.name) {
-    setLastSyncedName(visualization?.name);
-    // The source of truth changed under us — drop the override.
-    setVizNameOverride(null);
-  }
+  const prevVizNameRef = useRef(visualization?.name);
+  // When the source of truth changes externally, drop the local override.
+  useEffect(() => {
+    if (prevVizNameRef.current !== visualization?.name) {
+      prevVizNameRef.current = visualization?.name;
+      setVizNameOverride(null);
+    }
+  }, [visualization?.name]);
   const vizName = vizNameOverride ?? visualization?.name ?? "";
   const setVizName = (next: string) => setVizNameOverride(next);
 

@@ -481,12 +481,14 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
-  const [lastSyncedName, setLastSyncedName] = useState(insight.name);
-  // Sync local name when insight prop changes from external source.
-  if (lastSyncedName !== insight.name) {
-    setLastSyncedName(insight.name);
-    setLocalName(insight.name);
-  }
+  const prevInsightNameRef = useRef(insight.name);
+  // Sync local name when insight prop changes from an external source.
+  useEffect(() => {
+    if (prevInsightNameRef.current !== insight.name) {
+      prevInsightNameRef.current = insight.name;
+      setLocalName(insight.name);
+    }
+  }, [insight.name]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Chart suggestions state. Column analysis is keyed by the chart view it
