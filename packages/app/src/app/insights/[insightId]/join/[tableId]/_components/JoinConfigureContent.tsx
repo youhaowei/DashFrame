@@ -38,7 +38,12 @@ import {
   Surface,
 } from "@wystack/ui";
 import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@wystack/ui-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createLatestRunGuard,
+  runJoinSubmit,
+  type LatestRunGuard,
+} from "./join-preview-run";
 
 interface JoinConfigureContentProps {
   insightId: string;
@@ -108,6 +113,12 @@ export default function JoinConfigureContent({
     totalCount: number;
   } | null>(null);
   const [isComputingPreview, setIsComputingPreview] = useState(false);
+  // Stale-run guard for the preview compute effect. Lives in a ref so the same
+  // guard instance tracks the latest run across re-renders. Its abandon() path
+  // clears the spinner when a run is superseded with no successor (e.g. the
+  // user clears a column selector), so the loading state can never stick. The
+  // ref is only read inside the compute effect, never during render.
+  const previewRunGuardRef = useRef<LatestRunGuard | null>(null);
   const previewKey =
     leftFieldId && rightFieldId ? `${leftFieldId}|${rightFieldId}` : null;
   const previewResult: JoinPreviewData | null =
@@ -385,8 +396,8 @@ export default function JoinConfigureContent({
             pair.rightField.columnName ?? pair.rightField.name;
 
           const sql = `
-            WITH base_vals AS (SELECT DISTINCT ${quoteIdentifier(leftColName)} as val FROM ${baseTableName}),
-            join_vals AS (SELECT DISTINCT ${quoteIdentifier(rightColName)} as val FROM ${joinTableName})
+            WITH base_vals AS (SELECT DISTINCT ${quoteIdentifier(leftColName)} as val FROM ${quoteIdentifier(baseTableName)}),
+            join_vals AS (SELECT DISTINCT ${quoteIdentifier(rightColName)} as val FROM ${quoteIdentifier(joinTableName)})
             SELECT
               (SELECT COUNT(*) FROM base_vals) as base_unique,
               (SELECT COUNT(*) FROM base_vals b WHERE EXISTS (SELECT 1 FROM join_vals j WHERE j.val = b.val)) as matching
@@ -468,10 +479,10 @@ export default function JoinConfigureContent({
         // Get Venn diagram stats
         const vennSQL = `
           WITH base_values AS (
-            SELECT DISTINCT ${quoteIdentifier(leftColumnName)} as val FROM ${baseTableName}
+            SELECT DISTINCT ${quoteIdentifier(leftColumnName)} as val FROM ${quoteIdentifier(baseTableName)}
           ),
           join_values AS (
-            SELECT DISTINCT ${quoteIdentifier(rightColumnName)} as val FROM ${joinTableName}
+            SELECT DISTINCT ${quoteIdentifier(rightColumnName)} as val FROM ${quoteIdentifier(joinTableName)}
           ),
           matching AS (
             SELECT b.val FROM base_values b
@@ -493,8 +504,8 @@ export default function JoinConfigureContent({
         // Estimate result rows (for inner join)
         const countSQL = `
           SELECT COUNT(*) as cnt
-          FROM ${baseTableName} b
-          INNER JOIN ${joinTableName} j ON b.${quoteIdentifier(leftColumnName)} = j.${quoteIdentifier(rightColumnName)}
+          FROM ${quoteIdentifier(baseTableName)} b
+          INNER JOIN ${quoteIdentifier(joinTableName)} j ON b.${quoteIdentifier(leftColumnName)} = j.${quoteIdentifier(rightColumnName)}
         `;
         const countResult = await connection.query(countSQL);
         const countRow = countResult.toArray()[0] as { cnt: number };
@@ -552,14 +563,24 @@ export default function JoinConfigureContent({
     const leftColumnName = leftField.columnName ?? leftField.name;
     const rightColumnName = rightField.columnName ?? rightField.name;
 
+    // Stale-run guard: begin() marks this the latest run and turns the spinner
+    // on; run.isCurrent() is false once a newer run begins or this one is
+    // abandoned by the cleanup below, gating all shared-state writes. Lazily
+    // created once and reused across effect runs so the latest-run tracking is
+    // shared (the ref is only touched here, never during render).
+    const previewRunGuard = (previewRunGuardRef.current ??=
+      createLatestRunGuard(setIsComputingPreview));
+    const run = previewRunGuard.begin();
+
     const computeJoin = async () => {
-      // Defer the loading flag into the async callback so the lint rule
-      // doesn't fire on synchronous setState in effect bodies.
-      setIsComputingPreview(true);
       setError(null);
       try {
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId!);
         const joinDataFrame = await getDataFrame(joinTable.dataFrameId!);
+
+        // Stale-run guard: if a newer effect run has started, bail without
+        // writing any React state.
+        if (!run.isCurrent()) return;
 
         if (!baseDataFrame || !joinDataFrame) {
           setError("Could not load DataFrames");
@@ -569,6 +590,9 @@ export default function JoinConfigureContent({
         // Load both tables into DuckDB (side effect ensures tables exist)
         await baseDataFrame.load(connection);
         await joinDataFrame.load(connection);
+
+        // Stale-run guard: check again after every await.
+        if (!run.isCurrent()) return;
 
         const baseTableName = `df_${baseTable.dataFrameId!.replace(/-/g, "_")}`;
         const joinTableName = `df_${joinTable.dataFrameId!.replace(/-/g, "_")}`;
@@ -623,10 +647,12 @@ export default function JoinConfigureContent({
           }
         }
 
+        // Table names are quoted at the point of use so the SQL sink is safe
+        // regardless of where the dataFrameId-derived name came from.
         const joinSQL = `
           SELECT ${selectParts.join(", ")}
-          FROM ${baseTableName} AS base
-          ${joinTypeSQL} JOIN ${joinTableName} AS j
+          FROM ${quoteIdentifier(baseTableName)} AS base
+          ${joinTypeSQL} JOIN ${quoteIdentifier(joinTableName)} AS j
           ON base.${quoteIdentifier(leftColumnName)} = j.${quoteIdentifier(rightColumnName)}
           LIMIT ${PREVIEW_ROW_LIMIT}
         `;
@@ -634,16 +660,23 @@ export default function JoinConfigureContent({
         console.log("[JoinPreview] Executing DuckDB join:", joinSQL);
 
         const result = await connection.query(joinSQL);
+
+        // Stale-run guard: last check before committing results to state.
+        if (!run.isCurrent()) return;
+
         const rows = result.toArray() as DataFrameRow[];
 
         // Get total count for the join
         const countSQL = `
           SELECT COUNT(*) as count
-          FROM ${baseTableName} AS base
-          ${joinTypeSQL} JOIN ${joinTableName} AS j
+          FROM ${quoteIdentifier(baseTableName)} AS base
+          ${joinTypeSQL} JOIN ${quoteIdentifier(joinTableName)} AS j
           ON base.${quoteIdentifier(leftColumnName)} = j.${quoteIdentifier(rightColumnName)}
         `;
         const countResult = await connection.query(countSQL);
+
+        if (!run.isCurrent()) return;
+
         const totalJoinCount = Number(countResult.toArray()[0]?.count ?? 0);
 
         // Build columns from the result
@@ -664,17 +697,29 @@ export default function JoinConfigureContent({
         // Store total count for display
         setPreviewTotalCount(totalJoinCount);
       } catch (err) {
+        // Only surface the error if this run is still the active one.
+        if (!run.isCurrent()) return;
         console.error("DuckDB join preview failed:", err);
         setPreviewResult(null);
         const errorMessage =
           err instanceof Error ? err.message : "Unknown error";
         setError(`Join preview failed: ${errorMessage}`);
       } finally {
-        setIsComputingPreview(false);
+        // Clear the spinner for the active run; a stale run leaves the newer
+        // run's spinner alone (settle is a no-op when not current).
+        run.settle();
       }
     };
 
     computeJoin();
+
+    return () => {
+      // Abandon this run: invalidate it so in-flight async callbacks become
+      // no-ops, AND clear the spinner. If a successor effect run begins (deps
+      // still warrant a compute) it re-sets the spinner synchronously; if none
+      // does (e.g. the user cleared a column selector) the spinner unsticks.
+      previewRunGuard.abandon();
+    };
   }, [
     leftFieldId,
     rightFieldId,
@@ -713,7 +758,6 @@ export default function JoinConfigureContent({
     }
 
     setError(null);
-    setIsSubmitting(true);
 
     // Validate the join works by testing it (using preview result)
     // The preview is already computed, so we just check if it succeeded
@@ -722,28 +766,34 @@ export default function JoinConfigureContent({
       // Just warn them in the UI (handled by the existing Alert component)
     }
 
-    // Create join config using the Core schema
-    // Uses column names (strings) as join keys, not field UUIDs
-    const joinConfig: InsightJoinConfig = {
-      type: joinType === "outer" ? "full" : joinType, // "outer" → "full" for Core type
-      rightTableId: joinTable!.id,
-      leftKey: leftField.columnName ?? leftField.name,
-      rightKey: rightField.columnName ?? rightField.name,
-    };
+    // runJoinSubmit owns the try/catch/finally: it always restores the button,
+    // surfaces an error on rejection, and only navigates on success.
+    await runJoinSubmit({
+      persist: async () => {
+        // Create join config using the Core schema
+        // Uses column names (strings) as join keys, not field UUIDs
+        const joinConfig: InsightJoinConfig = {
+          type: joinType === "outer" ? "full" : joinType, // "outer" → "full" for Core type
+          rightTableId: joinTable.id,
+          leftKey: leftField.columnName ?? leftField.name,
+          rightKey: rightField.columnName ?? rightField.name,
+        };
 
-    // Add join to existing insight (append to existing joins if any)
-    const existingJoins = insight.joins ?? [];
-    await updateInsight(insightId, {
-      joins: [...existingJoins, joinConfig],
+        // Add join to existing insight (append to existing joins if any)
+        const existingJoins = insight.joins ?? [];
+        await updateInsight(insightId, {
+          joins: [...existingJoins, joinConfig],
+        });
+
+        // Note: We intentionally do NOT store a pre-computed joined DataFrame here.
+        // The join preview in InsightConfigureTab computes the join on-demand,
+        // which ensures we always show raw joined data (not aggregated data).
+      },
+      // Navigate back to the same insight only on success.
+      onSuccess: () => navigate({ to: `/insights/${insightId}` } as never),
+      setError,
+      setSubmitting: setIsSubmitting,
     });
-
-    // Note: We intentionally do NOT store a pre-computed joined DataFrame here.
-    // The join preview in InsightConfigureTab computes the join on-demand,
-    // which ensures we always show raw joined data (not aggregated data).
-
-    setIsSubmitting(false);
-    // Navigate back to the same insight
-    navigate({ to: `/insights/${insightId}` } as never);
   }, [
     leftFieldId,
     rightFieldId,
