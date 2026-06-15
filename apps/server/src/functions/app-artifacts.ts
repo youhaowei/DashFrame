@@ -213,8 +213,9 @@ function rowToDataSource(row: DataSourceRow): DataSource {
     id: row.id,
     type: row.kind,
     name: row.name,
-    apiKey: config.apiKey,
-    connectionString: config.connectionString,
+    // Credentials are never returned — only their presence is indicated.
+    hasApiKey: Boolean(config.apiKey),
+    hasConnectionString: Boolean(config.connectionString),
     createdAt: row.createdAt.getTime(),
   };
 }

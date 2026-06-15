@@ -38,9 +38,8 @@ export function useDataSourceMutations(): DataSourceMutations {
       },
       update: async (
         id: UUID,
-        updates: Partial<
-          Pick<DataSource, "name" | "apiKey" | "connectionString">
-        >,
+        updates: Partial<Pick<DataSource, "name">> &
+          Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
       ): Promise<void> => {
         await updateMutation.mutateAsync(loose({ id, ...updates }));
       },
@@ -64,7 +63,8 @@ export async function addDataSource(
 
 export async function updateDataSource(
   id: UUID,
-  updates: Partial<Pick<DataSource, "name" | "apiKey" | "connectionString">>,
+  updates: Partial<Pick<DataSource, "name">> &
+    Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
 ): Promise<void> {
   await getWyStackClient().mutate(
     api.updateDataSource,

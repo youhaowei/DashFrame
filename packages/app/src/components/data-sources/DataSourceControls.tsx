@@ -170,6 +170,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   };
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
   const [isDataTablesOpen, setIsDataTablesOpen] = useState(true);
+  // The stored API key is write-only and never returned to the renderer, so the
+  // field cannot be seeded from the data source. It holds only what the user
+  // types this session; `hasApiKey` tells us whether a key is already saved.
+  const [apiKeyInput, setApiKeyInput] = useState("");
 
   const now = useSyncExternalStore(
     subscribeNow,
@@ -205,7 +209,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || dataSource.type !== "notion" || !dataSource.apiKey)
+    if (!dataSource || dataSource.type !== "notion" || !dataSource.hasApiKey)
       return;
 
     // Use cached data unless explicitly forced to refresh
@@ -216,8 +220,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     setIsLoadingDatabases(true);
 
     try {
+      // The stored API key is resolved server-side by data-source id when the
+      // Notion connector is rewired onto the WyStack/server path; the secret is
+      // never read back into the renderer. See the public connector issue.
       const result = await listDatabasesMutation.mutateAsync({
-        apiKey: dataSource.apiKey,
+        dataSourceId: dataSource.id,
       });
       // Updates state and persists to localStorage in one go.
       setAvailableDatabases(result);
@@ -276,6 +283,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   };
 
   const handleApiKeyChange = async (newApiKey: string) => {
+    setApiKeyInput(newApiKey);
     if (dataSource.type === "notion") {
       await dataSourceMutations.update(dataSource.id, { apiKey: newApiKey });
     }
@@ -316,13 +324,15 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
           <div>
             <InputField
               type="password"
-              value={dataSource.apiKey ?? ""}
+              value={apiKeyInput}
               onChange={handleApiKeyChange}
               className="font-mono text-xs"
-              placeholder="secret_..."
+              placeholder={dataSource.hasApiKey ? "••••••••" : "secret_..."}
             />
             <p className="mt-1.5 text-xs text-neutral-fg-subtle">
-              Your Notion integration token
+              {dataSource.hasApiKey
+                ? "A token is saved. Enter a new one to replace it."
+                : "Your Notion integration token"}
             </p>
           </div>
         </CollapsibleSection>

@@ -3,8 +3,9 @@
  *
  * Artifacts live in `project/artifacts.db` (PGLite). Bulk data stays out of
  * the database as Parquet files under `project/data/sources/<id>.parquet`.
- * Secrets are encrypted at rest here; the decryption key lives outside the
- * folder (OS keychain in Electron).
+ * Credentials (apiKey, connectionString) are stored in cleartext in the
+ * `config` jsonb column of `data_sources`. Encryption at rest via SecretVault
+ * is not yet implemented; that work is pending.
  */
 
 import {
