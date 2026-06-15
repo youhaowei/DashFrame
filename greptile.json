@@ -1,0 +1,45 @@
+{
+  "files": [
+    {
+      "path": "DESIGN.md",
+      "description": "Visual design system: surface-system tokens, register, anti-patterns. Source of truth for any UI review."
+    },
+    {
+      "path": "CLAUDE.md",
+      "description": "Project instructions and design-context pointer. Load before UI work."
+    }
+  ],
+  "customContext": {
+    "other": [
+      {
+        "content": "PRIVACY FLOOR (invariant, fail-closed). Sensitive data is NEVER at rest outside the gated on-disk cache. No raw row values, no sample values, no temp files of rows on disk. The cache-write gate keys on Field.sensitivity: only `cleared` columns may be written to the on-disk Parquet/DuckDB cache; `sensitive` and `unclassified` are memory-only. Flag any write path that could serialize row data to the filesystem outside the gate (temp files, NDJSON dumps, snapshots of raw rows, logs). Flag any new on-disk cache that doesn't route through the sensitivity gate.",
+        "scope": [
+          "packages/engine-server/**",
+          "packages/engine-browser/**",
+          "packages/server-core/**",
+          "apps/server/**"
+        ]
+      },
+      {
+        "content": "DESTRUCTIVE-RECOVERY rule (invariant). Any path that quarantines, deletes, or overwrites a user's local datadir must require POSITIVE evidence of the specific failure it recovers from — never infer it from a broad error signal. For PGlite WAL recovery: the torn-WAL-segment probe is the sole sufficient signal; an abort message alone (e.g. Aborted(OOM)) is NOT sufficient and must rethrow, not quarantine. Fail toward preserving data: when corruption cannot be positively confirmed, surface the error instead of destroying the datadir.",
+        "scope": ["packages/server-core/**"]
+      },
+      {
+        "content": "NO PER-SURFACE UI FORKS (invariant). The web and Electron renderers are IDENTICAL. No `isElectron` branches in components; capability differences ride through providers/context (the providerWrapper / engine-injection pattern), never component-level platform checks. Flag any `isElectron`/`window.electron` conditional inside a component's render.",
+        "scope": ["packages/app/**", "apps/renderer/**", "apps/web/**"]
+      },
+      {
+        "content": "NO OFF-TOKEN COLOR (invariant). No raw hex/rgb/oklch in classNames or styles. Use @wystack/ui semantic tokens only (neutral-*, palette-*, surface-*). The nav's hardcoded blue shadow is known standing drift; new off-token color is a finding.",
+        "scope": ["packages/app/**", "packages/ui/**", "apps/renderer/**"]
+      },
+      {
+        "content": "NO RAW RUNTIME ERRORS IN USER-FACING UI (invariant). Never surface Emscripten/WASM/stack strings in dialogs, toasts, or banners. Translate to a human sentence plus a recovery action.",
+        "scope": ["packages/app/**", "apps/desktop/**", "apps/renderer/**"]
+      },
+      {
+        "content": "NO TICKET IDS IN SOURCE (CI-enforced). Source code and comments must never contain YW-/TASK- identifiers. Reference the public GitHub issue number (#nn) instead. This is checked by scripts/check-no-ticket-refs.mjs.",
+        "scope": ["packages/**", "apps/**"]
+      }
+    ]
+  }
+}
