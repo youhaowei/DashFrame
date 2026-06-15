@@ -33,31 +33,27 @@ interface MetricEditorModalProps {
   onClose: () => void;
 }
 
-export function MetricEditorModal({
-  isOpen,
+/**
+ * Inner form with its own isolated state.
+ * Remounts from scratch each time the parent assigns a new key (i.e. on each
+ * new open session), so no setState-during-render or in-effect reset is needed.
+ */
+function MetricForm({
   tableId,
   availableFields,
   onSave,
   onClose,
-}: MetricEditorModalProps) {
+}: {
+  tableId: string;
+  availableFields: Field[];
+  onSave: (metric: Omit<Metric, "id">) => void;
+  onClose: () => void;
+}) {
   // Track whether the user has typed a name explicitly. While the name has
-  // not been customized, we compute it from aggregation + field instead of
-  // synchronizing via an effect.
+  // not been customized, we compute it from aggregation + field instead.
   const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [fieldColumnName, setFieldColumnName] = useState<string>("");
-
-  // Reset form whenever the modal transitions from closed to open by using
-  // `isOpen` as a "session" key compared during render.
-  const [wasOpen, setWasOpen] = useState(isOpen);
-  if (wasOpen !== isOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) {
-      setCustomName(null);
-      setAggregation("count");
-      setFieldColumnName("");
-    }
-  }
 
   // Auto-generate name based on aggregation and field
   const autoGenerateName = () => {
@@ -104,10 +100,6 @@ export function MetricEditorModal({
     onClose();
   };
 
-  const handleCancel = () => {
-    onClose();
-  };
-
   // Generate formula preview
   const getFormulaPreview = () => {
     if (aggregation === "count" && !fieldColumnName) {
@@ -125,93 +117,129 @@ export function MetricEditorModal({
   const needsField = aggregation !== "count";
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add Metric</DialogTitle>
-          <DialogDescription>
-            Create a new aggregation metric to calculate values across your
-            data.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader>
+        <DialogTitle>Add Metric</DialogTitle>
+        <DialogDescription>
+          Create a new aggregation metric to calculate values across your data.
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Aggregation Type */}
+      <div className="space-y-4 py-4">
+        {/* Aggregation Type */}
+        <div className="space-y-2">
+          <Label htmlFor="aggregation">Aggregation Type</Label>
+          <Select
+            value={aggregation}
+            onValueChange={(v) => setAggregation(v as AggregationType)}
+          >
+            <SelectTrigger id="aggregation">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="count">Count (rows)</SelectItem>
+              <SelectItem value="sum">Sum</SelectItem>
+              <SelectItem value="avg">Average</SelectItem>
+              <SelectItem value="min">Minimum</SelectItem>
+              <SelectItem value="max">Maximum</SelectItem>
+              <SelectItem value="count_distinct">Count Distinct</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Field Selection (if needed) */}
+        {needsField && (
           <div className="space-y-2">
-            <Label htmlFor="aggregation">Aggregation Type</Label>
+            <Label htmlFor="field">Field</Label>
             <Select
-              value={aggregation}
-              onValueChange={(v) => setAggregation(v as AggregationType)}
+              value={fieldColumnName}
+              onValueChange={(v) => setFieldColumnName(v ?? "")}
             >
-              <SelectTrigger id="aggregation">
-                <SelectValue />
+              <SelectTrigger id="field">
+                <SelectValue placeholder="Select a field" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="count">Count (rows)</SelectItem>
-                <SelectItem value="sum">Sum</SelectItem>
-                <SelectItem value="avg">Average</SelectItem>
-                <SelectItem value="min">Minimum</SelectItem>
-                <SelectItem value="max">Maximum</SelectItem>
-                <SelectItem value="count_distinct">Count Distinct</SelectItem>
+                {availableFields
+                  .filter((f) => f.columnName) // Only show fields with columnName
+                  .map((field) => (
+                    <SelectItem key={field.id} value={field.columnName!}>
+                      {field.name} ({field.type})
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
+        )}
 
-          {/* Field Selection (if needed) */}
-          {needsField && (
-            <div className="space-y-2">
-              <Label htmlFor="field">Field</Label>
-              <Select
-                value={fieldColumnName}
-                onValueChange={(v) => setFieldColumnName(v ?? "")}
-              >
-                <SelectTrigger id="field">
-                  <SelectValue placeholder="Select a field" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableFields
-                    .filter((f) => f.columnName) // Only show fields with columnName
-                    .map((field) => (
-                      <SelectItem key={field.id} value={field.columnName!}>
-                        {field.name} ({field.type})
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/* Metric Name */}
-          <div className="space-y-2">
-            <Label htmlFor="metric-name">Metric Name</Label>
-            <Input
-              id="metric-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter metric name"
-              autoFocus
-            />
-          </div>
-
-          {/* Formula Preview */}
-          <div className="rounded-lg bg-neutral-bg-muted p-3">
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
-              Formula Preview
-            </p>
-            <code className="font-mono text-sm text-neutral-fg">
-              {getFormulaPreview()}
-            </code>
-          </div>
+        {/* Metric Name */}
+        <div className="space-y-2">
+          <Label htmlFor="metric-name">Metric Name</Label>
+          <Input
+            id="metric-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter metric name"
+            autoFocus
+          />
         </div>
 
-        <DialogFooter>
-          <Button label="Cancel" variant="outline" onClick={handleCancel} />
-          <Button
-            label="Add Metric"
-            onClick={handleSave}
-            disabled={!name.trim() || (needsField && !fieldColumnName)}
+        {/* Formula Preview */}
+        <div className="rounded-lg bg-neutral-bg-muted p-3">
+          <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
+            Formula Preview
+          </p>
+          <code className="font-mono text-sm text-neutral-fg">
+            {getFormulaPreview()}
+          </code>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button label="Cancel" variant="outline" onClick={onClose} />
+        <Button
+          label="Add Metric"
+          onClick={handleSave}
+          disabled={!name.trim() || (needsField && !fieldColumnName)}
+        />
+      </DialogFooter>
+    </>
+  );
+}
+
+/**
+ * Uses the key-based reset pattern: the inner form remounts on each open
+ * session, so no setState-during-render or in-effect reset is needed.
+ */
+export function MetricEditorModal({
+  isOpen,
+  tableId,
+  availableFields,
+  onSave,
+  onClose,
+}: MetricEditorModalProps) {
+  const [sessionKey, setSessionKey] = useState(0);
+
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      // Bump key so the inner form remounts fresh on each open.
+      setSessionKey((k) => k + 1);
+    } else {
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        {isOpen && (
+          <MetricForm
+            key={sessionKey}
+            tableId={tableId}
+            availableFields={availableFields}
+            onSave={onSave}
+            onClose={onClose}
           />
-        </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

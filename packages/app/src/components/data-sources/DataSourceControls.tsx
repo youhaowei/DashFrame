@@ -24,7 +24,14 @@ import {
   PlusIcon,
   RefreshIcon,
 } from "@wystack/ui-icons";
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 
 import { NOTION_ENABLED, NotionDeferredBanner } from "./NotionDeferredBanner";
@@ -117,12 +124,14 @@ const subscribeStorage = (callback: () => void) => {
 export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   // Local override — set after a fresh fetch — wins over the cached read.
   const [override, setOverride] = useState<CachedDatabases | null>(null);
-  const [overrideKey, setOverrideKey] = useState<string | null>(dataSourceId);
-  // Reset override when data source changes during render.
-  if (overrideKey !== dataSourceId) {
-    setOverrideKey(dataSourceId);
-    setOverride(null);
-  }
+  const prevDataSourceIdRef = useRef(dataSourceId);
+  // Reset override when the data source changes.
+  useEffect(() => {
+    if (prevDataSourceIdRef.current !== dataSourceId) {
+      prevDataSourceIdRef.current = dataSourceId;
+      setOverride(null);
+    }
+  }, [dataSourceId]);
 
   const cachedSnapshot = useSyncExternalStore(
     subscribeStorage,

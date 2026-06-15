@@ -1,6 +1,6 @@
 import { Button, cn } from "@wystack/ui";
 import { CheckIcon, CloseIcon } from "@wystack/ui-icons";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface MarkdownWidgetProps {
@@ -18,14 +18,16 @@ export function MarkdownWidget({
   onCancel,
   className,
 }: MarkdownWidgetProps) {
-  // Reset edit buffer whenever the source `content` changes by using it as
-  // the state's identity — derive the current value during render.
+  // Edit buffer — initialized from `content` and reset when `content` changes
+  // externally (i.e. saved from another session or undo).
   const [value, setValue] = useState(content);
-  const [lastContent, setLastContent] = useState(content);
-  if (lastContent !== content) {
-    setLastContent(content);
-    setValue(content);
-  }
+  const prevContentRef = useRef(content);
+  useEffect(() => {
+    if (prevContentRef.current !== content) {
+      prevContentRef.current = content;
+      setValue(content);
+    }
+  }, [content]);
 
   if (isEditing) {
     return (

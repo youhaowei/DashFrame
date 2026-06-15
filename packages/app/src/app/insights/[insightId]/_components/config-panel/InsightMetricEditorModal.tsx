@@ -33,33 +33,22 @@ interface InsightMetricEditorModalProps {
 }
 
 /**
- * InsightMetricEditorModal - Dialog for creating insight metrics
- *
- * Allows user to:
- * - Select an aggregation type (sum, avg, count, etc.)
- * - Select a column to aggregate (except for count)
- * - Customize the metric name
+ * Inner form with its own isolated state.
+ * Remounts from scratch each time the parent assigns a new key (i.e. on each
+ * new open session), so no setState-during-render or in-effect reset is needed.
  */
-export function InsightMetricEditorModal({
-  isOpen,
-  onOpenChange,
+function InsightMetricForm({
   dataTable,
   onSave,
-}: InsightMetricEditorModalProps) {
+  onClose,
+}: {
+  dataTable: DataTable;
+  onSave: (metric: InsightMetric) => void;
+  onClose: () => void;
+}) {
   const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [columnName, setColumnName] = useState<string>("");
-
-  // Reset form when modal transitions from closed to open without an effect.
-  const [wasOpen, setWasOpen] = useState(isOpen);
-  if (wasOpen !== isOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) {
-      setCustomName(null);
-      setAggregation("count");
-      setColumnName("");
-    }
-  }
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -124,11 +113,7 @@ export function InsightMetricEditorModal({
     };
 
     onSave(metric);
-    onOpenChange(false);
-  };
-
-  const handleClose = () => {
-    onOpenChange(false);
+    onClose();
   };
 
   // Generate formula preview
@@ -154,97 +139,140 @@ export function InsightMetricEditorModal({
       : availableFields;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add metric</DialogTitle>
-          <DialogDescription>
-            Create an aggregation metric to calculate values across your data.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader>
+        <DialogTitle>Add metric</DialogTitle>
+        <DialogDescription>
+          Create an aggregation metric to calculate values across your data.
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Aggregation Type */}
+      <div className="space-y-4 py-4">
+        {/* Aggregation Type */}
+        <div className="space-y-2">
+          <Label htmlFor="aggregation">Aggregation type</Label>
+          <Select
+            value={aggregation}
+            onValueChange={(v) => setAggregation(v as AggregationType)}
+          >
+            <SelectTrigger id="aggregation">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="count">Count (rows)</SelectItem>
+              <SelectItem value="sum">Sum</SelectItem>
+              <SelectItem value="avg">Average</SelectItem>
+              <SelectItem value="min">Minimum</SelectItem>
+              <SelectItem value="max">Maximum</SelectItem>
+              <SelectItem value="count_distinct">Count distinct</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Field Selection (if needed) */}
+        {needsField && (
           <div className="space-y-2">
-            <Label htmlFor="aggregation">Aggregation type</Label>
+            <Label htmlFor="field">Field</Label>
             <Select
-              value={aggregation}
-              onValueChange={(v) => setAggregation(v as AggregationType)}
+              value={columnName}
+              onValueChange={(v) => setColumnName(v ?? "")}
             >
-              <SelectTrigger id="aggregation">
-                <SelectValue />
+              <SelectTrigger id="field">
+                <SelectValue placeholder="Select a field" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="count">Count (rows)</SelectItem>
-                <SelectItem value="sum">Sum</SelectItem>
-                <SelectItem value="avg">Average</SelectItem>
-                <SelectItem value="min">Minimum</SelectItem>
-                <SelectItem value="max">Maximum</SelectItem>
-                <SelectItem value="count_distinct">Count distinct</SelectItem>
+                {fieldsForSelect.length === 0 ? (
+                  <div className="p-2 text-center text-sm text-neutral-fg-subtle">
+                    {aggregation === "sum" || aggregation === "avg"
+                      ? "No numeric fields available"
+                      : "No fields available"}
+                  </div>
+                ) : (
+                  fieldsForSelect.map((field) => (
+                    <SelectItem key={field.id} value={field.columnName!}>
+                      {field.name} ({field.type})
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
+        )}
 
-          {/* Field Selection (if needed) */}
-          {needsField && (
-            <div className="space-y-2">
-              <Label htmlFor="field">Field</Label>
-              <Select
-                value={columnName}
-                onValueChange={(v) => setColumnName(v ?? "")}
-              >
-                <SelectTrigger id="field">
-                  <SelectValue placeholder="Select a field" />
-                </SelectTrigger>
-                <SelectContent>
-                  {fieldsForSelect.length === 0 ? (
-                    <div className="p-2 text-center text-sm text-neutral-fg-subtle">
-                      {aggregation === "sum" || aggregation === "avg"
-                        ? "No numeric fields available"
-                        : "No fields available"}
-                    </div>
-                  ) : (
-                    fieldsForSelect.map((field) => (
-                      <SelectItem key={field.id} value={field.columnName!}>
-                        {field.name} ({field.type})
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/* Metric Name */}
-          <div className="space-y-2">
-            <Label htmlFor="metric-name">Metric name</Label>
-            <Input
-              id="metric-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter metric name"
-            />
-          </div>
-
-          {/* Formula Preview */}
-          <div className="rounded-lg bg-neutral-bg-muted p-3">
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
-              Formula preview
-            </p>
-            <code className="font-mono text-sm text-neutral-fg">
-              {getFormulaPreview()}
-            </code>
-          </div>
+        {/* Metric Name */}
+        <div className="space-y-2">
+          <Label htmlFor="metric-name">Metric name</Label>
+          <Input
+            id="metric-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter metric name"
+          />
         </div>
 
-        <DialogFooter>
-          <Button label="Cancel" variant="outline" onClick={handleClose} />
-          <Button
-            label="Add metric"
-            onClick={handleSave}
-            disabled={!name.trim() || (needsField && !columnName)}
+        {/* Formula Preview */}
+        <div className="rounded-lg bg-neutral-bg-muted p-3">
+          <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
+            Formula preview
+          </p>
+          <code className="font-mono text-sm text-neutral-fg">
+            {getFormulaPreview()}
+          </code>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button label="Cancel" variant="outline" onClick={onClose} />
+        <Button
+          label="Add metric"
+          onClick={handleSave}
+          disabled={!name.trim() || (needsField && !columnName)}
+        />
+      </DialogFooter>
+    </>
+  );
+}
+
+/**
+ * InsightMetricEditorModal - Dialog for creating insight metrics
+ *
+ * Allows user to:
+ * - Select an aggregation type (sum, avg, count, etc.)
+ * - Select a column to aggregate (except for count)
+ * - Customize the metric name
+ *
+ * Uses the key-based reset pattern: the inner form remounts on each open
+ * session, so no setState-during-render or in-effect reset is needed.
+ */
+export function InsightMetricEditorModal({
+  isOpen,
+  onOpenChange,
+  dataTable,
+  onSave,
+}: InsightMetricEditorModalProps) {
+  const [sessionKey, setSessionKey] = useState(0);
+
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      // Bump key so the inner form remounts fresh on each open.
+      setSessionKey((k) => k + 1);
+    }
+    onOpenChange(open);
+  };
+
+  const handleClose = () => onOpenChange(false);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        {isOpen && (
+          <InsightMetricForm
+            key={sessionKey}
+            dataTable={dataTable}
+            onSave={onSave}
+            onClose={handleClose}
           />
-        </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
