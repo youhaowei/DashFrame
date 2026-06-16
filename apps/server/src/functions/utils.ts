@@ -9,9 +9,9 @@ import type { FunctionContext } from "@wystack/server";
 /**
  * The shape of the `config` jsonb column on `data_sources`.
  *
- * Post-YW-264: credential fields hold a `SecretRef` string (`secret:<uuid>`)
- * rather than plaintext. The plaintext is stored in the SecretVault and never
- * persisted here. The ref is `undefined` when the credential has not been set.
+ * Credential fields hold a `SecretRef` string (`secret:<uuid>`) rather than
+ * plaintext. The plaintext is stored in the SecretVault and never persisted
+ * here. The ref is `undefined` when the credential has not been set.
  */
 export type DataSourceConfig = {
   /** SecretRef for the API key (format: `secret:<uuid>`). Never plaintext. */

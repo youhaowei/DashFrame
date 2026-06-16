@@ -1,5 +1,5 @@
 /**
- * Vault control-plane tests — YW-264
+ * Vault control-plane tests.
  *
  * Acceptance criteria:
  *   AC1: No backend/vault instantiation in server functions (structural — grep).

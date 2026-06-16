@@ -5,9 +5,9 @@
  * the database as Parquet files under `project/data/sources/<id>.parquet`.
  * Credentials (apiKey, connectionString) in the `config` jsonb column of
  * `data_sources` are stored as SecretRefs (`secret:<uuid>`) — never plaintext.
- * The actual secrets live in the OS keychain via the SecretVault substrate
- * (YW-264). The `secrets` table below was an earlier design artifact and is
- * retained in the schema but unused by the current vault implementation.
+ * The actual secrets live in the OS keychain via the SecretVault substrate.
+ * The `secrets` table below was an earlier design artifact and is retained in
+ * the schema but unused by the current vault implementation.
  */
 
 import {
