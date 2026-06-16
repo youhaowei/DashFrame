@@ -16,6 +16,17 @@ const dirname =
 export default defineConfig({
   test: {
     projects: [
+      // Pure unit tests (no browser / DOM needed)
+      {
+        test: {
+          name: "unit",
+          environment: "node",
+          globals: true,
+          // Scope tightly to lib/ so DOM-touching component tests don't
+          // accidentally run in the node environment.
+          include: ["src/lib/**/*.test.ts"],
+        },
+      },
       {
         extends: true,
         plugins: [

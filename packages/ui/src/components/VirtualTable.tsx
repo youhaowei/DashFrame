@@ -3,6 +3,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, Spinner } from "@wystack/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatNumeric } from "../lib/format-numeric";
 
 // ============================================================================
 // Types
@@ -113,6 +114,7 @@ function defaultFormatValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   const dateStr = formatDate(value);
   if (dateStr) return dateStr;
+  if (typeof value === "number") return formatNumeric(value);
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
