@@ -322,6 +322,13 @@
         "pino-pretty",
       ],
     },
+    "libs/wystack/packages/secret-vault": {
+      "name": "@wystack/secret-vault",
+      "version": "0.0.1",
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "libs/wystack/packages/server": {
       "name": "@wystack/server",
       "version": "0.0.1",
@@ -1683,6 +1690,8 @@
     "@wystack/db": ["@wystack/db@workspace:libs/wystack/packages/db"],
 
     "@wystack/log": ["@wystack/log@workspace:libs/wystack/packages/log"],
+
+    "@wystack/secret-vault": ["@wystack/secret-vault@workspace:libs/wystack/packages/secret-vault"],
 
     "@wystack/server": ["@wystack/server@workspace:libs/wystack/packages/server"],
 
@@ -3613,6 +3622,8 @@
     "@wystack/db/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/log/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@wystack/secret-vault/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/server/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
