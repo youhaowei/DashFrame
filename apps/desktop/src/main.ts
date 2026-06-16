@@ -5,7 +5,6 @@ import {
 import {
   ARTIFACTS_DB_FILENAME,
   DrizzleMappingStore,
-  migrateDataSourceSecretsToVault,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -195,34 +194,9 @@ app
       `[dashframe] keychain backend registered, vault composed (storageDir=${keychainStorageDir})`,
     );
 
-    // One-shot migration: convert any existing plaintext apiKey / connectionString
-    // values in data_sources.config to SecretVault refs. Runs every startup but
-    // is idempotent — rows already holding refs (`secret:<uuid>`) are skipped, and
-    // their mapping rows persist (DrizzleMappingStore) so the skip is safe: a
-    // previously-migrated ref stays resolvable without re-storing. This ensures no
-    // plaintext credentials survive in the artifact DB regardless of when the data
-    // source was created.
-    try {
-      const { migratedCount } = await migrateDataSourceSecretsToVault(
-        project.db,
-        secretVault,
-      );
-      if (migratedCount > 0) {
-        console.log(
-          `[dashframe] migrated ${migratedCount} data source(s) to vault refs`,
-        );
-      }
-    } catch (migrationErr) {
-      // Migration failure is logged but non-fatal: the server can still start.
-      // Any rows that still hold plaintext remain so until migration succeeds on
-      // a future startup — credential WRITES no longer migrate (they fail closed
-      // without a vault and store fresh refs with one), so the next startup is
-      // the only place legacy plaintext gets converted.
-      console.error(
-        "[dashframe] vault migration failed (non-fatal):",
-        migrationErr,
-      );
-    }
+    // No plaintext-credential migration: this is pre-release and no data source
+    // has ever stored a plaintext credential. New sources store vault refs from
+    // creation via the fail-closed write path, so there is nothing to convert.
 
     // Surface recovery notice when the project was restored from a snapshot.
     if (project.recovery) {

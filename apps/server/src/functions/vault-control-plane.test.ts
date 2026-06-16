@@ -6,18 +6,13 @@
  *   AC2: Creating/updating a data source with a credential persists a SecretRef
  *        into config jsonb; the config contains NO plaintext credential.
  *   AC3: hasApiKey reflects vault.has(ref) — store → true; absent → false.
- *   AC4: Existing plaintext rows are migrated by migrateDataSourceSecretsToVault;
- *        post-migration scan finds zero raw credentials.
+ *   AC4: A credential write with NO vault fails closed (throws, persists nothing).
  *   AC5: Control plane never calls withSecret (structural — grep).
  *
  * Test pattern: TestBackend is used IN TEST SETUP to compose a vault. TestBackend
  * is NEVER used in production (server functions) code — only here.
  */
-import {
-  migrateDataSourceSecretsToVault,
-  openArtifactDb,
-  schema,
-} from "@dashframe/server-core";
+import { openArtifactDb, schema } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   isSecretRef,
@@ -437,160 +432,5 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
 
     const rows = await db.select().from(dataSources);
     expect(rows.find((r) => r.id === id)?.name).toBe("New Name");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC4: migration — existing plaintext rows are migrated
-// ---------------------------------------------------------------------------
-
-describe("migrateDataSourceSecretsToVault — zero plaintext after migration", () => {
-  let dir: string;
-  let db: Awaited<ReturnType<typeof openArtifactDb>>;
-
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-migrate-"));
-    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-  });
-
-  afterEach(async () => {
-    await db.$client.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("AC4 — migrates plaintext apiKey to a SecretRef", async () => {
-    // Simulate a pre-vault data source with plaintext credentials written
-    // directly into the DB (bypassing the vault path).
-    await db.insert(dataSources).values({
-      id: crypto.randomUUID(),
-      name: "Legacy Source",
-      kind: "notion",
-      storage: "live",
-      config: { apiKey: "legacy-plaintext-key" },
-      createdBy: { kind: "user" },
-    });
-
-    const { vault } = makeTestVault();
-    const { migratedCount } = await migrateDataSourceSecretsToVault(db, vault);
-    expect(migratedCount).toBe(1);
-
-    // Post-migration: apiKey in config is a SecretRef.
-    const rows = await db.select().from(dataSources);
-    const config = rows[0]?.config as Record<string, unknown>;
-    expect(isSecretRef(config["apiKey"])).toBe(true);
-    expect(config["apiKey"]).not.toBe("legacy-plaintext-key");
-  });
-
-  it("AC4 — migrates plaintext connectionString to a SecretRef", async () => {
-    await db.insert(dataSources).values({
-      id: crypto.randomUUID(),
-      name: "Legacy PG",
-      kind: "postgres",
-      storage: "live",
-      config: { connectionString: "postgresql://u:p@host/db" },
-      createdBy: { kind: "user" },
-    });
-
-    const { vault } = makeTestVault();
-    await migrateDataSourceSecretsToVault(db, vault);
-
-    const rows = await db.select().from(dataSources);
-    const config = rows[0]?.config as Record<string, unknown>;
-    expect(isSecretRef(config["connectionString"])).toBe(true);
-    expect(String(config["connectionString"])).not.toContain("p@host");
-  });
-
-  it("AC4 — skips rows that already hold a SecretRef (idempotent)", async () => {
-    const { vault } = makeTestVault();
-    // Pre-store a ref so the config already has a SecretRef.
-    const ref = await vault.store("already-stored", { class: "connector-key" });
-    await db.insert(dataSources).values({
-      id: crypto.randomUUID(),
-      name: "Already migrated",
-      kind: "notion",
-      storage: "live",
-      config: { apiKey: ref },
-      createdBy: { kind: "user" },
-    });
-
-    const { migratedCount } = await migrateDataSourceSecretsToVault(db, vault);
-    // Row already has a ref — nothing migrated.
-    expect(migratedCount).toBe(0);
-
-    // The ref is still present and unchanged.
-    const rows = await db.select().from(dataSources);
-    const config = rows[0]?.config as Record<string, unknown>;
-    expect(config["apiKey"]).toBe(ref);
-  });
-
-  it("AC4 — zero plaintext remains after migrating multiple rows", async () => {
-    // Insert multiple rows with various credential shapes.
-    const rowsToInsert = [
-      { kind: "notion", config: { apiKey: "key-1" } },
-      { kind: "postgres", config: { connectionString: "pg://u:p@h/db" } },
-      { kind: "csv", config: {} },
-      {
-        kind: "notion",
-        config: { apiKey: "key-2", connectionString: "pg://u2:p2@h/db2" },
-      },
-    ];
-    for (const r of rowsToInsert) {
-      await db.insert(dataSources).values({
-        id: crypto.randomUUID(),
-        name: `Source ${r.kind}`,
-        kind: r.kind,
-        storage: "live",
-        config: r.config,
-        createdBy: { kind: "user" },
-      });
-    }
-
-    const { vault } = makeTestVault();
-    const { migratedCount } = await migrateDataSourceSecretsToVault(db, vault);
-    // 3 rows had at least one plaintext credential (the csv row had none).
-    expect(migratedCount).toBe(3);
-
-    // Post-migration scan: NO config field should contain plaintext.
-    const allRows = await db.select().from(dataSources);
-    for (const row of allRows) {
-      const cfg = (row.config as Record<string, unknown>) ?? {};
-      if (cfg["apiKey"] !== undefined) {
-        expect(
-          isSecretRef(cfg["apiKey"]),
-          `apiKey in ${row.name} must be a SecretRef`,
-        ).toBe(true);
-      }
-      if (cfg["connectionString"] !== undefined) {
-        expect(
-          isSecretRef(cfg["connectionString"]),
-          `connectionString in ${row.name} must be a SecretRef`,
-        ).toBe(true);
-      }
-    }
-  });
-
-  it("AC4 — migration is idempotent (second run migrates 0 rows)", async () => {
-    await db.insert(dataSources).values({
-      id: crypto.randomUUID(),
-      name: "Plaintext Source",
-      kind: "notion",
-      storage: "live",
-      config: { apiKey: "plaintext" },
-      createdBy: { kind: "user" },
-    });
-
-    const { vault } = makeTestVault();
-    const { migratedCount: first } = await migrateDataSourceSecretsToVault(
-      db,
-      vault,
-    );
-    expect(first).toBe(1);
-
-    // Second run — nothing to migrate.
-    const { migratedCount: second } = await migrateDataSourceSecretsToVault(
-      db,
-      vault,
-    );
-    expect(second).toBe(0);
   });
 });

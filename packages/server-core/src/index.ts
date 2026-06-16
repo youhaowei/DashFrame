@@ -15,7 +15,6 @@ export {
 export {
   ARTIFACTS_DB_FILENAME,
   DATA_SOURCES_DIRNAME,
-  migrateDataSourceSecretsToVault,
   openProject,
   type OpenProjectOptions,
   type ProjectHandle,
