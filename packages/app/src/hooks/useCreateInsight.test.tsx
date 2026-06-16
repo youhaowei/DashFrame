@@ -574,17 +574,30 @@ describe("useCreateInsight", () => {
       expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
 
       vi.clearAllMocks();
-      mockGetAllInsights.mockResolvedValue([]);
 
-      // Second call with a *different* table — should still create fresh.
-      mockCreateInsight.mockResolvedValueOnce("insight-2");
+      // Second call for the SAME table — the newly created draft now exists
+      // and is still unmodified. The gate should reuse it, not create again.
+      const existingDraft = createMockInsight({
+        id: "insight-1",
+        name: "Orders",
+        baseTableId: "table-shared",
+        selectedFields: [],
+      });
+      mockGetAllInsights.mockResolvedValueOnce([existingDraft]);
 
+      let secondId: string | null = null;
       await act(async () => {
-        await result.current.createInsightFromTable("table-other", "Revenue");
+        secondId = await result.current.createInsightFromTable(
+          "table-shared",
+          "Orders",
+        );
       });
 
-      expect(mockCreateInsight).toHaveBeenCalledTimes(1);
-      expect(mockPush).toHaveBeenCalledWith("/insights/insight-2");
+      // Must NOT create a second insight
+      expect(mockCreateInsight).not.toHaveBeenCalled();
+      // Must navigate to the existing draft
+      expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
+      expect(secondId).toBe("insight-1");
     });
 
     it("should create insight chain (table → insight → derived)", async () => {
