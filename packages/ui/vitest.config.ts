@@ -22,7 +22,9 @@ export default defineConfig({
           name: "unit",
           environment: "node",
           globals: true,
-          include: ["src/**/*.test.ts"],
+          // Scope tightly to lib/ so DOM-touching component tests don't
+          // accidentally run in the node environment.
+          include: ["src/lib/**/*.test.ts"],
         },
       },
       {

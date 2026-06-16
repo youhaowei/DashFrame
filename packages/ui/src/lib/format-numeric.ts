@@ -21,6 +21,9 @@
  */
 export function formatNumeric(n: number): string {
   if (!isFinite(n)) return String(n);
+  // Integers are already exact — skip toPrecision so that values like
+  // COUNT(*) = 12345678901 are never rounded to 12345678900.
+  if (Number.isInteger(n)) return String(n);
   // toPrecision(10) → "4.095000000e+2" style strings for large exponents;
   // parseFloat normalises them back to the plain decimal representation.
   return String(parseFloat(n.toPrecision(10)));

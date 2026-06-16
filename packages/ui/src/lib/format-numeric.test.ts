@@ -17,6 +17,12 @@ describe("formatNumeric", () => {
     expect(formatNumeric(-42)).toBe("-42");
   });
 
+  it("leaves large integers exact (no toPrecision truncation)", () => {
+    // COUNT(*) or financial IDs with > 10 significant digits must never be rounded
+    expect(formatNumeric(12345678901)).toBe("12345678901");
+    expect(formatNumeric(100000000011)).toBe("100000000011");
+  });
+
   it("preserves genuine long-decimal precision within 10 sig-figs", () => {
     // 1234.5678 has 8 sig-figs — well within 10, should round-trip exactly
     expect(formatNumeric(1234.5678)).toBe("1234.5678");
