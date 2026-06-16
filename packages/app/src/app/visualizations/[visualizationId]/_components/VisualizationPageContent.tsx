@@ -1083,7 +1083,7 @@ export default function VisualizationPageContent({
               <h3 className="mb-2 text-lg font-semibold text-palette-danger">
                 Invalid encoding configuration
               </h3>
-              <div className="space-y-2 text-sm text-palette-danger">
+              <div className="space-y-2 text-sm text-palette-danger/80">
                 {encodingErrors.x && (
                   <p>
                     <strong>X Axis:</strong> {encodingErrors.x}
@@ -1095,7 +1095,7 @@ export default function VisualizationPageContent({
                   </p>
                 )}
               </div>
-              <p className="mt-4 text-xs text-palette-danger">
+              <p className="mt-4 text-xs text-palette-danger/80">
                 Please update the axis configuration in the panel on the right.
               </p>
             </div>
