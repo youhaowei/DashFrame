@@ -11,11 +11,13 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
+import { SecretRegistry } from "@wystack/secret-vault";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 import { Lifecycle } from "./lifecycle.js";
+import { ElectronKeychainBackend } from "./secret-keychain-backend.js";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
@@ -24,6 +26,11 @@ const isDev = !app.isPackaged;
 // holds exactly one instance; shutdown drains whatever has been registered so
 // far, so a startup error that fired after engine init still disposes it.
 const lifecycle = new Lifecycle((code) => app.exit(code));
+
+// Module-level registry holder — assigned once in whenReady after the project
+// dir is known. Must outlive the whenReady callback so the registry stays alive
+// for the full process lifetime (secrets are resolved throughout the session).
+let secretRegistry: SecretRegistry | null = null;
 
 function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
@@ -153,6 +160,26 @@ app
     }
 
     console.log(`[dashframe] project ready at ${project.dir}`);
+
+    // Register the OS-keychain backend for all credential classes.
+    // The keychain blobs live alongside the project data so they survive moves
+    // of the app binary while staying co-located with the project they protect.
+    // This registration is Electron-main-only — it is never executed in web/CI.
+    const keychainStorageDir = path.join(project.dir, "keychain");
+    const { safeStorage } = await import("electron");
+    const keychainBackend = new ElectronKeychainBackend(
+      keychainStorageDir,
+      safeStorage,
+    );
+    secretRegistry = new SecretRegistry();
+    secretRegistry.register("electron-keychain", keychainBackend, {
+      fallback: true,
+    });
+    secretRegistry.setClassDefault("connector-key", "electron-keychain");
+    secretRegistry.setClassDefault("serve-token", "electron-keychain");
+    console.log(
+      `[dashframe] keychain backend registered (storageDir=${keychainStorageDir})`,
+    );
 
     // Surface recovery notice when the project was restored from a snapshot.
     if (project.recovery) {
