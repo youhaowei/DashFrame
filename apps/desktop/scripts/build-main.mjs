@@ -24,6 +24,13 @@
  * The filter auto-handles new transitive npm deps and new workspace packages
  * without editing an allowlist — but externalized npm deps must resolve at
  * runtime from apps/desktop, so they're declared as direct desktop deps.
+ *
+ * conditions: ["bun"] tells esbuild to prefer the "bun" export condition when
+ * resolving workspace packages — that condition maps to ./src/index.ts (raw
+ * TypeScript source). esbuild merges this with the platform:"node" defaults,
+ * so workspace packages are resolved from src while npm packages continue to
+ * resolve via Node's default condition. This is what makes all @dashframe/*
+ * packages TS-main: no per-package dist is needed for the Electron bundle.
  */
 import esbuild from "esbuild";
 import path from "node:path";
@@ -50,6 +57,7 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   format: "esm",
+  conditions: ["bun"],
   outfile: path.resolve(import.meta.dirname, "..", "dist", "main.js"),
   plugins: [externalizeNpm],
 });

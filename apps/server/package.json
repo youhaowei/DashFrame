@@ -9,23 +9,18 @@
   "exports": {
     ".": "./src/index.ts",
     "./app": {
-      "types": "./dist/app.d.ts",
       "bun": "./src/app.ts",
-      "default": "./dist/app.js"
+      "default": "./src/app.ts"
     },
     "./functions": {
-      "types": "./dist/functions.d.ts",
       "bun": "./src/functions.ts",
-      "default": "./dist/functions.js"
+      "default": "./src/functions.ts"
     }
   },
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
     "test": "vitest run",
-    "build": "bun run build:js && bun run build:types",
-    "build:js": "esbuild src/index.ts src/app.ts src/functions.ts --bundle --platform=node --packages=external --format=esm --outdir=dist",
-    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "check": "bun run typecheck && bun run lint"

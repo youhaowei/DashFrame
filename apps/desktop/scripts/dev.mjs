@@ -37,47 +37,18 @@ function awaitProc(child, label) {
   });
 }
 
-// Desktop's main bundle marks workspace packages as external, so every
-// workspace dep main.ts reaches must exist as JS before it is bundled —
-// Electron 33 (Node 20) cannot load .ts entry points at runtime. Build the
-// dependency chain in order: wystack framework → server-core → engine-server
-// → server app.
+// The desktop main bundle resolves @dashframe/* and @wystack/* workspace
+// packages via the "bun" export condition → raw TypeScript source. esbuild
+// bundles them at build:main time, so no pre-built dist is needed for any
+// @dashframe/* package. Only @wystack/* still ship dist (submodule packages
+// outside this repo's control), so we build those first.
 const repoRoot = path.resolve(desktopDir, "..", "..");
 
-// 1a. Build the @wystack/* packages main consumes via @dashframe/server.
+// 1. Build the @wystack/* packages main consumes via @dashframe/server.
+// @dashframe/* packages are all TS-main; they resolve from src at bundle time.
 await awaitProc(
   spawn("bun", ["run", "build:wystack"], { cwd: repoRoot, stdio: "inherit" }),
   "wystack build",
-);
-
-// 1b. Build @dashframe/server-core (PGLite + Drizzle project DB).
-await awaitProc(
-  spawn("bun", ["run", "--filter", "@dashframe/server-core", "build"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-  }),
-  "server-core build",
-);
-
-// 1c. Build @dashframe/engine-server (native DuckDB engine + Arrow data path).
-// @dashframe/server imports createArrowDataPath from it and its `types` export
-// points at dist/index.d.ts, so the server build below needs its emitted JS +
-// declarations present in a clean checkout.
-await awaitProc(
-  spawn("bun", ["run", "--filter", "@dashframe/engine-server", "build"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-  }),
-  "engine-server build",
-);
-
-// 1d. Build @dashframe/server (the WyStack server app main starts on loopback).
-await awaitProc(
-  spawn("bun", ["run", "--filter", "@dashframe/server", "build"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-  }),
-  "server build",
 );
 
 // 2. Build desktop main + preload
