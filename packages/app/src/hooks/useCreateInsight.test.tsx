@@ -14,18 +14,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCreateInsight } from "./useCreateInsight";
 
 // Mock functions must be hoisted with vi.mock
-const { mockCreateInsight, mockGetInsight, mockMutations } = vi.hoisted(() => {
-  const create = vi.fn();
-  return {
-    mockCreateInsight: create,
-    mockGetInsight: vi.fn(),
-    mockMutations: { create },
-  };
-});
+const { mockCreateInsight, mockGetInsight, mockGetAllInsights, mockMutations } =
+  vi.hoisted(() => {
+    const create = vi.fn();
+    return {
+      mockCreateInsight: create,
+      mockGetInsight: vi.fn(),
+      mockGetAllInsights: vi.fn(),
+      mockMutations: { create },
+    };
+  });
 
 vi.mock("@dashframe/core", () => ({
   useInsightMutations: () => mockMutations,
   getInsight: mockGetInsight,
+  getAllInsights: mockGetAllInsights,
 }));
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
@@ -64,6 +67,8 @@ function createMockInsight(options: {
 describe("useCreateInsight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no pre-existing insights (dedup gate finds nothing to reuse)
+    mockGetAllInsights.mockResolvedValue([]);
   });
 
   describe("createInsightFromTable", () => {
@@ -177,6 +182,160 @@ describe("useCreateInsight", () => {
           );
         });
       }).rejects.toThrow("Database error");
+    });
+  });
+
+  describe("createInsightFromTable — dedup", () => {
+    it("should reuse an existing unmodified draft for the same source table", async () => {
+      const existingDraft = createMockInsight({
+        id: "existing-draft",
+        name: "orders",
+        baseTableId: "table-orders",
+        selectedFields: [], // unmodified
+      });
+
+      mockGetAllInsights.mockResolvedValue([existingDraft]);
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      let insightId: string | null = null;
+      await act(async () => {
+        insightId = await result.current.createInsightFromTable(
+          "table-orders",
+          "orders",
+        );
+      });
+
+      // Must NOT create a new insight
+      expect(mockCreateInsight).not.toHaveBeenCalled();
+      // Must navigate to the existing draft
+      expect(mockPush).toHaveBeenCalledWith("/insights/existing-draft");
+      expect(insightId).toBe("existing-draft");
+    });
+
+    it("should create a new draft (no suffix) when no insights exist for the table", async () => {
+      mockGetAllInsights.mockResolvedValue([]);
+      mockCreateInsight.mockResolvedValue("new-draft");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
+        selectedFields: [],
+      });
+      expect(mockPush).toHaveBeenCalledWith("/insights/new-draft");
+    });
+
+    it("should create a suffixed draft when an existing modified insight is present", async () => {
+      const modifiedInsight = createMockInsight({
+        id: "modified-insight",
+        name: "orders",
+        baseTableId: "table-orders",
+        selectedFields: ["field-1"], // modified — has a selected field
+      });
+
+      mockGetAllInsights.mockResolvedValue([modifiedInsight]);
+      mockCreateInsight.mockResolvedValue("new-draft-2");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      // A suffix is used rather than prompting — non-blocking, drive-feel
+      expect(mockCreateInsight).toHaveBeenCalledWith(
+        "orders (2)",
+        "table-orders",
+        { selectedFields: [] },
+      );
+      expect(mockPush).toHaveBeenCalledWith("/insights/new-draft-2");
+    });
+
+    it("should not reuse a modified insight that has filters set", async () => {
+      const modifiedInsight = createMockInsight({
+        id: "filtered-insight",
+        name: "orders",
+        baseTableId: "table-orders",
+        selectedFields: [],
+      });
+      // Add a filter to mark it as modified
+      modifiedInsight.filters = [
+        { field: "status", operator: "eq", value: "active" },
+      ];
+
+      mockGetAllInsights.mockResolvedValue([modifiedInsight]);
+      mockCreateInsight.mockResolvedValue("new-draft-filtered");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      expect(mockCreateInsight).toHaveBeenCalledWith(
+        "orders (2)",
+        "table-orders",
+        { selectedFields: [] },
+      );
+    });
+
+    it("should not affect dedup for a different source table", async () => {
+      const otherTableDraft = createMockInsight({
+        id: "other-draft",
+        name: "customers",
+        baseTableId: "table-customers",
+        selectedFields: [],
+      });
+
+      mockGetAllInsights.mockResolvedValue([otherTableDraft]);
+      mockCreateInsight.mockResolvedValue("orders-draft");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      // The existing draft is for a different table — a new insight is created
+      expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
+        selectedFields: [],
+      });
+    });
+
+    it("should find a gap-free suffix when an intermediate name was deleted", async () => {
+      // Simulate: user had "orders", "orders (2)", "orders (3)"; deleted "orders (2)".
+      // The next suffix should be "orders (2)" (fills the gap), not "orders (4)".
+      const insight1 = createMockInsight({
+        id: "i1",
+        name: "orders",
+        baseTableId: "table-orders",
+        selectedFields: ["field-a"],
+      });
+      const insight3 = createMockInsight({
+        id: "i3",
+        name: "orders (3)",
+        baseTableId: "table-orders",
+        selectedFields: ["field-b"],
+      });
+
+      mockGetAllInsights.mockResolvedValue([insight1, insight3]);
+      mockCreateInsight.mockResolvedValue("gap-fill-draft");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      expect(mockCreateInsight).toHaveBeenCalledWith(
+        "orders (2)", // gap-free: (2) is missing, not (4)
+        "table-orders",
+        { selectedFields: [] },
+      );
     });
   });
 
@@ -400,21 +559,45 @@ describe("useCreateInsight", () => {
   });
 
   describe("integration scenarios", () => {
-    it("should create multiple insights from same table", async () => {
-      mockCreateInsight
-        .mockResolvedValueOnce("insight-1")
-        .mockResolvedValueOnce("insight-2");
+    it("should reuse the unmodified draft on a second call for the same table", async () => {
+      // First call — no existing insights, creates a new draft.
+      mockGetAllInsights.mockResolvedValueOnce([]);
+      mockCreateInsight.mockResolvedValueOnce("insight-1");
 
       const { result } = renderHook(() => useCreateInsight());
 
       await act(async () => {
-        await result.current.createInsightFromTable("table-shared", "First");
-        await result.current.createInsightFromTable("table-shared", "Second");
+        await result.current.createInsightFromTable("table-shared", "Orders");
       });
 
-      expect(mockCreateInsight).toHaveBeenCalledTimes(2);
+      expect(mockCreateInsight).toHaveBeenCalledTimes(1);
       expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
-      expect(mockPush).toHaveBeenCalledWith("/insights/insight-2");
+
+      vi.clearAllMocks();
+
+      // Second call for the SAME table — the newly created draft now exists
+      // and is still unmodified. The gate should reuse it, not create again.
+      const existingDraft = createMockInsight({
+        id: "insight-1",
+        name: "Orders",
+        baseTableId: "table-shared",
+        selectedFields: [],
+      });
+      mockGetAllInsights.mockResolvedValueOnce([existingDraft]);
+
+      let secondId: string | null = null;
+      await act(async () => {
+        secondId = await result.current.createInsightFromTable(
+          "table-shared",
+          "Orders",
+        );
+      });
+
+      // Must NOT create a second insight
+      expect(mockCreateInsight).not.toHaveBeenCalled();
+      // Must navigate to the existing draft
+      expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
+      expect(secondId).toBe("insight-1");
     });
 
     it("should create insight chain (table → insight → derived)", async () => {

@@ -7,7 +7,13 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import { ensureTableLoaded } from "@dashframe/engine-browser";
-import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
+import type {
+  ColumnType,
+  DataTable,
+  Field,
+  Insight,
+  UUID,
+} from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -147,6 +153,26 @@ export function useInsightPagination({
     }
 
     return displayNames;
+  }, [resolvedFields, insight.metrics]);
+
+  // Build mapping from UUID column aliases to ColumnType.
+  // Metrics are always numeric (aggregations); fields carry their declared type.
+  // Consumers use this to drive type-aware cell formatting (e.g. epoch → date).
+  const columnTypeMap = useMemo((): Record<string, ColumnType> => {
+    const typeMap: Record<string, ColumnType> = {};
+
+    for (const field of resolvedFields) {
+      const alias = fieldIdToColumnAlias(field.id);
+      typeMap[alias] = field.type;
+    }
+
+    // Metrics are aggregations — always numeric
+    for (const metric of insight.metrics ?? []) {
+      const alias = metricIdToColumnAlias(metric.id);
+      typeMap[alias] = "number";
+    }
+
+    return typeMap;
   }, [resolvedFields, insight.metrics]);
 
   // Load DataFrames into DuckDB (parallel loading for performance)
@@ -398,5 +424,13 @@ export function useInsightPagination({
      * Values: Human-readable field/metric names
      */
     columnDisplayNames,
+    /**
+     * Mapping from UUID column aliases to ColumnType.
+     * Use this to drive type-aware cell formatting (e.g. epoch millis → date).
+     *
+     * Keys: `field_<uuid>` or `metric_<uuid>`
+     * Values: "string" | "number" | "boolean" | "date" | "unknown"
+     */
+    columnTypeMap,
   };
 }
