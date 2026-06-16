@@ -4,6 +4,7 @@ import {
 } from "@dashframe/engine-server";
 import {
   ARTIFACTS_DB_FILENAME,
+  DrizzleMappingStore,
   migrateDataSourceSecretsToVault,
   openProject,
   type ProjectHandle,
@@ -12,11 +13,7 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
-import {
-  InMemoryMappingStore,
-  SecretRegistry,
-  SecretVault,
-} from "@wystack/secret-vault";
+import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
@@ -183,21 +180,28 @@ app
     });
     secretRegistry.setClassDefault("connector-key", "electron-keychain");
     secretRegistry.setClassDefault("serve-token", "electron-keychain");
-    // Compose the vault from the registry. The InMemoryMappingStore holds the
-    // ref→locator mapping for the process lifetime. This is intentional for
-    // v0.3: the mapping is rebuilt at each startup when migration re-stores any
-    // existing plaintext credentials. A persistent mapping store (SQLite or a
-    // dedicated table) is future work tracked separately.
-    secretVault = new SecretVault(secretRegistry, new InMemoryMappingStore());
+    // Compose the vault from the registry. The mapping store persists the
+    // ref→{backend, locator} binding in the project DB (`secret_mappings` table)
+    // so refs stay resolvable across restarts: the ref in `data_sources.config`,
+    // the encrypted blob in the keychain, and this mapping all share one
+    // transactional/backup boundary and can never drift. An in-memory store would
+    // drop the mapping on restart, leaving every persisted credential permanently
+    // unresolvable (has(ref) → false, withSecret(ref) → throw).
+    secretVault = new SecretVault(
+      secretRegistry,
+      new DrizzleMappingStore(project.db),
+    );
     console.log(
       `[dashframe] keychain backend registered, vault composed (storageDir=${keychainStorageDir})`,
     );
 
     // One-shot migration: convert any existing plaintext apiKey / connectionString
     // values in data_sources.config to SecretVault refs. Runs every startup but
-    // is idempotent — rows already holding refs (`secret:<uuid>`) are skipped.
-    // This ensures no plaintext credentials survive in the artifact DB regardless
-    // of when the data source was created.
+    // is idempotent — rows already holding refs (`secret:<uuid>`) are skipped, and
+    // their mapping rows persist (DrizzleMappingStore) so the skip is safe: a
+    // previously-migrated ref stays resolvable without re-storing. This ensures no
+    // plaintext credentials survive in the artifact DB regardless of when the data
+    // source was created.
     try {
       const { migratedCount } = await migrateDataSourceSecretsToVault(
         project.db,
