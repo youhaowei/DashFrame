@@ -90,10 +90,19 @@ export function useCreateInsight() {
       // with a numeric suffix so the user can distinguish without a modal prompt.
       // Suffix-vs-prompt: suffix is non-blocking and fits the drive-feel of the
       // app; a prompt would interrupt a routine action just to confirm a name.
-      const name =
-        sameTableInsights.length > 0
-          ? `${tableName} (${sameTableInsights.length + 1})`
-          : tableName;
+      //
+      // Use the first gap-free suffix to avoid collisions when insights are
+      // deleted and re-created (e.g. "orders (2)" deleted → next should be
+      // "orders (2)", not "orders (3)").
+      let name = tableName;
+      if (sameTableInsights.length > 0) {
+        const existingNames = new Set(sameTableInsights.map((i) => i.name));
+        let suffix = 2;
+        while (existingNames.has(`${tableName} (${suffix})`)) {
+          suffix++;
+        }
+        name = `${tableName} (${suffix})`;
+      }
 
       // Create draft insight with empty fields (shows preview + suggestions)
       const insightId = await createInsight(

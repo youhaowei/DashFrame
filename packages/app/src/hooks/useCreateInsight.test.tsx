@@ -305,6 +305,38 @@ describe("useCreateInsight", () => {
         selectedFields: [],
       });
     });
+
+    it("should find a gap-free suffix when an intermediate name was deleted", async () => {
+      // Simulate: user had "orders", "orders (2)", "orders (3)"; deleted "orders (2)".
+      // The next suffix should be "orders (2)" (fills the gap), not "orders (4)".
+      const insight1 = createMockInsight({
+        id: "i1",
+        name: "orders",
+        baseTableId: "table-orders",
+        selectedFields: ["field-a"],
+      });
+      const insight3 = createMockInsight({
+        id: "i3",
+        name: "orders (3)",
+        baseTableId: "table-orders",
+        selectedFields: ["field-b"],
+      });
+
+      mockGetAllInsights.mockResolvedValue([insight1, insight3]);
+      mockCreateInsight.mockResolvedValue("gap-fill-draft");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      await act(async () => {
+        await result.current.createInsightFromTable("table-orders", "orders");
+      });
+
+      expect(mockCreateInsight).toHaveBeenCalledWith(
+        "orders (2)", // gap-free: (2) is missing, not (4)
+        "table-orders",
+        { selectedFields: [] },
+      );
+    });
   });
 
   describe("createInsightFromInsight", () => {
