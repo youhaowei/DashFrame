@@ -260,6 +260,131 @@ describe("vault control-plane — store→ref + has→presence", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fail-closed: the server REFUSES to store a credential when no vault is
+// injected. This is the regression guard for the plaintext-at-rest leak — the
+// vault-absent branch must throw and persist NOTHING, never write the plaintext
+// to config. A non-credential write must still succeed without a vault.
+// ---------------------------------------------------------------------------
+
+describe("vault control-plane — fail-closed when no vault is injected", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  // No vault wrapper: createWyStack's app is used directly, so ctx.vault is
+  // undefined for every handler — exactly a server runtime that injected no vault.
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-failclosed-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("addDataSource with an apiKey throws and persists no row", async () => {
+    await expect(
+      app.call("addDataSource", {
+        type: "notion",
+        name: "Leaky Source",
+        apiKey: "should-never-persist",
+      }),
+    ).rejects.toThrow(/no vault/i);
+
+    // Nothing was written — not the plaintext, not even a row.
+    const rows = await db.select().from(dataSources);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("addDataSource with a connectionString throws and persists no row", async () => {
+    await expect(
+      app.call("addDataSource", {
+        type: "postgres",
+        name: "Leaky PG",
+        connectionString: "postgresql://user:pass@host/db",
+      }),
+    ).rejects.toThrow(/no vault/i);
+
+    const rows = await db.select().from(dataSources);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("createDataSource command with an apiKey throws and persists no row", async () => {
+    const id = crypto.randomUUID();
+    await expect(
+      app.call("createDataSource", {
+        id,
+        type: "notion",
+        name: "Leaky Cmd",
+        apiKey: "should-never-persist",
+      }),
+    ).rejects.toThrow(/no vault/i);
+
+    const rows = await db.select().from(dataSources);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("setDataSourceConfig command with an apiKey throws and leaves config unchanged", async () => {
+    // A source with no credential can be created without a vault (below), then
+    // a credential-setting config write must be refused.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", { id, type: "notion", name: "Source" });
+
+    await expect(
+      app.call("setDataSourceConfig", { id, apiKey: "should-never-persist" }),
+    ).rejects.toThrow(/no vault/i);
+
+    // config must NOT contain the plaintext (or any apiKey at all).
+    const config = await readConfig(db, id);
+    expect(config?.["apiKey"]).toBeUndefined();
+  });
+
+  it("updateDataSource with an apiKey throws and leaves config unchanged", async () => {
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", { id, type: "notion", name: "Source" });
+
+    await expect(
+      app.call("updateDataSource", { id, apiKey: "should-never-persist" }),
+    ).rejects.toThrow(/no vault/i);
+
+    const config = await readConfig(db, id);
+    expect(config?.["apiKey"]).toBeUndefined();
+  });
+
+  it("a write with NO credential still succeeds without a vault", async () => {
+    // Only credential-bearing writes require the vault — a plain create must work.
+    const { result } = await app.call("addDataSource", {
+      type: "csv",
+      name: "No-credential Source",
+    });
+    const id = (result as { id: string }).id;
+    expect(id).toBeTruthy();
+
+    const config = await readConfig(db, id);
+    expect(config?.["apiKey"]).toBeUndefined();
+    expect(config?.["connectionString"]).toBeUndefined();
+  });
+
+  it("renaming via updateDataSource (no credential) still succeeds without a vault", async () => {
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Old Name",
+    });
+
+    await expect(
+      app.call("updateDataSource", { id, name: "New Name" }),
+    ).resolves.toBeDefined();
+
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((r) => r.id === id)?.name).toBe("New Name");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC4: migration — existing plaintext rows are migrated
 // ---------------------------------------------------------------------------
 

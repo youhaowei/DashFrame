@@ -398,12 +398,16 @@ async function probeBatchFailure(
   app: WyStackApp,
   batch: Command[],
   fallbackMessage: string,
+  context: Record<string, unknown>,
 ): Promise<{ failureIndex: number; message: string }> {
   let failureIndex = batch.length - 1; // conservative default
   let message = fallbackMessage;
   for (let k = 0; k < batch.length; k++) {
     try {
-      await applyCommands(app, batch.slice(0, k + 1), { mode: "preview" });
+      await applyCommands(app, batch.slice(0, k + 1), {
+        mode: "preview",
+        context,
+      });
     } catch (probeErr) {
       failureIndex = k;
       message =
@@ -428,13 +432,17 @@ async function probeBatchFailure(
 async function runPrefixSafe(
   app: WyStackApp,
   prefixBatch: Command[],
+  context: Record<string, unknown>,
 ): Promise<{
   safeBatch: Command[];
   results: CommandResult[];
   tablesWritten: string[];
 }> {
   try {
-    const result = await applyCommands(app, prefixBatch, { mode: "preview" });
+    const result = await applyCommands(app, prefixBatch, {
+      mode: "preview",
+      context,
+    });
     return {
       safeBatch: prefixBatch,
       results: result.results,
@@ -450,6 +458,11 @@ export async function buildPreviewDiff(
   app: WyStackApp,
   db: ArtifactDb,
   batch: Command[],
+  // Handler context threaded to every preview dispatch — carries the SecretVault
+  // so credential-bearing commands (CreateDataSource/SetDataSourceConfig with a
+  // key) resolve under preview instead of failing closed. Defaults to empty for
+  // credential-free batches.
+  context: Record<string, unknown> = {},
 ): Promise<PreviewDiff> {
   // 1. Execute-then-rollback the full batch to learn what happens and collect
   //    handler results for polymorphic-command resolution (RenameNode etc. report
@@ -461,7 +474,10 @@ export async function buildPreviewDiff(
   let error: PreviewError | undefined;
 
   try {
-    const result = await applyCommands(app, batch, { mode: "preview" });
+    const result = await applyCommands(app, batch, {
+      mode: "preview",
+      context,
+    });
     prefixResults = result.results;
     tablesWritten = [...result.tablesWritten];
   } catch (err) {
@@ -473,13 +489,14 @@ export async function buildPreviewDiff(
       app,
       batch,
       fallback,
+      context,
     );
     error = { commandIndex: failureIndex, message };
 
     // The pre-failure prefix is commands 0..failureIndex-1. Run it to build nodes.
     prefixBatch = batch.slice(0, failureIndex);
     if (prefixBatch.length > 0) {
-      const prefix = await runPrefixSafe(app, prefixBatch);
+      const prefix = await runPrefixSafe(app, prefixBatch, context);
       prefixBatch = prefix.safeBatch;
       prefixResults = prefix.results;
       tablesWritten = prefix.tablesWritten;

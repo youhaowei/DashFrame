@@ -28,6 +28,7 @@ import {
   type DataSourceConfig,
   isRecord,
   requireRecordWithId,
+  storeCredential,
   vaultFromCtx,
 } from "./utils";
 
@@ -419,26 +420,17 @@ const addDataSource = mutation({
     const config: DataSourceConfig = {};
     // Only store non-empty credentials. An empty string means "not provided" —
     // storing it would make vault.has(ref) return true, falsely advertising a
-    // credential that cannot actually authenticate.
+    // credential that cannot actually authenticate. storeCredential fails closed
+    // when no vault is injected (throws rather than persisting plaintext).
     if (apiKey !== undefined && apiKey.length > 0) {
-      if (vault != null) {
-        config.apiKey = await vault.store(apiKey, {
-          class: "connector-key",
-          locatorHint: `apiKey-${rowId}`,
-        });
-      } else {
-        config.apiKey = apiKey;
-      }
+      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${rowId}`);
     }
     if (connectionString !== undefined && connectionString.length > 0) {
-      if (vault != null) {
-        config.connectionString = await vault.store(connectionString, {
-          class: "connector-key",
-          locatorHint: `connectionString-${rowId}`,
-        });
-      } else {
-        config.connectionString = connectionString;
-      }
+      config.connectionString = await storeCredential(
+        vault,
+        connectionString,
+        `connectionString-${rowId}`,
+      );
     }
     const [row] = (await ctx.db.into(dataSources).insert({
       id: rowId,
@@ -472,25 +464,16 @@ const updateDataSource = mutation({
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
     // Only store non-empty credentials (empty string = "not provided").
+    // storeCredential fails closed when no vault is injected.
     if (apiKey !== undefined && apiKey.length > 0) {
-      if (vault != null) {
-        config.apiKey = await vault.store(apiKey, {
-          class: "connector-key",
-          locatorHint: `apiKey-${id}`,
-        });
-      } else {
-        config.apiKey = apiKey;
-      }
+      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${id}`);
     }
     if (connectionString !== undefined && connectionString.length > 0) {
-      if (vault != null) {
-        config.connectionString = await vault.store(connectionString, {
-          class: "connector-key",
-          locatorHint: `connectionString-${id}`,
-        });
-      } else {
-        config.connectionString = connectionString;
-      }
+      config.connectionString = await storeCredential(
+        vault,
+        connectionString,
+        `connectionString-${id}`,
+      );
     }
     await ctx.db
       .from(dataSources)

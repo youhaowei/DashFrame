@@ -101,6 +101,7 @@ import {
   type DataSourceConfig,
   isRecord,
   requireRecordWithId,
+  storeCredential,
   vaultFromCtx,
 } from "./utils";
 
@@ -281,25 +282,16 @@ const createDataSource = mutation({
     // Store non-empty credentials via the vault — never persist plaintext.
     // Empty string means "not provided"; storing it would make vault.has(ref)
     // return true and falsely advertise a credential that cannot authenticate.
+    // storeCredential fails closed when no vault is injected.
     if (apiKey !== undefined && apiKey.length > 0) {
-      if (vault != null) {
-        config.apiKey = await vault.store(apiKey, {
-          class: "connector-key",
-          locatorHint: `apiKey-${id}`,
-        });
-      } else {
-        config.apiKey = apiKey;
-      }
+      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${id}`);
     }
     if (connectionString !== undefined && connectionString.length > 0) {
-      if (vault != null) {
-        config.connectionString = await vault.store(connectionString, {
-          class: "connector-key",
-          locatorHint: `connectionString-${id}`,
-        });
-      } else {
-        config.connectionString = connectionString;
-      }
+      config.connectionString = await storeCredential(
+        vault,
+        connectionString,
+        `connectionString-${id}`,
+      );
     }
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
@@ -339,29 +331,20 @@ const setDataSourceConfig = mutation({
     // Store non-empty credentials via the vault — never persist plaintext. When a
     // new apiKey is supplied, the existing ref (if any) is replaced by a fresh one.
     // Empty string means "not provided" — storing it would make vault.has(ref) true,
-    // falsely advertising a credential that cannot authenticate.
+    // falsely advertising a credential that cannot authenticate. storeCredential
+    // fails closed when no vault is injected.
     // Orphaned old refs are not explicitly deleted: the old locator is overwritten in
     // config so the data-plane resolver stops using it. Explicit vault.delete is a
     // cleanup concern (not required for the plaintext-never-at-rest invariant).
     if (apiKey !== undefined && apiKey.length > 0) {
-      if (vault != null) {
-        config.apiKey = await vault.store(apiKey, {
-          class: "connector-key",
-          locatorHint: `apiKey-${id}`,
-        });
-      } else {
-        config.apiKey = apiKey;
-      }
+      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${id}`);
     }
     if (connectionString !== undefined && connectionString.length > 0) {
-      if (vault != null) {
-        config.connectionString = await vault.store(connectionString, {
-          class: "connector-key",
-          locatorHint: `connectionString-${id}`,
-        });
-      } else {
-        config.connectionString = connectionString;
-      }
+      config.connectionString = await storeCredential(
+        vault,
+        connectionString,
+        `connectionString-${id}`,
+      );
     }
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
