@@ -75,3 +75,7 @@ export {
 export { Input as InputField } from "./fields/input";
 export { MultiSelect as MultiSelectField } from "./fields/multi-select";
 export { Select as SelectField } from "./fields/select";
+
+// -- Display-layer utilities --
+
+export { formatNumeric } from "./lib/format-numeric";
