@@ -37,6 +37,14 @@ export interface SafeStorageSurface {
   isEncryptionAvailable(): boolean;
   encryptString(plaintext: string): Buffer;
   decryptString(encrypted: Buffer): string;
+  /**
+   * Available in Electron 15+. Optional in the interface so that test doubles
+   * that only implement the core encrypt/decrypt surface still satisfy it.
+   * When present, `store()` uses it to reject the unprotected `basic_text`
+   * backend on Linux (which reports `isEncryptionAvailable()===true` despite
+   * using a hardcoded plaintext-equivalent password).
+   */
+  getSelectedStorageBackend?: () => string;
 }
 
 export class ElectronKeychainBackend implements SecretBackend {
@@ -68,6 +76,20 @@ export class ElectronKeychainBackend implements SecretBackend {
         "[keychain-backend] safeStorage encryption is not available on this system. " +
           "Cannot store credentials — plaintext-never-at-rest is an invariant. " +
           "Ensure the OS keychain service is running (macOS Keychain, Windows DPAPI, or libsecret on Linux).",
+      );
+    }
+
+    // On Linux, Electron can select the `basic_text` backend, which uses a
+    // hardcoded password and provides no real protection despite reporting
+    // isEncryptionAvailable()===true. Reject it explicitly to uphold the
+    // plaintext-never-at-rest invariant on all platforms.
+    const backend = this.#safeStorage.getSelectedStorageBackend?.();
+    if (backend === "basic_text") {
+      throw new Error(
+        "[keychain-backend] safeStorage is using the 'basic_text' backend, which " +
+          "provides no real encryption (hardcoded password). " +
+          "Cannot store credentials — plaintext-never-at-rest is an invariant. " +
+          "Configure a real secret store (libsecret/kwallet) before storing credentials.",
       );
     }
 

@@ -222,6 +222,39 @@ describe("AC-3: encryption unavailable → throws, no plaintext written", () => 
     await expect(backend.store("secret")).rejects.toThrow();
     expect(mock.encryptString).not.toHaveBeenCalled();
   });
+
+  it("store throws when getSelectedStorageBackend returns 'basic_text' (Linux unprotected)", async () => {
+    // On Linux, Electron can select 'basic_text' which uses a hardcoded password.
+    // isEncryptionAvailable() returns true for basic_text, so we must check
+    // the backend name explicitly to enforce the plaintext-never-at-rest invariant.
+    const mock = makeMockSafeStorage({
+      getSelectedStorageBackend: vi.fn<() => string>(() => "basic_text"),
+    });
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+
+    await expect(backend.store("secret")).rejects.toThrow(/basic_text/i);
+  });
+
+  it("no file is written when getSelectedStorageBackend returns 'basic_text'", async () => {
+    const mock = makeMockSafeStorage({
+      getSelectedStorageBackend: vi.fn<() => string>(() => "basic_text"),
+    });
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+
+    await expect(backend.store("secret")).rejects.toThrow();
+    const files = await fs.readdir(tmpDir);
+    expect(files).toHaveLength(0);
+  });
+
+  it("store succeeds when getSelectedStorageBackend returns 'gnome_libsecret' (real Linux keychain)", async () => {
+    const mock = makeMockSafeStorage({
+      getSelectedStorageBackend: vi.fn<() => string>(() => "gnome_libsecret"),
+    });
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+
+    const locator = await backend.store("secret");
+    expect(locator).toBeTruthy();
+  });
 });
 
 // ---------------------------------------------------------------------------
