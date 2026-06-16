@@ -42,6 +42,7 @@
         "@electric-sql/pglite": "^0.3.14",
         "@hono/node-server": "^1.19.12",
         "@hono/node-ws": "^1.3.0",
+        "@wystack/secret-vault": "workspace:*",
         "apache-arrow": "^21.1.0",
         "drizzle-orm": "^0.45.1",
         "electron": "^33.2.1",

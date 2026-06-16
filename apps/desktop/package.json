@@ -20,6 +20,7 @@
     "@dashframe/engine-server": "workspace:*",
     "@dashframe/server": "workspace:*",
     "@dashframe/server-core": "workspace:*",
+    "@wystack/secret-vault": "workspace:*",
     "@duckdb/node-api": "1.5.3-r.3",
     "@electric-sql/pglite": "^0.3.14",
     "@hono/node-server": "^1.19.12",
