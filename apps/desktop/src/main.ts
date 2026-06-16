@@ -233,10 +233,18 @@ app
       lifecycle.setEngine(engine);
       console.log("[dashframe] native DuckDB engine ready");
 
+      // Store the per-launch token in the vault — "serve-token" class routes to
+      // the OS keychain (registered above). No plaintext token persists in a
+      // server field; the server resolves it from the vault at each request's
+      // auth gate.
+      const authRef = await (secretVault as SecretVault).store(authToken, {
+        class: "serve-token",
+      });
+
       server = await createDashframeServer({
         db: project.db,
         corsOrigin,
-        authToken,
+        authRef,
         arrowEngine: engine,
         // Wire the debounced snapshot scheduler: fire touchSnapshot after every
         // committed artifact-DB write so a crash mid-session loses at most

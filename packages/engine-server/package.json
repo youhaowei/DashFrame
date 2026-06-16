@@ -25,6 +25,7 @@
   "dependencies": {
     "@dashframe/engine": "workspace:*",
     "@dashframe/types": "workspace:*",
+    "@wystack/secret-vault": "workspace:*",
     "@duckdb/node-api": "1.5.3-r.3",
     "apache-arrow": "^21.1.0",
     "hono": "^4.12.9"

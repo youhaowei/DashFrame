@@ -26,6 +26,7 @@
  *   Only available when the engine implements `registerArrowTable` (i.e. the
  *   native engine is wired — not the web-WASM degenerate case).
  */
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
 
@@ -49,12 +50,27 @@ export interface ArrowDataPathOptions {
   /** The engine that executes compiled SQL and returns Arrow IPC. */
   engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   /**
-   * Per-launch loopback bearer token. When set, every request must carry
-   * `Authorization: Bearer <token>`. When unset, the path is open (loopback
-   * `dashframe serve` without `--token`) — the same policy as the WyStack
-   * server's optional auth.
+   * Per-launch loopback bearer token (plaintext). When set, every request must
+   * carry `Authorization: Bearer <token>`. When unset, the path is open
+   * (loopback `dashframe serve` without `--token`) — the same policy as the
+   * WyStack server's optional auth.
+   *
+   * Mutually exclusive with `authRef` + `vault`. Kept for backward compat
+   * (existing tests and `dashframe serve`).
    */
   authToken?: string;
+  /**
+   * Vault-backed auth ref — the vault-stored alternative to `authToken`.
+   * When both `authRef` and `vault` are present, token verification resolves
+   * the expected value from the vault at each request rather than comparing
+   * against a plaintext field. `authToken` is ignored when this pair is set.
+   */
+  authRef?: SecretRef;
+  /**
+   * The SecretVault instance paired with `authRef`. Must be provided whenever
+   * `authRef` is set.
+   */
+  vault?: SecretVault;
 }
 
 /** Native shape: `{ sql, params? }` */
@@ -152,6 +168,34 @@ async function dispatchArrowQuery(
 }
 
 /**
+ * Resolve whether the incoming request is authorized.
+ *
+ * Priority:
+ *   1. `authRef` + `vault` — resolves the expected token from the vault at
+ *      call time; no plaintext token is held in a server field.
+ *   2. `authToken` — compare against the plaintext bearer token (legacy /
+ *      backward-compat path for tests and `dashframe serve`).
+ *   3. Neither — open (no auth configured); returns `true`.
+ *
+ * Returns `false` when auth is configured and the supplied header does not
+ * match. Returns `true` when auth passes or is not configured.
+ */
+async function checkAuth(
+  authHeader: string | undefined,
+  options: ArrowDataPathOptions,
+): Promise<boolean> {
+  if (options.authRef && options.vault) {
+    return options.vault.withSecret(options.authRef, async (expected) =>
+      tokenOk(authHeader, expected),
+    );
+  }
+  if (options.authToken) {
+    return tokenOk(authHeader, options.authToken);
+  }
+  return true; // no auth configured — path is open
+}
+
+/**
  * Build a Hono router exposing the Arrow data path.
  * Mount it on the loopback host (e.g. under `/data`).
  */
@@ -162,10 +206,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // POST /arrow  — query endpoint (native shape + Mosaic Coordinator shape)
   // -------------------------------------------------------------------------
   app.post("/arrow", async (c) => {
-    if (
-      options.authToken &&
-      !tokenOk(c.req.header("authorization"), options.authToken)
-    ) {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -183,10 +224,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // POST /tables/:name  — register an Arrow IPC buffer as a named table
   // -------------------------------------------------------------------------
   app.post("/tables/:name", async (c) => {
-    if (
-      options.authToken &&
-      !tokenOk(c.req.header("authorization"), options.authToken)
-    ) {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 

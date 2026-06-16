@@ -10,6 +10,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import {
+  InMemoryMappingStore,
+  makeSecretRef,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -90,6 +97,19 @@ describe("bind-auth gate", () => {
     ).not.toThrow();
   });
 
+  it("non-loopback + authRef → allowed (vault ref satisfies the gate equally)", () => {
+    // A well-formed SecretRef is treated as equivalent to authToken for the
+    // bind-auth gate. The ref itself carries no secret — it is opaque.
+    const ref = makeSecretRef();
+    expect(() =>
+      assertBindAuthorized({
+        hostname: "0.0.0.0",
+        authRef: ref,
+        authToken: undefined,
+      }),
+    ).not.toThrow();
+  });
+
   it("loopback + no token → allowed (local dev path)", () => {
     // 127.0.0.1 is loopback and reachable only from this machine, so no token
     // is required.
@@ -121,6 +141,27 @@ describe("bind-auth gate", () => {
           // authToken deliberately omitted
         }),
       ).rejects.toThrow(/refusing to bind.*without an auth token/i);
+    } finally {
+      await project.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("createDashframeServer rejects authRef without vault (misconfiguration guard)", async () => {
+    // Defensive invariant: authRef requires vault. Without vault the ref cannot
+    // be resolved and the server would silently start unauthenticated. The guard
+    // must throw before any socket opens.
+    const root = mkdtempSync(join(tmpdir(), "dashframe-guard-"));
+    const project = await openProject({ dir: join(root, "proj") });
+    try {
+      const ref = makeSecretRef();
+      await expect(
+        createDashframeServer({
+          db: project.db,
+          authRef: ref,
+          // vault deliberately omitted
+        }),
+      ).rejects.toThrow(/authRef requires vault/i);
     } finally {
       await project.close();
       rmSync(root, { recursive: true, force: true });
@@ -409,5 +450,98 @@ describe("onWrite hook", () => {
     expect(verify.status).toBe(200);
     const verifyBody = (await verify.json()) as { data: { id: string } };
     expect(verifyBody.data.id).toBe(sourceId);
+  });
+});
+
+describe("vault-backed serve-token auth", () => {
+  /**
+   * Acceptance test for the vault-backed auth path.
+   *
+   * Uses TestBackend (InMemoryMappingStore) — test environments only.
+   * Proves: store → SecretRef → server resolves at gate →
+   *   valid Bearer accepted, invalid Bearer rejected.
+   *
+   * This is a non-connector credential flowing through the same vault —
+   * the class is "serve-token" (same class registered in Electron main for
+   * the OS keychain).
+   */
+  let root: string;
+  let project: ProjectHandle | null;
+  let server: DashframeServer | null;
+  let vault: SecretVault;
+
+  function buildTestVault(): SecretVault {
+    const backend = new TestBackend();
+    const registry = new SecretRegistry();
+    registry.register("test", backend, { fallback: true });
+    registry.setClassDefault("serve-token", "test");
+    return new SecretVault(registry, new InMemoryMappingStore());
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-vault-auth-"));
+    project = null;
+    server = null;
+    vault = buildTestVault();
+  });
+
+  afterEach(async () => {
+    server?.stop();
+    await project?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("resolves token from vault: valid Bearer → 200, no auth → 401, wrong token → 401", async () => {
+    const plaintext = "vault-serve-token-test";
+    const authRef = await vault.store(plaintext, { class: "serve-token" });
+
+    project = await openProject({ dir: join(root, "proj"), name: "Vault Co" });
+    server = await createDashframeServer({
+      db: project.db,
+      authRef,
+      vault,
+      corsOrigin: "null",
+    });
+
+    const url = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
+
+    // No auth header → 401
+    const noAuth = await fetch(url);
+    expect(noAuth.status).toBe(401);
+
+    // Wrong token → 401
+    const wrongAuth = await fetch(url, {
+      headers: bearer("wrong-token"),
+    });
+    expect(wrongAuth.status).toBe(401);
+
+    // Correct token → 200
+    const ok = await fetch(url, {
+      headers: bearer(plaintext),
+    });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as { data: ProjectInfoResult };
+    expect(body.data.name).toBe("Vault Co");
+  });
+
+  it("vault-backed resolver isolates per-request (token resolved fresh each time)", async () => {
+    const plaintext = "rotating-token";
+    const authRef = await vault.store(plaintext, { class: "serve-token" });
+
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      authRef,
+      vault,
+    });
+
+    const url = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
+
+    // Two successive correct-token requests both succeed — resolver is stateless
+    // and re-reads from vault each time.
+    for (let i = 0; i < 2; i++) {
+      const res = await fetch(url, { headers: bearer(plaintext) });
+      expect(res.status).toBe(200);
+    }
   });
 });

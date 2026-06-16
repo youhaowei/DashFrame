@@ -555,6 +555,7 @@
         "@dashframe/engine": "workspace:*",
         "@dashframe/types": "workspace:*",
         "@duckdb/node-api": "1.5.3-r.3",
+        "@wystack/secret-vault": "workspace:*",
         "apache-arrow": "^21.1.0",
         "hono": "^4.12.9",
       },
