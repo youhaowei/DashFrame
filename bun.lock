@@ -404,6 +404,7 @@
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.13.12",
         "@uwdata/vgplot": "^0.21.1",
+        "@wystack/secret-vault": "workspace:*",
         "@wystack/ui": "workspace:*",
         "@wystack/ui-icons": "workspace:*",
         "apache-arrow": "^21.1.0",
@@ -476,6 +477,7 @@
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
         "@notionhq/client": "^2.2.0",
+        "@wystack/secret-vault": "workspace:*",
         "apache-arrow": "^21.1.0",
       },
       "devDependencies": {
@@ -523,6 +525,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@dashframe/types": "workspace:*",
+        "@wystack/secret-vault": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",

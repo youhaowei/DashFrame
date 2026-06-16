@@ -19,9 +19,9 @@
 import type {
   AnyConnector,
   FileSourceConnector,
-  RemoteApiConnector,
+  RemoteConnectorKind,
 } from "@dashframe/engine";
-import { isFileConnector, isRemoteApiConnector } from "@dashframe/engine";
+import { isFileConnector, isRemoteConnectorKind } from "@dashframe/engine";
 import { useSyncExternalStore } from "react";
 
 // ============================================================================
@@ -181,12 +181,16 @@ export function getFileConnectors(
 }
 
 /**
- * Get all registered remote API connectors.
+ * Get all registered remote connector kind descriptors.
+ *
+ * Returns {@link RemoteConnectorKind} instances (metadata + factory).
+ * To get an auth-bound connector for data operations, call
+ * `kind.createConnector(auth)` at the construction seam.
  */
 export function getRemoteConnectors(
   options?: Omit<GetConnectorsOptions, "sourceType">,
-): RemoteApiConnector[] {
+): RemoteConnectorKind[] {
   return getConnectors({ ...options, sourceType: "remote-api" }).filter(
-    isRemoteApiConnector,
+    isRemoteConnectorKind,
   );
 }

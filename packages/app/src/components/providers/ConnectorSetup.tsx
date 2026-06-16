@@ -18,12 +18,15 @@
 
 import { registerConnector } from "@/lib/connectors/registry";
 import { localFileConnector } from "@dashframe/connector-local";
-import { notionConnector } from "@dashframe/connector-notion";
+import { notionConnectorKind } from "@dashframe/connector-notion";
 
 // Register connectors at module scope — synchronous, before any render.
 // getConnectorById() calls from any component on first render will resolve.
+//
+// Remote connectors: register the KIND descriptor (metadata + factory), not
+// an auth-bound instance. Use kind.createConnector(auth) at connect/query time.
 registerConnector(localFileConnector);
-registerConnector(notionConnector);
+registerConnector(notionConnectorKind);
 
 /**
  * Renders nothing. Import side-effect (module-scope registration above) is

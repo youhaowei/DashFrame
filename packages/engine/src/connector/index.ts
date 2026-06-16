@@ -10,16 +10,18 @@ export type {
   ValidationResult,
 } from "./types";
 
-// Connector base classes
+// Connector base classes and types
 export {
   BaseConnector,
   FileSourceConnector,
   RemoteApiConnector,
+  RemoteConnectorKind,
   isFileConnector,
   isRemoteApiConnector,
+  isRemoteConnectorKind,
 } from "./base";
 
-export type { AnyConnector } from "./base";
+export type { AnyConnector, SecretResolver } from "./base";
 
 export {
   createFieldsFromColumns,

@@ -20,6 +20,7 @@
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",
     "@notionhq/client": "^2.2.0",
+    "@wystack/secret-vault": "workspace:*",
     "apache-arrow": "^21.1.0"
   },
   "devDependencies": {

@@ -1,12 +1,8 @@
 import type {
   Field,
+  SecretResolver,
   SourceSchema,
-  TableColumn,
   UUID,
-} from "@dashframe/engine-browser";
-import {
-  createFieldsFromColumns,
-  createSourceSchema,
 } from "@dashframe/engine-browser";
 import {
   getDatabaseSchema,
@@ -20,12 +16,16 @@ import {
   mapNotionTypeToColumnType,
   type NotionConversionResult,
 } from "./converter";
+import { generateFieldsFromNotionSchema } from "./schema";
 
 // Re-export types
 export type { NotionConversionResult, NotionDatabase, NotionProperty };
 
 // Re-export utilities
 export { mapNotionTypeToColumnType };
+
+// Re-export schema utility (canonical location is schema.ts)
+export { generateFieldsFromNotionSchema };
 
 /**
  * Configuration for connecting to a Notion database
@@ -91,44 +91,6 @@ export async function notionToDataFrame(
 }
 
 /**
- * Generate fields from Notion schema (for discovery phase)
- */
-export function generateFieldsFromNotionSchema(
-  schema: NotionProperty[],
-  dataTableId: UUID,
-): { fields: Field[]; sourceSchema: SourceSchema } {
-  // Source schema with native Notion types
-  const columns: TableColumn[] = schema.map((prop) => ({
-    name: prop.name,
-    type: prop.type, // Native: "status", "relation", etc.
-    // Note: Foreign key detection from relation properties not yet implemented
-  }));
-
-  const fields: Field[] = createFieldsFromColumns(
-    schema.map((prop) => ({
-      name: prop.name,
-      type: mapNotionTypeToColumnType(prop.type),
-    })),
-    dataTableId,
-    [
-      {
-        name: "_notionId",
-        type: "string",
-        columnName: undefined,
-        isIdentifier: true,
-      },
-    ],
-  );
-
-  const sourceSchema: SourceSchema = createSourceSchema(columns);
-
-  return {
-    fields,
-    sourceSchema,
-  };
-}
-
-/**
  * Fetch sample data (limited rows) from Notion database.
  * Returns NotionConversionResult with rows, columns, Arrow buffer, and metadata.
  * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
@@ -168,4 +130,44 @@ export async function notionToDataFrameSample(
 // Connector Pattern
 // ============================================================================
 
-export { NotionConnector, notionConnector } from "./connector";
+import { NotionConnector } from "./connector";
+
+export {
+  NotionConnector,
+  NotionConnectorKind,
+  notionConnectorKind,
+} from "./connector";
+
+// Re-export SecretResolver for consumers that need to mint one
+export type { SecretResolver };
+
+// Unused but kept to prevent breaking imports that destructure SourceSchema/UUID
+export type { SourceSchema, UUID };
+
+/**
+ * Factory: construct an auth-bound {@link NotionConnector} from a resolver.
+ *
+ * The `auth` resolver is minted at the construction seam (where the vault and
+ * ref are in scope) and pre-bound to exactly ONE ref. The connector never sees
+ * the vault or the ref — only the resolved plaintext inside its `this.auth`
+ * callback (capability attenuation by construction).
+ *
+ * @param auth - A SecretResolver: `(use) => vault.withSecret(ref, use)`
+ *
+ * @example
+ * ```ts
+ * import { SecretVault } from '@wystack/secret-vault';
+ * import { createNotionConnector } from '@dashframe/connector-notion';
+ *
+ * // Factory seam — vault and ref in scope here, not in the pipeline
+ * const auth: SecretResolver = (use) => vault.withSecret(ref, use);
+ * const connector = createNotionConnector(auth);
+ *
+ * // Pipeline is auth-blind: no vault, ref, or plaintext in scope
+ * const databases = await connector.connect();
+ * const result = await connector.query(databaseId, tableId);
+ * ```
+ */
+export function createNotionConnector(auth: SecretResolver): NotionConnector {
+  return new NotionConnector(auth);
+}

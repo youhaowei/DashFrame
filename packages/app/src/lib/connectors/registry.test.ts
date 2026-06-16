@@ -15,7 +15,7 @@
  */
 
 import { localFileConnector } from "@dashframe/connector-local";
-import { notionConnector } from "@dashframe/connector-notion";
+import { notionConnectorKind } from "@dashframe/connector-notion";
 import type { AnyConnector } from "@dashframe/engine";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -53,6 +53,8 @@ function makeConnector(
       },
     } as unknown as AnyConnector;
   }
+  // Remote connectors stored in the registry are RemoteConnectorKind descriptors
+  // (metadata + factory), NOT auth-bound RemoteApiConnector instances.
   return {
     id,
     name: `${id} Connector`,
@@ -61,9 +63,8 @@ function makeConnector(
     icon: `<svg data-id="${id}"></svg>`,
     getFormFields: () => [],
     validate: () => ({ valid: true }),
-    connect: async () => [],
-    query: async () => {
-      throw new Error("not implemented");
+    createConnector: () => {
+      throw new Error("not implemented in test stub");
     },
   } as unknown as AnyConnector;
 }
@@ -297,8 +298,11 @@ describe("connector registry", () => {
       expect(c?.sourceType).toBe("file");
     });
 
-    it("'notion' connector is resolvable after registration with correct metadata", () => {
-      registerConnector(notionConnector);
+    it("'notion' connector kind is resolvable after registration with correct metadata", () => {
+      // notionConnectorKind is the registry descriptor (metadata + factory).
+      // The auth-bound connector (NotionConnector) is obtained via
+      // notionConnectorKind.createConnector(auth) at data-operation time.
+      registerConnector(notionConnectorKind);
 
       const c = getConnectorById("notion");
       expect(c).toBeDefined();
@@ -310,7 +314,7 @@ describe("connector registry", () => {
 
     it("both known kinds are resolvable when registered together", () => {
       registerConnector(localFileConnector);
-      registerConnector(notionConnector);
+      registerConnector(notionConnectorKind);
 
       expect(getConnectorById("local")).toBeDefined();
       expect(getConnectorById("notion")).toBeDefined();
