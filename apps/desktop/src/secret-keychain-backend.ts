@@ -9,7 +9,9 @@
  *     is enforced at this boundary.
  *   - The `locator` returned by `store()` is the filename under `storageDir`.
  *     It is derived from the optional hint + a random UUID (collision-resistant,
- *     no sensitive content in the filename).
+ *     no sensitive content in the filename). The locator is percent-encoded before
+ *     use as a filename to ensure cross-platform compatibility (Windows NTFS
+ *     forbids `:` in filenames; macOS/Linux permit it but consistency wins).
  *   - `has(locator)` checks for the file's presence using `fs.access` — NEVER
  *     calls `safeStorage.decryptString`. No decryption happens on this path.
  *   - `withSecret(locator, use)` reads the encrypted blob, decrypts it using
@@ -19,7 +21,7 @@
  *   - If `safeStorage.isEncryptionAvailable()` returns false at store-time, the
  *     operation throws immediately. NO silent plaintext fallback — writing
  *     unencrypted credentials to disk would violate the plaintext-never-at-rest
- *     floor (plaintext-never-at-rest is an app-wide invariant).
+ *     floor (a strict security invariant for this application).
  *
  * Thread safety: each operation is a single awaited fs call; concurrent writes
  * with the same locatorHint produce distinct locators (UUID suffix).
@@ -46,8 +48,7 @@ export class ElectronKeychainBackend implements SecretBackend {
    *                       are stored. Must be inside the app's userData or
    *                       project dir — never hard-coded.
    * @param safeStorage  - The Electron safeStorage object (or a test double).
-   *                       Defaults to `require("electron").safeStorage` when not
-   *                       provided; pass a mock in tests.
+   *                       Pass a mock in tests.
    */
   constructor(storageDir: string, safeStorage: SafeStorageSurface) {
     this.#storageDir = storageDir;
@@ -59,7 +60,7 @@ export class ElectronKeychainBackend implements SecretBackend {
    *
    * Throws if the OS keychain is unavailable — NO silent plaintext fallback.
    *
-   * @returns An opaque locator (filename under storageDir).
+   * @returns An opaque locator (opaque string, meaningful only to this backend).
    */
   async store(plaintext: string, locatorHint?: string): Promise<string> {
     if (!this.#safeStorage.isEncryptionAvailable()) {
@@ -72,14 +73,15 @@ export class ElectronKeychainBackend implements SecretBackend {
 
     await fs.mkdir(this.#storageDir, { recursive: true });
 
-    // Locator is a filename, not a path — no path traversal possible.
     const suffix = crypto.randomUUID();
     const locator = locatorHint
       ? `keychain:${sanitizeHint(locatorHint)}:${suffix}`
       : `keychain:${suffix}`;
 
     const encrypted = this.#safeStorage.encryptString(plaintext);
-    await fs.writeFile(this.#blobPath(locator), encrypted);
+    // 0o600: owner read/write only — encrypted blobs should not be world-readable
+    // even though their content is OS-encrypted, following least-privilege.
+    await fs.writeFile(this.#blobPath(locator), encrypted, { mode: 0o600 });
     return locator;
   }
 
@@ -95,10 +97,13 @@ export class ElectronKeychainBackend implements SecretBackend {
     let blob: Buffer;
     try {
       blob = await fs.readFile(blobPath);
-    } catch {
+    } catch (err) {
+      // Only treat ENOENT as "secret not found" — re-throw EPERM, EIO, etc.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       throw new Error(
         `[keychain-backend] No encrypted blob found at locator "${locator}". ` +
           `The secret may have been deleted or the storage directory moved.`,
+        { cause: err },
       );
     }
     const plaintext = this.#safeStorage.decryptString(blob);
@@ -109,30 +114,40 @@ export class ElectronKeychainBackend implements SecretBackend {
    * Check presence without decrypting.
    *
    * Uses `fs.access` — only tests file existence, never reads or decrypts.
+   * Re-throws filesystem errors other than ENOENT (e.g. EPERM).
    */
   async has(locator: string): Promise<boolean> {
     try {
       await fs.access(this.#blobPath(locator));
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw err;
     }
   }
 
-  /** Permanently delete the encrypted blob at `locator`. */
+  /**
+   * Permanently delete the encrypted blob at `locator`.
+   * Idempotent: a missing file is treated as success (ENOENT is suppressed).
+   * Other errors (EPERM, EBUSY, etc.) are re-thrown.
+   */
   async delete(locator: string): Promise<void> {
     try {
       await fs.unlink(this.#blobPath(locator));
-    } catch {
-      // Already absent — treat as success (idempotent delete).
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      // Already absent — idempotent delete succeeds.
     }
   }
 
-  /** Resolve the full on-disk path for a locator. */
+  /**
+   * Resolve the full on-disk path for a locator.
+   *
+   * Uses `encodeURIComponent` so colons (present in every locator) are
+   * percent-encoded, making filenames valid on Windows NTFS (which forbids `:`).
+   */
   #blobPath(locator: string): string {
-    // Replace any path-separator characters in the locator to keep it a simple filename.
-    const filename = locator.replace(/[/\\]/g, "_");
-    return path.join(this.#storageDir, filename);
+    return path.join(this.#storageDir, encodeURIComponent(locator));
   }
 }
 

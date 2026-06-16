@@ -176,8 +176,8 @@ describe("AC-2: plaintext never at rest unencrypted", () => {
     // Double-check: our mock did encrypt (encryptString was called)
     expect(mock.encryptString).toHaveBeenCalledWith(plaintext);
 
-    // And a correctly-constructed locator is stored under tmpDir
-    expect(files[0]).toContain("keychain:");
+    // Filename is percent-encoded (colons become %3A on Windows NTFS compat)
+    expect(files[0]).toContain("keychain%3A");
 
     // Sanity: withSecret still resolves the plaintext after round-trip
     const recovered = await backend.withSecret(locator, async (p) => p);
@@ -297,7 +297,7 @@ describe("storageDir auto-creation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Error propagation: corrupt blob
+// Error propagation: corrupt blob + filesystem errors
 // ---------------------------------------------------------------------------
 
 describe("error propagation: corrupt or missing blob", () => {
@@ -315,5 +315,42 @@ describe("error propagation: corrupt or missing blob", () => {
     await expect(backend.withSecret(locator, async (p) => p)).rejects.toThrow(
       "safeStorage: decryption failed",
     );
+  });
+
+  it("withSecret re-throws non-ENOENT read errors (EISDIR)", async () => {
+    // Replace the blob with a directory so readFile throws EISDIR (not ENOENT).
+    // withSecret must NOT swallow this as "secret not found".
+    const mock = makeMockSafeStorage();
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+    const locator = await backend.store("value");
+    const blobPath = path.join(tmpDir, encodeURIComponent(locator));
+    await fs.unlink(blobPath);
+    await fs.mkdir(blobPath);
+
+    await expect(backend.withSecret(locator, async (p) => p)).rejects.toSatisfy(
+      (e: unknown) => {
+        const msg = e instanceof Error ? e.message : "";
+        return !msg.includes("No encrypted blob found");
+      },
+    );
+  });
+
+  it("has returns false for ENOENT but re-throws other errors (EISDIR)", async () => {
+    // ENOENT → false (idiomatic presence check)
+    const mock = makeMockSafeStorage();
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+    expect(await backend.has("keychain:truly-absent:xyz")).toBe(false);
+  });
+
+  it("delete re-throws non-ENOENT errors (EISDIR)", async () => {
+    // Replace blob with a dir — unlink on a dir throws EISDIR (non-ENOENT).
+    const mock = makeMockSafeStorage();
+    const backend = new ElectronKeychainBackend(tmpDir, mock);
+    const locator = await backend.store("value");
+    const blobPath = path.join(tmpDir, encodeURIComponent(locator));
+    await fs.unlink(blobPath);
+    await fs.mkdir(blobPath);
+
+    await expect(backend.delete(locator)).rejects.toThrow();
   });
 });
