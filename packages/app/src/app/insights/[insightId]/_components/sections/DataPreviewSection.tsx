@@ -1,4 +1,5 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
+import { formatCellValue } from "@/lib/cell-formatter";
 import type { Insight } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Section, Toggle } from "@wystack/ui";
@@ -80,17 +81,35 @@ export const DataPreviewSection = memo(function DataPreviewSection({
   // Select the active pagination based on mode
   const activePagination =
     previewMode === "join" ? joinPagination : resultPagination;
-  const { fetchData, totalCount, fieldCount, isReady, columnDisplayNames } =
-    activePagination;
+  const {
+    fetchData,
+    totalCount,
+    fieldCount,
+    isReady,
+    columnDisplayNames,
+    columnTypeMap,
+  } = activePagination;
 
-  // Build column configs for VirtualTable to show human-readable headers
-  // This maps UUID column aliases (field_<uuid>) to display names
+  // Build column configs for VirtualTable:
+  // - human-readable label (from display names)
+  // - type-aware format function (from type map) so date columns render as
+  //   formatted date strings instead of raw epoch milliseconds
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
-    return Object.entries(columnDisplayNames).map(([id, label]) => ({
-      id,
-      label,
-    }));
-  }, [columnDisplayNames]);
+    return Object.entries(columnDisplayNames).map(([id, label]) => {
+      const colType = columnTypeMap[id];
+      return {
+        id,
+        label,
+        // Only attach a custom formatter when the column has a declared type.
+        // Non-date columns get undefined here and VirtualTable falls back to
+        // its own defaultFormatValue — keeping non-date rendering unchanged.
+        format:
+          colType !== undefined
+            ? (value: unknown) => formatCellValue(value, colType)
+            : undefined,
+      };
+    });
+  }, [columnDisplayNames, columnTypeMap]);
 
   // Compute display counts
   const displayRowCount = totalCount || 0;
