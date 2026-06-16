@@ -19,7 +19,7 @@
  *   - If `safeStorage.isEncryptionAvailable()` returns false at store-time, the
  *     operation throws immediately. NO silent plaintext fallback — writing
  *     unencrypted credentials to disk would violate the plaintext-never-at-rest
- *     floor (YW-239 invariant).
+ *     floor (plaintext-never-at-rest is an app-wide invariant).
  *
  * Thread safety: each operation is a single awaited fs call; concurrent writes
  * with the same locatorHint produce distinct locators (UUID suffix).
