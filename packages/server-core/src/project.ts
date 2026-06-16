@@ -31,6 +31,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import type { SecretVault } from "@wystack/secret-vault";
+import { isSecretRef } from "@wystack/secret-vault";
 import { eq, sql } from "drizzle-orm";
 
 import {
@@ -44,6 +46,7 @@ import {
 } from "./project-dir";
 import {
   dataFrames,
+  dataSources,
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
   projectMeta,
@@ -404,4 +407,87 @@ function safeUsername(): string {
   } catch {
     return "unknown";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Startup migration: plaintext credentials → SecretVault refs
+// ---------------------------------------------------------------------------
+
+/** Shape stored in data_sources.config jsonb. */
+interface DataSourceConfig {
+  apiKey?: string;
+  connectionString?: string;
+}
+
+/**
+ * Migrate any existing `data_sources` rows that still hold plaintext
+ * apiKey / connectionString values into the SecretVault.
+ *
+ * Must be called AFTER both `openProject` and the vault are ready — typically
+ * in Electron main right before `createDashframeServer`. It is a one-shot
+ * migration: rows already holding a SecretRef (format `secret:<uuid>`) are
+ * skipped. After this runs, every config.apiKey / config.connectionString is
+ * either absent or a SecretRef; no plaintext remains in the artifact DB.
+ *
+ * This is NOT a schema-version migration (no schemaVersion bump) because the
+ * column shape (jsonb) is unchanged — only the values inside it change.
+ * The migration is idempotent: a second run skips all refs, touching nothing.
+ *
+ * @param db    The opened artifact Drizzle DB (from ProjectHandle.db).
+ * @param vault A fully-composed SecretVault; the caller registers the backend.
+ */
+export async function migrateDataSourceSecretsToVault(
+  db: ArtifactDb,
+  vault: SecretVault,
+): Promise<{ migratedCount: number }> {
+  const rows = await db.select().from(dataSources);
+  let migratedCount = 0;
+  for (const row of rows) {
+    const config = (row.config ?? {}) as DataSourceConfig;
+    let changed = false;
+    const nextConfig: DataSourceConfig = { ...config };
+
+    if (
+      typeof config.apiKey === "string" &&
+      config.apiKey.length > 0 &&
+      !isSecretRef(config.apiKey)
+    ) {
+      // Plaintext apiKey — store it and replace with ref.
+      nextConfig.apiKey = await vault.store(config.apiKey, {
+        class: "connector-key",
+        locatorHint: `apiKey-${row.id}`,
+      });
+      changed = true;
+    }
+
+    if (
+      typeof config.connectionString === "string" &&
+      config.connectionString.length > 0 &&
+      !isSecretRef(config.connectionString)
+    ) {
+      // Plaintext connectionString — store it and replace with ref.
+      nextConfig.connectionString = await vault.store(config.connectionString, {
+        class: "connector-key",
+        locatorHint: `connectionString-${row.id}`,
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      await db
+        .update(dataSources)
+        .set({ config: nextConfig })
+        .where(eq(dataSources.id, row.id));
+      migratedCount++;
+      console.log(
+        `[dashframe] migrated credentials for data source ${row.id} to vault`,
+      );
+    }
+  }
+  if (migratedCount > 0) {
+    console.log(
+      `[dashframe] vault migration complete: migrated ${migratedCount} data source(s)`,
+    );
+  }
+  return { migratedCount };
 }

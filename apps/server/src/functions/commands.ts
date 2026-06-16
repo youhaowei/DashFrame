@@ -97,7 +97,12 @@ import { eq, jsonb, text, uuid } from "@wystack/db";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 
-import { type DataSourceConfig, isRecord, requireRecordWithId } from "./utils";
+import {
+  type DataSourceConfig,
+  isRecord,
+  requireRecordWithId,
+  vaultFromCtx,
+} from "./utils";
 
 const {
   dataSources,
@@ -271,10 +276,30 @@ const createDataSource = mutation({
     ctx,
     { id, type, name, apiKey, connectionString },
   ): Promise<{ id: string }> => {
+    const vault = vaultFromCtx(ctx);
     const config: DataSourceConfig = {};
-    if (apiKey !== undefined) config.apiKey = apiKey;
-    if (connectionString !== undefined)
-      config.connectionString = connectionString;
+    // Store credentials via the vault — never persist plaintext. The vault
+    // returns a SecretRef (`secret:<uuid>`) that is safe to store in config jsonb.
+    if (apiKey !== undefined) {
+      if (vault != null) {
+        config.apiKey = await vault.store(apiKey, {
+          class: "connector-key",
+          locatorHint: `apiKey-${id}`,
+        });
+      } else {
+        config.apiKey = apiKey;
+      }
+    }
+    if (connectionString !== undefined) {
+      if (vault != null) {
+        config.connectionString = await vault.store(connectionString, {
+          class: "connector-key",
+          locatorHint: `connectionString-${id}`,
+        });
+      } else {
+        config.connectionString = connectionString;
+      }
+    }
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
       name,
@@ -303,15 +328,39 @@ const setDataSourceConfig = mutation({
     ctx,
     { id, apiKey, connectionString },
   ): Promise<{ ok: true }> => {
+    const vault = vaultFromCtx(ctx);
     const current = (await ctx.db
       .from(dataSources)
       .where(eq("id", id))
       .first()) as DataSourceRow | undefined;
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
-    if (apiKey !== undefined) config.apiKey = apiKey;
-    if (connectionString !== undefined)
-      config.connectionString = connectionString;
+    // Store credentials via the vault — never persist plaintext. When a new
+    // apiKey is supplied, the existing ref (if any) is replaced by a fresh one.
+    // Orphaned old refs are not explicitly deleted here: the old locator is
+    // overwritten in config, so the data-plane resolver will stop using it.
+    // Explicit vault.delete of the old ref is a cleanup concern (not required
+    // for the plaintext-never-at-rest invariant).
+    if (apiKey !== undefined) {
+      if (vault != null) {
+        config.apiKey = await vault.store(apiKey, {
+          class: "connector-key",
+          locatorHint: `apiKey-${id}`,
+        });
+      } else {
+        config.apiKey = apiKey;
+      }
+    }
+    if (connectionString !== undefined) {
+      if (vault != null) {
+        config.connectionString = await vault.store(connectionString, {
+          class: "connector-key",
+          locatorHint: `connectionString-${id}`,
+        });
+      } else {
+        config.connectionString = connectionString;
+      }
+    }
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
   },

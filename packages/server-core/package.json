@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
+    "@wystack/secret-vault": "workspace:*",
     "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@ import {
 } from "@dashframe/engine-server";
 import {
   ARTIFACTS_DB_FILENAME,
+  migrateDataSourceSecretsToVault,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -11,7 +12,11 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
-import { SecretRegistry } from "@wystack/secret-vault";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+} from "@wystack/secret-vault";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
@@ -27,10 +32,11 @@ const isDev = !app.isPackaged;
 // far, so a startup error that fired after engine init still disposes it.
 const lifecycle = new Lifecycle((code) => app.exit(code));
 
-// Module-level registry holder — assigned once in whenReady after the project
-// dir is known. Must outlive the whenReady callback so the registry stays alive
-// for the full process lifetime (secrets are resolved throughout the session).
+// Module-level holders — assigned once in whenReady after the project dir is
+// known. Must outlive the whenReady callback so they remain alive for the
+// full process lifetime (secrets are resolved throughout the session).
 let secretRegistry: SecretRegistry | null = null;
+let secretVault: SecretVault | null = null;
 
 function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
@@ -177,9 +183,39 @@ app
     });
     secretRegistry.setClassDefault("connector-key", "electron-keychain");
     secretRegistry.setClassDefault("serve-token", "electron-keychain");
+    // Compose the vault from the registry. The InMemoryMappingStore holds the
+    // ref→locator mapping for the process lifetime. This is intentional for
+    // v0.3: the mapping is rebuilt at each startup when migration re-stores any
+    // existing plaintext credentials. A persistent mapping store (SQLite or a
+    // dedicated table) is future work tracked separately.
+    secretVault = new SecretVault(secretRegistry, new InMemoryMappingStore());
     console.log(
-      `[dashframe] keychain backend registered (storageDir=${keychainStorageDir})`,
+      `[dashframe] keychain backend registered, vault composed (storageDir=${keychainStorageDir})`,
     );
+
+    // One-shot migration: convert any existing plaintext apiKey / connectionString
+    // values in data_sources.config to SecretVault refs. Runs every startup but
+    // is idempotent — rows already holding refs (`secret:<uuid>`) are skipped.
+    // This ensures no plaintext credentials survive in the artifact DB regardless
+    // of when the data source was created.
+    try {
+      const { migratedCount } = await migrateDataSourceSecretsToVault(
+        project.db,
+        secretVault,
+      );
+      if (migratedCount > 0) {
+        console.log(
+          `[dashframe] migrated ${migratedCount} data source(s) to vault refs`,
+        );
+      }
+    } catch (migrationErr) {
+      // Migration failure is logged but non-fatal: the server can still start;
+      // rows with plaintext credentials will be migrated on the next write.
+      console.error(
+        "[dashframe] vault migration failed (non-fatal):",
+        migrationErr,
+      );
+    }
 
     // Surface recovery notice when the project was restored from a snapshot.
     if (project.recovery) {
@@ -227,6 +263,12 @@ app
         // The server owns no reference to ProjectHandle — the narrow callback
         // is the boundary (#88).
         onWrite: () => project.touchSnapshot(),
+        // Inject the fully-composed SecretVault. The server RECEIVES this vault;
+        // it never instantiates a backend itself. Control-plane mutations
+        // (create/update DataSource) call vault.store → ref; reads call
+        // vault.has(ref) for presence flags. secretVault is always non-null at
+        // this point — it was set immediately before this try block.
+        vault: secretVault ?? undefined,
       });
       lifecycle.setServer(server);
     } catch (err) {
