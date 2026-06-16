@@ -94,9 +94,21 @@ export function ConnectorCardWithForm({
     // the auth-blind contract is upheld (the `boundConnector` has no vault in
     // scope; it only has a pre-bound SecretResolver).
     const databases = await execute(async (formData) => {
-      // Build an ephemeral in-memory vault backed by TestBackend.
-      // This is appropriate for the discovery phase where we have a raw
-      // apiKey from the form and no persistent vault yet.
+      // Build a scoped in-memory vault for the discovery phase.
+      //
+      // INTENTIONAL INTERIM: We use TestBackend here because the production
+      // keychain backend is not yet wired (it ships separately). This is safe
+      // because:
+      //   1. The credential lives only for the duration of this callback.
+      //   2. The vault, ref, and plaintext never escape handleConnect.
+      //   3. The SecretResolver passed to createConnector() is pre-bound to
+      //      exactly this one ref — capability-attenuated by construction.
+      //
+      // Once the keychain backend ships, this bridge will be replaced by a
+      // persistent vault that stores the ref across sessions. The auth-blind
+      // contract (no plaintext at call sites) is already in place.
+      //
+      // TODO (#nn): replace TestBackend with the production keychain backend.
       const backend = new TestBackend();
       const registry = new SecretRegistry();
       registry.register("ephemeral", backend, { fallback: true });

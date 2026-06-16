@@ -225,7 +225,15 @@ export function isFileConnector(
 export function isRemoteConnectorKind(
   connector: AnyConnector,
 ): connector is RemoteConnectorKind {
-  return connector.sourceType === "remote-api";
+  // Structural guard: check sourceType AND the factory method.
+  // sourceType alone is insufficient — auth-bound RemoteApiConnector instances
+  // also carry sourceType "remote-api" but lack createConnector(). The factory
+  // check ensures callers can safely call connector.createConnector(auth).
+  return (
+    connector.sourceType === "remote-api" &&
+    "createConnector" in connector &&
+    typeof (connector as RemoteConnectorKind).createConnector === "function"
+  );
 }
 
 /**

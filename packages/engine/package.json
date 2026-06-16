@@ -14,8 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@dashframe/types": "workspace:*",
-    "@wystack/secret-vault": "workspace:*"
+    "@dashframe/types": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
