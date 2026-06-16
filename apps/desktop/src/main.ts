@@ -213,8 +213,11 @@ app
         );
       }
     } catch (migrationErr) {
-      // Migration failure is logged but non-fatal: the server can still start;
-      // rows with plaintext credentials will be migrated on the next write.
+      // Migration failure is logged but non-fatal: the server can still start.
+      // Any rows that still hold plaintext remain so until migration succeeds on
+      // a future startup — credential WRITES no longer migrate (they fail closed
+      // without a vault and store fresh refs with one), so the next startup is
+      // the only place legacy plaintext gets converted.
       console.error(
         "[dashframe] vault migration failed (non-fatal):",
         migrationErr,

@@ -279,6 +279,8 @@ describe("command vocabulary", () => {
 
     it("should replace only config (not name) for SetDataSourceConfig, decomposed from updateDataSource", async () => {
       const sourceId = id();
+      // Create first, then read the original ref BEFORE the config update so the
+      // replacement is provable (not just "the final value is a ref").
       await commit(
         cmd("CreateDataSource", {
           id: sourceId,
@@ -286,18 +288,27 @@ describe("command vocabulary", () => {
           name: "Original",
           apiKey: "old",
         }),
-        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }),
       );
+      const refBefore = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      expect(isSecretRef(refBefore)).toBe(true);
+
+      await commit(cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }));
+
       const [row] = await sourcesById(sourceId);
-      // A fresh ref replaced the old one; still a ref, never the plaintext.
-      const stored = (row?.config as { apiKey?: string }).apiKey;
-      expect(isSecretRef(stored)).toBe(true);
-      expect(stored).not.toBe("new");
+      const refAfter = (row?.config as { apiKey?: string }).apiKey;
+      // A FRESH ref replaced the old one — prove the binding actually changed.
+      expect(isSecretRef(refAfter)).toBe(true);
+      expect(refAfter).not.toBe(refBefore);
+      expect(refAfter).not.toBe("new");
       expect(row?.name).toBe("Original");
     });
 
     it("should rename without touching config for RenameNode, decomposed from updateDataSource", async () => {
       const sourceId = id();
+      // Read the credential ref BEFORE the rename so "config untouched" is
+      // provable: the ref must be byte-identical after RenameNode.
       await commit(
         cmd("CreateDataSource", {
           id: sourceId,
@@ -305,14 +316,19 @@ describe("command vocabulary", () => {
           name: "Original",
           apiKey: "keep",
         }),
-        cmd("RenameNode", { id: sourceId, name: "Renamed" }),
       );
+      const refBefore = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      expect(isSecretRef(refBefore)).toBe(true);
+
+      await commit(cmd("RenameNode", { id: sourceId, name: "Renamed" }));
+
       const [row] = await sourcesById(sourceId);
       expect(row?.name).toBe("Renamed");
-      // RenameNode does not touch config: the credential ref is preserved
-      // unchanged (and is a ref, not plaintext).
-      const stored = (row?.config as { apiKey?: string }).apiKey;
-      expect(isSecretRef(stored)).toBe(true);
+      // RenameNode does not touch config: the SAME ref is preserved unchanged.
+      const refAfter = (row?.config as { apiKey?: string }).apiKey;
+      expect(refAfter).toBe(refBefore);
     });
 
     it("should report the resolved target on the RenameNode result so the preview can read it (not re-derive)", async () => {
