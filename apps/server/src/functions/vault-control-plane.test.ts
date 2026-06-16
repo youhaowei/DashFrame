@@ -73,15 +73,17 @@ describe("vault control-plane — store→ref + has→presence", () => {
     // Inject vault via static context — mirrors createDashframeServer's seam.
     const rawApp = await createWyStack({ db, functions });
     // Wrap to inject vault into every call context, matching app.ts behaviour.
+    // Static context (vault) spreads LAST so it cannot be shadowed by a caller-
+    // supplied ctx — same ordering as the production createDashframeServer seam.
     app = {
       ...rawApp,
       async call(path, args, ctx) {
-        return rawApp.call(path, args, { vault, ...(ctx ?? {}) });
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
       },
       async runHandler(path, args, tracked, ctx) {
         return rawApp.runHandler(path, args, tracked, {
-          vault,
           ...(ctx ?? {}),
+          vault,
         });
       },
     };

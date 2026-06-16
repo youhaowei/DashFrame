@@ -278,9 +278,10 @@ const createDataSource = mutation({
   ): Promise<{ id: string }> => {
     const vault = vaultFromCtx(ctx);
     const config: DataSourceConfig = {};
-    // Store credentials via the vault — never persist plaintext. The vault
-    // returns a SecretRef (`secret:<uuid>`) that is safe to store in config jsonb.
-    if (apiKey !== undefined) {
+    // Store non-empty credentials via the vault — never persist plaintext.
+    // Empty string means "not provided"; storing it would make vault.has(ref)
+    // return true and falsely advertise a credential that cannot authenticate.
+    if (apiKey !== undefined && apiKey.length > 0) {
       if (vault != null) {
         config.apiKey = await vault.store(apiKey, {
           class: "connector-key",
@@ -290,7 +291,7 @@ const createDataSource = mutation({
         config.apiKey = apiKey;
       }
     }
-    if (connectionString !== undefined) {
+    if (connectionString !== undefined && connectionString.length > 0) {
       if (vault != null) {
         config.connectionString = await vault.store(connectionString, {
           class: "connector-key",
@@ -335,13 +336,14 @@ const setDataSourceConfig = mutation({
       .first()) as DataSourceRow | undefined;
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
-    // Store credentials via the vault — never persist plaintext. When a new
-    // apiKey is supplied, the existing ref (if any) is replaced by a fresh one.
-    // Orphaned old refs are not explicitly deleted here: the old locator is
-    // overwritten in config, so the data-plane resolver will stop using it.
-    // Explicit vault.delete of the old ref is a cleanup concern (not required
-    // for the plaintext-never-at-rest invariant).
-    if (apiKey !== undefined) {
+    // Store non-empty credentials via the vault — never persist plaintext. When a
+    // new apiKey is supplied, the existing ref (if any) is replaced by a fresh one.
+    // Empty string means "not provided" — storing it would make vault.has(ref) true,
+    // falsely advertising a credential that cannot authenticate.
+    // Orphaned old refs are not explicitly deleted: the old locator is overwritten in
+    // config so the data-plane resolver stops using it. Explicit vault.delete is a
+    // cleanup concern (not required for the plaintext-never-at-rest invariant).
+    if (apiKey !== undefined && apiKey.length > 0) {
       if (vault != null) {
         config.apiKey = await vault.store(apiKey, {
           class: "connector-key",
@@ -351,7 +353,7 @@ const setDataSourceConfig = mutation({
         config.apiKey = apiKey;
       }
     }
-    if (connectionString !== undefined) {
+    if (connectionString !== undefined && connectionString.length > 0) {
       if (vault != null) {
         config.connectionString = await vault.store(connectionString, {
           class: "connector-key",
