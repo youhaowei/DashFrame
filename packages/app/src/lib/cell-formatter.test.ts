@@ -30,6 +30,14 @@ describe("formatCellValue", () => {
     expect(formatCellValue("not-a-date", "date")).toBe("—");
   });
 
+  it("returns — for a boolean value in a date column (non-parseable type)", () => {
+    expect(formatCellValue(true, "date")).toBe("—");
+  });
+
+  it("returns — for an object value in a date column (non-parseable type)", () => {
+    expect(formatCellValue({ a: 1 }, "date")).toBe("—");
+  });
+
   // ── non-date types (the critical guard: keys off type, not value) ──────────
 
   it("does NOT format a large number as a date when the column type is number", () => {

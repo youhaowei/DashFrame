@@ -36,7 +36,7 @@ function formatEpochAsDate(value: unknown): string {
   } else if (typeof value === "string") {
     date = new Date(value);
   } else {
-    return String(value);
+    return "—";
   }
 
   if (isNaN(date.getTime())) return "—";
