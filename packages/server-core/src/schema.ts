@@ -3,9 +3,13 @@
  *
  * Artifacts live in `project/artifacts.db` (PGLite). Bulk data stays out of
  * the database as Parquet files under `project/data/sources/<id>.parquet`.
- * Credentials (apiKey, connectionString) are stored in cleartext in the
- * `config` jsonb column of `data_sources`. Encryption at rest via SecretVault
- * is not yet implemented; that work is pending.
+ * Credentials (apiKey, connectionString) in the `config` jsonb column of
+ * `data_sources` are stored as SecretRefs (`secret:<uuid>`) — never plaintext.
+ * The actual secrets live in the OS keychain via the SecretVault substrate; the
+ * `secret_mappings` table persists the ref → backend/locator binding so refs
+ * stay resolvable across restarts.
+ * The `secrets` table below was an earlier design artifact and is retained in
+ * the schema but unused by the current vault implementation.
  */
 
 import {
@@ -196,6 +200,29 @@ export const dashboards = pgTable(
   (t) => [index("dashboards_parent_artifact_id_idx").on(t.parentArtifactId)],
 );
 
+// secret_mappings — the SecretVault ref → backend/locator binding, persisted.
+//
+// This is the join key between two stores that BOTH persist independently:
+//   - `data_sources.config` holds the opaque ref (`secret:<uuid>`) on disk.
+//   - the keychain backend holds the encrypted blob under its `locator` on disk.
+// The mapping is the ONLY thing that knows which backend + locator a given ref
+// resolves to. Holding it in memory (the substrate's InMemoryMappingStore) loses
+// it on every restart, leaving every persisted ref permanently unresolvable —
+// `vault.has(ref)` returns false and `vault.withSecret(ref, …)` throws. Persisting
+// it in the SAME project DB as the ref keeps the two in one transactional/backup
+// boundary so they can never drift. See DrizzleMappingStore in mapping-store.ts.
+export const secretMappings = pgTable("secret_mappings", {
+  // The SecretRef (`secret:<uuid>`) — the stable handle minted by vault.store().
+  ref: text("ref").primaryKey(),
+  // The name the backend was registered under in the SecretRegistry.
+  backend: text("backend").notNull(),
+  // Backend-internal opaque identifier returned by SecretBackend.store().
+  locator: text("locator").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // secrets — encrypted API keys / passwords keyed by source + name.
 // ciphertext format: [nonce(12B) | ciphertext | tag(16B)] under AES-256-GCM.
 // The encryption key is NOT stored here — see SecretVault docs.
@@ -224,6 +251,7 @@ export const schema = {
   visualizations,
   dashboards,
   secrets,
+  secretMappings,
 } as const;
 
 export type Schema = typeof schema;

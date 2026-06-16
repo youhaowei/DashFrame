@@ -16,6 +16,12 @@
  * commit does.
  */
 import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
 import { createWyStack, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +31,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { functions } from "../functions";
 import { cmd } from "./commands";
 import { buildPreviewDiff } from "./preview-diff";
+
+/** Compose a SecretVault backed by TestBackend. ONLY for test setup. */
+function makeTestVault(): SecretVault {
+  const registry = new SecretRegistry();
+  registry.register("test", new TestBackend(), { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  return new SecretVault(registry, new InMemoryMappingStore());
+}
 
 const {
   dataSources,
@@ -41,11 +55,13 @@ describe("PreviewDiff builder", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let app: WyStackApp;
+  let vault: SecretVault;
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-preview-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     app = await createWyStack({ db, functions });
+    vault = makeTestVault();
   });
 
   afterEach(async () => {
@@ -57,8 +73,11 @@ describe("PreviewDiff builder", () => {
     return crypto.randomUUID();
   }
 
+  // Thread the vault into the preview context so credential-bearing commands
+  // resolve under preview instead of failing closed (server contract: storing a
+  // credential requires a vault).
   async function preview(...commands: ReturnType<typeof cmd>[]) {
-    return buildPreviewDiff(app, db, commands);
+    return buildPreviewDiff(app, db, commands, { vault });
   }
 
   // --- direct seeding helpers (no vocabulary commands for these yet) ---------

@@ -4,6 +4,7 @@ import {
 } from "@dashframe/engine-server";
 import {
   ARTIFACTS_DB_FILENAME,
+  DrizzleMappingStore,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -11,7 +12,7 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
-import { SecretRegistry } from "@wystack/secret-vault";
+import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
@@ -27,10 +28,11 @@ const isDev = !app.isPackaged;
 // far, so a startup error that fired after engine init still disposes it.
 const lifecycle = new Lifecycle((code) => app.exit(code));
 
-// Module-level registry holder — assigned once in whenReady after the project
-// dir is known. Must outlive the whenReady callback so the registry stays alive
-// for the full process lifetime (secrets are resolved throughout the session).
+// Module-level holders — assigned once in whenReady after the project dir is
+// known. Must outlive the whenReady callback so they remain alive for the
+// full process lifetime (secrets are resolved throughout the session).
 let secretRegistry: SecretRegistry | null = null;
+let secretVault: SecretVault | null = null;
 
 function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
@@ -177,9 +179,24 @@ app
     });
     secretRegistry.setClassDefault("connector-key", "electron-keychain");
     secretRegistry.setClassDefault("serve-token", "electron-keychain");
-    console.log(
-      `[dashframe] keychain backend registered (storageDir=${keychainStorageDir})`,
+    // Compose the vault from the registry. The mapping store persists the
+    // ref→{backend, locator} binding in the project DB (`secret_mappings` table)
+    // so refs stay resolvable across restarts: the ref in `data_sources.config`,
+    // the encrypted blob in the keychain, and this mapping all share one
+    // transactional/backup boundary and can never drift. An in-memory store would
+    // drop the mapping on restart, leaving every persisted credential permanently
+    // unresolvable (has(ref) → false, withSecret(ref) → throw).
+    secretVault = new SecretVault(
+      secretRegistry,
+      new DrizzleMappingStore(project.db),
     );
+    console.log(
+      `[dashframe] keychain backend registered, vault composed (storageDir=${keychainStorageDir})`,
+    );
+
+    // No plaintext-credential migration: this is pre-release and no data source
+    // has ever stored a plaintext credential. New sources store vault refs from
+    // creation via the fail-closed write path, so there is nothing to convert.
 
     // Surface recovery notice when the project was restored from a snapshot.
     if (project.recovery) {
@@ -227,6 +244,12 @@ app
         // The server owns no reference to ProjectHandle — the narrow callback
         // is the boundary (#88).
         onWrite: () => project.touchSnapshot(),
+        // Inject the fully-composed SecretVault. The server RECEIVES this vault;
+        // it never instantiates a backend itself. Control-plane mutations
+        // (create/update DataSource) call vault.store → ref; reads call
+        // vault.has(ref) for presence flags. secretVault is always non-null at
+        // this point — it was set immediately before this try block.
+        vault: secretVault ?? undefined,
       });
       lifecycle.setServer(server);
     } catch (err) {

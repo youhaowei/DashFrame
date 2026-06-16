@@ -40,6 +40,7 @@ import {
 } from "@dashframe/engine-server/arrow-data-path";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { SecretVault } from "@wystack/secret-vault";
 import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
@@ -167,6 +168,22 @@ export interface DashframeServerOptions {
    * `arrowEngine`).
    */
   onWrite?: () => void;
+  /**
+   * Secret vault for credential storage. The runtime composer (Electron main
+   * or `dashframe serve`) registers a backend into a SecretRegistry, builds a
+   * SecretVault, and injects it here. The server itself never picks or
+   * instantiates a backend — it RECEIVES a fully-composed vault.
+   *
+   * When supplied, control-plane write mutations (create/update DataSource)
+   * call `vault.store(plaintext, { class: "connector-key" }) → ref` instead
+   * of persisting the plaintext. Read mutations use `vault.has(ref)` for
+   * presence checks (hasApiKey / hasConnectionString).
+   *
+   * Optional at the factory level — omitting it falls back to the legacy
+   * plaintext-in-config path (pre-vault callers, tests that don't exercise
+   * the credential boundary). Desktop always injects the keychain vault.
+   */
+  vault?: SecretVault;
 }
 
 export interface DashframeServer {
@@ -204,31 +221,44 @@ export async function createDashframeServer(
 
   const rawApp = await createWyStack({ db: opts.db, functions });
 
-  // Wrap the WyStack app's `call` method so `opts.onWrite` fires after any
-  // successful mutation. This is the single chokepoint: both the HTTP POST
-  // handler and the WS `call` frame path in @wystack/server route every
-  // mutation through `app.call`. Wrapping here — rather than sprinkling calls
-  // across individual handlers — means a new command or mutation added later
-  // is covered automatically. The hook fires only on success (tablesWritten
-  // is the WyStack signal that the transaction committed a write); a failed or
-  // rolled-back call never sets tablesWritten and never reaches this branch.
+  // Wrap the WyStack app to inject the vault into every handler context and
+  // to fire `opts.onWrite` after every successful mutation.
   //
-  // `onWrite` runs AFTER `rawApp.call` has already committed, so a throw from it
-  // must NOT fail the mutation — the client would see an error for a write that
-  // durably succeeded and might retry, duplicating artifacts. The hook is a
-  // best-effort side-channel (it only schedules a debounced snapshot), so we
-  // isolate its failure: log and swallow, never propagate. `result` is returned
-  // unchanged so the committed call's success is the sole determinant of the
-  // response.
-  const onWrite = opts.onWrite;
+  // Vault injection: the vault is a static server-level dependency — the same
+  // SecretVault instance for the entire server lifetime. It is injected at the
+  // `call`/`runHandler` level (not per-request via resolveContext) because it
+  // does not vary per request and the INVARIANT is that the server RECEIVES a
+  // fully-composed vault rather than building one itself.
+  //
+  // `vault` wins over per-request context (static spread LAST so its keys
+  // cannot be shadowed by a crafted request context). `ctx.vault` is what
+  // handlers read via `(ctx.vault as SecretVault | undefined)`.
+  //
+  // onWrite: fires after every committed write mutation (tablesWritten.size > 0).
+  // Runs AFTER `call` commits — a throw must NOT fail the mutation, so errors
+  // are logged and swallowed.
+  const { vault, onWrite } = opts;
+
+  // Build the static context additions once so every call shares the same object
+  // reference (vault identity is stable for the server lifetime).
+  const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
+  const hasStaticContext = Object.keys(staticContext).length > 0;
+
   const app: WyStackApp =
-    onWrite == null
+    vault == null && onWrite == null
       ? rawApp
       : {
           ...rawApp,
           async call(path, args, context) {
-            const result = await rawApp.call(path, args, context);
-            if (result.tablesWritten.size > 0) {
+            // Static context wins over per-request context: spread per-request
+            // first so that static keys (vault) cannot be shadowed by a crafted
+            // request context. The vault identity must be fixed for the server
+            // lifetime; a request-supplied vault key would be ignored.
+            const merged = hasStaticContext
+              ? { ...(context ?? {}), ...staticContext }
+              : context;
+            const result = await rawApp.call(path, args, merged);
+            if (onWrite != null && result.tablesWritten.size > 0) {
               try {
                 onWrite();
               } catch (err) {
@@ -236,6 +266,12 @@ export async function createDashframeServer(
               }
             }
             return result;
+          },
+          async runHandler(path, args, tracked, context) {
+            const merged = hasStaticContext
+              ? { ...(context ?? {}), ...staticContext }
+              : context;
+            return rawApp.runHandler(path, args, tracked, merged);
           },
         };
 

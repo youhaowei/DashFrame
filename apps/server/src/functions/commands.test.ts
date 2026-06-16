@@ -16,6 +16,13 @@
  * on Insight nodes.
  */
 import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  InMemoryMappingStore,
+  isSecretRef,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
 import { createWyStack, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +32,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { functions } from "../functions";
 import { cmd } from "./commands";
 
+/** Compose a SecretVault backed by TestBackend. ONLY for test setup. */
+function makeTestVault(): SecretVault {
+  const registry = new SecretRegistry();
+  registry.register("test", new TestBackend(), { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  return new SecretVault(registry, new InMemoryMappingStore());
+}
+
 const { dataSources, dataTables, insights, visualizations, dashboards } =
   schema;
 
@@ -32,6 +47,7 @@ describe("command vocabulary", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let app: WyStackApp;
+  let vault: SecretVault;
   // applyCommands is registered alongside query/mutation on @wystack/server;
   // import lazily so the test reads top-down with the engine right where used.
   let applyCommands: typeof import("@wystack/server").applyCommands;
@@ -40,6 +56,7 @@ describe("command vocabulary", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-cmd-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     app = await createWyStack({ db, functions });
+    vault = makeTestVault();
     ({ applyCommands } = await import("@wystack/server"));
   });
 
@@ -52,8 +69,11 @@ describe("command vocabulary", () => {
     return crypto.randomUUID();
   }
 
+  // Inject the vault via applyCommands' context — mirrors how the server seam
+  // passes ctx.vault to handlers. Credential-bearing commands require it (the
+  // server fails closed without a vault); credential-free batches ignore it.
   async function commit(...commands: ReturnType<typeof cmd>[]) {
-    return applyCommands(app, commands, { mode: "commit" });
+    return applyCommands(app, commands, { mode: "commit", context: { vault } });
   }
 
   // Assertion reads go through the raw Drizzle handle and filter in JS — the
@@ -248,11 +268,19 @@ describe("command vocabulary", () => {
       const [row] = await sourcesById(sourceId);
       expect(row?.kind).toBe("notion");
       expect(row?.name).toBe("Notion");
-      expect((row?.config as { apiKey?: string }).apiKey).toBe("secret-key");
+      // config.apiKey holds a SecretRef, NOT the plaintext — the credential was
+      // stored in the vault and only the opaque ref is persisted.
+      const stored = (row?.config as { apiKey?: string }).apiKey;
+      expect(isSecretRef(stored)).toBe(true);
+      expect(stored).not.toBe("secret-key");
+      // The ref resolves back to the original plaintext via the vault.
+      expect(await vault.has(stored as never)).toBe(true);
     });
 
     it("should replace only config (not name) for SetDataSourceConfig, decomposed from updateDataSource", async () => {
       const sourceId = id();
+      // Create first, then read the original ref BEFORE the config update so the
+      // replacement is provable (not just "the final value is a ref").
       await commit(
         cmd("CreateDataSource", {
           id: sourceId,
@@ -260,15 +288,27 @@ describe("command vocabulary", () => {
           name: "Original",
           apiKey: "old",
         }),
-        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }),
       );
+      const refBefore = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      expect(isSecretRef(refBefore)).toBe(true);
+
+      await commit(cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }));
+
       const [row] = await sourcesById(sourceId);
-      expect((row?.config as { apiKey?: string }).apiKey).toBe("new");
+      const refAfter = (row?.config as { apiKey?: string }).apiKey;
+      // A FRESH ref replaced the old one — prove the binding actually changed.
+      expect(isSecretRef(refAfter)).toBe(true);
+      expect(refAfter).not.toBe(refBefore);
+      expect(refAfter).not.toBe("new");
       expect(row?.name).toBe("Original");
     });
 
     it("should rename without touching config for RenameNode, decomposed from updateDataSource", async () => {
       const sourceId = id();
+      // Read the credential ref BEFORE the rename so "config untouched" is
+      // provable: the ref must be byte-identical after RenameNode.
       await commit(
         cmd("CreateDataSource", {
           id: sourceId,
@@ -276,11 +316,19 @@ describe("command vocabulary", () => {
           name: "Original",
           apiKey: "keep",
         }),
-        cmd("RenameNode", { id: sourceId, name: "Renamed" }),
       );
+      const refBefore = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      expect(isSecretRef(refBefore)).toBe(true);
+
+      await commit(cmd("RenameNode", { id: sourceId, name: "Renamed" }));
+
       const [row] = await sourcesById(sourceId);
       expect(row?.name).toBe("Renamed");
-      expect((row?.config as { apiKey?: string }).apiKey).toBe("keep");
+      // RenameNode does not touch config: the SAME ref is preserved unchanged.
+      const refAfter = (row?.config as { apiKey?: string }).apiKey;
+      expect(refAfter).toBe(refBefore);
     });
 
     it("should report the resolved target on the RenameNode result so the preview can read it (not re-derive)", async () => {
