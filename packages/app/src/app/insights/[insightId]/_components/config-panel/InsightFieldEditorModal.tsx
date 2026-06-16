@@ -150,7 +150,7 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-neutral-bg-emphasis",
-        "focus:ring-2 focus:ring-palette-primary focus:outline-none",
+        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
       )}
     >
       <NumberTypeIcon className="h-4 w-4 shrink-0 text-neutral-fg-subtle" />
@@ -169,7 +169,7 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
         {isJoined && (
           <Badge
             variant="soft"
-            className="bg-blue-500/10 text-[10px] text-blue-600"
+            className="bg-palette-info/10 text-[10px] text-palette-info"
           >
             joined
           </Badge>

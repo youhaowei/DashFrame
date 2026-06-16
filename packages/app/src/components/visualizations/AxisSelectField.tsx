@@ -504,7 +504,7 @@ export function AxisSelectField({
             render={
               <Badge
                 variant="outline"
-                className="cursor-pointer border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                className="cursor-pointer border-palette-info/30 bg-palette-info/10 px-1.5 py-0.5 text-palette-info transition-colors hover:bg-palette-info/20"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -531,7 +531,7 @@ export function AxisSelectField({
             render={
               <Badge
                 variant="outline"
-                className="border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                className="border-palette-warning/30 bg-palette-warning/10 px-1.5 py-0.5 text-palette-warning"
               >
                 <AlertCircleIcon className="mr-1 h-3 w-3" />
                 <span className="text-[10px]">{currentWarning.message}</span>

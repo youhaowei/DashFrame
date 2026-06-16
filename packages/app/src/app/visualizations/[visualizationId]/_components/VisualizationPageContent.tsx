@@ -737,7 +737,7 @@ export default function VisualizationPageContent({
         <div className="flex flex-1 items-center justify-center p-6">
           <Card className="max-w-md">
             <CardContent className="p-6 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-warning/15">
                 {getVizIcon(visualization.visualizationType)}
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
@@ -1076,14 +1076,14 @@ export default function VisualizationPageContent({
       <div className="h-full overflow-hidden">
         {hasEncodingErrors ? (
           <div className="flex h-full items-center justify-center p-6">
-            <div className="max-w-md rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900">
-                <AlertCircleIcon className="h-6 w-6 text-red-600 dark:text-red-400" />
+            <div className="max-w-md rounded-xl border border-palette-danger/30 bg-palette-danger/5 p-6 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-danger/15">
+                <AlertCircleIcon className="h-6 w-6 text-palette-danger" />
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-red-800 dark:text-red-200">
+              <h3 className="mb-2 text-lg font-semibold text-palette-danger">
                 Invalid encoding configuration
               </h3>
-              <div className="space-y-2 text-sm text-red-700 dark:text-red-300">
+              <div className="space-y-2 text-sm text-palette-danger">
                 {encodingErrors.x && (
                   <p>
                     <strong>X Axis:</strong> {encodingErrors.x}
@@ -1095,7 +1095,7 @@ export default function VisualizationPageContent({
                   </p>
                 )}
               </div>
-              <p className="mt-4 text-xs text-red-600 dark:text-red-400">
+              <p className="mt-4 text-xs text-palette-danger">
                 Please update the axis configuration in the panel on the right.
               </p>
             </div>

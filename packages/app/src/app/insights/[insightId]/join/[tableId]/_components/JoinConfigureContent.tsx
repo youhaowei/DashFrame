@@ -1197,7 +1197,7 @@ export default function JoinConfigureContent({
                       {joinType === "inner" && (
                         <>
                           Result:{" "}
-                          <span className="text-amber-600">
+                          <span className="text-palette-warning">
                             {joinAnalysis.estimatedResultRows.toLocaleString()}
                           </span>{" "}
                           rows
@@ -1259,19 +1259,19 @@ export default function JoinConfigureContent({
                   {/* Legend for column colors */}
                   <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
                     <div className="flex items-center gap-1.5">
-                      <div className="h-3 w-3 rounded bg-blue-600" />
+                      <div className="h-3 w-3 rounded bg-palette-info" />
                       <span className="text-neutral-fg-subtle">
                         From {baseTable.name ?? "base table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="h-3 w-3 rounded bg-emerald-600" />
+                      <div className="h-3 w-3 rounded bg-palette-success" />
                       <span className="text-neutral-fg-subtle">
                         From {joinTable.name ?? "join table"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="h-3 w-3 rounded bg-amber-500" />
+                      <div className="h-3 w-3 rounded bg-palette-warning" />
                       <span className="text-neutral-fg-subtle">
                         In both tables
                       </span>
