@@ -1,3 +1,4 @@
+import { makeNotionConnector } from "@dashframe/connector-notion";
 import { schema } from "@dashframe/server-core";
 import type {
   DataFrameAnalysis,
@@ -21,9 +22,10 @@ import type {
 } from "@dashframe/types";
 import { stripSampleValues } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
+import { isSecretRef } from "@wystack/secret-vault";
 import { mutation, query } from "@wystack/server";
 
-import { isSecretRef } from "@wystack/secret-vault";
 import {
   applyCredentialField,
   type DataSourceConfig,
@@ -936,6 +938,95 @@ const clearAllData = mutation({
   },
 });
 
+// ============================================================================
+// Connector factory — the single (vault, ref) → boundResolver → connector
+// mint site. Called by the notion data-plane routes below. The call site
+// (the WyStack mutation handler) has no ref in scope after this call — only
+// the typed connector data methods are visible.
+// ============================================================================
+
+/**
+ * Mint a bound SecretResolver for a single credential ref.
+ *
+ * Capability attenuation: the returned resolver can open ONLY the secret at
+ * `ref`. It cannot resolve any other ref — it's not a vault handle.
+ *
+ * @throws when no vault is injected into this server (fail-closed)
+ * @throws when `ref` is not a well-formed SecretRef
+ */
+// SecretResolver — bound lease type: <T>(use: (plaintext: string) => Promise<T>) => Promise<T>
+// Mirrors the type in @dashframe/engine, inlined here to avoid adding engine as a dep.
+type BoundSecretResolver = <T>(
+  use: (plaintext: string) => Promise<T>,
+) => Promise<T>;
+
+function mintBoundResolver(
+  vault: SecretVault | undefined,
+  ref: string | undefined,
+  label: string,
+): BoundSecretResolver {
+  if (vault == null) {
+    throw new Error(
+      `[connector-factory] no vault injected — cannot resolve credential for ${label}`,
+    );
+  }
+  if (!ref || !isSecretRef(ref)) {
+    throw new Error(
+      `[connector-factory] ${label} has no valid SecretRef in config — ` +
+        `run the control-plane migration first or set the API key`,
+    );
+  }
+  const secretRef = ref as SecretRef;
+  // Pre-bind vault.withSecret to this one ref. The connector calls
+  // `this.auth(use => ...)` and never sees the vault or ref itself.
+  return <T>(use: (plaintext: string) => Promise<T>) =>
+    vault.withSecret(secretRef, use);
+}
+
+// ============================================================================
+// Notion data-plane routes — server-side connector calls via bound resolver.
+// These are the only places connectors are constructed.
+// ============================================================================
+
+/** Result type for listNotionDatabases */
+type NotionDatabase = { id: string; name: string };
+
+/**
+ * listNotionDatabases — connect to Notion and list accessible databases.
+ *
+ * Resolves the credential via the vault; the handler has no plaintext in scope.
+ * Accepts the DataSource id — the ref is read from the row, never from the client.
+ */
+const listNotionDatabases = mutation({
+  args: { dataSourceId: uuid },
+  handler: async (ctx, { dataSourceId }): Promise<NotionDatabase[]> => {
+    const vault = vaultFromCtx(ctx);
+    const row = (await ctx.db
+      .from(dataSources)
+      .where(eq("id", dataSourceId))
+      .first()) as DataSourceRow | undefined;
+    if (!row) throw new Error(`DataSource ${dataSourceId} not found`);
+    if (row.kind !== "notion") {
+      throw new Error(`DataSource ${dataSourceId} is not a notion source`);
+    }
+    const config = (row.config ?? {}) as DataSourceConfig;
+    const auth = mintBoundResolver(
+      vault,
+      config.apiKey,
+      `DataSource(${dataSourceId})`,
+    );
+    const connector = makeNotionConnector(auth);
+    return connector.connect();
+  },
+});
+
+// NOTE: queryNotionDatabase is deferred.
+// NotionConnector.query() calls DataFrame.create({storageType:"indexeddb"}) which
+// requires a browser environment (idb-keyval → indexedDB global). Calling it from
+// a Node server handler throws at runtime. The server-side query path needs a
+// server-safe variant that returns raw Arrow bytes + field ids without constructing
+// a BrowserDataFrame — that split belongs in a follow-on ticket.
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -968,4 +1059,6 @@ export const appArtifactFunctions = {
   updateVisualization,
   removeVisualization,
   clearAllData,
+  // Notion data-plane routes (auth-blind via bound resolver)
+  listNotionDatabases,
 };

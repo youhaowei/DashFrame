@@ -94,7 +94,7 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
     async <R>(
       action: (data: Record<string, unknown>) => Promise<R>,
     ): Promise<R | null> => {
-      const values = form.state.values;
+      const values = form.state.values as Record<string, unknown>;
       const result = connector.validate(values);
 
       if (!result.valid && result.errors) {

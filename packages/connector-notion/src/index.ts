@@ -168,4 +168,4 @@ export async function notionToDataFrameSample(
 // Connector Pattern
 // ============================================================================
 
-export { NotionConnector, notionConnector } from "./connector";
+export { makeNotionConnector, NotionConnector } from "./connector";

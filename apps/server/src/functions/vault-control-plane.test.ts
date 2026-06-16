@@ -434,3 +434,75 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     expect(rows.find((r) => r.id === id)?.name).toBe("New Name");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Connector factory fail-closed — mintBoundResolver guards
+//
+// These tests exercise the two fail-closed throws in mintBoundResolver:
+//   (a) no vault injected → "no vault injected"
+//   (b) config.apiKey is not a well-formed SecretRef → "no valid SecretRef"
+//
+// Both must throw so the data-plane never reaches the Notion API in degraded state.
+// ---------------------------------------------------------------------------
+
+describe("connector factory — mintBoundResolver fail-closed", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("listNotionDatabases throws when no vault is injected", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-novault-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    // No vault wrapper — ctx.vault is undefined
+    const rawApp = await createWyStack({ db, functions });
+
+    // Create a notion DataSource row (no vault needed for a credential-free create)
+    const id = crypto.randomUUID();
+    await rawApp.call("createDataSource", { id, type: "notion", name: "Src" });
+
+    // listNotionDatabases must throw — no vault to resolve the credential
+    await expect(
+      rawApp.call("listNotionDatabases", { dataSourceId: id }),
+    ).rejects.toThrow(/no vault/i);
+  });
+
+  it("listNotionDatabases throws when config.apiKey is not a SecretRef", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-noref-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const { vault } = makeTestVault();
+    const rawApp = await createWyStack({ db, functions });
+    const vaultApp: WyStackApp = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+
+    // Insert a DataSource row that has plaintext (not a ref) in config.apiKey.
+    // We bypass the normal addDataSource (which would store a ref) by inserting directly.
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "notion",
+      name: "Legacy Source",
+      storage: "live",
+      config: { apiKey: "plaintext-not-a-ref" },
+      createdBy: { kind: "user" as const },
+    });
+
+    // mintBoundResolver must reject — config.apiKey is not a SecretRef
+    await expect(
+      vaultApp.call("listNotionDatabases", { dataSourceId: id }),
+    ).rejects.toThrow(/no valid SecretRef/i);
+  });
+});

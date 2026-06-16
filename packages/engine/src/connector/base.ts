@@ -10,6 +10,27 @@ import type {
 } from "./types";
 
 /**
+ * Bound secret resolver — capability-attenuated lease pre-bound to ONE secret ref.
+ *
+ * The connector factory mints one `SecretResolver` per connector instance, bound
+ * to exactly the ref stored in `DataSource.config`. The resolver calls
+ * `SecretVault.withSecret(ref, use)` internally. The connector calls
+ * `this.auth(use => ...)` and receives the plaintext only inside `use`.
+ *
+ * Type-level attenuation: the return type is `Promise<T>` so the connector
+ * cannot leak the plaintext string out of the callback — TS cannot express a
+ * "string that must not escape", but the structural guarantee (T ≠ string
+ * unless the caller explicitly returns it) is the best JS can do.
+ *
+ * The pipeline call site constructs the connector via the factory and then
+ * calls `connector.query(databaseId, tableId)` — no ref, no vault, no
+ * plaintext in scope.
+ */
+export type SecretResolver = <T>(
+  use: (plaintext: string) => Promise<T>,
+) => Promise<T>;
+
+/**
  * Base connector class - stateless, pure config + methods.
  *
  * Connectors are "strategy" objects that define:
@@ -77,46 +98,56 @@ export abstract class FileSourceConnector extends BaseConnector {
    *
    * @param file - The uploaded File object
    * @param tableId - UUID to assign to the resulting table
-   * @param formData - Optional form configuration data
    * @throws Error on parse failure
    */
-  abstract parse(
-    file: File,
-    tableId: UUID,
-    formData?: Record<string, unknown>,
-  ): Promise<FileParseResult>;
+  abstract parse(file: File, tableId: UUID): Promise<FileParseResult>;
 }
 
 /**
  * Remote API connector for external services (Notion, Airtable, etc.).
  *
+ * Auth-blind data pipeline: the connector is constructed with a bound
+ * `SecretResolver` pre-bound to the DataSource's credential ref. The pipeline
+ * never sees the vault, ref, or plaintext — only the typed data methods.
+ *
  * Two-phase workflow:
  * 1. connect() - Authenticate and list available databases
  * 2. query() - Fetch data from a specific database
+ *
+ * Both methods resolve the credential via `this.auth(use => ...)` internally.
+ * The call site has no vault or ref in scope — enforced by type.
  */
 export abstract class RemoteApiConnector extends BaseConnector {
   readonly sourceType = "remote-api" as const;
 
   /**
+   * Bound secret resolver — pre-bound to this connector's credential ref.
+   * Call as: `await this.auth(apiKey => doSomethingWith(apiKey))`
+   */
+  protected readonly auth: SecretResolver;
+
+  constructor(auth: SecretResolver) {
+    super();
+    this.auth = auth;
+  }
+
+  /**
    * Connect and list available databases.
-   * @param formData - Configuration including API keys, etc.
+   * Credentials are resolved internally via `this.auth`.
    * @throws Error on connection failure
    */
-  abstract connect(
-    formData: Record<string, unknown>,
-  ): Promise<RemoteDatabase[]>;
+  abstract connect(): Promise<RemoteDatabase[]>;
 
   /**
    * Query a specific database.
+   * Credentials are resolved internally via `this.auth`.
    * @param databaseId - ID of the database to query
    * @param tableId - UUID to assign to the resulting table
-   * @param formData - Configuration including API keys, etc.
    * @param options - Optional pagination/filter options
    */
   abstract query(
     databaseId: string,
     tableId: UUID,
-    formData: Record<string, unknown>,
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult>;
 }
@@ -150,7 +181,7 @@ export function isFileConnector(
  * ```typescript
  * if (isRemoteApiConnector(connector)) {
  *   // TypeScript knows connector is RemoteApiConnector
- *   await connector.connect(formData);
+ *   await connector.connect();
  * }
  * ```
  */

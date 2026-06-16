@@ -71,7 +71,9 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    const databases = await execute((data) => connector.connect(data));
+    // connect() is auth-blind — credentials are resolved server-side via the
+    // bound resolver; the form data was already used for validation above.
+    const databases = await execute(() => connector.connect());
     if (databases) {
       onConnect(connector, databases);
     }

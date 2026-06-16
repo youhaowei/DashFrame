@@ -16,7 +16,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@dashframe/core": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",
     "@notionhq/client": "^2.2.0",
@@ -24,6 +23,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.16",
+    "@wystack/secret-vault": "workspace:*",
     "typescript": "^5.6.0",
     "vitest": "^4.0.16"
   }

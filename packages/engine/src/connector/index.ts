@@ -19,7 +19,7 @@ export {
   isRemoteApiConnector,
 } from "./base";
 
-export type { AnyConnector } from "./base";
+export type { AnyConnector, SecretResolver } from "./base";
 
 export {
   createFieldsFromColumns,
