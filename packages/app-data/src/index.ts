@@ -97,3 +97,10 @@ export {
 } from "./notion";
 
 export { DatabaseProvider, useDatabase } from "./compat";
+
+// Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
+export {
+  previewBatch,
+  setPreviewAuthToken,
+  type PreviewCommand,
+} from "./preview-diff";

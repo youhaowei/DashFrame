@@ -16,6 +16,7 @@
 
 import type {
   ArtifactKind,
+  PreviewCompute,
   PreviewDiff,
   PreviewDirectNode,
   PreviewDownstreamNode,
@@ -64,6 +65,140 @@ const FLAG_LABELS: Record<PreviewDownstreamNode["flag"], string> = {
   stale: "Stale",
   orphaned: "Orphaned",
 };
+
+// ---------------------------------------------------------------------------
+// Compute display helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Row count delta summary — "+12 rows" / "−3 rows" / "unchanged".
+ * Only emitted when both before and after counts are non-null.
+ */
+function RowCountDelta({
+  before,
+  after,
+}: {
+  before: number | null;
+  after: number | null;
+}) {
+  if (after === null) return null;
+
+  if (before === null) {
+    // Create node: no before count.
+    return (
+      <span className="text-xs text-palette-success">
+        {after.toLocaleString()} rows
+      </span>
+    );
+  }
+
+  const delta = after - before;
+  if (delta === 0) {
+    return (
+      <span className="text-xs text-neutral-fg/60">
+        {after.toLocaleString()} rows (unchanged)
+      </span>
+    );
+  }
+  const sign = delta > 0 ? "+" : "−";
+  const absStr = Math.abs(delta).toLocaleString();
+  const colorClass = delta > 0 ? "text-palette-success" : "text-palette-danger";
+  return (
+    <span className={cn("text-xs", colorClass)}>
+      {after.toLocaleString()} rows ({sign}
+      {absStr})
+    </span>
+  );
+}
+
+/**
+ * A head-rows sample table for the compute display.
+ * Renders the first N rows of the proposed result as a compact table.
+ */
+function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
+  if (head.length === 0) return null;
+  const columns = Object.keys(head[0] ?? {});
+  if (columns.length === 0) return null;
+
+  return (
+    <div className="mt-2 overflow-x-auto rounded-[var(--surface-radius)] border border-neutral-border/30 bg-neutral-bg/40">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr>
+            {columns.map((col) => (
+              <th
+                key={col}
+                className="border-b border-neutral-border/30 px-2 py-1 text-left font-semibold text-neutral-fg/60"
+              >
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {head.map((row, rowIdx) => (
+            <tr
+              key={rowIdx}
+              className="border-b border-neutral-border/20 last:border-0"
+            >
+              {columns.map((col) => (
+                <td key={col} className="px-2 py-1 text-neutral-fg/80">
+                  {row[col] === null || row[col] === undefined ? (
+                    <span className="text-neutral-fg/30">null</span>
+                  ) : (
+                    String(row[col])
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * The compute display for a direct node — shows row counts and head rows.
+ * When compute is `undefined` (pending), shows a pending indicator.
+ * Only rendered for insight nodes (the only kind with computable DuckDB views).
+ */
+function ComputeDisplay({
+  compute,
+  change,
+  kind,
+}: {
+  compute: PreviewCompute | undefined;
+  change: PreviewDirectNode["change"];
+  kind: ArtifactKind;
+}) {
+  // Only insight nodes have compute — other kinds have no DuckDB view.
+  if (kind !== "insight") return null;
+  // noop nodes don't change — no compute display.
+  if (change === "noop") return null;
+
+  if (compute === undefined) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-neutral-fg/50">
+        <span
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-neutral-fg/30"
+          aria-label="Computing..."
+        />
+        Computing row counts…
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <RowCountDelta
+        before={compute.rowCountBefore}
+        after={compute.rowCountAfter}
+      />
+      <HeadTable head={compute.head} />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -115,6 +250,12 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
             ))}
           </ul>
         )}
+        {/* Compute display — row counts + head sample (insight nodes only) */}
+        <ComputeDisplay
+          compute={node.compute}
+          change={node.change}
+          kind={node.kind}
+        />
       </div>
     </div>
   );

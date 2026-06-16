@@ -38,6 +38,7 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
+import type { ArtifactDb } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import {
@@ -51,6 +52,7 @@ import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { functions } from "./functions";
+import { buildPreviewDiff } from "./functions/preview-diff";
 
 type CorsOrigin =
   | string
@@ -340,6 +342,18 @@ export async function createDashframeServer(
     );
   }
 
+  // Preview batch endpoint — SPLIT-TIER (settled): returns METADATA ONLY.
+  // No row data, no compute slots — those are filled client-side via local DuckDB.
+  // Mounted before WyStack so `/preview/batch` isn't shadowed by the catch-all.
+  honoApp.route(
+    "/preview",
+    createPreviewPath({
+      app,
+      db: opts.db as ArtifactDb,
+      authToken: opts.authToken,
+    }),
+  );
+
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
@@ -428,6 +442,79 @@ function tokenMatches(actual: string, expected: string): boolean {
   const actualBytes = createHash("sha256").update(actual).digest();
   const expectedBytes = createHash("sha256").update(expected).digest();
   return timingSafeEqual(actualBytes, expectedBytes);
+}
+
+/**
+ * Hono sub-app for the preview batch endpoint.
+ *
+ * `POST /batch` accepts a JSON body `{ commands: Command[] }` and returns a
+ * `PreviewDiff` (METADATA ONLY — compute slots are always `undefined`). The
+ * diff carries the split-tier invariant: no row data, no head samples. Clients
+ * fill the compute slot locally via DuckDB-WASM on preview-open.
+ *
+ * Auth reuses the same optional bearer token as the WyStack server.
+ */
+function createPreviewPath(opts: {
+  app: WyStackApp;
+  db: ArtifactDb;
+  authToken?: string;
+}): Hono {
+  const { app, db, authToken } = opts;
+  const hono = new Hono();
+
+  hono.post("/batch", async (c) => {
+    // Auth guard — same policy as the WyStack server (loopback may omit token).
+    if (authToken) {
+      const auth = c.req.header("authorization") ?? "";
+      const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+      if (!tokenMatches(token, authToken)) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !Array.isArray((body as { commands?: unknown }).commands)
+    ) {
+      return c.json({ error: "Expected { commands: Command[] }" }, 400);
+    }
+
+    const { commands } = body as { commands: unknown[] };
+
+    // Validate each command has a path (minimal guard — handler validation does
+    // the rest inside applyCommands).
+    for (const cmd of commands) {
+      if (
+        !cmd ||
+        typeof cmd !== "object" ||
+        typeof (cmd as { path?: unknown }).path !== "string"
+      ) {
+        return c.json({ error: "Each command must have a string `path`" }, 400);
+      }
+    }
+
+    try {
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        commands as Array<{ path: string; args: unknown }>,
+      );
+      return c.json(diff);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  return hono;
 }
 
 export type { Functions } from "./functions";
