@@ -157,6 +157,62 @@ describe("vault control-plane — store→ref + has→presence", () => {
     expect(configAfter!["apiKey"]).not.toBe("new-key");
   });
 
+  it("AC2 — updateDataSource with empty apiKey CLEARS the credential", async () => {
+    // Seed a credential.
+    const { result } = await app.call("addDataSource", {
+      type: "notion",
+      name: "Source",
+      apiKey: "to-be-cleared",
+    });
+    const id = (result as { id: string }).id;
+    expect(isSecretRef((await readConfig(db, id))!["apiKey"])).toBe(true);
+
+    // Empty string clears it: the config key is removed entirely.
+    await app.call("updateDataSource", { id, apiKey: "" });
+
+    const config = await readConfig(db, id);
+    expect(config!["apiKey"]).toBeUndefined();
+
+    // Presence now reads false — no usable credential remains.
+    const { result: ds } = await app.call("getDataSource", { id });
+    expect((ds as { hasApiKey: boolean }).hasApiKey).toBe(false);
+  });
+
+  it("AC2 — setDataSourceConfig with empty apiKey CLEARS the credential", async () => {
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Source",
+      apiKey: "to-be-cleared",
+    });
+    expect(isSecretRef((await readConfig(db, id))!["apiKey"])).toBe(true);
+
+    await app.call("setDataSourceConfig", { id, apiKey: "" });
+
+    expect((await readConfig(db, id))!["apiKey"]).toBeUndefined();
+  });
+
+  it("AC2 — clearing apiKey leaves a set connectionString untouched", async () => {
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "postgres",
+      name: "Source",
+      apiKey: "key",
+      connectionString: "postgresql://u:p@h/db",
+    });
+    const csRef = (await readConfig(db, id))!["connectionString"] as string;
+    expect(isSecretRef(csRef)).toBe(true);
+
+    // Clear only apiKey; connectionString is undefined in this write → untouched.
+    await app.call("updateDataSource", { id, apiKey: "" });
+
+    const config = await readConfig(db, id);
+    expect(config!["apiKey"]).toBeUndefined();
+    expect(config!["connectionString"]).toBe(csRef);
+  });
+
   it("AC2 — createDataSource command stores a SecretRef", async () => {
     const id = crypto.randomUUID();
     const { result } = await app.call("createDataSource", {

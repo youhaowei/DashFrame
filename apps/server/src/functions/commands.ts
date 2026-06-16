@@ -98,10 +98,10 @@ import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 
 import {
+  applyCredentialField,
   type DataSourceConfig,
   isRecord,
   requireRecordWithId,
-  storeCredential,
   vaultFromCtx,
 } from "./utils";
 
@@ -279,20 +279,16 @@ const createDataSource = mutation({
   ): Promise<{ id: string }> => {
     const vault = vaultFromCtx(ctx);
     const config: DataSourceConfig = {};
-    // Store non-empty credentials via the vault — never persist plaintext.
-    // Empty string means "not provided"; storing it would make vault.has(ref)
-    // return true and falsely advertise a credential that cannot authenticate.
-    // storeCredential fails closed when no vault is injected.
-    if (apiKey !== undefined && apiKey.length > 0) {
-      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${id}`);
-    }
-    if (connectionString !== undefined && connectionString.length > 0) {
-      config.connectionString = await storeCredential(
-        vault,
-        connectionString,
-        `connectionString-${id}`,
-      );
-    }
+    // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
+    // empty string is a no-op. A real store fails closed when no vault is injected.
+    await applyCredentialField(config, "apiKey", apiKey, vault, `apiKey-${id}`);
+    await applyCredentialField(
+      config,
+      "connectionString",
+      connectionString,
+      vault,
+      `connectionString-${id}`,
+    );
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
       name,
@@ -328,24 +324,21 @@ const setDataSourceConfig = mutation({
       .first()) as DataSourceRow | undefined;
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
-    // Store non-empty credentials via the vault — never persist plaintext. When a
-    // new apiKey is supplied, the existing ref (if any) is replaced by a fresh one.
-    // Empty string means "not provided" — storing it would make vault.has(ref) true,
-    // falsely advertising a credential that cannot authenticate. storeCredential
-    // fails closed when no vault is injected.
-    // Orphaned old refs are not explicitly deleted: the old locator is overwritten in
-    // config so the data-plane resolver stops using it. Explicit vault.delete is a
-    // cleanup concern (not required for the plaintext-never-at-rest invariant).
-    if (apiKey !== undefined && apiKey.length > 0) {
-      config.apiKey = await storeCredential(vault, apiKey, `apiKey-${id}`);
-    }
-    if (connectionString !== undefined && connectionString.length > 0) {
-      config.connectionString = await storeCredential(
-        vault,
-        connectionString,
-        `connectionString-${id}`,
-      );
-    }
+    // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
+    // (deletes the config key so hasApiKey reads false) / leave-on-undefined.
+    // applyCredentialField is the single choke point; a real store fails closed when
+    // no vault is injected. Orphaned old refs (on replace or clear) are not deleted
+    // from the vault here — the same deferred cleanup as rotation; the locator is
+    // dropped from config so the data-plane resolver stops using it, and the
+    // plaintext-never-at-rest invariant is unaffected.
+    await applyCredentialField(config, "apiKey", apiKey, vault, `apiKey-${id}`);
+    await applyCredentialField(
+      config,
+      "connectionString",
+      connectionString,
+      vault,
+      `connectionString-${id}`,
+    );
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
   },

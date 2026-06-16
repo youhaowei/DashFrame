@@ -68,6 +68,34 @@ export async function storeCredential(
   return vault.store(plaintext, { class: "connector-key", locatorHint });
 }
 
+/**
+ * Apply an inbound credential value to a config slice, in place. Three-way:
+ *
+ *   - `undefined` → leave the existing config key untouched (not part of this write).
+ *   - `""`        → CLEAR the credential: delete the key so `hasApiKey` reads false.
+ *                   (Empty string is an explicit "remove it", never a stored value —
+ *                   storing it would make `vault.has(ref)` lie.) The old vault ref
+ *                   is orphaned, not deleted — same deferred cleanup as rotation.
+ *   - non-empty   → store via the vault and write the returned `SecretRef`.
+ *
+ * The vault-absent refusal lives in {@link storeCredential}, so a clear (`""`) or
+ * an untouched field (`undefined`) does NOT require a vault — only a real store does.
+ */
+export async function applyCredentialField(
+  config: DataSourceConfig,
+  field: "apiKey" | "connectionString",
+  value: string | undefined,
+  vault: SecretVault | undefined,
+  locatorHint: string,
+): Promise<void> {
+  if (value === undefined) return; // not part of this write
+  if (value.length === 0) {
+    delete config[field]; // explicit clear
+    return;
+  }
+  config[field] = await storeCredential(vault, value, locatorHint);
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
