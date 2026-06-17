@@ -344,8 +344,8 @@ async function ensureInsightDataFrames(
 
 /**
  * Convert a DuckDB COUNT(*) cell to a `number | null`, preserving correctness in
- * the face of IEEE-754 limits. Same discipline as YW-220: never silently emit a
- * wrong precise number.
+ * the face of IEEE-754 limits. Same discipline as the data-preview numeric
+ * display: never silently emit a wrong precise number.
  *
  * A COUNT(*) above Number.MAX_SAFE_INTEGER (2^53−1 ≈ 9e15) cannot be represented
  * exactly as a JS number; `Number(bigint)` would round it. We guard that case by
@@ -579,9 +579,11 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
   });
 
   // Always-current mirror of the live `diff` prop. The stale-guard reducer reads
-  // this to distinguish a legitimate new-diff result from a superseded one.
+  // this (inside async callbacks) to distinguish a legitimate new-diff result
+  // from a superseded one. Updated INSIDE the effect (not during render) — the
+  // effect re-runs on every `diff` change, so the mirror stays current for the
+  // async callbacks without an illegal ref-write during render.
   const currentDiffRef = useRef<PreviewDiff | null>(diff);
-  currentDiffRef.current = diff;
 
   // Derive the active compute map: if the stored diff has diverged from the
   // current diff (new preview opened), treat the map as empty until the async
@@ -590,6 +592,13 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
     state.diff === diff
       ? state.computeByNodeId
       : new Map<string, PreviewCompute>();
+
+  // Keep the live-diff mirror current on every `diff` change — independent of
+  // DuckDB readiness, so a late async result is correctly judged stale even if
+  // the compute effect below early-returned (DuckDB not yet ready) for diff B.
+  useEffect(() => {
+    currentDiffRef.current = diff;
+  }, [diff]);
 
   // Kick off compute for each insight node when DuckDB is ready.
   useEffect(() => {
@@ -678,9 +687,8 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
     };
     // `state` is intentionally excluded from deps: including it would re-run on
     // every partial fill, re-kicking compute. The skip-check reads `resolvedRef`
-    // (a stable ref that mirrors the active diff + already-kicked ids), so it is
+    // (a stable ref that mirrors the active diff + completed-node ids), so it is
     // reliable without `state` in the dependency array.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diff, connection, isInitialized]);
 
   if (!diff) return { diff: null, allResolved: true };
