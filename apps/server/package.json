@@ -26,6 +26,7 @@
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
+    "@dashframe/assistant": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-server": "workspace:*",

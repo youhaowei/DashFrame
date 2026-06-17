@@ -1,10 +1,16 @@
 /**
  * @dashframe/assistant — agentic report harness substrate.
  *
- * Loop, tools, and UI land in follow-up implementation work.
+ * OAuth credential lifecycle: read the Claude Code subscription token from
+ * the OS keychain at runtime; refresh in-memory when expired; never write
+ * back. Fail closed on dead credentials.
+ *
+ * Typed tool-layer helper: the seam all assistant mutation and read tools
+ * build through.
  */
 
-export const ASSISTANT_VERSION = "0.0.0" as const;
+// OAuth credential lifecycle
+export * from "./oauth/index.js";
 
 // Typed tool-layer helper — the seam all assistant mutation and read tools build through.
 export {
