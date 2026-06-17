@@ -501,6 +501,20 @@
         "vitest": "^4.0.16",
       },
     },
+    "packages/connector-rest": {
+      "name": "@dashframe/connector-rest",
+      "version": "0.1.0",
+      "dependencies": {
+        "@dashframe/engine": "workspace:*",
+        "@wystack/secret-vault": "workspace:*",
+        "apache-arrow": "^21.1.0",
+      },
+      "devDependencies": {
+        "@vitest/coverage-v8": "^4.0.16",
+        "typescript": "^5.6.0",
+        "vitest": "^4.0.16",
+      },
+    },
     "packages/core": {
       "name": "@dashframe/core",
       "version": "0.1.0",
@@ -897,6 +911,8 @@
     "@dashframe/connector-local": ["@dashframe/connector-local@workspace:packages/connector-local"],
 
     "@dashframe/connector-notion": ["@dashframe/connector-notion@workspace:packages/connector-notion"],
+
+    "@dashframe/connector-rest": ["@dashframe/connector-rest@workspace:packages/connector-rest"],
 
     "@dashframe/core": ["@dashframe/core@workspace:packages/core"],
 
@@ -3597,6 +3613,8 @@
     "@dashframe/connector-local/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@dashframe/connector-notion/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@dashframe/connector-rest/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@dashframe/core/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
