@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { userInfo } from "node:os";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -18,6 +19,11 @@ export interface KeychainOAuth {
  * Uses the async execFile to avoid blocking the event loop — keychain reads
  * are typically fast but can stall on wake-from-sleep or when the keychain
  * is locked; blocking the event loop during those waits is undesirable.
+ *
+ * Account lookup: Claude Code stores the credential under the signed-in user's
+ * account, not under "root". We pass `-a <current-user>` so the lookup matches
+ * on any standard macOS installation. `userInfo().username` is the POSIX user
+ * running the process — the same account Claude Code uses when writing the item.
  */
 export async function readKeychainOAuth(): Promise<KeychainOAuth> {
   let raw: string;
@@ -26,6 +32,7 @@ export async function readKeychainOAuth(): Promise<KeychainOAuth> {
     // /usr/bin/security is the macOS keychain CLI; this is macOS-only.
     // Interpolate .message only, never the full error object (which can attach
     // stdout/stderr that might contain sensitive output on some error paths).
+    const username = userInfo().username;
     const { stdout } = await execFileAsync(
       "/usr/bin/security",
       [
@@ -33,7 +40,7 @@ export async function readKeychainOAuth(): Promise<KeychainOAuth> {
         "-s",
         "Claude Code-credentials",
         "-a",
-        "root",
+        username,
         "-w",
       ],
       { encoding: "utf-8" },

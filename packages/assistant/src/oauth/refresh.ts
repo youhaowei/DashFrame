@@ -15,18 +15,38 @@ const CLAUDE_CODE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 
 /**
+ * The full rotated credential set returned by a successful token refresh.
+ *
+ * Claude Code ROTATES the refresh token on every successful refresh call —
+ * the old refresh token becomes dead immediately after the response. Callers
+ * MUST hold `refreshToken` in-memory for the next cycle; re-reading the
+ * keychain after a refresh will return the now-dead original token.
+ *
+ * `expiresIn` is seconds from now (standard OAuth2 `expires_in` field).
+ * May be absent if the server omits it; callers should treat absent as "unknown
+ * expiry" and attempt a refresh on the next use rather than serving a token
+ * whose freshness is unknowable.
+ */
+export interface RefreshedCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+}
+
+/**
  * Refreshes the Claude Code OAuth access token in-memory.
  *
- * - Never writes the refreshed token back to the keychain (would race Claude
- *   Code's own refresher and mutate the user's real credentials).
- * - Returns the new access token string in-memory only.
+ * - Returns the full rotated credential set (accessToken + rotated refreshToken
+ *   + expiresIn) so callers can track the new refresh token for the next cycle.
+ * - Never writes the refreshed credentials back to the keychain (would race
+ *   Claude Code's own refresher and mutate the user's real credentials).
  *
  * @throws if the refresh endpoint returns a non-2xx response.
  */
 export async function refreshAccessToken(
   refreshToken: string,
   fetchFn: typeof fetch = fetch,
-): Promise<string> {
+): Promise<RefreshedCredentials> {
   const res = await fetchFn(CLAUDE_OAUTH_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -61,9 +81,25 @@ export async function refreshAccessToken(
     throw new Error(`token refresh failed: ${detail}`);
   }
 
-  const data = (await res.json()) as { access_token?: string };
+  const data = (await res.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: unknown;
+  };
   if (!data.access_token) {
     throw new Error("refresh response had no access_token field");
   }
-  return data.access_token;
+
+  return {
+    accessToken: data.access_token,
+    // Claude Code rotates the refresh token on each successful refresh.
+    // Preserve it in-memory so the next expiry cycle uses the live token.
+    refreshToken:
+      typeof data.refresh_token === "string" ? data.refresh_token : undefined,
+    // Standard OAuth2 expires_in is seconds; validate it's a positive number.
+    expiresIn:
+      typeof data.expires_in === "number" && data.expires_in > 0
+        ? data.expires_in
+        : undefined,
+  };
 }
