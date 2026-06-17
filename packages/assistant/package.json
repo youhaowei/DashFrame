@@ -19,8 +19,8 @@
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.79.4",
-    "@earendil-works/pi-ai": "0.79.4"
+    "@earendil-works/pi-agent-core": "0.79.6",
+    "@earendil-works/pi-ai": "0.79.6"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
