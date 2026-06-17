@@ -148,6 +148,7 @@ export class NotionConnector extends RemoteApiConnector {
         arrowBuffer: conversionResult.arrowBuffer,
         fieldIds: conversionResult.fieldIds,
         fields,
+        rowCount: conversionResult.rowCount,
       };
     });
   }

@@ -299,6 +299,9 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     expect(typeof result.arrowBuffer).toBe("string");
     expect(Array.isArray(result.fieldIds)).toBe(true);
     expect(Array.isArray(result.fields)).toBe(true);
+    // rowCount accompanies the serializable result so the renderer can register
+    // DataFrame metadata without re-reading the (server-side) Arrow buffer.
+    expect(typeof result.rowCount).toBe("number");
     expect(result).not.toHaveProperty("dataFrame");
   });
 

@@ -23,7 +23,7 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { isUnmodifiedDraft, stripSampleValues } from "@dashframe/types";
-import { eq, jsonb, text, uuid } from "@wystack/db";
+import { eq, int, jsonb, text, uuid } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import type { FunctionContext } from "@wystack/server";
@@ -1133,6 +1133,7 @@ type NotionQueryResult = {
   arrowBuffer: string;
   fieldIds: string[];
   fields: Field[];
+  rowCount: number;
 };
 
 /**
@@ -1147,19 +1148,30 @@ const queryNotionDatabase = mutation({
     dataSourceId: uuid,
     databaseId: text,
     tableId: uuid,
+    // Optional cap on rows fetched for the preview. Bounds an unbounded Notion
+    // database scan; the renderer passes a preview limit. Omitted = no cap.
+    limit: int.optional(),
   },
   handler: async (
     ctx,
-    { dataSourceId, databaseId, tableId },
+    { dataSourceId, databaseId, tableId, limit },
   ): Promise<NotionQueryResult> => {
     const connector = await notionConnectorFor(ctx, dataSourceId);
+    // Only a positive integer limit caps the fetch. Reject 0/negative — the
+    // client-side page loop treats `0 || Infinity` as unbounded, so a `limit: 0`
+    // would silently become a full-database scan (the cap's whole purpose).
+    const pagination =
+      limit !== undefined && Number.isInteger(limit) && limit > 0
+        ? { pagination: { offset: 0, limit } }
+        : undefined;
     // query() resolves the apiKey via the bound resolver internally and returns
     // a serializable result — no credential in scope here, no DataFrame built.
-    const result = await connector.query(databaseId, tableId);
+    const result = await connector.query(databaseId, tableId, pagination);
     return {
       arrowBuffer: result.arrowBuffer,
       fieldIds: result.fieldIds,
       fields: result.fields,
+      rowCount: result.rowCount,
     };
   },
 });

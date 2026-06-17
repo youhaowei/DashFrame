@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { api } from "./api";
 import { getWyStackClient } from "./client";
+import { loose } from "./wystack-args";
 
 /**
  * A Notion database as listed by the server's `listNotionDatabases` route.
@@ -23,6 +24,7 @@ export interface NotionQueryResult {
   arrowBuffer: string;
   fieldIds: string[];
   fields: Field[];
+  rowCount: number;
 }
 
 /**
@@ -52,12 +54,11 @@ export function useNotionMutations() {
         dataSourceId: UUID,
         databaseId: string,
         tableId: UUID,
+        limit?: number,
       ): Promise<NotionQueryResult> => {
-        return (await queryMutation.mutateAsync({
-          dataSourceId,
-          databaseId,
-          tableId,
-        })) as NotionQueryResult;
+        return (await queryMutation.mutateAsync(
+          loose({ dataSourceId, databaseId, tableId, limit }),
+        )) as NotionQueryResult;
       },
     }),
     [listMutation, queryMutation],
