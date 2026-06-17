@@ -606,6 +606,12 @@ describe("buildInsightSQL — sink guards: LIMIT/OFFSET must be non-negative int
     ).toThrow("invalid offset");
   });
 
+  it("throws when offset is Infinity", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", offset: Infinity }),
+    ).toThrow("invalid offset");
+  });
+
   it("accepts limit=0 and offset=0 (edge: zero is a valid non-negative integer)", () => {
     // limit=0 emits LIMIT 0 (valid DuckDB SQL — returns empty result); offset=0 is a no-op.
     const sql = build(groupedInsight(), { mode: "query", limit: 0, offset: 0 });

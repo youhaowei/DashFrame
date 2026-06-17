@@ -297,8 +297,11 @@ export function buildInsightSQL(
         }
       : insight;
 
-  // Fail-closed: validate effectiveFilters values before coalescing into SQL.
-  validateEffectiveFilters(effectiveFilters);
+  // Fail-closed: validate filter values before any SQL is generated.
+  // When effectiveFilters is provided it replaces insight.filters; validate
+  // whichever set will actually be used so non-finite numbers are rejected with
+  // a field-aware error message regardless of the input path.
+  validateEffectiveFilters(effectiveFilters ?? insight.filters);
 
   // Build effective options: fold `effectiveLimit` and `effectiveSorts` into the
   // options object used by downstream helpers.
