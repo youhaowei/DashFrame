@@ -96,6 +96,7 @@ import type {
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
+import { z } from "zod";
 
 import {
   applyCredentialField,
@@ -147,9 +148,53 @@ interface StoredInsightDefinition {
   joins?: unknown[];
 }
 
+// ---------------------------------------------------------------------------
+// JSONB validation schemas (defined once, applied at every read/cast site)
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the polymorphic InsightSource stored in
+ * `insights.definition`. Validates the discriminant and the required id before
+ * any property access so a corrupt/unexpected blob fails with a clear
+ * ZodError rather than throwing on `undefined.someField`.
+ */
+const insightSourceSchema = z.object({
+  sourceType: z.enum(["dataTable", "insight"]),
+  sourceId: z.string(),
+});
+
+/**
+ * Zod schema for the full StoredInsightDefinition JSONB blob. Applied in
+ * `requireInsightDefinition` so every handler that reads the definition from
+ * the DB gets a validated, typed value — not a blindly-cast unknown.
+ *
+ * IMPORTANT — write-back allowlist: `requireInsightDefinition` returns
+ * `parsed.data` (the Zod output). Handlers spread this into the next
+ * definition before writing it back (`{ ...definition, <field> }`). Any key
+ * present in the stored blob but absent from this schema is silently dropped
+ * on the next write. Adding a new field to `StoredInsightDefinition` requires
+ * a matching entry here.
+ *
+ * `selectedFields` and `metrics` default to `[]` (rather than being required)
+ * to match the read-path's defensive coalescing (`?? []`) — older or
+ * externally written rows that omit them remain readable instead of being
+ * rejected as corrupt.
+ */
+const storedInsightDefinitionSchema = z.object({
+  baseTableId: z.string(),
+  source: insightSourceSchema.optional(),
+  selectedFields: z.array(z.string()).default([]),
+  metrics: z.array(z.unknown()).default([]),
+  filters: z.array(z.unknown()).optional(),
+  sorts: z.array(z.unknown()).optional(),
+  joins: z.array(z.unknown()).optional(),
+});
+
 /**
  * Load an Insight's stored definition. Throws if the row does not exist — the
- * same guard `requireDataTable` provides for DataTable commands.
+ * same guard `requireDataTable` provides for DataTable commands. Parses the
+ * definition JSONB with `storedInsightDefinitionSchema` so a corrupt blob
+ * produces a clear validation error instead of throwing on property access.
  */
 async function requireInsightDefinition(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -160,7 +205,13 @@ async function requireInsightDefinition(
     .where(eq("id", insightId))
     .first()) as InsightRow | undefined;
   if (!row) throw new Error(`Insight ${insightId} not found`);
-  return { row, definition: row.definition as StoredInsightDefinition };
+  const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+  if (!parsed.success) {
+    throw new Error(
+      `Insight ${insightId} has a corrupt definition: ${parsed.error.message}`,
+    );
+  }
+  return { row, definition: parsed.data as StoredInsightDefinition };
 }
 
 /**
@@ -480,12 +531,13 @@ const createInsight = mutation({
     metrics: jsonb.optional(),
   },
   handler: async (ctx, args): Promise<{ id: string }> => {
-    const source = args.source as InsightSource;
-    if (source.sourceType !== "dataTable" && source.sourceType !== "insight") {
+    const parsedSource = insightSourceSchema.safeParse(args.source);
+    if (!parsedSource.success) {
       throw new Error(
-        `CreateInsight: source.sourceType must be 'dataTable' or 'insight'`,
+        `CreateInsight: source is invalid: ${parsedSource.error.message}`,
       );
     }
+    const source = parsedSource.data as InsightSource;
     // Reject a self-referential insight source up front. With a client-supplied
     // id a caller can pass `source: { sourceType: 'insight', sourceId: <this id> }`,
     // which would write a 1-cycle into definition.source that SetInsightSource's
@@ -525,12 +577,13 @@ const createInsight = mutation({
 const setInsightSource = mutation({
   args: { id: uuid, source: jsonb },
   handler: async (ctx, { id, source: rawSource }): Promise<{ ok: true }> => {
-    const source = rawSource as InsightSource;
-    if (source.sourceType !== "dataTable" && source.sourceType !== "insight") {
+    const parsedSource = insightSourceSchema.safeParse(rawSource);
+    if (!parsedSource.success) {
       throw new Error(
-        `SetInsightSource: source.sourceType must be 'dataTable' or 'insight'`,
+        `SetInsightSource: source is invalid: ${parsedSource.error.message}`,
       );
     }
+    const source = parsedSource.data as InsightSource;
     const { definition } = await requireInsightDefinition(ctx, id);
 
     // The source must resolve to an existing row before we persist it (JSON
@@ -877,7 +930,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
 async function patchInsightSelectedFields(
   ctx: { db: import("@wystack/db").TrackedDb },
   nodeId: string,
-  row: InsightRow,
+  _row: InsightRow,
   op: CollectionOp,
 ): Promise<void> {
   if (op.mode === "update") {
@@ -885,8 +938,10 @@ async function patchInsightSelectedFields(
       "UpdateField is not supported on an Insight: fields are selected by reference (edit the source field, or re-select via SelectFields)",
     );
   }
-  const definition = row.definition as StoredInsightDefinition;
-  const selected = (definition.selectedFields ?? []).slice();
+  // Validate the stored definition at the point of use — a corrupt blob must
+  // produce a clean "corrupt definition" error, not crash on `.selectedFields`.
+  const { definition } = await requireInsightDefinition(ctx, nodeId);
+  const selected = definition.selectedFields.slice();
   if (op.mode === "add") {
     const fieldId = op.item.id;
     if (selected.includes(fieldId)) {
@@ -940,11 +995,11 @@ async function patchDataTableCollection(
       return "insight";
     }
     // Insight metrics live inside the definition jsonb under `metrics`, the same
-    // key the read path (rowToInsight) surfaces.
-    const definition = node.row.definition as StoredInsightDefinition & {
-      metrics?: { id: string }[];
-    };
-    const items = ((definition.metrics ?? []) as { id: string }[]).slice();
+    // key the read path (rowToInsight) surfaces. Validate the stored definition
+    // at the point of use — a corrupt blob must produce a clean "corrupt
+    // definition" error, not crash on `.metrics`.
+    const { definition } = await requireInsightDefinition(ctx, nodeId);
+    const items = (definition.metrics as { id: string }[]).slice();
     // AddMetric on an Insight must store InsightMetric (sourceTable), the shape
     // requireInsightMetric in app-artifacts.ts enforces on the read path.
     // Validate at the write boundary so stored metrics always round-trip through
