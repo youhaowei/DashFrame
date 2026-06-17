@@ -141,6 +141,149 @@ async function fetchPage(
   return { data, response };
 }
 
+/** Offset/limit pagination — increments offset by pageSize until a short page. */
+async function fetchOffsetPages(
+  config: RestConnectorConfig,
+  method: string,
+  headers: Record<string, string>,
+): Promise<unknown[]> {
+  const pp = config.paginationParams ?? {};
+  const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
+  const offsetParam = (pp["offsetParam"] as string | undefined) ?? "offset";
+  const limitParam = (pp["limitParam"] as string | undefined) ?? "limit";
+  const allRows: unknown[] = [];
+  let offset = 0;
+
+  while (true) {
+    const url = withQueryParam(
+      withQueryParam(config.endpoint, offsetParam, String(offset)),
+      limitParam,
+      String(pageSize),
+    );
+    const { data } = await fetchPage(url, method, headers);
+    const rows = extractRows(data, config.rowPath);
+    allRows.push(...rows);
+    if (rows.length === 0 || rows.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return allRows;
+}
+
+/** Page-number pagination — increments page until a short page. */
+async function fetchPageNumberPages(
+  config: RestConnectorConfig,
+  method: string,
+  headers: Record<string, string>,
+): Promise<unknown[]> {
+  const pp = config.paginationParams ?? {};
+  const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
+  const pageParam = (pp["pageParam"] as string | undefined) ?? "page";
+  const pageSizeParam =
+    (pp["pageSizeParam"] as string | undefined) ?? "pageSize";
+  const allRows: unknown[] = [];
+  let page = 1;
+
+  while (true) {
+    const url = withQueryParam(
+      withQueryParam(config.endpoint, pageParam, String(page)),
+      pageSizeParam,
+      String(pageSize),
+    );
+    const { data } = await fetchPage(url, method, headers);
+    const rows = extractRows(data, config.rowPath);
+    allRows.push(...rows);
+    if (rows.length === 0 || rows.length < pageSize) break;
+    page++;
+  }
+
+  return allRows;
+}
+
+/**
+ * Resolve the next cursor from a response object.
+ * Checks cursorPath first; falls back to probing common field names.
+ */
+function resolveNextCursor(
+  data: unknown,
+  cursorPath: string | undefined,
+): string | undefined {
+  if (cursorPath) {
+    const v = resolveDotPath(data, cursorPath);
+    return typeof v === "string" && v ? v : undefined;
+  }
+  for (const field of ["next_cursor", "nextCursor", "cursor", "next"]) {
+    const v = resolveDotPath(data, field);
+    if (typeof v === "string" && v) return v;
+  }
+  return undefined;
+}
+
+/** Cursor pagination — follows a cursor token until absent. */
+async function fetchCursorPages(
+  config: RestConnectorConfig,
+  method: string,
+  headers: Record<string, string>,
+): Promise<unknown[]> {
+  const pp = config.paginationParams ?? {};
+  const cursorParam = (pp["cursorParam"] as string | undefined) ?? "cursor";
+  const cursorPath = pp["cursorPath"] as string | undefined;
+  const allRows: unknown[] = [];
+  let cursor: string | undefined = undefined;
+
+  while (true) {
+    const url = cursor
+      ? withQueryParam(config.endpoint, cursorParam, cursor)
+      : config.endpoint;
+    const { data } = await fetchPage(url, method, headers);
+    allRows.push(...extractRows(data, config.rowPath));
+    cursor = resolveNextCursor(data, cursorPath);
+    if (!cursor) break;
+  }
+
+  return allRows;
+}
+
+/**
+ * Parse a `Link` response header and return the `rel="next"` URL, or undefined.
+ * Uses a two-part approach to avoid backtracking: split on `>,` boundaries first,
+ * then match each segment independently.
+ */
+function parseLinkNext(linkHeader: string): string | undefined {
+  // Split on `>, ` or `>,` to separate link entries without regex alternation.
+  const parts = linkHeader.split(/>,\s*/);
+  for (const part of parts) {
+    // Each part looks like: `<URL>; rel="next"` or `<URL>; rel="prev"`, etc.
+    // Two fixed-width checks: URL between < >, rel attribute present and "next".
+    const ltIdx = part.indexOf("<");
+    const gtIdx = part.indexOf(">");
+    if (ltIdx === -1 || gtIdx === -1 || gtIdx <= ltIdx) continue;
+    const url = part.slice(ltIdx + 1, gtIdx);
+    const rest = part.slice(gtIdx + 1);
+    if (/rel="next"/i.test(rest)) return url;
+  }
+  return undefined;
+}
+
+/** Link-header pagination — follows RFC 5988 `Link: <url>; rel="next"`. */
+async function fetchLinkHeaderPages(
+  config: RestConnectorConfig,
+  method: string,
+  headers: Record<string, string>,
+): Promise<unknown[]> {
+  const allRows: unknown[] = [];
+  let nextUrl: string | undefined = config.endpoint;
+
+  while (nextUrl) {
+    const { data, response } = await fetchPage(nextUrl, method, headers);
+    allRows.push(...extractRows(data, config.rowPath));
+    const linkHeader = response.headers.get("Link");
+    nextUrl = linkHeader ? parseLinkNext(linkHeader) : undefined;
+  }
+
+  return allRows;
+}
+
 /**
  * Fetch all pages according to the configured pagination strategy.
  * Returns a flat array of all raw row objects across pages.
@@ -153,111 +296,16 @@ async function fetchAllPages(
   headers: Record<string, string>,
 ): Promise<unknown[]> {
   const method = config.method ?? "GET";
-  const pp = config.paginationParams ?? {};
-  const allRows: unknown[] = [];
 
   switch (config.pagination) {
-    case "offset": {
-      const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
-      const offsetParam = (pp["offsetParam"] as string | undefined) ?? "offset";
-      const limitParam = (pp["limitParam"] as string | undefined) ?? "limit";
-      let offset = 0;
-
-      while (true) {
-        const url = withQueryParam(
-          withQueryParam(config.endpoint, offsetParam, String(offset)),
-          limitParam,
-          String(pageSize),
-        );
-        const { data } = await fetchPage(url, method, headers);
-        const rows = extractRows(data, config.rowPath);
-        allRows.push(...rows);
-        if (rows.length === 0 || rows.length < pageSize) break;
-        offset += pageSize;
-      }
-      break;
-    }
-
-    case "page-number": {
-      const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
-      const pageParam = (pp["pageParam"] as string | undefined) ?? "page";
-      const pageSizeParam =
-        (pp["pageSizeParam"] as string | undefined) ?? "pageSize";
-      let page = 1;
-
-      while (true) {
-        const url = withQueryParam(
-          withQueryParam(config.endpoint, pageParam, String(page)),
-          pageSizeParam,
-          String(pageSize),
-        );
-        const { data } = await fetchPage(url, method, headers);
-        const rows = extractRows(data, config.rowPath);
-        allRows.push(...rows);
-        if (rows.length === 0 || rows.length < pageSize) break;
-        page++;
-      }
-      break;
-    }
-
-    case "cursor": {
-      const cursorParam = (pp["cursorParam"] as string | undefined) ?? "cursor";
-      const cursorPath = pp["cursorPath"] as string | undefined;
-      // Common cursor field names to probe when no explicit path is given
-      const defaultCursorFields = [
-        "next_cursor",
-        "nextCursor",
-        "cursor",
-        "next",
-      ];
-      let cursor: string | undefined = undefined;
-
-      while (true) {
-        const url = cursor
-          ? withQueryParam(config.endpoint, cursorParam, cursor)
-          : config.endpoint;
-        const { data } = await fetchPage(url, method, headers);
-        const rows = extractRows(data, config.rowPath);
-        allRows.push(...rows);
-
-        // Find the next cursor
-        let nextCursor: unknown = undefined;
-        if (cursorPath) {
-          nextCursor = resolveDotPath(data, cursorPath);
-        } else {
-          for (const field of defaultCursorFields) {
-            nextCursor = resolveDotPath(data, field);
-            if (nextCursor !== undefined && nextCursor !== null) break;
-          }
-        }
-
-        if (!nextCursor || typeof nextCursor !== "string") break;
-        cursor = nextCursor;
-      }
-      break;
-    }
-
-    case "link-header": {
-      let nextUrl: string | undefined = config.endpoint;
-
-      while (nextUrl) {
-        const { data, response } = await fetchPage(nextUrl, method, headers);
-        const rows = extractRows(data, config.rowPath);
-        allRows.push(...rows);
-
-        // Parse Link header: <url>; rel="next"
-        const linkHeader = response.headers.get("Link");
-        nextUrl = undefined;
-        if (linkHeader) {
-          const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-          if (match?.[1]) {
-            nextUrl = match[1];
-          }
-        }
-      }
-      break;
-    }
-
+    case "offset":
+      return fetchOffsetPages(config, method, headers);
+    case "page-number":
+      return fetchPageNumberPages(config, method, headers);
+    case "cursor":
+      return fetchCursorPages(config, method, headers);
+    case "link-header":
+      return fetchLinkHeaderPages(config, method, headers);
     default: {
       if (config.pagination) {
         console.warn(
@@ -267,12 +315,9 @@ async function fetchAllPages(
         );
       }
       const { data } = await fetchPage(config.endpoint, method, headers);
-      allRows.push(...extractRows(data, config.rowPath));
-      break;
+      return extractRows(data, config.rowPath);
     }
   }
-
-  return allRows;
 }
 
 // ---------------------------------------------------------------------------
