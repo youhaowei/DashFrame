@@ -204,6 +204,11 @@ export function getTableName(dataFrameId: string): string {
  * @param insight - The insight configuration (selectedFields, metrics, joins)
  * @param options - Query options (mode, limit, offset, sort)
  * @returns SQL string or null if baseTable has no dataFrameId
+ * @throws {Error} if any filter value is a non-finite number (NaN, Infinity, -Infinity),
+ *   if a join type is not one of inner/left/right/full,
+ *   if a metric aggregation is not one of sum/avg/count/min/max/count_distinct,
+ *   if sortDirection is not "asc" or "desc",
+ *   or if limit/offset is not a non-negative integer.
  *
  * @example
  * ```typescript
@@ -291,6 +296,12 @@ export function buildInsightSQL(
           ...(effectiveSorts !== undefined && { sorts: effectiveSorts }),
         }
       : insight;
+
+  // Fail-closed: validate filter values before any SQL is generated.
+  // When effectiveFilters is provided it replaces insight.filters; validate
+  // whichever set will actually be used so non-finite numbers are rejected with
+  // a field-aware error message regardless of the input path.
+  validateEffectiveFilters(effectiveFilters ?? insight.filters);
 
   // Build effective options: fold `effectiveLimit` and `effectiveSorts` into the
   // options object used by downstream helpers.
@@ -434,7 +445,7 @@ function buildSimpleSQL(
       ({ whereClause } = buildFilterClauses(insight, fieldIdMap, false, "raw"));
     }
 
-    let sql = `SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}"`;
+    let sql = `SELECT ${selectParts.join(", ")} FROM ${tableName} AS ${quoteIdentifier(displayName)}`;
     if (whereClause) {
       sql += ` ${whereClause}`;
     }
@@ -445,7 +456,7 @@ function buildSimpleSQL(
   // Query mode with configuration: wrap table with UUID aliases, then apply aggregations
   // This ensures the FROM clause for aggregation has UUID-aliased columns
   const selectParts = buildFieldSelects(displayName, baseFields);
-  const wrappedFromClause = `(SELECT ${selectParts.join(", ")} FROM ${tableName} AS "${displayName}")`;
+  const wrappedFromClause = `(SELECT ${selectParts.join(", ")} FROM ${tableName} AS ${quoteIdentifier(displayName)})`;
 
   return buildAggregatedSQL(wrappedFromClause, baseFields, insight, options);
 }
@@ -474,7 +485,9 @@ function buildColumnSelectWithFieldId(
   fieldId: string,
 ): string {
   const alias = fieldIdToColumnAlias(fieldId);
-  return `"${tableName}"."${columnName}" AS "${alias}"`;
+  // alias is a generated UUID-based name (field_<uuid>) — safe as-is; tableName
+  // and columnName may contain " from user-controlled data and must be quoted.
+  return `${quoteIdentifier(tableName)}.${quoteIdentifier(columnName)} AS "${alias}"`;
 }
 
 /** Build SELECT parts for all fields from a table using UUID aliases */
@@ -501,7 +514,7 @@ function buildJoinedSQL(
 ): { sql: string; availableFields: Field[] } | null {
   // First, wrap base table with UUID-aliased columns
   const baseSelects = buildFieldSelects(baseDisplayName, baseFields);
-  let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS "${baseDisplayName}")`;
+  let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS ${quoteIdentifier(baseDisplayName)})`;
   let currentFields = baseFields;
 
   for (const join of insight.joins ?? []) {
@@ -602,12 +615,18 @@ function processSingleJoin(
   const selectParts = [...baseSelects, ...joinSelects];
 
   // Build JOIN SQL using the UUID alias for the join condition
-  const joinTypeSQL = (join.type ?? "inner").toUpperCase();
+  const rawJoinType = join.type ?? "inner";
+  if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) {
+    throw new Error(
+      `processSingleJoin: invalid join type "${rawJoinType}" — must be one of: inner, left, right, full`,
+    );
+  }
+  const joinTypeSQL = rawJoinType.toUpperCase();
   const sql = `(
     SELECT ${selectParts.join(", ")}
     FROM ${currentSQL}
-    ${joinTypeSQL} JOIN ${joinDFTable} AS "${joinDisplayName}"
-    ON "${leftKeyAlias}" = "${joinDisplayName}"."${rightColName}"
+    ${joinTypeSQL} JOIN ${joinDFTable} AS ${quoteIdentifier(joinDisplayName)}
+    ON "${leftKeyAlias}" = ${quoteIdentifier(joinDisplayName)}.${quoteIdentifier(rightColName)}
   )`;
 
   // Combine all fields for subsequent joins (excluding duplicate join key)
@@ -629,21 +648,71 @@ function processSingleJoin(
 /**
  * Quote a scalar value for safe SQL embedding.
  *
- * - Numbers and booleans are emitted as-is (no injection risk).
+ * - Booleans are emitted as-is (`true`/`false`).
+ * - Finite numbers are emitted as-is. Non-finite numbers (NaN, Infinity, -Infinity)
+ *   throw — they cannot be represented as SQL literals and indicate a bad caller input.
  * - Strings are single-quoted with internal single-quotes escaped by doubling
  *   (standard SQL escaping: `'` → `''`). This matches the convention used in
  *   the rest of this module (no parameterized placeholders — values are inlined
  *   at query-build time, not at the DB driver level).
  * - null / undefined → `NULL`.
  * - Anything else is coerced to string and then quoted.
+ * @throws {Error} if val is a non-finite number.
  */
 function quoteValue(val: unknown): string {
   if (val === null || val === undefined) return "NULL";
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (typeof val === "boolean") return String(val);
+  if (typeof val === "number") {
+    if (!Number.isFinite(val)) {
+      throw new Error(
+        `quoteValue: non-finite number (${val}) cannot be embedded in SQL`,
+      );
+    }
+    return String(val);
+  }
   // For everything else (string, Date.toISOString output, etc.) single-quote and escape
   const str = String(val);
   // Escape single quotes by doubling them (standard SQL)
   return `'${str.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Validate a filter value fail-closed: throw if it contains a non-finite number.
+ * Called at effectiveFilters coalesce time so bad values are rejected before SQL generation.
+ */
+function validateFilterValue(value: unknown, field: string): void {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(
+      `validateFilterValue: non-finite number (${value}) in filter on field "${field}"`,
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      validateFilterValue(item, field);
+    }
+  }
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "low" in value &&
+    "high" in value
+  ) {
+    validateFilterValue((value as { low: unknown }).low, field);
+    validateFilterValue((value as { high: unknown }).high, field);
+  }
+}
+
+/**
+ * Validate all filters in an effectiveFilters array. No-op when undefined.
+ * Extracted to keep buildInsightSQL within the sonarjs cognitive-complexity budget.
+ */
+function validateEffectiveFilters(
+  effectiveFilters: InsightFilter[] | undefined,
+): void {
+  if (effectiveFilters === undefined) return;
+  for (const f of effectiveFilters) {
+    validateFilterValue(f.value, f.field);
+  }
 }
 
 /**
@@ -787,6 +856,11 @@ function resolveMetricAggRef(
   );
   if (!metric) return quoteIdentifier(filterField);
 
+  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
+    throw new Error(
+      `resolveMetricAggRef: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
+    );
+  }
   const aggFn = metric.aggregation.toUpperCase();
 
   // COUNT(*) - no column
@@ -976,6 +1050,11 @@ function buildMetricExpressionWithUUID(
   metric: NonNullable<Insight["metrics"]>[number],
   fieldIdMap: Map<string, Field>,
 ): string | null {
+  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
+    throw new Error(
+      `buildMetricExpressionWithUUID: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
+    );
+  }
   const aggFn = metric.aggregation.toUpperCase();
   const outputAlias = metricIdToColumnAlias(metric.id);
 
@@ -1122,34 +1201,66 @@ function buildAggregatedSQL(
   return appendPagination(sql, options, validColumns);
 }
 
+// Module-level whitelist constants — defined once, shared across all guard sites.
+// Centralised here so a future AggregationType addition requires a single edit.
+const SORT_DIRECTION_WHITELIST = new Set<string>(["asc", "desc"]);
+const JOIN_TYPE_WHITELIST_CONST = new Set<string>([
+  "inner",
+  "left",
+  "right",
+  "full",
+]);
+const AGG_WHITELIST_CONST = new Set<string>([
+  "sum",
+  "avg",
+  "count",
+  "min",
+  "max",
+  "count_distinct",
+]);
+
 /**
  * Appends ORDER BY, LIMIT, and OFFSET clauses to SQL.
  *
  * @param sql - The base SQL query
  * @param options - Query options including sort, limit, offset
- * @param validColumns - Optional set of column names that exist in the query result.
- *                       If provided, sortColumn must be in this set to be applied.
+ * @param validColumns - Set of column names that exist in the query result.
+ *                       sortColumn must be in this set to be applied.
  *                       This prevents sorting by metric columns that don't exist in model mode.
  */
 function appendPagination(
   sql: string,
   options: BuildInsightSQLOptions,
-  validColumns?: Set<string>,
+  validColumns: Set<string>,
 ): string {
   const { sortColumn, sortDirection, limit, offset } = options;
 
-  // Only apply ORDER BY if sortColumn exists in valid columns (if specified)
+  // Only apply ORDER BY if sortColumn exists in valid columns
   // This prevents errors when sorting by metric columns in model mode
   if (sortColumn && sortDirection) {
-    const isValidColumn = !validColumns || validColumns.has(sortColumn);
-    if (isValidColumn) {
-      sql += ` ORDER BY "${sortColumn}" ${sortDirection.toUpperCase()}`;
+    if (!SORT_DIRECTION_WHITELIST.has(sortDirection)) {
+      throw new Error(
+        `appendPagination: invalid sortDirection "${sortDirection}" — must be "asc" or "desc"`,
+      );
+    }
+    if (validColumns.has(sortColumn)) {
+      sql += ` ORDER BY ${quoteIdentifier(sortColumn)} ${sortDirection.toUpperCase()}`;
     }
   }
   if (limit !== undefined) {
+    if (!Number.isInteger(limit) || limit < 0 || !Number.isFinite(limit)) {
+      throw new Error(
+        `appendPagination: invalid limit "${limit}" — must be a non-negative integer`,
+      );
+    }
     sql += ` LIMIT ${limit}`;
   }
   if (offset !== undefined) {
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isFinite(offset)) {
+      throw new Error(
+        `appendPagination: invalid offset "${offset}" — must be a non-negative integer`,
+      );
+    }
     sql += ` OFFSET ${offset}`;
   }
 

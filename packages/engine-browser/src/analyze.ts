@@ -2,6 +2,7 @@ import {
   type DataFrameColumn,
   type Field,
   extractUUIDFromColumnAlias,
+  quoteIdentifier,
 } from "@dashframe/engine";
 import type {
   BooleanAnalysis,
@@ -338,7 +339,7 @@ export async function analyzeDataFrame(
   totalRows?: number,
 ): Promise<ColumnAnalysis[]> {
   const columnNames = columns.map((col) => col.name);
-  const quotedTable = `"${tableName}"`;
+  const quotedTable = quoteIdentifier(tableName);
 
   // Get total row count (skip if provided)
   let rowCount: number;
@@ -355,7 +356,7 @@ export async function analyzeDataFrame(
   // Includes both numeric stats (min/max/stddev) and temporal stats (min_date/max_date)
   const statsQuery = columnNames
     .map((columnName) => {
-      const quotedColumn = `"${columnName}"`;
+      const quotedColumn = quoteIdentifier(columnName);
       return `
         SELECT
           '${columnName.replace(/'/g, "''")}' as column_name,
@@ -377,7 +378,7 @@ export async function analyzeDataFrame(
   // Build batched samples query for all columns (UNION ALL)
   const samplesQuery = columnNames
     .map((columnName) => {
-      const quotedColumn = `"${columnName}"`;
+      const quotedColumn = quoteIdentifier(columnName);
       return `
         SELECT '${columnName.replace(/'/g, "''")}' as col, ${quotedColumn}::VARCHAR as value
         FROM (SELECT DISTINCT ${quotedColumn} FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL LIMIT 10)
@@ -389,7 +390,7 @@ export async function analyzeDataFrame(
   // This finds the count of the most common value for each column
   const maxFreqQuery = columnNames
     .map((columnName) => {
-      const quotedColumn = `"${columnName}"`;
+      const quotedColumn = quoteIdentifier(columnName);
       return `
         SELECT '${columnName.replace(/'/g, "''")}' as column_name, MAX(cnt) as max_freq
         FROM (SELECT COUNT(*) as cnt FROM ${quotedTable} GROUP BY ${quotedColumn})
