@@ -8,19 +8,15 @@
  * The actual secrets live in the OS keychain via the SecretVault substrate; the
  * `secret_mappings` table persists the ref → backend/locator binding so refs
  * stay resolvable across restarts.
- * The `secrets` table below was an earlier design artifact and is retained in
- * the schema but unused by the current vault implementation.
  */
 
 import {
-  customType,
   index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
-  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -32,13 +28,6 @@ export interface ArtifactProvenance {
   id?: string;
   runId?: string;
 }
-
-// bytea isn't a first-class column type in drizzle-orm/pg-core yet; wrap it.
-const bytea = customType<{ data: Uint8Array; notNull: false; default: false }>({
-  dataType() {
-    return "bytea";
-  },
-});
 
 // project_meta — exactly one row per project. Holds version + identity.
 export const projectMeta = pgTable("project_meta", {
@@ -223,25 +212,6 @@ export const secretMappings = pgTable("secret_mappings", {
     .defaultNow(),
 });
 
-// secrets — encrypted API keys / passwords keyed by source + name.
-// ciphertext format: [nonce(12B) | ciphertext | tag(16B)] under AES-256-GCM.
-// The encryption key is NOT stored here — see SecretVault docs.
-export const secrets = pgTable(
-  "secrets",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    sourceId: uuid("source_id")
-      .notNull()
-      .references(() => dataSources.id, { onDelete: "cascade" }),
-    secretName: text("secret_name").notNull(),
-    ciphertext: bytea("ciphertext").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [unique("secrets_source_name_unique").on(t.sourceId, t.secretName)],
-);
-
 export const schema = {
   projectMeta,
   dataSources,
@@ -250,7 +220,6 @@ export const schema = {
   insights,
   visualizations,
   dashboards,
-  secrets,
   secretMappings,
 } as const;
 

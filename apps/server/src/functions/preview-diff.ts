@@ -464,6 +464,15 @@ export async function buildPreviewDiff(
   // credential-free batches.
   context: Record<string, unknown> = {},
 ): Promise<PreviewDiff> {
+  // Merge `mode: "preview"` into the context bag so every handler can read it
+  // via `modeFromCtx(ctx)` and skip vault writes (keychain side-effects that
+  // survive the DB rollback). The `context` object spread into FunctionContext
+  // by `runHandler`, so `ctx.mode` is available to all handlers in this preview.
+  const previewContext: Record<string, unknown> = {
+    ...context,
+    mode: "preview",
+  };
+
   // 1. Execute-then-rollback the full batch to learn what happens and collect
   //    handler results for polymorphic-command resolution (RenameNode etc. report
   //    the resolved kind on result.value — public issue #64). On success the
@@ -476,7 +485,7 @@ export async function buildPreviewDiff(
   try {
     const result = await applyCommands(app, batch, {
       mode: "preview",
-      context,
+      context: previewContext,
     });
     prefixResults = result.results;
     tablesWritten = [...result.tablesWritten];
@@ -489,14 +498,14 @@ export async function buildPreviewDiff(
       app,
       batch,
       fallback,
-      context,
+      previewContext,
     );
     error = { commandIndex: failureIndex, message };
 
     // The pre-failure prefix is commands 0..failureIndex-1. Run it to build nodes.
     prefixBatch = batch.slice(0, failureIndex);
     if (prefixBatch.length > 0) {
-      const prefix = await runPrefixSafe(app, prefixBatch, context);
+      const prefix = await runPrefixSafe(app, prefixBatch, previewContext);
       prefixBatch = prefix.safeBatch;
       prefixResults = prefix.results;
       tablesWritten = prefix.tablesWritten;

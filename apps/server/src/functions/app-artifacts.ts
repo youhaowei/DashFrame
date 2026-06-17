@@ -33,6 +33,8 @@ import {
   applyCredentialField,
   type DataSourceConfig,
   isRecord,
+  modeFromCtx,
+  releaseCredentialRefs,
   requireRecordWithId,
   vaultFromCtx,
 } from "./utils";
@@ -495,6 +497,19 @@ const updateDataSource = mutation({
 const removeDataSource = mutation({
   args: { id: uuid },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
+    // Fetch the source config BEFORE deleting so we can release its SecretRefs.
+    // vault-absent-with-a-ref is an error (fail-closed symmetry): a ref can only
+    // exist because vault.store() succeeded, which requires a vault to be present.
+    // In preview mode vault.delete() is skipped — like vault.store(), it is a
+    // keychain side-effect outside the DB transaction. A preview executes then
+    // rolls back: the row (with its refs) survives, so its credential must too.
+    const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
+    if (source && modeFromCtx(ctx) !== "preview") {
+      await releaseCredentialRefs(
+        (source.config ?? {}) as DataSourceConfig,
+        vaultFromCtx(ctx),
+      );
+    }
     await ctx.db.from(dataTables).where(eq("dataSourceId", id)).delete();
     await ctx.db.from(dataSources).where(eq("id", id)).delete();
     return { ok: true };

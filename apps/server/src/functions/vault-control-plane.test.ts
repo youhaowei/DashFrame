@@ -27,6 +27,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { functions } from "../functions";
+import { cmd } from "./commands";
+import { buildPreviewDiff } from "./preview-diff";
 
 const { dataSources } = schema;
 
@@ -562,5 +564,556 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
         tableId: crypto.randomUUID(),
       }),
     ).rejects.toThrow(/not a notion source/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretVault lifecycle coupling — delete releases SecretRefs
+// ---------------------------------------------------------------------------
+//
+// Contract: when a data-source that holds SecretRefs is deleted (by either
+// path — removeDataSource handler or deleteNode command), the refs are removed
+// from the vault BEFORE the row is dropped. After the delete, vault.has(ref)
+// must return false for every ref that was stored on that source.
+//
+// Both handlers route through releaseCredentialRefs() in utils.ts, which calls
+// vault.delete(ref) for each live ref in the config jsonb. The tests below pin
+// that end-to-end invariant: vault presence is verifiable via vault.has() (a
+// non-decrypting call that reads the mapping store + backend presence index).
+//
+// A source with NO credential fields must not cause any error during delete
+// (releaseCredentialRefs early-returns when the config has no live refs).
+// ---------------------------------------------------------------------------
+
+describe("vault lifecycle — delete releases SecretRefs (removeDataSource)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+  let backend: TestBackend;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-rm-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault, backend } = makeTestVault());
+    const rawApp = await createWyStack({ db, functions });
+    app = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("removeDataSource — vault.has(apiKeyRef) is false after deleting a source that had an apiKey", async () => {
+    // Arrange: create a source with an apiKey so a SecretRef is minted and stored.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Cred Source",
+      apiKey: "secret-api-key",
+    });
+    // Capture the ref from the config jsonb before deletion.
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    // Confirm the secret is live before we delete.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: delete the source via the removeDataSource handler.
+    await app.call("removeDataSource", { id });
+
+    // Assert: the vault no longer holds the ref.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+  });
+
+  it("removeDataSource — vault.has(apiKeyRef) and vault.has(csRef) are false after deleting a source with both credentials", async () => {
+    // Arrange: source with both credential fields.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "postgres",
+      name: "Full Cred Source",
+      apiKey: "ak",
+      connectionString: "postgresql://u:p@h/db",
+    });
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    const csRef = config!["connectionString"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(isSecretRef(csRef)).toBe(true);
+
+    // Act.
+    await app.call("removeDataSource", { id });
+
+    // Assert: both refs are gone from the vault.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+    expect(await vault.has(csRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+  });
+
+  it("removeDataSource — deleting a no-credential source succeeds without touching the vault", async () => {
+    // Arrange: source with no credentials.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "csv",
+      name: "Clean Source",
+    });
+    const resolveCountBefore = backend.resolveCallCount;
+    const hasCountBefore = backend.hasCallCount;
+
+    // Act: must not throw.
+    await expect(app.call("removeDataSource", { id })).resolves.toBeDefined();
+
+    // Assert: vault was not consulted for resolve or has (no refs to check).
+    expect(backend.resolveCallCount).toBe(resolveCountBefore);
+    expect(backend.hasCallCount).toBe(hasCountBefore);
+  });
+});
+
+describe("vault lifecycle — delete releases SecretRefs (DeleteNode)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-del-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    const rawApp = await createWyStack({ db, functions });
+    app = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("deleteNode (DataSource) — vault.has(apiKeyRef) is false after the delete command", async () => {
+    // Arrange: mint a source with an apiKey through the command vocabulary.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "To Delete",
+      apiKey: "delete-me",
+    });
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: delete via the deleteNode command path (commands.ts ~L1738).
+    await app.call("deleteNode", { id });
+
+    // Assert: the SecretRef was released from the vault before the row dropped.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+  });
+
+  it("deleteNode (DataSource) — both credential refs are released when source has apiKey + connectionString", async () => {
+    // Arrange.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "postgres",
+      name: "PG Source",
+      apiKey: "ak",
+      connectionString: "postgresql://u:p@h/db",
+    });
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    const csRef = config!["connectionString"] as string;
+
+    // Act.
+    await app.call("deleteNode", { id });
+
+    // Assert: both refs are gone.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+    expect(await vault.has(csRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+  });
+
+  it("deleteNode (DataSource) — no-credential source delete succeeds without error", async () => {
+    // A source without any credential fields must be deletable via deleteNode
+    // without the vault being involved (releaseCredentialRefs is a no-op when
+    // the config carries no SecretRefs).
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", { id, type: "csv", name: "No Creds" });
+
+    await expect(app.call("deleteNode", { id })).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretVault lifecycle coupling — preview mode skips vault store
+// ---------------------------------------------------------------------------
+//
+// Contract: when `buildPreviewDiff` runs a credential-bearing batch (e.g.
+// CreateDataSource with an apiKey), the handlers detect `ctx.mode === "preview"`
+// via `modeFromCtx()` and call `storeCredential(..., preview=true)`. In that
+// branch, `storeCredential` returns the sentinel `"secret:preview-noop"` without
+// ever calling `vault.store()`. This means the backend receives no `store()` call
+// and its presence index remains empty for the whole preview.
+//
+// The canonical DB row is also absent (the preview transaction rolled back), so
+// after a preview run: no vault entry exists, no data-source row persists.
+// ---------------------------------------------------------------------------
+
+describe("vault lifecycle — preview mode skips vault store", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+  let storeCallCount: number;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-preview-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    storeCallCount = 0;
+
+    // Wrap vault.store() with a spy so we can assert it was NEVER called
+    // during a preview dispatch. This is the only direct witness for the
+    // "preview-safe store" invariant: storeCredential(preview=true) returns
+    // the sentinel WITHOUT calling vault.store(). backend.hasCallCount is
+    // not a reliable witness because nothing in the preview path calls
+    // vault.has() (no getDataSource in the batch), so it stays 0 regardless.
+    const realStore = vault.store.bind(vault);
+    vault.store = async (...args: Parameters<typeof vault.store>) => {
+      storeCallCount++;
+      return realStore(...args);
+    };
+
+    // No vault wrapper on the raw app: buildPreviewDiff threads the vault through
+    // the `context` arg it passes to applyCommands, so the handlers receive it
+    // via ctx — the same path as the production seam.
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("preview mode — CreateDataSource with apiKey never calls vault.store()", async () => {
+    // Arrange: a credential-bearing CreateDataSource in a preview batch.
+    const sourceId = crypto.randomUUID();
+
+    // Baseline: store has not been called yet.
+    expect(storeCallCount).toBe(0);
+
+    // Act: run preview (execute-then-rollback) with vault injected in context.
+    await buildPreviewDiff(
+      app,
+      db,
+      [
+        cmd("CreateDataSource", {
+          id: sourceId,
+          type: "notion",
+          name: "Preview Src",
+          apiKey: "secret-key",
+        }),
+      ],
+      { vault },
+    );
+
+    // Assert: storeCredential(preview=true) returns "secret:preview-noop"
+    // without calling vault.store(). The spy confirms no call was made.
+    expect(storeCallCount).toBe(0);
+  });
+
+  it("preview mode — CreateDataSource + SetDataSourceConfig leave canonical DB with no data-source row and make zero vault.store() calls", async () => {
+    // Arrange: two credential-bearing commands targeting the same source.
+    const sourceId = crypto.randomUUID();
+
+    // Act: preview the create-then-configure sequence.
+    await buildPreviewDiff(
+      app,
+      db,
+      [
+        cmd("CreateDataSource", {
+          id: sourceId,
+          type: "notion",
+          name: "Preview Src",
+          apiKey: "key-v1",
+        }),
+        cmd("SetDataSourceConfig", { id: sourceId, apiKey: "key-v2" }),
+      ],
+      { vault },
+    );
+
+    // Assert — canonical DB is untouched (the preview transaction rolled back).
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((r) => r.id === sourceId)).toBeUndefined();
+    // Both createDataSource and setDataSourceConfig called storeCredential with
+    // preview=true; neither should have reached vault.store().
+    expect(storeCallCount).toBe(0);
+  });
+
+  it("preview mode — DeleteNode for a credential-bearing DataSource does NOT call vault.delete() (refs survive rollback)", async () => {
+    // Arrange: create a real source with a credential (commit mode, separate
+    // vault-injected app so the ref is live and verifiable via vault.has()).
+    const setupDir = mkdtempSync(join(tmpdir(), "dashframe-vault-del-setup-"));
+    const setupDb = await openArtifactDb({
+      path: join(setupDir, "artifacts.db"),
+    });
+    const rawSetupApp = await createWyStack({ db: setupDb, functions });
+    const setupApp: WyStackApp = {
+      ...rawSetupApp,
+      async call(path, args, ctx) {
+        return rawSetupApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawSetupApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+    const sourceId = crypto.randomUUID();
+    await setupApp.call("createDataSource", {
+      id: sourceId,
+      type: "notion",
+      name: "To Preview Delete",
+      apiKey: "live-key",
+    });
+    const rows = await setupDb.select().from(dataSources);
+    const apiKeyRef = (
+      rows.find((r) => r.id === sourceId)!.config as Record<string, string>
+    )["apiKey"];
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    // Confirm the ref is live before the preview.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: preview a DeleteNode on the SAME db (the source row is visible to
+    // the handler inside the preview transaction).
+    await buildPreviewDiff(
+      setupApp,
+      setupDb,
+      [cmd("DeleteNode", { id: sourceId })],
+      { vault },
+    );
+
+    // Assert: the vault entry MUST still be live after the preview.
+    // The preview rolled back the DB delete, so the source row (and its ref)
+    // survived. If vault.delete() had fired — which it must not — the ref
+    // would be gone and the source would have an unresolvable credential.
+    // The modeFromCtx(ctx) !== "preview" guard in deleteNode prevents this.
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    await setupDb.$client.close();
+    rmSync(setupDir, { recursive: true, force: true });
+  });
+
+  it("preview mode — storeCallCount is 0 but would be >0 in a real commit (spy confirms the guard fires)", async () => {
+    // This test acts as a calibration: it shows that the spy is functional
+    // (a real commit path DOES increment storeCallCount) so the 0-assertions
+    // above are meaningful, not trivially satisfied by a broken spy.
+    //
+    // We compose a separate vault-injected app (same pattern as the delete
+    // tests' beforeEach) and call createDataSource via commit — not preview.
+    const commitDir = mkdtempSync(
+      join(tmpdir(), "dashframe-vault-commit-cal-"),
+    );
+    const commitDb = await openArtifactDb({
+      path: join(commitDir, "artifacts.db"),
+    });
+    const rawApp = await createWyStack({ db: commitDb, functions });
+    const commitApp: WyStackApp = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+
+    await commitApp.call("createDataSource", {
+      id: crypto.randomUUID(),
+      type: "notion",
+      name: "Commit Source",
+      apiKey: "real-key",
+    });
+
+    // The commit path must have called vault.store() — spy confirms it.
+    expect(storeCallCount).toBeGreaterThan(0);
+
+    await commitDb.$client.close();
+    rmSync(commitDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretVault lifecycle coupling — preview mode skips vault delete
+// ---------------------------------------------------------------------------
+//
+// Mirror of the preview-safe-store invariant on the DELETE side. A preview is
+// execute-then-rollback: the DB transaction is undone, so a previewed
+// `DeleteNode` (or `removeDataSource`) leaves the data-source row — and its
+// SecretRefs — intact in the canonical DB. vault.delete() is a keychain
+// side-effect OUTSIDE that transaction; if it fired during a preview, it would
+// permanently orphan the surviving row's refs (vault.has(ref) → false while the
+// row still references it). The handlers detect `ctx.mode === "preview"` via
+// modeFromCtx() and skip releaseCredentialRefs entirely.
+//
+// Witness: a spy on vault.delete() that must stay at 0 during a previewed
+// delete, plus a calibration showing a REAL commit delete DOES release the ref.
+// ---------------------------------------------------------------------------
+
+describe("vault lifecycle — preview mode skips vault delete", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let commitApp: WyStackApp;
+  let previewApp: WyStackApp;
+  let vault: SecretVault;
+  let deleteCallCount: number;
+
+  function wrapWithVault(rawApp: WyStackApp): WyStackApp {
+    return {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-del-preview-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    deleteCallCount = 0;
+
+    // Spy on vault.delete() — the only direct witness that the preview guard
+    // fires. A previewed delete must never reach it.
+    const realDelete = vault.delete.bind(vault);
+    vault.delete = async (...args: Parameters<typeof vault.delete>) => {
+      deleteCallCount++;
+      return realDelete(...args);
+    };
+
+    const rawApp = await createWyStack({ db, functions });
+    // commitApp threads the vault via a wrapper (commit-mode call path).
+    commitApp = wrapWithVault(rawApp);
+    // previewApp runs DeleteNode through buildPreviewDiff, which threads the
+    // vault via the context arg it passes to applyCommands — the production seam.
+    previewApp = rawApp;
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("preview mode — previewing a DeleteNode never calls vault.delete() and the ref survives", async () => {
+    // Arrange: commit a credentialed source so a real SecretRef is live.
+    const id = crypto.randomUUID();
+    await commitApp.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Keep My Creds",
+      apiKey: "do-not-orphan-me",
+    });
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const deleteCountBefore = deleteCallCount;
+
+    // Act: preview a DeleteNode of that source (execute-then-rollback).
+    await buildPreviewDiff(previewApp, db, [cmd("DeleteNode", { id })], {
+      vault,
+    });
+
+    // Assert: the guard fired — vault.delete() was never called during preview.
+    expect(deleteCallCount).toBe(deleteCountBefore);
+    // The canonical row survived the rollback...
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((r) => r.id === id)).toBeDefined();
+    // ...and its credential is still resolvable (NOT orphaned by the preview).
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+  });
+
+  it("commit mode — a real DeleteNode DOES call vault.delete() and releases the ref (calibration)", async () => {
+    // Calibration: proves the spy + release path are wired, so the preview
+    // 0-assertion above is meaningful, not trivially green.
+    const id = crypto.randomUUID();
+    await commitApp.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Delete For Real",
+      apiKey: "release-me",
+    });
+    const config = await readConfig(db, id);
+    const apiKeyRef = config!["apiKey"] as string;
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const deleteCountBefore = deleteCallCount;
+
+    // Act: a real (commit-mode) deleteNode.
+    await commitApp.call("deleteNode", { id });
+
+    // Assert: vault.delete() fired and the ref is gone.
+    expect(deleteCallCount).toBeGreaterThan(deleteCountBefore);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
   });
 });

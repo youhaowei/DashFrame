@@ -4,6 +4,7 @@
  * (transition window while legacy coarse handlers and the command vocabulary coexist).
  */
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
+import { isSecretRef } from "@wystack/secret-vault";
 import type { FunctionContext } from "@wystack/server";
 
 /**
@@ -34,6 +35,26 @@ export function vaultFromCtx(ctx: FunctionContext): SecretVault | undefined {
 }
 
 /**
+ * Extract the execution `mode` flag that `buildPreviewDiff` threads into the
+ * handler context via the `context` bag on `applyCommands`.
+ *
+ * When `mode === "preview"` the handler is running inside an
+ * execute-then-rollback preview transaction. Vault writes (keychain blobs +
+ * mapping rows) are NOT part of that transaction and therefore survive the
+ * rollback — any `vault.store()` call in preview mode mints a permanently
+ * orphaned secret. Callers must skip vault writes when this returns `"preview"`.
+ *
+ * Returns `"commit"` (or `undefined`) for normal mutations.
+ */
+export function modeFromCtx(
+  ctx: FunctionContext,
+): "commit" | "preview" | undefined {
+  const m = ctx.mode;
+  if (m === "preview" || m === "commit") return m;
+  return undefined;
+}
+
+/**
  * Store one connector credential and return its `SecretRef`.
  *
  * The server's contract: a credential can only be persisted as a vault ref. No
@@ -49,16 +70,34 @@ export function vaultFromCtx(ctx: FunctionContext): SecretVault | undefined {
  * composed the server; it knows only "vault present → store ref" / "vault
  * absent → throw".
  *
+ * **Preview mode:** when `preview` is `true` the handler is running inside an
+ * execute-then-rollback transaction. `vault.store()` is a keychain side-effect
+ * that survives the DB rollback, so calling it would permanently orphan a
+ * secret for every preview invocation. Instead, synthesise a throwaway
+ * placeholder ref — the string `"secret:preview-noop"`. It is recognisably
+ * non-canonical (a real ref is a UUID), so it cannot be confused with a real
+ * secret, and it is never written to the mapping store or keychain backend.
+ * The diff produced by preview still type-checks and renders; it just must not
+ * touch the vault.
+ *
  * @param vault     The vault from {@link vaultFromCtx}, or `undefined`.
  * @param plaintext The raw credential to store.
  * @param locatorHint A human-readable hint for the backend's locator.
- * @throws when `vault` is `undefined` — the write must abort, persisting nothing.
+ * @param preview   When `true`, skip the vault write and return a no-op ref.
+ * @throws when `vault` is `undefined` and `preview` is false — the write must
+ *   abort, persisting nothing.
  */
 export async function storeCredential(
   vault: SecretVault | undefined,
   plaintext: string,
   locatorHint: string,
+  preview = false,
 ): Promise<SecretRef> {
+  if (preview) {
+    // Preview mode: return a non-canonical placeholder. Real refs are UUIDs;
+    // this sentinel is intentionally recognisable and never stored.
+    return "secret:preview-noop" as SecretRef;
+  }
   if (vault == null) {
     throw new Error(
       "[secret-vault] cannot store a credential: this server has no vault " +
@@ -66,6 +105,41 @@ export async function storeCredential(
     );
   }
   return vault.store(plaintext, { class: "connector-key", locatorHint });
+}
+
+/**
+ * Release every `SecretRef` present in a `DataSourceConfig` from the vault.
+ * Called before a data-source row is deleted so the mapping row and backend
+ * blob do not accumulate as permanent orphans in the OS keychain.
+ *
+ * **Vault-absent policy (fail-closed consistency):** `storeCredential` throws
+ * when no vault is injected, so a config holding a real `SecretRef` could only
+ * have been written with a vault present. If that same vault is absent at
+ * delete time — which would be a server mis-configuration — we throw rather
+ * than silently leaving an orphan. This keeps the invariant symmetric: the
+ * fail-closed store implies a fail-closed delete.
+ *
+ * `vault.delete(ref)` is idempotent — a missing ref is a no-op — so calling
+ * this on a config with no credential fields is always safe.
+ */
+export async function releaseCredentialRefs(
+  config: DataSourceConfig,
+  vault: SecretVault | undefined,
+): Promise<void> {
+  const refs: string[] = [];
+  if (isSecretRef(config.apiKey)) refs.push(config.apiKey);
+  if (isSecretRef(config.connectionString)) refs.push(config.connectionString);
+  if (refs.length === 0) return;
+  if (vault == null) {
+    throw new Error(
+      "[secret-vault] cannot release credential refs: this server has no vault " +
+        "injected, but the data-source config holds live SecretRefs. " +
+        "A vault that was present at store time must also be present at delete time.",
+    );
+  }
+  for (const ref of refs) {
+    await vault.delete(ref as SecretRef);
+  }
 }
 
 /**
@@ -80,6 +154,9 @@ export async function storeCredential(
  *
  * The vault-absent refusal lives in {@link storeCredential}, so a clear (`""`) or
  * an untouched field (`undefined`) does NOT require a vault — only a real store does.
+ *
+ * @param preview When `true` (preview-mode execution) the vault write is skipped
+ *   and a no-op placeholder ref is stored instead. See {@link storeCredential}.
  */
 export async function applyCredentialField(
   config: DataSourceConfig,
@@ -87,13 +164,14 @@ export async function applyCredentialField(
   value: string | undefined,
   vault: SecretVault | undefined,
   locatorHint: string,
+  preview = false,
 ): Promise<void> {
   if (value === undefined) return; // not part of this write
   if (value.length === 0) {
     delete config[field]; // explicit clear
     return;
   }
-  config[field] = await storeCredential(vault, value, locatorHint);
+  config[field] = await storeCredential(vault, value, locatorHint, preview);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
