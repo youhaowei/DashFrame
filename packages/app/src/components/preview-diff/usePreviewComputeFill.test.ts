@@ -616,6 +616,45 @@ describe("usePreviewComputeFill", () => {
       );
       expect(proposedCall).toBeDefined();
     });
+
+    it("fails honest (no compute) on an un-foldable incremental edit (AddMetric)", async () => {
+      const tableId = "table-incr";
+      mockGetDataTable.mockResolvedValue(makeDataTable(tableId));
+      mockGetDataFrame.mockResolvedValue(makeDataFrame(`df-${tableId}`));
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue("SELECT * FROM incr");
+      mockQuery.mockResolvedValue(makeCountResult(7));
+
+      const node: PreviewDirectNode = {
+        nodeId: "n-incr" as PreviewDirectNode["nodeId"],
+        kind: "insight",
+        name: "Insight incr",
+        change: "update",
+        intent: [],
+        before: {
+          definition: { baseTableId: tableId, selectedFields: [], metrics: [] },
+        },
+        // AddMetric args carry a single `metric` element — un-foldable post-hoc.
+        proposedDefinition: { metric: { id: "m1", aggregation: "count" } },
+      };
+      const diff = makeDiff([node]);
+
+      const { result } = renderHook(() => usePreviewComputeFill(diff));
+
+      // The node resolves to the empty sentinel (unavailable), NOT a stale count:
+      // buildInsightSQL is never invoked for the proposed shape, and the node's
+      // compute slot is the null sentinel rather than a stuck-undefined spinner.
+      await waitFor(() => expect(result.current.allResolved).toBe(true));
+      expect(mockBuildInsightSQL).not.toHaveBeenCalled();
+      const filled = result.current.diff?.directNodes.find(
+        (n) => n.nodeId === "n-incr",
+      );
+      expect(filled?.compute).toEqual({
+        rowCountBefore: null,
+        rowCountAfter: null,
+        head: [],
+      });
+    });
   });
 
   // -------------------------------------------------------------------------

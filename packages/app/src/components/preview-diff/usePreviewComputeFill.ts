@@ -122,6 +122,42 @@ function definitionToInsightLike(
 }
 
 /**
+ * Command-arg keys that carry a genuinely-INCREMENTAL insight edit which cannot
+ * be reconstructed into the final shape from args alone (the original array
+ * element / index must be replayed against the canonical definition):
+ *   - AddField (`field`) / UpdateField (`fieldId`,`updates`) / RemoveField (`fieldId`)
+ *   - AddMetric (`metric`) / UpdateMetric (`metricId`,`updates`) / RemoveMetric (`metricId`)
+ *   - UpdateJoin / RemoveJoin (`joinIndex`,`updates`)
+ *
+ * If `proposedDefinition` carries any of these (and no replace-all array
+ * superseded the same slice), `foldInsightArgs` returns null — the proposed
+ * shape is non-computable, so the renderer shows an honest "unavailable" state
+ * rather than a SILENT STALE count (the canonical count mislabeled as proposed).
+ * `join` (AddJoin) is excluded: it carries a full join object and IS foldable.
+ */
+const UNFOLDABLE_INCREMENTAL_KEYS = [
+  "field",
+  "fieldId",
+  "metric",
+  "metricId",
+  "joinIndex",
+  "updates",
+] as const;
+
+/**
+ * Replace-all command-arg array keys that map 1:1 onto stored-definition keys
+ * (CreateInsight / SetInsightFilter / SetInsightSort / replace-all metrics/joins).
+ * `fieldIds`→`selectedFields` is handled separately (key rename).
+ */
+const REPLACE_ALL_KEYS = [
+  "selectedFields",
+  "metrics",
+  "filters",
+  "sorts",
+  "joins",
+] as const;
+
+/**
  * Fold raw command args (`proposedDefinition`) onto a canonical base definition,
  * producing the SAME final insight shape the mutation would persist.
  *
@@ -132,20 +168,25 @@ function definitionToInsightLike(
  *   - `selectedFields`     → pass through    (CreateInsight)
  *   - `filters`/`sorts`/`metrics`/`joins` → pass through (replace-all commands)
  *   - `baseTableId`        → pass through if present
- *   - `join` (object)      → append/merge onto joins[] (AddJoin/UpdateJoin)
+ *   - `join` (object)      → append/merge onto joins[] (AddJoin)
  *
- * Genuinely-incremental commands that need the original command replayed to fold
- * cleanly (`joinId`-only RemoveJoin/UpdateJoin, AddField/RemoveField/AddMetric
- * with no replace-all array present) can't be reconstructed from args alone. We
- * do the best reconstruction available; if the result has no resolvable base
- * table, `buildProposedInsight` returns null and the renderer shows an honest
- * "unavailable" state rather than a stuck spinner.
+ * Returns null for an un-foldable INCREMENTAL edit (see
+ * UNFOLDABLE_INCREMENTAL_KEYS) so `buildProposedInsight` propagates null and the
+ * renderer shows "unavailable" — fail-honest rather than a silent stale count.
  */
 function foldInsightArgs(
   canonicalDef: Record<string, unknown>,
   proposedArgs: Record<string, unknown>,
   nodeId: UUID,
-): InsightLike {
+): InsightLike | null {
+  // Fail-honest on un-foldable incremental args: we cannot reconstruct the
+  // proposed shape from a single field/metric/join element + the canonical def
+  // without replaying the command, so computing here would mislabel the
+  // canonical (stale) count as the proposed one. Return null → "unavailable".
+  for (const key of UNFOLDABLE_INCREMENTAL_KEYS) {
+    if (proposedArgs[key] !== undefined) return null;
+  }
+
   // Start from the canonical definition (stored key names), then overlay the
   // proposed change with key-name translation.
   const folded: Record<string, unknown> = { ...canonicalDef };
@@ -165,43 +206,41 @@ function foldInsightArgs(
   if (Array.isArray(proposedArgs.fieldIds)) {
     folded.selectedFields = proposedArgs.fieldIds;
   }
-  // Replace-all arrays whose arg names match the stored names.
-  if (Array.isArray(proposedArgs.selectedFields)) {
-    folded.selectedFields = proposedArgs.selectedFields;
-  }
-  if (Array.isArray(proposedArgs.metrics)) {
-    folded.metrics = proposedArgs.metrics;
-  }
-  if (Array.isArray(proposedArgs.filters)) {
-    folded.filters = proposedArgs.filters;
-  }
-  if (Array.isArray(proposedArgs.sorts)) {
-    folded.sorts = proposedArgs.sorts;
-  }
-  if (Array.isArray(proposedArgs.joins)) {
-    folded.joins = proposedArgs.joins;
+  // Replace-all arrays whose arg names match the stored names — pass through.
+  for (const key of REPLACE_ALL_KEYS) {
+    if (Array.isArray(proposedArgs[key])) folded[key] = proposedArgs[key];
   }
 
-  // Incremental single-join arg (AddJoin / UpdateJoin carry a `join` object).
-  // Best-effort fold: append onto the joins array (or merge by rightTableId).
+  // Incremental single-join arg (AddJoin carries a full `join` object).
   if (
     proposedArgs.join &&
     typeof proposedArgs.join === "object" &&
     !Array.isArray(proposedArgs.join)
   ) {
-    const incoming = proposedArgs.join as Record<string, unknown>;
-    const existing = Array.isArray(folded.joins)
-      ? [...(folded.joins as Record<string, unknown>[])]
-      : [];
-    const idx = existing.findIndex(
-      (j) => j.rightTableId === incoming.rightTableId,
+    folded.joins = foldSingleJoin(
+      folded.joins,
+      proposedArgs.join as Record<string, unknown>,
     );
-    if (idx >= 0) existing[idx] = { ...existing[idx], ...incoming };
-    else existing.push(incoming);
-    folded.joins = existing;
   }
 
   return definitionToInsightLike(folded, nodeId);
+}
+
+/**
+ * Fold one AddJoin `join` object onto the existing joins array: merge by
+ * `rightTableId` if a join on that table already exists, else append.
+ */
+function foldSingleJoin(
+  existingJoins: unknown,
+  incoming: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const joins = Array.isArray(existingJoins)
+    ? [...(existingJoins as Record<string, unknown>[])]
+    : [];
+  const idx = joins.findIndex((j) => j.rightTableId === incoming.rightTableId);
+  if (idx >= 0) joins[idx] = { ...joins[idx], ...incoming };
+  else joins.push(incoming);
+  return joins;
 }
 
 /**
@@ -218,7 +257,8 @@ function buildProposedInsight(node: PreviewDirectNode): InsightLike | null {
     node.proposedDefinition,
     node.nodeId,
   );
-  if (!result.baseTableId) return null;
+  // null = un-foldable incremental edit (fail-honest → "unavailable").
+  if (!result || !result.baseTableId) return null;
   return result;
 }
 
@@ -408,6 +448,17 @@ async function computeRowCount(
 
 /** HEAD_N is the number of sample rows to return in the `head` slot. */
 const HEAD_N = 5;
+
+/**
+ * The "unavailable" compute sentinel — a resolved-but-empty result. Distinct
+ * from `undefined` (pending): the renderer shows an honest "unavailable" state
+ * for this, a spinner for `undefined`.
+ */
+const EMPTY_COMPUTE: PreviewCompute = {
+  rowCountBefore: null,
+  rowCountAfter: null,
+  head: [],
+};
 
 /**
  * Compute the head rows (first N rows) for a pre-resolved insight.
@@ -623,13 +674,28 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
     // re-kicks on the next pass).
     const kickedThisPass = new Set<string>();
 
+    // Commit a node's result: mark it COMPLETED for the active diff (so a
+    // same-diff re-run skips it, but only when still the live diff so a stale
+    // result can't poison the ref) and write it through the stale-guard reducer.
+    const commit = (nodeId: string, computeResult: PreviewCompute) => {
+      if (resolvedRef.current.diff === thisDiff) {
+        resolvedRef.current.ids.add(nodeId);
+      }
+      setState((prev) =>
+        mergeComputeResult(
+          prev,
+          thisDiff,
+          currentDiffRef.current,
+          nodeId,
+          computeResult,
+        ),
+      );
+    };
+
     for (const node of diff.directNodes) {
       // Only insight nodes get compute; skip noop (unchanged) nodes.
       if (node.kind !== "insight") continue;
       if (node.change === "noop") continue;
-
-      const proposed = buildProposedInsight(node);
-      if (!proposed) continue;
 
       // Skip nodes already COMPLETED for this diff (cross-render, via the ref)
       // or already kicked earlier in this same pass.
@@ -637,8 +703,17 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
       if (kickedThisPass.has(node.nodeId)) continue;
       kickedThisPass.add(node.nodeId);
 
-      const canonical = buildCanonicalInsight(node);
       const nodeId = node.nodeId;
+      const proposed = buildProposedInsight(node);
+      // Changed insight node we cannot compute (un-foldable incremental edit or
+      // no resolvable base table): commit the empty sentinel NOW so the renderer
+      // shows the honest "unavailable" state instead of a stuck pending spinner.
+      if (!proposed) {
+        commit(nodeId, EMPTY_COMPUTE);
+        continue;
+      }
+
+      const canonical = buildCanonicalInsight(node);
 
       // Fire-and-forget: each node resolves independently.
       (async () => {
@@ -652,33 +727,13 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
             nodeIndex,
           );
         } catch {
-          // Non-fatal: sentinel with nulls so allResolved stops waiting and the
-          // renderer shows the honest "unavailable" state.
-          computeResult = {
-            rowCountBefore: null,
-            rowCountAfter: null,
-            head: [],
-          };
+          // Non-fatal: empty sentinel → allResolved stops waiting, renderer
+          // shows the honest "unavailable" state.
+          computeResult = EMPTY_COMPUTE;
         }
         // Bail before writing if a swap/unmount happened mid-flight (FIX 2a).
         if (cancelled) return;
-        // Mark COMPLETED for the active diff so a same-diff re-run (e.g. DuckDB
-        // reconnect) skips it — but only when this result is for the live diff
-        // (a stale result for a superseded diff must not poison the ref).
-        if (resolvedRef.current.diff === thisDiff) {
-          resolvedRef.current.ids.add(nodeId);
-        }
-        // Stale guard (FIX 2b): drop a late result for a superseded diff. The
-        // reducer compares against the live diff via currentDiffRef.
-        setState((prev) =>
-          mergeComputeResult(
-            prev,
-            thisDiff,
-            currentDiffRef.current,
-            nodeId,
-            computeResult,
-          ),
-        );
+        commit(nodeId, computeResult);
       })();
     }
 
@@ -693,15 +748,12 @@ export function usePreviewComputeFill(diff: PreviewDiff | null): {
 
   if (!diff) return { diff: null, allResolved: true };
 
-  // Derive computable node ids directly from the diff (pure render logic).
-  // A node is computable when: insight kind, non-noop change, valid baseTableId.
+  // Every changed insight node gets a compute slot — either a real count or the
+  // empty sentinel ("unavailable"). Non-computable nodes (un-foldable
+  // incremental edit, no base table) resolve synchronously to the sentinel, so
+  // they still count toward allResolved (they are not stuck pending).
   const computableIds = diff.directNodes
-    .filter(
-      (n) =>
-        n.kind === "insight" &&
-        n.change !== "noop" &&
-        buildProposedInsight(n) !== null,
-    )
+    .filter((n) => n.kind === "insight" && n.change !== "noop")
     .map((n) => n.nodeId);
 
   // Build the filled diff — shallow-clone only; mutate compute slots per-node
