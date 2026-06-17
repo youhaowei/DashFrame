@@ -44,6 +44,7 @@ export type { DataTableField, DataTableInfo } from "./data-table-info";
 export type { UseQueryResult } from "./repository-base";
 
 export type {
+  ConnectorConfig,
   CreateDataSourceInput,
   DataSource,
   DataSourceMutations,

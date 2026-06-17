@@ -174,7 +174,9 @@ describe("vault control-plane — store→ref + has→presence", () => {
 
     // Presence now reads false — no usable credential remains.
     const { result: ds } = await app.call("getDataSource", { id });
-    expect((ds as { hasApiKey: boolean }).hasApiKey).toBe(false);
+    expect((ds as { config: { hasApiKey: boolean } }).config.hasApiKey).toBe(
+      false,
+    );
   });
 
   it("AC2 — setDataSourceConfig with empty apiKey CLEARS the credential", async () => {
@@ -256,9 +258,14 @@ describe("vault control-plane — store→ref + has→presence", () => {
     const id = (createResult as { id: string }).id;
 
     const { result } = await app.call("getDataSource", { id });
-    const ds = result as { hasApiKey: boolean; hasConnectionString: boolean };
-    expect(ds.hasApiKey).toBe(true);
-    expect(ds.hasConnectionString).toBe(false);
+    const ds = result as {
+      config: { hasApiKey: boolean; hasConnectionString: boolean };
+    };
+    expect(ds.config.hasApiKey).toBe(true);
+    expect(ds.config.hasConnectionString).toBe(false);
+    // The SecretRef must NOT appear in the public DTO — only the boolean flag.
+    // Absence here proves rowToDataSource redacts the ref, not just the name.
+    expect((ds.config as Record<string, unknown>)["apiKey"]).toBeUndefined();
   });
 
   it("AC3 — hasApiKey is false when no credential was stored", async () => {
@@ -269,9 +276,11 @@ describe("vault control-plane — store→ref + has→presence", () => {
     const id = (createResult as { id: string }).id;
 
     const { result } = await app.call("getDataSource", { id });
-    const ds = result as { hasApiKey: boolean; hasConnectionString: boolean };
-    expect(ds.hasApiKey).toBe(false);
-    expect(ds.hasConnectionString).toBe(false);
+    const ds = result as {
+      config: { hasApiKey: boolean; hasConnectionString: boolean };
+    };
+    expect(ds.config.hasApiKey).toBe(false);
+    expect(ds.config.hasConnectionString).toBe(false);
   });
 
   it("AC3 — hasApiKey reflects backend.has(), not raw config truthiness", async () => {
@@ -285,8 +294,8 @@ describe("vault control-plane — store→ref + has→presence", () => {
 
     // The backend has() must have been called (not withSecret).
     const { result } = await app.call("getDataSource", { id });
-    const ds = result as { hasApiKey: boolean };
-    expect(ds.hasApiKey).toBe(true);
+    const ds = result as { config: { hasApiKey: boolean } };
+    expect(ds.config.hasApiKey).toBe(true);
     // Verify withSecret was NOT called (control plane never decrypts).
     expect(backend.resolveCallCount).toBe(0);
     // has() was called (presence check).
@@ -306,11 +315,14 @@ describe("vault control-plane — store→ref + has→presence", () => {
     });
 
     const { result } = await app.call("listDataSources", {});
-    const sources = result as { name: string; hasApiKey: boolean }[];
+    const sources = result as {
+      name: string;
+      config: { hasApiKey: boolean };
+    }[];
     const withKey = sources.find((s) => s.name === "With key");
     const withoutKey = sources.find((s) => s.name === "Without key");
-    expect(withKey?.hasApiKey).toBe(true);
-    expect(withoutKey?.hasApiKey).toBe(false);
+    expect(withKey?.config.hasApiKey).toBe(true);
+    expect(withoutKey?.config.hasApiKey).toBe(false);
   });
 });
 

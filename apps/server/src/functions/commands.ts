@@ -320,16 +320,21 @@ const createDataSource = mutation({
  * SetDataSourceConfig — replaces the config slice of a DataSource (the connector
  * secrets). The `name` slice is NOT here — renaming is `RenameNode`. This is the
  * config half decomposed out of the coarse `updateDataSource`.
+ *
+ * `extra` carries optional non-credential connector settings (e.g. database name,
+ * schema). Sink guard: any key in `extra` that matches "apiKey" or
+ * "connectionString" is rejected — callers must use the typed credential fields.
  */
 const setDataSourceConfig = mutation({
   args: {
     id: uuid,
     apiKey: text.optional(),
     connectionString: text.optional(),
+    extra: jsonb.optional(),
   },
   handler: async (
     ctx,
-    { id, apiKey, connectionString },
+    { id, apiKey, connectionString, extra },
   ): Promise<{ ok: true }> => {
     const vault = vaultFromCtx(ctx);
     const preview = modeFromCtx(ctx) === "preview";
@@ -363,6 +368,16 @@ const setDataSourceConfig = mutation({
       `connectionString-${id}`,
       preview,
     );
+    // Sink guard: callers may not sneak credential keys in via `extra`.
+    if (isRecord(extra)) {
+      if ("apiKey" in extra || "connectionString" in extra) {
+        throw new Error(
+          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
+        );
+      }
+      // Merge non-credential keys into the config.
+      Object.assign(config, extra);
+    }
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
   },
@@ -1889,6 +1904,8 @@ export interface CommandPayloads {
     id: UUID;
     apiKey?: string;
     connectionString?: string;
+    /** Non-credential connector settings. Must not include 'apiKey' or 'connectionString'. */
+    extra?: Record<string, unknown>;
   };
   // DataTable
   CreateDataTable: {
