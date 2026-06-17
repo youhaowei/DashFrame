@@ -22,7 +22,7 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import { stripSampleValues } from "@dashframe/types";
+import { isUnmodifiedDraft, stripSampleValues } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
@@ -788,18 +788,72 @@ const createInsight = mutation({
     const opts = (options ?? {}) as {
       selectedFields?: UUID[];
       metrics?: InsightMetric[];
+      /** Opt-in: when this would be an unmodified draft, reuse an existing
+       *  unmodified draft for the same baseTableId instead of inserting a
+       *  duplicate. The auto-draft entry point sets this; explicit creation
+       *  paths (e.g. deriving from an insight) leave it false. */
+      reuseUnmodifiedDraft?: boolean;
     };
-    const [row] = (await ctx.db.into(insights).insert({
-      name,
-      definition: insightToDefinition({
-        baseTableId,
-        selectedFields: opts.selectedFields,
-        metrics: opts.metrics,
-      }),
-      createdBy: { kind: "user" },
-    })) as InsightRow[];
-    if (!row) throw new Error("insert returned no row");
-    return { id: row.id };
+
+    return ctx.db.transaction(async (tx) => {
+      // Reuse is opt-in and only applies when the incoming insight is itself an
+      // unmodified draft. A pre-populated insight (fields/metrics) or any
+      // non-auto-draft caller always inserts a fresh row. Extract the draft
+      // shape explicitly so the predicate reads only the fields it should —
+      // the wider `opts` bag carries the reuse flag itself, which is not part
+      // of the draft definition.
+      const shouldReuse =
+        opts.reuseUnmodifiedDraft === true &&
+        isUnmodifiedDraft({
+          selectedFields: opts.selectedFields,
+          metrics: opts.metrics,
+        });
+
+      if (shouldReuse) {
+        // Atomic check-and-create: scan-and-decide runs inside the transaction
+        // so two concurrent auto-draft calls for the same baseTableId converge
+        // on a single draft rather than racing into duplicates (TOCTOU).
+        //
+        // INVARIANT: this closes the race only while the backend is
+        // single-connection (PGlite, the desktop + `dashframe serve` target),
+        // where transactions serialize at the event loop. A multi-connection
+        // store under READ COMMITTED would let both transactions scan, find no
+        // draft, and both insert — reopening the phantom-read window. Trigger
+        // to revisit if the backend ever becomes multi-connection: add a unique
+        // index on (definition->>'baseTableId') for unmodified drafts, or take
+        // SELECT … FOR UPDATE / serializable isolation here.
+        //
+        // NOTE: baseTableId lives inside the `definition` JSONB column, and
+        // @wystack/db has no JSONB-path filtering — so the scan is a full table
+        // read filtered in JS. Acceptable at current insight-table scale.
+        // Trigger to revisit: when insight count grows enough that this scan
+        // shows up in latency, promote baseTableId to a top-level indexed
+        // column (or add a JSONB expression index) and filter at the DB layer.
+        const rows = (await tx.from(insights).all()) as InsightRow[];
+        const existingDraft = rows
+          .filter(
+            (r) =>
+              (r.definition as InsightDefinition).baseTableId === baseTableId,
+          )
+          .find((r) => isUnmodifiedDraft(r.definition as InsightDefinition));
+
+        if (existingDraft) {
+          return { id: existingDraft.id };
+        }
+      }
+
+      const [row] = (await tx.into(insights).insert({
+        name,
+        definition: insightToDefinition({
+          baseTableId,
+          selectedFields: opts.selectedFields,
+          metrics: opts.metrics,
+        }),
+        createdBy: { kind: "user" },
+      })) as InsightRow[];
+      if (!row) throw new Error("insert returned no row");
+      return { id: row.id };
+    });
   },
 });
 

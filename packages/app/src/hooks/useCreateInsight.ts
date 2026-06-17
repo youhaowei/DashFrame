@@ -3,24 +3,9 @@ import {
   getInsight,
   useInsightMutations,
 } from "@dashframe/core";
-import type { Insight } from "@dashframe/types";
+import { isUnmodifiedDraft } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-
-/**
- * Returns true when an insight is an unmodified auto-draft: no fields selected,
- * no metrics, no filters, no sorts, and no joins. These are safe to reuse
- * rather than accumulate as duplicates.
- */
-function isUnmodifiedDraft(insight: Insight): boolean {
-  return (
-    (insight.selectedFields?.length ?? 0) === 0 &&
-    (insight.metrics?.length ?? 0) === 0 &&
-    (insight.filters?.length ?? 0) === 0 &&
-    (insight.sorts?.length ?? 0) === 0 &&
-    (insight.joins?.length ?? 0) === 0
-  );
-}
 
 /**
  * Creates insights and navigates to their pages.
@@ -33,8 +18,9 @@ function isUnmodifiedDraft(insight: Insight): boolean {
  * to the insight page (action hub) for further configuration.
  *
  * Auto-draft deduplication (createInsightFromTable only):
- * - If an unmodified draft for the same source table already exists, it is
- *   reused (navigated to) rather than creating a duplicate.
+ * - If an unmodified draft for the same source table already exists, the
+ *   server returns it atomically rather than creating a duplicate. Two
+ *   concurrent calls for the same table converge on one draft (no TOCTOU race).
  * - If the existing insight(s) have been modified/saved, a new draft is
  *   created with a disambiguating numeric suffix, e.g. "orders (2)".
  *   A prompt would be less disruptive but would interrupt a routine action;
@@ -67,24 +53,21 @@ export function useCreateInsight() {
   /**
    * Creates a draft insight from a data table and navigates to it.
    *
-   * Dedup gate: if an unmodified draft for the same source table already
-   * exists, this reuses it instead of creating a new one. If the existing
-   * insight was modified, a new draft is created with a numeric suffix.
+   * Dedup: the server handles unmodified-draft reuse atomically — if a draft
+   * already exists for this table it is returned without a new insert. This
+   * hook reads existing insights only to compute a gap-free numeric suffix
+   * when the user already has modified insights for the same table.
    */
   const createInsightFromTable = useCallback(
     async (tableId: string, tableName: string) => {
-      // --- Dedup gate ---
+      // Read existing insights for UX-only purpose: compute a suffix name when
+      // the user already has modified insights for this table. This read is NOT
+      // the authoritative dedup gate — the server closes the TOCTOU race by
+      // wrapping the check-and-insert in one transaction.
       const allInsights = await getAllInsights();
       const sameTableInsights = allInsights.filter(
         (i) => i.baseTableId === tableId,
       );
-
-      // Reuse an existing unmodified draft rather than accumulating duplicates.
-      const existingDraft = sameTableInsights.find(isUnmodifiedDraft);
-      if (existingDraft) {
-        navigate({ to: `/insights/${existingDraft.id}` } as never);
-        return existingDraft.id;
-      }
 
       // One or more modified insights exist for this table — create a new draft
       // with a numeric suffix so the user can distinguish without a modal prompt.
@@ -94,8 +77,24 @@ export function useCreateInsight() {
       // Use the first gap-free suffix to avoid collisions when insights are
       // deleted and re-created (e.g. "orders (2)" deleted → next should be
       // "orders (2)", not "orders (3)").
+      //
+      // When all existing insights for this table are unmodified drafts (or none
+      // exist), pass the base name — the server will return the existing draft
+      // or create a new one atomically.
       let name = tableName;
-      if (sameTableInsights.length > 0) {
+      const modifiedInsights = sameTableInsights.filter(
+        (i) => !isUnmodifiedDraft(i),
+      );
+      const hasModifiedInsights = modifiedInsights.length > 0;
+      if (hasModifiedInsights) {
+        // The suffix is computed from a point-in-time client snapshot and is
+        // NOT race-protected on the server. Two rapid concurrent clicks on a
+        // table that already has a modified insight can both compute the same
+        // suffix ("orders (2)") and insert two same-named rows. This is the
+        // pre-existing suffix-naming behavior (unchanged by the dedup fix);
+        // it's non-destructive (duplicate name, no data loss). Trigger to
+        // address if duplicate-named drafts become a reported problem: move
+        // suffix assignment server-side inside the transaction.
         const existingNames = new Set(sameTableInsights.map((i) => i.name));
         let suffix = 2;
         while (existingNames.has(`${tableName} (${suffix})`)) {
@@ -104,11 +103,19 @@ export function useCreateInsight() {
         name = `${tableName} (${suffix})`;
       }
 
-      // Create draft insight with empty fields (shows preview + suggestions)
+      // Create (or reuse) a draft insight with empty fields.
+      //
+      // Only opt into reuseUnmodifiedDraft when NO modified insight forces a
+      // suffix. When the suffix path fires, the user is explicitly making a new
+      // distinguishable draft ("orders (2)") — reusing an existing "orders"
+      // draft would discard that name and land them on the wrong insight. With
+      // the flag set, the server returns an existing unmodified draft for this
+      // baseTableId atomically, so two concurrent first-clicks converge on one
+      // draft (no TOCTOU race).
       const insightId = await createInsight(
         name,
         tableId, // baseTableId
-        { selectedFields: [] }, // Empty for draft state
+        { selectedFields: [], reuseUnmodifiedDraft: !hasModifiedInsights },
       );
 
       // Navigate to insight page (action hub)
@@ -134,11 +141,14 @@ export function useCreateInsight() {
         return null;
       }
 
-      // Create a new insight using the same base table
+      // Create a new insight using the same base table. Derived insights are an
+      // explicit creation intent, so they don't opt into reuseUnmodifiedDraft —
+      // each call gets a fresh row rather than being rerouted to an existing
+      // unmodified draft for the same baseTableId.
       const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
         sourceInsight.baseTableId,
-        { selectedFields: [] }, // Empty for draft state
+        { selectedFields: [] },
       );
 
       // Navigate to new insight
