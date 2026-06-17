@@ -217,6 +217,72 @@ export interface DashframeServer {
   stop(): void;
 }
 
+/**
+ * Build the WyStack app with vault injection and onWrite hook wiring — without
+ * starting an HTTP server.
+ *
+ * Extracted from `createDashframeServer` so the vault-injection seam (the
+ * anti-shadow merge and the short-circuit path) can be driven by direct unit
+ * tests without a live socket. `createDashframeServer` calls this internally;
+ * tests import and exercise it directly.
+ *
+ * Security invariant: `vault` is injected into every handler context via a
+ * static spread that wins over per-call context. The merge order
+ * `{ ...(context ?? {}), ...staticContext }` means the vault key cannot be
+ * shadowed by a caller-supplied context — the vault identity is fixed for the
+ * lifetime of the returned app.
+ *
+ * onWrite/runHandler asymmetry: `onWrite` fires after a write committed via
+ * `call` (`tablesWritten.size > 0`) but NOT after writes triggered by
+ * `runHandler`. The `runHandler` path is a lower-level escape hatch that
+ * bypasses the call-result shape; callers invoking it directly are responsible
+ * for their own side-effects. This asymmetry is a known gap tracked separately.
+ */
+export async function buildDashframeApp(opts: {
+  db: object;
+  vault?: SecretVault;
+  onWrite?: () => void;
+}): Promise<WyStackApp> {
+  const rawApp = await createWyStack({ db: opts.db, functions });
+
+  const { vault, onWrite } = opts;
+
+  // Build the static context additions once so every call shares the same object
+  // reference (vault identity is stable for the server lifetime).
+  const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
+  const hasStaticContext = Object.keys(staticContext).length > 0;
+
+  return vault == null && onWrite == null
+    ? rawApp
+    : {
+        ...rawApp,
+        async call(path, args, context) {
+          // Static context wins over per-request context: spread per-request
+          // first so that static keys (vault) cannot be shadowed by a crafted
+          // request context. The vault identity must be fixed for the server
+          // lifetime; a request-supplied vault key would be ignored.
+          const merged = hasStaticContext
+            ? { ...(context ?? {}), ...staticContext }
+            : context;
+          const result = await rawApp.call(path, args, merged);
+          if (onWrite != null && result.tablesWritten.size > 0) {
+            try {
+              onWrite();
+            } catch (err) {
+              console.error("[dashframe] onWrite hook threw:", err);
+            }
+          }
+          return result;
+        },
+        async runHandler(path, args, tracked, context) {
+          const merged = hasStaticContext
+            ? { ...(context ?? {}), ...staticContext }
+            : context;
+          return rawApp.runHandler(path, args, tracked, merged);
+        },
+      };
+}
+
 export async function createDashframeServer(
   opts: DashframeServerOptions,
 ): Promise<DashframeServer> {
@@ -256,60 +322,39 @@ export async function createDashframeServer(
     resolveContext = createTokenResolver(opts.authToken);
   }
 
-  const rawApp = await createWyStack({ db: opts.db, functions });
-
   // Wrap the WyStack app to inject the vault into every handler context and
   // to fire `opts.onWrite` after every successful mutation.
-  //
-  // Vault injection: the vault is a static server-level dependency — the same
-  // SecretVault instance for the entire server lifetime. It is injected at the
-  // `call`/`runHandler` level (not per-request via resolveContext) because it
-  // does not vary per request and the INVARIANT is that the server RECEIVES a
-  // fully-composed vault rather than building one itself.
-  //
-  // `vault` wins over per-request context (static spread LAST so its keys
-  // cannot be shadowed by a crafted request context). `ctx.vault` is what
-  // handlers read via `(ctx.vault as SecretVault | undefined)`.
-  //
-  // onWrite: fires after every committed write mutation (tablesWritten.size > 0).
-  // Runs AFTER `call` commits — a throw must NOT fail the mutation, so errors
-  // are logged and swallowed.
-  const { vault, onWrite } = opts;
+  const vaultWrapped = await buildDashframeApp({
+    db: opts.db,
+    vault: opts.vault,
+    onWrite: opts.onWrite,
+  });
 
-  // Build the static context additions once so every call shares the same object
-  // reference (vault identity is stable for the server lifetime).
-  // wyStackApp and artifactDb are injected after app is assigned (see below).
-  const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
-
+  // Inject server-level references needed by the previewDiff query handler
+  // (wyStackApp, artifactDb). These are server-only concerns — separate from
+  // the vault+onWrite seam in buildDashframeApp. Done via a thin wrapper so
+  // vaultWrapped (the vault seam) stays testable in isolation.
+  //
+  // The mutation pattern: staticContext is a shared object closed over by the
+  // wrapper; wyStackApp is populated after assignment because it IS the wrapped
+  // app reference. Both keys win over per-request context (spread LAST).
+  const serverContext: Record<string, unknown> = {};
   const app: WyStackApp = {
-    ...rawApp,
+    ...vaultWrapped,
     async call(path, args, context) {
-      // Static context wins over per-request context: spread per-request
-      // first so that static keys (vault, wyStackApp, artifactDb) cannot be
-      // shadowed by a crafted request context. The vault identity must be
-      // fixed for the server lifetime; a request-supplied vault key would
-      // be ignored.
-      const merged = { ...(context ?? {}), ...staticContext };
-      const result = await rawApp.call(path, args, merged);
-      if (onWrite != null && result.tablesWritten.size > 0) {
-        try {
-          onWrite();
-        } catch (err) {
-          console.error("[dashframe] onWrite hook threw:", err);
-        }
-      }
-      return result;
+      const merged = { ...(context ?? {}), ...serverContext };
+      return vaultWrapped.call(path, args, merged);
     },
     async runHandler(path, args, tracked, context) {
-      const merged = { ...(context ?? {}), ...staticContext };
-      return rawApp.runHandler(path, args, tracked, merged);
+      const merged = { ...(context ?? {}), ...serverContext };
+      return vaultWrapped.runHandler(path, args, tracked, merged);
     },
   };
 
   // Inject app + db references needed by the previewDiff query handler.
   // Done post-assignment because app itself is the wrapped version.
-  staticContext.wyStackApp = app;
-  staticContext.artifactDb = opts.db;
+  serverContext.wyStackApp = app;
+  serverContext.artifactDb = opts.db;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
