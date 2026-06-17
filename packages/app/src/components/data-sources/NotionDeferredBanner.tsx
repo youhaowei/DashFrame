@@ -30,7 +30,7 @@ export function NotionDeferredBanner() {
 }
 
 /**
- * Feature flag — flip to `true` once the Notion router is hosted somewhere
- * Vite can reach (see the tracking ticket).
+ * Feature flag — `true` now that the Notion router is hosted in the desktop
+ * server and the connector is wired via the auth-blind server seam.
  */
-export const NOTION_ENABLED = false;
+export const NOTION_ENABLED = true;
