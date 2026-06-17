@@ -26,8 +26,10 @@
  *   Only available when the engine implements `registerArrowTable` (i.e. the
  *   native engine is wired — not the web-WASM degenerate case).
  */
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
@@ -49,12 +51,27 @@ export interface ArrowDataPathOptions {
   /** The engine that executes compiled SQL and returns Arrow IPC. */
   engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   /**
-   * Per-launch loopback bearer token. When set, every request must carry
-   * `Authorization: Bearer <token>`. When unset, the path is open (loopback
-   * `dashframe serve` without `--token`) — the same policy as the WyStack
-   * server's optional auth.
+   * Per-launch loopback bearer token (plaintext). When set, every request must
+   * carry `Authorization: Bearer <token>`. When unset, the path is open
+   * (loopback `dashframe serve` without `--token`) — the same policy as the
+   * WyStack server's optional auth.
+   *
+   * Mutually exclusive with `authRef` + `vault`. Kept for backward compat
+   * (existing tests and `dashframe serve`).
    */
   authToken?: string;
+  /**
+   * Vault-backed auth ref — the vault-stored alternative to `authToken`.
+   * When both `authRef` and `vault` are present, token verification resolves
+   * the expected value from the vault at each request rather than comparing
+   * against a plaintext field. `authToken` is ignored when this pair is set.
+   */
+  authRef?: SecretRef;
+  /**
+   * The SecretVault instance paired with `authRef`. Must be provided whenever
+   * `authRef` is set.
+   */
+  vault?: SecretVault;
 }
 
 /** Native shape: `{ sql, params? }` */
@@ -152,20 +169,74 @@ async function dispatchArrowQuery(
 }
 
 /**
+ * Resolve whether the incoming request is authorized.
+ *
+ * FAIL-CLOSED contract. An auth gate must never wave a request through on an
+ * error or misconfiguration — that is the worst failure mode for a security
+ * boundary. Every branch that cannot positively confirm the token denies it.
+ *
+ * Priority:
+ *   1. `authRef` set — vault-backed auth is configured. The expected token is
+ *      resolved from the vault at call time (no plaintext held in a field). If
+ *      `vault` is missing (misconfiguration), or `withSecret` rejects (e.g. a
+ *      missing/corrupt keychain blob), the request is DENIED — never allowed.
+ *   2. `authToken` set — compare against the plaintext bearer token (legacy /
+ *      backward-compat path for tests and `dashframe serve`).
+ *   3. Neither — no auth configured; the path is open (loopback dev / serve
+ *      without a token). This is the only allow-without-token branch and it is
+ *      reached ONLY when the caller configured no auth at all.
+ *
+ * Returns `true` only when auth passes or no auth is configured; `false` in
+ * every other case (wrong token, missing vault, resolution failure).
+ */
+async function checkAuth(
+  authHeader: string | undefined,
+  options: ArrowDataPathOptions,
+): Promise<boolean> {
+  if (options.authRef) {
+    // Vault is required whenever authRef is set. createArrowDataPath enforces
+    // this at construction, but defend here too: a missing vault means we
+    // cannot resolve the expected token, so we must DENY (fail closed), never
+    // fall through to the open branch.
+    if (!options.vault) return false;
+    try {
+      return await options.vault.withSecret(options.authRef, async (expected) =>
+        tokenOk(authHeader, expected),
+      );
+    } catch {
+      // Resolution failed (missing/corrupt keychain blob, vault error). Auth
+      // cannot be confirmed → deny. Surfaces to the caller as 401, not 500.
+      return false;
+    }
+  }
+  if (options.authToken) {
+    return tokenOk(authHeader, options.authToken);
+  }
+  return true; // no auth configured — path is open
+}
+
+/**
  * Build a Hono router exposing the Arrow data path.
  * Mount it on the loopback host (e.g. under `/data`).
  */
 export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
+  // Fail-closed invariant: authRef requires vault. Without the vault the ref
+  // cannot be resolved and the gate would have no way to validate tokens.
+  // Refuse to construct the router rather than silently run an unguarded path.
+  if (options.authRef && !options.vault) {
+    throw new Error(
+      "createArrowDataPath: authRef requires vault — supply a SecretVault " +
+        "instance when using vault-backed auth.",
+    );
+  }
+
   const app = new Hono();
 
   // -------------------------------------------------------------------------
   // POST /arrow  — query endpoint (native shape + Mosaic Coordinator shape)
   // -------------------------------------------------------------------------
   app.post("/arrow", async (c) => {
-    if (
-      options.authToken &&
-      !tokenOk(c.req.header("authorization"), options.authToken)
-    ) {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -183,10 +254,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // POST /tables/:name  — register an Arrow IPC buffer as a named table
   // -------------------------------------------------------------------------
   app.post("/tables/:name", async (c) => {
-    if (
-      options.authToken &&
-      !tokenOk(c.req.header("authorization"), options.authToken)
-    ) {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -281,13 +349,11 @@ function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
 function tokenOk(authHeader: string | undefined, expected: string): boolean {
   if (!authHeader?.startsWith("Bearer ")) return false;
   const token = authHeader.slice("Bearer ".length);
-  // Constant-time-ish: same-length compare. The loopback token is high-entropy
-  // and the surface is local-only, so a length-leak is not a meaningful vector
-  // here, but avoid early-exit on the common-prefix case.
-  if (token.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < token.length; i++) {
-    diff |= token.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return diff === 0;
+  // Hash both sides to fixed-length SHA-256 digests before the constant-time
+  // compare, so neither the length nor any prefix of the token leaks via timing.
+  // This matches the server's tokenMatches (app.ts) — one comparison discipline
+  // across both auth sinks.
+  const actualBytes = createHash("sha256").update(token).digest();
+  const expectedBytes = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(actualBytes, expectedBytes);
 }

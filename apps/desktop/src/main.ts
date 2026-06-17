@@ -12,9 +12,15 @@ import {
   createDashframeServer,
   type DashframeServer,
 } from "@dashframe/server/app";
-import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
+import {
+  isSecretRef,
+  SecretRegistry,
+  SecretVault,
+  type SecretRef,
+} from "@wystack/secret-vault";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { Lifecycle } from "./lifecycle.js";
@@ -36,6 +42,82 @@ let secretVault: SecretVault | null = null;
 
 function createLoopbackToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+/** Sidecar marker recording the current launch's serve-token vault ref. */
+const SERVE_TOKEN_REF_FILE = "serve-token.ref";
+
+/**
+ * Result of provisioning the per-launch serve token. A discriminated union so
+ * exactly one path is type-enforced (never both, never neither):
+ *   - `authRef`   — vault-backed path (keychain available). The server resolves
+ *                   the token from the vault; no plaintext at the server.
+ *   - `authToken` — process-memory fallback (keychain unavailable). The token
+ *                   lives only in memory for this launch; never written at rest.
+ */
+type ServeTokenResult =
+  | { authRef: SecretRef; authToken?: undefined }
+  | { authToken: string; authRef?: undefined };
+
+/**
+ * Provision the per-launch serve token through the SecretVault, with two
+ * non-happy-path behaviors:
+ *
+ *   1. Stale-entry cleanup — read the prior launch's ref from the sidecar
+ *      marker and `vault.delete` it before storing the new token, so the
+ *      `secret_mappings` row + keychain blob from the previous launch do not
+ *      accumulate unbounded. The new ref is then written back to the marker.
+ *
+ *   2. Keychain-unavailable fallback — the serve token is ephemeral (minted
+ *      every launch, never resolved across restarts). When the OS keychain is
+ *      unavailable (e.g. Linux without libsecret, or the rejected `basic_text`
+ *      backend), `vault.store` throws; rather than blocking startup, fall back
+ *      to a process-memory token. Plaintext-never-AT-REST is preserved either
+ *      way — the fallback keeps the token only in memory.
+ */
+async function storeServeToken(
+  vault: SecretVault,
+  projectDir: string,
+  token: string,
+): Promise<ServeTokenResult> {
+  const markerPath = path.join(projectDir, SERVE_TOKEN_REF_FILE);
+
+  // Cleanup: delete the prior launch's serve-token entry (mapping row + blob).
+  // Best-effort — a missing/corrupt marker or a delete failure must not block
+  // startup; the worst case is one orphaned entry, not a broken launch.
+  try {
+    const prior = (await fs.readFile(markerPath, "utf8")).trim();
+    if (isSecretRef(prior)) {
+      await vault.delete(prior);
+    }
+  } catch {
+    // No prior marker (first launch) or unreadable — nothing to clean up.
+  }
+
+  try {
+    const authRef = await vault.store(token, { class: "serve-token" });
+    // Persist the new ref so the next launch can clean it up. Best-effort: a
+    // write failure only risks a future orphan, not this launch.
+    try {
+      await fs.writeFile(markerPath, authRef, { mode: 0o600 });
+    } catch (err) {
+      console.warn(
+        "[dashframe] could not persist serve-token marker (cleanup may orphan one entry):",
+        err,
+      );
+    }
+    return { authRef };
+  } catch (err) {
+    // Keychain unavailable — the serve token is ephemeral, so degrade to a
+    // process-memory token instead of failing startup. Remove any stale marker
+    // (the vault path is not in use this launch).
+    console.warn(
+      "[dashframe] vault unavailable for serve token; falling back to in-memory token (not at rest):",
+      err,
+    );
+    await fs.rm(markerPath, { force: true }).catch(() => {});
+    return { authToken: token };
+  }
 }
 
 async function createWindow(): Promise<void> {
@@ -233,10 +315,36 @@ app
       lifecycle.setEngine(engine);
       console.log("[dashframe] native DuckDB engine ready");
 
+      // Store the per-launch token in the vault — "serve-token" class routes to
+      // the OS keychain (registered above). No plaintext token persists in a
+      // server field; the server resolves it from the vault at each request's
+      // auth gate.
+      //
+      // Two non-happy-path concerns are handled here:
+      //   - Stale-entry cleanup: each launch mints a fresh token, so the prior
+      //     launch's serve-token mapping row + keychain blob would accumulate
+      //     unbounded. We persist the ref in a sidecar marker and delete the
+      //     prior entry before storing the new one (overwrite semantics).
+      //   - Keychain unavailable: the serve token is EPHEMERAL (regenerated per
+      //     launch, never needed across restarts), so when the OS keychain is
+      //     unavailable (Linux without libsecret, or the rejected basic_text
+      //     backend) we fall back to a process-memory token instead of failing
+      //     startup. Plaintext-never-AT-REST holds either way — the fallback
+      //     keeps the token only in process memory.
+      const authResult = await storeServeToken(
+        secretVault as SecretVault,
+        project.dir,
+        authToken,
+      );
+
       server = await createDashframeServer({
         db: project.db,
         corsOrigin,
-        authToken,
+        // Vault path passes a ref (no plaintext at the server); the
+        // keychain-unavailable fallback passes the plaintext token directly
+        // (process-memory only). Exactly one of these is set.
+        authRef: authResult.authRef,
+        authToken: authResult.authToken,
         arrowEngine: engine,
         // Wire the debounced snapshot scheduler: fire touchSnapshot after every
         // committed artifact-DB write so a crash mid-session loses at most

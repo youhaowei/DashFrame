@@ -40,7 +40,11 @@ import {
 } from "@dashframe/engine-server/arrow-data-path";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
-import type { SecretVault } from "@wystack/secret-vault";
+import {
+  isSecretRef,
+  type SecretRef,
+  type SecretVault,
+} from "@wystack/secret-vault";
 import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
@@ -88,19 +92,21 @@ function isLoopbackHost(hostname: string | undefined): boolean {
 export function assertBindAuthorized(opts: {
   hostname: string | undefined;
   authToken: string | undefined;
+  authRef?: SecretRef;
   insecure?: boolean;
 }): void {
   const loopback = isLoopbackHost(opts.hostname);
-  if (!loopback && !opts.authToken && !opts.insecure) {
+  const hasAuth = Boolean(opts.authToken) || isSecretRef(opts.authRef);
+  if (!loopback && !hasAuth && !opts.insecure) {
     throw new Error(
       `createDashframeServer: refusing to bind ${opts.hostname} without an auth token. ` +
         `A non-loopback bind exposes the project to the network. ` +
-        `Supply authToken, or set insecure: true to opt out deliberately.`,
+        `Supply authToken or authRef, or set insecure: true to opt out deliberately.`,
     );
   }
-  if (opts.insecure && !opts.authToken && !loopback) {
+  if (opts.insecure && !hasAuth && !loopback) {
     console.warn(
-      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
+      "[dashframe] warning: insecure non-loopback bind without authToken or authRef exposes this project to the network",
     );
   }
 }
@@ -140,8 +146,20 @@ export interface DashframeServerOptions {
    *
    * Security: omitting this on a non-loopback bind causes `createDashframeServer`
    * to throw. Pass `insecure: true` to deliberately opt out of this requirement.
+   *
+   * Kept for backward compat — existing tests and `dashframe serve` pass
+   * plaintext here. Prefer `authRef` + `vault` for new surfaces.
    */
   authToken?: string;
+  /**
+   * Vault-backed alternative to `authToken`. When both `authRef` and `vault`
+   * are present the server resolves the expected token from the vault at each
+   * request's auth gate — no plaintext token is stored in a server field.
+   *
+   * `authToken` is ignored when this pair is set. Satisfies the non-loopback
+   * auth gate in the same way a plaintext `authToken` does.
+   */
+  authRef?: SecretRef;
   /**
    * Opt out of the non-loopback auth requirement. Use only in controlled
    * environments where the network exposure is intentional. The factory will
@@ -211,13 +229,32 @@ export async function createDashframeServer(
   assertBindAuthorized({
     hostname,
     authToken: opts.authToken,
+    authRef: opts.authRef,
     insecure: opts.insecure,
   });
 
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
-  const resolveContext = opts.authToken
-    ? createTokenResolver(opts.authToken)
-    : undefined;
+
+  // Resolve the auth context builder: vault-backed ref takes priority over
+  // plaintext token. Both produce the same (req) → context shape for WyStack.
+  //
+  // Defensive invariant: authRef requires vault — the ref is meaningless
+  // without the mapping store and backend. A missing vault silently falls
+  // through to unauthenticated without this guard; fail loudly instead.
+  if (opts.authRef && !opts.vault) {
+    throw new Error(
+      "createDashframeServer: authRef requires vault — supply a SecretVault " +
+        "instance when using vault-backed auth.",
+    );
+  }
+  let resolveContext:
+    | ((req: Request) => Promise<Record<string, unknown>>)
+    | undefined;
+  if (opts.authRef && opts.vault) {
+    resolveContext = createVaultTokenResolver(opts.authRef, opts.vault);
+  } else if (opts.authToken) {
+    resolveContext = createTokenResolver(opts.authToken);
+  }
 
   const rawApp = await createWyStack({ db: opts.db, functions });
 
@@ -296,7 +333,9 @@ export async function createDashframeServer(
       "/data",
       createArrowDataPath({
         engine: opts.arrowEngine,
-        authToken: opts.authToken,
+        ...(opts.authRef && opts.vault
+          ? { authRef: opts.authRef, vault: opts.vault }
+          : { authToken: opts.authToken }),
       }),
     );
   }
@@ -343,6 +382,42 @@ function createTokenResolver(
       ? auth.slice("Bearer ".length)
       : "";
     if (!tokenMatches(token, expectedToken)) {
+      throw new Error("Unauthorized");
+    }
+    return {};
+  };
+}
+
+/**
+ * Vault-backed token resolver. Resolves the expected token from the vault at
+ * each request — no plaintext is held in a server field. Returned resolver has
+ * the same signature as the one returned by `createTokenResolver`.
+ *
+ * FAIL-CLOSED: any failure to resolve the expected token (missing/corrupt
+ * keychain blob, vault error) denies the request. The throw propagates to
+ * WyStack's route handler, which maps it to 401 — never a 500 that would leak
+ * the vault state, and never an allow.
+ */
+function createVaultTokenResolver(
+  authRef: SecretRef,
+  vault: SecretVault,
+): (req: Request) => Promise<Record<string, unknown>> {
+  return async (req) => {
+    const auth = req.headers.get("authorization") ?? "";
+    const token = auth.startsWith("Bearer ")
+      ? auth.slice("Bearer ".length)
+      : "";
+    let authorized = false;
+    try {
+      authorized = await vault.withSecret(authRef, async (expected) =>
+        tokenMatches(token, expected),
+      );
+    } catch {
+      // Resolution failed — cannot confirm the token, so deny. Fall through to
+      // the Unauthorized throw below (→ 401), never surface a 500 or allow.
+      authorized = false;
+    }
+    if (!authorized) {
       throw new Error("Unauthorized");
     }
     return {};

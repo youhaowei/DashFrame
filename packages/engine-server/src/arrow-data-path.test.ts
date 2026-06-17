@@ -1,3 +1,10 @@
+import {
+  InMemoryMappingStore,
+  makeSecretRef,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it } from "vitest";
 
@@ -247,5 +254,82 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       expect(engine.registrations).toHaveLength(1);
       expect(engine.registrations[0]?.name).toBe("df_ok");
     }
+  });
+});
+
+describe("Arrow data path — vault-backed auth (fail-closed)", () => {
+  function buildVault(storedToken: string): {
+    vault: SecretVault;
+    store: () => Promise<ReturnType<typeof makeSecretRef>>;
+  } {
+    const registry = new SecretRegistry();
+    registry.register("test", new TestBackend(), { fallback: true });
+    registry.setClassDefault("serve-token", "test");
+    const vault = new SecretVault(registry, new InMemoryMappingStore());
+    return {
+      vault,
+      store: () => vault.store(storedToken, { class: "serve-token" }),
+    };
+  }
+
+  it("resolves the expected token from the vault: correct Bearer → 200", async () => {
+    const { vault, store } = buildVault(TOKEN);
+    const authRef = await store();
+    const app = createArrowDataPath({ engine: fakeEngine(), authRef, vault });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ sql: "SELECT 1" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a wrong token against the vault-stored token → 401", async () => {
+    const { vault, store } = buildVault(TOKEN);
+    const authRef = await store();
+    const app = createArrowDataPath({ engine: fakeEngine(), authRef, vault });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer wrong",
+      },
+      body: JSON.stringify({ sql: "SELECT 1" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("FAIL-CLOSED: authRef without vault throws at construction (never an unguarded path)", () => {
+    // The worst failure for an auth gate is to serve traffic unauthenticated.
+    // A misconfigured caller (authRef set, vault missing) must not produce a
+    // router that waves requests through — it must refuse to construct.
+    expect(() =>
+      createArrowDataPath({ engine: fakeEngine(), authRef: makeSecretRef() }),
+    ).toThrow(/authRef requires vault/i);
+  });
+
+  it("FAIL-CLOSED: a vault resolution failure denies the request (401, not 500/allow)", async () => {
+    // authRef present but the ref was never stored → withSecret rejects. The
+    // gate must deny (401), never crash (500) and never allow.
+    const registry = new SecretRegistry();
+    registry.register("test", new TestBackend(), { fallback: true });
+    const vault = new SecretVault(registry, new InMemoryMappingStore());
+    const unstoredRef = makeSecretRef();
+    const engine = fakeEngine();
+    const app = createArrowDataPath({ engine, authRef: unstoredRef, vault });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ sql: "SELECT 1" }),
+    });
+    expect(res.status).toBe(401);
+    // The engine never ran — auth failed closed before dispatch.
+    expect(engine.calls).toHaveLength(0);
   });
 });
