@@ -33,9 +33,6 @@
     "@tanstack/react-router": "^1.169.2",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.12",
-    "@trpc/client": "^11.0.0",
-    "@trpc/react-query": "^11.0.0",
-    "@trpc/server": "^11.0.0",
     "@uwdata/vgplot": "^0.21.1",
     "apache-arrow": "^21.1.0",
     "class-variance-authority": "^0.7.1",
@@ -51,7 +48,6 @@
     "react-markdown": "^10.1.0",
     "react-resizable": "^3.0.5",
     "sonner": "^2.0.7",
-    "superjson": "^2.0.0",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.12",
     "zustand": "^5.0.8"
