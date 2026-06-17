@@ -436,7 +436,7 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("noopResolver for public endpoints", () => {
-    it("calls fetch with empty Authorization header for public endpoints", async () => {
+    it("calls fetch without Authorization header for public endpoints", async () => {
       let capturedHeaders: Record<string, string> = {};
       const mockFetch = vi
         .fn()
@@ -452,8 +452,8 @@ describe("RestConnector", () => {
       await c.query("db", crypto.randomUUID());
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      // noopResolver passes empty string as token → "Bearer "
-      expect(capturedHeaders["Authorization"]).toBe("Bearer ");
+      // noopResolver passes empty string as token → no Authorization header sent
+      expect(capturedHeaders["Authorization"]).toBeUndefined();
     });
   });
 });

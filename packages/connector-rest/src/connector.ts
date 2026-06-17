@@ -383,9 +383,8 @@ export class RestConnector extends RemoteApiConnector {
    */
   async connect(): Promise<RemoteDatabase[]> {
     return this.auth(async (token) => {
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${token}`,
-      };
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const method = this.#config.method ?? "GET";
       await fetchPage(this.#config.endpoint, method, headers);
       return [
@@ -412,9 +411,8 @@ export class RestConnector extends RemoteApiConnector {
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
     return this.auth(async (token) => {
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${token}`,
-      };
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
 
       // Fetch all pages
       const rawRows = await fetchAllPages(this.#config, headers);
