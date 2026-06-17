@@ -6,7 +6,7 @@
 
 export const ASSISTANT_VERSION = "0.0.0" as const;
 
-// Typed tool-layer helper — the seam mutation (YW-279) and read (YW-280) tools build through.
+// Typed tool-layer helper — the seam all assistant mutation and read tools build through.
 export {
   Check,
   Errors,

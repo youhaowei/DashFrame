@@ -79,7 +79,7 @@ export interface ToolHandlerConfig<TParams extends TSchema, TDetails> {
    * thrown errors and marks the ToolResultMessage as isError: true.
    *
    * Note: pi's prepareToolCall passes an onUpdate streaming callback as the 4th
-   * argument. This helper omits it because YW-279/YW-280 tools are atomic; add
+   * argument. This helper omits it because assistant tools are currently atomic; add
    * onUpdate to the signature if incremental progress becomes needed.
    */
   execute: (
