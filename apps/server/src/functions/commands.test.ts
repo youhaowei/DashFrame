@@ -2761,4 +2761,281 @@ describe("command vocabulary", () => {
       expect(row?.metrics).toEqual([]);
     });
   });
+
+  describe("JSONB payload validation (sink-guard: validate at point of USE)", () => {
+    // Corrupt / unexpected JSONB blobs must produce a clear validation error,
+    // never throw on property access. Covers both arg-level and stored-definition
+    // validation paths.
+
+    describe("source arg validation (insightSourceSchema)", () => {
+      it("should reject a corrupt source arg in CreateInsight with a clear validation error (not a crash)", async () => {
+        const { tableId } = await makeTable();
+
+        // A corrupt source: `sourceType` is missing entirely. Without the Zod
+        // guard the handler would cast this as `InsightSource` and then the
+        // `sourceType !== 'dataTable' && sourceType !== 'insight'` check would
+        // receive `undefined`, producing an opaque mismatched-type error rather
+        // than a schema-violation message.
+        await expect(
+          commit(
+            cmd("CreateInsight", {
+              id: id(),
+              name: "I",
+              // @ts-expect-error — intentionally passing a corrupt shape to
+              // exercise the runtime Zod validation path.
+              source: { sourceId: tableId },
+            }),
+          ),
+        ).rejects.toThrow(/CreateInsight: source is invalid/);
+      });
+
+      it("should reject a source arg with an unknown sourceType in CreateInsight", async () => {
+        const { tableId } = await makeTable();
+
+        await expect(
+          commit(
+            cmd("CreateInsight", {
+              id: id(),
+              name: "I",
+              // @ts-expect-error — intentionally passing an invalid sourceType.
+              source: { sourceType: "unknown", sourceId: tableId },
+            }),
+          ),
+        ).rejects.toThrow(/CreateInsight: source is invalid/);
+      });
+
+      it("should reject a non-string sourceId in CreateInsight source arg", async () => {
+        await expect(
+          commit(
+            cmd("CreateInsight", {
+              id: id(),
+              name: "I",
+              // @ts-expect-error — sourceId must be a string.
+              source: { sourceType: "dataTable", sourceId: 42 },
+            }),
+          ),
+        ).rejects.toThrow(/CreateInsight: source is invalid/);
+      });
+
+      it("should reject a corrupt source arg in SetInsightSource with a clear validation error", async () => {
+        const { tableId } = await makeTable();
+        const insightId = id();
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        await expect(
+          commit(
+            cmd("SetInsightSource", {
+              id: insightId,
+              // @ts-expect-error — corrupt shape: missing sourceType.
+              source: { sourceId: tableId },
+            }),
+          ),
+        ).rejects.toThrow(/SetInsightSource: source is invalid/);
+      });
+    });
+
+    describe("stored definition validation (storedInsightDefinitionSchema)", () => {
+      // Note: `db.update(schema.insights).set({...})` has no `.where()` — the
+      // pattern from line 80 comment: each test has a `beforeEach` fresh DB and
+      // creates exactly one insight, so the unscoped update is safe in isolation.
+      // If a future test edit adds a second insight before the corrupt step,
+      // add `.where(eq(schema.insights.id, insightId))` using drizzle-orm's eq.
+
+      it("should reject a corrupt stored definition with a clear validation error (not a crash on property access)", async () => {
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        // Create a valid insight first.
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the stored definition directly via the raw Drizzle handle,
+        // simulating a schema-drift scenario (e.g. a future migration wrote
+        // an unexpected shape, or an external process updated the row).
+        // The `baseTableId` key is missing — a required field in the schema.
+        const corruptDefinition = {
+          selectedFields: [],
+          metrics: [],
+          // baseTableId intentionally omitted
+        };
+        await db.update(schema.insights).set({ definition: corruptDefinition });
+
+        // Any command that reads back the definition — including write-path
+        // commands that call requireInsightDefinition (SetInsightSource,
+        // SelectFields, AddField on Insight, AddMetric on Insight) — must throw
+        // a clean "corrupt definition" error, not crash on property access.
+        await expect(
+          commit(
+            cmd("SetInsightSource", {
+              id: insightId,
+              source: { sourceType: "dataTable", sourceId: tableId },
+            }),
+          ),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should reject a definition where selectedFields is not an array", async () => {
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the definition: selectedFields is a string instead of an array.
+        await db.update(schema.insights).set({
+          definition: {
+            baseTableId: tableId,
+            selectedFields: "not-an-array",
+            metrics: [],
+          },
+        });
+
+        await expect(
+          commit(cmd("SelectFields", { id: insightId, fieldIds: [] })),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should reject a corrupt definition on AddField (Insight node path, not just SetInsightSource)", async () => {
+        // Verifies that patchInsightSelectedFields routes through
+        // requireInsightDefinition — the MUST fix for the AddField/RemoveField
+        // on-Insight crash class. A corrupt definition must produce a clean error,
+        // not crash on undefined property access inside patchInsightSelectedFields.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        await db
+          .update(schema.insights)
+          .set({ definition: { metrics: [], selectedFields: 99 } });
+
+        await expect(
+          commit(
+            cmd("AddField", {
+              nodeId: insightId,
+              field: {
+                id: id(),
+                name: "f",
+                tableId,
+                columnName: "c",
+                type: "string",
+              },
+            }),
+          ),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should reject a corrupt definition on AddMetric (Insight node path)", async () => {
+        // Verifies that patchDataTableCollection's insight-metrics branch routes
+        // through requireInsightDefinition — the second MUST fix. A corrupt
+        // metrics-bearing definition must produce a clean error.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        await db
+          .update(schema.insights)
+          .set({ definition: { selectedFields: [], metrics: "not-an-array" } });
+
+        await expect(
+          commit(
+            cmd("AddMetric", {
+              nodeId: insightId,
+              metric: {
+                id: id(),
+                name: "m",
+                sourceTable: tableId,
+                aggregation: "sum",
+              },
+            }),
+          ),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should treat null selectedFields as a valid empty-array state (nullish is not corrupt)", async () => {
+        // A stored definition where `selectedFields` is SQL null (not absent,
+        // not a non-array) must be treated as "nothing set", not rejected as
+        // corrupt. This verifies the nullish/empty distinction in the schema.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Null selectedFields — valid empty state.
+        await db.update(schema.insights).set({
+          definition: {
+            baseTableId: tableId,
+            selectedFields: null,
+            metrics: [],
+          },
+        });
+
+        // Should NOT throw — null selectedFields is treated as [].
+        await expect(
+          commit(cmd("SelectFields", { id: insightId, fieldIds: [] })),
+        ).resolves.toBeDefined();
+      });
+
+      it("should treat null metrics as a valid empty-array state (nullish is not corrupt)", async () => {
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Null metrics — valid empty state; should resolve without corrupt error.
+        await db.update(schema.insights).set({
+          definition: {
+            baseTableId: tableId,
+            selectedFields: [],
+            metrics: null,
+          },
+        });
+
+        await expect(
+          commit(cmd("SetInsightFilter", { id: insightId, filters: [] })),
+        ).resolves.toBeDefined();
+      });
+    });
+  });
 });

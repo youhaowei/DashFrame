@@ -37,7 +37,8 @@
     "@wystack/db": "workspace:*",
     "@wystack/secret-vault": "workspace:*",
     "@wystack/server": "workspace:*",
-    "hono": "^4.12.9"
+    "hono": "^4.12.9",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
