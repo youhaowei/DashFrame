@@ -106,7 +106,7 @@ export function assertBindAuthorized(opts: {
   }
   if (opts.insecure && !hasAuth && !loopback) {
     console.warn(
-      "[dashframe] warning: insecure non-loopback bind without authToken exposes this project to the network",
+      "[dashframe] warning: insecure non-loopback bind without authToken or authRef exposes this project to the network",
     );
   }
 }

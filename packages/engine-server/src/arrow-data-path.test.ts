@@ -260,7 +260,6 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
 describe("Arrow data path — vault-backed auth (fail-closed)", () => {
   function buildVault(storedToken: string): {
     vault: SecretVault;
-    authRef: ReturnType<typeof makeSecretRef>;
     store: () => Promise<ReturnType<typeof makeSecretRef>>;
   } {
     const registry = new SecretRegistry();
@@ -269,7 +268,6 @@ describe("Arrow data path — vault-backed auth (fail-closed)", () => {
     const vault = new SecretVault(registry, new InMemoryMappingStore());
     return {
       vault,
-      authRef: makeSecretRef(),
       store: () => vault.store(storedToken, { class: "serve-token" }),
     };
   }

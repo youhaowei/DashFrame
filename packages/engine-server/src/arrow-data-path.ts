@@ -29,6 +29,7 @@
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 
@@ -348,13 +349,11 @@ function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
 function tokenOk(authHeader: string | undefined, expected: string): boolean {
   if (!authHeader?.startsWith("Bearer ")) return false;
   const token = authHeader.slice("Bearer ".length);
-  // Constant-time-ish: same-length compare. The loopback token is high-entropy
-  // and the surface is local-only, so a length-leak is not a meaningful vector
-  // here, but avoid early-exit on the common-prefix case.
-  if (token.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < token.length; i++) {
-    diff |= token.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return diff === 0;
+  // Hash both sides to fixed-length SHA-256 digests before the constant-time
+  // compare, so neither the length nor any prefix of the token leaks via timing.
+  // This matches the server's tokenMatches (app.ts) — one comparison discipline
+  // across both auth sinks.
+  const actualBytes = createHash("sha256").update(token).digest();
+  const expectedBytes = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(actualBytes, expectedBytes);
 }
