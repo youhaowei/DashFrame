@@ -16,6 +16,7 @@ import { openArtifactDb, schema } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   isSecretRef,
+  makeSecretRef,
   SecretRegistry,
   SecretVault,
   TestBackend,
@@ -29,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { functions } from "../functions";
 import { cmd } from "./commands";
 import { buildPreviewDiff } from "./preview-diff";
+import { type DataSourceConfig, releaseCredentialRefs } from "./utils";
 
 const { dataSources } = schema;
 
@@ -780,6 +782,65 @@ describe("vault lifecycle — delete releases SecretRefs (DeleteNode)", () => {
     await app.call("createDataSource", { id, type: "csv", name: "No Creds" });
 
     await expect(app.call("deleteNode", { id })).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretVault lifecycle coupling — releaseCredentialRefs partial-failure
+// ---------------------------------------------------------------------------
+//
+// Contract: releaseCredentialRefs deletes every ref via Promise.allSettled, NOT
+// a short-circuiting sequential loop. A failure deleting one ref must NOT skip
+// the others (a sequential await loop would leave later refs orphaned while the
+// row is still slated for deletion). All deletes are attempted; any failures
+// surface as an AggregateError so the caller can roll back / retry.
+// ---------------------------------------------------------------------------
+
+describe("releaseCredentialRefs — partial-failure attempts every ref", () => {
+  it("a failing delete on the first ref still attempts the second, then throws AggregateError", async () => {
+    // A source config holding TWO live refs. We make the apiKey delete reject and
+    // record which refs delete() was actually called with.
+    const apiKeyRef = makeSecretRef();
+    const csRef = makeSecretRef();
+    const config: DataSourceConfig = {
+      apiKey: apiKeyRef,
+      connectionString: csRef,
+    };
+    const deletedRefs: string[] = [];
+    const fakeVault = {
+      async delete(ref: string) {
+        deletedRefs.push(ref);
+        // The apiKey ref fails; the connectionString ref succeeds.
+        if (ref === apiKeyRef) {
+          throw new Error("keychain unavailable for apiKey ref");
+        }
+      },
+    } as unknown as SecretVault;
+
+    // A sequential await loop would throw on the first ref and never reach the
+    // second — deletedRefs would have length 1. allSettled attempts both.
+    await expect(
+      releaseCredentialRefs(config, fakeVault),
+    ).rejects.toBeInstanceOf(AggregateError);
+
+    expect(deletedRefs).toContain(apiKeyRef);
+    expect(deletedRefs).toContain(csRef);
+    expect(deletedRefs).toHaveLength(2);
+  });
+
+  it("succeeds silently when every ref deletes cleanly", async () => {
+    const config: DataSourceConfig = {
+      apiKey: makeSecretRef(),
+    };
+    const fakeVault = {
+      async delete() {
+        /* ok */
+      },
+    } as unknown as SecretVault;
+
+    await expect(
+      releaseCredentialRefs(config, fakeVault),
+    ).resolves.toBeUndefined();
   });
 });
 
