@@ -175,6 +175,28 @@ describe("NotionConnector — validate", () => {
   it("should accept API keys with secret_ prefix", () => {
     expect(connector.validate({ apiKey: "secret_abc123" }).valid).toBe(true);
   });
+
+  // Regression: before the typeof guard, non-string values would cause
+  // .startsWith() to throw TypeError instead of returning { valid: false }.
+  it("should return invalid (not throw) when apiKey is a number", () => {
+    const result = connector.validate({ apiKey: 42 });
+    expect(result.valid).toBe(false);
+  });
+
+  it("should return invalid (not throw) when apiKey is an object", () => {
+    const result = connector.validate({ apiKey: { secret: "value" } });
+    expect(result.valid).toBe(false);
+  });
+
+  it("should return invalid (not throw) when apiKey is a boolean", () => {
+    const result = connector.validate({ apiKey: true });
+    expect(result.valid).toBe(false);
+  });
+
+  it("should return invalid (not throw) when apiKey is null", () => {
+    const result = connector.validate({ apiKey: null });
+    expect(result.valid).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
