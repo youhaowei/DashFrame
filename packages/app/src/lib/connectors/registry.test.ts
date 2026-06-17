@@ -15,7 +15,7 @@
  */
 
 import { localFileConnector } from "@dashframe/connector-local";
-import { notionConnector } from "@dashframe/connector-notion";
+import { makeNotionConnector } from "@dashframe/connector-notion";
 import type { AnyConnector } from "@dashframe/engine";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -27,6 +27,12 @@ import {
   hasConnector,
   registerConnector,
 } from "./registry";
+
+// Static-metadata connector for registry tests — resolver throws if called
+// (connect/query must never be invoked from the renderer)
+const notionConnector = makeNotionConnector(() => {
+  throw new Error("connect/query must not be called from the renderer");
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

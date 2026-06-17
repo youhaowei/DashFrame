@@ -71,6 +71,7 @@ export type {
   FormFieldType,
   QueryOptions,
   RemoteDatabase,
+  SecretResolver,
   SourceType,
   SystemFieldInput,
   ValidationResult,

@@ -5,7 +5,6 @@ import {
   type AnyConnector,
   type FileSourceConnector,
   type RemoteApiConnector,
-  type RemoteDatabase,
 } from "@dashframe/engine";
 import { ConnectorCard } from "./ConnectorCard";
 import { FormFieldRenderer } from "./FormFieldRenderer";
@@ -15,10 +14,18 @@ interface ConnectorCardWithFormProps {
   connector: AnyConnector;
   /** Called when a file is selected (file connectors only) */
   onFileSelect: (connector: FileSourceConnector, file: File) => void;
-  /** Called when connection succeeds (remote-api connectors only) */
+  /**
+   * Called when a remote-api connector's form is submitted with validated
+   * credentials. The renderer never calls `connector.connect()` itself — that
+   * resolves the credential and lists databases SERVER-SIDE (via the
+   * `listNotionDatabases` WyStack mutation, keyed off the created DataSource's
+   * id). This callback hands the validated form values up so the parent can
+   * create the DataSource (storing the credential as a vault SecretRef); the
+   * database list is fetched afterward through the server path.
+   */
   onConnect: (
     connector: RemoteApiConnector,
-    databases: RemoteDatabase[],
+    credentials: Record<string, unknown>,
   ) => void;
 }
 
@@ -71,9 +78,14 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    const databases = await execute((data) => connector.connect(data));
-    if (databases) {
-      onConnect(connector, databases);
+    // The renderer must NOT call connector.connect()/query() — those resolve the
+    // credential and hit the remote API SERVER-SIDE (the renderer-registered
+    // resolver throws by design). execute() validates the form and returns the
+    // credential values; the parent creates the DataSource (storing the key as a
+    // vault SecretRef) and lists databases via the listNotionDatabases mutation.
+    const credentials = await execute(async (data) => data);
+    if (credentials) {
+      onConnect(connector, credentials);
     }
   };
 

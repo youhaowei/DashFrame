@@ -1,10 +1,10 @@
-import { trpc } from "@/lib/trpc/Provider";
-import type { NotionDatabase } from "@dashframe/connector-notion";
 import {
   useDataSourceMutations,
   useDataSources,
   useDataTableMutations,
   useDataTables,
+  useNotionMutations,
+  type NotionDatabaseRef,
 } from "@dashframe/core";
 import { InputField } from "@dashframe/ui";
 import {
@@ -93,7 +93,7 @@ interface DataSourceControlsProps {
 }
 
 type CachedDatabases = {
-  databases: NotionDatabase[];
+  databases: NotionDatabaseRef[];
   timestamp: number;
 };
 
@@ -149,12 +149,12 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     [cachedSnapshot],
   );
   const effective = override ?? cached;
-  const availableDatabases = useMemo<NotionDatabase[]>(
+  const availableDatabases = useMemo<NotionDatabaseRef[]>(
     () => effective?.databases ?? [],
     [effective],
   );
   const lastFetchTime: number | null = effective?.timestamp ?? null;
-  const setAvailableDatabases = (databases: NotionDatabase[]) => {
+  const setAvailableDatabases = (databases: NotionDatabaseRef[]) => {
     const next = { databases, timestamp: Date.now() };
     setOverride(next);
     if (dataSourceId && typeof window !== "undefined") {
@@ -191,8 +191,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     [dataSources, dataSourceId],
   );
 
-  // tRPC mutation for fetching databases
-  const listDatabasesMutation = trpc.notion.listDatabases.useMutation();
+  // Notion data-plane mutations — resolved server-side via the bound resolver.
+  const notionMutations = useNotionMutations();
 
   // Get configured DataTables
   const dataTables = useMemo(() => {
@@ -220,12 +220,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     setIsLoadingDatabases(true);
 
     try {
-      // The stored API key is resolved server-side by data-source id when the
-      // Notion connector is rewired onto the WyStack/server path; the secret is
-      // never read back into the renderer. See the public connector issue.
-      const result = await listDatabasesMutation.mutateAsync({
-        dataSourceId: dataSource.id,
-      });
+      // The stored API key is resolved server-side by data-source id (the
+      // listNotionDatabases mutation mints a one-secret bound resolver); the
+      // secret is never read back into the renderer.
+      const result = await notionMutations.listDatabases(dataSource.id);
       // Updates state and persists to localStorage in one go.
       setAvailableDatabases(result);
     } catch (error) {
@@ -240,7 +238,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   // Users must manually click the refresh button to sync from Notion.
 
   // Handler to add a database as DataTable
-  const handleAddDatabase = async (database: NotionDatabase) => {
+  const handleAddDatabase = async (database: NotionDatabaseRef) => {
     if (!dataSource || dataSource.type !== "notion") return;
 
     try {

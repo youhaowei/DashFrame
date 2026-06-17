@@ -9,7 +9,6 @@ import {
 import type {
   FileSourceConnector,
   RemoteApiConnector,
-  RemoteDatabase,
 } from "@dashframe/engine";
 import type { Field, FieldSensitivity, Metric } from "@dashframe/types";
 import { buildSensitivityUpdate } from "@dashframe/types";
@@ -277,13 +276,15 @@ export function DataSourcesWorkbench() {
     [],
   );
 
-  // Handle remote connector connection (Notion, Airtable, etc.)
+  // Handle remote connector form submission (Notion, Airtable, etc.).
+  // The renderer never calls connector.connect(); the credential is resolved
+  // server-side. Full implementation: create the DataSource (storing the key as
+  // a vault SecretRef), then list databases via the listNotionDatabases mutation
+  // in DataSourceControls. Stubbed pending the add-remote-source flow.
   const handleRemoteConnect = useCallback(
-    (connector: RemoteApiConnector, databases: RemoteDatabase[]) => {
-      // For now, just log - full implementation requires database selection UI
-      console.log(`Connected to ${connector.name}:`, databases);
-      toast.info(`Found ${databases.length} databases in ${connector.name}`);
-      // NOTE: Show database selection UI, then proceed with data import
+    (connector: RemoteApiConnector, _credentials: Record<string, unknown>) => {
+      console.log(`Connector form submitted: ${connector.name}`);
+      toast.info(`${connector.name} connection — server-side setup pending`);
     },
     [],
   );

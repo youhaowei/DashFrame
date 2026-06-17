@@ -8,16 +8,19 @@ import { useCallback, useMemo, useState } from "react";
  *
  * @example
  * ```tsx
- * import { notionConnector } from '@dashframe/notion';
+ * import { makeNotionConnector } from '@dashframe/connector-notion';
  * import { useConnectorForm } from '@/hooks/useConnectorForm';
  *
- * function NotionForm() {
- *   const { form, formFields, execute, isSubmitting, submitError } = useConnectorForm(notionConnector);
+ * function NotionForm({ connector }) {
+ *   const { form, formFields, execute, isSubmitting, submitError } = useConnectorForm(connector);
  *
  *   const handleConnect = async () => {
- *     const databases = await execute((data) => notionConnector.connect(data));
- *     if (databases) {
- *       // Handle successful connection
+ *     // execute() validates the form and returns the credential values. The
+ *     // renderer never calls connector.connect() — the credential resolves
+ *     // server-side via the listNotionDatabases / queryNotionDatabase mutations.
+ *     const credentials = await execute(async (data) => data);
+ *     if (credentials) {
+ *       // Hand credentials up so the parent creates the DataSource server-side.
  *     }
  *   };
  *
@@ -94,7 +97,7 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
     async <R>(
       action: (data: Record<string, unknown>) => Promise<R>,
     ): Promise<R | null> => {
-      const values = form.state.values;
+      const values = form.state.values as Record<string, unknown>;
       const result = connector.validate(values);
 
       if (!result.valid && result.errors) {

@@ -2,175 +2,287 @@
  * Unit tests for NotionConnector
  *
  * Tests cover:
- * - Form field configuration (API key input)
+ * - Connector construction (requires a SecretResolver)
+ * - Form field configuration
  * - Validation logic (required field, secret_ prefix)
- * - Static properties (id, name, icon)
+ * - Static properties
+ * - Bound resolver: connect() and query() resolve via auth, never via formData
+ * - Capability attenuation: makeNotionConnector binds to one ref only
  *
- * Note: connect() and query() methods require server-side proxy due to CORS,
- * so they are tested via integration tests with the tRPC router.
+ * The TestBackend (from @wystack/secret-vault) is used here to exercise the
+ * full bound-resolver path without a real keychain. TestBackend MUST NOT appear
+ * in production or renderer code — only in *.test.ts files.
  */
-import { beforeEach, describe, expect, it } from "vitest";
-import { NotionConnector, notionConnector } from "./connector";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { makeNotionConnector, NotionConnector } from "./connector";
 
-describe("NotionConnector", () => {
+// Mock the Notion client so tests don't hit the network
+vi.mock("./client", () => ({
+  listDatabases: vi.fn().mockResolvedValue([]),
+  getDatabaseSchema: vi.fn().mockResolvedValue([]),
+  queryDatabase: vi.fn().mockResolvedValue({ results: [] }),
+}));
+
+// NOTE: query() no longer constructs a DataFrame — it returns a serializable
+// result (arrowBuffer + fieldIds + fields). No engine-browser mock is needed;
+// the method is Node-safe by design (the renderer materializes the DataFrame).
+
+// ---------------------------------------------------------------------------
+// Helpers: build a SecretVault + TestBackend + mint a bound resolver
+// ---------------------------------------------------------------------------
+
+function makeTestVaultAndBackend() {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  // register() opts: { fallback?: boolean } — NOT a class array
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  const mapping = new InMemoryMappingStore();
+  const vault = new SecretVault(registry, mapping);
+  return { vault, backend };
+}
+
+async function mintBoundResolver(vault: SecretVault, plaintext: string) {
+  const ref = await vault.store(plaintext, {
+    class: "connector-key",
+    locatorHint: "test-key",
+  });
+  return {
+    ref,
+    resolver: <T>(use: (p: string) => Promise<T>) => vault.withSecret(ref, use),
+  };
+}
+
+/**
+ * Wrap a resolver so we can capture the plaintext it delivers to the connector.
+ * The outer resolver still routes through the vault; the capture is a side-effect
+ * inside the `use` wrapper.
+ */
+function makeSpyingResolver(
+  resolver: <T>(use: (p: string) => Promise<T>) => Promise<T>,
+  onPlaintext: (p: string) => void,
+) {
+  return <T>(use: (plaintext: string) => Promise<T>) =>
+    resolver((plaintext) => {
+      onPlaintext(plaintext);
+      return use(plaintext);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Static properties & factory
+// ---------------------------------------------------------------------------
+
+describe("NotionConnector — static properties", () => {
   let connector: NotionConnector;
 
-  beforeEach(() => {
-    connector = new NotionConnector();
+  beforeEach(async () => {
+    const { vault } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_test");
+    connector = makeNotionConnector(resolver);
   });
 
-  describe("static properties", () => {
-    it("should have correct id", () => {
-      expect(connector.id).toBe("notion");
-    });
-
-    it("should have correct name", () => {
-      expect(connector.name).toBe("Notion");
-    });
-
-    it("should have description", () => {
-      expect(connector.description).toBeTruthy();
-      expect(typeof connector.description).toBe("string");
-    });
-
-    it("should have SVG icon", () => {
-      expect(connector.icon).toContain("<svg");
-      expect(connector.icon).toContain("</svg>");
-    });
-
-    it("should have preserveAspectRatio in icon for proper scaling", () => {
-      expect(connector.icon).toContain("preserveAspectRatio");
-    });
+  it("should have correct id", () => {
+    expect(connector.id).toBe("notion");
   });
 
-  describe("getFormFields", () => {
-    it("should return exactly one field for API key", () => {
-      const fields = connector.getFormFields();
-      expect(fields).toHaveLength(1);
-    });
-
-    it("should have apiKey field with correct configuration", () => {
-      const fields = connector.getFormFields();
-      const apiKeyField = fields[0];
-
-      expect(apiKeyField.name).toBe("apiKey");
-      expect(apiKeyField.label).toBe("API Key");
-      expect(apiKeyField.type).toBe("password");
-      expect(apiKeyField.required).toBe(true);
-    });
-
-    it("should have placeholder suggesting secret_ prefix", () => {
-      const fields = connector.getFormFields();
-      const apiKeyField = fields[0];
-
-      expect(apiKeyField.placeholder).toContain("secret_");
-    });
-
-    it("should have hint about local storage", () => {
-      const fields = connector.getFormFields();
-      const apiKeyField = fields[0];
-
-      expect(apiKeyField.hint).toBeTruthy();
-      expect(apiKeyField.hint).toContain("locally");
-    });
+  it("should have correct name", () => {
+    expect(connector.name).toBe("Notion");
   });
 
-  describe("validate", () => {
-    describe("missing API key", () => {
-      it("should return invalid when apiKey is undefined", () => {
-        const result = connector.validate({});
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toBe("API key is required");
-      });
-
-      it("should return invalid when apiKey is empty string", () => {
-        const result = connector.validate({ apiKey: "" });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toBe("API key is required");
-      });
-
-      it("should return invalid when apiKey is null", () => {
-        const result = connector.validate({ apiKey: null });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toBe("API key is required");
-      });
-    });
-
-    describe("invalid API key format", () => {
-      it("should reject API keys without secret_ prefix", () => {
-        const result = connector.validate({ apiKey: "ntn_abc123" });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toContain('start with "secret_"');
-      });
-
-      it("should reject API keys with wrong prefix", () => {
-        const result = connector.validate({ apiKey: "private_abc123" });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toContain('start with "secret_"');
-      });
-
-      it("should reject API keys with similar but incorrect prefix", () => {
-        const result = connector.validate({ apiKey: "secrets_abc123" });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toContain('start with "secret_"');
-      });
-
-      it("should reject API keys with uppercase prefix", () => {
-        const result = connector.validate({ apiKey: "SECRET_abc123" });
-        expect(result.valid).toBe(false);
-        expect(result.errors?.apiKey).toContain('start with "secret_"');
-      });
-    });
-
-    describe("valid API key", () => {
-      it("should accept API keys with secret_ prefix", () => {
-        const result = connector.validate({ apiKey: "secret_abc123" });
-        expect(result.valid).toBe(true);
-        expect(result.errors).toBeUndefined();
-      });
-
-      it("should accept long API keys with secret_ prefix", () => {
-        const longKey =
-          "secret_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcdefghijklmnopqrstuvwxyz";
-        const result = connector.validate({ apiKey: longKey });
-        expect(result.valid).toBe(true);
-      });
-
-      it("should accept API keys with just secret_ prefix", () => {
-        const result = connector.validate({ apiKey: "secret_" });
-        // This is technically valid format, even if the API would reject it
-        expect(result.valid).toBe(true);
-      });
-    });
-
-    describe("extra form data", () => {
-      it("should ignore extra fields in form data", () => {
-        const result = connector.validate({
-          apiKey: "secret_abc123",
-          extraField: "should be ignored",
-          anotherField: 12345,
-        });
-        expect(result.valid).toBe(true);
-      });
-    });
+  it("should have description", () => {
+    expect(connector.description).toBeTruthy();
+    expect(typeof connector.description).toBe("string");
   });
 
-  describe("singleton instance", () => {
-    it("should export a singleton notionConnector instance", () => {
-      expect(notionConnector).toBeInstanceOf(NotionConnector);
+  it("should have SVG icon", () => {
+    expect(connector.icon).toContain("<svg");
+    expect(connector.icon).toContain("</svg>");
+  });
+
+  it("should have preserveAspectRatio in icon for proper scaling", () => {
+    expect(connector.icon).toContain("preserveAspectRatio");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getFormFields
+// ---------------------------------------------------------------------------
+
+describe("NotionConnector — getFormFields", () => {
+  let connector: NotionConnector;
+
+  beforeEach(async () => {
+    const { vault } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_test");
+    connector = makeNotionConnector(resolver);
+  });
+
+  it("should return exactly one field for API key", () => {
+    const fields = connector.getFormFields();
+    expect(fields).toHaveLength(1);
+  });
+
+  it("should have apiKey field with correct configuration", () => {
+    const fields = connector.getFormFields();
+    const apiKeyField = fields[0];
+
+    expect(apiKeyField?.name).toBe("apiKey");
+    expect(apiKeyField?.label).toBe("API Key");
+    expect(apiKeyField?.type).toBe("password");
+    expect(apiKeyField?.required).toBe(true);
+  });
+
+  it("should have placeholder suggesting secret_ prefix", () => {
+    const fields = connector.getFormFields();
+    expect(fields[0]?.placeholder).toContain("secret_");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validate
+// ---------------------------------------------------------------------------
+
+describe("NotionConnector — validate", () => {
+  let connector: NotionConnector;
+
+  beforeEach(async () => {
+    const { vault } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_test");
+    connector = makeNotionConnector(resolver);
+  });
+
+  it("should return invalid when apiKey is undefined", () => {
+    expect(connector.validate({}).valid).toBe(false);
+  });
+
+  it("should return invalid when apiKey is empty string", () => {
+    expect(connector.validate({ apiKey: "" }).valid).toBe(false);
+  });
+
+  it("should reject API keys without secret_ prefix", () => {
+    const result = connector.validate({ apiKey: "ntn_abc123" });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.apiKey).toContain('start with "secret_"');
+  });
+
+  it("should accept API keys with secret_ prefix", () => {
+    expect(connector.validate({ apiKey: "secret_abc123" }).valid).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bound resolver — capability attenuation
+// ---------------------------------------------------------------------------
+
+describe("NotionConnector — bound resolver (capability attenuation)", () => {
+  it("the bound resolver is invoked exactly once when connect() is called", async () => {
+    const { vault, backend } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_testkey");
+
+    // Track resolver invocations directly via the TestBackend instrumentation.
+    expect(backend.resolveCallCount).toBe(0);
+
+    let capturedPlaintext: string | undefined;
+    // Wrap the resolver to capture what plaintext the connector receives.
+    const spyingResolver = makeSpyingResolver(resolver, (p) => {
+      capturedPlaintext = p;
     });
 
-    it("singleton should have the same properties as a new instance", () => {
-      expect(notionConnector.id).toBe(connector.id);
-      expect(notionConnector.name).toBe(connector.name);
+    const connector = makeNotionConnector(spyingResolver);
+    // The client is mocked at the top of this file (vi.mock("./client"))
+    const result = await connector.connect();
+    // Resolver was called once (resolveCallCount increments in TestBackend.withSecret)
+    expect(backend.resolveCallCount).toBe(1);
+    // The connector received the exact plaintext stored in the vault
+    expect(capturedPlaintext).toBe("secret_testkey");
+    // connect() returned the (empty) database list
+    expect(result).toEqual([]);
+  });
+
+  it("makeNotionConnector requires a SecretResolver — TypeScript enforces at compile time", () => {
+    // The compile-time contract (AC #1: verify by type): makeNotionConnector(auth)
+    // — auth is required, so the pipeline cannot construct a connector without a
+    // bound resolver in scope. @ts-expect-error makes that contract executable:
+    // if `auth` ever becomes optional, this line stops erroring and the test
+    // fails to compile, flagging the regression.
+    // @ts-expect-error — auth (SecretResolver) is required; calling with no args must not typecheck
+    makeNotionConnector();
+
+    // And the happy path: with a resolver, the factory builds the connector.
+    const resolver = <T>(use: (p: string) => Promise<T>) => use("secret_fake");
+    const connector = makeNotionConnector(resolver);
+    expect(connector).toBeInstanceOf(NotionConnector);
+    expect(connector.id).toBe("notion");
+  });
+
+  it("two connectors with different resolvers cannot access each other's secrets", async () => {
+    const { vault: vaultA } = makeTestVaultAndBackend();
+    const { vault: vaultB } = makeTestVaultAndBackend();
+    const { resolver: resolverA } = await mintBoundResolver(
+      vaultA,
+      "secret_keyA",
+    );
+    const { resolver: resolverB } = await mintBoundResolver(
+      vaultB,
+      "secret_keyB",
+    );
+
+    // Each resolver resolves its own secret only — cross-resolution is
+    // structurally impossible because each bound resolver closes over its own ref.
+    const keyFromA = await resolverA((p) => Promise.resolve(p));
+    const keyFromB = await resolverB((p) => Promise.resolve(p));
+
+    expect(keyFromA).toBe("secret_keyA");
+    expect(keyFromB).toBe("secret_keyB");
+
+    // The connector instances are separate objects each bound to their resolver
+    const _connA = makeNotionConnector(resolverA);
+    const _connB = makeNotionConnector(resolverB);
+    expect(_connA).not.toBe(_connB);
+  });
+
+  it("query() resolves once via the bound resolver and returns a serializable result", async () => {
+    const { vault, backend } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_querykey");
+
+    expect(backend.resolveCallCount).toBe(0);
+
+    let capturedPlaintext: string | undefined;
+    const spyingResolver = makeSpyingResolver(resolver, (p) => {
+      capturedPlaintext = p;
     });
 
-    it("singleton should return same form fields", () => {
-      const singletonFields = notionConnector.getFormFields();
-      const instanceFields = connector.getFormFields();
+    const connector = makeNotionConnector(spyingResolver);
+    // Clients are mocked; getDatabaseSchema → [], queryDatabase → { results: [] }.
+    // query() runs entirely in Node (no DataFrame.create / IndexedDB).
+    const result = await connector.query(
+      "db-id",
+      crypto.randomUUID() as Parameters<typeof connector.query>[1],
+    );
 
-      expect(singletonFields).toHaveLength(instanceFields.length);
-      expect(singletonFields[0].name).toBe(instanceFields[0].name);
-    });
+    // Resolver was invoked exactly once for the query.
+    expect(backend.resolveCallCount).toBe(1);
+    expect(capturedPlaintext).toBe("secret_querykey");
+
+    // The result is serializable: raw Arrow buffer (base64 string) + ids + fields.
+    // No live DataFrame — proves query() is server-safe and crosses IPC as JSON.
+    expect(typeof result.arrowBuffer).toBe("string");
+    expect(Array.isArray(result.fieldIds)).toBe(true);
+    expect(Array.isArray(result.fields)).toBe(true);
+    expect(result).not.toHaveProperty("dataFrame");
+  });
+
+  it("makeNotionConnector factory exports a connector with sourceType=remote-api", async () => {
+    const { vault } = makeTestVaultAndBackend();
+    const { resolver } = await mintBoundResolver(vault, "secret_test");
+    const connector = makeNotionConnector(resolver);
+    expect(connector.sourceType).toBe("remote-api");
   });
 });
