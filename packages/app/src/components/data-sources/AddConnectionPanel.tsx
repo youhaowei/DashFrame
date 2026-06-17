@@ -2,7 +2,6 @@ import { getConnectors } from "@/lib/connectors/registry";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
-  RemoteDatabase,
 } from "@dashframe/engine";
 import { Alert, AlertDescription } from "@wystack/ui";
 import { useMemo } from "react";
@@ -13,10 +12,14 @@ export interface AddConnectionPanelProps {
   error?: string | null;
   /** Called when a file is selected from a file connector */
   onFileSelect: (connector: FileSourceConnector, file: File) => void;
-  /** Called when a remote connector successfully connects */
+  /**
+   * Called when a remote connector's form is submitted with validated
+   * credentials. The credential is resolved server-side — the renderer never
+   * calls connect()/query() on the connector.
+   */
   onConnect: (
     connector: RemoteApiConnector,
-    databases: RemoteDatabase[],
+    credentials: Record<string, unknown>,
   ) => void;
   /** Whether to show Notion connector (feature flag) */
   showNotion?: boolean;

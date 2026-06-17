@@ -8,7 +8,6 @@ import {
 import type {
   FileSourceConnector,
   RemoteApiConnector,
-  RemoteDatabase,
 } from "@dashframe/engine";
 import { Button, SectionList } from "@wystack/ui";
 import { ArrowLeftIcon } from "@wystack/ui-icons";
@@ -209,12 +208,13 @@ export function DataPickerContent({
     [onTableSelect, allDataTables],
   );
 
-  // Handle remote connector connection (Notion, Airtable, etc.)
+  // Handle remote connector form submission (Notion, Airtable, etc.).
+  // The renderer never calls connector.connect(); the credential is resolved
+  // server-side. Full implementation: create the DataSource, then list databases
+  // via the listNotionDatabases mutation. Stubbed pending the add-remote flow.
   const handleConnect = useCallback(
-    (connector: RemoteApiConnector, databases: RemoteDatabase[]) => {
-      // For now, just log - full implementation requires database selection UI
-      console.log(`Connected to ${connector.name}:`, databases);
-      // NOTE: Show database selection UI, then call onTableSelect
+    (connector: RemoteApiConnector, _credentials: Record<string, unknown>) => {
+      console.log(`Connector form submitted: ${connector.name}`);
     },
     [],
   );

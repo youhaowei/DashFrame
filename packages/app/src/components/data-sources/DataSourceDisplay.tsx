@@ -1,5 +1,4 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { trpc } from "@/lib/trpc/Provider";
 import type { NotionProperty } from "@dashframe/connector-notion";
 import { mapNotionTypeToColumnType } from "@dashframe/connector-notion";
 import {
@@ -329,9 +328,25 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     [dataSources, dataSourceId],
   );
 
-  // tRPC mutations for Notion
-  const queryDatabaseMutation = trpc.notion.queryDatabase.useMutation();
-  const getSchemaMutation = trpc.notion.getDatabaseSchema.useMutation();
+  // Notion schema-fetch + property-selection + preview is a separate feature
+  // (the property-filtered query + schema mutation are not part of the
+  // credential-inversion ticket). It is gated off behind NOTION_ENABLED (false)
+  // and the handlers below short-circuit before reaching it. When the preview UI
+  // is wired onto the auth-blind server path, replace these with
+  // useNotionMutations().queryDatabase + a getNotionDatabaseSchema mutation.
+  const notionPreviewPending = (): never => {
+    throw new Error(
+      "Notion preview/property-selection is not wired onto the server query " +
+        "path yet — gated behind NOTION_ENABLED.",
+    );
+  };
+  // Typed views of the deferred result so the gated-off code below typechecks.
+  const pendingSchema = (): NotionProperty[] => notionPreviewPending();
+  const pendingQueryResult = (): {
+    rows: PreviewData["rows"];
+    columns: { name: string; type: string }[];
+    rowCount: number;
+  } => notionPreviewPending();
 
   // Get DataTables for the selected source (already filtered by dataSourceId)
   const dataTables = useMemo(() => {
@@ -364,14 +379,10 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
       setIsFetchingSchema(true);
       try {
-        const schema = await getSchemaMutation.mutateAsync({
-          dataSourceId: dataSource.id,
-          databaseId: selectedDataTable.table,
-        });
+        // Gated off (NOTION_ENABLED=false) — never reached. Schema fetch is part
+        // of the deferred preview/property-selection feature, not this ticket.
+        const schema = pendingSchema();
         setDatabaseSchema(schema);
-
-        // Default: select all properties
-        // Note: Previously used DataTable.dimensions, now we select all by default
         setSelectedPropertyIds(schema.map((p: { id: string }) => p.id));
       } catch (error) {
         console.error("Failed to fetch database schema:", error);
@@ -382,7 +393,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     };
 
     fetchSchema();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getSchemaMutation is a stable mutation hook, adding it would cause infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pendingSchema is a stable local guard (gated off); the effect keys on the selection, not the guard
   }, [selectedDataTable, dataSource]);
 
   const now = useSyncExternalStore(
@@ -411,6 +422,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   // Handle syncing data with selected properties
   const handleSyncData = async () => {
     if (
+      !NOTION_ENABLED ||
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
@@ -426,13 +438,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
     setIsRefreshing(true);
     try {
-      // Fetch data from Notion API with selected properties
-      // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
-      const result = await queryDatabaseMutation.mutateAsync({
-        dataSourceId: dataSource.id,
-        databaseId: selectedDataTable.table,
-        selectedPropertyIds,
-      });
+      // Gated off (NOTION_ENABLED=false) — never reached. The property-filtered
+      // query is part of the deferred preview feature, not this ticket.
+      const result = pendingQueryResult();
 
       if (!result.columns || !result.columns.length) {
         toast.error("No data found in the selected database");
@@ -468,6 +476,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   // Handle refreshing Notion data (uses existing property selection)
   const handleRefreshDataTable = async () => {
     if (
+      !NOTION_ENABLED ||
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
@@ -483,13 +492,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
 
     setIsRefreshing(true);
     try {
-      // Re-fetch data from Notion API
-      // Returns NotionConversionResult: { rows, columns, arrowBuffer, fieldIds, rowCount }
-      const result = await queryDatabaseMutation.mutateAsync({
-        dataSourceId: dataSource.id,
-        databaseId: selectedDataTable.table,
-        selectedPropertyIds,
-      });
+      // Gated off (NOTION_ENABLED=false) — never reached. Deferred preview feature.
+      const result = pendingQueryResult();
 
       if (!result.columns || !result.columns.length) {
         toast.error("No data found in the selected database");

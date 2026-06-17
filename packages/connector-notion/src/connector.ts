@@ -12,7 +12,6 @@
  */
 
 import {
-  DataFrame,
   RemoteApiConnector,
   type ConnectorQueryResult,
   type FormField,
@@ -100,10 +99,15 @@ export class NotionConnector extends RemoteApiConnector {
   }
 
   /**
-   * Query a Notion database and return a DataFrame.
+   * Query a Notion database and return a serializable result.
    *
-   * Resolves the API key via `this.auth` — no credential argument.
-   * Must be called server-side (Notion API has CORS restrictions).
+   * Resolves the API key via `this.auth` — no credential argument. Runs
+   * server-side (Notion API has CORS restrictions and the credential resolves
+   * server-side). Returns the raw Arrow IPC buffer (base64) + field ids +
+   * field definitions — NOT a live `DataFrame`. The renderer materializes the
+   * browser `DataFrame` from this result after it crosses the IPC boundary.
+   * This keeps `query()` free of any browser dependency (IndexedDB), so it is
+   * callable from a Node server handler.
    *
    * @param databaseId - Notion database ID to query
    * @param tableId - UUID for the resulting DataTable
@@ -127,28 +131,13 @@ export class NotionConnector extends RemoteApiConnector {
         pageSize,
       });
 
-      // Step 4: Convert to DataFrame format
+      // Step 4: Convert to a serializable result (raw Arrow buffer + ids).
+      // No DataFrame is constructed here — the renderer materializes it.
       const conversionResult = convertNotionToDataFrame(response, fields);
 
-      // Step 5: Create DataFrame from Arrow buffer
-      // NOTE: This requires browser context (IndexedDB)
-      // Decode base64 arrow buffer to Uint8Array
-      const arrowBuffer = Uint8Array.from(
-        atob(conversionResult.arrowBuffer),
-        (c) => c.charCodeAt(0),
-      );
-
-      const dataFrame = await DataFrame.create(
-        arrowBuffer,
-        conversionResult.fieldIds,
-        {
-          storageType: "indexeddb",
-          primaryKey: "_notionId",
-        },
-      );
-
       return {
-        dataFrame,
+        arrowBuffer: conversionResult.arrowBuffer,
+        fieldIds: conversionResult.fieldIds,
         fields,
       };
     });

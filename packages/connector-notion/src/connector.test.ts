@@ -29,18 +29,9 @@ vi.mock("./client", () => ({
   queryDatabase: vi.fn().mockResolvedValue({ results: [] }),
 }));
 
-// Mock DataFrame.create — it writes to IndexedDB (browser-only). Tests run in
-// a Node environment, so we replace it with a no-op that returns a stub.
-vi.mock("@dashframe/engine-browser", async (importOriginal) => {
-  const mod =
-    await importOriginal<typeof import("@dashframe/engine-browser")>();
-  return {
-    ...mod,
-    DataFrame: {
-      create: vi.fn().mockResolvedValue({ id: "mock-dataframe" }),
-    },
-  };
-});
+// NOTE: query() no longer constructs a DataFrame — it returns a serializable
+// result (arrowBuffer + fieldIds + fields). No engine-browser mock is needed;
+// the method is Node-safe by design (the renderer materializes the DataFrame).
 
 // ---------------------------------------------------------------------------
 // Helpers: build a SecretVault + TestBackend + mint a bound resolver
@@ -253,7 +244,7 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     expect(_connA).not.toBe(_connB);
   });
 
-  it("the bound resolver is invoked exactly once when query() is called", async () => {
+  it("query() resolves once via the bound resolver and returns a serializable result", async () => {
     const { vault, backend } = makeTestVaultAndBackend();
     const { resolver } = await mintBoundResolver(vault, "secret_querykey");
 
@@ -265,14 +256,23 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     });
 
     const connector = makeNotionConnector(spyingResolver);
-    // Clients are mocked; getDatabaseSchema → [], queryDatabase → { results: [] }
-    // DataFrame.create is mocked (no IndexedDB in Node)
-    await connector.query(
+    // Clients are mocked; getDatabaseSchema → [], queryDatabase → { results: [] }.
+    // query() runs entirely in Node (no DataFrame.create / IndexedDB).
+    const result = await connector.query(
       "db-id",
       crypto.randomUUID() as Parameters<typeof connector.query>[1],
     );
+
+    // Resolver was invoked exactly once for the query.
     expect(backend.resolveCallCount).toBe(1);
     expect(capturedPlaintext).toBe("secret_querykey");
+
+    // The result is serializable: raw Arrow buffer (base64 string) + ids + fields.
+    // No live DataFrame — proves query() is server-safe and crosses IPC as JSON.
+    expect(typeof result.arrowBuffer).toBe("string");
+    expect(Array.isArray(result.fieldIds)).toBe(true);
+    expect(Array.isArray(result.fields)).toBe(true);
+    expect(result).not.toHaveProperty("dataFrame");
   });
 
   it("makeNotionConnector factory exports a connector with sourceType=remote-api", async () => {

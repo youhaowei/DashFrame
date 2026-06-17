@@ -89,4 +89,11 @@ export {
   type UseDataFramesResult,
 } from "./data-frames";
 
+export {
+  listNotionDatabases,
+  useNotionMutations,
+  type NotionDatabaseRef,
+  type NotionQueryResult,
+} from "./notion";
+
 export { DatabaseProvider, useDatabase } from "./compat";

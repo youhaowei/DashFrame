@@ -505,4 +505,62 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
       vaultApp.call("listNotionDatabases", { dataSourceId: id }),
     ).rejects.toThrow(/no valid SecretRef/i);
   });
+
+  it("queryNotionDatabase throws when no vault is injected", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-q-novault-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const rawApp = await createWyStack({ db, functions });
+
+    const id = crypto.randomUUID();
+    await rawApp.call("createDataSource", { id, type: "notion", name: "Src" });
+
+    // queryNotionDatabase resolves the credential via the same factory seam;
+    // with no vault it must fail closed BEFORE any Notion API call.
+    await expect(
+      rawApp.call("queryNotionDatabase", {
+        dataSourceId: id,
+        databaseId: "db-123",
+        tableId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow(/no vault/i);
+  });
+
+  it("queryNotionDatabase throws when the source is not a notion source", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-q-kind-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const { vault } = makeTestVault();
+    const rawApp = await createWyStack({ db, functions });
+    const vaultApp: WyStackApp = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+
+    // A csv source — querying it as notion must be rejected by the kind guard,
+    // before any credential resolution or network call.
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "csv",
+      name: "Not Notion",
+      storage: "parquet",
+      config: {},
+      createdBy: { kind: "user" as const },
+    });
+
+    await expect(
+      vaultApp.call("queryNotionDatabase", {
+        dataSourceId: id,
+        databaseId: "db-123",
+        tableId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow(/not a notion source/i);
+  });
 });
