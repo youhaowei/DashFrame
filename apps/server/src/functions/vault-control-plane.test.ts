@@ -263,6 +263,9 @@ describe("vault control-plane — store→ref + has→presence", () => {
     };
     expect(ds.config.hasApiKey).toBe(true);
     expect(ds.config.hasConnectionString).toBe(false);
+    // The SecretRef must NOT appear in the public DTO — only the boolean flag.
+    // Absence here proves rowToDataSource redacts the ref, not just the name.
+    expect((ds.config as Record<string, unknown>)["apiKey"]).toBeUndefined();
   });
 
   it("AC3 — hasApiKey is false when no credential was stored", async () => {

@@ -632,6 +632,77 @@ describe("command vocabulary", () => {
       ).rejects.toThrow(/not found/);
     });
 
+    it("SetDataSourceConfig sink guard: extra.apiKey throws and leaves config unchanged", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", {
+          id: sourceId,
+          type: "notion",
+          name: "N",
+          apiKey: "original",
+        }),
+      );
+      const refBefore = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      // Attempt to smuggle a credential via extra — must throw.
+      await expect(
+        commit(
+          cmd("SetDataSourceConfig", {
+            id: sourceId,
+            extra: { apiKey: "smuggled-plaintext" } as Record<string, unknown>,
+          }),
+        ),
+      ).rejects.toThrow(/apiKey.*connectionString.*typed credential/i);
+      // Config must be unchanged — the original ref is still there.
+      const refAfter = (
+        (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
+      ).apiKey;
+      expect(refAfter).toBe(refBefore);
+    });
+
+    it("SetDataSourceConfig sink guard: extra.connectionString throws and leaves config unchanged", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "postgres", name: "P" }),
+      );
+      await expect(
+        commit(
+          cmd("SetDataSourceConfig", {
+            id: sourceId,
+            extra: { connectionString: "postgresql://plaintext" } as Record<
+              string,
+              unknown
+            >,
+          }),
+        ),
+      ).rejects.toThrow(/apiKey.*connectionString.*typed credential/i);
+    });
+
+    it("SetDataSourceConfig extra: non-credential settings round-trip through config", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "postgres", name: "P" }),
+      );
+      await commit(
+        cmd("SetDataSourceConfig", {
+          id: sourceId,
+          extra: { database: "analytics", schema: "public" } as Record<
+            string,
+            unknown
+          >,
+        }),
+      );
+      const [row] = await sourcesById(sourceId);
+      const stored = row?.config as Record<string, unknown>;
+      // Non-credential keys persist as-is.
+      expect(stored["database"]).toBe("analytics");
+      expect(stored["schema"]).toBe("public");
+      // Credential slots remain absent (never set).
+      expect(stored["apiKey"]).toBeUndefined();
+      expect(stored["connectionString"]).toBeUndefined();
+    });
+
     it("should throw on UpdateField with a missing fieldId", async () => {
       const sourceId = id();
       const tableId = id();

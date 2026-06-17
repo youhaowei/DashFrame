@@ -257,10 +257,16 @@ async function rowToDataSource(
     hasConnectionString = Boolean(config.connectionString);
   }
   // Pass through any non-credential keys from the stored config so future
-  // fields are forward-compatible. Credential slots are NEVER passed through.
+  // fields are forward-compatible. Two exclusion criteria apply:
+  //   1. Key name — "apiKey" and "connectionString" are the typed credential
+  //      slots; they never appear in the public DTO (only the boolean flags do).
+  //   2. Value shape — any value that is a well-formed SecretRef ("secret:<uuid>")
+  //      is also dropped, regardless of key name. Guards the sink by value shape,
+  //      not only by provenance: a future credential field stored under a
+  //      non-standard key name can't leak a live ref to the renderer.
   const otherKeys: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(config)) {
-    if (k !== "apiKey" && k !== "connectionString") {
+    if (k !== "apiKey" && k !== "connectionString" && !isSecretRef(v)) {
       otherKeys[k] = v;
     }
   }

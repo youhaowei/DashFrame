@@ -369,15 +369,14 @@ const setDataSourceConfig = mutation({
       preview,
     );
     // Sink guard: callers may not sneak credential keys in via `extra`.
-    if (extra != null && typeof extra === "object" && !Array.isArray(extra)) {
-      const extraRecord = extra as Record<string, unknown>;
-      if ("apiKey" in extraRecord || "connectionString" in extraRecord) {
+    if (isRecord(extra)) {
+      if ("apiKey" in extra || "connectionString" in extra) {
         throw new Error(
           "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
         );
       }
       // Merge non-credential keys into the config.
-      Object.assign(config, extraRecord);
+      Object.assign(config, extra);
     }
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
