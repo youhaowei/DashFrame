@@ -482,7 +482,9 @@ function buildColumnSelectWithFieldId(
   fieldId: string,
 ): string {
   const alias = fieldIdToColumnAlias(fieldId);
-  return `"${tableName}"."${columnName}" AS "${alias}"`;
+  // alias is a generated UUID-based name (field_<uuid>) — safe as-is; tableName
+  // and columnName may contain " from user-controlled data and must be quoted.
+  return `${quoteIdentifier(tableName)}.${quoteIdentifier(columnName)} AS "${alias}"`;
 }
 
 /** Build SELECT parts for all fields from a table using UUID aliases */
@@ -610,9 +612,8 @@ function processSingleJoin(
   const selectParts = [...baseSelects, ...joinSelects];
 
   // Build JOIN SQL using the UUID alias for the join condition
-  const JOIN_TYPE_WHITELIST = new Set(["inner", "left", "right", "full"]);
   const rawJoinType = join.type ?? "inner";
-  if (!JOIN_TYPE_WHITELIST.has(rawJoinType)) {
+  if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) {
     throw new Error(
       `processSingleJoin: invalid join type "${rawJoinType}" — must be one of: inner, left, right, full`,
     );
@@ -852,15 +853,7 @@ function resolveMetricAggRef(
   );
   if (!metric) return quoteIdentifier(filterField);
 
-  const AGG_WHITELIST = new Set([
-    "sum",
-    "avg",
-    "count",
-    "min",
-    "max",
-    "count_distinct",
-  ]);
-  if (!AGG_WHITELIST.has(metric.aggregation)) {
+  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
     throw new Error(
       `resolveMetricAggRef: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
     );
@@ -1054,15 +1047,7 @@ function buildMetricExpressionWithUUID(
   metric: NonNullable<Insight["metrics"]>[number],
   fieldIdMap: Map<string, Field>,
 ): string | null {
-  const AGG_WHITELIST = new Set([
-    "sum",
-    "avg",
-    "count",
-    "min",
-    "max",
-    "count_distinct",
-  ]);
-  if (!AGG_WHITELIST.has(metric.aggregation)) {
+  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
     throw new Error(
       `buildMetricExpressionWithUUID: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
     );
@@ -1213,7 +1198,23 @@ function buildAggregatedSQL(
   return appendPagination(sql, options, validColumns);
 }
 
+// Module-level whitelist constants — defined once, shared across all guard sites.
+// Centralised here so a future AggregationType addition requires a single edit.
 const SORT_DIRECTION_WHITELIST = new Set<string>(["asc", "desc"]);
+const JOIN_TYPE_WHITELIST_CONST = new Set<string>([
+  "inner",
+  "left",
+  "right",
+  "full",
+]);
+const AGG_WHITELIST_CONST = new Set<string>([
+  "sum",
+  "avg",
+  "count",
+  "min",
+  "max",
+  "count_distinct",
+]);
 
 /**
  * Appends ORDER BY, LIMIT, and OFFSET clauses to SQL.
