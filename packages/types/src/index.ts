@@ -63,6 +63,7 @@ export type {
 export type {
   CompiledInsight,
   Insight,
+  InsightDraftShape,
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
@@ -71,6 +72,8 @@ export type {
   UseInsightMutations,
   UseInsights,
 } from "./insights";
+
+export { isUnmodifiedDraft } from "./insights";
 
 export type {
   AxisType,

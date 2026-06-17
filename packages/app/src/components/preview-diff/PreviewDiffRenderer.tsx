@@ -16,6 +16,7 @@
 
 import type {
   ArtifactKind,
+  PreviewCompute,
   PreviewDiff,
   PreviewDirectNode,
   PreviewDownstreamNode,
@@ -64,6 +65,156 @@ const FLAG_LABELS: Record<PreviewDownstreamNode["flag"], string> = {
   stale: "Stale",
   orphaned: "Orphaned",
 };
+
+// ---------------------------------------------------------------------------
+// Compute display helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Row count delta summary — "+12 rows" / "−3 rows" / "unchanged".
+ * Only emitted when both before and after counts are non-null.
+ */
+function RowCountDelta({
+  before,
+  after,
+}: {
+  before: number | null;
+  after: number | null;
+}) {
+  if (after === null) return null;
+
+  if (before === null) {
+    // Create node: no before count.
+    return (
+      <span className="text-xs text-palette-success">
+        {after.toLocaleString()} rows
+      </span>
+    );
+  }
+
+  const delta = after - before;
+  if (delta === 0) {
+    return (
+      <span className="text-xs text-neutral-fg/60">
+        {after.toLocaleString()} rows (unchanged)
+      </span>
+    );
+  }
+  const sign = delta > 0 ? "+" : "−";
+  const absStr = Math.abs(delta).toLocaleString();
+  const colorClass = delta > 0 ? "text-palette-success" : "text-palette-danger";
+  return (
+    <span className={cn("text-xs", colorClass)}>
+      {after.toLocaleString()} rows ({sign}
+      {absStr})
+    </span>
+  );
+}
+
+/**
+ * A head-rows sample table for the compute display.
+ * Renders the first N rows of the proposed result as a compact table.
+ */
+function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
+  if (head.length === 0) return null;
+  const columns = Object.keys(head[0] ?? {});
+  if (columns.length === 0) return null;
+
+  return (
+    <div className="mt-2 overflow-x-auto rounded-[var(--surface-radius)] bg-neutral-bg/40">
+      <table className="w-full text-[11px]">
+        <thead>
+          {/* Header band — a slightly stronger surface tint separates it from
+              the body rows. No borders (surface system: elevation/tint only). */}
+          <tr className="bg-neutral-bg/70">
+            {columns.map((col) => (
+              <th
+                key={col}
+                className="px-2 py-1 text-left font-semibold text-neutral-fg/60"
+              >
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {head.map((row, rowIdx) => (
+            // Zebra banding via background tint — readable row separation with
+            // no borders (surface system).
+            <tr
+              key={rowIdx}
+              className={rowIdx % 2 === 1 ? "bg-neutral-bg/30" : undefined}
+            >
+              {columns.map((col) => (
+                <td key={col} className="px-2 py-1 text-neutral-fg/80">
+                  {row[col] === null || row[col] === undefined ? (
+                    <span className="text-neutral-fg/30">null</span>
+                  ) : (
+                    String(row[col])
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * The compute display for a direct node — shows row counts and head rows.
+ * When compute is `undefined` (pending), shows a pending indicator.
+ * Only rendered for insight nodes (the only kind with computable DuckDB views).
+ */
+function ComputeDisplay({
+  compute,
+  change,
+  kind,
+}: {
+  compute: PreviewCompute | undefined;
+  change: PreviewDirectNode["change"];
+  kind: ArtifactKind;
+}) {
+  // Only insight nodes have compute — other kinds have no DuckDB view.
+  if (kind !== "insight") return null;
+  // noop nodes don't change — no compute display.
+  if (change === "noop") return null;
+
+  if (compute === undefined) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-neutral-fg/50">
+        <span
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-neutral-fg/30"
+          aria-label="Computing..."
+        />
+        Computing row counts…
+      </div>
+    );
+  }
+
+  // RESOLVED-but-empty: compute ran but couldn't produce a result (missing base
+  // table, un-resolvable proposed source, or SQL build failure). Distinguish
+  // this from PENDING so the reviewer isn't stuck on an infinite spinner. Calm,
+  // on-token, no raw error string (DESIGN.md "raw runtime errors" anti-pattern).
+  if (compute.rowCountAfter === null && compute.head.length === 0) {
+    return (
+      <div className="mt-2 text-xs text-neutral-fg/50">
+        Preview unavailable — couldn't compute row counts for this change.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <RowCountDelta
+        before={compute.rowCountBefore}
+        after={compute.rowCountAfter}
+      />
+      <HeadTable head={compute.head} />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -115,6 +266,12 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
             ))}
           </ul>
         )}
+        {/* Compute display — row counts + head sample (insight nodes only) */}
+        <ComputeDisplay
+          compute={node.compute}
+          change={node.change}
+          kind={node.kind}
+        />
       </div>
     </div>
   );
@@ -126,7 +283,7 @@ function DownstreamNodeRow({ node }: { node: PreviewDownstreamNode }) {
   const flagLabel = FLAG_LABELS[node.flag];
 
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div className="flex items-center gap-2 rounded-[var(--surface-radius)] bg-neutral-bg/60 px-3 py-1.5">
       <span className="min-w-0 flex-1 truncate text-sm text-neutral-fg/80">
         {node.name || node.nodeId}
       </span>
@@ -201,15 +358,15 @@ export function PreviewDiffRenderer({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-fg/50">
             Also affected
           </h3>
-          <div className="rounded-[var(--surface-radius)] bg-neutral-bg/60 px-3 py-2">
-            <div className="flex flex-col divide-y divide-neutral-border/30">
-              {diff.affectedDownstream.map((node) => (
-                <DownstreamNodeRow
-                  key={`${node.kind}:${node.nodeId}`}
-                  node={node}
-                />
-              ))}
-            </div>
+          {/* Row separation via surface tint, not borders/divide-y (surface
+              system: elevation + tint only, no borders). */}
+          <div className="flex flex-col gap-0.5">
+            {diff.affectedDownstream.map((node) => (
+              <DownstreamNodeRow
+                key={`${node.kind}:${node.nodeId}`}
+                node={node}
+              />
+            ))}
           </div>
         </section>
       )}
