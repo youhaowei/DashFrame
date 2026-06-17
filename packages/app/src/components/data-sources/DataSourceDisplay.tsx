@@ -24,7 +24,7 @@ import {
   LayersIcon,
   RefreshIcon,
 } from "@wystack/ui-icons";
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { NOTION_ENABLED, NotionDeferredBanner } from "./NotionDeferredBanner";
@@ -53,6 +53,20 @@ const subscribeNow = (notify: () => void) => {
 };
 const getNowSnapshot = () => Date.now();
 const getNowServerSnapshot = () => 0;
+
+// Pure relative-time formatter — extracted so its branch-chain doesn't count
+// toward DataSourceDisplay's cognitive complexity.
+function formatRelativeTime(now: number, timestamp: number): string {
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return "just now";
+}
 
 // Helper to get preview description text
 function getPreviewDescription(
@@ -298,36 +312,20 @@ function LocalDataSourceView({
   );
 }
 
-// Dispatches per data-source type (local / notion / file) with branch-y
-// guards on selection, loading, empty states.
-export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
+// Notion-specific view component — owns all Notion JSX branching so that
+// DataSourceDisplay's cognitive complexity stays within the sonarjs limit.
+function NotionDataSourceView({
+  dataSource,
+  dataTables,
+}: {
+  dataSource: { id: string; type: string; config: { hasApiKey?: boolean } };
+  dataTables: DataTable[];
+}) {
   const [selectedDataTableId, setSelectedDataTableId] = useState<string | null>(
     null,
   );
   const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  // Preview data for Notion tables (columns from last sync — rows not in serializable result)
-  const [notionPreviewData, setNotionPreviewData] =
-    useState<PreviewData | null>(null);
 
-  const { data: dataSources } = useDataSources();
-  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
-  const tableMutations = useDataTableMutations();
-  const notionMutations = useNotionMutations();
-
-  const dataSource = useMemo(
-    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
-    [dataSources, dataSourceId],
-  );
-
-  // Get DataTables for the selected source (already filtered by dataSourceId)
-  const dataTables = useMemo(() => {
-    if (!dataSource) return [];
-    return allTables ?? [];
-  }, [dataSource, allTables]);
-
-  // Effective selection: fall back to the first table when none chosen or
-  // when the chosen id no longer exists. Derived during render — no effect.
   const selectedDataTable = useMemo(() => {
     if (dataTables.length === 0) return null;
     const explicit = selectedDataTableId
@@ -336,8 +334,13 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return explicit ?? dataTables[0] ?? null;
   }, [dataTables, selectedDataTableId]);
 
-  // Suppress stale preview from a previously selected table: only show
-  // notionPreviewData when its tableId matches the current selection.
+  const {
+    isRefreshing,
+    notionPreviewData,
+    handleSyncData,
+    handleRefreshDataTable,
+  } = useNotionSync(dataSource, selectedDataTable);
+
   const currentPreviewData =
     notionPreviewData?.tableId === selectedDataTable?.id
       ? notionPreviewData
@@ -348,26 +351,154 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     getNowSnapshot,
     getNowServerSnapshot,
   );
+  const fmtRelative = (ts: number) => formatRelativeTime(now, ts);
 
-  // Format relative time for "last fetched"
-  const formatRelativeTime = useCallback(
-    (timestamp: number) => {
-      const diff = now - timestamp;
-      const seconds = Math.floor(diff / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      const days = Math.floor(hours / 24);
+  const hasDataTables = dataTables.length > 0;
 
-      if (days > 0) return `${days}d ago`;
-      if (hours > 0) return `${hours}h ago`;
-      if (minutes > 0) return `${minutes}m ago`;
-      return "just now";
-    },
-    [now],
+  return (
+    <div className="flex h-full flex-col gap-4">
+      {selectedDataTable && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <DatabaseIcon className="h-5 w-5 text-neutral-fg-subtle" />
+                  <CardTitle className="text-lg">
+                    {selectedDataTable.name}
+                  </CardTitle>
+                </div>
+                <CardDescription className="mt-1.5">
+                  {getTableStatsDescription(
+                    currentPreviewData?.rowCount,
+                    currentPreviewData?.columns.length,
+                    selectedDataTable.lastFetchedAt,
+                    fmtRelative,
+                  )}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {dataTables.length > 1 && (
+                  <div className="flex gap-1">
+                    {dataTables.map((dataTable) => (
+                      <button
+                        key={dataTable.id}
+                        onClick={() => setSelectedDataTableId(dataTable.id)}
+                        className={cn(
+                          "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-neutral-bg-muted/50",
+                          selectedDataTableId === dataTable.id
+                            ? "border-palette-primary bg-palette-primary/5 font-medium text-neutral-fg"
+                            : "border-neutral-border/40 text-neutral-fg-subtle",
+                        )}
+                      >
+                        {dataTable.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  label={isRefreshing ? "Syncing..." : "Sync Data"}
+                  onClick={handleSyncData}
+                  disabled={isRefreshing}
+                  size="sm"
+                  icon={RefreshIcon}
+                  className={cn(isRefreshing && "[&_svg]:animate-spin")}
+                />
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
+
+      {!hasDataTables && (
+        <Card>
+          <CardContent className="py-12">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <DatabaseIcon className="h-8 w-8 text-neutral-fg-subtle/70" />
+              <p className="text-sm font-medium text-neutral-fg">
+                No tables configured
+              </p>
+              <p className="text-xs text-neutral-fg-subtle">
+                Add databases from the left panel to get started
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">Data Preview</CardTitle>
+              {selectedDataTable && currentPreviewData && (
+                <Button
+                  label={isRefreshing ? "Refreshing..." : "Refresh"}
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefreshDataTable}
+                  disabled={isRefreshing}
+                  className={cn("h-7", isRefreshing && "[&_svg]:animate-spin")}
+                  icon={RefreshIcon}
+                />
+              )}
+            </div>
+            <CardDescription>
+              {getPreviewDescription(
+                selectedDataTable,
+                currentPreviewData,
+                fmtRelative,
+              )}
+            </CardDescription>
+          </div>
+          {selectedDataTable && currentPreviewData && (
+            <Button
+              label={isPreviewCollapsed ? "Expand preview" : "Collapse preview"}
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
+              className="shrink-0"
+              icon={isPreviewCollapsed ? ChevronDownIcon : ChevronUpIcon}
+            />
+          )}
+        </CardHeader>
+        <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <PreviewContent
+            isPreviewCollapsed={isPreviewCollapsed}
+            hasDataTables={hasDataTables}
+            selectedDataTable={selectedDataTable}
+            previewData={currentPreviewData}
+            onExpandPreview={() => setIsPreviewCollapsed(false)}
+          />
+        </CardContent>
+      </Card>
+    </div>
   );
+}
 
-  // Handle syncing data — calls queryNotionDatabase server-side (no credential in renderer)
-  const handleSyncData = async () => {
+// Hook that owns Notion query state and the server-side query call.
+// Extracted from DataSourceDisplay so the branch-heavy async body does not
+// contribute toward the component function's cognitive complexity budget.
+function useNotionSync(
+  dataSource: {
+    id: string;
+    type: string;
+    config: { hasApiKey?: boolean };
+  } | null,
+  selectedDataTable: {
+    id: string;
+    table: string;
+    dataFrameId?: string | null;
+  } | null,
+) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [notionPreviewData, setNotionPreviewData] =
+    useState<PreviewData | null>(null);
+  const notionMutations = useNotionMutations();
+  const tableMutations = useDataTableMutations();
+
+  const runNotionQuery = async (successMsg: (n: number) => string) => {
     if (
       !selectedDataTable ||
       !dataSource ||
@@ -385,9 +516,6 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         selectedDataTable.id,
       );
 
-      // Build column preview from field definitions returned by the server.
-      // Rows are not in the serializable result (Arrow buffer stays server-side
-      // until a visualization materializes it); show column schema only.
       const columns = result.fields
         .filter((f) => !f.name.startsWith("_"))
         .map((f) => ({ name: f.columnName ?? f.name, type: f.type }));
@@ -406,13 +534,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         // column count instead until a visualization materializes the DataFrame.
       });
 
-      // Update DataTable timestamp
       await tableMutations.refresh(
         selectedDataTable.id,
         selectedDataTable.dataFrameId ?? crypto.randomUUID(),
       );
 
-      toast.success(`Synced ${columns.length} columns from Notion`);
+      toast.success(successMsg(columns.length));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to sync data",
@@ -422,51 +549,30 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     }
   };
 
-  // Handle refreshing Notion data — re-queries server-side (no credential in renderer)
-  const handleRefreshDataTable = async () => {
-    if (
-      !selectedDataTable ||
-      !dataSource ||
-      dataSource.type !== "notion" ||
-      !dataSource.config.hasApiKey
-    ) {
-      return;
-    }
-
-    setIsRefreshing(true);
-    try {
-      const result = await notionMutations.queryDatabase(
-        dataSource.id,
-        selectedDataTable.table,
-        selectedDataTable.id,
-      );
-
-      const columns = result.fields
-        .filter((f) => !f.name.startsWith("_"))
-        .map((f) => ({ name: f.columnName ?? f.name, type: f.type }));
-
-      setNotionPreviewData({
-        tableId: selectedDataTable.id,
-        rows: [],
-        columns,
-        // rowCount intentionally undefined (see handleSyncData comment)
-      });
-
-      // Update DataTable with new lastFetchedAt
-      await tableMutations.refresh(
-        selectedDataTable.id,
-        selectedDataTable.dataFrameId ?? crypto.randomUUID(),
-      );
-
-      toast.success("Data refreshed successfully");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to refresh data",
-      );
-    } finally {
-      setIsRefreshing(false);
-    }
+  return {
+    isRefreshing,
+    notionPreviewData,
+    handleSyncData: () =>
+      runNotionQuery((n) => `Synced ${n} columns from Notion`),
+    handleRefreshDataTable: () =>
+      runNotionQuery(() => "Data refreshed successfully"),
   };
+}
+
+// Dispatches per data-source type (local / notion / unsupported).
+export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
+  const { data: dataSources } = useDataSources();
+  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+
+  const dataSource = useMemo(
+    () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
+    [dataSources, dataSourceId],
+  );
+
+  const dataTables = useMemo(
+    () => (dataSource ? (allTables ?? []) : []),
+    [dataSource, allTables],
+  );
 
   if (!dataSource) {
     return (
@@ -484,154 +590,16 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  const isLocal = dataSource.type === "local";
-
-  // For CSV sources, show DataTables with async data loading
-  if (isLocal) {
+  if (dataSource.type === "local") {
     return (
       <LocalDataSourceView dataSource={dataSource} dataTables={dataTables} />
     );
   }
 
-  // For Notion sources, show DataTables (or a deferred banner — see
-  // NotionDeferredBanner — while the integration moves off web tRPC).
-  const showNotionBanner = dataSource.type === "notion" && !NOTION_ENABLED;
-  if (showNotionBanner) return <NotionDeferredBanner />;
-
   if (dataSource.type === "notion") {
-    const hasDataTables = dataTables.length > 0;
-
+    if (!NOTION_ENABLED) return <NotionDeferredBanner />;
     return (
-      <div className="flex h-full flex-col gap-4">
-        {/* Table Header & Configuration */}
-        {selectedDataTable && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <DatabaseIcon className="h-5 w-5 text-neutral-fg-subtle" />
-                    <CardTitle className="text-lg">
-                      {selectedDataTable.name}
-                    </CardTitle>
-                  </div>
-                  <CardDescription className="mt-1.5">
-                    {getTableStatsDescription(
-                      currentPreviewData?.rowCount,
-                      currentPreviewData?.columns.length,
-                      selectedDataTable.lastFetchedAt,
-                      formatRelativeTime,
-                    )}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Table Selector */}
-                  {dataTables.length > 1 && (
-                    <div className="flex gap-1">
-                      {dataTables.map((dataTable) => (
-                        <button
-                          key={dataTable.id}
-                          onClick={() => setSelectedDataTableId(dataTable.id)}
-                          className={cn(
-                            "rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-neutral-bg-muted/50",
-                            selectedDataTableId === dataTable.id
-                              ? "border-palette-primary bg-palette-primary/5 font-medium text-neutral-fg"
-                              : "border-neutral-border/40 text-neutral-fg-subtle",
-                          )}
-                        >
-                          {dataTable.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {/* Sync Button */}
-                  <Button
-                    label={isRefreshing ? "Syncing..." : "Sync Data"}
-                    onClick={handleSyncData}
-                    disabled={isRefreshing}
-                    size="sm"
-                    icon={RefreshIcon}
-                    className={cn(isRefreshing && "[&_svg]:animate-spin")}
-                  />
-                </div>
-              </div>
-            </CardHeader>
-          </Card>
-        )}
-
-        {/* Empty state if no tables configured */}
-        {!hasDataTables && (
-          <Card>
-            <CardContent className="py-12">
-              <div className="flex flex-col items-center gap-2 text-center">
-                <DatabaseIcon className="h-8 w-8 text-neutral-fg-subtle/70" />
-                <p className="text-sm font-medium text-neutral-fg">
-                  No tables configured
-                </p>
-                <p className="text-xs text-neutral-fg-subtle">
-                  Add databases from the left panel to get started
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Data Preview */}
-        <Card className="flex min-h-0 flex-1 flex-col">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">Data Preview</CardTitle>
-                {selectedDataTable &&
-                  currentPreviewData &&
-                  dataSource.type === "notion" && (
-                    <Button
-                      label={isRefreshing ? "Refreshing..." : "Refresh"}
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleRefreshDataTable}
-                      disabled={isRefreshing}
-                      className={cn(
-                        "h-7",
-                        isRefreshing && "[&_svg]:animate-spin",
-                      )}
-                      icon={RefreshIcon}
-                    />
-                  )}
-              </div>
-              <CardDescription>
-                {getPreviewDescription(
-                  selectedDataTable,
-                  currentPreviewData,
-                  formatRelativeTime,
-                )}
-              </CardDescription>
-            </div>
-            {selectedDataTable && currentPreviewData && (
-              <Button
-                label={
-                  isPreviewCollapsed ? "Expand preview" : "Collapse preview"
-                }
-                variant="ghost"
-                size="sm"
-                iconOnly
-                onClick={() => setIsPreviewCollapsed(!isPreviewCollapsed)}
-                className="shrink-0"
-                icon={isPreviewCollapsed ? ChevronDownIcon : ChevronUpIcon}
-              />
-            )}
-          </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <PreviewContent
-              isPreviewCollapsed={isPreviewCollapsed}
-              hasDataTables={hasDataTables}
-              selectedDataTable={selectedDataTable}
-              previewData={currentPreviewData}
-              onExpandPreview={() => setIsPreviewCollapsed(false)}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <NotionDataSourceView dataSource={dataSource} dataTables={dataTables} />
     );
   }
 
