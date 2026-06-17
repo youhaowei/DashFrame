@@ -204,6 +204,11 @@ export function getTableName(dataFrameId: string): string {
  * @param insight - The insight configuration (selectedFields, metrics, joins)
  * @param options - Query options (mode, limit, offset, sort)
  * @returns SQL string or null if baseTable has no dataFrameId
+ * @throws {Error} if any filter value is a non-finite number (NaN, Infinity, -Infinity),
+ *   if a join type is not one of inner/left/right/full,
+ *   if a metric aggregation is not one of sum/avg/count/min/max/count_distinct,
+ *   if sortDirection is not "asc" or "desc",
+ *   or if limit/offset is not a non-negative integer.
  *
  * @example
  * ```typescript
@@ -617,7 +622,7 @@ function processSingleJoin(
     SELECT ${selectParts.join(", ")}
     FROM ${currentSQL}
     ${joinTypeSQL} JOIN ${joinDFTable} AS ${quoteIdentifier(joinDisplayName)}
-    ON "${leftKeyAlias}" = ${quoteIdentifier(joinDisplayName)}."${rightColName}"
+    ON "${leftKeyAlias}" = ${quoteIdentifier(joinDisplayName)}.${quoteIdentifier(rightColName)}
   )`;
 
   // Combine all fields for subsequent joins (excluding duplicate join key)
@@ -639,13 +644,16 @@ function processSingleJoin(
 /**
  * Quote a scalar value for safe SQL embedding.
  *
- * - Numbers and booleans are emitted as-is (no injection risk).
+ * - Booleans are emitted as-is (`true`/`false`).
+ * - Finite numbers are emitted as-is. Non-finite numbers (NaN, Infinity, -Infinity)
+ *   throw — they cannot be represented as SQL literals and indicate a bad caller input.
  * - Strings are single-quoted with internal single-quotes escaped by doubling
  *   (standard SQL escaping: `'` → `''`). This matches the convention used in
  *   the rest of this module (no parameterized placeholders — values are inlined
  *   at query-build time, not at the DB driver level).
  * - null / undefined → `NULL`.
  * - Anything else is coerced to string and then quoted.
+ * @throws {Error} if val is a non-finite number.
  */
 function quoteValue(val: unknown): string {
   if (val === null || val === undefined) return "NULL";
@@ -1232,7 +1240,7 @@ function appendPagination(
       );
     }
     if (validColumns.has(sortColumn)) {
-      sql += ` ORDER BY "${sortColumn}" ${sortDirection.toUpperCase()}`;
+      sql += ` ORDER BY ${quoteIdentifier(sortColumn)} ${sortDirection.toUpperCase()}`;
     }
   }
   if (limit !== undefined) {
