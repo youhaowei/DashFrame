@@ -5,20 +5,18 @@
  * `beforeToolCall.args` arrives as `unknown`. Every DashFrame tool built
  * through this helper gets:
  *
- *   1. Validated params — `unknown` → `Static<TSchema>` at the boundary,
- *      once, via TypeBox. Tool bodies receive fully-typed params.
+ *   1. Typed params — pi validates args against the TypeBox schema before
+ *      calling execute; the helper surface exposes a fully-typed execute
+ *      callback, so tool bodies never see `unknown` or need `as` casts.
  *   2. Standardised result envelope — `details` is always present.
- *   3. Consistent error shaping on validation failure and thrown execute errors.
+ *   3. Consistent error shaping — validation failures are handled by pi
+ *      (isError: true on the ToolResultMessage); runtime errors thrown from
+ *      execute are passed through to pi unchanged (same pi behavior).
  *
- * Guard the sink, not provenance: validate at the point of use (here),
- * never rely on "the caller passed safe values already".
- *
- * Error signaling note: per pi's AgentTool contract, execute should throw to
- * signal failure. The helper does so for execute-thrown errors (re-throws
- * with a structured ToolExecutionError). For validation errors the helper
- * returns a result with `details.kind === "validation_error"` — the tool did
- * not even begin executing, so a clean informative return is more appropriate
- * than a throw that looks like a runtime crash to the model.
+ * Guard the sink, not provenance: the TypeBox schema passed to defineToolHandler
+ * IS the validation gate. Pi's prepareToolCall runs Value.Convert + Check against
+ * the schema before execute is invoked — validate here (the schema declaration),
+ * trust the typed params pi delivers.
  */
 
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
@@ -29,25 +27,16 @@ import { Check, Errors } from "typebox/value";
 // Error types
 // ---------------------------------------------------------------------------
 
-/** Structured payload carried in the result envelope on validation failure. */
+/** Structured validation-error detail for programmatic inspection. */
 export interface ToolArgValidationError {
   kind: "validation_error";
   message: string;
-  /** Path → message pairs from TypeBox; empty when the root value is wrong type. */
+  /** Path → message pairs from TypeBox. */
   errors: Array<{ path: string; message: string }>;
 }
 
-/** Error thrown from executeWithDetails when the tool body throws. */
-export class ToolExecutionError extends Error {
-  readonly kind = "execution_error" as const;
-  constructor(
-    message: string,
-    override readonly cause?: unknown,
-  ) {
-    super(message);
-    this.name = "ToolExecutionError";
-  }
-}
+/** Union of error detail shapes produced by defineToolHandler. */
+export type ToolHandlerErrorDetails = ToolArgValidationError;
 
 /** Discriminant for checking the details payload on a validation-failure result. */
 export function isValidationError(
@@ -59,9 +48,6 @@ export function isValidationError(
     (details as ToolArgValidationError).kind === "validation_error"
   );
 }
-
-/** Union of error detail shapes produced by defineToolHandler. */
-export type ToolHandlerErrorDetails = ToolArgValidationError;
 
 // ---------------------------------------------------------------------------
 // defineToolHandler config
@@ -82,52 +68,25 @@ export interface ToolHandlerConfig<TParams extends TSchema, TDetails> {
   label: string;
   /**
    * TypeBox schema for the tool's parameters.
-   * Validation runs here, once, before the execute body receives typed params.
+   * Pi validates args against this schema before calling execute — type-safe
+   * params arrive already checked; no double-validation inside the execute body.
    */
   parameters: TParams;
   /**
-   * The tool body. Receives fully-typed, validated params.
+   * The tool body. Receives fully-typed, validated params — no `as` casts needed.
    *
-   * Per pi's AgentTool contract, throw to signal runtime failure — the agent
-   * loop catches it and marks the tool result as an error in the conversation.
-   * The helper re-throws with a ToolExecutionError wrapper for structured detail.
+   * Per pi's AgentTool contract, throw to signal runtime failure. Pi catches
+   * thrown errors and marks the ToolResultMessage as isError: true.
+   *
+   * Note: pi's prepareToolCall passes an onUpdate streaming callback as the 4th
+   * argument. This helper omits it because YW-279/YW-280 tools are atomic; add
+   * onUpdate to the signature if incremental progress becomes needed.
    */
   execute: (
     toolCallId: string,
     params: Static<TParams>,
     signal?: AbortSignal,
   ) => Promise<AgentToolResult<TDetails>>;
-}
-
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
-
-/** Validate raw args against a TypeBox schema and narrow the type. */
-function validateArgs<TParams extends TSchema>(
-  schema: TParams,
-  raw: unknown,
-):
-  | { ok: true; value: Static<TParams> }
-  | { ok: false; error: ToolArgValidationError } {
-  if (Check(schema, raw)) {
-    return { ok: true, value: raw };
-  }
-
-  const errorList = Errors(schema, raw).map((e) => ({
-    path: e.instancePath ?? "/",
-    message: e.message ?? "invalid value",
-  }));
-
-  const parts = errorList.map((e) => `${e.path} ${e.message}`).join("; ");
-  return {
-    ok: false,
-    error: {
-      kind: "validation_error",
-      message: `Tool argument validation failed: ${parts}`,
-      errors: errorList,
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +114,7 @@ function validateArgs<TParams extends TSchema>(
  */
 export function defineToolHandler<TParams extends TSchema, TDetails>(
   config: ToolHandlerConfig<TParams, TDetails>,
-): AgentTool<TParams, TDetails | ToolArgValidationError> {
+): AgentTool<TParams, TDetails> {
   return {
     name: config.name,
     description: config.description,
@@ -166,32 +125,45 @@ export function defineToolHandler<TParams extends TSchema, TDetails>(
       toolCallId,
       params,
       signal,
-    ): Promise<AgentToolResult<TDetails | ToolArgValidationError>> => {
-      // The execute callback from pi already receives Static<TParams>-typed params
-      // because AgentTool<TParams> wires that up. We add a runtime validation
-      // guard here regardless — trust the schema, not the caller.
-      const validated = validateArgs(config.parameters, params);
-      if (!validated.ok) {
-        const { error } = validated;
-        // Return (not throw) a clean error result; the model sees the message,
-        // downstream code reads details.kind to distinguish from success.
-        return {
-          content: [{ type: "text", text: error.message }],
-          details: error,
-        };
-      }
+    ): Promise<AgentToolResult<TDetails>> => {
+      // params: Static<TParams> — pi validated before calling us.
+      // Throw to signal runtime errors (pi catches, marks isError: true).
+      return config.execute(toolCallId, params, signal);
+    },
+  };
+}
 
-      // For execute errors, re-throw as ToolExecutionError so pi marks the
-      // ToolResultMessage as isError: true (pi's convention: throw = error).
-      try {
-        return await config.execute(toolCallId, validated.value, signal);
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : `Tool execution error: ${String(err)}`;
-        throw new ToolExecutionError(message, err);
-      }
+// ---------------------------------------------------------------------------
+// Validation utilities — exported for test/integration use
+// ---------------------------------------------------------------------------
+
+/**
+ * Run TypeBox validation and return structured errors.
+ * Useful in tests and integration harnesses that need to pre-validate args
+ * before passing them to a tool (e.g., before calling tool.execute directly).
+ */
+export function validateToolArgs<TParams extends TSchema>(
+  schema: TParams,
+  raw: unknown,
+):
+  | { ok: true; value: Static<TParams> }
+  | { ok: false; error: ToolArgValidationError } {
+  if (Check(schema, raw)) {
+    return { ok: true, value: raw };
+  }
+
+  const errorList = Errors(schema, raw).map((e) => ({
+    path: e.instancePath ?? "/",
+    message: e.message ?? "invalid value",
+  }));
+
+  const parts = errorList.map((e) => `${e.path} ${e.message}`).join("; ");
+  return {
+    ok: false,
+    error: {
+      kind: "validation_error",
+      message: `Tool argument validation failed: ${parts}`,
+      errors: errorList,
     },
   };
 }

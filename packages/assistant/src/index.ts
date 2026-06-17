@@ -10,10 +10,10 @@ export const ASSISTANT_VERSION = "0.0.0" as const;
 export {
   Check,
   Errors,
-  ToolExecutionError,
   Type,
   defineToolHandler,
   isValidationError,
+  validateToolArgs,
   type Static,
   type TSchema,
   type ToolArgValidationError,
