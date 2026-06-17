@@ -40,7 +40,10 @@ export function PreviewDiffDialog({
   title = "Preview changes",
 }: PreviewDiffDialogProps) {
   // Fill compute slots lazily — runs entirely client-side, no server RPC.
-  const { diff: filledDiff } = usePreviewComputeFill(diff);
+  // Gate on `open`: a closed (hidden) dialog must not kick DuckDB compute work.
+  // Passing null when closed also flips the hook's effect-cleanup cancellation,
+  // freeing the single DuckDB-WASM worker.
+  const { diff: filledDiff } = usePreviewComputeFill(open ? diff : null);
 
   return (
     <Dialog

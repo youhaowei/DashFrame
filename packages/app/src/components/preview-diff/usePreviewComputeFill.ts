@@ -319,13 +319,22 @@ async function resolveBaseTable(
     // before) carries the schema metadata; the DataFrame must be local. We read
     // the canonical store FIRST (covers update/noop where the row exists) and
     // fall back to whatever the proposed definition can give us.
+    const def = proposedNode.proposedDefinition;
+    const proposedFrameId =
+      typeof def.dataFrameId === "string" ? def.dataFrameId : undefined;
     const canonical = await getDataTable(baseTableId);
-    if (canonical?.dataFrameId) return canonical;
+    if (canonical?.dataFrameId) {
+      // Same-batch update may re-point this table's dataFrameId. Overlay the
+      // PROPOSED frame id so the count reflects the proposed table, not the
+      // stale canonical one. (No proposed override → use canonical as-is.)
+      return proposedFrameId
+        ? { ...canonical, dataFrameId: proposedFrameId }
+        : canonical;
+    }
     // create-node DataTable: the canonical store has no row (preview rolled
     // back). We can only compute if a proposed definition names a local
     // dataFrameId. Otherwise the DataFrame isn't local → unavailable.
-    const def = proposedNode.proposedDefinition;
-    if (typeof def.dataFrameId === "string") {
+    if (proposedFrameId) {
       return def as unknown as DataTable;
     }
     return null;
