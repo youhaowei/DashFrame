@@ -11,8 +11,8 @@
  *
  * Draft overlay tables (`<table>__draft`):
  * Six artifact tables have a parallel `__draft` shadow that the @wystack/db
- * `withDraft` primitive (YW-120/YW-121) resolves against for coalesced reads
- * and sparse writes. Each shadow carries `draft_id TEXT NOT NULL` + the
+ * `withDraft` primitive resolves against for coalesced reads and sparse writes.
+ * Each shadow carries `draft_id TEXT NOT NULL` + the
  * canonical columns (sparse — NULLs mean "no override") + `__tombstone
  * BOOLEAN NOT NULL DEFAULT false`, keyed `(draft_id, id)`.
  *
@@ -232,10 +232,10 @@ export const secretMappings = pgTable("secret_mappings", {
     .defaultNow(),
 });
 
-// ─── Draft shadow tables (YW-125) ─────────────────────────────────────────────
+// ─── Draft shadow tables ──────────────────────────────────────────────────────
 //
 // Each `<table>__draft` is the sparse overlay the @wystack/db `withDraft`
-// primitive (YW-120/YW-121) reads from (via FULL OUTER JOIN coalesce) and
+// primitive reads from (via FULL OUTER JOIN coalesce) and
 // writes into (via sparse upsert + tombstone). Contract:
 //
 //   - Same columns as canonical, all NULLABLE (a NULL means "no override").
@@ -377,7 +377,7 @@ export const dashboardsDraft = pgTable(
   (t) => [primaryKey({ columns: [t.draftId, t.id] })],
 );
 
-// ─── Draft command log (YW-125) ───────────────────────────────────────────────
+// ─── Draft command log ────────────────────────────────────────────────────────
 //
 // Stores the ordered `DraftCommand[]` per draft for replay at publish time.
 // Publish = command-log replay (NOT a row-delta copy): the command log
@@ -430,7 +430,7 @@ export const schema = {
   dashboards,
   // Credential infrastructure — NOT drafted (security boundary)
   secretMappings,
-  // Draft shadow tables (artifact overlay — YW-125)
+  // Draft shadow tables (artifact overlay)
   dataSourcesDraft,
   dataTablesDraft,
   dataFramesDraft,

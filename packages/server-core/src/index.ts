@@ -52,11 +52,11 @@ export {
   dataFrames,
   dataFramesDraft,
   dataSources,
-  // Draft shadow tables (YW-125)
+  // Draft shadow tables
   dataSourcesDraft,
   dataTables,
   dataTablesDraft,
-  // Draft command log (YW-125)
+  // Draft command log
   draftCommandLog,
   insights,
   insightsDraft,

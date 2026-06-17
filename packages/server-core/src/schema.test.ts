@@ -1,5 +1,5 @@
 /**
- * Tests for the YW-125 draft delta-table schema.
+ * Tests for the draft delta-table schema.
  *
  * Load-bearing contracts:
  *   1. Each of the 6 draftable artifact tables has a `__draft` shadow with the
