@@ -9,6 +9,7 @@ import {
   createSourceSchema,
 } from "@dashframe/engine-browser";
 import {
+  createNotionClient,
   getDatabaseSchema,
   listDatabases,
   queryDatabase,
@@ -42,7 +43,7 @@ export type NotionConfig = {
 export async function fetchNotionDatabases(
   apiKey: string,
 ): Promise<NotionDatabase[]> {
-  return listDatabases(apiKey);
+  return listDatabases(createNotionClient(apiKey));
 }
 
 /**
@@ -52,7 +53,7 @@ export async function fetchNotionDatabaseSchema(
   apiKey: string,
   databaseId: string,
 ): Promise<NotionProperty[]> {
-  return getDatabaseSchema(apiKey, databaseId);
+  return getDatabaseSchema(createNotionClient(apiKey), databaseId);
 }
 
 /**
@@ -66,11 +67,13 @@ export async function notionToDataFrame(
 ): Promise<NotionConversionResult> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
 
+  const client = createNotionClient(apiKey);
+
   // Filter fields based on selectedPropertyIds if provided
   let activeFields = fields;
   if (selectedPropertyIds && selectedPropertyIds.length > 0) {
     // Fetch schema to map property IDs to names
-    const schema = await getDatabaseSchema(apiKey, databaseId);
+    const schema = await getDatabaseSchema(client, databaseId);
     const selectedNames = schema
       .filter((prop) => selectedPropertyIds.includes(prop.id))
       .map((prop) => prop.name);
@@ -84,7 +87,7 @@ export async function notionToDataFrame(
   }
 
   // Query database for all data
-  const response = await queryDatabase(apiKey, databaseId);
+  const response = await queryDatabase(client, databaseId);
 
   // Convert to DataFrame
   return convertNotionToDataFrame(response, activeFields);
@@ -145,12 +148,13 @@ export async function notionToDataFrameSample(
   pageSize: number = 100,
 ): Promise<NotionConversionResult> {
   const { apiKey, databaseId, selectedPropertyIds } = config;
+  const client = createNotionClient(apiKey);
 
   // Filter fields based on selectedPropertyIds if provided
   let activeFields = fields;
   if (selectedPropertyIds && selectedPropertyIds.length > 0) {
     // Fetch schema to map property IDs to names
-    const schema = await getDatabaseSchema(apiKey, databaseId);
+    const schema = await getDatabaseSchema(client, databaseId);
     const selectedNames = schema
       .filter((prop) => selectedPropertyIds.includes(prop.id))
       .map((prop) => prop.name);
@@ -164,7 +168,7 @@ export async function notionToDataFrameSample(
   }
 
   // Query database for sample data
-  const response = await queryDatabase(apiKey, databaseId, { pageSize });
+  const response = await queryDatabase(client, databaseId, { pageSize });
 
   // Convert to DataFrame
   return convertNotionToDataFrame(response, activeFields);

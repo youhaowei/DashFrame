@@ -24,6 +24,7 @@ import { makeNotionConnector, NotionConnector } from "./connector";
 
 // Mock the Notion client so tests don't hit the network
 vi.mock("./client", () => ({
+  createNotionClient: vi.fn().mockReturnValue({}),
   listDatabases: vi.fn().mockResolvedValue([]),
   getDatabaseSchema: vi.fn().mockResolvedValue([]),
   queryDatabase: vi.fn().mockResolvedValue({ results: [] }),
