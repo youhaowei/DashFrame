@@ -2980,6 +2980,66 @@ describe("command vocabulary", () => {
           ),
         ).rejects.toThrow(/corrupt definition/);
       });
+
+      it("should treat null selectedFields as a valid empty-array state (nullish is not corrupt)", async () => {
+        // A stored definition where `selectedFields` is SQL null (not absent,
+        // not a non-array) must be treated as "nothing set", not rejected as
+        // corrupt. This verifies the nullish/empty distinction in the schema.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Null selectedFields — valid empty state.
+        await db
+          .update(schema.insights)
+          .set({
+            definition: {
+              baseTableId: tableId,
+              selectedFields: null,
+              metrics: [],
+            },
+          });
+
+        // Should NOT throw — null selectedFields is treated as [].
+        await expect(
+          commit(cmd("SelectFields", { id: insightId, fieldIds: [] })),
+        ).resolves.toBeDefined();
+      });
+
+      it("should treat null metrics as a valid empty-array state (nullish is not corrupt)", async () => {
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Null metrics — valid empty state; should resolve without corrupt error.
+        await db
+          .update(schema.insights)
+          .set({
+            definition: {
+              baseTableId: tableId,
+              selectedFields: [],
+              metrics: null,
+            },
+          });
+
+        await expect(
+          commit(cmd("SetInsightFilter", { id: insightId, filters: [] })),
+        ).resolves.toBeDefined();
+      });
     });
   });
 });

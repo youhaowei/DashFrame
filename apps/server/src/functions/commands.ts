@@ -183,11 +183,29 @@ const insightSourceSchema = z.object({
 const storedInsightDefinitionSchema = z.object({
   baseTableId: z.string(),
   source: insightSourceSchema.optional(),
-  selectedFields: z.array(z.string()).default([]),
-  metrics: z.array(z.unknown()).default([]),
-  filters: z.array(z.unknown()).optional(),
-  sorts: z.array(z.unknown()).optional(),
-  joins: z.array(z.unknown()).optional(),
+  // `.nullish().default([])` — a null value (SQL JSONB can store null for an
+  // absent key) and an absent key are both "nothing set" states, not corrupt.
+  // Present-but-malformed (a non-array) is still rejected as corrupt.
+  selectedFields: z
+    .array(z.string())
+    .nullish()
+    .transform((v) => v ?? []),
+  metrics: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
+  filters: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? undefined),
+  sorts: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? undefined),
+  joins: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? undefined),
 });
 
 /**
