@@ -777,10 +777,9 @@ describe("openProject WAL corruption recovery", () => {
   });
 
   test("recovery with ALL corrupt snapshots → fresh project + failedRestoreAttempts populated", async () => {
-    // Q3 (YW-288): openProject integration test verifying the plumbing from
-    // restoreNewestSnapshot → recovery.failedRestoreAttempts. Pre-fix this field
-    // didn't exist; post-fix it must be non-empty when corrupt-but-present snapshots
-    // were tried and rejected, distinguishing "no snapshots" from "all corrupt."
+    // Integration test: openProject recovery plumbing from restoreNewestSnapshot
+    // → recovery.failedRestoreAttempts. The field must be non-empty when corrupt-but-present
+    // snapshots were tried and rejected, distinguishing "no snapshots" from "all corrupt."
     const dir = join(root, "all-corrupt-snaps");
 
     // 1. Write a garbage "snapshot" file (corrupt tarball) — present but unrestorable.
@@ -826,7 +825,7 @@ describe("openProject WAL corruption recovery", () => {
 });
 
 // ---------------------------------------------------------------------------
-// YW-288: fail-closed durability — site-by-site contracts
+// Fail-closed durability — site-by-site contracts
 // ---------------------------------------------------------------------------
 
 // Site 1 + 2 in project.ts: close() surfaces snapshot failures
