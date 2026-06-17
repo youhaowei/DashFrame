@@ -43,6 +43,31 @@ export {
   resolveProjectDir,
   type ResolveProjectDirOptions,
 } from "./project-dir";
-export { schema, type Schema } from "./schema";
+export {
+  // Constants
+  PROJECT_META_ID,
+  PROJECT_META_SINGLETON_KEY,
+  dashboards,
+  dashboardsDraft,
+  dataFrames,
+  dataFramesDraft,
+  dataSources,
+  // Draft shadow tables
+  dataSourcesDraft,
+  dataTables,
+  dataTablesDraft,
+  // Draft command log
+  draftCommandLog,
+  insights,
+  insightsDraft,
+  // Canonical artifact tables
+  projectMeta,
+  schema,
+  secretMappings,
+  visualizations,
+  visualizationsDraft,
+  type ArtifactProvenance,
+  type Schema,
+} from "./schema";
 export { DASHFRAME_PROJECT_VERSION } from "./version";
 export { applyDataFrameWriteGate } from "./write-gate";
