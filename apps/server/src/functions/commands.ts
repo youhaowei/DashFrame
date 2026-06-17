@@ -1749,10 +1749,16 @@ const deleteNode = mutation({
       // mapping row + backend blob are not permanently orphaned in the OS keychain.
       // vault-absent-with-a-ref is treated as an error (fail-closed symmetry):
       // a ref can only exist if vault.store() was called, which requires a vault.
-      await releaseCredentialRefs(
-        (source.config ?? {}) as DataSourceConfig,
-        vaultFromCtx(ctx),
-      );
+      // In preview mode vault.delete() is skipped — like vault.store(), it is a
+      // keychain side-effect outside the DB transaction. A preview executes then
+      // rolls back: the DataSource row (with its refs) survives, so its credential
+      // must survive too. Releasing here would orphan the surviving row's refs.
+      if (modeFromCtx(ctx) !== "preview") {
+        await releaseCredentialRefs(
+          (source.config ?? {}) as DataSourceConfig,
+          vaultFromCtx(ctx),
+        );
+      }
       // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
       return { ok: true, deleted: { kind: "dataSource", id }, orphanedNodes };
