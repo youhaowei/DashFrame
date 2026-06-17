@@ -1,10 +1,15 @@
 /**
- * Tests for the privacy-floor write boundary in app-artifacts.
+ * Tests for the privacy-floor write boundary in app-artifacts, and the
+ * atomic auto-draft dedup contract on createInsight.
  *
- * Contract: any DataFrameAnalysis written through putDataFrameEntry or
+ * Privacy floor: any DataFrameAnalysis written through putDataFrameEntry or
  * updateDataFrameEntry lands in the artifact DB with zero raw sampleValues.
  * The invariant is structural — it cannot be broken by the caller passing
  * sampleValues, because the boundary strips them before every write.
+ *
+ * Auto-draft dedup: createInsight wraps check-and-insert in a single
+ * transaction so two concurrent calls for the same baseTableId always
+ * converge on one unmodified draft (no TOCTOU race).
  *
  * Pattern matches commands.test.ts: real PGLite, 'should ...' names,
  * structural-invariant testing.
@@ -176,5 +181,184 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
 
     const stored = await readAnalysis(id);
     expect(stored).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createInsight — atomic auto-draft dedup (TOCTOU fix)
+// ---------------------------------------------------------------------------
+//
+// Contract: two concurrent createInsight calls for the same baseTableId and
+// both with empty options (unmodified-draft shape) must converge on exactly
+// ONE insight row in the DB. The check-and-insert runs inside a single
+// transaction, so the dedup decision is atomic with the write.
+//
+// PGLite is single-connection: true concurrent writes serialize at the event
+// loop rather than via OS-level locking. The structural fix is therefore
+// tested the same way as GetOrCreateDataSource in commands.test.ts — by
+// checking the RESULT (one row, same id), not by forcing a true interleave.
+// Two sequential calls that both start from "no existing draft" are the
+// minimal probe: the pre-fix code would insert two rows; the post-fix code
+// returns the existing row on the second call.
+
+describe("createInsight — atomic auto-draft dedup", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  const { insights } = schema;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-dedup-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  async function allInsights() {
+    return db.select().from(insights);
+  }
+
+  it("should return the existing unmodified draft on a second call for the same table", async () => {
+    const tableId = crypto.randomUUID();
+
+    const first = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    const second = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    // Both calls must return the same id — the second reuses the first draft.
+    expect(second.id).toBe(first.id);
+
+    // Exactly one row in the DB — no duplicate draft created.
+    const rows = await allInsights();
+    expect(rows).toHaveLength(1);
+  });
+
+  it("should produce exactly one unmodified draft when two calls fire without awaiting the first (TOCTOU simulation)", async () => {
+    // Both calls start before either resolves, simulating the race. On PGLite
+    // (single-connection WASM) the event loop serializes them, but the FIX is
+    // structural: the transaction prevents a second insert after the first
+    // commits. Without the fix, both calls would insert (both read "no draft"
+    // before either inserts). The test pins the POST-FIX contract.
+    const tableId = crypto.randomUUID();
+
+    const [r1, r2] = (await Promise.all([
+      call("createInsight", {
+        name: "orders",
+        baseTableId: tableId,
+        options: { selectedFields: [] },
+      }),
+      call("createInsight", {
+        name: "orders",
+        baseTableId: tableId,
+        options: { selectedFields: [] },
+      }),
+    ])) as [{ id: string }, { id: string }];
+
+    // Both calls must resolve to the same id.
+    expect(r1.id).toBe(r2.id);
+
+    // Exactly one insight row — no duplicate draft.
+    const rows = await allInsights();
+    expect(rows).toHaveLength(1);
+  });
+
+  it("should still create a new draft when the existing insight has been modified", async () => {
+    // A modified insight (selectedFields populated) must NOT be reused as a
+    // draft — createInsight should insert a fresh row.
+    const tableId = crypto.randomUUID();
+
+    // First: create a draft and simulate modification by calling updateInsight.
+    const { id: draftId } = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    await call("updateInsight", {
+      id: draftId,
+      updates: { selectedFields: ["field-1"] },
+    });
+
+    // Second: create another draft for the same table — must be a NEW row.
+    const second = (await call("createInsight", {
+      name: "orders (2)",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    expect(second.id).not.toBe(draftId);
+
+    const rows = await allInsights();
+    expect(rows).toHaveLength(2);
+  });
+
+  it("should always insert when the incoming insight is pre-populated (not a draft)", async () => {
+    // When the caller explicitly passes metrics or selectedFields, the incoming
+    // insight is NOT a draft — even if an unmodified draft already exists, a
+    // fresh row should be created (different intent).
+    const tableId = crypto.randomUUID();
+
+    // Create an unmodified draft first.
+    const { id: draftId } = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    // Create a pre-populated insight — should NOT reuse the draft.
+    const prepopulated = (await call("createInsight", {
+      name: "orders with fields",
+      baseTableId: tableId,
+      options: { selectedFields: ["field-a", "field-b"] },
+    })) as { id: string };
+
+    expect(prepopulated.id).not.toBe(draftId);
+
+    const rows = await allInsights();
+    expect(rows).toHaveLength(2);
+  });
+
+  it("should always insert when skipDedup is true, even when an unmodified draft exists", async () => {
+    // createInsightFromInsight passes skipDedup: true so that derived insights
+    // are never silently rerouted to an existing unmodified draft for the same
+    // baseTableId.
+    const tableId = crypto.randomUUID();
+
+    // Create an unmodified draft first.
+    const { id: draftId } = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    // A skipDedup call with empty opts must create a new row, not reuse the draft.
+    const derived = (await call("createInsight", {
+      name: "orders (derived)",
+      baseTableId: tableId,
+      options: { selectedFields: [], skipDedup: true },
+    })) as { id: string };
+
+    expect(derived.id).not.toBe(draftId);
+
+    const rows = await allInsights();
+    expect(rows).toHaveLength(2);
   });
 });

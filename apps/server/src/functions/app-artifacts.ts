@@ -779,6 +779,25 @@ const getInsight = query({
   },
 });
 
+/**
+ * Returns true when an insight definition has no user modifications: no
+ * selected fields, no metrics, no filters, no sorts, and no joins. These are
+ * auto-drafts that are safe to reuse rather than accumulate as duplicates.
+ *
+ * Mirrors the `isUnmodifiedDraft` predicate in the renderer hook — kept in
+ * sync by contract; the server-side copy is the authoritative dedup gate
+ * (atomic with the insert), the renderer copy is a fast-path UX shortcut.
+ */
+function isUnmodifiedDraft(definition: InsightDefinition): boolean {
+  return (
+    (definition.selectedFields?.length ?? 0) === 0 &&
+    (definition.metrics?.length ?? 0) === 0 &&
+    (definition.filters?.length ?? 0) === 0 &&
+    (definition.sorts?.length ?? 0) === 0 &&
+    (definition.joins?.length ?? 0) === 0
+  );
+}
+
 const createInsight = mutation({
   args: { name: text, baseTableId: uuid, options: jsonb.optional() },
   handler: async (
@@ -788,18 +807,57 @@ const createInsight = mutation({
     const opts = (options ?? {}) as {
       selectedFields?: UUID[];
       metrics?: InsightMetric[];
+      /** When true, skip auto-draft dedup and always insert a new row.
+       *  Used by createInsightFromInsight so derived insights are never
+       *  silently rerouted to an existing unmodified draft. */
+      skipDedup?: boolean;
     };
-    const [row] = (await ctx.db.into(insights).insert({
-      name,
-      definition: insightToDefinition({
-        baseTableId,
-        selectedFields: opts.selectedFields,
-        metrics: opts.metrics,
-      }),
-      createdBy: { kind: "user" },
-    })) as InsightRow[];
-    if (!row) throw new Error("insert returned no row");
-    return { id: row.id };
+
+    // Atomic check-and-create: the dedup decision and the insert run inside one
+    // transaction so two concurrent calls for the same baseTableId converge on
+    // a single unmodified draft rather than producing duplicates.
+    //
+    // The opts passed in are always empty (selectedFields: [], no metrics) for
+    // an auto-draft — the server guards that an unmodified-draft reuse only
+    // fires when the incoming opts are also unmodified. If the caller is
+    // creating an intentionally non-empty insight, the existing-draft check
+    // is skipped and a fresh row is always inserted.
+    return ctx.db.transaction(async (tx) => {
+      // Only attempt dedup when the incoming insight would itself be an
+      // unmodified draft — if the caller is inserting a pre-populated insight
+      // (metrics, fields, etc.) or has opted out via skipDedup, we always
+      // create a new row.
+      const incomingIsUnmodified =
+        !opts.skipDedup &&
+        (opts.selectedFields?.length ?? 0) === 0 &&
+        (opts.metrics?.length ?? 0) === 0;
+
+      if (incomingIsUnmodified) {
+        const rows = (await tx.from(insights).all()) as InsightRow[];
+        const existingDraft = rows
+          .filter(
+            (r) =>
+              (r.definition as InsightDefinition).baseTableId === baseTableId,
+          )
+          .find((r) => isUnmodifiedDraft(r.definition as InsightDefinition));
+
+        if (existingDraft) {
+          return { id: existingDraft.id };
+        }
+      }
+
+      const [row] = (await tx.into(insights).insert({
+        name,
+        definition: insightToDefinition({
+          baseTableId,
+          selectedFields: opts.selectedFields,
+          metrics: opts.metrics,
+        }),
+        createdBy: { kind: "user" },
+      })) as InsightRow[];
+      if (!row) throw new Error("insert returned no row");
+      return { id: row.id };
+    });
   },
 });
 

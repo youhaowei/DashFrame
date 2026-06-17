@@ -132,6 +132,10 @@ export interface InsightMutations {
     options?: {
       selectedFields?: UUID[];
       metrics?: InsightMetric[];
+      /** When true, bypass auto-draft dedup and always insert a new row.
+       *  Used by createInsightFromInsight so derived insights are never
+       *  silently rerouted to an existing unmodified draft. */
+      skipDedup?: boolean;
     },
   ) => Promise<UUID>;
 

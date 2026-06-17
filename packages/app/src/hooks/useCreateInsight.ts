@@ -33,8 +33,9 @@ function isUnmodifiedDraft(insight: Insight): boolean {
  * to the insight page (action hub) for further configuration.
  *
  * Auto-draft deduplication (createInsightFromTable only):
- * - If an unmodified draft for the same source table already exists, it is
- *   reused (navigated to) rather than creating a duplicate.
+ * - If an unmodified draft for the same source table already exists, the
+ *   server returns it atomically rather than creating a duplicate. Two
+ *   concurrent calls for the same table converge on one draft (no TOCTOU race).
  * - If the existing insight(s) have been modified/saved, a new draft is
  *   created with a disambiguating numeric suffix, e.g. "orders (2)".
  *   A prompt would be less disruptive but would interrupt a routine action;
@@ -67,24 +68,21 @@ export function useCreateInsight() {
   /**
    * Creates a draft insight from a data table and navigates to it.
    *
-   * Dedup gate: if an unmodified draft for the same source table already
-   * exists, this reuses it instead of creating a new one. If the existing
-   * insight was modified, a new draft is created with a numeric suffix.
+   * Dedup: the server handles unmodified-draft reuse atomically — if a draft
+   * already exists for this table it is returned without a new insert. This
+   * hook reads existing insights only to compute a gap-free numeric suffix
+   * when the user already has modified insights for the same table.
    */
   const createInsightFromTable = useCallback(
     async (tableId: string, tableName: string) => {
-      // --- Dedup gate ---
+      // Read existing insights for UX-only purpose: compute a suffix name when
+      // the user already has modified insights for this table. This read is NOT
+      // the authoritative dedup gate — the server closes the TOCTOU race by
+      // wrapping the check-and-insert in one transaction.
       const allInsights = await getAllInsights();
       const sameTableInsights = allInsights.filter(
         (i) => i.baseTableId === tableId,
       );
-
-      // Reuse an existing unmodified draft rather than accumulating duplicates.
-      const existingDraft = sameTableInsights.find(isUnmodifiedDraft);
-      if (existingDraft) {
-        navigate({ to: `/insights/${existingDraft.id}` } as never);
-        return existingDraft.id;
-      }
 
       // One or more modified insights exist for this table — create a new draft
       // with a numeric suffix so the user can distinguish without a modal prompt.
@@ -94,8 +92,15 @@ export function useCreateInsight() {
       // Use the first gap-free suffix to avoid collisions when insights are
       // deleted and re-created (e.g. "orders (2)" deleted → next should be
       // "orders (2)", not "orders (3)").
+      //
+      // When all existing insights for this table are unmodified drafts (or none
+      // exist), pass the base name — the server will return the existing draft
+      // or create a new one atomically.
       let name = tableName;
-      if (sameTableInsights.length > 0) {
+      const modifiedInsights = sameTableInsights.filter(
+        (i) => !isUnmodifiedDraft(i),
+      );
+      if (modifiedInsights.length > 0) {
         const existingNames = new Set(sameTableInsights.map((i) => i.name));
         let suffix = 2;
         while (existingNames.has(`${tableName} (${suffix})`)) {
@@ -104,7 +109,9 @@ export function useCreateInsight() {
         name = `${tableName} (${suffix})`;
       }
 
-      // Create draft insight with empty fields (shows preview + suggestions)
+      // Create (or reuse) a draft insight with empty fields. The server returns
+      // the existing unmodified draft atomically when one already exists for
+      // this baseTableId — two concurrent calls converge on the same id.
       const insightId = await createInsight(
         name,
         tableId, // baseTableId
@@ -134,11 +141,14 @@ export function useCreateInsight() {
         return null;
       }
 
-      // Create a new insight using the same base table
+      // Create a new insight using the same base table.
+      // skipDedup: true — derived insights must always be a fresh row; without
+      // this flag the server would silently reuse an existing unmodified draft
+      // for the same baseTableId, landing the user on the wrong insight.
       const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
         sourceInsight.baseTableId,
-        { selectedFields: [] }, // Empty for draft state
+        { selectedFields: [], skipDedup: true },
       );
 
       // Navigate to new insight

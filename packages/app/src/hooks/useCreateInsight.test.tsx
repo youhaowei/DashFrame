@@ -187,6 +187,10 @@ describe("useCreateInsight", () => {
 
   describe("createInsightFromTable — dedup", () => {
     it("should reuse an existing unmodified draft for the same source table", async () => {
+      // The server handles dedup atomically — the hook always calls createInsight
+      // with the base name (no suffix, because the only same-table insight is
+      // unmodified). The mocked server returns the existing draft's id, mirroring
+      // what the real server does when it finds an unmodified draft.
       const existingDraft = createMockInsight({
         id: "existing-draft",
         name: "orders",
@@ -195,6 +199,8 @@ describe("useCreateInsight", () => {
       });
 
       mockGetAllInsights.mockResolvedValue([existingDraft]);
+      // Server atomically finds the existing draft and returns its id.
+      mockCreateInsight.mockResolvedValue("existing-draft");
 
       const { result } = renderHook(() => useCreateInsight());
 
@@ -206,9 +212,12 @@ describe("useCreateInsight", () => {
         );
       });
 
-      // Must NOT create a new insight
-      expect(mockCreateInsight).not.toHaveBeenCalled();
-      // Must navigate to the existing draft
+      // Hook delegates dedup to the server — createInsight IS called with the
+      // base name (no suffix: only unmodified insights exist for this table).
+      expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
+        selectedFields: [],
+      });
+      // Must navigate to the id the server returned (the existing draft).
       expect(mockPush).toHaveBeenCalledWith("/insights/existing-draft");
       expect(insightId).toBe("existing-draft");
     });
@@ -384,7 +393,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original Analysis (derived)",
         "table-orders", // Same baseTableId as source
-        { selectedFields: [] },
+        { selectedFields: [], skipDedup: true },
       );
     });
 
@@ -410,7 +419,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Customer Segmentation (derived)",
         "table-customers",
-        { selectedFields: [] },
+        { selectedFields: [], skipDedup: true },
       );
     });
 
@@ -553,7 +562,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original (derived) (derived)",
         "table-nested",
-        { selectedFields: [] },
+        { selectedFields: [], skipDedup: true },
       );
     });
   });
@@ -576,7 +585,7 @@ describe("useCreateInsight", () => {
       vi.clearAllMocks();
 
       // Second call for the SAME table — the newly created draft now exists
-      // and is still unmodified. The gate should reuse it, not create again.
+      // and is still unmodified. The server returns the existing draft atomically.
       const existingDraft = createMockInsight({
         id: "insight-1",
         name: "Orders",
@@ -584,6 +593,8 @@ describe("useCreateInsight", () => {
         selectedFields: [],
       });
       mockGetAllInsights.mockResolvedValueOnce([existingDraft]);
+      // Mocked server atomically finds the existing draft and returns its id.
+      mockCreateInsight.mockResolvedValueOnce("insight-1");
 
       let secondId: string | null = null;
       await act(async () => {
@@ -593,9 +604,12 @@ describe("useCreateInsight", () => {
         );
       });
 
-      // Must NOT create a second insight
-      expect(mockCreateInsight).not.toHaveBeenCalled();
-      // Must navigate to the existing draft
+      // Hook calls createInsight (server decides dedup) with the base name —
+      // no suffix because the only same-table insight is unmodified.
+      expect(mockCreateInsight).toHaveBeenCalledWith("Orders", "table-shared", {
+        selectedFields: [],
+      });
+      // Must navigate to the id the server returned (the existing draft).
       expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");
       expect(secondId).toBe("insight-1");
     });
@@ -651,6 +665,37 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledTimes(3);
       expect(mockPush).toHaveBeenCalledTimes(3);
+    });
+
+    it("should converge on one id for two concurrent calls on the same table (TOCTOU fix)", async () => {
+      // Simulates the TOCTOU race: both calls fire before either resolves,
+      // so both getAllInsights() calls return [] (no existing draft yet).
+      // The server (mocked here) is responsible for dedup — it returns the
+      // same id for both calls, which is what the real server does atomically.
+      // This test pins the hook contract: navigate is called twice with the
+      // same id, and no duplicate draft is created (the server prevents it).
+      mockGetAllInsights.mockResolvedValue([]);
+      // Both calls hit the server; the server's transaction returns the same id.
+      mockCreateInsight.mockResolvedValue("converged-draft");
+
+      const { result } = renderHook(() => useCreateInsight());
+
+      const [id1, id2] = await act(async () => {
+        return Promise.all([
+          result.current.createInsightFromTable("table-orders", "orders"),
+          result.current.createInsightFromTable("table-orders", "orders"),
+        ]);
+      });
+
+      // Both calls should resolve to the same id (server converges them).
+      expect(id1).toBe("converged-draft");
+      expect(id2).toBe("converged-draft");
+      // Both calls made it to the server — dedup is server-side, not skipped.
+      expect(mockCreateInsight).toHaveBeenCalledTimes(2);
+      // Both navigations target the same id.
+      expect(mockPush).toHaveBeenCalledTimes(2);
+      expect(mockPush).toHaveBeenNthCalledWith(1, "/insights/converged-draft");
+      expect(mockPush).toHaveBeenNthCalledWith(2, "/insights/converged-draft");
     });
   });
 

@@ -36,7 +36,11 @@ export function useInsightMutations(): InsightMutations {
       create: async (
         name: string,
         baseTableId: UUID,
-        options?: { selectedFields?: UUID[]; metrics?: InsightMetric[] },
+        options?: {
+          selectedFields?: UUID[];
+          metrics?: InsightMetric[];
+          skipDedup?: boolean;
+        },
       ): Promise<UUID> => {
         const { id } = await createMutation.mutateAsync(
           loose({ name, baseTableId, options }),
