@@ -82,7 +82,13 @@ export class Lifecycle {
       console.error("[dashframe] error disposing engine:", err);
     }
     try {
-      await this.handles.project?.close();
+      const result = await this.handles.project?.close();
+      if (result?.snapshotError) {
+        console.error(
+          "[dashframe] close-time snapshot failed (data may not be persisted):",
+          result.snapshotError,
+        );
+      }
     } catch (err) {
       console.error("[dashframe] error closing project DB:", err);
     }

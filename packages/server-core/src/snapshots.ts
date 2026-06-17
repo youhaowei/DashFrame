@@ -66,6 +66,12 @@ export interface SnapshotMeta {
   timestamp: string;
 }
 
+/** Metadata about a snapshot attempt that failed during restore. */
+export interface FailedRestoreAttempt {
+  snapshot: SnapshotMeta;
+  error: Error;
+}
+
 /** Resolve the snapshots directory for a project dir. */
 export function resolveSnapshotsDir(projectDir: string): string {
   return path.join(projectDir, SNAPSHOTS_DIRNAME);
@@ -98,8 +104,13 @@ export async function hasCorruptWalSegment(dataDir: string): Promise<boolean> {
   if (segmentFiles.length === 0) return false;
 
   for (const seg of segmentFiles) {
-    const stat = await fs.stat(path.join(walDir, seg)).catch(() => null);
-    if (stat && stat.size % XLOG_BLCKSZ !== 0) {
+    // Let stat() throw on EACCES/EPERM/broken-symlink/etc. The caller
+    // (isConfirmedWalCorruption) has a .catch(() => false) safety net: an
+    // unconfirmable probe resolves to "not confirmed", preserving the datadir.
+    // Returning true here would bypass that net and trigger destructive quarantine
+    // on a healthy database — the opposite of fail-closed for data safety.
+    const stat = await fs.stat(path.join(walDir, seg));
+    if (stat.size % XLOG_BLCKSZ !== 0) {
       return true;
     }
   }
@@ -194,8 +205,10 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(snapshotsDir);
-  } catch {
-    return;
+  } catch (err) {
+    // ENOENT: directory doesn't exist yet — nothing to prune.
+    if (isEnoent(err)) return;
+    throw err;
   }
 
   const snaps = entries
@@ -203,9 +216,20 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
     .sort(); // lexicographic = chronological given ISO timestamp prefix
 
   const toDelete = snaps.slice(0, Math.max(0, snaps.length - SNAPSHOT_KEEP_N));
-  await Promise.all(
-    toDelete.map((f) => fs.unlink(path.join(snapshotsDir, f)).catch(() => {})),
+  const results = await Promise.allSettled(
+    toDelete.map((f) => fs.unlink(path.join(snapshotsDir, f))),
   );
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failures.length > 0) {
+    // Surface prune failures: silently accumulating stale snapshots risks disk
+    // exhaustion and masks write-permission regressions.
+    throw new AggregateError(
+      failures.map((f) => f.reason),
+      `[dashframe] pruneSnapshots: ${failures.length} of ${toDelete.length} deletion(s) failed`,
+    );
+  }
 }
 
 /**
@@ -226,13 +250,20 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
  *
  * Returns the snapshot metadata that was restored, or null if no snapshot
  * exists or none restored to a valid datadir (caller creates a fresh project).
+ * `failedAttempts` is populated with every snapshot that was tried and
+ * rejected, so the caller can distinguish "no snapshots" from "all corrupt".
  */
 export async function restoreNewestSnapshot(
   projectDir: string,
   targetDataDir: string,
-): Promise<SnapshotMeta | null> {
+): Promise<{
+  restored: SnapshotMeta | null;
+  failedAttempts: FailedRestoreAttempt[];
+}> {
   const snaps = await listSnapshots(projectDir);
-  if (snaps.length === 0) return null;
+  if (snaps.length === 0) return { restored: null, failedAttempts: [] };
+
+  const failedAttempts: FailedRestoreAttempt[] = [];
 
   // Iterate newest-first.
   for (let i = snaps.length - 1; i >= 0; i--) {
@@ -251,21 +282,25 @@ export async function restoreNewestSnapshot(
       await restored.close();
 
       if (!valid) {
-        console.error(
-          `[dashframe] snapshot ${snap.filename} restored to an empty/invalid datadir (missing project_meta); trying older snapshot`,
+        const err = new Error(
+          `[dashframe] snapshot ${snap.filename} restored to an empty/invalid datadir (missing project_meta)`,
         );
+        console.error(err.message + "; trying older snapshot");
+        failedAttempts.push({ snapshot: snap, error: err });
         await fs
           .rm(targetDataDir, { recursive: true, force: true })
           .catch(() => {});
         continue;
       }
 
-      return snap;
+      return { restored: snap, failedAttempts };
     } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
       console.error(
         `[dashframe] snapshot restore failed for ${snap.filename}:`,
         err,
       );
+      failedAttempts.push({ snapshot: snap, error });
       // Clean up any partial targetDataDir before trying the next snapshot.
       await fs
         .rm(targetDataDir, { recursive: true, force: true })
@@ -274,7 +309,7 @@ export async function restoreNewestSnapshot(
   }
 
   // No snapshot restored to a valid datadir.
-  return null;
+  return { restored: null, failedAttempts };
 }
 
 /**

@@ -16,6 +16,7 @@ export {
   ARTIFACTS_DB_FILENAME,
   DATA_SOURCES_DIRNAME,
   openProject,
+  type CloseResult,
   type OpenProjectOptions,
   type ProjectHandle,
   type ProjectMetaRow,
@@ -30,6 +31,7 @@ export {
   hasCorruptWalSegment,
   listSnapshots,
   writeSnapshot,
+  type FailedRestoreAttempt,
   type SnapshotMeta,
 } from "./snapshots";
 
