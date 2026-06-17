@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assertBindAuthorized,
+  buildDashframeApp,
   createDashframeServer,
   type DashframeServer,
 } from "./app";
@@ -450,6 +451,171 @@ describe("onWrite hook", () => {
     expect(verify.status).toBe(200);
     const verifyBody = (await verify.json()) as { data: { id: string } };
     expect(verifyBody.data.id).toBe(sourceId);
+  });
+});
+
+describe("buildDashframeApp — vault injection seam", () => {
+  /**
+   * Covers the security-critical vault seam in buildDashframeApp (the logic
+   * extracted from createDashframeServer). Three contracts:
+   *
+   * 1. Anti-shadow (the load-bearing security invariant): the INJECTED vault
+   *    wins over any vault key a caller passes in the request context. A crafted
+   *    `context.vault` cannot shadow the server-level vault — staticContext is
+   *    spread LAST.
+   *
+   * 2. No-injection short-circuit: when vault and onWrite are both omitted, the
+   *    factory returns the raw unwrapped app.
+   *
+   * 3. Vault threads into handlers: the injected vault is visible to handlers
+   *    (via `vaultFromCtx`), enabling credential writes that the no-vault path
+   *    refuses.
+   *
+   * Tests drive the REAL buildDashframeApp, not a reimplemented copy — a merge-
+   * order regression in app.ts would fail these tests.
+   */
+  let root: string;
+  let project: ProjectHandle;
+
+  // Compose a test vault with the connector-key class registered.
+  function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
+    const backend = new TestBackend();
+    const registry = new SecretRegistry();
+    registry.register("test", backend, { fallback: true });
+    registry.setClassDefault("connector-key", "test");
+    const vault = new SecretVault(registry, new InMemoryMappingStore());
+    return { vault, backend };
+  }
+
+  // Compose a vault that has NO connector-key class registered — any credential
+  // store call will throw "no default backend for class connector-key". Used as
+  // the "bogus attacker vault" in the anti-shadow test.
+  function makeBogusVault(): SecretVault {
+    const backend = new TestBackend();
+    const registry = new SecretRegistry();
+    // Deliberately do NOT register connector-key default — a store() call for
+    // that class will fail.
+    registry.register("bogus", backend, { fallback: false });
+    return new SecretVault(registry, new InMemoryMappingStore());
+  }
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-seam-"));
+    project = await openProject({ dir: join(root, "proj") });
+  });
+
+  afterEach(async () => {
+    await project.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC1 — Anti-shadow: the injected vault WINS over a caller-supplied vault key
+  // ---------------------------------------------------------------------------
+
+  it("anti-shadow: injected vault wins over a bogus vault key in call context", async () => {
+    // Inject the real vault. The bogus vault has no connector-key backend and
+    // would cause vault.store() to throw with a "no backend" error — a distinct
+    // failure from the "no vault" throw the no-vault path produces.
+    const { vault: injectedVault } = makeTestVault();
+    const bogusVault = makeBogusVault();
+
+    const app = await buildDashframeApp({
+      db: project.db,
+      vault: injectedVault,
+    });
+
+    // Pass the BOGUS vault in the call context — this simulates an attacker-
+    // supplied or misconfigured context attempting to shadow the server vault.
+    // If staticContext spread LAST, the injected vault wins and the call
+    // succeeds (store → SecretRef). If merge order were reversed, bogusVault
+    // would win and the call would throw with a "no backend" error.
+    const { result } = await app.call(
+      "addDataSource",
+      { type: "notion", name: "Shadow Test", apiKey: "plaintext-key" },
+      { vault: bogusVault },
+    );
+    const id = (result as { id: string }).id;
+    expect(typeof id).toBe("string");
+    expect(id.length).toBeGreaterThan(0);
+    // The call succeeded → the INJECTED vault was used (bogus would have thrown).
+  });
+
+  it("anti-shadow: bogus vault in context cannot shadow — injected vault identity is fixed", async () => {
+    // Stronger form: verify the INJECTED vault's backend was actually called
+    // (not the bogus vault). We check hasCallCount on the real backend.
+    const { vault: injectedVault, backend: realBackend } = makeTestVault();
+    const bogusVault = makeBogusVault();
+
+    const app = await buildDashframeApp({
+      db: project.db,
+      vault: injectedVault,
+    });
+
+    // First store a credential via app.call with a bogus vault in context.
+    const { result } = await app.call(
+      "addDataSource",
+      { type: "notion", name: "Identity Test", apiKey: "my-key" },
+      { vault: bogusVault },
+    );
+    const id = (result as { id: string }).id;
+
+    // Now read it back — this calls vault.has(ref) on ctx.vault.
+    await app.call("getDataSource", { id }, { vault: bogusVault });
+
+    // The real backend was exercised for has() — not the bogus backend which
+    // would have thrown or returned false (it never received a store call).
+    expect(realBackend.hasCallCount).toBeGreaterThan(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC2 — No-injection short-circuit: omitting vault+onWrite returns raw app
+  // ---------------------------------------------------------------------------
+
+  it("no-injection short-circuit: buildDashframeApp({db}) returns raw unwrapped app", async () => {
+    // When neither vault nor onWrite is supplied, buildDashframeApp returns the
+    // raw WyStack app (the short-circuit branch `vault == null && onWrite == null
+    // → rawApp`). createDashframeServer delegates to buildDashframeApp with the
+    // same opts, so this exercises the shared unwrapped path. A read-only call
+    // must still work.
+    const app = await buildDashframeApp({ db: project.db });
+
+    // No credential write — doesn't require vault.
+    const { result } = await app.call("addDataSource", {
+      type: "csv",
+      name: "No Vault Source",
+    });
+    const id = (result as { id: string }).id;
+    expect(typeof id).toBe("string");
+
+    // Read it back.
+    const { result: read } = await app.call("getDataSource", { id });
+    expect((read as { name: string }).name).toBe("No Vault Source");
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC3 — vault threads into handlers: injected vault is visible on the call path
+  // ---------------------------------------------------------------------------
+
+  it("injected vault is visible to handlers (credential store via app.call succeeds)", async () => {
+    // buildDashframeApp wraps both call and runHandler with the same merge.
+    // This test confirms the injected vault is available to handlers on the
+    // app.call path — a credential-bearing write that requires vault.store().
+    // The runHandler wrapper uses the identical merge; direct runHandler coverage
+    // would require a caller-supplied TrackedDb (low-level escape hatch).
+    const { vault: injectedVault } = makeTestVault();
+    const app = await buildDashframeApp({
+      db: project.db,
+      vault: injectedVault,
+    });
+
+    // Credential-bearing call — succeeds only if the vault was injected into context.
+    const { result } = await app.call("addDataSource", {
+      type: "notion",
+      name: "Handler Vault Test",
+      apiKey: "threaded-key",
+    });
+    expect((result as { id: string }).id).toBeTruthy();
   });
 });
 
