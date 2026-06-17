@@ -2763,8 +2763,9 @@ describe("command vocabulary", () => {
   });
 
   describe("JSONB payload validation (sink-guard: validate at point of USE)", () => {
-    // These tests verify the fix for YW-290: corrupt / unexpected JSONB blobs
-    // must produce a clear validation error, never throw on property access.
+    // Corrupt / unexpected JSONB blobs must produce a clear validation error,
+    // never throw on property access. Covers both arg-level and stored-definition
+    // validation paths.
 
     describe("source arg validation (insightSourceSchema)", () => {
       it("should reject a corrupt source arg in CreateInsight with a clear validation error (not a crash)", async () => {
