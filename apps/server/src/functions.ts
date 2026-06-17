@@ -14,6 +14,7 @@ import { query } from "@wystack/server";
 import { appArtifactFunctions } from "./functions/app-artifacts";
 import { commandFunctions } from "./functions/commands";
 import { dashboardFunctions } from "./functions/dashboards";
+import { previewDiffFunctions } from "./functions/preview-diff";
 
 const { projectMeta } = schema;
 
@@ -59,6 +60,7 @@ export const functions = {
   ...appArtifactFunctions,
   ...commandFunctions,
   ...dashboardFunctions,
+  ...previewDiffFunctions,
 };
 
 /** Public type surface — what the renderer imports to type its client. */

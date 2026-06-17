@@ -57,8 +57,9 @@ import type {
   PreviewIntent,
   UUID,
 } from "@dashframe/types";
+import { jsonb } from "@wystack/db";
 import type { Command, CommandResult } from "@wystack/server";
-import { applyCommands, type WyStackApp } from "@wystack/server";
+import { applyCommands, query, type WyStackApp } from "@wystack/server";
 
 import { commandFunctions } from "./commands";
 
@@ -1128,3 +1129,65 @@ function dashboardVisRefs(layout: unknown): string[] {
   }
   return refs;
 }
+
+// ---------------------------------------------------------------------------
+// WyStack query registration
+// ---------------------------------------------------------------------------
+
+/**
+ * previewDiff — WyStack query (not mutation) that runs a command batch in
+ * preview mode and returns the artifact diff (METADATA ONLY — compute slots
+ * are undefined).
+ *
+ * Registered as a `query` — not a `mutation` — because `applyCommands` in
+ * preview mode executes-then-rolls-back; the canonical DB is untouched on
+ * return, so no `tablesWritten` signal is emitted and no reactive invalidation
+ * fires. A `mutation` registration would be incorrect: it would trigger
+ * spurious invalidation on every preview open despite nothing being persisted.
+ *
+ * The compute slots are filled client-side via local DuckDB; no row data
+ * ever crosses the RPC boundary. This is the settled split-tier invariant.
+ *
+ * `wyStackApp` and `artifactDb` are injected into the handler context via
+ * `staticContext` in `createDashframeServer`.
+ *
+ * Partial-failure response: `buildPreviewDiff` never throws — it returns a
+ * renderable `PreviewDiff` with an `error` slot on partial failure. The caller
+ * must inspect `result.error` to distinguish a successful diff from a
+ * partial/failed one. Infrastructure failures (missing context keys) do throw
+ * and surface as RPC errors.
+ */
+const previewDiff = query({
+  args: { commands: jsonb },
+  handler: async (ctx, { commands }): Promise<PreviewDiff> => {
+    const wyStackApp = ctx.wyStackApp as WyStackApp | undefined;
+    const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
+    if (!wyStackApp || !artifactDb) {
+      throw new Error(
+        "previewDiff: wyStackApp/artifactDb not in handler context — " +
+          "ensure createDashframeServer injects them via staticContext",
+      );
+    }
+    // Validate commands is an array before the cast — `jsonb` accepts any
+    // JSON value; a non-array input would crash applyCommands rather than
+    // returning a structured error (guard-the-sink: validate at the call site).
+    if (!Array.isArray(commands)) {
+      throw new Error("previewDiff: commands must be an array");
+    }
+    // Pass through vault and per-request auth context to buildPreviewDiff.
+    // Strip runtime-only keys (db, wyStackApp, artifactDb) that don't belong
+    // in the applyCommands context.
+    const handlerContext: Record<string, unknown> = {};
+    if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
+    return buildPreviewDiff(
+      wyStackApp,
+      artifactDb,
+      commands as Command[],
+      handlerContext,
+    );
+  },
+});
+
+export const previewDiffFunctions = {
+  previewDiff,
+};

@@ -278,39 +278,38 @@ export async function createDashframeServer(
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
+  // wyStackApp and artifactDb are injected after app is assigned (see below).
   const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
-  const hasStaticContext = Object.keys(staticContext).length > 0;
 
-  const app: WyStackApp =
-    vault == null && onWrite == null
-      ? rawApp
-      : {
-          ...rawApp,
-          async call(path, args, context) {
-            // Static context wins over per-request context: spread per-request
-            // first so that static keys (vault) cannot be shadowed by a crafted
-            // request context. The vault identity must be fixed for the server
-            // lifetime; a request-supplied vault key would be ignored.
-            const merged = hasStaticContext
-              ? { ...(context ?? {}), ...staticContext }
-              : context;
-            const result = await rawApp.call(path, args, merged);
-            if (onWrite != null && result.tablesWritten.size > 0) {
-              try {
-                onWrite();
-              } catch (err) {
-                console.error("[dashframe] onWrite hook threw:", err);
-              }
-            }
-            return result;
-          },
-          async runHandler(path, args, tracked, context) {
-            const merged = hasStaticContext
-              ? { ...(context ?? {}), ...staticContext }
-              : context;
-            return rawApp.runHandler(path, args, tracked, merged);
-          },
-        };
+  const app: WyStackApp = {
+    ...rawApp,
+    async call(path, args, context) {
+      // Static context wins over per-request context: spread per-request
+      // first so that static keys (vault, wyStackApp, artifactDb) cannot be
+      // shadowed by a crafted request context. The vault identity must be
+      // fixed for the server lifetime; a request-supplied vault key would
+      // be ignored.
+      const merged = { ...(context ?? {}), ...staticContext };
+      const result = await rawApp.call(path, args, merged);
+      if (onWrite != null && result.tablesWritten.size > 0) {
+        try {
+          onWrite();
+        } catch (err) {
+          console.error("[dashframe] onWrite hook threw:", err);
+        }
+      }
+      return result;
+    },
+    async runHandler(path, args, tracked, context) {
+      const merged = { ...(context ?? {}), ...staticContext };
+      return rawApp.runHandler(path, args, tracked, merged);
+    },
+  };
+
+  // Inject app + db references needed by the previewDiff query handler.
+  // Done post-assignment because app itself is the wrapped version.
+  staticContext.wyStackApp = app;
+  staticContext.artifactDb = opts.db;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
