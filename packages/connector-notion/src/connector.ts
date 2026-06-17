@@ -21,7 +21,12 @@ import {
   type UUID,
   type ValidationResult,
 } from "@dashframe/engine-browser";
-import { getDatabaseSchema, listDatabases, queryDatabase } from "./client";
+import {
+  createNotionClient,
+  getDatabaseSchema,
+  listDatabases,
+  queryDatabase,
+} from "./client";
 import { convertNotionToDataFrame } from "./converter";
 import { generateFieldsFromNotionSchema } from "./index";
 
@@ -66,11 +71,12 @@ export class NotionConnector extends RemoteApiConnector {
   }
 
   validate(formData: Record<string, unknown>): ValidationResult {
-    const apiKey = formData.apiKey as string | undefined;
-
-    if (!apiKey) {
+    // Guard the sink: validate type at point of use, not by provenance.
+    if (typeof formData.apiKey !== "string" || !formData.apiKey) {
       return { valid: false, errors: { apiKey: "API key is required" } };
     }
+
+    const apiKey = formData.apiKey;
 
     if (!apiKey.startsWith("secret_")) {
       return {
@@ -90,7 +96,8 @@ export class NotionConnector extends RemoteApiConnector {
    */
   async connect(): Promise<RemoteDatabase[]> {
     return this.auth(async (apiKey) => {
-      const databases = await listDatabases(apiKey);
+      const client = createNotionClient(apiKey);
+      const databases = await listDatabases(client);
       return databases.map((db) => ({
         id: db.id,
         name: db.title,
@@ -119,15 +126,17 @@ export class NotionConnector extends RemoteApiConnector {
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
     return this.auth(async (apiKey) => {
+      const client = createNotionClient(apiKey);
+
       // Step 1: Get database schema
-      const schema = await getDatabaseSchema(apiKey, databaseId);
+      const schema = await getDatabaseSchema(client, databaseId);
 
       // Step 2: Generate fields from schema
       const { fields } = generateFieldsFromNotionSchema(schema, tableId);
 
       // Step 3: Query the database
       const pageSize = options?.pagination?.limit;
-      const response = await queryDatabase(apiKey, databaseId, {
+      const response = await queryDatabase(client, databaseId, {
         pageSize,
       });
 

@@ -17,12 +17,20 @@ export type NotionProperty = {
 };
 
 /**
- * List all databases accessible with the given API key
+ * Create a Notion API client for the given plaintext API key.
+ * Callers are responsible for caching the instance when reuse is desired.
+ * The key must not be stored as a Map key or in any scope that outlives
+ * the enclosing `withSecret` callback window.
  */
-export async function listDatabases(apiKey: string): Promise<NotionDatabase[]> {
-  const notion = new Client({ auth: apiKey });
+export function createNotionClient(apiKey: string): Client {
+  return new Client({ auth: apiKey });
+}
 
-  const response: SearchResponse = await notion.search({
+/**
+ * List all databases accessible with the given Notion client
+ */
+export async function listDatabases(client: Client): Promise<NotionDatabase[]> {
+  const response: SearchResponse = await client.search({
     filter: {
       property: "object",
       value: "database",
@@ -57,12 +65,10 @@ export async function listDatabases(apiKey: string): Promise<NotionDatabase[]> {
  * Get the schema (properties/columns) of a specific database
  */
 export async function getDatabaseSchema(
-  apiKey: string,
+  client: Client,
   databaseId: string,
 ): Promise<NotionProperty[]> {
-  const notion = new Client({ auth: apiKey });
-
-  const response: GetDatabaseResponse = await notion.databases.retrieve({
+  const response: GetDatabaseResponse = await client.databases.retrieve({
     database_id: databaseId,
   });
 
@@ -78,14 +84,12 @@ export async function getDatabaseSchema(
  * Query database and return all pages with selected properties
  */
 export async function queryDatabase(
-  apiKey: string,
+  client: Client,
   databaseId: string,
   options?: {
     pageSize?: number; // Limit number of rows fetched
   },
 ): Promise<QueryDatabaseResponse> {
-  const notion = new Client({ auth: apiKey });
-
   // Notion API pagination - fetch all results (or up to pageSize)
   let hasMore = true;
   let startCursor: string | undefined = undefined;
@@ -93,7 +97,7 @@ export async function queryDatabase(
   const maxRows = options?.pageSize || Infinity;
 
   while (hasMore && allResults.length < maxRows) {
-    const response: QueryDatabaseResponse = await notion.databases.query({
+    const response: QueryDatabaseResponse = await client.databases.query({
       database_id: databaseId,
       start_cursor: startCursor,
       page_size: options?.pageSize
