@@ -36,7 +36,10 @@ interface DataSourceDisplayProps {
 // Preview data type for Notion sources.
 // rowCount is the actual fetched row count; undefined when only column schema
 // is available (e.g. the serializable query result carries no materialized rows).
+// tableId keys the preview to the data table it was synced from — stale preview
+// from a previously selected table is suppressed by comparing to selectedDataTable.id.
 interface PreviewData {
+  tableId: string;
   rows: Record<string, unknown>[];
   columns: VirtualTableColumn[];
   rowCount?: number;
@@ -333,6 +336,13 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     return explicit ?? dataTables[0] ?? null;
   }, [dataTables, selectedDataTableId]);
 
+  // Suppress stale preview from a previously selected table: only show
+  // notionPreviewData when its tableId matches the current selection.
+  const currentPreviewData =
+    notionPreviewData?.tableId === selectedDataTable?.id
+      ? notionPreviewData
+      : null;
+
   const now = useSyncExternalStore(
     subscribeNow,
     getNowSnapshot,
@@ -388,6 +398,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       }
 
       setNotionPreviewData({
+        tableId: selectedDataTable.id,
         rows: [], // rows not in serializable result; preview shows columns only
         columns,
         // rowCount intentionally undefined: the serializable result carries no
@@ -435,6 +446,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         .map((f) => ({ name: f.columnName ?? f.name, type: f.type }));
 
       setNotionPreviewData({
+        tableId: selectedDataTable.id,
         rows: [],
         columns,
         // rowCount intentionally undefined (see handleSyncData comment)
@@ -505,8 +517,8 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
                   </div>
                   <CardDescription className="mt-1.5">
                     {getTableStatsDescription(
-                      notionPreviewData?.rowCount,
-                      notionPreviewData?.columns.length,
+                      currentPreviewData?.rowCount,
+                      currentPreviewData?.columns.length,
                       selectedDataTable.lastFetchedAt,
                       formatRelativeTime,
                     )}
@@ -571,7 +583,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-lg">Data Preview</CardTitle>
                 {selectedDataTable &&
-                  notionPreviewData &&
+                  currentPreviewData &&
                   dataSource.type === "notion" && (
                     <Button
                       label={isRefreshing ? "Refreshing..." : "Refresh"}
@@ -590,12 +602,12 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               <CardDescription>
                 {getPreviewDescription(
                   selectedDataTable,
-                  notionPreviewData,
+                  currentPreviewData,
                   formatRelativeTime,
                 )}
               </CardDescription>
             </div>
-            {selectedDataTable && notionPreviewData && (
+            {selectedDataTable && currentPreviewData && (
               <Button
                 label={
                   isPreviewCollapsed ? "Expand preview" : "Collapse preview"
@@ -614,7 +626,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
               isPreviewCollapsed={isPreviewCollapsed}
               hasDataTables={hasDataTables}
               selectedDataTable={selectedDataTable}
-              previewData={notionPreviewData}
+              previewData={currentPreviewData}
               onExpandPreview={() => setIsPreviewCollapsed(false)}
             />
           </CardContent>
