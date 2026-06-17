@@ -33,11 +33,13 @@ interface DataSourceDisplayProps {
   dataSourceId: string | null;
 }
 
-// Preview data type for Notion sources
+// Preview data type for Notion sources.
+// rowCount is the actual fetched row count; undefined when only column schema
+// is available (e.g. the serializable query result carries no materialized rows).
 interface PreviewData {
   rows: Record<string, unknown>[];
   columns: VirtualTableColumn[];
-  rowCount: number;
+  rowCount?: number;
 }
 
 // External-clock store: ticks once a minute on the client so relative-time
@@ -61,10 +63,13 @@ function getPreviewDescription(
   if (!previewData) {
     return `No data available for ${JSON.stringify(selectedDataTable.name)}`;
   }
+  const countLabel =
+    previewData.rowCount !== undefined
+      ? `${previewData.rowCount} rows`
+      : `${previewData.columns.length} columns`;
   return (
     <>
-      Showing data from {JSON.stringify(selectedDataTable.name)} •{" "}
-      {previewData.rowCount} rows
+      Showing data from {JSON.stringify(selectedDataTable.name)} • {countLabel}
       {selectedDataTable.lastFetchedAt && (
         <>
           {" "}
@@ -82,19 +87,22 @@ function getFilesDescription(fileCount: number): string {
   return `${fileCount} ${label} available`;
 }
 
-// Helper to get table stats description
+// Helper to get table stats description.
+// rowCount may be undefined when only the column schema has been fetched
+// (the serializable query result carries no materialized row count).
 function getTableStatsDescription(
   rowCount: number | undefined,
   columnCount: number | undefined,
   lastFetchedAt: number | undefined,
   formatRelativeTime: (ts: number) => string,
 ): React.ReactNode {
-  if (rowCount === undefined || columnCount === undefined) {
+  if (columnCount === undefined) {
     return "No data synced yet";
   }
   return (
     <>
-      {rowCount} rows × {columnCount} columns
+      {rowCount !== undefined ? `${rowCount} rows × ` : ""}
+      {columnCount} columns
       {lastFetchedAt && (
         <> • Last synced: {formatRelativeTime(lastFetchedAt)}</>
       )}
@@ -382,7 +390,9 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       setNotionPreviewData({
         rows: [], // rows not in serializable result; preview shows columns only
         columns,
-        rowCount: result.fieldIds.length,
+        // rowCount intentionally undefined: the serializable result carries no
+        // materialized row count (Arrow buffer stays server-side). Display shows
+        // column count instead until a visualization materializes the DataFrame.
       });
 
       // Update DataTable timestamp
@@ -427,7 +437,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       setNotionPreviewData({
         rows: [],
         columns,
-        rowCount: result.fieldIds.length,
+        // rowCount intentionally undefined (see handleSyncData comment)
       });
 
       // Update DataTable with new lastFetchedAt
