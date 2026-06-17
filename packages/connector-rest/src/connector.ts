@@ -18,6 +18,7 @@
  */
 
 import type {
+  ColumnType,
   ConnectorQueryResult,
   Field,
   FormField,
@@ -31,6 +32,8 @@ import {
   RemoteApiConnector,
   createFieldsFromColumns,
   inferStringColumnType,
+  parsePrimitiveValueByType,
+  parseStringValueByType,
 } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 import type { RestConnectorConfig } from "./types.js";
@@ -67,19 +70,122 @@ export function extractRows(data: unknown, rowPath?: string): unknown[] {
 }
 
 /**
- * Rename keys in a row according to fieldMap. Unmapped keys pass through.
+ * Validate a fieldMap for target-name collisions BEFORE any row is mapped.
+ *
+ * Two collision classes corrupt the result silently if allowed through:
+ *  - two distinct source keys map to the SAME target (one value clobbers the
+ *    other based on iteration order), and
+ *  - a source key maps onto a target that is ALSO an un-mapped passthrough key
+ *    present in the data (e.g. `{ full_name: "name" }` against a row that also
+ *    has its own `name`).
+ *
+ * The second class cannot be detected from the fieldMap alone (it depends on
+ * the response keys), so it is checked per-row in {@link applyFieldMap}. This
+ * function catches the map-internal collision (two sources → one target) up
+ * front, which is config-static.
+ *
+ * @throws if two source keys map to the same target name.
+ */
+export function assertFieldMapNoCollision(
+  fieldMap: Record<string, string>,
+): void {
+  const targets = new Map<string, string>(); // target → source that claimed it
+  for (const [source, target] of Object.entries(fieldMap)) {
+    const prior = targets.get(target);
+    if (prior !== undefined) {
+      throw new Error(
+        `[RestConnector] fieldMap collision: both "${prior}" and "${source}" ` +
+          `map to target field "${target}". Targets must be unique.`,
+      );
+    }
+    targets.set(target, source);
+  }
+}
+
+/**
+ * Keys that must never become column names. They mutate object prototypes
+ * (`__proto__`) or, even when stored on a null-prototype object, crash
+ * `apache-arrow`'s `tableFromArrays` (it recurses on these names). A REST source
+ * cannot have a legitimate data column named any of these, so they are dropped
+ * from every row before inference/serialization — fail-safe, not fail-loud.
+ */
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Rename keys in a row according to fieldMap, dropping prototype-polluting keys.
+ *
+ * - Drops `__proto__`/`constructor`/`prototype` source keys (see
+ *   {@link DANGEROUS_KEYS}) — they cannot be valid columns and would corrupt the
+ *   Arrow build. Always applied, even with no fieldMap.
+ * - Output is a null-prototype object so no key can mutate a prototype.
+ * - Rejects a collision where a renamed key lands on a key already produced for
+ *   this row (another rename, or an un-mapped passthrough key). A silent
+ *   overwrite would drop one of the two source values before schema inference,
+ *   so the connector fails loudly instead.
+ *
+ * @throws if a mapped target collides with an existing key in the output row.
  */
 export function applyFieldMap(
   row: Record<string, unknown>,
   fieldMap?: Record<string, string>,
 ): Record<string, unknown> {
-  if (!fieldMap) return row;
-  const result: Record<string, unknown> = {};
+  // Null-prototype output so a response key cannot mutate a prototype, and so
+  // dropped dangerous keys never reappear via the prototype chain.
+  const result: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
   for (const [key, value] of Object.entries(row)) {
-    const mappedKey = fieldMap[key] ?? key;
+    if (DANGEROUS_KEYS.has(key)) continue; // never a real column
+    const mappedKey = fieldMap?.[key] ?? key;
+    if (DANGEROUS_KEYS.has(mappedKey)) {
+      throw new Error(
+        `[RestConnector] fieldMap maps "${key}" onto reserved name "${mappedKey}" — refused.`,
+      );
+    }
+    if (Object.hasOwn(result, mappedKey)) {
+      throw new Error(
+        `[RestConnector] fieldMap collision: key "${key}" maps to "${mappedKey}", ` +
+          `which already exists in the row. Two source fields would collapse into one.`,
+      );
+    }
     result[mappedKey] = value;
   }
   return result;
+}
+
+/**
+ * Coerce a single JSON value to match the inferred column type, so the Arrow
+ * schema (built from these values) agrees with the inferred `fields` metadata.
+ *
+ * REST APIs commonly serialize typed values as strings (`"42"`, `"true"`, an
+ * ISO date). Field inference (via {@link inferStringColumnType}) marks such a
+ * column number/boolean/date, but the raw string flowing into Arrow unchanged
+ * would yield a VARCHAR schema — a mismatch that offers numeric/date ops on a
+ * string column downstream.
+ *
+ * Coercion routes by value shape to the engine helper whose contract MATCHES
+ * inference, so the two cannot disagree:
+ *  - STRING values → {@link parseStringValueByType}. Inference itself runs on
+ *    `inferStringColumnType(String(v))`, and this helper shares that string
+ *    contract: `"yes"`/`"no"` → boolean, an empty string `""` → `null` (NOT a
+ *    fabricated `0`, which `Number("")` would produce).
+ *  - native number/boolean values → {@link parsePrimitiveValueByType}, which
+ *    keeps an already-typed primitive as-is.
+ *  - non-primitive values (nested objects/arrays) → passed through untouched;
+ *    inference would have typed such a column `string`/`unknown` and Arrow
+ *    serializes the structured value directly.
+ */
+function coerceValueToType(value: unknown, type: ColumnType): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    // String path: same contract inference is built on ("" → null, yes/no → bool).
+    return parseStringValueByType(value, type);
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return parsePrimitiveValueByType(value, type);
+  }
+  return value;
 }
 
 /**
@@ -124,6 +230,21 @@ function withQueryParam(url: string, key: string, value: string): string {
 }
 
 /**
+ * Coerce a declarative `pageSize` config value to a positive integer.
+ *
+ * Declarative JSON config can supply `pageSize` as a string (`"100"`). Without
+ * coercion `offset += pageSize` would string-concatenate (`0` → `"0100"` →
+ * `"0100100"`), corrupting offset arithmetic and skipping/repeating pages.
+ * A missing or invalid value falls back to `fallback`.
+ */
+function coercePageSize(value: unknown, fallback: number): number {
+  if (value === undefined || value === null) return fallback;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+/**
  * Perform a single HTTP request. Throws on non-ok status.
  */
 async function fetchPage(
@@ -141,14 +262,20 @@ async function fetchPage(
   return { data, response };
 }
 
+// The `budget` arg threaded through pagination is a max-rows count: pagination
+// STOPS as soon as enough rows are collected to satisfy `offset + limit`,
+// instead of walking the whole remote chain and slicing afterward. `Infinity`
+// means "no budget — fetch all".
+
 /** Offset/limit pagination — increments offset by pageSize until a short page. */
 async function fetchOffsetPages(
   config: RestConnectorConfig,
   method: string,
   headers: Record<string, string>,
+  budget: number,
 ): Promise<unknown[]> {
   const pp = config.paginationParams ?? {};
-  const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
+  const pageSize = coercePageSize(pp["pageSize"], 100);
   const offsetParam = (pp["offsetParam"] as string | undefined) ?? "offset";
   const limitParam = (pp["limitParam"] as string | undefined) ?? "limit";
   const allRows: unknown[] = [];
@@ -163,6 +290,7 @@ async function fetchOffsetPages(
     const { data } = await fetchPage(url, method, headers);
     const rows = extractRows(data, config.rowPath);
     allRows.push(...rows);
+    if (allRows.length >= budget) break;
     if (rows.length === 0 || rows.length < pageSize) break;
     offset += pageSize;
   }
@@ -175,9 +303,10 @@ async function fetchPageNumberPages(
   config: RestConnectorConfig,
   method: string,
   headers: Record<string, string>,
+  budget: number,
 ): Promise<unknown[]> {
   const pp = config.paginationParams ?? {};
-  const pageSize = (pp["pageSize"] as number | undefined) ?? 100;
+  const pageSize = coercePageSize(pp["pageSize"], 100);
   const pageParam = (pp["pageParam"] as string | undefined) ?? "page";
   const pageSizeParam =
     (pp["pageSizeParam"] as string | undefined) ?? "pageSize";
@@ -193,6 +322,7 @@ async function fetchPageNumberPages(
     const { data } = await fetchPage(url, method, headers);
     const rows = extractRows(data, config.rowPath);
     allRows.push(...rows);
+    if (allRows.length >= budget) break;
     if (rows.length === 0 || rows.length < pageSize) break;
     page++;
   }
@@ -224,6 +354,7 @@ async function fetchCursorPages(
   config: RestConnectorConfig,
   method: string,
   headers: Record<string, string>,
+  budget: number,
 ): Promise<unknown[]> {
   const pp = config.paginationParams ?? {};
   const cursorParam = (pp["cursorParam"] as string | undefined) ?? "cursor";
@@ -237,6 +368,7 @@ async function fetchCursorPages(
       : config.endpoint;
     const { data } = await fetchPage(url, method, headers);
     allRows.push(...extractRows(data, config.rowPath));
+    if (allRows.length >= budget) break;
     cursor = resolveNextCursor(data, cursorPath);
     if (!cursor) break;
   }
@@ -245,40 +377,127 @@ async function fetchCursorPages(
 }
 
 /**
+ * Split a `Link` header into entries on the commas that separate entries,
+ * IGNORING commas inside `<...>` URLs. RFC 5988 angle-brackets the URI-reference
+ * precisely so a URL may legally contain a comma (e.g. `?ids=1,2,3`); a naive
+ * `split(",")` would break such a URL and silently drop its link. We track
+ * bracket depth and only cut at a comma when outside brackets. No quantified
+ * regex, so there is no super-linear backtracking.
+ */
+function splitLinkEntries(linkHeader: string): string[] {
+  const entries: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < linkHeader.length; i++) {
+    const ch = linkHeader[i];
+    if (ch === "<") depth++;
+    else if (ch === ">") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      entries.push(linkHeader.slice(start, i));
+      start = i + 1;
+    }
+  }
+  entries.push(linkHeader.slice(start));
+  return entries;
+}
+
+/**
+ * Does this entry's parameter section declare `rel="next"` (or bare `rel=next`)?
+ * Matches the `next` token exactly — `rel=nextpage` must NOT qualify. RFC 5988
+ * rel values are space-separated tokens, so we tokenize the unquoted form.
+ */
+function relIsNext(params: string): boolean {
+  const lower = params.toLowerCase();
+  if (lower.includes('rel="next"')) return true;
+  // Bare unquoted form: `rel=next` as a whole token (not `rel=nextpage`).
+  const m = /rel=([a-z][a-z0-9.\-_]*)/.exec(lower);
+  return m?.[1] === "next";
+}
+
+/**
  * Parse a `Link` response header and return the `rel="next"` URL, or undefined.
- * Uses a two-part approach to avoid backtracking: split on `>,` boundaries first,
- * then match each segment independently.
+ *
+ * RFC 5988 separates entries with a `,` that follows the parameter attributes
+ * (e.g. `<u1>; rel="prev", <u2>; rel="next"`), NOT a `,` immediately after `>`.
+ * Each entry is `<URL>; param=...; rel="..."`. We split into entries on
+ * out-of-bracket commas ({@link splitLinkEntries}), then for each entry pull the
+ * angle-bracketed URL and check whether ITS OWN `rel` is `next`
+ * ({@link relIsNext}). Confining the `rel` check to a single entry prevents
+ * matching a later entry's `rel="next"` against an earlier URL (the
+ * prev-before-next bug). `indexOf`/`slice` parsing avoids backtracking.
  */
 function parseLinkNext(linkHeader: string): string | undefined {
-  // Split on `>, ` or `>,` to separate link entries without regex alternation.
-  const parts = linkHeader.split(/>,\s*/);
-  for (const part of parts) {
-    // Each part looks like: `<URL>; rel="next"` or `<URL>; rel="prev"`, etc.
-    // Two fixed-width checks: URL between < >, rel attribute present and "next".
-    const ltIdx = part.indexOf("<");
-    const gtIdx = part.indexOf(">");
-    if (ltIdx === -1 || gtIdx === -1 || gtIdx <= ltIdx) continue;
-    const url = part.slice(ltIdx + 1, gtIdx);
-    const rest = part.slice(gtIdx + 1);
-    if (/rel="next"/i.test(rest)) return url;
+  for (const entry of splitLinkEntries(linkHeader)) {
+    const ltIdx = entry.indexOf("<");
+    const gtIdx = entry.indexOf(">", ltIdx + 1);
+    if (ltIdx === -1 || gtIdx === -1) continue;
+    const url = entry.slice(ltIdx + 1, gtIdx);
+    // Only the params AFTER the URL describe this link's rel.
+    if (relIsNext(entry.slice(gtIdx + 1))) return url;
   }
   return undefined;
 }
 
-/** Link-header pagination — follows RFC 5988 `Link: <url>; rel="next"`. */
+/**
+ * Resolve a (possibly relative) Link-header URL against the page it came from.
+ * APIs may return a relative `next` link (`</data?page=2>; rel="next"`); a bare
+ * relative URL would fail `fetch()` in the Node server context. The `URL`
+ * constructor with a base resolves both absolute and relative forms.
+ */
+function resolveLinkUrl(rawUrl: string, baseUrl: string): string | undefined {
+  try {
+    return new URL(rawUrl, baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Link-header pagination — follows RFC 5988 `Link: <url>; rel="next"`.
+ *
+ * SECURITY (SSRF + credential leak): the request `headers` carry the
+ * vault-resolved Bearer token. A compromised or malicious API could return a
+ * `rel="next"` URL pointing at an attacker/internal host to harvest that token.
+ * We therefore forward the credentialed request ONLY to a same-origin next-link
+ * — a cross-origin link stops pagination (the token is never sent off-origin).
+ */
 async function fetchLinkHeaderPages(
   config: RestConnectorConfig,
   method: string,
   headers: Record<string, string>,
+  budget: number,
 ): Promise<unknown[]> {
   const allRows: unknown[] = [];
+  const configOrigin = new URL(config.endpoint).origin;
   let nextUrl: string | undefined = config.endpoint;
 
   while (nextUrl) {
-    const { data, response } = await fetchPage(nextUrl, method, headers);
+    const currentUrl: string = nextUrl;
+    const { data, response } = await fetchPage(currentUrl, method, headers);
     allRows.push(...extractRows(data, config.rowPath));
+    if (allRows.length >= budget) return allRows;
+
     const linkHeader = response.headers.get("Link");
-    nextUrl = linkHeader ? parseLinkNext(linkHeader) : undefined;
+    const rawNext = linkHeader ? parseLinkNext(linkHeader) : undefined;
+    // Resolve relative links against the page we just fetched.
+    const resolved: string | undefined = rawNext
+      ? resolveLinkUrl(rawNext, currentUrl)
+      : undefined;
+    // Same-origin guard: never forward the credential to a different origin.
+    // A cross-origin (or unresolvable) next-link stops pagination so the
+    // vault-resolved Bearer token is never sent off-origin.
+    if (resolved && new URL(resolved).origin === configOrigin) {
+      nextUrl = resolved;
+    } else {
+      if (resolved) {
+        console.warn(
+          `[RestConnector] Link rel="next" "${resolved}" is cross-origin ` +
+            `(expected ${configOrigin}) — stopping pagination so the credential ` +
+            `is not forwarded off-origin.`,
+        );
+      }
+      nextUrl = undefined;
+    }
   }
 
   return allRows;
@@ -290,22 +509,24 @@ async function fetchLinkHeaderPages(
  *
  * @param config  - Connector config (endpoint, pagination, etc.)
  * @param headers - Pre-resolved request headers (auth already injected)
+ * @param budget  - Max rows to collect before stopping (Infinity = all)
  */
 async function fetchAllPages(
   config: RestConnectorConfig,
   headers: Record<string, string>,
+  budget: number,
 ): Promise<unknown[]> {
   const method = config.method ?? "GET";
 
   switch (config.pagination) {
     case "offset":
-      return fetchOffsetPages(config, method, headers);
+      return fetchOffsetPages(config, method, headers, budget);
     case "page-number":
-      return fetchPageNumberPages(config, method, headers);
+      return fetchPageNumberPages(config, method, headers, budget);
     case "cursor":
-      return fetchCursorPages(config, method, headers);
+      return fetchCursorPages(config, method, headers, budget);
     case "link-header":
-      return fetchLinkHeaderPages(config, method, headers);
+      return fetchLinkHeaderPages(config, method, headers, budget);
     default: {
       if (config.pagination) {
         console.warn(
@@ -344,6 +565,34 @@ export class RestConnector extends RemoteApiConnector {
   constructor(auth: SecretResolver, config: RestConnectorConfig) {
     super(auth);
     this.#config = config;
+  }
+
+  /**
+   * Resolve the auth headers, failing CLOSED when a credential is required but
+   * absent. The contract: if `config.authRef` is set, this DataSource is an
+   * authenticated source — a request MUST carry the credential. If the bound
+   * resolver yields an empty token (miswired factory, deleted secret), we throw
+   * BEFORE any fetch rather than silently issuing an unauthenticated request
+   * (which could read a public fallback as if it were the authed data).
+   *
+   * When `config.authRef` is absent the source is public: an empty token means
+   * "no auth", and we send no Authorization header.
+   *
+   * @throws if `config.authRef` is set but the resolver yields no token.
+   */
+  #authHeaders(token: string): Record<string, string> {
+    if (this.#config.authRef) {
+      if (!token) {
+        throw new Error(
+          "[RestConnector] authRef is configured but the secret resolver " +
+            "returned no token — refusing to issue an unauthenticated request " +
+            "(fail-closed).",
+        );
+      }
+      return { Authorization: `Bearer ${token}` };
+    }
+    // Public source (no authRef): forward a token only if one happens to exist.
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
   getFormFields(): FormField[] {
@@ -428,8 +677,7 @@ export class RestConnector extends RemoteApiConnector {
    */
   async connect(): Promise<RemoteDatabase[]> {
     return this.auth(async (token) => {
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const headers = this.#authHeaders(token);
       const method = this.#config.method ?? "GET";
       await fetchPage(this.#config.endpoint, method, headers);
       return [
@@ -455,14 +703,25 @@ export class RestConnector extends RemoteApiConnector {
     tableId: UUID,
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
+    // Reject config-static fieldMap collisions before any network work.
+    if (this.#config.fieldMap) {
+      assertFieldMapNoCollision(this.#config.fieldMap);
+    }
+
+    // Push the requested window into pagination: stop fetching once enough rows
+    // are collected to satisfy offset+limit, instead of walking the whole
+    // remote chain and slicing afterward (avoids unbounded over-fetch).
+    const limit = options?.pagination?.limit;
+    const sliceOffset = options?.pagination?.offset ?? 0;
+    const budget = limit !== undefined ? sliceOffset + limit : Infinity;
+
     return this.auth(async (token) => {
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const headers = this.#authHeaders(token);
 
-      // Fetch all pages
-      const rawRows = await fetchAllPages(this.#config, headers);
+      // Fetch pages up to the row budget.
+      const rawRows = await fetchAllPages(this.#config, headers, budget);
 
-      // Apply fieldMap to each row
+      // Apply fieldMap to each row (rejects per-row target collisions).
       const rows = rawRows
         .filter(
           (r): r is Record<string, unknown> =>
@@ -470,23 +729,28 @@ export class RestConnector extends RemoteApiConnector {
         )
         .map((r) => applyFieldMap(r, this.#config.fieldMap));
 
-      // Apply pagination options to limit rows returned
+      // Apply the requested window after collecting just enough rows.
       const limitedRows =
-        options?.pagination?.limit !== undefined
-          ? rows.slice(
-              options.pagination.offset ?? 0,
-              (options.pagination.offset ?? 0) + options.pagination.limit,
-            )
+        limit !== undefined
+          ? rows.slice(sliceOffset, sliceOffset + limit)
           : rows;
 
       // Infer fields
       const fields = inferFieldsFromRows(limitedRows, tableId);
 
-      // Build Arrow table
-      const columnNames = fields.map((f) => f.columnName ?? f.name);
-      const columnArrays: Record<string, unknown[]> = {};
-      for (const colName of columnNames) {
-        columnArrays[colName] = limitedRows.map((r) => r[colName] ?? null);
+      // Build Arrow table. Use a null-prototype object so a response column
+      // named `__proto__`/`constructor` is stored as data, not a prototype
+      // mutation (which would silently drop the column from the Arrow table
+      // while `fieldIds` still listed it). Coerce each value to the inferred
+      // column type so the Arrow schema agrees with the `fields` metadata.
+      const columnArrays: Record<string, unknown[]> = Object.create(
+        null,
+      ) as Record<string, unknown[]>;
+      for (const field of fields) {
+        const colName = field.columnName ?? field.name;
+        columnArrays[colName] = limitedRows.map((r) =>
+          coerceValueToType(r[colName] ?? null, field.type),
+        );
       }
 
       const arrowTable = tableFromArrays(columnArrays);

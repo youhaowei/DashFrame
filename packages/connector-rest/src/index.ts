@@ -1,6 +1,7 @@
 export {
   RestConnector,
   applyFieldMap,
+  assertFieldMapNoCollision,
   extractRows,
   inferFieldsFromRows,
   makeRestConnector,
