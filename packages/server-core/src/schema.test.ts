@@ -112,7 +112,6 @@ describe("draft shadow tables — existence and shape", () => {
     test(`${name} has composite PK (draft_id, id) — enforced by DB`, async () => {
       // Try to insert a duplicate (draft_id, id) pair — must throw a PK violation.
       const tableSqlName = getTableName(drizzleTable);
-      const cols = await liveColumns(tableSqlName);
       // Build a minimal insert with only the NOT NULL non-default columns.
       // The shadow columns (draft_id, id, __tombstone) are always present.
       await db.execute(
@@ -128,7 +127,6 @@ describe("draft shadow tables — existence and shape", () => {
           ),
         ),
       ).rejects.toThrow();
-      void cols; // consumed above
     });
 
     test(`${name} Drizzle table name matches SQL name`, () => {
@@ -148,7 +146,6 @@ describe("draft shadow tables — existence and shape", () => {
     test(`${name} composite PK config is (draft_id, id)`, () => {
       const cfg = getTableConfig(drizzleTable);
       expect(cfg.primaryKeys).toHaveLength(1);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const pkCols = cfg.primaryKeys[0]!.columns.map((c) => c.name);
       expect(pkCols).toContain("draft_id");
       expect(pkCols).toContain("id");
@@ -324,7 +321,6 @@ describe("compactLog — net-effect collapse", () => {
     ];
     const result = compactLog(log);
     expect(result).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect((result[0]!.args as { name: string }).name).toBe("C");
   });
 
@@ -352,11 +348,8 @@ describe("compactLog — net-effect collapse", () => {
     const result = compactLog(log);
     // create + last-update survive, in original order
     expect(result).toHaveLength(2);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(result[0]!.kind).toBe("create");
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(result[1]!.kind).toBe("update");
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect((result[1]!.args as { name: string }).name).toBe("Final");
   });
 
@@ -379,7 +372,6 @@ describe("compactLog — net-effect collapse", () => {
     const result = compactLog(log);
     // Update is superseded by the delete; delete is kept.
     expect(result).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(result[0]!.kind).toBe("delete");
   });
 
@@ -416,7 +408,6 @@ describe("compactLog — net-effect collapse", () => {
     const result = compactLog(log);
     // i1 create+delete cancelled; i2 create survives
     expect(result).toHaveLength(1);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect((result[0]!.args as { id: string }).id).toBe("i2");
   });
 
