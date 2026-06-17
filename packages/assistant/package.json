@@ -20,8 +20,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.79.4",
-    "@earendil-works/pi-ai": "0.79.4",
-    "typebox": "1.1.38"
+    "@earendil-works/pi-ai": "0.79.4"
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
