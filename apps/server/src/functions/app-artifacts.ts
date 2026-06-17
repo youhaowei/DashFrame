@@ -798,9 +798,16 @@ const createInsight = mutation({
     return ctx.db.transaction(async (tx) => {
       // Reuse is opt-in and only applies when the incoming insight is itself an
       // unmodified draft. A pre-populated insight (fields/metrics) or any
-      // non-auto-draft caller always inserts a fresh row.
+      // non-auto-draft caller always inserts a fresh row. Extract the draft
+      // shape explicitly so the predicate reads only the fields it should —
+      // the wider `opts` bag carries the reuse flag itself, which is not part
+      // of the draft definition.
       const shouldReuse =
-        opts.reuseUnmodifiedDraft === true && isUnmodifiedDraft(opts);
+        opts.reuseUnmodifiedDraft === true &&
+        isUnmodifiedDraft({
+          selectedFields: opts.selectedFields,
+          metrics: opts.metrics,
+        });
 
       if (shouldReuse) {
         // Atomic check-and-create: scan-and-decide runs inside the transaction

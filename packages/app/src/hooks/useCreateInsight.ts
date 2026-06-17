@@ -85,7 +85,8 @@ export function useCreateInsight() {
       const modifiedInsights = sameTableInsights.filter(
         (i) => !isUnmodifiedDraft(i),
       );
-      if (modifiedInsights.length > 0) {
+      const hasModifiedInsights = modifiedInsights.length > 0;
+      if (hasModifiedInsights) {
         const existingNames = new Set(sameTableInsights.map((i) => i.name));
         let suffix = 2;
         while (existingNames.has(`${tableName} (${suffix})`)) {
@@ -94,13 +95,19 @@ export function useCreateInsight() {
         name = `${tableName} (${suffix})`;
       }
 
-      // Create (or reuse) a draft insight with empty fields. reuseUnmodifiedDraft
-      // makes the server return an existing unmodified draft for this baseTableId
-      // atomically when one exists — two concurrent calls converge on the same id.
+      // Create (or reuse) a draft insight with empty fields.
+      //
+      // Only opt into reuseUnmodifiedDraft when NO modified insight forces a
+      // suffix. When the suffix path fires, the user is explicitly making a new
+      // distinguishable draft ("orders (2)") — reusing an existing "orders"
+      // draft would discard that name and land them on the wrong insight. With
+      // the flag set, the server returns an existing unmodified draft for this
+      // baseTableId atomically, so two concurrent first-clicks converge on one
+      // draft (no TOCTOU race).
       const insightId = await createInsight(
         name,
         tableId, // baseTableId
-        { selectedFields: [], reuseUnmodifiedDraft: true }, // Empty draft, dedup
+        { selectedFields: [], reuseUnmodifiedDraft: !hasModifiedInsights },
       );
 
       // Navigate to insight page (action hub)

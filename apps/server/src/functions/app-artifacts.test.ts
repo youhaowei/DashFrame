@@ -364,4 +364,31 @@ describe("createInsight — atomic auto-draft dedup", () => {
     const rows = await allInsights();
     expect(rows).toHaveLength(2);
   });
+
+  it("should insert a fresh suffixed draft when reuse is explicitly false", async () => {
+    // The client's suffix path (createInsightFromTable when a modified insight
+    // already exists) sends reuseUnmodifiedDraft: false so the named draft is
+    // created rather than rerouted to an existing unmodified "orders" draft.
+    const tableId = crypto.randomUUID();
+
+    const { id: draftId } = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    // Explicit reuse=false with the suffixed name must produce a NEW row, even
+    // though an unmodified "orders" draft already exists for this table.
+    const suffixed = (await call("createInsight", {
+      name: "orders (2)",
+      baseTableId: tableId,
+      options: { selectedFields: [], reuseUnmodifiedDraft: false },
+    })) as { id: string };
+
+    expect(suffixed.id).not.toBe(draftId);
+
+    const rows = await allInsights();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.name).sort()).toEqual(["orders", "orders (2)"]);
+  });
 });

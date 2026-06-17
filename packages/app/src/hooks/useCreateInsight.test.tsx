@@ -262,11 +262,13 @@ describe("useCreateInsight", () => {
         await result.current.createInsightFromTable("table-orders", "orders");
       });
 
-      // A suffix is used rather than prompting — non-blocking, drive-feel
+      // A suffix is used rather than prompting — non-blocking, drive-feel.
+      // The suffix path signals explicit new-draft intent, so reuse is OFF:
+      // the server must create "orders (2)", not reroute to an existing draft.
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: true },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft-2");
     });
@@ -295,7 +297,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: true },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
     });
 
@@ -351,7 +353,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)", // gap-free: (2) is missing, not (4)
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: true },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
     });
   });
