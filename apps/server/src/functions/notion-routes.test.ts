@@ -30,6 +30,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // resolver but never hit the Notion network. The mock connect()/query() call
 // `auth` once (proving the route wires the resolver through) and return fixed
 // data shaped exactly like the real connector.
+// Captures the options the route forwards to connector.query (e.g. the preview
+// row limit) so a test can assert the wiring.
+const queryCalls: Array<{ databaseId: string; options?: unknown }> = [];
+
 vi.mock("@dashframe/connector-notion", () => ({
   makeNotionConnector: (
     auth: <T>(use: (plaintext: string) => Promise<T>) => Promise<T>,
@@ -37,12 +41,15 @@ vi.mock("@dashframe/connector-notion", () => ({
     id: "notion",
     sourceType: "remote-api" as const,
     connect: async () => auth(async () => [{ id: "db-1", name: "Roadmap" }]),
-    query: async () =>
-      auth(async () => ({
+    query: async (databaseId: string, _tableId: string, options?: unknown) => {
+      queryCalls.push({ databaseId, options });
+      return auth(async () => ({
         arrowBuffer: "QVJST1cx", // base64 placeholder
         fieldIds: ["f1", "f2"],
         fields: [{ id: "f1" }, { id: "f2" }],
-      })),
+        rowCount: 2,
+      }));
+    },
   }),
 }));
 
@@ -65,6 +72,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
   let backend: TestBackend;
 
   beforeEach(async () => {
+    queryCalls.length = 0;
     dir = mkdtempSync(join(tmpdir(), "dashframe-notion-routes-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault, backend } = makeTestVault());
@@ -122,18 +130,66 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       tableId: crypto.randomUUID(),
     });
 
-    // Serializable shape — raw Arrow buffer + ids + fields, no live DataFrame.
+    // Serializable shape — raw Arrow buffer + ids + fields + rowCount, no live
+    // DataFrame. rowCount lets the renderer register frame metadata.
     const r = result as {
       arrowBuffer: string;
       fieldIds: string[];
       fields: unknown[];
+      rowCount: number;
     };
     expect(typeof r.arrowBuffer).toBe("string");
     expect(r.fieldIds).toEqual(["f1", "f2"]);
     expect(r.fields).toHaveLength(2);
+    expect(r.rowCount).toBe(2);
     expect(r).not.toHaveProperty("dataFrame");
     // Credential resolved once, server-side; no plaintext in the payload.
     expect(backend.resolveCallCount).toBe(1);
     expect(JSON.stringify(result)).not.toContain("secret_plaintext");
+  });
+
+  it("forwards the preview row limit to connector.query as pagination", async () => {
+    const id = await seedNotionSource();
+
+    await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId: crypto.randomUUID(),
+      limit: 250,
+    });
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0]?.options).toEqual({
+      pagination: { offset: 0, limit: 250 },
+    });
+  });
+
+  it("omits pagination when no limit is given (unbounded fetch)", async () => {
+    const id = await seedNotionSource();
+
+    await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId: crypto.randomUUID(),
+    });
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0]?.options).toBeUndefined();
+  });
+
+  it("rejects a non-positive limit (limit: 0 must not become an unbounded scan)", async () => {
+    const id = await seedNotionSource();
+
+    await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId: crypto.randomUUID(),
+      limit: 0,
+    });
+
+    // limit: 0 is dropped (not forwarded as pagination), so the connector's
+    // page loop does not see `0 || Infinity` → full scan.
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0]?.options).toBeUndefined();
   });
 });

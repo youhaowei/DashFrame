@@ -20,11 +20,11 @@ import { registerConnector } from "@/lib/connectors/registry";
 import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 
-// Notion is gated behind NOTION_ENABLED (default false). The connector instance
-// here is registered for static metadata only (id, name, icon, form fields).
-// connect()/query() are never called from the renderer — they go through the
-// WyStack server mutations (listNotionDatabases / queryNotionDatabase).
-// The resolver throws if called from the renderer — that would be a bug.
+// The Notion connector instance here is registered for static metadata only
+// (id, name, icon, form fields). connect()/query() are never called from the
+// renderer — they go through the WyStack server mutations (listNotionDatabases
+// / queryNotionDatabase). The resolver throws if called from the renderer —
+// that would be a bug.
 const notionConnectorForRegistry = makeNotionConnector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +

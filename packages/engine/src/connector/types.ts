@@ -119,4 +119,6 @@ export interface ConnectorQueryResult {
   fieldIds: string[];
   /** Field definitions for the resulting table. */
   fields: Field[];
+  /** Number of rows in the materialized Arrow buffer. */
+  rowCount: number;
 }
