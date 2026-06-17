@@ -221,7 +221,13 @@ function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
     if (closing) return;
     closing = true;
     server.stop();
-    await project.close();
+    const result = await project.close();
+    if (result.snapshotError) {
+      console.error(
+        "[dashframe] close-time snapshot failed (data may not be persisted):",
+        result.snapshotError,
+      );
+    }
     process.exit(0);
   };
   process.on("SIGINT", () => void close());

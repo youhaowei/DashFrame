@@ -15,6 +15,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
+import type { CloseResult } from "@dashframe/server-core";
 import { Lifecycle } from "./lifecycle.js";
 
 function makeServer(onStop?: () => void): {
@@ -34,11 +35,12 @@ function makeEngine(onDispose?: () => void | Promise<void>): {
 }
 
 function makeProject(onClose?: () => void): {
-  close: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  close: ReturnType<typeof vi.fn<() => Promise<CloseResult>>>;
 } {
   return {
-    close: vi.fn<() => Promise<void>>(async () => {
+    close: vi.fn<() => Promise<CloseResult>>(async () => {
       onClose?.();
+      return { snapshotError: null };
     }),
   };
 }

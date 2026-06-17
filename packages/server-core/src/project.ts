@@ -54,12 +54,39 @@ import {
   restoreNewestSnapshot,
   SnapshotScheduler,
   writeSnapshot,
+  type FailedRestoreAttempt,
   type SnapshotMeta,
 } from "./snapshots";
 import { DASHFRAME_PROJECT_VERSION } from "./version";
 
 export const ARTIFACTS_DB_FILENAME = "artifacts.db";
 export const DATA_SOURCES_DIRNAME = path.join("data", "sources");
+
+/**
+ * Result of closing a project.
+ *
+ * Scope: `CloseResult` models snapshot durability only. A snapshot failure
+ * does not prevent the underlying PGlite connection from closing — the
+ * connection is always torn down, and the outcome is surfaced here so the
+ * caller can log a warning, show a dialog, or handle it appropriately.
+ *
+ * PGlite connection-close errors (`db.$client.close()`) are NOT modeled here;
+ * they propagate as thrown exceptions rather than settled fields. This is a
+ * deliberate boundary: the snapshot layer and the connection layer have
+ * independent failure modes, and merging them would conflate two distinct
+ * concerns. Callers that need to handle both should wrap `close()` in
+ * try/catch in addition to inspecting the returned `CloseResult`.
+ *
+ * Fail-closed: a caller that ignores this result will miss a snapshot
+ * durability failure.
+ */
+export interface CloseResult {
+  /**
+   * The error thrown by writeSnapshot during close, or null on success.
+   * The PGlite connection has been closed in both cases.
+   */
+  snapshotError: Error | null;
+}
 
 /** Set when openProject had to quarantine a damaged datadir. */
 export interface ProjectRecoveryNotice {
@@ -72,6 +99,12 @@ export interface ProjectRecoveryNotice {
   restoredSnapshot: SnapshotMeta | null;
   /** Absolute path to the quarantined damaged datadir. */
   quarantinedPath: string;
+  /**
+   * Snapshots that were attempted but rejected during restore (corrupt,
+   * missing project_meta, or unreadable). Empty when the first attempt
+   * succeeds or no snapshots exist.
+   */
+  failedRestoreAttempts: FailedRestoreAttempt[];
 }
 
 export interface ProjectHandle {
@@ -97,7 +130,7 @@ export interface ProjectHandle {
    */
   touchSnapshot(): void;
   /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
-  close(): Promise<void>;
+  close(): Promise<CloseResult>;
 }
 
 export type { ProjectMetaRow };
@@ -157,7 +190,10 @@ export async function openProject(
 
     try {
       // Restore from snapshot (or start fresh).
-      const restoredSnapshot = await restoreNewestSnapshot(dir, dbPath);
+      const {
+        restored: restoredSnapshot,
+        failedAttempts: restoreFailedAttempts,
+      } = await restoreNewestSnapshot(dir, dbPath);
 
       // Open the restored (or fresh) datadir.
       db = await openArtifactDb({ path: dbPath });
@@ -166,6 +202,7 @@ export async function openProject(
         reason: "wal-corruption",
         restoredSnapshot,
         quarantinedPath,
+        failedRestoreAttempts: restoreFailedAttempts,
       };
     } catch (recoveryErr) {
       // The damaged DB has ALREADY been renamed aside to `quarantinedPath`, but
@@ -215,19 +252,21 @@ export async function openProject(
     options.snapshotDebounceMs,
   );
 
-  const close = async () => {
+  const close = async (): Promise<CloseResult> => {
     // Cancel the pending debounced timer, then await any snapshot already in
     // flight before writing (and closing). Without the flush, a debounced/max-
     // wait dump still running here would overlap the final dump on the same
     // client — or worse, still be using the client when `close()` tears it down.
     scheduler.cancel();
     await scheduler.flush();
+    let snapshotError: Error | null = null;
     try {
       await writeSnapshot(db.$client, dir);
     } catch (err) {
-      console.error("[dashframe] close-time snapshot failed:", err);
+      snapshotError = err instanceof Error ? err : new Error(String(err));
     }
     await db.$client.close();
+    return { snapshotError };
   };
 
   return {

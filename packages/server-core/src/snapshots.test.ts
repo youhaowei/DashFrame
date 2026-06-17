@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -30,6 +31,7 @@ import {
   hasCorruptWalSegment,
   listSnapshots,
   resolveSnapshotsDir,
+  restoreNewestSnapshot,
   SNAPSHOT_EXT,
   SNAPSHOT_KEEP_N,
   SNAPSHOT_PREFIX,
@@ -772,5 +774,301 @@ describe("openProject WAL corruption recovery", () => {
     // The quarantined original must exist on disk.
     const parentDir = await readdir(dir);
     expect(parentDir.filter((f) => f.includes(".damaged-")).length).toBe(1);
+  });
+
+  test("recovery with ALL corrupt snapshots → fresh project + failedRestoreAttempts populated", async () => {
+    // Q3 (YW-288): openProject integration test verifying the plumbing from
+    // restoreNewestSnapshot → recovery.failedRestoreAttempts. Pre-fix this field
+    // didn't exist; post-fix it must be non-empty when corrupt-but-present snapshots
+    // were tried and rejected, distinguishing "no snapshots" from "all corrupt."
+    const dir = join(root, "all-corrupt-snaps");
+
+    // 1. Write a garbage "snapshot" file (corrupt tarball) — present but unrestorable.
+    const snapsDir = resolveSnapshotsDir(dir);
+    mkdirSync(snapsDir, { recursive: true });
+    const fakeName = `${SNAPSHOT_PREFIX}2024-06-01T00-00-00-000Z${SNAPSHOT_EXT}`;
+    writeFileSync(
+      join(snapsDir, fakeName),
+      Buffer.from("not a real gzip tarball"),
+    );
+
+    // 2. Create a datadir with a torn WAL segment so recovery triggers.
+    mkdirSync(join(dir, ARTIFACTS_DB_FILENAME, "pg_wal"), { recursive: true });
+    writeFileSync(
+      join(dir, ARTIFACTS_DB_FILENAME, "pg_wal", "000000010000000000000001"),
+      Buffer.alloc(XLOG_BLCKSZ - 1),
+    );
+    writeFileSync(join(dir, ARTIFACTS_DB_FILENAME, "PG_VERSION"), "GARBAGE\n");
+
+    // 3. openProject should recover: quarantine the damaged DB, try the corrupt
+    //    snapshot, reject it (empty datadir — no project_meta), seed a fresh project,
+    //    and populate recovery.failedRestoreAttempts with the rejected attempt.
+    const handle = await openProject({ dir });
+    openHandles.push(handle);
+
+    expect(handle.recovery).not.toBeNull();
+    expect(handle.recovery!.reason).toBe("wal-corruption");
+    // No snapshot successfully restored — fresh project seeded.
+    expect(handle.recovery!.restoredSnapshot).toBeNull();
+    // But the attempt WAS made — distinguishable from "no snapshots existed".
+    expect(handle.recovery!.failedRestoreAttempts).toHaveLength(1);
+    expect(handle.recovery!.failedRestoreAttempts[0]!.snapshot.filename).toBe(
+      fakeName,
+    );
+    expect(handle.recovery!.failedRestoreAttempts[0]!.error).toBeInstanceOf(
+      Error,
+    );
+
+    // The quarantined original must exist on disk.
+    const parentDir = await readdir(dir);
+    expect(parentDir.filter((f) => f.includes(".damaged-")).length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// YW-288: fail-closed durability — site-by-site contracts
+// ---------------------------------------------------------------------------
+
+// Site 1 + 2 in project.ts: close() surfaces snapshot failures
+describe("ProjectHandle.close() — surfaces snapshot failure (site 1)", () => {
+  let root: string;
+  let openHandles: ProjectHandle[];
+
+  beforeEach(() => {
+    root = tempDir();
+    openHandles = [];
+  });
+
+  afterEach(async () => {
+    await Promise.allSettled(openHandles.map((h) => h.close()));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("returns snapshotError: null on a successful close", async () => {
+    const dir = join(root, "close-ok");
+    const handle = await openProject({ dir });
+    openHandles.splice(0);
+
+    const result = await handle.close();
+    expect(result.snapshotError).toBeNull();
+  });
+
+  test("close() returns snapshotError when writeSnapshot fails — not swallowed", async () => {
+    // Open a fresh project with a long debounce so no mid-session snapshot fires.
+    const dir = join(root, "close-snap-fail");
+    const handle = await openProject({ dir, snapshotDebounceMs: 100_000 });
+    openHandles.splice(0);
+
+    // Poison the snapshots dir AFTER opening (so the initial DB open works) by
+    // writing a regular file at the path that writeSnapshot expects to mkdir.
+    // fs.mkdir(..., { recursive: true }) will throw EEXIST/ENOTDIR on a non-directory.
+    const snapsDir = resolveSnapshotsDir(dir);
+    writeFileSync(snapsDir, "not-a-directory");
+
+    const result = await handle.close();
+
+    // Contract 1: the snapshot failure surfaces in snapshotError — not swallowed.
+    expect(result.snapshotError).toBeInstanceOf(Error);
+
+    // Contract 2: the PGlite connection is closed even when the snapshot failed.
+    // Verify by querying the DB after close — it must reject because the client
+    // was torn down regardless of the snapshot outcome.
+    await expect(handle.db.execute("SELECT 1")).rejects.toThrow();
+  });
+});
+
+// Site 2: hasCorruptWalSegment — stat() failure fails closed
+describe("hasCorruptWalSegment — stat() failure is fail-closed (site 2)", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = tempDir();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("returns true when a WAL segment is listed by readdir but stat() fails (broken symlink)", async () => {
+    // Pre-fix: `fs.stat().catch(() => null)` swallowed stat errors, treating
+    // an unconfirmable segment as healthy → returned false (silent data-loss risk).
+    // Post-fix: stat() failure is fail-closed → returns true.
+    //
+    // A broken symlink causes readdir to see the entry (the link itself exists)
+    // while stat() throws ENOENT (the link target does not exist) — exactly the
+    // failure mode we want to test without requiring root or FUSE.
+    const dbPath = join(root, "stat-fail.db");
+    const walDir = join(dbPath, "pg_wal");
+    mkdirSync(walDir, { recursive: true });
+
+    // Create a WAL-filename-shaped broken symlink. readdir sees "000000…001",
+    // stat() follows the symlink and throws ENOENT on the missing target.
+    const segPath = join(walDir, "000000010000000000000001");
+    symlinkSync("/nonexistent-target-for-stat-fail-test", segPath);
+
+    // Post-fix: stat() failure → fail-closed → true.
+    const result = await hasCorruptWalSegment(dbPath);
+    expect(result).toBe(true);
+  });
+});
+
+// Site 3: pruneSnapshots — deletion failures surface via AggregateError
+describe("pruneSnapshots — deletion failures surface (site 3)", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = tempDir();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("writeSnapshot throws when a to-prune snapshot cannot be deleted", async () => {
+    // To trigger pruneSnapshots deletion failures, we need SNAPSHOT_KEEP_N + 1
+    // snapshots so one is queued for deletion. Then we make the target file
+    // undeletable by replacing it with a directory (unlink() throws EISDIR on most OSes).
+    const projectDir = join(root, "prune-fail");
+    const dbPath = join(projectDir, "artifacts.db");
+    mkdirSync(projectDir, { recursive: true });
+
+    const pg = await openFreshPGlite(dbPath);
+    try {
+      const BASE_MS = new Date(2024, 0, 1).getTime();
+      // Write exactly SNAPSHOT_KEEP_N snapshots — no pruning yet.
+      const written: string[] = [];
+      for (let i = 0; i < SNAPSHOT_KEEP_N; i++) {
+        const p = await writeSnapshot(pg, projectDir, () => BASE_MS + i * 1000);
+        written.push(p);
+      }
+
+      // Replace the oldest snapshot file with a directory so unlink() fails.
+      const oldest = written[0]!;
+      rmSync(oldest);
+      mkdirSync(oldest, { recursive: true });
+
+      // Writing one more snapshot triggers pruneSnapshots → tries to unlink
+      // the oldest → EISDIR/EPERM → should throw, not swallow.
+      await expect(
+        writeSnapshot(pg, projectDir, () => BASE_MS + SNAPSHOT_KEEP_N * 1000),
+      ).rejects.toThrow();
+    } finally {
+      await pg.close();
+    }
+  });
+});
+
+// Site 4: pruneSnapshots readdir — non-ENOENT surfaced
+// The ENOENT-only-swallow contract is covered by the existing
+// "prunes old snapshots" test (happy path) and the site-3 prune-fail test
+// (which traverses the same updated `catch` branch). The non-ENOENT readdir
+// error case (EACCES, EIO, etc.) cannot be triggered portably without root or
+// FUSE; it requires OS-level privilege manipulation. The code change is: catch(err)
+// re-throws non-ENOENT errors instead of returning silently — structurally
+// verified by typecheck and by the site-3 deletion-failure test.
+describe("pruneSnapshots readdir — non-ENOENT error surfaces (site 4)", () => {
+  test.todo(
+    "non-ENOENT readdir error propagates — requires EACCES/EIO simulation (mock or OS privilege)",
+  );
+});
+
+// Site 5: restoreNewestSnapshot — returns failedAttempts metadata
+describe("restoreNewestSnapshot — surfaces failed attempts (site 5)", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = tempDir();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("returns { restored: null, failedAttempts: [] } when no snapshots exist", async () => {
+    const result = await restoreNewestSnapshot(
+      join(root, "no-snaps"),
+      join(root, "target"),
+    );
+    expect(result.restored).toBeNull();
+    expect(result.failedAttempts).toEqual([]);
+  });
+
+  test("returns { restored: snap, failedAttempts: [] } on first-attempt success", async () => {
+    const projectDir = join(root, "restore-ok");
+    mkdirSync(projectDir, { recursive: true });
+
+    // Build a real project + snapshot so restoreNewestSnapshot can validate project_meta.
+    const handle = await openProject({ dir: projectDir });
+    await handle.close();
+
+    const snaps = await listSnapshots(projectDir);
+    expect(snaps.length).toBeGreaterThan(0);
+
+    // Restore into a fresh target dir.
+    const targetDir = join(root, "target-ok");
+    const result = await restoreNewestSnapshot(projectDir, targetDir);
+
+    expect(result.restored).not.toBeNull();
+    expect(result.restored!.absPath).toBe(snaps[snaps.length - 1]!.absPath);
+    expect(result.failedAttempts).toHaveLength(0);
+
+    rmSync(targetDir, { recursive: true, force: true });
+  });
+
+  test("populates failedAttempts when newest snapshot is corrupt/unreadable", async () => {
+    const projectDir = join(root, "restore-fail");
+    mkdirSync(projectDir, { recursive: true });
+
+    // Build a real project + snapshot.
+    const handle = await openProject({ dir: projectDir });
+    await handle.close();
+
+    const snaps = await listSnapshots(projectDir);
+    expect(snaps.length).toBeGreaterThan(0);
+
+    // Corrupt the newest snapshot by overwriting with garbage.
+    const newest = snaps[snaps.length - 1]!;
+    writeFileSync(newest.absPath, Buffer.from("not a gzip tarball"));
+
+    // Restore: the corrupt newest should fail, populate failedAttempts,
+    // and since there are no older valid snapshots, restored should be null.
+    const targetDir = join(root, "target-fail");
+    const result = await restoreNewestSnapshot(projectDir, targetDir);
+
+    // The corrupt snapshot is a bad tarball that PGlite loads as empty — so it
+    // fails the snapshotLooksRestorable() validation, not with an exception.
+    // failedAttempts should contain that attempt.
+    expect(result.failedAttempts.length).toBeGreaterThan(0);
+    expect(result.failedAttempts[0]!.snapshot.absPath).toBe(newest.absPath);
+    expect(result.failedAttempts[0]!.error).toBeInstanceOf(Error);
+
+    rmSync(targetDir, { recursive: true, force: true });
+  });
+
+  test("caller can distinguish 'no snapshots' from 'all corrupt'", async () => {
+    const projectDir = join(root, "restore-distinguish");
+    mkdirSync(projectDir, { recursive: true });
+
+    // No snapshots at all.
+    const noSnaps = await restoreNewestSnapshot(
+      projectDir,
+      join(root, "target-empty"),
+    );
+    expect(noSnaps.restored).toBeNull();
+    expect(noSnaps.failedAttempts).toHaveLength(0);
+
+    // Plant a garbage snapshot file.
+    const snapsDir = resolveSnapshotsDir(projectDir);
+    mkdirSync(snapsDir, { recursive: true });
+    const fakeName = `${SNAPSHOT_PREFIX}2024-01-01T00-00-00-000Z${SNAPSHOT_EXT}`;
+    writeFileSync(join(snapsDir, fakeName), Buffer.from("garbage"));
+
+    // All corrupt: restored is null but failedAttempts is non-empty.
+    const allCorrupt = await restoreNewestSnapshot(
+      projectDir,
+      join(root, "target-corrupt"),
+    );
+    expect(allCorrupt.restored).toBeNull();
+    expect(allCorrupt.failedAttempts.length).toBeGreaterThan(0);
   });
 });

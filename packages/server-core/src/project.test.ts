@@ -131,7 +131,12 @@ describe("openProject", () => {
     // whose analysis contains raw sampleValues.
     mkdirSync(dir, { recursive: true });
     const db2 = await openArtifactDb({ path: dbPath });
-    openHandles.push({ close: () => db2.$client.close() } as ProjectHandle);
+    openHandles.push({
+      close: async () => {
+        await db2.$client.close();
+        return { snapshotError: null };
+      },
+    } as ProjectHandle);
 
     await db2.insert(projectMeta).values({
       id: PROJECT_META_ID,
@@ -193,7 +198,12 @@ describe("openProject", () => {
 
     mkdirSync(dir, { recursive: true });
     const db2 = await openArtifactDb({ path: dbPath });
-    openHandles.push({ close: () => db2.$client.close() } as ProjectHandle);
+    openHandles.push({
+      close: async () => {
+        await db2.$client.close();
+        return { snapshotError: null };
+      },
+    } as ProjectHandle);
 
     await db2.insert(projectMeta).values({
       id: PROJECT_META_ID,
