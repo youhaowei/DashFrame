@@ -134,10 +134,52 @@ describe("validateToolArgs — valid args", () => {
   });
 });
 
-describe("validateToolArgs — invalid args", () => {
-  it("returns ok: false with a structured validation_error when args fail the schema", () => {
+describe("validateToolArgs — coercion mirrors pi's Convert-then-Check", () => {
+  // Pi's prepareToolCall runs Value.Convert THEN Check. Models routinely emit
+  // numbers as strings (`"10"`), so a tool pre-validated here must coerce
+  // identically to the live agent loop — otherwise the seam diverges from pi.
+  it('coerces a string limit to a number (model emits "10")', () => {
     const result = validateToolArgs(QuerySchema, {
-      tableId: 42, // should be string
+      tableId: "orders",
+      limit: "10", // model-emitted string
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Coerced to the schema type — not left as a string.
+      expect(result.value.limit).toBe(10);
+      expect(typeof result.value.limit).toBe("number");
+    }
+  });
+
+  it("coerces a numeric tableId to a string", () => {
+    const result = validateToolArgs(QuerySchema, {
+      tableId: 42, // number where a string is expected
+      limit: 5,
+    });
+
+    // Convert coerces 42 -> "42" (string-typed field), so this is now VALID —
+    // exactly as pi would handle it before calling execute.
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.tableId).toBe("42");
+      expect(typeof result.value.tableId).toBe("string");
+    }
+  });
+
+  it("does not mutate the caller's input object", () => {
+    const raw = { tableId: "orders", limit: "10" };
+    validateToolArgs(QuerySchema, raw);
+    // raw.limit must still be the original string — Convert ran on a clone.
+    expect(raw.limit).toBe("10");
+  });
+});
+
+describe("validateToolArgs — invalid args", () => {
+  it("returns ok: false with a structured validation_error when coercion can't satisfy the schema", () => {
+    const result = validateToolArgs(QuerySchema, {
+      tableId: "orders",
+      limit: "not-a-number", // cannot coerce to number
     });
 
     expect(result.ok).toBe(false);
@@ -146,19 +188,20 @@ describe("validateToolArgs — invalid args", () => {
       expect(result.error.kind).toBe("validation_error");
       expect(result.error.message).toMatch(/Tool argument validation failed/);
       expect(result.error.errors.length).toBeGreaterThan(0);
+      // Error points at the offending field, not a useless root path.
+      expect(result.error.errors[0]?.path).toBe("/limit");
     }
   });
 
-  it("collects errors for all failing fields", () => {
+  it("reports a missing required field after coercion", () => {
     const result = validateToolArgs(QuerySchema, {
-      tableId: 99,
-      limit: "not-a-number",
+      tableId: "orders",
+      // limit omitted entirely
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.errors.length).toBeGreaterThan(0);
-      // Every error carries a path and a message
       for (const e of result.error.errors) {
         expect(typeof e.path).toBe("string");
         expect(typeof e.message).toBe("string");
@@ -214,5 +257,34 @@ describe("defineToolHandler — AgentTool shape", () => {
     expect(tool.label).toBe("No-op");
     expect(tool.parameters).toBeDefined();
     expect(typeof tool.execute).toBe("function");
+  });
+
+  it("forwards executionMode so mutating tools can serialise against the batch", () => {
+    const mutating = defineToolHandler({
+      name: "apply_command",
+      description: "Mutates the report",
+      label: "Apply Command",
+      executionMode: "sequential",
+      parameters: Type.Object({ command: Type.String() }),
+      async execute(_id, _params) {
+        return { content: [], details: null };
+      },
+    });
+
+    expect(mutating.executionMode).toBe("sequential");
+  });
+
+  it("omits executionMode when not specified (uses pi's loop default)", () => {
+    const readonly = defineToolHandler({
+      name: "read_table",
+      description: "Reads a table",
+      label: "Read Table",
+      parameters: Type.Object({ id: Type.String() }),
+      async execute(_id, _params) {
+        return { content: [], details: null };
+      },
+    });
+
+    expect("executionMode" in readonly).toBe(false);
   });
 });

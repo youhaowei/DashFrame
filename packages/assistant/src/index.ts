@@ -9,6 +9,7 @@ export const ASSISTANT_VERSION = "0.0.0" as const;
 // Typed tool-layer helper — the seam all assistant mutation and read tools build through.
 export {
   Check,
+  Convert,
   Errors,
   Type,
   defineToolHandler,

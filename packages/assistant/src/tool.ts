@@ -14,14 +14,24 @@
  *      execute are passed through to pi unchanged (same pi behavior).
  *
  * Guard the sink, not provenance: the TypeBox schema passed to defineToolHandler
- * IS the validation gate. Pi's prepareToolCall runs Value.Convert + Check against
- * the schema before execute is invoked — validate here (the schema declaration),
- * trust the typed params pi delivers.
+ * IS the validation gate. Pi's prepareToolCall runs `Value.Convert` THEN `Check`
+ * against the schema before execute is invoked — validate here (the schema
+ * declaration), trust the typed params pi delivers.
+ *
+ * `validateToolArgs` (below) mirrors that exact order — Convert-then-Check — so a
+ * tool pre-validated through this helper sees the same coercion pi applies at
+ * runtime (e.g. a model emitting `"10"` for a numeric param). Mirroring matters:
+ * this is the seam every assistant tool builds on, so any divergence from pi's
+ * native arg handling would propagate to every tool.
  */
 
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type {
+  AgentTool,
+  AgentToolResult,
+  ToolExecutionMode,
+} from "@earendil-works/pi-agent-core";
 import { Type, type Static, type TSchema } from "typebox";
-import { Check, Errors } from "typebox/value";
+import { Check, Convert, Errors } from "typebox/value";
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -68,10 +78,17 @@ export interface ToolHandlerConfig<TParams extends TSchema, TDetails> {
   label: string;
   /**
    * TypeBox schema for the tool's parameters.
-   * Pi validates args against this schema before calling execute — type-safe
-   * params arrive already checked; no double-validation inside the execute body.
+   * Pi validates (Convert then Check) args against this schema before calling
+   * execute — type-safe params arrive already checked and coerced; no
+   * double-validation inside the execute body.
    */
   parameters: TParams;
+  /**
+   * Per-tool execution mode. Mutating tools (e.g. apply-command) should declare
+   * `"sequential"` so pi serialises them against other tool calls in the same
+   * batch; read-only tools can stay `"parallel"`. Omit to use pi's loop default.
+   */
+  executionMode?: ToolExecutionMode;
   /**
    * The tool body. Receives fully-typed, validated params — no `as` casts needed.
    *
@@ -115,7 +132,7 @@ export interface ToolHandlerConfig<TParams extends TSchema, TDetails> {
 export function defineToolHandler<TParams extends TSchema, TDetails>(
   config: ToolHandlerConfig<TParams, TDetails>,
 ): AgentTool<TParams, TDetails> {
-  return {
+  const tool: AgentTool<TParams, TDetails> = {
     name: config.name,
     description: config.description,
     label: config.label,
@@ -126,11 +143,17 @@ export function defineToolHandler<TParams extends TSchema, TDetails>(
       params,
       signal,
     ): Promise<AgentToolResult<TDetails>> => {
-      // params: Static<TParams> — pi validated before calling us.
+      // params: Static<TParams> — pi validated (Convert+Check) before calling us.
       // Throw to signal runtime errors (pi catches, marks isError: true).
       return config.execute(toolCallId, params, signal);
     },
   };
+
+  if (config.executionMode !== undefined) {
+    tool.executionMode = config.executionMode;
+  }
+
+  return tool;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,9 +161,17 @@ export function defineToolHandler<TParams extends TSchema, TDetails>(
 // ---------------------------------------------------------------------------
 
 /**
- * Run TypeBox validation and return structured errors.
- * Useful in tests and integration harnesses that need to pre-validate args
- * before passing them to a tool (e.g., before calling tool.execute directly).
+ * Validate raw args against a TypeBox schema, mirroring pi's runtime handling:
+ * `Value.Convert` (coercion) THEN `Value.Check`. Returns the coerced, narrowed
+ * value on success or a structured error on failure.
+ *
+ * Useful in tests and integration harnesses that pre-validate args before
+ * calling `tool.execute` directly — using this keeps the coercion behavior
+ * identical to pi's `prepareToolCall`, so direct-execute tests match the live
+ * agent loop (a model emitting `"10"` for a numeric param coerces to `10` here
+ * exactly as it would inside pi).
+ *
+ * The input is cloned before coercion, so `raw` is never mutated.
  */
 export function validateToolArgs<TParams extends TSchema>(
   schema: TParams,
@@ -148,13 +179,17 @@ export function validateToolArgs<TParams extends TSchema>(
 ):
   | { ok: true; value: Static<TParams> }
   | { ok: false; error: ToolArgValidationError } {
-  if (Check(schema, raw)) {
-    return { ok: true, value: raw };
+  // Convert mutates in place and returns the coerced value — clone first so the
+  // caller's input is untouched, matching pi's structuredClone in validateToolArguments.
+  const coerced = Convert(schema, structuredClone(raw));
+
+  if (Check(schema, coerced)) {
+    return { ok: true, value: coerced };
   }
 
-  const errorList = Errors(schema, raw).map((e) => ({
-    path: e.instancePath ?? "/",
-    message: e.message ?? "invalid value",
+  const errorList = [...Errors(schema, coerced)].map((e) => ({
+    path: e.instancePath,
+    message: e.message,
   }));
 
   const parts = errorList.map((e) => `${e.path} ${e.message}`).join("; ");
@@ -171,4 +206,4 @@ export function validateToolArgs<TParams extends TSchema>(
 // ---------------------------------------------------------------------------
 // Re-export TypeBox primitives so tool authors don't need a separate import
 // ---------------------------------------------------------------------------
-export { Check, Errors, Type, type Static, type TSchema };
+export { Check, Convert, Errors, Type, type Static, type TSchema };
