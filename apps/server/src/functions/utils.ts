@@ -121,12 +121,19 @@ export async function storeCredential(
  *
  * `vault.delete(ref)` is idempotent — a missing ref is a no-op — so calling
  * this on a config with no credential fields is always safe.
+ *
+ * Every ref is attempted (allSettled), not deleted in a short-circuiting
+ * sequence: a sequential `await` loop that threw on the first ref would leave
+ * the remaining refs un-deleted while the row is still slated for deletion —
+ * a partial orphan. Attempting all of them, then throwing an aggregate if any
+ * failed, keeps a single failure from skipping the rest. delete is idempotent,
+ * so a later retry safely re-runs the no-op deletes alongside the failed one.
  */
 export async function releaseCredentialRefs(
   config: DataSourceConfig,
   vault: SecretVault | undefined,
 ): Promise<void> {
-  const refs: string[] = [];
+  const refs: SecretRef[] = [];
   if (isSecretRef(config.apiKey)) refs.push(config.apiKey);
   if (isSecretRef(config.connectionString)) refs.push(config.connectionString);
   if (refs.length === 0) return;
@@ -137,8 +144,17 @@ export async function releaseCredentialRefs(
         "A vault that was present at store time must also be present at delete time.",
     );
   }
-  for (const ref of refs) {
-    await vault.delete(ref as SecretRef);
+  const results = await Promise.allSettled(
+    refs.map((ref) => vault.delete(ref)),
+  );
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((f) => f.reason),
+      `[secret-vault] failed to release ${failures.length} of ${refs.length} credential ref(s)`,
+    );
   }
 }
 
