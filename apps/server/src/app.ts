@@ -38,7 +38,6 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
-import type { ArtifactDb } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import {
@@ -52,7 +51,6 @@ import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { functions } from "./functions";
-import { buildPreviewDiff } from "./functions/preview-diff";
 
 type CorsOrigin =
   | string
@@ -280,39 +278,38 @@ export async function createDashframeServer(
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
+  // wyStackApp and artifactDb are injected after app is assigned (see below).
   const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
-  const hasStaticContext = Object.keys(staticContext).length > 0;
 
-  const app: WyStackApp =
-    vault == null && onWrite == null
-      ? rawApp
-      : {
-          ...rawApp,
-          async call(path, args, context) {
-            // Static context wins over per-request context: spread per-request
-            // first so that static keys (vault) cannot be shadowed by a crafted
-            // request context. The vault identity must be fixed for the server
-            // lifetime; a request-supplied vault key would be ignored.
-            const merged = hasStaticContext
-              ? { ...(context ?? {}), ...staticContext }
-              : context;
-            const result = await rawApp.call(path, args, merged);
-            if (onWrite != null && result.tablesWritten.size > 0) {
-              try {
-                onWrite();
-              } catch (err) {
-                console.error("[dashframe] onWrite hook threw:", err);
-              }
-            }
-            return result;
-          },
-          async runHandler(path, args, tracked, context) {
-            const merged = hasStaticContext
-              ? { ...(context ?? {}), ...staticContext }
-              : context;
-            return rawApp.runHandler(path, args, tracked, merged);
-          },
-        };
+  const app: WyStackApp = {
+    ...rawApp,
+    async call(path, args, context) {
+      // Static context wins over per-request context: spread per-request
+      // first so that static keys (vault, wyStackApp, artifactDb) cannot be
+      // shadowed by a crafted request context. The vault identity must be
+      // fixed for the server lifetime; a request-supplied vault key would
+      // be ignored.
+      const merged = { ...(context ?? {}), ...staticContext };
+      const result = await rawApp.call(path, args, merged);
+      if (onWrite != null && result.tablesWritten.size > 0) {
+        try {
+          onWrite();
+        } catch (err) {
+          console.error("[dashframe] onWrite hook threw:", err);
+        }
+      }
+      return result;
+    },
+    async runHandler(path, args, tracked, context) {
+      const merged = { ...(context ?? {}), ...staticContext };
+      return rawApp.runHandler(path, args, tracked, merged);
+    },
+  };
+
+  // Inject app + db references needed by the previewDiff query handler.
+  // Done post-assignment because app itself is the wrapped version.
+  staticContext.wyStackApp = app;
+  staticContext.artifactDb = opts.db;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
@@ -341,18 +338,6 @@ export async function createDashframeServer(
       }),
     );
   }
-
-  // Preview batch endpoint — SPLIT-TIER (settled): returns METADATA ONLY.
-  // No row data, no compute slots — those are filled client-side via local DuckDB.
-  // Mounted before WyStack so `/preview/batch` isn't shadowed by the catch-all.
-  honoApp.route(
-    "/preview",
-    createPreviewPath({
-      app,
-      db: opts.db as ArtifactDb,
-      authToken: opts.authToken,
-    }),
-  );
 
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
@@ -442,79 +427,6 @@ function tokenMatches(actual: string, expected: string): boolean {
   const actualBytes = createHash("sha256").update(actual).digest();
   const expectedBytes = createHash("sha256").update(expected).digest();
   return timingSafeEqual(actualBytes, expectedBytes);
-}
-
-/**
- * Hono sub-app for the preview batch endpoint.
- *
- * `POST /batch` accepts a JSON body `{ commands: Command[] }` and returns a
- * `PreviewDiff` (METADATA ONLY — compute slots are always `undefined`). The
- * diff carries the split-tier invariant: no row data, no head samples. Clients
- * fill the compute slot locally via DuckDB-WASM on preview-open.
- *
- * Auth reuses the same optional bearer token as the WyStack server.
- */
-function createPreviewPath(opts: {
-  app: WyStackApp;
-  db: ArtifactDb;
-  authToken?: string;
-}): Hono {
-  const { app, db, authToken } = opts;
-  const hono = new Hono();
-
-  hono.post("/batch", async (c) => {
-    // Auth guard — same policy as the WyStack server (loopback may omit token).
-    if (authToken) {
-      const auth = c.req.header("authorization") ?? "";
-      const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-      if (!tokenMatches(token, authToken)) {
-        return c.json({ error: "Unauthorized" }, 401);
-      }
-    }
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
-    }
-
-    if (
-      !body ||
-      typeof body !== "object" ||
-      !Array.isArray((body as { commands?: unknown }).commands)
-    ) {
-      return c.json({ error: "Expected { commands: Command[] }" }, 400);
-    }
-
-    const { commands } = body as { commands: unknown[] };
-
-    // Validate each command has a path (minimal guard — handler validation does
-    // the rest inside applyCommands).
-    for (const cmd of commands) {
-      if (
-        !cmd ||
-        typeof cmd !== "object" ||
-        typeof (cmd as { path?: unknown }).path !== "string"
-      ) {
-        return c.json({ error: "Each command must have a string `path`" }, 400);
-      }
-    }
-
-    try {
-      const diff = await buildPreviewDiff(
-        app,
-        db,
-        commands as Array<{ path: string; args: unknown }>,
-      );
-      return c.json(diff);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: message }, 500);
-    }
-  });
-
-  return hono;
 }
 
 export type { Functions } from "./functions";
