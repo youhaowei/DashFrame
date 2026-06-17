@@ -502,3 +502,292 @@ describe("buildInsightSQL — filter on a dropped join key is safely skipped", (
     expect(sql!).not.toContain("WHERE");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Security guard tests — every bad-input class must THROW (fail-closed)
+// ---------------------------------------------------------------------------
+
+describe("buildInsightSQL — sink guards: non-finite numbers throw", () => {
+  it("throws when a filter value is NaN", () => {
+    expect(() =>
+      build(groupedInsight([{ field: "region", operator: "eq", value: NaN }])),
+    ).toThrow("non-finite number");
+  });
+
+  it("throws when a filter value is Infinity", () => {
+    expect(() =>
+      build(
+        groupedInsight([{ field: "region", operator: "gt", value: Infinity }]),
+      ),
+    ).toThrow("non-finite number");
+  });
+
+  it("throws when a filter value is -Infinity", () => {
+    expect(() =>
+      build(
+        groupedInsight([{ field: "region", operator: "lt", value: -Infinity }]),
+      ),
+    ).toThrow("non-finite number");
+  });
+
+  it("throws when an effectiveFilters value is NaN (validated at coalesce time)", () => {
+    const insight = groupedInsight();
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), insight, {
+        mode: "query",
+        effectiveFilters: [{ field: "region", operator: "eq", value: NaN }],
+      }),
+    ).toThrow("non-finite number");
+  });
+
+  it("throws when an effectiveFilters between value contains a non-finite bound", () => {
+    const insight = groupedInsight();
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), insight, {
+        mode: "query",
+        effectiveFilters: [
+          {
+            field: "region",
+            operator: "between",
+            value: { low: 1, high: Infinity },
+          },
+        ],
+      }),
+    ).toThrow("non-finite number");
+  });
+
+  it("throws when an effectiveFilters in-array value contains NaN", () => {
+    const insight = groupedInsight();
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), insight, {
+        mode: "query",
+        effectiveFilters: [
+          { field: "region", operator: "in", value: ["EMEA", NaN] },
+        ],
+      }),
+    ).toThrow("non-finite number");
+  });
+});
+
+describe("buildInsightSQL — sink guards: LIMIT/OFFSET must be non-negative integers", () => {
+  it("throws when limit is NaN", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", limit: NaN }),
+    ).toThrow("invalid limit");
+  });
+
+  it("throws when limit is Infinity", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", limit: Infinity }),
+    ).toThrow("invalid limit");
+  });
+
+  it("throws when limit is negative", () => {
+    expect(() => build(groupedInsight(), { mode: "query", limit: -1 })).toThrow(
+      "invalid limit",
+    );
+  });
+
+  it("throws when limit is a non-integer float", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", limit: 1.5 }),
+    ).toThrow("invalid limit");
+  });
+
+  it("throws when offset is NaN", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", offset: NaN }),
+    ).toThrow("invalid offset");
+  });
+
+  it("throws when offset is negative", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", offset: -5 }),
+    ).toThrow("invalid offset");
+  });
+
+  it("accepts limit=0 and offset=0 (edge: zero is a valid non-negative integer)", () => {
+    // limit=0 emits LIMIT 0 (valid DuckDB SQL — returns empty result); offset=0 is a no-op.
+    const sql = build(groupedInsight(), { mode: "query", limit: 0, offset: 0 });
+    expect(sql).toContain("LIMIT 0");
+    expect(sql).toContain("OFFSET 0");
+  });
+});
+
+describe("buildInsightSQL — sink guards: invalid join type throws", () => {
+  const JOIN_TABLE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID;
+  const JOIN_DF_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff" as UUID;
+  const BASE_ID_FIELD: Field = {
+    id: "11111111-aaaa-aaaa-aaaa-111111111111" as UUID,
+    name: "ID",
+    tableId: TABLE_ID,
+    columnName: "id",
+    type: "string",
+  };
+  const JOIN_ID_FIELD: Field = {
+    id: "22222222-bbbb-bbbb-bbbb-222222222222" as UUID,
+    name: "ID",
+    tableId: JOIN_TABLE_ID,
+    columnName: "id",
+    type: "string",
+  };
+  const joinedTable: DataTable = {
+    id: JOIN_TABLE_ID,
+    name: "dim",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "dim.csv",
+    fields: [JOIN_ID_FIELD],
+    metrics: [],
+    dataFrameId: JOIN_DF_ID,
+    createdAt: 0,
+  };
+  const baseTableWithId: DataTable = {
+    ...BASE_TABLE,
+    fields: [BASE_ID_FIELD, ...BASE_TABLE.fields!],
+  };
+
+  it("throws when join.type is not a whitelisted value", () => {
+    const insight: Insight = {
+      id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
+      name: "Bad join",
+      baseTableId: TABLE_ID,
+      selectedFields: [],
+      metrics: [],
+      // Cast to bypass TS — simulates a deserialized value from untrusted source
+      joins: [
+        {
+          type: "cross" as unknown as "inner",
+          rightTableId: JOIN_TABLE_ID,
+          leftKey: "id",
+          rightKey: "id",
+        },
+      ],
+      createdAt: 0,
+    };
+    expect(() =>
+      buildInsightSQL(
+        baseTableWithId,
+        new Map([[JOIN_TABLE_ID, joinedTable]]),
+        insight,
+        {
+          mode: "query",
+        },
+      ),
+    ).toThrow("invalid join type");
+  });
+
+  it("does not throw for each valid join type (inner, left, right, full)", () => {
+    for (const type of ["inner", "left", "right", "full"] as const) {
+      const insight: Insight = {
+        id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
+        name: "Valid join",
+        baseTableId: TABLE_ID,
+        selectedFields: [],
+        metrics: [],
+        joins: [
+          { type, rightTableId: JOIN_TABLE_ID, leftKey: "id", rightKey: "id" },
+        ],
+        createdAt: 0,
+      };
+      expect(() =>
+        buildInsightSQL(
+          baseTableWithId,
+          new Map([[JOIN_TABLE_ID, joinedTable]]),
+          insight,
+          {
+            mode: "query",
+          },
+        ),
+      ).not.toThrow();
+    }
+  });
+});
+
+describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
+  it("throws when metric.aggregation is not a whitelisted value", () => {
+    const badMetric: InsightMetric = {
+      id: "aaaabbbb-1111-2222-3333-444455556666" as UUID,
+      name: "Bad agg",
+      sourceTable: TABLE_ID,
+      columnName: "amount",
+      aggregation: "inject" as unknown as "sum",
+    };
+    const insight: Insight = {
+      id: "bbbbcccc-1111-2222-3333-444455556666" as UUID,
+      name: "Insight with bad aggregation",
+      baseTableId: TABLE_ID,
+      selectedFields: [REGION_FIELD_ID],
+      metrics: [badMetric],
+      createdAt: 0,
+    };
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), insight, { mode: "query" }),
+    ).toThrow("invalid aggregation");
+  });
+
+  it("does not throw for each valid aggregation type", () => {
+    const validAggs = [
+      "sum",
+      "avg",
+      "count",
+      "min",
+      "max",
+      "count_distinct",
+    ] as const;
+    for (const aggregation of validAggs) {
+      const metric: InsightMetric = {
+        id: "ccccdddd-1111-2222-3333-444455556666" as UUID,
+        name: "Valid agg",
+        sourceTable: TABLE_ID,
+        columnName: aggregation === "count" ? undefined : "amount",
+        aggregation,
+      };
+      const insight: Insight = {
+        id: "ddddeeeee-1111-2222-3333-444455556666" as UUID,
+        name: "Insight with valid aggregation",
+        baseTableId: TABLE_ID,
+        selectedFields: [REGION_FIELD_ID],
+        metrics: [metric],
+        createdAt: 0,
+      };
+      expect(() =>
+        buildInsightSQL(BASE_TABLE, new Map(), insight, { mode: "query" }),
+      ).not.toThrow();
+    }
+  });
+});
+
+describe("buildInsightSQL — sink guards: sortDirection whitelist", () => {
+  it("throws when sortDirection is not 'asc' or 'desc'", () => {
+    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
+        mode: "query",
+        sortColumn: sortAlias,
+        sortDirection: "ASC" as unknown as "asc", // uppercase, not in whitelist
+      }),
+    ).toThrow("invalid sortDirection");
+  });
+
+  it("does not throw for 'asc'", () => {
+    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
+        mode: "query",
+        sortColumn: sortAlias,
+        sortDirection: "asc",
+      }),
+    ).not.toThrow();
+  });
+
+  it("does not throw for 'desc'", () => {
+    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
+    expect(() =>
+      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
+        mode: "query",
+        sortColumn: sortAlias,
+        sortDirection: "desc",
+      }),
+    ).not.toThrow();
+  });
+});
