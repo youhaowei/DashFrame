@@ -392,6 +392,11 @@ function createTokenResolver(
  * Vault-backed token resolver. Resolves the expected token from the vault at
  * each request — no plaintext is held in a server field. Returned resolver has
  * the same signature as the one returned by `createTokenResolver`.
+ *
+ * FAIL-CLOSED: any failure to resolve the expected token (missing/corrupt
+ * keychain blob, vault error) denies the request. The throw propagates to
+ * WyStack's route handler, which maps it to 401 — never a 500 that would leak
+ * the vault state, and never an allow.
  */
 function createVaultTokenResolver(
   authRef: SecretRef,
@@ -402,9 +407,16 @@ function createVaultTokenResolver(
     const token = auth.startsWith("Bearer ")
       ? auth.slice("Bearer ".length)
       : "";
-    const authorized = await vault.withSecret(authRef, async (expected) =>
-      tokenMatches(token, expected),
-    );
+    let authorized = false;
+    try {
+      authorized = await vault.withSecret(authRef, async (expected) =>
+        tokenMatches(token, expected),
+      );
+    } catch {
+      // Resolution failed — cannot confirm the token, so deny. Fall through to
+      // the Unauthorized throw below (→ 401), never surface a 500 or allow.
+      authorized = false;
+    }
     if (!authorized) {
       throw new Error("Unauthorized");
     }
