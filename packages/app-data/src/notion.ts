@@ -1,4 +1,4 @@
-import type { UUID } from "@dashframe/types";
+import type { Field, UUID } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
 import { useMemo } from "react";
 
@@ -22,7 +22,7 @@ export interface NotionDatabaseRef {
 export interface NotionQueryResult {
   arrowBuffer: string;
   fieldIds: string[];
-  fields: unknown[];
+  fields: Field[];
 }
 
 /**

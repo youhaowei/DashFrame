@@ -207,11 +207,15 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
   });
 
   it("makeNotionConnector requires a SecretResolver — TypeScript enforces at compile time", () => {
-    // The compile-time contract: makeNotionConnector(auth) — auth is required.
-    // TypeScript prevents calling makeNotionConnector() without a resolver.
-    // At runtime there is no guard (JS has no required params) — the type is
-    // the enforcement. We verify here that calling the factory with a resolver
-    // succeeds (the contract is honored when used correctly).
+    // The compile-time contract (AC #1: verify by type): makeNotionConnector(auth)
+    // — auth is required, so the pipeline cannot construct a connector without a
+    // bound resolver in scope. @ts-expect-error makes that contract executable:
+    // if `auth` ever becomes optional, this line stops erroring and the test
+    // fails to compile, flagging the regression.
+    // @ts-expect-error — auth (SecretResolver) is required; calling with no args must not typecheck
+    makeNotionConnector();
+
+    // And the happy path: with a resolver, the factory builds the connector.
     const resolver = <T>(use: (p: string) => Promise<T>) => use("secret_fake");
     const connector = makeNotionConnector(resolver);
     expect(connector).toBeInstanceOf(NotionConnector);

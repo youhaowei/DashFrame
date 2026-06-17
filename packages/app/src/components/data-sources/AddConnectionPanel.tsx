@@ -33,7 +33,7 @@ export interface AddConnectionPanelProps {
  * ```tsx
  * <AddConnectionPanel
  *   onFileSelect={(connector, file) => handleFileUpload(connector, file)}
- *   onConnect={(connector, databases) => handleConnect(databases)}
+ *   onConnect={(connector, credentials) => handleConnect(credentials)}
  *   showNotion={true}
  * />
  * ```
