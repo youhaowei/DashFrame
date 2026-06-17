@@ -31,6 +31,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -414,7 +415,11 @@ export const draftCommandLog = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("draft_command_log_draft_id_seq_idx").on(t.draftId, t.seq)],
+  // Unique on (draft_id, seq): seq is the monotonic replay position within a
+  // draft; duplicates would make publish replay order ambiguous.
+  (t) => [
+    uniqueIndex("draft_command_log_draft_id_seq_idx").on(t.draftId, t.seq),
+  ],
 );
 
 // ─── Schema export ────────────────────────────────────────────────────────────

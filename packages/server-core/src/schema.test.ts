@@ -206,6 +206,31 @@ describe("draft_command_log table", () => {
   test("draft_command_log Drizzle table name is 'draft_command_log'", () => {
     expect(getTableName(draftCommandLog)).toBe("draft_command_log");
   });
+
+  test("draft_command_log enforces unique (draft_id, seq) — duplicate seq within same draft must fail", async () => {
+    // Insert a command at seq=1 for draft 'd1'.
+    await db.execute(
+      sql.raw(
+        `INSERT INTO "draft_command_log" (id, draft_id, seq, path) VALUES ('00000000-0000-0000-0000-000000000001', 'd1', 1, 'doSomething')`,
+      ),
+    );
+    // A second command at the SAME seq=1 within the same draft must violate the unique index.
+    await expect(
+      db.execute(
+        sql.raw(
+          `INSERT INTO "draft_command_log" (id, draft_id, seq, path) VALUES ('00000000-0000-0000-0000-000000000002', 'd1', 1, 'doSomethingElse')`,
+        ),
+      ),
+    ).rejects.toThrow();
+    // A command at seq=1 for a DIFFERENT draft ('d2') is allowed.
+    await expect(
+      db.execute(
+        sql.raw(
+          `INSERT INTO "draft_command_log" (id, draft_id, seq, path) VALUES ('00000000-0000-0000-0000-000000000003', 'd2', 1, 'doSomething')`,
+        ),
+      ),
+    ).resolves.toBeDefined();
+  });
 });
 
 // ─── 4. Command-log compaction — collapses add-tweak-delete to net effect ──────
