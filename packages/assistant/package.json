@@ -1,10 +1,11 @@
 {
   "name": "@dashframe/assistant",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "description": "OAuth credential lifecycle and tool-layer helper for the DashFrame assistant",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -13,9 +14,9 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
     "typescript": "5.7.2",
     "vitest": "^4.1.6"
   }
