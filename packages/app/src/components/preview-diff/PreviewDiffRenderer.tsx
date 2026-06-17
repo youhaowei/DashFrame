@@ -121,14 +121,16 @@ function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
   if (columns.length === 0) return null;
 
   return (
-    <div className="mt-2 overflow-x-auto rounded-[var(--surface-radius)] border border-neutral-border/30 bg-neutral-bg/40">
+    <div className="mt-2 overflow-x-auto rounded-[var(--surface-radius)] bg-neutral-bg/40">
       <table className="w-full text-[11px]">
         <thead>
-          <tr>
+          {/* Header band — a slightly stronger surface tint separates it from
+              the body rows. No borders (surface system: elevation/tint only). */}
+          <tr className="bg-neutral-bg/70">
             {columns.map((col) => (
               <th
                 key={col}
-                className="border-b border-neutral-border/30 px-2 py-1 text-left font-semibold text-neutral-fg/60"
+                className="px-2 py-1 text-left font-semibold text-neutral-fg/60"
               >
                 {col}
               </th>
@@ -137,9 +139,11 @@ function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
         </thead>
         <tbody>
           {head.map((row, rowIdx) => (
+            // Zebra banding via background tint — readable row separation with
+            // no borders (surface system).
             <tr
               key={rowIdx}
-              className="border-b border-neutral-border/20 last:border-0"
+              className={rowIdx % 2 === 1 ? "bg-neutral-bg/30" : undefined}
             >
               {columns.map((col) => (
                 <td key={col} className="px-2 py-1 text-neutral-fg/80">
@@ -185,6 +189,18 @@ function ComputeDisplay({
           aria-label="Computing..."
         />
         Computing row counts…
+      </div>
+    );
+  }
+
+  // RESOLVED-but-empty: compute ran but couldn't produce a result (missing base
+  // table, un-resolvable proposed source, or SQL build failure). Distinguish
+  // this from PENDING so the reviewer isn't stuck on an infinite spinner. Calm,
+  // on-token, no raw error string (DESIGN.md "raw runtime errors" anti-pattern).
+  if (compute.rowCountAfter === null && compute.head.length === 0) {
+    return (
+      <div className="mt-2 text-xs text-neutral-fg/50">
+        Preview unavailable — couldn't compute row counts for this change.
       </div>
     );
   }
@@ -267,7 +283,7 @@ function DownstreamNodeRow({ node }: { node: PreviewDownstreamNode }) {
   const flagLabel = FLAG_LABELS[node.flag];
 
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div className="flex items-center gap-2 rounded-[var(--surface-radius)] bg-neutral-bg/60 px-3 py-1.5">
       <span className="min-w-0 flex-1 truncate text-sm text-neutral-fg/80">
         {node.name || node.nodeId}
       </span>
@@ -342,15 +358,15 @@ export function PreviewDiffRenderer({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-fg/50">
             Also affected
           </h3>
-          <div className="rounded-[var(--surface-radius)] bg-neutral-bg/60 px-3 py-2">
-            <div className="flex flex-col divide-y divide-neutral-border/30">
-              {diff.affectedDownstream.map((node) => (
-                <DownstreamNodeRow
-                  key={`${node.kind}:${node.nodeId}`}
-                  node={node}
-                />
-              ))}
-            </div>
+          {/* Row separation via surface tint, not borders/divide-y (surface
+              system: elevation + tint only, no borders). */}
+          <div className="flex flex-col gap-0.5">
+            {diff.affectedDownstream.map((node) => (
+              <DownstreamNodeRow
+                key={`${node.kind}:${node.nodeId}`}
+                node={node}
+              />
+            ))}
           </div>
         </section>
       )}

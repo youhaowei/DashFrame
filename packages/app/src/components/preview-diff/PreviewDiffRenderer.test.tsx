@@ -238,6 +238,43 @@ describe("PreviewDiffRenderer", () => {
     });
   });
 
+  // FIX 5 — RESOLVED-but-empty must render an honest "unavailable" state, not an
+  // infinite spinner. A resolved compute with rowCountAfter=null AND head=[] is
+  // the "couldn't compute" sentinel (missing base table / SQL build failure /
+  // un-resolvable proposed source). It must be visually distinct from PENDING.
+  describe("FIX 5 — resolved-but-empty renders the unavailable state", () => {
+    it("shows the 'Preview unavailable' message, not the pending spinner", () => {
+      const compute: PreviewCompute = {
+        rowCountBefore: null,
+        rowCountAfter: null,
+        head: [],
+      };
+      const diff = makeDiff([insightNode("ins-empty", "update", compute)]);
+
+      render(<PreviewDiffRenderer diff={diff} />);
+
+      // The honest unavailable message is shown.
+      expect(screen.getByText(/Preview unavailable/)).toBeDefined();
+      // It is NOT the pending spinner (compute is defined, just empty).
+      expect(screen.queryByText(/Computing row counts/)).toBeNull();
+      expect(screen.queryByLabelText("Computing...")).toBeNull();
+    });
+
+    it("does NOT show unavailable state when a real count is present", () => {
+      const compute: PreviewCompute = {
+        rowCountBefore: 3,
+        rowCountAfter: 7,
+        head: [],
+      };
+      const diff = makeDiff([insightNode("ins-ok", "update", compute)]);
+
+      render(<PreviewDiffRenderer diff={diff} />);
+
+      expect(screen.queryByText(/Preview unavailable/)).toBeNull();
+      expect(screen.getByText(/7/)).toBeDefined();
+    });
+  });
+
   describe("downstream blast radius", () => {
     it("renders downstream section when affectedDownstream is non-empty", () => {
       const diff = makeDiff([insightNode("ins-ds", "update")], {

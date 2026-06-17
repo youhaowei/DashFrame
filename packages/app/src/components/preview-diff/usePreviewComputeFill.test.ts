@@ -18,7 +18,10 @@ import type {
 } from "@dashframe/types";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { usePreviewComputeFill } from "./usePreviewComputeFill";
+import {
+  mergeComputeResult,
+  usePreviewComputeFill,
+} from "./usePreviewComputeFill";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — hoisted so vi.mock can close over them
@@ -503,6 +506,175 @@ describe("usePreviewComputeFill", () => {
           20,
         );
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // FIX 1 — fold command args onto the canonical stored definition.
+  //
+  // `before` is the RAW insights row: config lives under `before.definition`.
+  // `proposedDefinition` carries RAW COMMAND ARGS with DIFFERENT key names
+  // (`fieldIds` not `selectedFields`). The proposed InsightLike handed to
+  // buildInsightSQL must reflect the PROPOSED query, not the stale one — else
+  // the after-count is wrong and the node looks stuck.
+  // -------------------------------------------------------------------------
+  describe("FIX 1 — proposed shape folds command args onto before.definition", () => {
+    it("maps proposedDefinition.fieldIds → selectedFields over the canonical base", async () => {
+      const tableId = "table-fold";
+      const table = makeDataTable(tableId);
+      const frame = makeDataFrame(`df-${tableId}`);
+
+      mockGetDataTable.mockResolvedValue(table);
+      mockGetDataFrame.mockResolvedValue(frame);
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue("SELECT * FROM fold");
+      mockQuery.mockResolvedValue(makeCountResult(1));
+
+      // Canonical before: a RAW insights row — config nested under .definition.
+      const node: PreviewDirectNode = {
+        nodeId: "n-fold" as PreviewDirectNode["nodeId"],
+        kind: "insight",
+        name: "Insight fold",
+        change: "update",
+        intent: [],
+        before: {
+          id: "n-fold",
+          name: "Insight fold",
+          definition: {
+            baseTableId: tableId,
+            selectedFields: ["fld-a"],
+            metrics: [],
+          },
+        },
+        // Proposed change: SelectFields replace-all with [a, b] under `fieldIds`.
+        proposedDefinition: { fieldIds: ["fld-a", "fld-b"] },
+      };
+      const diff = makeDiff([node]);
+
+      renderHook(() => usePreviewComputeFill(diff));
+
+      await waitFor(() => {
+        expect(mockBuildInsightSQL).toHaveBeenCalled();
+      });
+
+      // Find the call whose insight has TWO selected fields — the PROPOSED shape.
+      const proposedCall = mockBuildInsightSQL.mock.calls.find(
+        (c) =>
+          (c[2] as { selectedFields: string[] }).selectedFields.length === 2,
+      );
+      expect(proposedCall).toBeDefined();
+      const proposedInsight = proposedCall![2] as {
+        baseTableId: string;
+        selectedFields: string[];
+      };
+      // Folded: selectedFields is the PROPOSED [a, b], not the stale [a].
+      expect(proposedInsight.selectedFields).toEqual(["fld-a", "fld-b"]);
+      // baseTableId comes from the canonical definition (not lost in the fold).
+      expect(proposedInsight.baseTableId).toBe(tableId);
+    });
+
+    it("maps proposedDefinition.source.sourceId → baseTableId (SetInsightSource)", async () => {
+      const oldTable = "table-old";
+      const newTable = "table-new";
+      mockGetDataTable.mockImplementation(async (id: string) =>
+        makeDataTable(id),
+      );
+      mockGetDataFrame.mockImplementation(async (id: string) =>
+        makeDataFrame(id),
+      );
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue("SELECT * FROM src");
+      mockQuery.mockResolvedValue(makeCountResult(1));
+
+      const node: PreviewDirectNode = {
+        nodeId: "n-src" as PreviewDirectNode["nodeId"],
+        kind: "insight",
+        name: "Insight src",
+        change: "update",
+        intent: [],
+        before: {
+          definition: {
+            baseTableId: oldTable,
+            selectedFields: [],
+            metrics: [],
+          },
+        },
+        // SetInsightSource args: { source: { sourceType, sourceId } }.
+        proposedDefinition: {
+          source: { sourceType: "dataTable", sourceId: newTable },
+        },
+      };
+      const diff = makeDiff([node]);
+
+      renderHook(() => usePreviewComputeFill(diff));
+
+      await waitFor(() => expect(mockBuildInsightSQL).toHaveBeenCalled());
+
+      // The proposed shape must point at the NEW base table.
+      const proposedCall = mockBuildInsightSQL.mock.calls.find(
+        (c) => (c[2] as { baseTableId: string }).baseTableId === newTable,
+      );
+      expect(proposedCall).toBeDefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // FIX 2 — stale-guard reducer. A late result for a superseded diff (A) must
+  // NOT clobber the current diff (B). Tested at the pure-reducer seam rather
+  // than through a DuckDB mock-thicket.
+  // -------------------------------------------------------------------------
+  describe("FIX 2 — mergeComputeResult stale guard", () => {
+    const diffA = makeDiff([insightNode("a1", "update")]);
+    const diffB = makeDiff([insightNode("b1", "update")]);
+    const compute: PreviewCompute = {
+      rowCountBefore: 1,
+      rowCountAfter: 2,
+      head: [],
+    };
+
+    it("merges a result whose diff is the current diff", () => {
+      const prev = { diff: diffA, computeByNodeId: new Map() };
+      // forDiff === currentDiff === prev.diff → normal progressive merge.
+      const next = mergeComputeResult(prev, diffA, diffA, "a1", compute);
+      expect(next.computeByNodeId.get("a1")).toBe(compute);
+      expect(next.diff).toBe(diffA);
+    });
+
+    it("resets to a fresh map on the first result of a freshly-active diff", () => {
+      // State still holds diffA's entries, but the live diff is now diffB.
+      const stateA = {
+        diff: diffA,
+        computeByNodeId: new Map<string, PreviewCompute>([["a1", compute]]),
+      };
+      // B's first result arrives; forDiff === currentDiff === diffB.
+      const next = mergeComputeResult(stateA, diffB, diffB, "b1", compute);
+      expect(next.diff).toBe(diffB);
+      // Stale A entry dropped; only B's node present.
+      expect(next.computeByNodeId.has("a1")).toBe(false);
+      expect(next.computeByNodeId.get("b1")).toBe(compute);
+    });
+
+    it("drops a late A-result after the live diff has moved on to B (A→B race)", () => {
+      // State has already advanced to diff B (user opened B).
+      const stateB = {
+        diff: diffB,
+        computeByNodeId: new Map<string, PreviewCompute>([["b1", compute]]),
+      };
+      // A's async work resolves LAST: forDiff=A but the live diff is now B.
+      const next = mergeComputeResult(stateB, diffA, diffB, "a1", compute);
+      // B's state is intact and untouched — no A node leaked in, identity kept.
+      expect(next).toBe(stateB);
+      expect(next.diff).toBe(diffB);
+      expect(next.computeByNodeId.has("a1")).toBe(false);
+      expect(next.computeByNodeId.get("b1")).toBe(compute);
+    });
+
+    it("never writes the stale diff's identity back onto current state", () => {
+      const stateB = { diff: diffB, computeByNodeId: new Map() };
+      const next = mergeComputeResult(stateB, diffA, diffB, "a1", compute);
+      // The classic bug: writing { diff: A, ... } back clobbers B. Guard holds.
+      expect(next.diff).not.toBe(diffA);
+      expect(next.diff).toBe(diffB);
     });
   });
 });
