@@ -2997,15 +2997,13 @@ describe("command vocabulary", () => {
         );
 
         // Null selectedFields — valid empty state.
-        await db
-          .update(schema.insights)
-          .set({
-            definition: {
-              baseTableId: tableId,
-              selectedFields: null,
-              metrics: [],
-            },
-          });
+        await db.update(schema.insights).set({
+          definition: {
+            baseTableId: tableId,
+            selectedFields: null,
+            metrics: [],
+          },
+        });
 
         // Should NOT throw — null selectedFields is treated as [].
         await expect(
@@ -3026,15 +3024,13 @@ describe("command vocabulary", () => {
         );
 
         // Null metrics — valid empty state; should resolve without corrupt error.
-        await db
-          .update(schema.insights)
-          .set({
-            definition: {
-              baseTableId: tableId,
-              selectedFields: [],
-              metrics: null,
-            },
-          });
+        await db.update(schema.insights).set({
+          definition: {
+            baseTableId: tableId,
+            selectedFields: [],
+            metrics: null,
+          },
+        });
 
         await expect(
           commit(cmd("SetInsightFilter", { id: insightId, filters: [] })),
