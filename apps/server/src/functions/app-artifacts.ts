@@ -33,6 +33,7 @@ import {
   applyCredentialField,
   type DataSourceConfig,
   isRecord,
+  releaseCredentialRefs,
   requireRecordWithId,
   vaultFromCtx,
 } from "./utils";
@@ -495,6 +496,16 @@ const updateDataSource = mutation({
 const removeDataSource = mutation({
   args: { id: uuid },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
+    // Fetch the source config BEFORE deleting so we can release its SecretRefs.
+    // vault-absent-with-a-ref is an error (fail-closed symmetry): a ref can only
+    // exist because vault.store() succeeded, which requires a vault to be present.
+    const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
+    if (source) {
+      await releaseCredentialRefs(
+        (source.config ?? {}) as DataSourceConfig,
+        vaultFromCtx(ctx),
+      );
+    }
     await ctx.db.from(dataTables).where(eq("dataSourceId", id)).delete();
     await ctx.db.from(dataSources).where(eq("id", id)).delete();
     return { ok: true };

@@ -101,6 +101,8 @@ import {
   applyCredentialField,
   type DataSourceConfig,
   isRecord,
+  modeFromCtx,
+  releaseCredentialRefs,
   requireRecordWithId,
   vaultFromCtx,
 } from "./utils";
@@ -278,16 +280,28 @@ const createDataSource = mutation({
     { id, type, name, apiKey, connectionString },
   ): Promise<{ id: string }> => {
     const vault = vaultFromCtx(ctx);
+    const preview = modeFromCtx(ctx) === "preview";
     const config: DataSourceConfig = {};
     // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
     // empty string is a no-op. A real store fails closed when no vault is injected.
-    await applyCredentialField(config, "apiKey", apiKey, vault, `apiKey-${id}`);
+    // In preview mode the vault write is skipped — the DB transaction rolls back
+    // anyway, but vault.store() is a keychain side-effect outside the transaction
+    // that would survive the rollback and permanently orphan a secret.
+    await applyCredentialField(
+      config,
+      "apiKey",
+      apiKey,
+      vault,
+      `apiKey-${id}`,
+      preview,
+    );
     await applyCredentialField(
       config,
       "connectionString",
       connectionString,
       vault,
       `connectionString-${id}`,
+      preview,
     );
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
@@ -318,6 +332,7 @@ const setDataSourceConfig = mutation({
     { id, apiKey, connectionString },
   ): Promise<{ ok: true }> => {
     const vault = vaultFromCtx(ctx);
+    const preview = modeFromCtx(ctx) === "preview";
     const current = (await ctx.db
       .from(dataSources)
       .where(eq("id", id))
@@ -331,13 +346,22 @@ const setDataSourceConfig = mutation({
     // from the vault here — the same deferred cleanup as rotation; the locator is
     // dropped from config so the data-plane resolver stops using it, and the
     // plaintext-never-at-rest invariant is unaffected.
-    await applyCredentialField(config, "apiKey", apiKey, vault, `apiKey-${id}`);
+    // In preview mode vault writes are skipped (keychain is not transactional).
+    await applyCredentialField(
+      config,
+      "apiKey",
+      apiKey,
+      vault,
+      `apiKey-${id}`,
+      preview,
+    );
     await applyCredentialField(
       config,
       "connectionString",
       connectionString,
       vault,
       `connectionString-${id}`,
+      preview,
     );
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
     return { ok: true };
@@ -1721,6 +1745,14 @@ const deleteNode = mutation({
         .where(eq("dataSourceId", id))
         .all()) as (typeof dataTables.$inferSelect)[];
       const orphanedNodes = await deleteDataSourceDependents(ctx, ownedTables);
+      // Release any SecretRefs in the config BEFORE deleting the row so the
+      // mapping row + backend blob are not permanently orphaned in the OS keychain.
+      // vault-absent-with-a-ref is treated as an error (fail-closed symmetry):
+      // a ref can only exist if vault.store() was called, which requires a vault.
+      await releaseCredentialRefs(
+        (source.config ?? {}) as DataSourceConfig,
+        vaultFromCtx(ctx),
+      );
       // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
       return { ok: true, deleted: { kind: "dataSource", id }, orphanedNodes };

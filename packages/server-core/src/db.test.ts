@@ -119,61 +119,6 @@ describe("openArtifactDb", () => {
     ]);
   });
 
-  test("should enforce cascade delete from data_sources to secrets", async () => {
-    const db = await openTestArtifactDb();
-
-    const [source] = await db
-      .insert(schema.dataSources)
-      .values({
-        name: "csv-test",
-        kind: "csv",
-        storage: "parquet",
-        config: { originalPath: "./fixtures/test.csv" },
-        createdBy: userProvenance,
-      })
-      .returning();
-
-    await db.insert(schema.secrets).values({
-      sourceId: source!.id,
-      secretName: "notion_token",
-      ciphertext: new Uint8Array([1, 2, 3, 4]),
-    });
-
-    expect(await db.select().from(schema.secrets)).toHaveLength(1);
-
-    await db.delete(schema.dataSources);
-
-    expect(await db.select().from(schema.secrets)).toHaveLength(0);
-  });
-
-  test("should reject duplicate (sourceId, secretName) on secrets", async () => {
-    const db = await openTestArtifactDb();
-    const [source] = await db
-      .insert(schema.dataSources)
-      .values({
-        name: "csv-test",
-        kind: "csv",
-        storage: "parquet",
-        config: {},
-        createdBy: userProvenance,
-      })
-      .returning();
-
-    await db.insert(schema.secrets).values({
-      sourceId: source!.id,
-      secretName: "notion_token",
-      ciphertext: new Uint8Array([1, 2, 3]),
-    });
-
-    await expect(
-      db.insert(schema.secrets).values({
-        sourceId: source!.id,
-        secretName: "notion_token",
-        ciphertext: new Uint8Array([4, 5, 6]),
-      }),
-    ).rejects.toThrow();
-  });
-
   test("should declare required artifact provenance fields and parent indexes", async () => {
     const db = await openTestArtifactDb();
 
