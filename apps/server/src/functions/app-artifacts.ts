@@ -256,12 +256,19 @@ async function rowToDataSource(
     hasApiKey = Boolean(config.apiKey);
     hasConnectionString = Boolean(config.connectionString);
   }
+  // Pass through any non-credential keys from the stored config so future
+  // fields are forward-compatible. Credential slots are NEVER passed through.
+  const otherKeys: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(config)) {
+    if (k !== "apiKey" && k !== "connectionString") {
+      otherKeys[k] = v;
+    }
+  }
   return {
     id: row.id,
     type: row.kind,
     name: row.name,
-    hasApiKey,
-    hasConnectionString,
+    config: { hasApiKey, hasConnectionString, ...otherKeys },
     createdAt: row.createdAt.getTime(),
   };
 }

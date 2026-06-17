@@ -6,24 +6,42 @@ import type { UUID } from "./uuid";
 // ============================================================================
 
 /**
+ * Public-safe connector config blob on the DataSource read DTO.
+ *
+ * Credential fields (apiKey, connectionString) are represented as boolean
+ * presence flags — never as the raw SecretRef or plaintext. The connector
+ * KIND (DataSource.type) interprets any additional keys.
+ *
+ * This is the structured, safe-to-diff config; the server strips secret refs
+ * before populating it. Non-credential keys are passed through as-is.
+ */
+export type ConnectorConfig = {
+  /** True when an API key is stored in the vault. Never the raw value. */
+  hasApiKey: boolean;
+  /** True when a connection string is stored in the vault. Never the raw value. */
+  hasConnectionString: boolean;
+  /** Any additional non-credential connector settings, kind-interpreted. */
+  [key: string]: unknown;
+};
+
+/**
  * DataSource interface - generic for any connector type.
  * Type is the connector ID from the registry (e.g., "csv", "notion").
  *
  * SECURITY: this is a read DTO. Raw credential values are NEVER returned
- * by the read path. Presence is indicated by boolean flags so the UI can
- * show "key is set" without receiving the secret itself.
+ * by the read path. Presence is indicated by boolean flags inside `config`
+ * so the UI can show "key is set" without receiving the secret itself.
  */
 export interface DataSource {
   id: UUID;
   type: string; // Connector ID from registry
   name: string;
-  // Credential presence flags — true when the config field is non-empty.
-  // Always set by the read path (rowToDataSource), so non-optional: this
-  // avoids a three-state `true | false | undefined` where a missing field
-  // and a stored `false` would be indistinguishable.
-  // The actual secret is never returned by list/get queries.
-  hasApiKey: boolean; // For remote API connectors (e.g., Notion)
-  hasConnectionString: boolean; // For database connectors (future)
+  /**
+   * Public-safe connector config. Credential slots are boolean presence
+   * flags; non-credential keys are passed through as-is.
+   * Always set by the read path (rowToDataSource), so non-optional.
+   */
+  config: ConnectorConfig;
   createdAt: number;
 }
 

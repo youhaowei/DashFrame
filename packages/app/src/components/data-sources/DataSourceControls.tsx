@@ -209,7 +209,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || dataSource.type !== "notion" || !dataSource.hasApiKey)
+    if (
+      !dataSource ||
+      dataSource.type !== "notion" ||
+      !dataSource.config.hasApiKey
+    )
       return;
 
     // Use cached data unless explicitly forced to refresh
@@ -325,10 +329,12 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
               value={apiKeyInput}
               onChange={handleApiKeyChange}
               className="font-mono text-xs"
-              placeholder={dataSource.hasApiKey ? "••••••••" : "secret_..."}
+              placeholder={
+                dataSource.config.hasApiKey ? "••••••••" : "secret_..."
+              }
             />
             <p className="mt-1.5 text-xs text-neutral-fg-subtle">
-              {dataSource.hasApiKey
+              {dataSource.config.hasApiKey
                 ? "A token is saved. Enter a new one to replace it."
                 : "Your Notion integration token"}
             </p>

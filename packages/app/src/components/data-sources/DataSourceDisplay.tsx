@@ -372,7 +372,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
         !selectedDataTable ||
         !dataSource ||
         dataSource.type !== "notion" ||
-        !dataSource.hasApiKey
+        !dataSource.config.hasApiKey
       ) {
         return;
       }
@@ -426,7 +426,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
-      !dataSource.hasApiKey
+      !dataSource.config.hasApiKey
     ) {
       return;
     }
@@ -480,7 +480,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
       !selectedDataTable ||
       !dataSource ||
       dataSource.type !== "notion" ||
-      !dataSource.hasApiKey
+      !dataSource.config.hasApiKey
     ) {
       return;
     }

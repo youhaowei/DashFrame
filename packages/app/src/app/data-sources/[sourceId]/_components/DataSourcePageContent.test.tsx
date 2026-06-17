@@ -191,9 +191,9 @@ const DATA_SOURCE = {
   id: SOURCE_ID,
   name: "My Database",
   type: "csv",
-  apiKey: null,
-  connectionString: null,
-} as import("@dashframe/types").DataSource;
+  config: { hasApiKey: false, hasConnectionString: false },
+  createdAt: 0,
+} satisfies import("@dashframe/types").DataSource;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
