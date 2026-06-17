@@ -298,70 +298,6 @@ describe("getOAuthToken — expired token refresh", () => {
     ).rejects.toThrow(/token refresh failed: 400/);
   });
 
-  it("uses the rotated refresh token on the second expiry cycle (token rotation)", async () => {
-    // First call: keychain has original tokens, access token is expired.
-    // Refresh returns a rotated credential set.
-    const mockReadKeychain = vi.fn(async () =>
-      makeKeychain({ expiresAt: PAST }),
-    );
-    const firstRotated: RefreshedCredentials = {
-      accessToken: "sk-ant-oat-first-rotated-access",
-      refreshToken: "first-rotated-refresh-token",
-      expiresIn: 1, // 1 second — will expire almost immediately
-    };
-    const secondRotated: RefreshedCredentials = {
-      accessToken: "sk-ant-oat-second-rotated-access",
-      refreshToken: "second-rotated-refresh-token",
-      expiresIn: 3600,
-    };
-    const mockFetchRefresh = vi
-      .fn()
-      .mockResolvedValueOnce(firstRotated)
-      .mockResolvedValueOnce(secondRotated);
-
-    // First call — triggers refresh, gets firstRotated
-    const token1 = await getOAuthToken({
-      readKeychain: mockReadKeychain,
-      fetchRefresh: mockFetchRefresh,
-    });
-    expect(token1).toBe(firstRotated.accessToken);
-
-    // Make the in-memory slot appear expired by backdating it.
-    // We reset and call again with an already-expired expiresIn.
-    // The second refresh must use firstRotated.refreshToken, NOT the original
-    // "mock-refresh-token" from the keychain (which is dead after rotation).
-    _resetInMemoryCredentials();
-
-    // Simulate: in-memory slot was populated by first call but now expired.
-    // We do this by calling again with readKeychain returning expired + rotated
-    // refresh token already used — the implementation should use in-memory slot.
-    // Instead, test directly: call again with the firstRotated refresh token
-    // as the in-memory state by setting up a second expired scenario.
-    //
-    // Re-run from scratch: first call populates in-memory with firstRotated.
-    // Then immediately simulate expiry by re-entering with expired in-memory slot.
-    _resetInMemoryCredentials();
-
-    // Rebuild: first call populates in-memory slot with firstRotated.
-    await getOAuthToken({
-      readKeychain: mockReadKeychain,
-      fetchRefresh: mockFetchRefresh,
-    });
-    // mockFetchRefresh.calls[0] used "mock-refresh-token" (original from keychain)
-    // mockFetchRefresh.calls[1] used "first-rotated-refresh-token" (from in-memory)
-    // But in-memory slot has expiresIn=1 → already expired for a second call.
-    // Force the second call through by resetting ONLY the in-memory slot's token
-    // as expired — but we can't do that without a clock mock. Instead, test
-    // the invariant directly: verify the second fetchRefresh call used the
-    // rotated token, not the original keychain one.
-
-    // At this point mockFetchRefresh has been called twice (once from reset+first,
-    // once from the second attempt above). Verify the first call used the
-    // original refresh token.
-    const firstCallArg = mockFetchRefresh.mock.calls[0]?.[0];
-    expect(firstCallArg).toBe("mock-refresh-token");
-  });
-
   it("second getOAuthToken call uses rotated refresh token (not dead keychain original)", async () => {
     // Simulate token rotation correctly using a very short expiresIn so the
     // in-memory slot is already expired on the second call.
@@ -539,5 +475,52 @@ describe("getOAuthToken — in-memory credential slot", () => {
     });
     expect(token).toBe(freshKeychain.accessToken);
     expect(mockFetchRefresh2).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent refresh — single-flight dedup
+// ---------------------------------------------------------------------------
+
+describe("getOAuthToken — concurrent refresh dedup (single-flight)", () => {
+  it("fires the refresh exactly once when two concurrent calls race on an expired token", async () => {
+    // Both calls arrive with an expired in-memory state. Without single-flight
+    // dedup, both would call refresher() — the second sends the now-dead
+    // (rotated) original refresh token → 400 on Claude's server.
+    const mockReadKeychain = vi.fn(async () =>
+      makeKeychain({ expiresAt: PAST }),
+    );
+
+    let resolveRefresh!: (v: RefreshedCredentials) => void;
+    const refreshPromise = new Promise<RefreshedCredentials>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const mockFetchRefresh = vi.fn(() => refreshPromise);
+
+    // Fire two concurrent calls before the refresh resolves.
+    const [p1, p2] = [
+      getOAuthToken({
+        readKeychain: mockReadKeychain,
+        fetchRefresh: mockFetchRefresh,
+      }),
+      getOAuthToken({
+        readKeychain: mockReadKeychain,
+        fetchRefresh: mockFetchRefresh,
+      }),
+    ];
+
+    // Resolve the refresh now — both callers should get the same token.
+    const rotated = makeRotated({
+      accessToken: "sk-ant-oat-single-flight-token",
+    });
+    resolveRefresh(rotated);
+
+    const [t1, t2] = await Promise.all([p1, p2]);
+
+    // Both callers receive the refreshed token.
+    expect(t1).toBe(rotated.accessToken);
+    expect(t2).toBe(rotated.accessToken);
+    // The refresh was only called once — no rotation-invalidating second call.
+    expect(mockFetchRefresh).toHaveBeenCalledTimes(1);
   });
 });
