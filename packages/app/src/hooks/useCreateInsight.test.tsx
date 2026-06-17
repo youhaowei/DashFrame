@@ -84,7 +84,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Sales Data", // name
         "table-abc", // baseTableId
-        { selectedFields: [] }, // Empty for draft state
+        { selectedFields: [], reuseUnmodifiedDraft: true }, // Empty draft, dedup
       );
     });
 
@@ -133,7 +133,10 @@ describe("useCreateInsight", () => {
 
       // Verify the third argument (options) has empty selectedFields
       const callArgs = mockCreateInsight.mock.calls[0];
-      expect(callArgs[2]).toEqual({ selectedFields: [] });
+      expect(callArgs[2]).toEqual({
+        selectedFields: [],
+        reuseUnmodifiedDraft: true,
+      });
     });
 
     it("should handle table names with special characters", async () => {
@@ -151,7 +154,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Sales (2024) - Q1",
         "table-123",
-        { selectedFields: [] },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
     });
 
@@ -166,6 +169,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith("", "table-empty", {
         selectedFields: [],
+        reuseUnmodifiedDraft: true,
       });
     });
 
@@ -213,9 +217,11 @@ describe("useCreateInsight", () => {
       });
 
       // Hook delegates dedup to the server — createInsight IS called with the
-      // base name (no suffix: only unmodified insights exist for this table).
+      // base name (no suffix: only unmodified insights exist for this table)
+      // and the reuse flag so the server returns the existing draft.
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
         selectedFields: [],
+        reuseUnmodifiedDraft: true,
       });
       // Must navigate to the id the server returned (the existing draft).
       expect(mockPush).toHaveBeenCalledWith("/insights/existing-draft");
@@ -234,6 +240,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
         selectedFields: [],
+        reuseUnmodifiedDraft: true,
       });
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft");
     });
@@ -259,7 +266,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [] },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft-2");
     });
@@ -288,7 +295,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [] },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
     });
 
@@ -312,6 +319,7 @@ describe("useCreateInsight", () => {
       // The existing draft is for a different table — a new insight is created
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
         selectedFields: [],
+        reuseUnmodifiedDraft: true,
       });
     });
 
@@ -343,7 +351,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)", // gap-free: (2) is missing, not (4)
         "table-orders",
-        { selectedFields: [] },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
     });
   });
@@ -393,7 +401,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original Analysis (derived)",
         "table-orders", // Same baseTableId as source
-        { selectedFields: [], skipDedup: true },
+        { selectedFields: [] },
       );
     });
 
@@ -419,7 +427,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Customer Segmentation (derived)",
         "table-customers",
-        { selectedFields: [], skipDedup: true },
+        { selectedFields: [] },
       );
     });
 
@@ -562,7 +570,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original (derived) (derived)",
         "table-nested",
-        { selectedFields: [], skipDedup: true },
+        { selectedFields: [] },
       );
     });
   });
@@ -604,10 +612,12 @@ describe("useCreateInsight", () => {
         );
       });
 
-      // Hook calls createInsight (server decides dedup) with the base name —
-      // no suffix because the only same-table insight is unmodified.
+      // Hook calls createInsight (server decides dedup) with the base name and
+      // the reuse flag — no suffix because the only same-table insight is
+      // unmodified.
       expect(mockCreateInsight).toHaveBeenCalledWith("Orders", "table-shared", {
         selectedFields: [],
+        reuseUnmodifiedDraft: true,
       });
       // Must navigate to the id the server returned (the existing draft).
       expect(mockPush).toHaveBeenCalledWith("/insights/insight-1");

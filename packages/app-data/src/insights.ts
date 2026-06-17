@@ -39,7 +39,7 @@ export function useInsightMutations(): InsightMutations {
         options?: {
           selectedFields?: UUID[];
           metrics?: InsightMetric[];
-          skipDedup?: boolean;
+          reuseUnmodifiedDraft?: boolean;
         },
       ): Promise<UUID> => {
         const { id } = await createMutation.mutateAsync(

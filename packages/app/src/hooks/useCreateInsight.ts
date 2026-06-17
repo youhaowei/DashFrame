@@ -3,24 +3,9 @@ import {
   getInsight,
   useInsightMutations,
 } from "@dashframe/core";
-import type { Insight } from "@dashframe/types";
+import { isUnmodifiedDraft } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-
-/**
- * Returns true when an insight is an unmodified auto-draft: no fields selected,
- * no metrics, no filters, no sorts, and no joins. These are safe to reuse
- * rather than accumulate as duplicates.
- */
-function isUnmodifiedDraft(insight: Insight): boolean {
-  return (
-    (insight.selectedFields?.length ?? 0) === 0 &&
-    (insight.metrics?.length ?? 0) === 0 &&
-    (insight.filters?.length ?? 0) === 0 &&
-    (insight.sorts?.length ?? 0) === 0 &&
-    (insight.joins?.length ?? 0) === 0
-  );
-}
 
 /**
  * Creates insights and navigates to their pages.
@@ -109,13 +94,13 @@ export function useCreateInsight() {
         name = `${tableName} (${suffix})`;
       }
 
-      // Create (or reuse) a draft insight with empty fields. The server returns
-      // the existing unmodified draft atomically when one already exists for
-      // this baseTableId — two concurrent calls converge on the same id.
+      // Create (or reuse) a draft insight with empty fields. reuseUnmodifiedDraft
+      // makes the server return an existing unmodified draft for this baseTableId
+      // atomically when one exists — two concurrent calls converge on the same id.
       const insightId = await createInsight(
         name,
         tableId, // baseTableId
-        { selectedFields: [] }, // Empty for draft state
+        { selectedFields: [], reuseUnmodifiedDraft: true }, // Empty draft, dedup
       );
 
       // Navigate to insight page (action hub)
@@ -141,14 +126,14 @@ export function useCreateInsight() {
         return null;
       }
 
-      // Create a new insight using the same base table.
-      // skipDedup: true — derived insights must always be a fresh row; without
-      // this flag the server would silently reuse an existing unmodified draft
-      // for the same baseTableId, landing the user on the wrong insight.
+      // Create a new insight using the same base table. Derived insights are an
+      // explicit creation intent, so they don't opt into reuseUnmodifiedDraft —
+      // each call gets a fresh row rather than being rerouted to an existing
+      // unmodified draft for the same baseTableId.
       const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
         sourceInsight.baseTableId,
-        { selectedFields: [], skipDedup: true },
+        { selectedFields: [] },
       );
 
       // Navigate to new insight

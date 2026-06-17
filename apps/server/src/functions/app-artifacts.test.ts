@@ -188,10 +188,11 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
 // createInsight — atomic auto-draft dedup (TOCTOU fix)
 // ---------------------------------------------------------------------------
 //
-// Contract: two concurrent createInsight calls for the same baseTableId and
-// both with empty options (unmodified-draft shape) must converge on exactly
-// ONE insight row in the DB. The check-and-insert runs inside a single
-// transaction, so the dedup decision is atomic with the write.
+// Contract: dedup is opt-in via `reuseUnmodifiedDraft`. When set, two concurrent
+// createInsight calls for the same baseTableId — both unmodified-draft shape —
+// converge on exactly ONE insight row. The check-and-insert runs inside a single
+// transaction, so the dedup decision is atomic with the write. Without the flag,
+// createInsight always inserts a fresh row (explicit-creation intent).
 //
 // PGLite is single-connection: true concurrent writes serialize at the event
 // loop rather than via OS-level locking. The structural fix is therefore
@@ -228,19 +229,19 @@ describe("createInsight — atomic auto-draft dedup", () => {
     return db.select().from(insights);
   }
 
-  it("should return the existing unmodified draft on a second call for the same table", async () => {
+  it("should return the existing unmodified draft on a second reuse call for the same table", async () => {
     const tableId = crypto.randomUUID();
 
     const first = (await call("createInsight", {
       name: "orders",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
     const second = (await call("createInsight", {
       name: "orders",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
     // Both calls must return the same id — the second reuses the first draft.
@@ -251,7 +252,7 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows).toHaveLength(1);
   });
 
-  it("should produce exactly one unmodified draft when two calls fire without awaiting the first (TOCTOU simulation)", async () => {
+  it("should produce exactly one unmodified draft when two reuse calls fire without awaiting the first (TOCTOU simulation)", async () => {
     // Both calls start before either resolves, simulating the race. On PGLite
     // (single-connection WASM) the event loop serializes them, but the FIX is
     // structural: the transaction prevents a second insert after the first
@@ -263,12 +264,12 @@ describe("createInsight — atomic auto-draft dedup", () => {
       call("createInsight", {
         name: "orders",
         baseTableId: tableId,
-        options: { selectedFields: [] },
+        options: { selectedFields: [], reuseUnmodifiedDraft: true },
       }),
       call("createInsight", {
         name: "orders",
         baseTableId: tableId,
-        options: { selectedFields: [] },
+        options: { selectedFields: [], reuseUnmodifiedDraft: true },
       }),
     ])) as [{ id: string }, { id: string }];
 
@@ -282,14 +283,14 @@ describe("createInsight — atomic auto-draft dedup", () => {
 
   it("should still create a new draft when the existing insight has been modified", async () => {
     // A modified insight (selectedFields populated) must NOT be reused as a
-    // draft — createInsight should insert a fresh row.
+    // draft — even a reuse call should insert a fresh row.
     const tableId = crypto.randomUUID();
 
     // First: create a draft and simulate modification by calling updateInsight.
     const { id: draftId } = (await call("createInsight", {
       name: "orders",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
     await call("updateInsight", {
@@ -301,7 +302,7 @@ describe("createInsight — atomic auto-draft dedup", () => {
     const second = (await call("createInsight", {
       name: "orders (2)",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
     expect(second.id).not.toBe(draftId);
@@ -310,24 +311,26 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("should always insert when the incoming insight is pre-populated (not a draft)", async () => {
-    // When the caller explicitly passes metrics or selectedFields, the incoming
-    // insight is NOT a draft — even if an unmodified draft already exists, a
-    // fresh row should be created (different intent).
+  it("should always insert when the incoming insight is pre-populated, even with reuse requested", async () => {
+    // When the caller passes selectedFields, the incoming insight is NOT a
+    // draft — even with reuseUnmodifiedDraft set, a fresh row is created.
     const tableId = crypto.randomUUID();
 
     // Create an unmodified draft first.
     const { id: draftId } = (await call("createInsight", {
       name: "orders",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
     // Create a pre-populated insight — should NOT reuse the draft.
     const prepopulated = (await call("createInsight", {
       name: "orders with fields",
       baseTableId: tableId,
-      options: { selectedFields: ["field-a", "field-b"] },
+      options: {
+        selectedFields: ["field-a", "field-b"],
+        reuseUnmodifiedDraft: true,
+      },
     })) as { id: string };
 
     expect(prepopulated.id).not.toBe(draftId);
@@ -336,24 +339,24 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("should always insert when skipDedup is true, even when an unmodified draft exists", async () => {
-    // createInsightFromInsight passes skipDedup: true so that derived insights
-    // are never silently rerouted to an existing unmodified draft for the same
-    // baseTableId.
+  it("should always insert when reuse is not requested, even when an unmodified draft exists", async () => {
+    // Dedup is opt-in. The derived-insight path (createInsightFromInsight) omits
+    // reuseUnmodifiedDraft, so an empty incoming insight still creates a fresh
+    // row rather than being rerouted to an existing draft.
     const tableId = crypto.randomUUID();
 
-    // Create an unmodified draft first.
+    // Create an unmodified draft via the reuse path.
     const { id: draftId } = (await call("createInsight", {
       name: "orders",
       baseTableId: tableId,
-      options: { selectedFields: [] },
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
-    // A skipDedup call with empty opts must create a new row, not reuse the draft.
+    // An empty call WITHOUT the reuse flag must create a new row.
     const derived = (await call("createInsight", {
       name: "orders (derived)",
       baseTableId: tableId,
-      options: { selectedFields: [], skipDedup: true },
+      options: { selectedFields: [] },
     })) as { id: string };
 
     expect(derived.id).not.toBe(draftId);

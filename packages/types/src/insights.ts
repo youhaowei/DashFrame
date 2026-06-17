@@ -96,6 +96,38 @@ export interface Insight {
 }
 
 /**
+ * The configuration fields that distinguish a user-modified insight from an
+ * unmodified auto-draft. Structural subset satisfied by both {@link Insight}
+ * (renderer) and the server-side insight definition.
+ */
+export interface InsightDraftShape {
+  selectedFields?: UUID[];
+  metrics?: InsightMetric[];
+  filters?: InsightFilter[];
+  sorts?: InsightSort[];
+  joins?: InsightJoinConfig[];
+}
+
+/**
+ * Returns true when an insight has no user modifications: no selected fields,
+ * no metrics, no filters, no sorts, and no joins. These are auto-drafts that
+ * are safe to reuse rather than accumulate as duplicates.
+ *
+ * Single source of truth for the unmodified-draft definition, imported by both
+ * the renderer dedup hook and the server-side dedup gate so the predicate can
+ * never drift between them.
+ */
+export function isUnmodifiedDraft(insight: InsightDraftShape): boolean {
+  return (
+    (insight.selectedFields?.length ?? 0) === 0 &&
+    (insight.metrics?.length ?? 0) === 0 &&
+    (insight.filters?.length ?? 0) === 0 &&
+    (insight.sorts?.length ?? 0) === 0 &&
+    (insight.joins?.length ?? 0) === 0
+  );
+}
+
+/**
  * CompiledInsight - An Insight with all IDs resolved to actual entities.
  *
  * This is a "denormalized" view of an Insight where:
@@ -125,17 +157,22 @@ export interface CompiledInsight {
  * Mutation methods for insights.
  */
 export interface InsightMutations {
-  /** Create a new insight */
+  /** Create a new insight.
+   *
+   *  Inserts a new row by default. The auto-draft entry point (creating an
+   *  insight straight from a table) opts into `reuseUnmodifiedDraft` so a
+   *  rapid second click lands on the existing empty draft for that table
+   *  rather than accumulating duplicates. */
   create: (
     name: string,
     baseTableId: UUID,
     options?: {
       selectedFields?: UUID[];
       metrics?: InsightMetric[];
-      /** When true, bypass auto-draft dedup and always insert a new row.
-       *  Used by createInsightFromInsight so derived insights are never
-       *  silently rerouted to an existing unmodified draft. */
-      skipDedup?: boolean;
+      /** When true, and this would be an unmodified draft, reuse an existing
+       *  unmodified draft for the same `baseTableId` instead of inserting a
+       *  duplicate. Default (false) always inserts a new row. */
+      reuseUnmodifiedDraft?: boolean;
     },
   ) => Promise<UUID>;
 
