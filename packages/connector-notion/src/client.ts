@@ -16,11 +16,27 @@ export type NotionProperty = {
   type: string;
 };
 
+// Per-process cache: one Client instance per API key.
+// Avoids re-constructing (and re-validating) the client on every call.
+// Single-user desktop scope: no TTL/eviction because the process lifetime is
+// bounded. For a multi-tenant server, key by opaque SecretRef (not plaintext)
+// and add eviction on DataSource deletion.
+const clientCache = new Map<string, Client>();
+
+function getClient(apiKey: string): Client {
+  let client = clientCache.get(apiKey);
+  if (!client) {
+    client = new Client({ auth: apiKey });
+    clientCache.set(apiKey, client);
+  }
+  return client;
+}
+
 /**
  * List all databases accessible with the given API key
  */
 export async function listDatabases(apiKey: string): Promise<NotionDatabase[]> {
-  const notion = new Client({ auth: apiKey });
+  const notion = getClient(apiKey);
 
   const response: SearchResponse = await notion.search({
     filter: {
@@ -60,7 +76,7 @@ export async function getDatabaseSchema(
   apiKey: string,
   databaseId: string,
 ): Promise<NotionProperty[]> {
-  const notion = new Client({ auth: apiKey });
+  const notion = getClient(apiKey);
 
   const response: GetDatabaseResponse = await notion.databases.retrieve({
     database_id: databaseId,
@@ -84,7 +100,7 @@ export async function queryDatabase(
     pageSize?: number; // Limit number of rows fetched
   },
 ): Promise<QueryDatabaseResponse> {
-  const notion = new Client({ auth: apiKey });
+  const notion = getClient(apiKey);
 
   // Notion API pagination - fetch all results (or up to pageSize)
   let hasMore = true;

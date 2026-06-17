@@ -967,4 +967,180 @@ describe("convertNotionToDataFrame", () => {
     expect(result.rowCount).toBe(1);
     expect(result.rows[0]._notionId).toBe("page-1");
   });
+
+  // ============================================================================
+  // Data-corruption regression: missing-key rows must not silently corrupt
+  // ============================================================================
+
+  describe("missing-key rows must produce explicit nulls — not silent NaN/undefined", () => {
+    it("populates null for fields whose columnName is absent from page.properties", () => {
+      // Only 'Name' is present; 'Status' and 'Count' are missing from the page.
+      const response = {
+        object: "list" as const,
+        results: [
+          {
+            object: "page" as const,
+            id: "page-sparse",
+            created_time: "2024-01-15T00:00:00.000Z",
+            last_edited_time: "2024-01-15T00:00:00.000Z",
+            created_by: { object: "user" as const, id: "user-1" },
+            last_edited_by: { object: "user" as const, id: "user-1" },
+            cover: null,
+            icon: null,
+            parent: { type: "database_id" as const, database_id: "db-1" },
+            archived: false,
+            in_trash: false,
+            properties: {
+              Name: {
+                id: "title",
+                type: "title" as const,
+                title: [
+                  {
+                    type: "text" as const,
+                    text: { content: "Sparse", link: null },
+                    annotations: {
+                      bold: false,
+                      italic: false,
+                      strikethrough: false,
+                      underline: false,
+                      code: false,
+                      color: "default" as const,
+                    },
+                    plain_text: "Sparse",
+                    href: null,
+                  },
+                ],
+              },
+              // Status and Count intentionally absent
+            },
+            url: "https://notion.so/page-sparse",
+            public_url: null,
+          },
+        ] as PageObjectResponse[],
+        next_cursor: null,
+        has_more: false,
+        type: "page_or_database" as const,
+        page_or_database: {},
+        request_id: "req-1",
+      };
+
+      const result = convertNotionToDataFrame(response, fields);
+
+      const row = result.rows[0];
+      expect(row).toBeDefined();
+
+      // Missing fields must be null, never undefined or NaN
+      expect(row!.Status).toBeNull();
+      expect(row!.Count).toBeNull();
+
+      // Present field and computed _notionId must still be correct
+      expect(row!._notionId).toBe("page-sparse");
+      expect(row!.Name).toBe("Sparse");
+
+      // Key presence: every field name must be an own key (Arrow needs it)
+      expect(Object.prototype.hasOwnProperty.call(row, "Status")).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(row, "Count")).toBe(true);
+    });
+
+    it("row has exactly as many keys as there are fields (no extras, no missing)", () => {
+      const response = {
+        object: "list" as const,
+        results: [
+          {
+            object: "page" as const,
+            id: "page-check",
+            created_time: "2024-01-15T00:00:00.000Z",
+            last_edited_time: "2024-01-15T00:00:00.000Z",
+            created_by: { object: "user" as const, id: "user-1" },
+            last_edited_by: { object: "user" as const, id: "user-1" },
+            cover: null,
+            icon: null,
+            parent: { type: "database_id" as const, database_id: "db-1" },
+            archived: false,
+            in_trash: false,
+            properties: {},
+            url: "https://notion.so/page-check",
+            public_url: null,
+          },
+        ] as PageObjectResponse[],
+        next_cursor: null,
+        has_more: false,
+        type: "page_or_database" as const,
+        page_or_database: {},
+        request_id: "req-1",
+      };
+
+      const result = convertNotionToDataFrame(response, fields);
+      const row = result.rows[0];
+
+      // Exactly fields.length keys — no extras, no missing
+      expect(Object.keys(row!)).toHaveLength(fields.length);
+      for (const field of fields) {
+        expect(Object.prototype.hasOwnProperty.call(row, field.name)).toBe(
+          true,
+        );
+      }
+    });
+
+    it("all-missing-properties page serialises cleanly to Arrow without throwing", () => {
+      const response = {
+        object: "list" as const,
+        results: [
+          {
+            object: "page" as const,
+            id: "page-empty",
+            created_time: "2024-01-15T00:00:00.000Z",
+            last_edited_time: "2024-01-15T00:00:00.000Z",
+            created_by: { object: "user" as const, id: "user-1" },
+            last_edited_by: { object: "user" as const, id: "user-1" },
+            cover: null,
+            icon: null,
+            parent: { type: "database_id" as const, database_id: "db-1" },
+            archived: false,
+            in_trash: false,
+            properties: {},
+            url: "https://notion.so/page-empty",
+            public_url: null,
+          },
+        ] as PageObjectResponse[],
+        next_cursor: null,
+        has_more: false,
+        type: "page_or_database" as const,
+        page_or_database: {},
+        request_id: "req-1",
+      };
+
+      // Must not throw — all missing fields become explicit null, Arrow can encode them
+      expect(() => convertNotionToDataFrame(response, fields)).not.toThrow();
+
+      const result = convertNotionToDataFrame(response, fields);
+      // Arrow buffer must be a valid base64 string
+      expect(typeof result.arrowBuffer).toBe("string");
+      expect(() => Buffer.from(result.arrowBuffer, "base64")).not.toThrow();
+    });
+
+    it("throws loudly when the fields schema contains duplicate field names", () => {
+      // Duplicate field names would collapse into one key in Object.fromEntries,
+      // producing a row with fewer columns than fields — detect this at schema
+      // validation time, not silently.
+      const dupFields = [
+        createField("Name", { columnName: "Name" }),
+        createField("Name", { columnName: "AnotherColumn" }), // duplicate name
+        createField("Count", { columnName: "Count", type: "number" }),
+      ];
+      const response = {
+        object: "list" as const,
+        results: [],
+        next_cursor: null,
+        has_more: false,
+        type: "page_or_database" as const,
+        page_or_database: {},
+        request_id: "req-1",
+      };
+
+      expect(() => convertNotionToDataFrame(response, dupFields)).toThrow(
+        /duplicate field name/i,
+      );
+    });
+  });
 });

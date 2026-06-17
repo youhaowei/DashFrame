@@ -66,11 +66,12 @@ export class NotionConnector extends RemoteApiConnector {
   }
 
   validate(formData: Record<string, unknown>): ValidationResult {
-    const apiKey = formData.apiKey as string | undefined;
-
-    if (!apiKey) {
+    // Guard the sink: validate type at point of use, not by provenance.
+    if (typeof formData.apiKey !== "string" || !formData.apiKey) {
       return { valid: false, errors: { apiKey: "API key is required" } };
     }
+
+    const apiKey = formData.apiKey;
 
     if (!apiKey.startsWith("secret_")) {
       return {

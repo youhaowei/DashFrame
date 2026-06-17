@@ -214,11 +214,32 @@ export function convertNotionToDataFrame(
   response: QueryDatabaseResponse,
   fields: Field[],
 ): NotionConversionResult {
+  const columnNames = fields.map((f) => f.name);
+
+  // Guard: duplicate field names collapse keys in Object.fromEntries and produce
+  // rows with fewer columns than expected — fail loudly at schema time, not per-row.
+  const uniqueNames = new Set(columnNames);
+  if (uniqueNames.size !== columnNames.length) {
+    const seen = new Set<string>();
+    const dupes = columnNames.filter((n) => {
+      if (seen.has(n)) return true;
+      seen.add(n);
+      return false;
+    });
+    throw new Error(
+      `Converter: duplicate field names in schema: ${[...new Set(dupes)].join(", ")}`,
+    );
+  }
+
   // Convert Notion pages to DataFrame rows
   const rows: DataFrameRow[] = response.results
     .filter((result): result is PageObjectResponse => result.object === "page")
     .map((page) => {
-      const row: DataFrameRow = {};
+      // Initialize ALL keys to null before populating — prevents silent
+      // undefined/NaN substitution when a field is absent from a page.
+      const row: DataFrameRow = Object.fromEntries(
+        columnNames.map((k) => [k, null]),
+      );
 
       // Extract values for each field
       fields.forEach((field) => {
@@ -228,16 +249,15 @@ export function convertNotionToDataFrame(
         } else if (field.columnName) {
           // User field: extract from Notion property
           const property = page.properties[field.columnName];
-          if (property) row[field.name] = extractPropertyValue(property);
+          row[field.name] = property ? extractPropertyValue(property) : null;
         }
+        // else: field has no columnName and is not _notionId → stays null
       });
 
       return row;
     });
 
   // Convert rows to Arrow table
-  const columnNames = fields.map((f) => f.name);
-
   const arrays = columnNames.reduce(
     (acc, colName) => {
       acc[colName] = rows.map((row) => row[colName]);
@@ -246,11 +266,19 @@ export function convertNotionToDataFrame(
     {} as Record<string, unknown[]>,
   );
 
-  const arrowTable = tableFromArrays(arrays);
-  const ipcBuffer = tableToIPC(arrowTable);
-
-  // Encode Arrow buffer as base64 for JSON transport
-  const arrowBuffer = Buffer.from(ipcBuffer).toString("base64");
+  // Guard Arrow serialisation: a structurally invalid column array must fail
+  // loudly here, not produce a silent corrupt buffer downstream.
+  let arrowBuffer: string;
+  try {
+    const arrowTable = tableFromArrays(arrays);
+    const ipcBuffer = tableToIPC(arrowTable);
+    arrowBuffer = Buffer.from(ipcBuffer).toString("base64");
+  } catch (cause) {
+    throw new Error(
+      `Converter failed to serialise Arrow IPC buffer: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
 
   // Build column definitions for validation/display
   const columns: DataFrameColumn[] = fields
