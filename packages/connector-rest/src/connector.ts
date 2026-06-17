@@ -763,6 +763,7 @@ export class RestConnector extends RemoteApiConnector {
         arrowBuffer: base64,
         fieldIds: fields.map((f) => f.id),
         fields,
+        rowCount: limitedRows.length,
       };
     });
   }
