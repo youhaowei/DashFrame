@@ -8,6 +8,7 @@
  */
 import type { Field } from "@dashframe/engine-browser";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
+import { tableFromIPC } from "apache-arrow";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   convertNotionToDataFrame,
@@ -815,8 +816,9 @@ describe("convertNotionToDataFrame", () => {
 
     expect(result.arrowBuffer).toBeDefined();
     expect(typeof result.arrowBuffer).toBe("string");
-    // Base64 string should be valid
-    expect(() => Buffer.from(result.arrowBuffer, "base64")).not.toThrow();
+    // Decode and re-parse — tableFromIPC throws on a corrupt IPC buffer
+    const decoded = Buffer.from(result.arrowBuffer, "base64");
+    expect(() => tableFromIPC(decoded)).not.toThrow();
   });
 
   it("should return field IDs", () => {
@@ -1114,9 +1116,10 @@ describe("convertNotionToDataFrame", () => {
       expect(() => convertNotionToDataFrame(response, fields)).not.toThrow();
 
       const result = convertNotionToDataFrame(response, fields);
-      // Arrow buffer must be a valid base64 string
+      // Decode and re-parse — tableFromIPC throws on a corrupt IPC buffer
       expect(typeof result.arrowBuffer).toBe("string");
-      expect(() => Buffer.from(result.arrowBuffer, "base64")).not.toThrow();
+      const decoded = Buffer.from(result.arrowBuffer, "base64");
+      expect(() => tableFromIPC(decoded)).not.toThrow();
     });
 
     it("throws loudly when the fields schema contains duplicate field names", () => {
