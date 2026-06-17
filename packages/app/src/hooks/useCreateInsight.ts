@@ -87,6 +87,14 @@ export function useCreateInsight() {
       );
       const hasModifiedInsights = modifiedInsights.length > 0;
       if (hasModifiedInsights) {
+        // The suffix is computed from a point-in-time client snapshot and is
+        // NOT race-protected on the server. Two rapid concurrent clicks on a
+        // table that already has a modified insight can both compute the same
+        // suffix ("orders (2)") and insert two same-named rows. This is the
+        // pre-existing suffix-naming behavior (unchanged by the dedup fix);
+        // it's non-destructive (duplicate name, no data loss). Trigger to
+        // address if duplicate-named drafts become a reported problem: move
+        // suffix assignment server-side inside the transaction.
         const existingNames = new Set(sameTableInsights.map((i) => i.name));
         let suffix = 2;
         while (existingNames.has(`${tableName} (${suffix})`)) {

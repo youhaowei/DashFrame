@@ -814,6 +814,15 @@ const createInsight = mutation({
         // so two concurrent auto-draft calls for the same baseTableId converge
         // on a single draft rather than racing into duplicates (TOCTOU).
         //
+        // INVARIANT: this closes the race only while the backend is
+        // single-connection (PGlite, the desktop + `dashframe serve` target),
+        // where transactions serialize at the event loop. A multi-connection
+        // store under READ COMMITTED would let both transactions scan, find no
+        // draft, and both insert — reopening the phantom-read window. Trigger
+        // to revisit if the backend ever becomes multi-connection: add a unique
+        // index on (definition->>'baseTableId') for unmodified drafts, or take
+        // SELECT … FOR UPDATE / serializable isolation here.
+        //
         // NOTE: baseTableId lives inside the `definition` JSONB column, and
         // @wystack/db has no JSONB-path filtering — so the scan is a full table
         // read filtered in JS. Acceptable at current insight-table scale.
