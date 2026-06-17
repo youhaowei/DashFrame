@@ -104,14 +104,12 @@ export async function hasCorruptWalSegment(dataDir: string): Promise<boolean> {
   if (segmentFiles.length === 0) return false;
 
   for (const seg of segmentFiles) {
-    let stat: Awaited<ReturnType<typeof fs.stat>>;
-    try {
-      stat = await fs.stat(path.join(walDir, seg));
-    } catch {
-      // stat() failed — health is unconfirmable; fail-closed and assume
-      // corruption so the caller does not treat this segment as healthy.
-      return true;
-    }
+    // Let stat() throw on EACCES/EPERM/broken-symlink/etc. The caller
+    // (isConfirmedWalCorruption) has a .catch(() => false) safety net: an
+    // unconfirmable probe resolves to "not confirmed", preserving the datadir.
+    // Returning true here would bypass that net and trigger destructive quarantine
+    // on a healthy database — the opposite of fail-closed for data safety.
+    const stat = await fs.stat(path.join(walDir, seg));
     if (stat.size % XLOG_BLCKSZ !== 0) {
       return true;
     }

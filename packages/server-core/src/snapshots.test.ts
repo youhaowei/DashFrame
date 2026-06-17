@@ -872,12 +872,14 @@ describe("ProjectHandle.close() — surfaces snapshot failure (site 1)", () => {
     // Contract 2: the PGlite connection is closed even when the snapshot failed.
     // Verify by querying the DB after close — it must reject because the client
     // was torn down regardless of the snapshot outcome.
-    await expect(handle.db.execute("SELECT 1")).rejects.toThrow();
+    // Use the raw PGlite client's query() method rather than drizzle's execute()
+    // so the call returns a genuine promise (drizzle's execute returns a lazy builder).
+    await expect(handle.db.$client.query("SELECT 1")).rejects.toThrow();
   });
 });
 
-// Site 2: hasCorruptWalSegment — stat() failure fails closed
-describe("hasCorruptWalSegment — stat() failure is fail-closed (site 2)", () => {
+// Site 2: hasCorruptWalSegment — stat() failure propagates (not swallowed)
+describe("hasCorruptWalSegment — stat() failure propagates (site 2)", () => {
   let root: string;
 
   beforeEach(() => {
@@ -888,10 +890,13 @@ describe("hasCorruptWalSegment — stat() failure is fail-closed (site 2)", () =
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("returns true when a WAL segment is listed by readdir but stat() fails (broken symlink)", async () => {
+  test("throws when a WAL segment is listed by readdir but stat() fails (broken symlink)", async () => {
     // Pre-fix: `fs.stat().catch(() => null)` swallowed stat errors, treating
     // an unconfirmable segment as healthy → returned false (silent data-loss risk).
-    // Post-fix: stat() failure is fail-closed → returns true.
+    // The interim fix returned true, which falsely triggered quarantine on a healthy DB.
+    // Post-fix: stat() throws → propagates to caller. The isConfirmedWalCorruption
+    // caller wraps hasCorruptWalSegment in .catch(() => false), so a probe failure
+    // resolves to "not confirmed" — preserving the datadir (DESTRUCTIVE-RECOVERY invariant).
     //
     // A broken symlink causes readdir to see the entry (the link itself exists)
     // while stat() throws ENOENT (the link target does not exist) — exactly the
@@ -905,9 +910,15 @@ describe("hasCorruptWalSegment — stat() failure is fail-closed (site 2)", () =
     const segPath = join(walDir, "000000010000000000000001");
     symlinkSync("/nonexistent-target-for-stat-fail-test", segPath);
 
-    // Post-fix: stat() failure → fail-closed → true.
-    const result = await hasCorruptWalSegment(dbPath);
-    expect(result).toBe(true);
+    // hasCorruptWalSegment must throw, not silently return true or false.
+    await expect(hasCorruptWalSegment(dbPath)).rejects.toThrow();
+
+    // The caller's .catch(() => false) makes the probe resolve to false (no quarantine).
+    // This documents the contract between hasCorruptWalSegment and its caller.
+    const confirmedByProbe = await hasCorruptWalSegment(dbPath).catch(
+      () => false,
+    );
+    expect(confirmedByProbe).toBe(false);
   });
 });
 
