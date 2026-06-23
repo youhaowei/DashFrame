@@ -198,6 +198,7 @@ describe("draft_command_log table", () => {
     expect(cols.has("seq")).toBe(true);
     expect(cols.has("path")).toBe(true);
     expect(cols.has("args")).toBe(true);
+    expect(cols.has("cmd_id")).toBe(true);
     expect(cols.has("compaction_key")).toBe(true);
     expect(cols.has("kind")).toBe(true);
     expect(cols.has("created_at")).toBe(true);

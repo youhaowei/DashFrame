@@ -37,6 +37,7 @@
     "@wystack/db": "workspace:*",
     "@wystack/secret-vault": "workspace:*",
     "@wystack/server": "workspace:*",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.12.9",
     "zod": "^4.1.12"
   },

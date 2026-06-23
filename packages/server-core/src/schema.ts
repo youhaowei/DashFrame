@@ -407,6 +407,11 @@ export const draftCommandLog = pgTable(
     // @wystack/server — `path` names the handler, `args` are the call arguments.
     path: text("path").notNull(),
     args: jsonb("args"),
+    // The optional command correlation id (`Command.id`) — opaque, echoed back
+    // on `CommandResult.id` so a publish replay can correlate its results to the
+    // commands that produced them. Nullable: a command may carry no id. (Distinct
+    // from the row `id` PK above, which identifies the log row, not the command.)
+    cmdId: text("cmd_id"),
     // Compaction fields (nullable: a plain Command with no key is never
     // compacted). These mirror DraftCommand.compactionKey / DraftCommand.kind.
     compactionKey: text("compaction_key"),
