@@ -40,6 +40,7 @@ import {
 } from "@dashframe/engine-server/arrow-data-path";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { DraftTrackedDb, TrackedDb } from "@wystack/db";
 import {
   isSecretRef,
   type SecretRef,
@@ -218,19 +219,77 @@ export interface DashframeServer {
 }
 
 /**
- * Build the WyStack app with vault injection and onWrite hook wiring — without
- * starting an HTTP server.
+ * Pull a draft handle out of a handler context. A `draftId` in the context bag
+ * means "execute this write into the draft overlay, not canonical." Returns the
+ * id string, or `undefined` for the no-draft (canonical) path.
+ */
+function draftIdFromContext(
+  context: Record<string, unknown> | undefined,
+): string | undefined {
+  const id = context?.draftId;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+/**
+ * The ctx.db draft seam. When a `draftId` is present in the context,
+ * substitute the `tracked` handle with its draft-scoped overlay so existing
+ * command handlers write into `<table>__draft` (the withDraft write-path)
+ * UNMODIFIED. The no-draft path returns `tracked` untouched — byte-identical,
+ * zero-overhead.
  *
- * Extracted from `createDashframeServer` so the vault-injection seam (the
- * anti-shadow merge and the short-circuit path) can be driven by direct unit
- * tests without a live socket. `createDashframeServer` calls this internally;
- * tests import and exercise it directly.
+ * `ctx.db` is set from the `tracked` argument inside @wystack/server's
+ * `runHandler` (it always wins over the context bag), so the substitution MUST
+ * happen on the `tracked` argument here, not by injecting a context key.
+ * `withDraft(draftId)` is a pure @wystack/db primitive that accepts any
+ * caller-supplied id.
+ *
+ * CONSUMER CONSTRAINTS — the seam is dormant in this slice (no host injects a
+ * draftId). The host that wires draftId into request context owns these:
+ *   - LOG SYNC. A write mutation reached via raw `app.call({draftId})` lands in
+ *     `<table>__draft` but does NOT append to `draft_command_log`; since publish
+ *     replays only the log, that write is visible in the overlay yet dropped on
+ *     publish. Drafted WRITES must route through `DraftController.appendToDraft`
+ *     (which keeps shadow + log in sync); the seam alone is safe for drafted
+ *     READS (coalesced reads need no log).
+ *   - DRAFTABLE COMMANDS. `withDraft` supports PK-pinned reads/writes
+ *     (`where(eq("id", …))`). A command whose handler filters a shadow table by a
+ *     non-PK column (e.g. delete `data_frames` by `insightId`) is not draftable
+ *     as-is; such paths must be PK-addressed or blocked before drafting.
+ *   - CREDENTIAL SIDE EFFECTS. See draft-controller.ts SECURITY BOUNDARY: a
+ *     credentialed handler's `vault.store` is a real side effect even in a draft.
+ *   - AUTHORIZATION. draftId is caller-supplied; a multi-tenant host must
+ *     authorize it against the caller (single-user desktop is exempt).
+ */
+function withDraftSeam(
+  tracked: TrackedDb | DraftTrackedDb,
+  context: Record<string, unknown> | undefined,
+): TrackedDb | DraftTrackedDb {
+  const draftId = draftIdFromContext(context);
+  if (draftId === undefined) return tracked;
+  // A draft handle has no nested `withDraft`; only a base TrackedDb is scoped.
+  // `call` always passes a fresh base TrackedDb, so this is the live path.
+  return "withDraft" in tracked ? tracked.withDraft(draftId) : tracked;
+}
+
+/**
+ * Build the WyStack app with the draft seam, vault injection, and the
+ * onWrite hook — without starting an HTTP server.
+ *
+ * Extracted from `createDashframeServer` so the seams (the anti-shadow vault
+ * merge, the draft-scoped db substitution) can be driven by direct unit tests
+ * without a live socket. `createDashframeServer` calls this internally; tests
+ * import and exercise it directly.
  *
  * Security invariant: `vault` is injected into every handler context via a
  * static spread that wins over per-call context. The merge order
  * `{ ...(context ?? {}), ...staticContext }` means the vault key cannot be
  * shadowed by a caller-supplied context — the vault identity is fixed for the
  * lifetime of the returned app.
+ *
+ * Draft seam: when the per-request context carries a `draftId`, `call`/
+ * `runHandler` route the write through `tracked.withDraft(draftId)` so the
+ * unmodified handler lands in the `<table>__draft` overlay. A context with NO
+ * draftId is unchanged — the canonical path is byte-identical (zero-overhead).
  *
  * onWrite/runHandler asymmetry: `onWrite` fires after a write committed via
  * `call` (`tablesWritten.size > 0`) but NOT after writes triggered by
@@ -252,35 +311,46 @@ export async function buildDashframeApp(opts: {
   const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
   const hasStaticContext = Object.keys(staticContext).length > 0;
 
-  return vault == null && onWrite == null
-    ? rawApp
-    : {
-        ...rawApp,
-        async call(path, args, context) {
-          // Static context wins over per-request context: spread per-request
-          // first so that static keys (vault) cannot be shadowed by a crafted
-          // request context. The vault identity must be fixed for the server
-          // lifetime; a request-supplied vault key would be ignored.
-          const merged = hasStaticContext
-            ? { ...(context ?? {}), ...staticContext }
-            : context;
-          const result = await rawApp.call(path, args, merged);
-          if (onWrite != null && result.tablesWritten.size > 0) {
-            try {
-              onWrite();
-            } catch (err) {
-              console.error("[dashframe] onWrite hook threw:", err);
-            }
-          }
-          return result;
-        },
-        async runHandler(path, args, tracked, context) {
-          const merged = hasStaticContext
-            ? { ...(context ?? {}), ...staticContext }
-            : context;
-          return rawApp.runHandler(path, args, tracked, merged);
-        },
+  // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
+  // mints its own fresh TrackedDb internally, so a draftId-bearing `call` would
+  // otherwise hit canonical. We mirror rawApp.call's composition (fresh tracked
+  // → runHandler → result shape) but pass the draft-scoped handle when a draftId
+  // is present, leaving the no-draft path identical to rawApp.call.
+  return {
+    ...rawApp,
+    async call(path, args, context) {
+      // Static context wins over per-request context: spread per-request first
+      // so static keys (vault) cannot be shadowed by a crafted request context.
+      const merged = hasStaticContext
+        ? { ...(context ?? {}), ...staticContext }
+        : (context ?? {});
+      const tracked = rawApp.createTracked();
+      const effective = withDraftSeam(tracked, merged);
+      const result = await rawApp.runHandler(path, args, effective, merged);
+      // `tracked` and `effective` share the same tracker sets (withDraft reuses
+      // the base tracker), so tablesWritten reflects the write either way.
+      const tablesWritten = tracked.tablesWritten;
+      if (onWrite != null && tablesWritten.size > 0) {
+        try {
+          onWrite();
+        } catch (err) {
+          console.error("[dashframe] onWrite hook threw:", err);
+        }
+      }
+      return {
+        result,
+        tablesRead: tracked.tablesRead,
+        tablesWritten,
       };
+    },
+    async runHandler(path, args, tracked, context) {
+      const merged = hasStaticContext
+        ? { ...(context ?? {}), ...staticContext }
+        : (context ?? {});
+      const effective = withDraftSeam(tracked, merged);
+      return rawApp.runHandler(path, args, effective, merged);
+    },
+  };
 }
 
 export async function createDashframeServer(
@@ -474,4 +544,8 @@ function tokenMatches(actual: string, expected: string): boolean {
   return timingSafeEqual(actualBytes, expectedBytes);
 }
 
+export {
+  createDraftController,
+  type DraftController,
+} from "./draft-controller";
 export type { Functions } from "./functions";
