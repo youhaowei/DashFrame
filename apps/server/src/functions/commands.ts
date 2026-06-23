@@ -262,6 +262,10 @@ async function requireSourceExists(
  * This is a simple linear walk (O(depth)); cycle detection could be done with
  * a visited set for diamond DAGs, but the typical chain depth is small and
  * diamonds are architecturally uncommon at authoring time.
+ *
+ * A corrupt `definition` blob on any encountered row throws immediately
+ * (aborting the walk) rather than treating the node as a leaf; callers must
+ * handle or propagate that error.
  */
 async function wouldCreateCycle(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -282,7 +286,13 @@ async function wouldCreateCycle(
       .where(eq("id", currentId))
       .first()) as InsightRow | undefined;
     if (!row) break; // reached a leaf (DataTable or unknown)
-    const def = row.definition as StoredInsightDefinition;
+    const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+    if (!parsed.success) {
+      throw new Error(
+        `Insight ${currentId} has a corrupt definition: ${parsed.error.message}`,
+      );
+    }
+    const def = parsed.data as StoredInsightDefinition;
     const src = def.source;
     if (!src || src.sourceType !== "insight") break; // leaf
     if (src.sourceId === startId) return true; // cycle found
@@ -1579,9 +1589,19 @@ export interface DeleteNodeResult {
  * full-table scan filtered in application code (PGLite single-connection, the
  * table is small in practice). A future index on a promoted column would speed
  * this up; the read is intentionally bounded to the delete path.
+ *
+ * A corrupt `definition` blob throws immediately (fail-closed), aborting the
+ * entire scan. One bad row blocks a delete until the row is repaired — the
+ * deliberate trade-off vs. silently mis-classifying orphans or skipping the row.
  */
 function isOrphanedBy(row: InsightRow, sourceId: string): boolean {
-  const def = row.definition as StoredInsightDefinition;
+  const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+  if (!parsed.success) {
+    throw new Error(
+      `Insight ${row.id} has a corrupt definition: ${parsed.error.message}`,
+    );
+  }
+  const def = parsed.data as StoredInsightDefinition;
   // Primary source check.
   const primaryMatch = def.source
     ? def.source.sourceId === sourceId

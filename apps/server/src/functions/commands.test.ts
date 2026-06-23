@@ -3037,5 +3037,138 @@ describe("command vocabulary", () => {
         ).resolves.toBeDefined();
       });
     });
+
+    describe("read-walker sink-guard (wouldCreateCycle + isOrphanedBy)", () => {
+      // These are the READ-side mirrors of the write-sink guard tested above.
+      // wouldCreateCycle and isOrphanedBy both walk the stored definition blob
+      // and were previously bare-cast (trusting provenance rather than parsing).
+      // A corrupt intermediate node in the chain must produce a clear error,
+      // not crash on undefined property access deep inside the walk.
+
+      it("should throw a clear 'corrupt definition' error when the target insight's stored blob is invalid (SetInsightSource → wouldCreateCycle)", async () => {
+        // Contract: wouldCreateCycle parses each definition blob it encounters;
+        // a corrupt blob throws "corrupt definition" instead of crashing on
+        // undefined property access.
+        //
+        // Note on unscoped db.update: the update runs BETWEEN CreateInsight(A) and
+        // CreateInsight(B) — at update time the insights table holds only A, so the
+        // unscoped update correctly targets A alone. If this test is refactored and
+        // B is created before the update, add a .where(eq(schema.insights.id, aId))
+        // using drizzle-orm's eq to preserve isolation (matching the write-sink
+        // guard suite's pattern, see describe block note at line ~2844).
+        const { tableId } = await makeTable();
+        const aId = id();
+
+        // Create A — the insight that will be used as the walk target.
+        await commit(
+          cmd("CreateInsight", {
+            id: aId,
+            name: "A",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt A's definition (A is the only insight row at this point).
+        await db.update(schema.insights).set({
+          definition: {
+            // baseTableId intentionally omitted — corrupt blob
+            selectedFields: [],
+            metrics: [],
+          },
+        });
+
+        // Create B after the corruption so the unscoped update does not affect it.
+        const bId = id();
+        await commit(
+          cmd("CreateInsight", {
+            id: bId,
+            name: "B",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // SetInsightSource(B, A) calls wouldCreateCycle(ctx, B, A). The walk
+        // starts at A, parses A's (corrupt) definition — must throw.
+        await expect(
+          commit(
+            cmd("SetInsightSource", {
+              id: bId,
+              source: { sourceType: "insight", sourceId: aId },
+            }),
+          ),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should throw a clear 'corrupt definition' error when an insight in the scan has an invalid stored blob (DeleteNode DataTable → findOrphanedInsights → isOrphanedBy)", async () => {
+        // Contract: isOrphanedBy parses each definition blob it receives; a
+        // corrupt blob throws "corrupt definition" rather than crashing on
+        // undefined property access or silently mis-classifying the orphan.
+        //
+        // Path: DeleteNode(DataTable) → findOrphanedInsights → isOrphanedBy per row.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the stored definition — baseTableId missing (required field).
+        await db.update(schema.insights).set({
+          definition: {
+            selectedFields: [],
+            metrics: [],
+            // baseTableId intentionally omitted
+          },
+        });
+
+        // DeleteNode(tableId) triggers the orphan scan; the corrupt blob must
+        // produce a clean error (no silent no-op or crash on property access).
+        await expect(
+          commit(cmd("DeleteNode", { id: tableId })),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should throw a clear 'corrupt definition' error when a corrupt insight is encountered during a DataSource delete (deleteDataSourceDependents → isOrphanedBy)", async () => {
+        // Contract: isOrphanedBy is called from two paths — findOrphanedInsights
+        // (DataTable delete) and deleteDataSourceDependents (DataSource delete).
+        // Both paths must throw on a corrupt blob; this test covers the second.
+        //
+        // Path: DeleteNode(DataSource) → deleteDataSourceDependents →
+        //   [...ownedTableIds].some(tableId => isOrphanedBy(row, tableId))
+        //
+        // deleteDataSourceDependents fetches ALL insight rows and calls
+        // isOrphanedBy on each. Any corrupt row aborts the entire scan.
+        const { sourceId, tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the insight's stored definition.
+        await db.update(schema.insights).set({
+          definition: {
+            selectedFields: [],
+            metrics: [],
+            // baseTableId intentionally omitted — corrupt blob
+          },
+        });
+
+        // DeleteNode(DataSource) triggers deleteDataSourceDependents, which scans
+        // all insights and calls isOrphanedBy on each. The corrupt blob must
+        // produce a clean error; the delete does not silently skip the corrupt row.
+        await expect(
+          commit(cmd("DeleteNode", { id: sourceId })),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+    });
   });
 });
