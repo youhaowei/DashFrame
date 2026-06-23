@@ -179,8 +179,11 @@ const insightSourceSchema = z.object({
  * to match the read-path's defensive coalescing (`?? []`) — older or
  * externally written rows that omit them remain readable instead of being
  * rejected as corrupt.
+ *
+ * Exported so tests can assert parse-call counts (e.g. the orphan scan parses
+ * each insight once, not once per owned table).
  */
-const storedInsightDefinitionSchema = z.object({
+export const storedInsightDefinitionSchema = z.object({
   baseTableId: z.string(),
   source: insightSourceSchema.optional(),
   // `.nullish().default([])` — a null value (SQL JSONB can store null for an
@@ -1590,18 +1593,36 @@ export interface DeleteNodeResult {
  * table is small in practice). A future index on a promoted column would speed
  * this up; the read is intentionally bounded to the delete path.
  *
+ * Parsing is split from comparison: `parseRowDefinition` validates the JSONB
+ * blob ONCE per insight (fail-closed throw on corrupt), and `definitionRefers`
+ * is a pure check against the already-parsed definition. This keeps the
+ * DataSource-delete scan at O(insights) parses instead of O(insights × tables)
+ * — `deleteDataSourceDependents` compares one parsed definition against every
+ * owned table without re-validating per table.
+ *
  * A corrupt `definition` blob throws immediately (fail-closed), aborting the
  * entire scan. One bad row blocks a delete until the row is repaired — the
  * deliberate trade-off vs. silently mis-classifying orphans or skipping the row.
  */
-function isOrphanedBy(row: InsightRow, sourceId: string): boolean {
+function parseRowDefinition(row: InsightRow): StoredInsightDefinition {
   const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
   if (!parsed.success) {
     throw new Error(
       `Insight ${row.id} has a corrupt definition: ${parsed.error.message}`,
     );
   }
-  const def = parsed.data as StoredInsightDefinition;
+  return parsed.data as StoredInsightDefinition;
+}
+
+/**
+ * Pure orphan check against an already-parsed definition — no validation, no
+ * DB access. An Insight is orphaned by `sourceId` if its primary source (or
+ * legacy `baseTableId`) equals it, or any join's `rightTableId` equals it.
+ */
+function definitionRefers(
+  def: StoredInsightDefinition,
+  sourceId: string,
+): boolean {
   // Primary source check.
   const primaryMatch = def.source
     ? def.source.sourceId === sourceId
@@ -1618,7 +1639,10 @@ async function findOrphanedInsights(
   sourceId: string,
 ): Promise<{ id: string }[]> {
   const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
-  return allInsights.filter((row) => isOrphanedBy(row, sourceId));
+  // Parse each definition once (fail-closed), then check the single sourceId.
+  return allInsights.filter((row) =>
+    definitionRefers(parseRowDefinition(row), sourceId),
+  );
 }
 
 /**
@@ -1669,9 +1693,12 @@ async function deleteDataSourceDependents(
   const orphanedNodes: OrphanedNode[] = [];
   for (const row of allInsights) {
     if (seen.has(row.id)) continue;
+    // Parse each insight's definition ONCE (fail-closed), then compare the
+    // parsed result against every owned table — not re-parsing per table.
+    const def = parseRowDefinition(row);
     // Check primary source and all join dependencies against every owned table.
     const orphaned = [...ownedTableIds].some((tableId) =>
-      isOrphanedBy(row, tableId),
+      definitionRefers(def, tableId),
     );
     if (orphaned) {
       seen.add(row.id);
