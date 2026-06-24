@@ -866,3 +866,194 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     expect(sql!).toMatch(/AS "my ""best"" sales table"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// YW-295: Two joins to the same table must produce distinct column aliases.
+//
+// Scenario: an orders table joined to a users table TWICE — once via
+// created_by → id (the creator) and once via approved_by → id (the approver).
+// Both joins resolve the same DataTable and therefore the same Field UUIDs.
+// Without the fix, processSingleJoin emits `AS "field_<uuid>"` for every
+// non-key column of users on BOTH join passes, producing duplicate aliases in
+// the final SELECT.  DuckDB silently keeps the first occurrence, so the
+// approved_by-joined columns are unreachable (silent wrong results).
+//
+// The fix: the second join's non-key columns get `field_<uuid>_j1` aliases
+// (instance-suffixed) so each join instance has its own distinct alias.
+// ---------------------------------------------------------------------------
+
+describe("buildInsightSQL — two joins to the same table produce distinct column aliases", () => {
+  // Table IDs
+  const ORDERS_TABLE_ID = "10101010-1010-1010-1010-101010101010" as UUID;
+  const ORDERS_DF_ID = "20202020-2020-2020-2020-202020202020" as UUID;
+  const USERS_TABLE_ID = "30303030-3030-3030-3030-303030303030" as UUID;
+  const USERS_DF_ID = "40404040-4040-4040-4040-404040404040" as UUID;
+
+  // Orders fields
+  const O_ID_FIELD: Field = {
+    id: "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0" as UUID,
+    name: "Order ID",
+    tableId: ORDERS_TABLE_ID,
+    columnName: "id",
+    type: "string",
+  };
+  const O_CREATED_BY_FIELD: Field = {
+    id: "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0" as UUID,
+    name: "Created By",
+    tableId: ORDERS_TABLE_ID,
+    columnName: "created_by",
+    type: "string",
+  };
+  const O_APPROVED_BY_FIELD: Field = {
+    id: "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0" as UUID,
+    name: "Approved By",
+    tableId: ORDERS_TABLE_ID,
+    columnName: "approved_by",
+    type: "string",
+  };
+
+  // Users fields (same table joined twice)
+  const U_ID_FIELD: Field = {
+    id: "d0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0" as UUID,
+    name: "User ID",
+    tableId: USERS_TABLE_ID,
+    columnName: "id",
+    type: "string",
+  };
+  const U_NAME_FIELD: Field = {
+    id: "e0e0e0e0-e0e0-e0e0-e0e0-e0e0e0e0e0e0" as UUID,
+    name: "User Name",
+    tableId: USERS_TABLE_ID,
+    columnName: "name",
+    type: "string",
+  };
+  const U_EMAIL_FIELD: Field = {
+    id: "f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0" as UUID,
+    name: "User Email",
+    tableId: USERS_TABLE_ID,
+    columnName: "email",
+    type: "string",
+  };
+
+  const ordersTable: DataTable = {
+    id: ORDERS_TABLE_ID,
+    name: "orders",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "orders.csv",
+    fields: [O_ID_FIELD, O_CREATED_BY_FIELD, O_APPROVED_BY_FIELD],
+    metrics: [],
+    dataFrameId: ORDERS_DF_ID,
+    createdAt: 0,
+  };
+
+  const usersTable: DataTable = {
+    id: USERS_TABLE_ID,
+    name: "users",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "users.csv",
+    fields: [U_ID_FIELD, U_NAME_FIELD, U_EMAIL_FIELD],
+    metrics: [],
+    dataFrameId: USERS_DF_ID,
+    createdAt: 0,
+  };
+
+  // The insight: orders joined to users on created_by→id AND approved_by→id
+  const doubleJoinInsight: Insight = {
+    id: "50505050-5050-5050-5050-505050505050" as UUID,
+    name: "Orders with creator and approver",
+    baseTableId: ORDERS_TABLE_ID,
+    selectedFields: [],
+    metrics: [],
+    joins: [
+      {
+        type: "inner",
+        rightTableId: USERS_TABLE_ID,
+        leftKey: "created_by",
+        rightKey: "id",
+      },
+      {
+        type: "inner",
+        rightTableId: USERS_TABLE_ID,
+        leftKey: "approved_by",
+        rightKey: "id",
+      },
+    ],
+    createdAt: 0,
+  };
+
+  // Canonical alias for the first join's non-key user columns (no suffix)
+  const nameAliasJ0 = fieldIdToColumnAlias(U_NAME_FIELD.id);
+  const emailAliasJ0 = fieldIdToColumnAlias(U_EMAIL_FIELD.id);
+  // Suffixed aliases for the second join instance
+  const nameAliasJ1 = `${nameAliasJ0}_j1`;
+  const emailAliasJ1 = `${emailAliasJ0}_j1`;
+
+  it("emits NO duplicate column alias definition when the same table is joined twice", () => {
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      doubleJoinInsight,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+
+    // Count how many times each alias is DEFINED (i.e. appears after AS).
+    // Passthrough references ("alias" without AS) are not output column definitions
+    // and do not cause DuckDB to produce a duplicate output column.
+    const countDefinitions = (alias: string) => {
+      const pattern = new RegExp(`AS "${alias}"`, "g");
+      return (sql!.match(pattern) ?? []).length;
+    };
+
+    // First join's non-key columns: defined exactly once at the canonical alias
+    expect(countDefinitions(nameAliasJ0)).toBe(1);
+    expect(countDefinitions(emailAliasJ0)).toBe(1);
+
+    // Second join's non-key columns: defined at the suffixed alias — distinct
+    // from the first join's aliases so DuckDB cannot silently drop them.
+    expect(countDefinitions(nameAliasJ1)).toBe(1);
+    expect(countDefinitions(emailAliasJ1)).toBe(1);
+  });
+
+  it("includes BOTH join instances' non-key columns in the SELECT (approver columns are not shadowed)", () => {
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      doubleJoinInsight,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+
+    // First join (creator): name and email defined at canonical aliases
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
+
+    // Second join (approver): name and email defined at suffixed aliases — distinct
+    // from the first join's aliases, so DuckDB sees them as separate output columns
+    // and cannot silently discard them (the pre-fix bug: silent wrong results).
+    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ1}"`);
+  });
+
+  it("single join to a table still emits the canonical (unsuffixed) alias — regression guard", () => {
+    // The fix must not break the common single-join case.
+    const firstJoin = doubleJoinInsight.joins![0]!;
+    const singleJoinInsight: Insight = {
+      ...doubleJoinInsight,
+      joins: [firstJoin],
+    };
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      singleJoinInsight,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+    // Canonical alias (no suffix) is present
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
+    // No suffix alias should appear
+    expect(sql!).not.toContain(`"${nameAliasJ1}"`);
+    expect(sql!).not.toContain(`"${emailAliasJ1}"`);
+  });
+});

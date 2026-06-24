@@ -122,14 +122,38 @@ export function useInsightPagination({
     // Cache for later use
     resolvedTablesRef.current = { baseTable, joinedTables };
 
-    // Collect all fields from base + joined tables
+    // Collect all fields from base + joined tables.
+    // Iterate insight.joins (not joinedTables.values()) so two joins to the same
+    // rightTableId each contribute their fields.  For the second (and later) join
+    // to a given table, the SQL engine emits suffixed aliases (field_<uuid>_j{n})
+    // — mirror that here by using synthetic field IDs so columnDisplayNames and
+    // columnTypeMap are keyed on the SAME aliases DuckDB actually produces.
     const allFields: Field[] = [
       ...(baseTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
     ];
-    for (const joinTable of joinedTables.values()) {
-      allFields.push(
-        ...(joinTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
+    const joinInstanceCount = new Map<string, number>();
+    for (const join of insight.joins ?? []) {
+      const joinTable = joinedTables.get(join.rightTableId);
+      if (!joinTable) continue;
+      const instanceIndex = joinInstanceCount.get(join.rightTableId) ?? 0;
+      joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
+      const visibleFields = (joinTable.fields ?? []).filter(
+        (f) => !f.name.startsWith("_"),
       );
+      if (instanceIndex === 0) {
+        // First join: use fields as-is (canonical aliases, no suffix)
+        allFields.push(...visibleFields);
+      } else {
+        // Repeat join: push synthetic Fields whose id encodes the instance index
+        // so fieldIdToColumnAlias produces the _j{n}-suffixed alias that matches
+        // the SQL column name DuckDB received from the join builder.
+        allFields.push(
+          ...visibleFields.map((f) => ({
+            ...f,
+            id: `${f.id}_j${instanceIndex}` as UUID,
+          })),
+        );
+      }
     }
 
     return { baseTable, joinedTables, allFields };
