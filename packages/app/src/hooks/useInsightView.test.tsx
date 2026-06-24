@@ -541,6 +541,69 @@ describe("useInsightView", () => {
       expect(result.current.isReady).toBe(true);
     });
 
+    it("should clear error when config-key switches to an already-cached config", async () => {
+      // Regression: config A fails (error set) → switch to config B which is
+      // already in createdViewsCache → effect returns early on the cache hit
+      // and never calls setError(null). Without the fix, the stale A error
+      // persists and VisualizationDisplay stays stuck on the error state even
+      // though config B has a valid cached view.
+
+      const insightA = createMockInsight({
+        id: "insight-error-a",
+        baseTableId: "table-error-a",
+      });
+
+      const insightB = createMockInsight({
+        id: "insight-cached-b",
+        baseTableId: "table-cached-b",
+      });
+
+      const tableB = createMockDataTable({
+        id: "table-cached-b",
+        dataFrameId: "df-cached-b",
+      });
+      const dfB = createMockDataFrame("df-cached-b");
+
+      // Prime config B into the cache before config A fails:
+      // First mount insight B → success → unmount → cache hit guaranteed.
+      mockGetDataTable.mockResolvedValue(tableB);
+      mockGetDataFrame.mockResolvedValue(dfB);
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+      mockQuery.mockResolvedValue(undefined);
+
+      const { result: primeResult, unmount: primeUnmount } = renderHook(() =>
+        useInsightView(insightB),
+      );
+      await waitFor(() => {
+        expect(primeResult.current.isReady).toBe(true);
+      });
+      primeUnmount();
+
+      // Now mount insight A and make it fail so error is set.
+      mockGetDataTable.mockResolvedValue(null); // base table missing → error
+      const { result, rerender } = renderHook(
+        ({ insight }: { insight: typeof insightA | typeof insightB }) =>
+          useInsightView(insight),
+        { initialProps: { insight: insightA } },
+      );
+
+      await waitFor(() => {
+        expect(result.current.error).toBe("Base table not found");
+      });
+      expect(result.current.isReady).toBe(false);
+
+      // Switch to config B — already in cache, effect short-circuits at early-return.
+      // The stale error from A must NOT persist.
+      rerender({ insight: insightB });
+
+      await waitFor(() => {
+        expect(result.current.isReady).toBe(true);
+      });
+      expect(result.current.error).toBeNull();
+      expect(result.current.viewName).toBe("insight_view_insight_cached_b");
+    });
+
     it("should create new view when joins change", async () => {
       const insightNoJoins = createMockInsight({
         id: "insight-joins-change",
