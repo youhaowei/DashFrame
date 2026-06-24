@@ -44,7 +44,6 @@
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "@types/bun": "^1.2.0",
-    "drizzle-orm": "^0.45.1",
     "esbuild": "^0.28.0",
     "typescript": "5.7.2",
     "vitest": "^4.1.6"
