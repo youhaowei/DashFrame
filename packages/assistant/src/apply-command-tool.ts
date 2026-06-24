@@ -113,11 +113,11 @@ export interface CreateApplyCommandToolOptions {
    * Command envelope the app's function registry can dispatch. Injected by the
    * server host so this package carries no direct dependency on @dashframe/server.
    *
-   * The host MUST throw a descriptive error for unknown command types. The
-   * `cmd()` helper in commands.ts is typed at compile time only — at runtime
-   * `cmd(unknownName, args)` silently produces `{ path: undefined, args }`, which
-   * reaches `runHandler` as `"Unknown function: undefined"` — a cryptic error.
-   * Wrap `cmd()` with a runtime key-guard at the injection site:
+   * **Unknown-type guard** — The `cmd()` helper in commands.ts is typed at
+   * compile time only; at runtime `cmd(unknownName, args)` silently produces
+   * `{ path: undefined, args }`, which reaches `runHandler` as the cryptic
+   * error `"Unknown function: undefined"`. Wrap `cmd()` with a runtime
+   * key-guard so the agent sees a clear error it can fix+retry:
    *
    * ```ts
    * buildCommand: (type, args) => {
@@ -125,6 +125,25 @@ export interface CreateApplyCommandToolOptions {
    *   return cmd(type as CommandName, args as CommandPayloads[CommandName]);
    * }
    * ```
+   *
+   * **Draft-safety allow-list** — Not every command in the vocabulary is safe
+   * to run inside a draft. The host MUST enforce a draft-safe allow-list at
+   * this injection point before commands reach the controller. Two categories
+   * require special handling:
+   *
+   * 1. Credential commands (`CreateDataSource`, `SetDataSourceConfig`,
+   *    `DeleteNode` on a DataSource): handlers call `vault.store` / `vault.delete`
+   *    as keychain side effects outside the DB transaction. These effects are NOT
+   *    drafted and NOT rolled back on discard — a draft discard leaves orphaned
+   *    or released secrets in the OS keychain. Deny these commands in draft
+   *    context or use a draft-aware vault that no-ops the side effects.
+   *
+   * 2. Commands with draft-overlay limitations: `DeleteNode` on Insight/DataTable
+   *    cascades (DataFrame cleanup, Visualization FK) may not behave identically
+   *    inside the draft overlay vs canonical — the draft handle has no separate
+   *    FK cascade. Restrict to additive / update commands where the overlay
+   *    semantics are known-correct, or test each delete variant against the
+   *    draft controller before enabling it.
    *
    * Thrown errors propagate honestly to the agent (no swallow).
    */
