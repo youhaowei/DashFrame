@@ -571,7 +571,10 @@ function useNotionSync(
     if (
       !selectedDataTable ||
       !dataSource ||
-      getConnectorById(dataSource.type)?.sourceType !== "remote-api" ||
+      // Guard: this is a Notion-specific server mutation (queryDatabase).
+      // Check connector id explicitly so a future non-Notion remote-api connector
+      // does not inadvertently call the wrong data-plane path.
+      getConnectorById(dataSource.type)?.id !== "notion" ||
       !dataSource.config.hasApiKey
     ) {
       return;
@@ -673,7 +676,7 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  if (connector?.sourceType === "remote-api") {
+  if (connector?.id === "notion") {
     return (
       <NotionDataSourceView dataSource={dataSource} dataTables={dataTables} />
     );

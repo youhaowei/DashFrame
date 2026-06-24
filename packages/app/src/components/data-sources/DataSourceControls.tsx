@@ -195,6 +195,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const connector = dataSource ? getConnectorById(dataSource.type) : undefined;
   const isRemoteApi = connector?.sourceType === "remote-api";
   const isFileSource = connector?.sourceType === "file";
+  // Notion is the only remote-api connector today; this gates Notion-specific
+  // data-plane mutations (listDatabases / queryDatabase) that must not fire for
+  // a generic remote-api connector if a second one is ever added.
+  const isNotionSource = connector?.id === "notion";
 
   // Notion data-plane mutations — resolved server-side via the bound resolver.
   const notionMutations = useNotionMutations();
@@ -214,7 +218,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (!dataSource || !isRemoteApi || !dataSource.config.hasApiKey) return;
+    if (!dataSource || !isNotionSource || !dataSource.config.hasApiKey) return;
 
     // Use cached data unless explicitly forced to refresh
     if (!force && lastFetchTime) {
