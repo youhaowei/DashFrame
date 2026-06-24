@@ -45,7 +45,7 @@ export function fieldIdToColumnAlias(fieldId: string): string {
 
 /**
  * Encode a join instance index into a field ID so two joins to the same table
- * produce distinct column aliases.  index=0 → unchanged; index≥1 → `id_j{n}`.
+ * produce distinct column aliases.  index=0 → unchanged; index≥1 → `{fieldId}_j{n}`.
  * For SQL alias derivation inside the join builder only — never stored/compared.
  */
 function joinInstanceFieldId(
@@ -69,21 +69,37 @@ export function metricIdToColumnAlias(metricId: string): string {
 }
 
 /**
- * Extract the original UUID from a column alias.
+ * Extract the underlying Field UUID from a column alias.
  * Handles both field_* and metric_* formats.
+ *
+ * Join-instance suffixes (`_j1`, `_j2`, …) are stripped: a repeat-join column
+ * such as `field_<uuid>_j1` resolves to the SAME underlying Field UUID as
+ * `field_<uuid>`, because both instances are the same source column (e.g.
+ * `users.name` joined twice). This is the right answer for field *metadata*
+ * lookups — name, sensitivity, isIdentifier — which is what every caller uses
+ * it for (analyze, suggest-charts, DataSourcePageContent, TableDetailPanel).
+ *
+ * It does NOT, by itself, distinguish which join instance a column came from.
+ * Callers that must tell two instances apart (axis binding to the second join)
+ * have to key on the full alias — the `_j{n}` suffix is preserved there.
+ * Carrying join-instance identity through the chart-encoding scheme end-to-end
+ * is tracked as a separate larger change (see PR description) — out of scope of
+ * the alias-collision fix this lives in.
  *
  * @example
  * extractUUIDFromColumnAlias("field_dd05ef4b_1234_5678_abcd_ef1234567890")
  * // Returns: "dd05ef4b-1234-5678-abcd-ef1234567890"
+ * @example
+ * extractUUIDFromColumnAlias("field_dd05ef4b_1234_5678_abcd_ef1234567890_j1")
+ * // Returns: "dd05ef4b-1234-5678-abcd-ef1234567890"  (same field, 2nd instance)
  */
 export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
   const match = columnAlias.match(/^(?:field|metric)_(.+)$/);
   if (!match) return null;
 
   // Strip the join-instance suffix appended by joinInstanceFieldId (e.g. `_j1`,
-  // `_j2`).  These suffixes keep two joins to the same table from emitting
-  // duplicate SQL aliases; they must be removed before UUID reconstruction so
-  // callers (AxisSelectField, analyze, suggest-charts) get the real field ID.
+  // `_j2`) before UUID reconstruction. See the doc comment above for why both
+  // instances intentionally collapse to the same underlying Field UUID here.
   const uuidPart = (match[1] ?? "").replace(/_j\d+$/, "");
   if (!uuidPart) return null;
   // UUID format: 8-4-4-4-12 characters
@@ -539,7 +555,6 @@ function buildJoinedSQL(
 
   for (const join of insight.joins ?? []) {
     const instanceIndex = joinInstanceCount.get(join.rightTableId) ?? 0;
-    joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
 
     const joinResult = processSingleJoin(
       join,
@@ -558,6 +573,11 @@ function buildJoinedSQL(
       // For repeat-joins, allFields contains synthetic Fields with suffixed IDs
       // so downstream alias derivations match the emitted SELECT.
       currentFields = joinResult.allFields;
+      // Advance the suffix counter ONLY for joins that actually emitted columns.
+      // A skipped join (missing keys → null) must not consume an instance index,
+      // or the next valid join to the same table would get the wrong suffix and
+      // collide with an earlier instance's aliases.
+      joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
     }
   }
 

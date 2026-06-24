@@ -10,6 +10,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildInsightSQL,
+  extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
   type BuildInsightSQLOptions,
@@ -1035,6 +1036,41 @@ describe("buildInsightSQL — two joins to the same table produce distinct colum
     expect(sql!).toContain(`AS "${emailAliasJ1}"`);
   });
 
+  it("a SKIPPED join does not consume an instance index — the next valid join to the same table stays canonical", () => {
+    // First join references a non-existent left key → processSingleJoin returns
+    // null (skipped). The second, valid join to the SAME table must then emit
+    // the canonical (unsuffixed) alias — the skip must not have advanced the
+    // suffix counter, or the only emitted instance would carry a `_j1` alias
+    // that no downstream consumer expects for a single live join.
+    const skipThenValidInsight: Insight = {
+      ...doubleJoinInsight,
+      joins: [
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "nonexistent_column", // no such field on orders → skipped
+          rightKey: "id",
+        },
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "approved_by",
+          rightKey: "id",
+        },
+      ],
+    };
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      skipThenValidInsight,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+    // The one emitted join instance uses the canonical alias, not `_j1`.
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    expect(sql!).not.toContain(`"${nameAliasJ1}"`);
+  });
+
   it("single join to a table still emits the canonical (unsuffixed) alias — regression guard", () => {
     // The fix must not break the common single-join case.
     const firstJoin = doubleJoinInsight.joins![0]!;
@@ -1055,5 +1091,51 @@ describe("buildInsightSQL — two joins to the same table produce distinct colum
     // No suffix alias should appear
     expect(sql!).not.toContain(`"${nameAliasJ1}"`);
     expect(sql!).not.toContain(`"${emailAliasJ1}"`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Column-alias → field-id round trip, including the join-instance suffix.
+//
+// joinInstanceFieldId emits `field_<uuid>_j{n}` for repeat-joins so the SELECT
+// has distinct aliases. extractUUIDFromColumnAlias must round-trip BOTH the
+// canonical and the suffixed alias back to the SAME underlying Field UUID — a
+// repeat-join column is the same source column (e.g. users.name joined twice),
+// so metadata lookups (name, sensitivity) intentionally collapse to one field.
+// The full suffixed alias stays distinct for callers that must tell instances
+// apart (the deferred chart-binding work keys on it directly).
+// ---------------------------------------------------------------------------
+describe("extractUUIDFromColumnAlias — suffix round trip", () => {
+  const FIELD_UUID = "e0e0e0e0-e0e0-e0e0-e0e0-e0e0e0e0e0e0" as UUID;
+
+  it("canonical alias round-trips to the field UUID", () => {
+    const canonical = fieldIdToColumnAlias(FIELD_UUID); // field_e0e0..._...
+    expect(extractUUIDFromColumnAlias(canonical)).toBe(FIELD_UUID);
+  });
+
+  it("a suffixed (repeat-join) alias resolves to the SAME field UUID, not a corrupted pseudo-UUID", () => {
+    const canonical = fieldIdToColumnAlias(FIELD_UUID);
+    const suffixed = `${canonical}_j1`;
+    // Without the suffix-strip this returned `e0e0..._j1` → 6 underscore parts →
+    // the 5-part UUID guard failed → a corrupted hyphenated pseudo-UUID that
+    // matched no field. It must reconstruct the real UUID.
+    expect(extractUUIDFromColumnAlias(suffixed)).toBe(FIELD_UUID);
+  });
+
+  it("multi-digit and higher instance suffixes also collapse to the underlying UUID", () => {
+    const canonical = fieldIdToColumnAlias(FIELD_UUID);
+    expect(extractUUIDFromColumnAlias(`${canonical}_j2`)).toBe(FIELD_UUID);
+    expect(extractUUIDFromColumnAlias(`${canonical}_j10`)).toBe(FIELD_UUID);
+  });
+
+  it("the full suffixed alias stays distinct, so a caller CAN tell two instances apart", () => {
+    const canonical = fieldIdToColumnAlias(FIELD_UUID);
+    const suffixed = `${canonical}_j1`;
+    // Same underlying field (collapsed UUID) …
+    expect(extractUUIDFromColumnAlias(canonical)).toBe(
+      extractUUIDFromColumnAlias(suffixed),
+    );
+    // … but distinguishable by the full alias when binding needs it.
+    expect(canonical).not.toBe(suffixed);
   });
 });
