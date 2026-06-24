@@ -868,7 +868,7 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
 });
 
 // ---------------------------------------------------------------------------
-// YW-295: Two joins to the same table must produce distinct column aliases.
+// Two joins to the same table must produce distinct column aliases.
 //
 // Scenario: an orders table joined to a users table TWICE — once via
 // created_by → id (the creator) and once via approved_by → id (the approver).
