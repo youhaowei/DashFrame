@@ -232,11 +232,37 @@ export interface DashframeServer {
  * shadowed by a caller-supplied context — the vault identity is fixed for the
  * lifetime of the returned app.
  *
- * onWrite/runHandler asymmetry: `onWrite` fires after a write committed via
- * `call` (`tablesWritten.size > 0`) but NOT after writes triggered by
- * `runHandler`. The `runHandler` path is a lower-level escape hatch that
- * bypasses the call-result shape; callers invoking it directly are responsible
- * for their own side-effects. This asymmetry is a known gap tracked separately.
+ * onWrite/runHandler asymmetry — INTENTIONAL and load-bearing:
+ *
+ * `onWrite` fires after `call` (`tablesWritten.size > 0`) but NOT after
+ * `runHandler`. This is correct because every current production caller of
+ * `runHandler` falls into one of two non-canonical categories:
+ *
+ *   1. `applyCommands(mode: 'preview')` — used exclusively by `buildPreviewDiff`
+ *      (all three call sites in preview-diff.ts use mode `'preview'`). Preview
+ *      executes handlers then forces a transaction rollback; nothing persists, so
+ *      `onWrite` must NOT fire.
+ *
+ *   2. `draftLifecycle.append(draftId, batch)` — routes writes through a
+ *      `base.withDraft(draftId)` handle, so every `ctx.db.into/update/delete`
+ *      lands in `<table>__draft` shadow tables. Draft writes are not canonical;
+ *      `onWrite` drives canonical snapshot persistence and must NOT fire for
+ *      draft-overlay writes.
+ *
+ * `draftLifecycle` is not yet wired into the DashFrame server (the draft
+ * overlay substrate landed in recent wystack + server-core work; route
+ * integration is a future ticket). When it is wired,
+ * the `publish` method calls `applyCommands(app, boundLog, { mode: 'commit' })`
+ * and returns a `CommitResult` with `tablesWritten`. OBLIGATION: the caller that
+ * wires `publish` into a server route MUST fire `onWrite()` when
+ * `result.tablesWritten.size > 0` — the lifecycle does not fire it (by design;
+ * it is a generic WyStack primitive with no DashFrame dependency). Adding
+ * `onWrite` to this `runHandler` wrapper cannot safely cover that future path
+ * because: (a) preview also uses canonical `TrackedDb` handles that look
+ * identical at this level, and (b) `runHandler` is called per-command while
+ * `tablesWritten` accumulates across the batch — the per-command check would
+ * fire multiple times or miss the first-write-only case. The clean seam is the
+ * `publish` return site, not here.
  */
 export async function buildDashframeApp(opts: {
   db: object;
@@ -274,6 +300,11 @@ export async function buildDashframeApp(opts: {
           }
           return result;
         },
+        // runHandler: vault injection only — no onWrite. See the function-level
+        // comment for the full rationale; short form: all current production
+        // callers are either preview (rollback) or draft-overlay (non-canonical).
+        // When draftLifecycle.publish is wired into a server route, THAT site
+        // must fire onWrite on CommitResult.tablesWritten — not here.
         async runHandler(path, args, tracked, context) {
           const merged = hasStaticContext
             ? { ...(context ?? {}), ...staticContext }
