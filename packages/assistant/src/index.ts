@@ -37,8 +37,8 @@ export * from "./read/index.js";
 
 // applyCommand mutation tool — the assistant's write surface.
 export {
-  createApplyCommandTool,
   DRAFT_SAFE_COMMANDS,
+  createApplyCommandTool,
   type ApplyCommandDetails,
   type AssistantCommand,
   type CreateApplyCommandToolOptions,
