@@ -1,3 +1,4 @@
+import { getConnectorById } from "@/lib/connectors/registry";
 import {
   useDataSourceMutations,
   useDataSources,
@@ -189,30 +190,35 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     [dataSources, dataSourceId],
   );
 
+  // Resolve this data source's connector from the registry.
+  // sourceType drives all per-kind UI branches; no hardcoded id strings.
+  const connector = dataSource ? getConnectorById(dataSource.type) : undefined;
+  const isRemoteApi = connector?.sourceType === "remote-api";
+  const isFileSource = connector?.sourceType === "file";
+  // Notion is the only remote-api connector today; this gates Notion-specific
+  // data-plane mutations (listDatabases / queryDatabase) that must not fire for
+  // a generic remote-api connector if a second one is ever added.
+  const isNotionSource = connector?.id === "notion";
+
   // Notion data-plane mutations — resolved server-side via the bound resolver.
   const notionMutations = useNotionMutations();
 
-  // Get configured DataTables
+  // Get configured DataTables (only meaningful for remote-api connectors)
   const dataTables = useMemo(() => {
-    if (!dataSource || dataSource.type !== "notion") return [];
+    if (!dataSource || !isRemoteApi) return [];
     return allTables ?? [];
-  }, [dataSource, allTables]);
+  }, [dataSource, isRemoteApi, allTables]);
 
   // Filter unconfigured databases
   const unconfiguredDatabases = useMemo(() => {
-    if (!dataSource || dataSource.type !== "notion") return [];
+    if (!dataSource || !isRemoteApi) return [];
     const configuredIds = new Set(dataTables.map((dt) => dt.table));
     return availableDatabases.filter((db) => !configuredIds.has(db.id));
-  }, [dataSource, dataTables, availableDatabases]);
+  }, [dataSource, isRemoteApi, dataTables, availableDatabases]);
 
   // Fetch databases with permanent caching (only refreshes on manual click)
   const fetchDatabases = async (force = false) => {
-    if (
-      !dataSource ||
-      dataSource.type !== "notion" ||
-      !dataSource.config.hasApiKey
-    )
-      return;
+    if (!dataSource || !isNotionSource || !dataSource.config.hasApiKey) return;
 
     // Use cached data unless explicitly forced to refresh
     if (!force && lastFetchTime) {
@@ -241,7 +247,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   // Handler to add a database as DataTable
   const handleAddDatabase = async (database: NotionDatabaseRef) => {
-    if (!dataSource || dataSource.type !== "notion") return;
+    if (!dataSource || !isRemoteApi) return;
 
     try {
       await tableMutations.add(dataSource.id, database.title, database.id);
@@ -284,7 +290,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   const handleApiKeyChange = async (newApiKey: string) => {
     setApiKeyInput(newApiKey);
-    if (dataSource.type === "notion") {
+    if (isRemoteApi) {
       await dataSourceMutations.update(dataSource.id, { apiKey: newApiKey });
     }
   };
@@ -314,8 +320,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         />
       </div>
 
-      {/* API Key for Notion */}
-      {dataSource.type === "notion" && (
+      {/* API Key for remote-api connectors */}
+      {isRemoteApi && (
         <CollapsibleSection title="API Key" defaultOpen={false}>
           <div>
             <InputField
@@ -336,8 +342,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         </CollapsibleSection>
       )}
 
-      {/* Data Tables section for Notion */}
-      {dataSource.type === "notion" && (
+      {/* Data Tables section for remote-api connectors */}
+      {isRemoteApi && (
         <Collapsible
           open={isDataTablesOpen}
           onOpenChange={setIsDataTablesOpen}
@@ -536,8 +542,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         </Collapsible>
       )}
 
-      {/* Files count for local (file-upload) sources */}
-      {dataSource.type === "local" && (
+      {/* Files count for file-source connectors */}
+      {isFileSource && (
         <div className="border-b border-neutral-border/40 px-4 py-3">
           <p className="text-xs font-medium text-neutral-fg-subtle">Files</p>
           <p className="mt-1 text-sm font-medium text-neutral-fg">

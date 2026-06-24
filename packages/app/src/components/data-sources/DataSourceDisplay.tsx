@@ -1,4 +1,5 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { getConnectorById } from "@/lib/connectors/registry";
 import {
   addDataFrameEntry,
   getDataTable,
@@ -570,7 +571,10 @@ function useNotionSync(
     if (
       !selectedDataTable ||
       !dataSource ||
-      dataSource.type !== "notion" ||
+      // Guard: this is a Notion-specific server mutation (queryDatabase).
+      // Check connector id explicitly so a future non-Notion remote-api connector
+      // does not inadvertently call the wrong data-plane path.
+      getConnectorById(dataSource.type)?.id !== "notion" ||
       !dataSource.config.hasApiKey
     ) {
       return;
@@ -631,7 +635,9 @@ function useNotionSync(
   };
 }
 
-// Dispatches per data-source type (local / notion / unsupported).
+// Dispatches per connector sourceType (file / remote-api / unsupported).
+// The connector registry is the single source of truth for kind metadata —
+// no per-connector-id string checks survive here.
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const { data: dataSources } = useDataSources();
   const { data: allTables } = useDataTables(dataSourceId ?? undefined);
@@ -662,13 +668,15 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
     );
   }
 
-  if (dataSource.type === "local") {
+  const connector = getConnectorById(dataSource.type);
+
+  if (connector?.sourceType === "file") {
     return (
       <LocalDataSourceView dataSource={dataSource} dataTables={dataTables} />
     );
   }
 
-  if (dataSource.type === "notion") {
+  if (connector?.id === "notion") {
     return (
       <NotionDataSourceView dataSource={dataSource} dataTables={dataTables} />
     );
