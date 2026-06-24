@@ -21,6 +21,8 @@ import { schema } from "@dashframe/server-core";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
+import { tsToMillis } from "./app-artifacts";
+
 const { dashboards } = schema;
 
 type DashboardRow = typeof dashboards.$inferSelect;
@@ -71,7 +73,11 @@ function rowToDashboard(row: DashboardRow): DashboardResult {
     description: row.description ?? undefined,
     items: (row.layout as DashboardItem[]) ?? [],
     controls: (row.controls as DashboardControl[] | null) ?? undefined,
-    createdAt: row.createdAt.getTime(),
+    // Null-safe via the shared `tsToMillis` (app-artifacts.ts): the draft overlay
+    // returns NULL created_at for a dashboard created inside a draft (the sparse
+    // `<table>__draft` row has no canonical base; publish stamps the real value),
+    // so coalesce null → 0 rather than crash on `.getTime()`.
+    createdAt: tsToMillis(row.createdAt),
     updatedAt: row.updatedAt?.getTime(),
   };
 }

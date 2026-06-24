@@ -461,6 +461,7 @@
       "name": "@dashframe/assistant",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/types": "workspace:*",
         "@earendil-works/pi-agent-core": "0.79.6",
         "@earendil-works/pi-ai": "0.79.6",
         "typebox": "1.1.38",

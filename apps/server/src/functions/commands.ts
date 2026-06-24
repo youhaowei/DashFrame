@@ -2109,7 +2109,9 @@ export type CommandName = keyof CommandPayloads;
  * under in the app `functions`. The single source of truth tying the typed
  * vocabulary to the dispatched path.
  */
-const COMMAND_PATHS: { [K in CommandName]: keyof typeof commandFunctions } = {
+export const COMMAND_PATHS: {
+  [K in CommandName]: keyof typeof commandFunctions;
+} = {
   GetOrCreateDataSource: "getOrCreateDataSource",
   CreateDataSource: "createDataSource",
   SetDataSourceConfig: "setDataSourceConfig",

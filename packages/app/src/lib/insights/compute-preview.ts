@@ -126,8 +126,8 @@ function groupRowsBy(
     //
     // The encoding is a TOTAL, injective function over every value DuckDB
     // can produce (string, finite number, bigint, boolean, null/undefined,
-    // non-finite number). Two distinct values must never share a key; no
-    // value may throw. Type tags prevent cross-type collisions (e.g. the
+    // non-finite number, Date). Two distinct values must never share a key;
+    // no value may throw. Type tags prevent cross-type collisions (e.g. the
     // string "1" vs the number 1 vs the bigint 1n each produce distinct keys).
     //
     // Tags:
@@ -135,6 +135,12 @@ function groupRowsBy(
     //   ["num", str]       — non-finite numbers: "NaN", "Infinity", "-Infinity"
     //                        (JSON.stringify coerces these to null otherwise)
     //   ["bigint", str]    — BigInt values (JSON.stringify THROWS on bigint)
+    //   ["d", ms]          — valid Date objects: epoch milliseconds (a number)
+    //                        (JSON.stringify(date) === JSON.stringify(date.toISOString())
+    //                        so without a tag, a Date and its ISO string share a key)
+    //   ["d-invalid"]      — Invalid Date (getTime() returns NaN; JSON.stringify
+    //                        serializes NaN as null, which would collide with ["d",null]
+    //                        if not given its own tag)
     //   ["v", value]       — everything else: string, finite number, boolean
     //
     // Column lookup: field.columnName ?? field.name (codebase convention,
@@ -146,6 +152,11 @@ function groupRowsBy(
       if (typeof value === "bigint") return ["bigint", value.toString()];
       if (typeof value === "number" && !isFinite(value)) {
         return ["num", String(value)]; // "NaN", "Infinity", "-Infinity"
+      }
+      if (value instanceof Date) {
+        const ms = value.getTime();
+        // JSON.stringify coerces NaN to null — guard to keep injectivity intact
+        return isNaN(ms) ? ["d-invalid"] : ["d", ms];
       }
       return ["v", value];
     });
