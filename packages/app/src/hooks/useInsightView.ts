@@ -297,6 +297,13 @@ export function useInsightView(
       ? cachedView.nativeCapable
       : nativeCapable;
 
+  // Clear stale error when configKey changes to one already in the cache.
+  // The cache-hit path returns early before createView runs, so setError(null)
+  // in createView's success path never fires on a cache-switch. A prior error
+  // from config A must not bleed into a successful cached config B.
+  const errorForCurrentKey =
+    cachedView && resolvedConfigKey !== configKey ? null : error;
+
   const prerequisitesReady =
     Boolean(connection) &&
     isInitialized &&
@@ -532,8 +539,8 @@ export function useInsightView(
     viewName,
     /** Whether the view is ready to be queried */
     isReady,
-    /** Error message if view creation failed */
-    error,
+    /** Error message if view creation failed, or null when the current config is clean. */
+    error: errorForCurrentKey,
     /**
      * Whether all DataFrames for this insight were successfully uploaded to
      * the native engine. `false` means at least one DataFrame uses remote
