@@ -197,6 +197,96 @@ describe("groupRowsBy — field without columnName", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Date values (DuckDB TIMESTAMP/DATE columns surface as JS Date objects)
+// ---------------------------------------------------------------------------
+
+describe("groupRowsBy — Date vs string collision", () => {
+  it("keeps a Date and its ISO-string representation as SEPARATE groups", () => {
+    // JSON.stringify(new Date("2024-01-01T00:00:00.000Z")) ===
+    // JSON.stringify("2024-01-01T00:00:00.000Z")  → both produce the same
+    // JSON bytes, so without a type tag the two rows would merge into one group.
+    const col = field({ id: "f1", name: "ts", columnName: "ts" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { ts: new Date("2024-01-01T00:00:00.000Z") }, // Date object
+      { ts: "2024-01-01T00:00:00.000Z" }, // equal ISO string
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    // Must be 2 distinct groups, not 1 merged group
+    expect(result.rowCount).toBe(2);
+    expect(result.dataFrame.rows).toHaveLength(2);
+  });
+
+  it("keeps two different Date values in separate groups", () => {
+    const col = field({ id: "f1", name: "ts", columnName: "ts" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { ts: new Date("2024-01-01T00:00:00.000Z") },
+      { ts: new Date("2024-06-15T12:00:00.000Z") },
+      { ts: new Date("2024-01-01T00:00:00.000Z") }, // duplicate of first
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(2);
+  });
+
+  it("keeps a Date distinct from null", () => {
+    const col = field({ id: "f1", name: "ts", columnName: "ts" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { ts: new Date("2024-01-01T00:00:00.000Z") },
+      { ts: null },
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(2);
+  });
+
+  it("keeps Invalid Date distinct from null and from a valid Date", () => {
+    // new Date("not-a-date").getTime() === NaN; JSON.stringify(NaN) === "null"
+    // so without a guard, ["d", NaN] serializes to ["d",null] — all invalid
+    // dates would collapse and differ silently from actual null. The encoder
+    // uses a dedicated ["d-invalid"] tag to keep injectivity intact.
+    const col = field({ id: "f1", name: "ts", columnName: "ts" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { ts: new Date("not-a-date") }, // Invalid Date
+      { ts: null },
+      { ts: new Date("2024-01-01T00:00:00.000Z") }, // valid Date
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    // Must be 3 distinct groups — Invalid Date must not merge with null or valid Date
+    expect(result.rowCount).toBe(3);
+  });
+
+  it("groups all Invalid Date rows together (same sentinel)", () => {
+    // Two different Invalid Date instances share the ["d-invalid"] sentinel —
+    // both are unusable values and should form one group, not two.
+    const col = field({ id: "f1", name: "ts", columnName: "ts" });
+    const dt = table([col]);
+    const ins = insight(["f1"]);
+
+    const data = frame([
+      { ts: new Date("bad1") },
+      { ts: new Date("bad2") }, // different string, same NaN result
+    ]);
+
+    const result = computeInsightPreview(ins, dt, data, 50);
+    expect(result.rowCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BigInt values (DuckDB BIGINT columns surface as JS bigint)
 // ---------------------------------------------------------------------------
 
