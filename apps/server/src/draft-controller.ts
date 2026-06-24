@@ -286,11 +286,17 @@ export function createDraftController(
     },
 
     async appendToDraft(draftId, batch, context = {}) {
-      // Route writes through the draft handle so each handler's `ctx.db.into/
-      // update/delete` lands in `<table>__draft` (the withDraft write-path),
-      // exactly as createDraftLifecycle.append does — the controller drives the
-      // path, it never authors a shadow-table write.
-      const draftDb = app.createTracked().withDraft(draftId);
+      // Route writes through the draft overlay by passing a BASE TrackedDb plus a
+      // `draftId` in context, so `app.runHandler`'s `withDraftSeam` builds the
+      // per-table FALL-THROUGH draft handle (draftable tables → `<table>__draft`,
+      // non-draftable like project_meta → canonical). Building the raw
+      // `createTracked().withDraft(draftId)` here would bypass that wrapper —
+      // `withDraftSeam` returns an already-draft handle unchanged — so a command
+      // whose handler reads a non-draftable table would throw on the missing
+      // `<table>__draft` relation. Both withDraft entry points (call/runHandler
+      // and this append) must go through the same fall-through seam.
+      const baseDb = app.createTracked();
+      const draftContext = { ...context, draftId };
       const results: CommandResult[] = [];
       // Snapshot each command AS IT SUCCESSFULLY RUNS, before compaction/persist.
       // The handler runs against the live `cmd` (what actually executed); the
@@ -305,8 +311,8 @@ export function createDraftController(
         const value = await app.runHandler(
           cmd.path,
           cmd.args,
-          draftDb,
-          context,
+          baseDb,
+          draftContext,
         );
         ranSnapshots.push(structuredClone(cmd) as DraftCommand);
         results.push({ id: cmd.id, value });

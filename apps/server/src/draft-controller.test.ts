@@ -33,6 +33,7 @@ import {
   buildDashframeApp,
   createDraftController,
   createFallThroughDraftDb,
+  withDraftSeam,
 } from "./app";
 import { cmd } from "./functions/commands";
 
@@ -557,6 +558,68 @@ describe("DraftController (persisted draft overlay)", () => {
         source: { sourceType: "dataTable", sourceId: tableId },
       }),
     );
+    expect(
+      (await db.select().from(insights)).find((r) => r.id === insightId),
+    ).toBeUndefined();
+    expect(
+      (await db.select().from(insightsDraft)).filter(
+        (r) => r.draftId === draftId,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("appendToDraft routes through the fall-through seam — the append path uses the SAME base+draftId-context mechanism the call path does (non-draftable reads fall through)", async () => {
+    // Regression: appendToDraft must NOT pre-build a raw `withDraft(draftId)`
+    // handle (which `withDraftSeam` returns unchanged — no fall-through), or a
+    // command handler reading a non-draftable table mid-append would throw on the
+    // missing `<table>__draft` relation. It must pass a BASE TrackedDb + draftId
+    // in context so `withDraftSeam` builds the per-table fall-through wrapper —
+    // the identical seam the `call` path funnels through.
+    //
+    // This pins the exact mechanism appendToDraft now relies on: feed a base
+    // handle + `{ draftId }` to `withDraftSeam` (what app.runHandler does for a
+    // drafted append) and confirm the resulting handle reads a non-draftable
+    // table (project_meta) from canonical without throwing, while a draftable
+    // table is overlay-scoped.
+    const metaId = id();
+    await db.insert(projectMeta).values({
+      id: metaId,
+      version: "0.2.0",
+      projectId: id(),
+      name: "Append-path project",
+      schemaVersion: 3,
+      createdBy: "test",
+    });
+
+    const draftId = await controller.openDraft();
+    // Exactly what appendToDraft feeds runHandler: base handle + draftId-context.
+    const baseDb = app.createTracked();
+    const seamDb = withDraftSeam(baseDb, { draftId });
+
+    // The seam must have built a fall-through draft handle (NOT returned the base
+    // unchanged, NOT a raw draft handle that throws on project_meta).
+    let row: unknown;
+    await expect(
+      (async () => {
+        row = await seamDb.from(projectMeta).first();
+      })(),
+    ).resolves.toBeUndefined(); // did not throw on missing project_meta__draft
+    expect((row as { id?: unknown })?.id).toBe(metaId);
+
+    // A draftable write through the SAME seam handle lands in the shadow (overlay
+    // scoping intact), proving it is the fall-through wrapper, not bare canonical.
+    const { tableId } = await seedTable(controller);
+    const insightId = id();
+    await appendCmds(
+      draftId,
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Append-routed",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    );
+    // The insight written via appendToDraft is isolated in the shadow (the append
+    // path's overlay write-path still works end-to-end through the new seam).
     expect(
       (await db.select().from(insights)).find((r) => r.id === insightId),
     ).toBeUndefined();

@@ -331,7 +331,7 @@ export function createFallThroughDraftDb(
  *   - AUTHORIZATION. draftId is caller-supplied; a multi-tenant host must
  *     authorize it against the caller (single-user desktop is exempt).
  */
-function withDraftSeam(
+export function withDraftSeam(
   tracked: TrackedDb | DraftTrackedDb,
   context: Record<string, unknown> | undefined,
 ): TrackedDb | DraftTrackedDb {
