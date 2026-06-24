@@ -3,8 +3,9 @@
  *
  * ONE tool, generic over `{ type, args }`:
  *   - `type`  — a command name string (e.g. "CreateInsight", "AddDashboardItem").
- *     The full vocabulary is described in the command guide (YW-280). The agent
- *     constructs commands by name + args; this tool delegates to `buildCommand`
+ *     The full vocabulary is described in the assistant command guide (see the
+ *     read layer package). The agent constructs commands by name + args; this
+ *     tool delegates to `buildCommand`
  *     (injected by the host) to map the name to the wire-path envelope and then
  *     emits into the draft via the controller.
  *   - `args`  — the payload object for the named command, opaque to this tool.
@@ -22,12 +23,12 @@
  *   same effect whether the agent or the UI emitted it.
  *
  *   NEVER CANONICAL — appendToDraft writes the draft overlay only. Publish
- *   (YW-281) is a separate, human-gated step; this tool MUST NOT call
- *   publishDraft or touch canonical.
+ *   is a separate, human-gated step; this tool MUST NOT call publishDraft or
+ *   touch canonical.
  *
  * Factory pattern: `createApplyCommandTool(options)`. The draftId is the handle
- * minted by `openDraft` (YW-260) at assistant session start — captured once in
- * the factory, not passed per-call. This keeps the per-call surface minimal
+ * minted by `openDraft` at assistant session start — captured once in the
+ * factory, not passed per-call. This keeps the per-call surface minimal
  * (type + args only) and makes it impossible for the agent to steer writes to a
  * different draft.
  *
@@ -87,7 +88,7 @@ export interface ApplyCommandDetails {
   /**
    * The raw value returned by the backing mutation handler (e.g. `{ id }` for a
    * Create command, `{ ok: true }` for an update). Opaque — callers should
-   * consult the command guide (YW-280) for the per-command shape.
+   * consult the assistant command guide for the per-command shape.
    */
   commandResult: unknown;
 }
