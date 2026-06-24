@@ -24,13 +24,14 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { createWyStack, type WyStackApp } from "@wystack/server";
+import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
-import { cmd } from "./commands";
+import { cmd, storedInsightDefinitionSchema } from "./commands";
 
 /** Compose a SecretVault backed by TestBackend. ONLY for test setup. */
 function makeTestVault(): SecretVault {
@@ -3035,6 +3036,205 @@ describe("command vocabulary", () => {
         await expect(
           commit(cmd("SetInsightFilter", { id: insightId, filters: [] })),
         ).resolves.toBeDefined();
+      });
+    });
+
+    describe("read-walker sink-guard (wouldCreateCycle + orphan scan)", () => {
+      // These are the READ-side mirrors of the write-sink guard tested above.
+      // wouldCreateCycle and the orphan scan (parseRowDefinition + definition
+      // Refers) both read the stored definition blob and were previously bare-
+      // cast (trusting provenance rather than parsing). A corrupt node must
+      // produce a clear error, not crash on undefined property access.
+
+      it("should throw a clear 'corrupt definition' error when the target insight's stored blob is invalid (SetInsightSource → wouldCreateCycle)", async () => {
+        // Contract: wouldCreateCycle parses each definition blob it encounters;
+        // a corrupt blob throws "corrupt definition" instead of crashing on
+        // undefined property access.
+        const { tableId } = await makeTable();
+        const aId = id();
+        const bId = id();
+
+        // Create both insights up front; the corruption is scoped to A alone
+        // via .where(eq(...)) so this test does not depend on insertion order
+        // or row count (matching the write-sink guard suite's recommended
+        // pattern — see describe block note at line ~2844).
+        await commit(
+          cmd("CreateInsight", {
+            id: aId,
+            name: "A",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+          cmd("CreateInsight", {
+            id: bId,
+            name: "B",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt ONLY A's definition — the walk target. B stays valid.
+        await db
+          .update(schema.insights)
+          .set({
+            definition: {
+              // baseTableId intentionally omitted — corrupt blob
+              selectedFields: [],
+              metrics: [],
+            },
+          })
+          .where(eq(schema.insights.id, aId));
+
+        // SetInsightSource(B, A) calls wouldCreateCycle(ctx, B, A). The walk
+        // starts at A, parses A's (corrupt) definition — must throw. require
+        // InsightDefinition(B) and requireSourceExists(A) run first and pass
+        // (B is valid; requireSourceExists only checks A's row exists, no parse).
+        await expect(
+          commit(
+            cmd("SetInsightSource", {
+              id: bId,
+              source: { sourceType: "insight", sourceId: aId },
+            }),
+          ),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should throw a clear 'corrupt definition' error when an insight in the scan has an invalid stored blob (DeleteNode DataTable → findOrphanedInsights)", async () => {
+        // Contract: the orphan scan parses each definition blob it reads; a
+        // corrupt blob throws "corrupt definition" rather than crashing on
+        // undefined property access or silently mis-classifying the orphan.
+        //
+        // Path: DeleteNode(DataTable) → findOrphanedInsights →
+        //   parseRowDefinition(row) per row.
+        const { tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the stored definition — baseTableId missing (required field).
+        await db.update(schema.insights).set({
+          definition: {
+            selectedFields: [],
+            metrics: [],
+            // baseTableId intentionally omitted
+          },
+        });
+
+        // DeleteNode(tableId) triggers the orphan scan; the corrupt blob must
+        // produce a clean error (no silent no-op or crash on property access).
+        await expect(
+          commit(cmd("DeleteNode", { id: tableId })),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should throw a clear 'corrupt definition' error when a corrupt insight is encountered during a DataSource delete (deleteDataSourceDependents)", async () => {
+        // Contract: the parse-or-throw guard is reached from two paths —
+        // findOrphanedInsights (DataTable delete) and deleteDataSourceDependents
+        // (DataSource delete). Both must throw on a corrupt blob; this covers
+        // the second.
+        //
+        // Path: DeleteNode(DataSource) → deleteDataSourceDependents →
+        //   parseRowDefinition(row) per insight (parsed ONCE), then
+        //   [...ownedTableIds].some(tableId => definitionRefers(def, tableId)).
+        const { sourceId, tableId } = await makeTable();
+        const insightId = id();
+
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableId },
+          }),
+        );
+
+        // Corrupt the insight's stored definition.
+        await db.update(schema.insights).set({
+          definition: {
+            selectedFields: [],
+            metrics: [],
+            // baseTableId intentionally omitted — corrupt blob
+          },
+        });
+
+        // DeleteNode(DataSource) triggers deleteDataSourceDependents, which scans
+        // all insights and parses each. The corrupt blob must produce a clean
+        // error; the delete does not silently skip the corrupt row.
+        await expect(
+          commit(cmd("DeleteNode", { id: sourceId })),
+        ).rejects.toThrow(/corrupt definition/);
+      });
+
+      it("should parse each insight definition once per DataSource delete, not once per owned table (no O(insights × tables) re-parse)", async () => {
+        // Regression for the perf finding: deleteDataSourceDependents must parse
+        // each insight's definition ONCE, then compare the parsed result against
+        // every owned table — not re-validate the JSON per table. We assert this
+        // by spying on storedInsightDefinitionSchema.safeParse and counting calls
+        // for a DataSource with multiple tables and one referencing insight.
+        //
+        // CRITICAL: the orphan insight must source the LAST-iterated owned table.
+        // ownedTableIds iterates in insertion order, and the old per-table code
+        // `[...ownedTableIds].some(t => isOrphanedBy(row, t))` short-circuits on
+        // the first match. If the insight sourced the FIRST table, the old code
+        // would also parse only once (match on iteration 0) and this assertion
+        // would pass against the unfixed code — a no-op guard. Sourcing the LAST
+        // table forces the old code to parse all 3 tables before matching (3x),
+        // while the fix parses once regardless of which table matches.
+        // makeTable creates the DataSource + its first owned table (table A,
+        // unused as the insight source — it just anchors the source).
+        const { sourceId } = await makeTable();
+
+        // Add a second + third table to the SAME data source so ownedTableIds
+        // has >1 entry — the loop that previously re-parsed per table.
+        const tableB = id();
+        const tableC = id();
+        await commit(
+          cmd("CreateDataTable", {
+            id: tableB,
+            dataSourceId: sourceId,
+            name: "B",
+            table: "b.csv",
+          }),
+          cmd("CreateDataTable", {
+            id: tableC,
+            dataSourceId: sourceId,
+            name: "C",
+            table: "c.csv",
+          }),
+        );
+
+        // One insight sourcing table C — the LAST-created table, so the old
+        // short-circuiting .some(...) would re-parse on tables A and B before
+        // matching C (3 parses). The fix parses once.
+        const insightId = id();
+        await commit(
+          cmd("CreateInsight", {
+            id: insightId,
+            name: "I",
+            source: { sourceType: "dataTable", sourceId: tableC },
+          }),
+        );
+
+        // Spy on the schema's safeParse to count how many times the insight's
+        // definition is validated during the delete scan.
+        const parseSpy = vi.spyOn(storedInsightDefinitionSchema, "safeParse");
+
+        const result = await commit(cmd("DeleteNode", { id: sourceId }));
+
+        // The insight is surfaced as an orphan (correctness preserved).
+        const value = result.results[0]?.value as {
+          orphanedNodes: { id: string }[];
+        };
+        expect(value.orphanedNodes.map((n) => n.id)).toContain(insightId);
+
+        // With 3 owned tables and the insight sourcing the last one, the old
+        // per-table re-parse would call safeParse 3x inside the .some(...) loop.
+        // The fix parses once.
+        expect(parseSpy).toHaveBeenCalledTimes(1);
+        parseSpy.mockRestore();
       });
     });
   });

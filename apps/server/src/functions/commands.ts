@@ -179,8 +179,11 @@ const insightSourceSchema = z.object({
  * to match the read-path's defensive coalescing (`?? []`) — older or
  * externally written rows that omit them remain readable instead of being
  * rejected as corrupt.
+ *
+ * Exported so tests can assert parse-call counts (e.g. the orphan scan parses
+ * each insight once, not once per owned table).
  */
-const storedInsightDefinitionSchema = z.object({
+export const storedInsightDefinitionSchema = z.object({
   baseTableId: z.string(),
   source: insightSourceSchema.optional(),
   // `.nullish().default([])` — a null value (SQL JSONB can store null for an
@@ -262,6 +265,10 @@ async function requireSourceExists(
  * This is a simple linear walk (O(depth)); cycle detection could be done with
  * a visited set for diamond DAGs, but the typical chain depth is small and
  * diamonds are architecturally uncommon at authoring time.
+ *
+ * A corrupt `definition` blob on any encountered row throws immediately
+ * (aborting the walk) rather than treating the node as a leaf; callers must
+ * handle or propagate that error.
  */
 async function wouldCreateCycle(
   ctx: { db: import("@wystack/db").TrackedDb },
@@ -282,7 +289,13 @@ async function wouldCreateCycle(
       .where(eq("id", currentId))
       .first()) as InsightRow | undefined;
     if (!row) break; // reached a leaf (DataTable or unknown)
-    const def = row.definition as StoredInsightDefinition;
+    const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+    if (!parsed.success) {
+      throw new Error(
+        `Insight ${currentId} has a corrupt definition: ${parsed.error.message}`,
+      );
+    }
+    const def = parsed.data as StoredInsightDefinition;
     const src = def.source;
     if (!src || src.sourceType !== "insight") break; // leaf
     if (src.sourceId === startId) return true; // cycle found
@@ -1579,9 +1592,37 @@ export interface DeleteNodeResult {
  * full-table scan filtered in application code (PGLite single-connection, the
  * table is small in practice). A future index on a promoted column would speed
  * this up; the read is intentionally bounded to the delete path.
+ *
+ * Parsing is split from comparison: `parseRowDefinition` validates the JSONB
+ * blob ONCE per insight (fail-closed throw on corrupt), and `definitionRefers`
+ * is a pure check against the already-parsed definition. This keeps the
+ * DataSource-delete scan at O(insights) parses instead of O(insights × tables)
+ * — `deleteDataSourceDependents` compares one parsed definition against every
+ * owned table without re-validating per table.
+ *
+ * A corrupt `definition` blob throws immediately (fail-closed), aborting the
+ * entire scan. One bad row blocks a delete until the row is repaired — the
+ * deliberate trade-off vs. silently mis-classifying orphans or skipping the row.
  */
-function isOrphanedBy(row: InsightRow, sourceId: string): boolean {
-  const def = row.definition as StoredInsightDefinition;
+function parseRowDefinition(row: InsightRow): StoredInsightDefinition {
+  const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+  if (!parsed.success) {
+    throw new Error(
+      `Insight ${row.id} has a corrupt definition: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data as StoredInsightDefinition;
+}
+
+/**
+ * Pure orphan check against an already-parsed definition — no validation, no
+ * DB access. An Insight is orphaned by `sourceId` if its primary source (or
+ * legacy `baseTableId`) equals it, or any join's `rightTableId` equals it.
+ */
+function definitionRefers(
+  def: StoredInsightDefinition,
+  sourceId: string,
+): boolean {
   // Primary source check.
   const primaryMatch = def.source
     ? def.source.sourceId === sourceId
@@ -1598,7 +1639,10 @@ async function findOrphanedInsights(
   sourceId: string,
 ): Promise<{ id: string }[]> {
   const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
-  return allInsights.filter((row) => isOrphanedBy(row, sourceId));
+  // Parse each definition once (fail-closed), then check the single sourceId.
+  return allInsights.filter((row) =>
+    definitionRefers(parseRowDefinition(row), sourceId),
+  );
 }
 
 /**
@@ -1649,9 +1693,12 @@ async function deleteDataSourceDependents(
   const orphanedNodes: OrphanedNode[] = [];
   for (const row of allInsights) {
     if (seen.has(row.id)) continue;
+    // Parse each insight's definition ONCE (fail-closed), then compare the
+    // parsed result against every owned table — not re-parsing per table.
+    const def = parseRowDefinition(row);
     // Check primary source and all join dependencies against every owned table.
     const orphaned = [...ownedTableIds].some((tableId) =>
-      isOrphanedBy(row, tableId),
+      definitionRefers(def, tableId),
     );
     if (orphaned) {
       seen.add(row.id);
