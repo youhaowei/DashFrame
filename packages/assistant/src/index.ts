@@ -27,3 +27,7 @@ export {
   type ToolHandlerConfig,
   type ToolHandlerErrorDetails,
 } from "./tool.js";
+
+// READ layer — privacy-aware graph resolver: 4 fixed read tools, the floor, the
+// GraphReader port, and the command vocabulary guide.
+export * from "./read/index.js";

@@ -15,6 +15,10 @@
     "./functions": {
       "bun": "./src/functions.ts",
       "default": "./src/functions.ts"
+    },
+    "./assistant-read-host": {
+      "bun": "./src/assistant-read-host.ts",
+      "default": "./src/assistant-read-host.ts"
     }
   },
   "scripts": {
