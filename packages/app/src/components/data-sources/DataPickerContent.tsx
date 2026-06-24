@@ -1,3 +1,4 @@
+import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   useDataFrames,
@@ -115,7 +116,7 @@ export function DataPickerContent({
         tableId: t.id,
         tableName: t.name,
         fieldCount: t.fields?.length || 0,
-        isLocal: source?.type === "local",
+        isLocal: getConnectorById(source?.type ?? "")?.sourceType === "file",
       };
     });
   }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
