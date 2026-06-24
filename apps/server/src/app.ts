@@ -38,14 +38,18 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
+import { schema } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { DraftTrackedDb, TrackedDb } from "@wystack/db";
 import {
   isSecretRef,
   type SecretRef,
   type SecretVault,
 } from "@wystack/secret-vault";
 import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
+import type { Table } from "drizzle-orm";
+import { getTableName } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -218,19 +222,150 @@ export interface DashframeServer {
 }
 
 /**
- * Build the WyStack app with vault injection and onWrite hook wiring — without
- * starting an HTTP server.
+ * Pull a draft handle out of a handler context. A `draftId` in the context bag
+ * means "execute this write into the draft overlay, not canonical." Returns the
+ * id string, or `undefined` for the no-draft (canonical) path.
+ */
+function draftIdFromContext(
+  context: Record<string, unknown> | undefined,
+): string | undefined {
+  const id = context?.draftId;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+/**
+ * The CLOSED set of canonical table names that have a `<table>__draft` shadow
+ * (the draftable artifact tables). This MIRRORS draft-controller.ts's
+ * DRAFT_SHADOW_TABLES — by the credential-security-boundary design, credential
+ * and project tables (`secret_mappings`, `project_meta`) intentionally have NO
+ * shadow, so a draft read against them must coalesce-read NOTHING and fall
+ * through to canonical (there is no `project_meta__draft` relation to JOIN).
+ * A new artifact table is a schema change, so this static set is authoritative.
+ */
+const DRAFTABLE_TABLE_NAMES: ReadonlySet<string> = new Set([
+  getTableName(schema.dataSources),
+  getTableName(schema.dataTables),
+  getTableName(schema.dataFrames),
+  getTableName(schema.insights),
+  getTableName(schema.visualizations),
+  getTableName(schema.dashboards),
+]);
+
+/**
+ * A draft-scoped db handle that FALLS THROUGH to canonical for non-draftable
+ * tables. `from(table)`/`into(table)` route to the wystack draft overlay only
+ * when `table` has a `<table>__draft` shadow; for a non-draftable table (e.g.
+ * `project_meta`, which has no shadow by the security-boundary design) they
+ * delegate to the base canonical handle, so a handler reading `project_meta`
+ * inside a draft reads canonical instead of failing on a missing
+ * `project_meta__draft` relation.
  *
- * Extracted from `createDashframeServer` so the vault-injection seam (the
- * anti-shadow merge and the short-circuit path) can be driven by direct unit
- * tests without a live socket. `createDashframeServer` calls this internally;
- * tests import and exercise it directly.
+ * This keeps "handlers run UNMODIFIED inside a draft" true: a query like
+ * `projectInfo` (reads only `project_meta`) just works; a command touching
+ * draftable artifacts gets the overlay. The draftable-table POLICY lives here
+ * in DashFrame (which owns the closed shadow set), not in the generic
+ * @wystack/db `withDraft` primitive.
+ *
+ * Shape note: returned as `DraftTrackedDb` because that is the type the seam
+ * yields; both base and draft handles share the `from/into/transaction` surface
+ * handlers use, and `runHandler` already casts to `TrackedDb` (the builder
+ * return-type difference is never observed by a handler).
+ */
+export function createFallThroughDraftDb(
+  base: TrackedDb,
+  draftId: string,
+): DraftTrackedDb {
+  const draft = base.withDraft(draftId);
+  const isDraftable = (table: Table): boolean =>
+    DRAFTABLE_TABLE_NAMES.has(getTableName(table));
+  return {
+    // The draft handle reuses the base tracker's sets, so reads/writes through
+    // EITHER target accumulate into the same tablesRead/tablesWritten — the
+    // call-result shape sees a draftable write and a canonical read alike.
+    tablesRead: draft.tablesRead,
+    tablesWritten: draft.tablesWritten,
+    raw: draft.raw,
+    from(table) {
+      return (
+        isDraftable(table) ? draft.from(table) : base.from(table)
+      ) as ReturnType<DraftTrackedDb["from"]>;
+    },
+    into(table) {
+      return (
+        isDraftable(table) ? draft.into(table) : base.into(table)
+      ) as ReturnType<DraftTrackedDb["into"]>;
+    },
+    transaction: draft.transaction.bind(draft),
+  };
+}
+
+/**
+ * The ctx.db draft seam. When a `draftId` is present in the context,
+ * substitute the `tracked` handle with a draft-scoped overlay so existing
+ * command handlers write into `<table>__draft` (the withDraft write-path)
+ * UNMODIFIED — for DRAFTABLE tables. A read/write to a non-draftable table
+ * (no shadow, e.g. `project_meta`) falls through to canonical so the unmodified
+ * handler does not hit a missing `<table>__draft` relation. The no-draft path
+ * returns `tracked` untouched — byte-identical, zero-overhead.
+ *
+ * `ctx.db` is set from the `tracked` argument inside @wystack/server's
+ * `runHandler` (it always wins over the context bag), so the substitution MUST
+ * happen on the `tracked` argument here, not by injecting a context key.
+ * `withDraft(draftId)` is a pure @wystack/db primitive that accepts any
+ * caller-supplied id.
+ *
+ * CONSUMER CONSTRAINTS — the seam is dormant in this slice (no host injects a
+ * draftId). The host that wires draftId into request context owns these:
+ *   - LOG SYNC. A write mutation reached via raw `app.call({draftId})` lands in
+ *     `<table>__draft` but does NOT append to `draft_command_log`; since publish
+ *     replays only the log, that write is visible in the overlay yet dropped on
+ *     publish. Drafted WRITES must route through `DraftController.appendToDraft`
+ *     (which keeps shadow + log in sync); the seam alone is safe for drafted
+ *     READS (coalesced reads need no log).
+ *   - DRAFTABLE COMMANDS. `withDraft` supports PK-pinned reads/writes
+ *     (`where(eq("id", …))`). A command whose handler filters a shadow table by a
+ *     non-PK column (e.g. delete `data_frames` by `insightId`) is not draftable
+ *     as-is; such paths must be PK-addressed or blocked before drafting.
+ *   - CREDENTIAL SIDE EFFECTS. See draft-controller.ts SECURITY BOUNDARY: a
+ *     credentialed handler's `vault.store` is a real side effect even in a draft.
+ *   - AUTHORIZATION. draftId is caller-supplied; a multi-tenant host must
+ *     authorize it against the caller (single-user desktop is exempt).
+ */
+export function withDraftSeam(
+  tracked: TrackedDb | DraftTrackedDb,
+  context: Record<string, unknown> | undefined,
+): TrackedDb | DraftTrackedDb {
+  const draftId = draftIdFromContext(context);
+  if (draftId === undefined) return tracked;
+  // A draft handle has no nested `withDraft`; only a base TrackedDb is scoped.
+  // `call` always passes a fresh base TrackedDb, so this is the live path. The
+  // fall-through wrapper routes non-draftable tables to canonical.
+  return "withDraft" in tracked
+    ? createFallThroughDraftDb(tracked, draftId)
+    : tracked;
+}
+
+/**
+ * Build the WyStack app with the draft seam, vault injection, and the
+ * onWrite hook — without starting an HTTP server.
+ *
+ * Extracted from `createDashframeServer` so the seams (the anti-shadow vault
+ * merge, the draft-scoped db substitution) can be driven by direct unit tests
+ * without a live socket. `createDashframeServer` calls this internally; tests
+ * import and exercise it directly.
  *
  * Security invariant: `vault` is injected into every handler context via a
  * static spread that wins over per-call context. The merge order
  * `{ ...(context ?? {}), ...staticContext }` means the vault key cannot be
  * shadowed by a caller-supplied context — the vault identity is fixed for the
  * lifetime of the returned app.
+ *
+ * Draft seam: when the per-request context carries a `draftId`, `call`/
+ * `runHandler` substitute the tracked handle with a draft-scoped one that routes
+ * DRAFTABLE-table reads/writes through the `<table>__draft` overlay and falls
+ * through to canonical for non-draftable tables (project_meta, secrets — no
+ * shadow by the credential-security boundary). A context with NO draftId is
+ * unchanged — the canonical path is byte-identical (zero-overhead).
  *
  * onWrite/runHandler asymmetry — INTENTIONAL and load-bearing:
  *
@@ -243,26 +378,23 @@ export interface DashframeServer {
  *      executes handlers then forces a transaction rollback; nothing persists, so
  *      `onWrite` must NOT fire.
  *
- *   2. `draftLifecycle.append(draftId, batch)` — routes writes through a
- *      `base.withDraft(draftId)` handle, so every `ctx.db.into/update/delete`
- *      lands in `<table>__draft` shadow tables. Draft writes are not canonical;
- *      `onWrite` drives canonical snapshot persistence and must NOT fire for
- *      draft-overlay writes.
+ *   2. The draft controller's `appendToDraft` — routes writes through a
+ *      `withDraft(draftId)` handle, so every `ctx.db.into/update/delete` lands in
+ *      `<table>__draft` shadow tables. Draft writes are not canonical; `onWrite`
+ *      drives canonical snapshot persistence and must NOT fire for draft-overlay
+ *      writes.
  *
- * `draftLifecycle` is not yet wired into the DashFrame server (the draft
- * overlay substrate landed in recent wystack + server-core work; route
- * integration is a future ticket). When it is wired,
- * the `publish` method calls `applyCommands(app, boundLog, { mode: 'commit' })`
- * and returns a `CommitResult` with `tablesWritten`. OBLIGATION: the caller that
- * wires `publish` into a server route MUST fire `onWrite()` when
- * `result.tablesWritten.size > 0` — the lifecycle does not fire it (by design;
- * it is a generic WyStack primitive with no DashFrame dependency). Adding
- * `onWrite` to this `runHandler` wrapper cannot safely cover that future path
- * because: (a) preview also uses canonical `TrackedDb` handles that look
- * identical at this level, and (b) `runHandler` is called per-command while
- * `tablesWritten` accumulates across the batch — the per-command check would
- * fire multiple times or miss the first-write-only case. The clean seam is the
- * `publish` return site, not here.
+ * When the controller's `publishDraft` replays the log via
+ * `applyCommands(app, log, { mode: 'commit' })` and returns a `CommitResult` with
+ * `tablesWritten`, OBLIGATION: the caller that wires `publishDraft` into a server
+ * route MUST fire `onWrite()` when `result.tablesWritten.size > 0` — the
+ * controller does not fire it (mirroring `applyCommands`' posture). Adding
+ * `onWrite` to this `runHandler` wrapper cannot safely cover that path because:
+ * (a) preview also uses canonical `TrackedDb` handles that look identical at this
+ * level, and (b) `runHandler` is called per-command while `tablesWritten`
+ * accumulates across the batch — the per-command check would fire multiple times
+ * or miss the first-write-only case. The clean seam is the `publishDraft` return
+ * site, not here.
  */
 export async function buildDashframeApp(opts: {
   db: object;
@@ -278,40 +410,55 @@ export async function buildDashframeApp(opts: {
   const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
   const hasStaticContext = Object.keys(staticContext).length > 0;
 
-  return vault == null && onWrite == null
-    ? rawApp
-    : {
-        ...rawApp,
-        async call(path, args, context) {
-          // Static context wins over per-request context: spread per-request
-          // first so that static keys (vault) cannot be shadowed by a crafted
-          // request context. The vault identity must be fixed for the server
-          // lifetime; a request-supplied vault key would be ignored.
-          const merged = hasStaticContext
-            ? { ...(context ?? {}), ...staticContext }
-            : context;
-          const result = await rawApp.call(path, args, merged);
-          if (onWrite != null && result.tablesWritten.size > 0) {
-            try {
-              onWrite();
-            } catch (err) {
-              console.error("[dashframe] onWrite hook threw:", err);
-            }
-          }
-          return result;
-        },
-        // runHandler: vault injection only — no onWrite. See the function-level
-        // comment for the full rationale; short form: all current production
-        // callers are either preview (rollback) or draft-overlay (non-canonical).
-        // When draftLifecycle.publish is wired into a server route, THAT site
-        // must fire onWrite on CommitResult.tablesWritten — not here.
-        async runHandler(path, args, tracked, context) {
-          const merged = hasStaticContext
-            ? { ...(context ?? {}), ...staticContext }
-            : context;
-          return rawApp.runHandler(path, args, tracked, merged);
-        },
+  // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
+  // mints its own fresh TrackedDb internally, so a draftId-bearing `call` would
+  // otherwise hit canonical. We mirror rawApp.call's composition (fresh tracked
+  // → runHandler → result shape) but pass the draft-scoped handle when a draftId
+  // is present, leaving the no-draft path identical to rawApp.call.
+  //
+  // EQUIVALENCE (load-bearing): rawApp.call is a THIN composition — `const t =
+  // createTracked(); const result = await runHandler(path, args, t, context);
+  // return { result, tablesRead: t.tablesRead, tablesWritten: t.tablesWritten }`
+  // — with no retry, no error normalization, no separate tablesRead pass (see
+  // @wystack/server create.ts). This decomposition reproduces it byte-for-byte
+  // on the no-draft path. RE-MIRROR POINT: if a wystack upgrade adds logic INSIDE
+  // rawApp.call, this wrapper must be updated to match — it cannot delegate to
+  // rawApp.call because that path mints an internal tracker the seam can't reach.
+  return {
+    ...rawApp,
+    async call(path, args, context) {
+      // Static context wins over per-request context: spread per-request first
+      // so static keys (vault) cannot be shadowed by a crafted request context.
+      const merged = hasStaticContext
+        ? { ...(context ?? {}), ...staticContext }
+        : (context ?? {});
+      const tracked = rawApp.createTracked();
+      const effective = withDraftSeam(tracked, merged);
+      const result = await rawApp.runHandler(path, args, effective, merged);
+      // `tracked` and `effective` share the same tracker sets (withDraft reuses
+      // the base tracker), so tablesWritten reflects the write either way.
+      const tablesWritten = tracked.tablesWritten;
+      if (onWrite != null && tablesWritten.size > 0) {
+        try {
+          onWrite();
+        } catch (err) {
+          console.error("[dashframe] onWrite hook threw:", err);
+        }
+      }
+      return {
+        result,
+        tablesRead: tracked.tablesRead,
+        tablesWritten,
       };
+    },
+    async runHandler(path, args, tracked, context) {
+      const merged = hasStaticContext
+        ? { ...(context ?? {}), ...staticContext }
+        : (context ?? {});
+      const effective = withDraftSeam(tracked, merged);
+      return rawApp.runHandler(path, args, effective, merged);
+    },
+  };
 }
 
 export async function createDashframeServer(
@@ -505,4 +652,8 @@ function tokenMatches(actual: string, expected: string): boolean {
   return timingSafeEqual(actualBytes, expectedBytes);
 }
 
+export {
+  createDraftController,
+  type DraftController,
+} from "./draft-controller";
 export type { Functions } from "./functions";
