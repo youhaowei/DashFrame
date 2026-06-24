@@ -16,6 +16,11 @@
  *      no silent mutation or drop.
  *   7. An empty `appendToDraft` result array is a host contract violation and
  *      throws rather than silently returning null.
+ *   8. Credential commands (CreateDataSource, SetDataSourceConfig, DeleteNode)
+ *      are DENIED at the allow-list gate — no vault call, no appendToDraft call.
+ *   9. Unlisted arbitrary command types are DENIED at the gate (default-deny).
+ *  10. Draft-safe artifact commands (CreateInsight, etc.) pass the gate and
+ *      append normally.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -197,14 +202,16 @@ describe("createApplyCommandTool — error propagation", () => {
     });
 
     // An unknown type must throw — no false success, no canonical write.
+    // The allow-list gate fires BEFORE buildCommand, so the error comes from
+    // the gate ("not available to the assistant") rather than from buildCommand.
     await expect(
       tool.execute("call-bad-type", {
         type: "NonExistentCommand",
         args: {},
       }),
-    ).rejects.toThrow(/unknown command type "NonExistentCommand"/);
+    ).rejects.toThrow(/not available to the assistant/);
 
-    // appendToDraft was NOT called (buildCommand threw before reaching it).
+    // appendToDraft was NOT called (gate rejected before reaching appendToDraft).
     expect(controller.appendCalls).toHaveLength(0);
   });
 
@@ -369,7 +376,100 @@ describe("createApplyCommandTool — multi-command drive loop", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Tool metadata — executionMode, name (as a single invariant group)
+// 4. Draft-safe allow-list gate — credential + unsafe commands DENIED
+// ---------------------------------------------------------------------------
+
+describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () => {
+  /**
+   * The three command types that are explicitly DENIED:
+   *
+   *   CreateDataSource    — vault.store OS-keychain side effect (not drafted)
+   *   SetDataSourceConfig — vault.store OS-keychain side effect (not drafted)
+   *   DeleteNode          — vault.delete (DataSource path) + non-PK cascade ops
+   *
+   * The tool must reject these BEFORE calling buildCommand or appendToDraft
+   * so that no vault state is created from a supposed sandbox operation.
+   */
+  const deniedCredentialCommands = [
+    "CreateDataSource",
+    "SetDataSourceConfig",
+    "DeleteNode",
+  ] as const;
+
+  it.each(deniedCredentialCommands)(
+    "denies credential/unsafe command '%s' with an honest error — no appendToDraft, no buildCommand",
+    async (commandType) => {
+      const controller = makeMockController();
+      const buildCommandSpy = vi.fn(buildCommand);
+      const tool = createApplyCommandTool({
+        controller,
+        draftId: "draft-deny",
+        buildCommand: buildCommandSpy,
+      });
+
+      // Must throw — describing the command as unavailable to the assistant.
+      await expect(
+        tool.execute("call-deny", { type: commandType, args: {} }),
+      ).rejects.toThrow(
+        /not available to the assistant.*credential operations/i,
+      );
+
+      // CRITICAL: buildCommand must NOT have been called (gate fires before it).
+      expect(buildCommandSpy).not.toHaveBeenCalled();
+      // CRITICAL: appendToDraft must NOT have been called (no vault side effect).
+      expect(controller.appendCalls).toHaveLength(0);
+    },
+  );
+
+  it("denies an arbitrary unlisted command type (default-deny)", async () => {
+    const controller = makeMockController();
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-deny-unknown",
+      buildCommand,
+    });
+
+    await expect(
+      tool.execute("call-unknown", {
+        type: "SomeUnknownCommand",
+        args: {},
+      }),
+    ).rejects.toThrow(/not available to the assistant/i);
+
+    expect(controller.appendCalls).toHaveLength(0);
+  });
+
+  it("allows a draft-safe artifact command (CreateInsight) through the gate and appends normally", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { id: "i-allow-1" } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-allow",
+      buildCommand,
+    });
+
+    // CreateInsight is in DRAFT_SAFE_COMMANDS — must pass the gate and append.
+    const result = await tool.execute("call-allow", {
+      type: "CreateInsight",
+      args: {
+        id: "i-allow-1",
+        name: "Allowed",
+        source: { sourceType: "dataTable", sourceId: "t-1" },
+      },
+    });
+
+    // appendToDraft was called exactly once.
+    expect(controller.appendCalls).toHaveLength(1);
+    expect(controller.appendCalls[0]!.draftId).toBe("draft-allow");
+    // Result details reflect the handler value.
+    expect(result.details.commandType).toBe("CreateInsight");
+    expect(result.details.commandResult).toEqual({ id: "i-allow-1" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Tool metadata — executionMode, name (as a single invariant group)
 // ---------------------------------------------------------------------------
 
 describe("createApplyCommandTool — tool metadata", () => {

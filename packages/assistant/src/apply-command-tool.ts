@@ -2,12 +2,11 @@
  * `applyCommand` — the assistant's single generic mutation tool.
  *
  * ONE tool, generic over `{ type, args }`:
- *   - `type`  — a command name string (e.g. "CreateInsight", "AddDashboardItem").
+ *   - `type`  — a command name string from the DRAFT-SAFE ALLOW-LIST below.
  *     The full vocabulary is described in the assistant command guide (see the
  *     read layer package). The agent constructs commands by name + args; this
- *     tool delegates to `buildCommand`
- *     (injected by the host) to map the name to the wire-path envelope and then
- *     emits into the draft via the controller.
+ *     tool delegates to `buildCommand` (injected by the host) to map the name
+ *     to the wire-path envelope and emits into the draft.
  *   - `args`  — the payload object for the named command, opaque to this tool.
  *     Validation is handled by the backing mutation handler inside appendToDraft
  *     (the same path an RPC call validates). A malformed payload surfaces as a
@@ -25,6 +24,11 @@
  *   NEVER CANONICAL — appendToDraft writes the draft overlay only. Publish
  *   is a separate, human-gated step; this tool MUST NOT call publishDraft or
  *   touch canonical.
+ *
+ *   DRAFT-SAFE SUBSET — the assistant's vocabulary is NOT the full human
+ *   command vocabulary. Commands with vault/credential side-effects or
+ *   draft-overlay-unsafe cascade operations are denied at the tool boundary
+ *   before reaching buildCommand or appendToDraft (see DRAFT_SAFE_COMMANDS).
  *
  * Factory pattern: `createApplyCommandTool(options)`. The draftId is the handle
  * minted by `openDraft` at assistant session start — captured once in the
@@ -73,6 +77,84 @@ export interface DraftAppender {
 }
 
 // ---------------------------------------------------------------------------
+// Draft-safe command allow-list
+// ---------------------------------------------------------------------------
+
+/**
+ * The assistant's vocabulary: the DRAFT-SAFE subset of the full command
+ * vocabulary. DEFAULT-DENY — any command not in this set is rejected at the
+ * tool boundary before reaching `buildCommand` or `appendToDraft`.
+ *
+ * **WHY a separate allow-list (not the full vocabulary)**
+ *
+ * Two command categories are NOT safe for agent-driven draft execution:
+ *
+ * 1. Credential commands — `CreateDataSource`, `SetDataSourceConfig`, and
+ *    `DeleteNode` on a DataSource call `vault.store` / `vault.delete` /
+ *    `releaseCredentialRefs` as OS-keychain side effects OUTSIDE the DB
+ *    transaction. The draft overlay only drafts DB writes; vault ops are NOT
+ *    drafted and NOT rolled back on discard. Allowing the agent to invoke these
+ *    would create real credential state from a supposed sandbox operation.
+ *
+ * 2. Draft-overlay-unsafe deletes — `DeleteNode` on Insight or DataTable
+ *    uses non-PK-filtered cascade operations (e.g. DataFrame cleanup by
+ *    `insightId`, Visualization scan by `insightId`) that the draft overlay
+ *    cannot safely replicate. The draft handle does not emulate FK cascades,
+ *    so delete cascades inside a draft can produce incorrect results.
+ *
+ * `GetOrCreateDataSource` (no vault, PK-only insert) is excluded from the
+ * allow-list because DataSource creation is a human-owned credential setup
+ * step — even without a vault side-effect today, it creates a data-access
+ * reference that the human must review. The assistant works with existing
+ * DataSources/DataTables, not mint new ones.
+ *
+ * This set is the exhaustive additive/update artifact vocabulary the
+ * assistant can safely draft. New commands must be reviewed against the two
+ * categories above before being added here.
+ */
+export const DRAFT_SAFE_COMMANDS = new Set([
+  // DataTable (existing — assistant does not create/configure data sources)
+  "CreateDataTable",
+  "SetDataTableSchema",
+  "RefreshDataTable",
+  // Fields & Metrics (additive/update, PK-addressed, no vault)
+  "AddField",
+  "UpdateField",
+  "RemoveField",
+  "AddMetric",
+  "UpdateMetric",
+  "RemoveMetric",
+  // Insight (additive/update, PK-addressed, no vault)
+  "CreateInsight",
+  "SetInsightSource",
+  "SelectFields",
+  "SetInsightFilter",
+  "SetInsightSort",
+  "AddJoin",
+  "UpdateJoin",
+  "RemoveJoin",
+  // Visualization (additive/update, PK-addressed, no vault)
+  "CreateVisualization",
+  "SetChartType",
+  "SetChartEncoding",
+  // Dashboard (additive/update, PK-addressed, no vault)
+  "CreateDashboard",
+  "AddDashboardItem",
+  "UpdateDashboardItem",
+  "SetDashboardLayout",
+  "RemoveDashboardItem",
+  // Cross-cutting rename (PK-addressed, no vault, no cascade)
+  "RenameNode",
+  //
+  // NOT ALLOWED (default-deny for unlisted commands):
+  //   GetOrCreateDataSource — human-owned data-source creation step
+  //   CreateDataSource      — vault.store side-effect (not drafted)
+  //   SetDataSourceConfig   — vault.store side-effect (not drafted)
+  //   DeleteNode            — vault.delete (DataSource path) + non-PK cascade
+  //                           (Insight/DataTable paths); draft-overlay-unsafe
+]);
+
+// ---------------------------------------------------------------------------
 // applyCommand result detail
 // ---------------------------------------------------------------------------
 
@@ -113,11 +195,15 @@ export interface CreateApplyCommandToolOptions {
    * Command envelope the app's function registry can dispatch. Injected by the
    * server host so this package carries no direct dependency on @dashframe/server.
    *
+   * Only called for command types that pass the DRAFT_SAFE_COMMANDS allow-list
+   * gate (enforced in execute() before this function is invoked). The host does
+   * not need to re-validate the type — the gate already runs.
+   *
    * **Unknown-type guard** — The `cmd()` helper in commands.ts is typed at
    * compile time only; at runtime `cmd(unknownName, args)` silently produces
    * `{ path: undefined, args }`, which reaches `runHandler` as the cryptic
    * error `"Unknown function: undefined"`. Wrap `cmd()` with a runtime
-   * key-guard so the agent sees a clear error it can fix+retry:
+   * key-guard so the agent sees a clear error to fix+retry:
    *
    * ```ts
    * buildCommand: (type, args) => {
@@ -125,25 +211,6 @@ export interface CreateApplyCommandToolOptions {
    *   return cmd(type as CommandName, args as CommandPayloads[CommandName]);
    * }
    * ```
-   *
-   * **Draft-safety allow-list** — Not every command in the vocabulary is safe
-   * to run inside a draft. The host MUST enforce a draft-safe allow-list at
-   * this injection point before commands reach the controller. Two categories
-   * require special handling:
-   *
-   * 1. Credential commands (`CreateDataSource`, `SetDataSourceConfig`,
-   *    `DeleteNode` on a DataSource): handlers call `vault.store` / `vault.delete`
-   *    as keychain side effects outside the DB transaction. These effects are NOT
-   *    drafted and NOT rolled back on discard — a draft discard leaves orphaned
-   *    or released secrets in the OS keychain. Deny these commands in draft
-   *    context or use a draft-aware vault that no-ops the side effects.
-   *
-   * 2. Commands with draft-overlay limitations: `DeleteNode` on Insight/DataTable
-   *    cascades (DataFrame cleanup, Visualization FK) may not behave identically
-   *    inside the draft overlay vs canonical — the draft handle has no separate
-   *    FK cascade. Restrict to additive / update commands where the overlay
-   *    semantics are known-correct, or test each delete variant against the
-   *    draft controller before enabling it.
    *
    * Thrown errors propagate honestly to the agent (no swallow).
    */
@@ -168,25 +235,18 @@ export interface CreateApplyCommandToolOptions {
  * ```ts
  * // In the server host (where cmd() is available):
  * import { cmd, type CommandName, type CommandPayloads } from "./functions/commands.js";
- * import { createApplyCommandTool } from "@dashframe/assistant";
- *
- * // The set of valid command names (build from CommandPayloads keys at compile time).
- * const KNOWN_COMMANDS = new Set<string>([
- *   "CreateInsight", "CreateVisualization", "AddDashboardItem", // ... all CommandName values
- * ]);
+ * import { createApplyCommandTool, DRAFT_SAFE_COMMANDS } from "@dashframe/assistant";
  *
  * const applyCommandTool = createApplyCommandTool({
  *   controller,
  *   draftId,
- *   // Runtime guard: cmd() is typed at compile time only — unknown names silently
- *   // produce { path: undefined }, which reaches runHandler as "Unknown function: undefined".
- *   // Guard the type first so the agent gets a clear error to fix+retry.
+ *   // Only called for types that pass the DRAFT_SAFE_COMMANDS gate.
+ *   // Add a runtime key-guard so cmd() maps the name to a real path
+ *   // (cmd() is compile-time-only typed; unknown names silently produce
+ *   // { path: undefined } which reaches runHandler as a cryptic error).
  *   buildCommand: (type, args) => {
- *     if (!KNOWN_COMMANDS.has(type)) {
- *       throw new Error(
- *         `applyCommand: unknown command type "${type}". ` +
- *         `Known: ${[...KNOWN_COMMANDS].join(", ")}`
- *       );
+ *     if (!(type in COMMAND_PATHS)) {
+ *       throw new Error(`Unknown command: "${type}"`);
  *     }
  *     return cmd(type as CommandName, args as CommandPayloads[CommandName]);
  *   },
@@ -206,8 +266,10 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       "plan as a visible step — nothing is written to canonical until the draft is " +
       "published (a separate, human-gated action). Supply `type` as a command name " +
       '(e.g. "CreateInsight", "AddDashboardItem") and `args` as the matching payload ' +
-      "object for that command. On validation failure the error is returned so you " +
-      "can correct the args and retry. NEVER emits to canonical.",
+      "object for that command. Only draft-safe artifact commands are available — " +
+      "credential and data-source configuration commands are human-only operations. " +
+      "On validation failure the error is returned so you can correct the args and retry. " +
+      "NEVER emits to canonical.",
     label: "Apply Command",
     // Mutating — serialise against other tool calls in the same batch so the
     // single-writer-per-draftId contract (documented in draft-controller.ts) is
@@ -216,9 +278,10 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
     parameters: Type.Object({
       type: Type.String({
         description:
-          "The command name from the DashFrame vocabulary, e.g. " +
+          "The command name from the draft-safe DashFrame vocabulary, e.g. " +
           '"CreateInsight", "CreateVisualization", "AddDashboardItem". ' +
-          "Must be a valid CommandName from the command guide.",
+          "Must be one of the allowed command names from the command guide. " +
+          "Data-source and credential commands are not available to the assistant.",
       }),
       args: Type.Unknown({
         description:
@@ -229,6 +292,29 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
 
     async execute(_toolCallId, params) {
       const { type, args } = params;
+
+      // SECURITY GATE: enforce the draft-safe allow-list BEFORE calling
+      // buildCommand or appendToDraft. This is a default-deny boundary:
+      //
+      //   - Credential commands (CreateDataSource, SetDataSourceConfig,
+      //     DeleteNode on DataSource) call vault.store/vault.delete as
+      //     OS-keychain side effects OUTSIDE the DB transaction. These ops are
+      //     NOT drafted and NOT rolled back on discard — allowing the agent to
+      //     trigger them would create real credential state from a sandbox.
+      //
+      //   - Draft-overlay-unsafe deletes (DeleteNode on Insight/DataTable)
+      //     use non-PK-filtered cascade operations that the draft overlay
+      //     cannot safely replicate.
+      //
+      // Rejecting here — before buildCommand — means no vault call, no append,
+      // no draft mutation: a clean, auditable deny at the tool seam.
+      if (!DRAFT_SAFE_COMMANDS.has(type)) {
+        throw new Error(
+          `applyCommand: command type "${type}" is not available to the assistant. ` +
+            "Credential operations and data-source configuration are human-only. " +
+            `Available commands: ${[...DRAFT_SAFE_COMMANDS].sort().join(", ")}`,
+        );
+      }
 
       // Build the Command envelope. `buildCommand` is the host-injected bridge
       // to cmd() in commands.ts — the single source of truth for name→path
