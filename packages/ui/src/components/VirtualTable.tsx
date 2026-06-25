@@ -537,16 +537,16 @@ export function VirtualTable({
 
   const highlightHeaderStyles = {
     primary: "bg-palette-primary text-palette-primary-fg font-semibold",
-    base: "bg-blue-600 text-white font-semibold",
-    join: "bg-emerald-600 text-white font-semibold",
-    both: "bg-amber-500 text-white font-semibold",
+    base: "bg-palette-info text-palette-info-fg font-semibold",
+    join: "bg-palette-success text-palette-success-fg font-semibold",
+    both: "bg-palette-warning text-palette-warning-fg font-semibold",
   };
 
   const highlightCellStyles = {
     primary: "bg-palette-primary/15",
-    base: "bg-blue-500/10",
-    join: "bg-emerald-500/10",
-    both: "bg-amber-500/10",
+    base: "bg-palette-info/10",
+    join: "bg-palette-success/10",
+    both: "bg-palette-warning/10",
   };
 
   // Get row data by index
