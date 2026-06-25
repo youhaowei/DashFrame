@@ -64,6 +64,11 @@ describe("isPrivateHost (SSRF sink-guard)", () => {
       ["LOCALHOST"],
       ["ip6-localhost"],
       ["ip6-loopback"],
+      // Rooted FQDN form: new URL("http://localhost./").hostname === "localhost."
+      ["localhost."],
+      // Multi-trailing-dot — `new URL()` accepts these; resolvers collapse them.
+      ["localhost.."],
+      ["localhost..."],
     ])("blocks %s", (host) => {
       expect(isPrivateHost(host)).toBe(true);
     });
@@ -110,6 +115,9 @@ describe("isPrivateHost (SSRF sink-guard)", () => {
       ["http://[0:0:0:0:0:ffff:127.0.0.1]/", "IPv4-mapped loopback (expanded)"],
       ["http://[::10.0.0.1]/", "IPv4-compatible private (deprecated)"],
       ["http://2130706433/", "integer IPv4 → 127.0.0.1"],
+      ["http://0177.0.0.1/", "octal IPv4 → 127.0.0.1"],
+      ["http://0x7f.0.0.1/", "hex IPv4 → 127.0.0.1"],
+      ["http://localhost./", "rooted-FQDN localhost (trailing dot)"],
     ])("blocks %s (%s)", (url) => {
       expect(isPrivateHost(new URL(url).hostname)).toBe(true);
     });

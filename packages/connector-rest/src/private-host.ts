@@ -37,6 +37,17 @@ function unbracket(host: string): string {
   return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
 }
 
+/**
+ * Strip all trailing dots from a hostname (non-regex, to avoid a backtracking
+ * ReDoS lint flag on `\.+$`). `localhost.`, `localhost..` etc. are the same
+ * rooted FQDN as `localhost`.
+ */
+function stripTrailingDots(host: string): string {
+  let end = host.length;
+  while (end > 0 && host.charCodeAt(end - 1) === 46 /* '.' */) end--;
+  return host.slice(0, end);
+}
+
 /** Loopback / unspecified hostnames that never address a public host. */
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
@@ -129,7 +140,13 @@ function isBlockedIp(addr: ReturnType<typeof ipaddr.parse>): boolean {
  *               IPv6 brackets are tolerated but `URL.hostname` already strips them.
  */
 export function isPrivateHost(host: string): boolean {
-  const normalized = unbracket(host.trim().toLowerCase());
+  // Strip ALL trailing dots: `localhost.` (and the multi-dot `localhost..`,
+  // which `new URL()` also accepts) is the same host as `localhost` — a rooted
+  // FQDN. Stripping only one dot would let `http://localhost../` slip past the
+  // exact-match blocked-hostname set; many resolvers collapse trailing dots and
+  // still resolve it to loopback. Also lets a dotted-quad with trailing dots
+  // (`127.0.0.1..`) parse as the IP it is.
+  const normalized = stripTrailingDots(unbracket(host.trim().toLowerCase()));
   if (normalized.length === 0) return true; // empty host is never a valid public target
   if (BLOCKED_HOSTNAMES.has(normalized)) return true;
 
