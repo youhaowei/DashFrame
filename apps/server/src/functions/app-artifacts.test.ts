@@ -392,3 +392,168 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows.map((r) => r.name).sort()).toEqual(["orders", "orders (2)"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// patchDataTableArray — Zod discriminated-union guard at the handler boundary
+// ---------------------------------------------------------------------------
+//
+// Contract: the handler rejects malformed inputs with a structured error BEFORE
+// calling patchDataTableItems, so malformed JSONB payloads from any untrusted
+// client path never reach the helper.  The guard messages are distinct from the
+// helper's own throws — commenting the guard out makes these tests RED, proving
+// they exercise the guard, not the helper.
+//
+// The three DoD tests from the ticket spec:
+//   (1) mode=add without `value` → structured error
+//   (2) mode=update without `itemId` → structured error
+//   (3) mode=delete — valid path — passes (guard does not block legitimate calls)
+
+describe("patchDataTableArray — Zod guard rejects malformed inputs", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-patch-dt-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  it("should reject mode=add with no value — guard fires before helper", async () => {
+    // mode=add requires value (object with id).  The guard emits a Zod v4
+    // structured error (JSON issues array, e.g. '...expected object...').
+    // The helper's own error "fields must be an object with an id" is never
+    // reached — and the guard message is structurally distinct from it.
+    //
+    // The guard runs before loadDataTable, so no real DB row is needed.
+    const dataTableId = crypto.randomUUID();
+    await expect(
+      call("patchDataTableArray", {
+        dataTableId,
+        kind: "fields",
+        mode: "add",
+        // value intentionally omitted
+      }),
+      // Zod v4 error.message is a JSON issues array: '[ { "expected": "object", ... } ]'
+      // Distinct from the helper's plain-English "fields must be an object with an id"
+    ).rejects.toThrow(/expected.*object/i);
+  });
+
+  it("should reject mode=update with no itemId — guard fires before helper", async () => {
+    // mode=update requires itemId.  Guard emits a Zod v4 structured error.
+    // The helper's "itemId is required for update" is never reached.
+    // Guard runs before loadDataTable — no real DB row needed.
+    const dataTableId = crypto.randomUUID();
+    await expect(
+      call("patchDataTableArray", {
+        dataTableId,
+        kind: "fields",
+        mode: "update",
+        value: { name: "renamed" },
+        // itemId intentionally omitted
+      }),
+      // Zod v4 error.message: '[ { "expected": "string", ... } ]'
+      // Distinct from helper's "itemId is required for update"
+    ).rejects.toThrow(/expected.*string/i);
+  });
+
+  it("should pass valid mode=delete with itemId through the guard", async () => {
+    // A well-formed delete passes the guard and reaches loadDataTable, which
+    // throws "not found" for a nonexistent row — domain error, not guard error.
+    const dataTableId = crypto.randomUUID();
+    const itemId = crypto.randomUUID();
+    await expect(
+      call("patchDataTableArray", {
+        dataTableId,
+        kind: "fields",
+        mode: "delete",
+        itemId,
+      }),
+    ).rejects.toThrow(/not found/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// patchInsight — Zod discriminated-union guard at the handler boundary
+// ---------------------------------------------------------------------------
+//
+// Same pattern: handler validates before calling patchInsightDefinition.
+// Guard messages are distinct from helper throws — these tests go RED without
+// the guard, proving they test the boundary, not the helper internals.
+
+describe("patchInsight — Zod guard rejects malformed inputs", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-patch-insight-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  it("should reject mode=addMetric with no metric — guard fires before helper", async () => {
+    // mode=addMetric requires metric (record/object).  Guard emits a Zod v4
+    // structured error; the helper's "metric must include id, name, sourceTable,
+    // and aggregation" is never reached.
+    //
+    // The guard runs before loadInsight, so no real DB row is needed.
+    const id = crypto.randomUUID();
+    await expect(
+      call("patchInsight", {
+        id,
+        mode: "addMetric",
+        // metric intentionally omitted
+      }),
+      // Zod v4 error.message: '[ { "expected": "record", ... } ]'
+      // Distinct from helper's "metric must include id, name, sourceTable, and aggregation"
+    ).rejects.toThrow(/expected.*record/i);
+  });
+
+  it("should reject mode=addField with no fieldId — guard fires before helper", async () => {
+    // Guard runs before loadInsight — no real DB row needed.
+    const id = crypto.randomUUID();
+    await expect(
+      call("patchInsight", {
+        id,
+        mode: "addField",
+        // fieldId intentionally omitted
+      }),
+      // Zod v4 error.message: '[ { "expected": "string", ... } ]'
+      // Distinct from helper's "fieldId is required for addField"
+    ).rejects.toThrow(/expected.*string/i);
+  });
+
+  it("should reject an unsupported mode before reaching the helper", async () => {
+    // Zod discriminated union rejects an unrecognized discriminator value.
+    // Guard runs before loadInsight — no real DB row needed.
+    const id = crypto.randomUUID();
+    await expect(
+      call("patchInsight", {
+        id,
+        mode: "bogusMode",
+      }),
+      // Zod v4 error for invalid union discriminator uses code "invalid_union".
+    ).rejects.toThrow(/invalid_union/i);
+  });
+});
