@@ -598,8 +598,28 @@ function processSingleJoin(
   // Build SELECT parts using UUID-based aliases
   // For the left side, use the field alias (field_<uuid>) since it's already aliased
   const leftKeyAlias = fieldIdToColumnAlias(currentKeyField.id);
+
+  // Validate join type early so we can use it for the key-projection decision.
+  const rawJoinType = join.type ?? "inner";
+  if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) {
+    throw new Error(
+      `processSingleJoin: invalid join type "${rawJoinType}" — must be one of: inner, left, right, full`,
+    );
+  }
+  const joinTypeSQL = rawJoinType.toUpperCase();
+
+  // For INNER/LEFT joins the left key is always non-null when a row appears, so
+  // a bare reference is safe.  For RIGHT/FULL joins an unmatched right-side row
+  // has NULL in the left key while the discarded right key carries the real
+  // value.  We project COALESCE(left_key_alias, right_table.right_col) so the
+  // result is always non-null for any matched or unmatched row.
+  const isRightOrFull = rawJoinType === "right" || rawJoinType === "full";
   const baseSelects = currentFields.map((field) => {
     const alias = fieldIdToColumnAlias(field.id);
+    if (isRightOrFull && alias === leftKeyAlias) {
+      // COALESCE to pick up the right-side key for unmatched right-only rows.
+      return `COALESCE("${leftKeyAlias}", ${quoteIdentifier(joinDisplayName)}.${quoteIdentifier(rightColName)}) AS "${leftKeyAlias}"`;
+    }
     return `"${alias}"`;
   });
 
@@ -620,14 +640,7 @@ function processSingleJoin(
 
   const selectParts = [...baseSelects, ...joinSelects];
 
-  // Build JOIN SQL using the UUID alias for the join condition
-  const rawJoinType = join.type ?? "inner";
-  if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) {
-    throw new Error(
-      `processSingleJoin: invalid join type "${rawJoinType}" — must be one of: inner, left, right, full`,
-    );
-  }
-  const joinTypeSQL = rawJoinType.toUpperCase();
+  // Build JOIN SQL using the UUID alias for the join condition.
   const sql = `(
     SELECT ${selectParts.join(", ")}
     FROM ${currentSQL}

@@ -841,6 +841,138 @@ describe("buildInsightSQL — sink guards: sortDirection whitelist", () => {
   });
 });
 
+describe("buildInsightSQL — COALESCE for RIGHT/FULL join key", () => {
+  // Fixtures: base "employees" table joined to "departments" on dept_id.
+  // For a RIGHT or FULL join an unmatched right-side row has NULL in the left
+  // join key (emp_dept_id alias), while the dropped right key (dept_id from
+  // departments) carries the real value.  The fix must project
+  // COALESCE("left_alias", "departments"."dept_id") AS "left_alias" so the
+  // result is never NULL for unmatched rows.
+  const EMP_TABLE_ID = "ee000000-0000-0000-0000-000000000001" as UUID;
+  const EMP_DF_ID = "ee000000-0000-0000-0000-000000000002" as UUID;
+  const DEPT_TABLE_ID = "dd000000-0000-0000-0000-000000000001" as UUID;
+  const DEPT_DF_ID = "dd000000-0000-0000-0000-000000000002" as UUID;
+
+  const EMP_ID_FIELD: Field = {
+    id: "ee111111-aaaa-aaaa-aaaa-111111111111" as UUID,
+    name: "Employee ID",
+    tableId: EMP_TABLE_ID,
+    columnName: "emp_id",
+    type: "string",
+  };
+  const EMP_DEPT_ID_FIELD: Field = {
+    id: "ee222222-bbbb-bbbb-bbbb-222222222222" as UUID,
+    name: "Department ID (emp)",
+    tableId: EMP_TABLE_ID,
+    columnName: "dept_id",
+    type: "string",
+  };
+  const DEPT_DEPT_ID_FIELD: Field = {
+    id: "dd333333-cccc-cccc-cccc-333333333333" as UUID,
+    name: "Department ID",
+    tableId: DEPT_TABLE_ID,
+    columnName: "dept_id",
+    type: "string",
+  };
+  const DEPT_NAME_FIELD: Field = {
+    id: "dd444444-dddd-dddd-dddd-444444444444" as UUID,
+    name: "Dept Name",
+    tableId: DEPT_TABLE_ID,
+    columnName: "dept_name",
+    type: "string",
+  };
+
+  const empTable: DataTable = {
+    id: EMP_TABLE_ID,
+    name: "employees",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "employees.csv",
+    fields: [EMP_ID_FIELD, EMP_DEPT_ID_FIELD],
+    metrics: [],
+    dataFrameId: EMP_DF_ID,
+    createdAt: 0,
+  };
+  const deptTable: DataTable = {
+    id: DEPT_TABLE_ID,
+    name: "departments",
+    dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+    table: "departments.csv",
+    fields: [DEPT_DEPT_ID_FIELD, DEPT_NAME_FIELD],
+    metrics: [],
+    dataFrameId: DEPT_DF_ID,
+    createdAt: 0,
+  };
+
+  const leftKeyAlias = fieldIdToColumnAlias(EMP_DEPT_ID_FIELD.id);
+
+  for (const joinType of ["right", "full"] as const) {
+    it(`emits COALESCE for the join key on a ${joinType.toUpperCase()} join`, () => {
+      const insight: Insight = {
+        id: "yw305000-0000-0000-0000-000000000001" as UUID,
+        name: `Employees ${joinType} join departments`,
+        baseTableId: EMP_TABLE_ID,
+        selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
+        metrics: [],
+        joins: [
+          {
+            type: joinType,
+            rightTableId: DEPT_TABLE_ID,
+            leftKey: "dept_id",
+            rightKey: "dept_id",
+          },
+        ],
+        createdAt: 0,
+      };
+
+      const sql = buildInsightSQL(
+        empTable,
+        new Map([[DEPT_TABLE_ID, deptTable]]),
+        insight,
+        { mode: "query" },
+      );
+      expect(sql).not.toBeNull();
+
+      // Single scoped assertion: the exact COALESCE projection. A bare
+      // `toContain("dept_id")` would pass in the bug state too (it appears in
+      // the ON clause); this substring only holds when the join key is
+      // projected via COALESCE(left_alias, right_table.right_col).
+      expect(sql!).toContain(
+        `COALESCE("${leftKeyAlias}", "departments"."dept_id")`,
+      );
+    });
+  }
+
+  for (const joinType of ["inner", "left"] as const) {
+    it(`does NOT emit COALESCE for a ${joinType.toUpperCase()} join (existing behavior preserved)`, () => {
+      const insight: Insight = {
+        id: "yw305000-0000-0000-0000-000000000002" as UUID,
+        name: `Employees ${joinType} join departments`,
+        baseTableId: EMP_TABLE_ID,
+        selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
+        metrics: [],
+        joins: [
+          {
+            type: joinType,
+            rightTableId: DEPT_TABLE_ID,
+            leftKey: "dept_id",
+            rightKey: "dept_id",
+          },
+        ],
+        createdAt: 0,
+      };
+
+      const sql = buildInsightSQL(
+        empTable,
+        new Map([[DEPT_TABLE_ID, deptTable]]),
+        insight,
+        { mode: "query" },
+      );
+      expect(sql).not.toBeNull();
+      expect(sql!).not.toContain("COALESCE");
+    });
+  }
+});
+
 describe("buildInsightSQL — identifier quoting: embedded double-quotes in display names", () => {
   it("produces valid SQL when the table name contains an embedded double-quote", () => {
     // A CSV column named 'sales "2024"' becomes the table display alias after
