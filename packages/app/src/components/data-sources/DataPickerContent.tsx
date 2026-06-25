@@ -46,6 +46,11 @@ export interface DataPickerContentProps {
    */
   showNotion?: boolean;
   /**
+   * Whether to show Postgres connection option (connect UI not yet wired)
+   * @default false
+   */
+  showPostgres?: boolean;
+  /**
    * Whether to show insights section (requires onInsightSelect to be provided)
    * @default true
    */
@@ -69,6 +74,7 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showNotion = false,
+  showPostgres = false,
   showInsights = true,
 }: DataPickerContentProps) {
   const { data: dataSources = [] } = useDataSources();
@@ -274,6 +280,7 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               showNotion={showNotion}
+              showPostgres={showPostgres}
             />
           </SectionList>
         )}

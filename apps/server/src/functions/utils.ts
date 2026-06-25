@@ -19,6 +19,8 @@ export type DataSourceConfig = {
   apiKey?: string;
   /** SecretRef for the connection string (format: `secret:<uuid>`). Never plaintext. */
   connectionString?: string;
+  /** Optional non-credential config for Postgres: default schema to list (default: "public"). */
+  defaultSchema?: string;
 };
 
 /**

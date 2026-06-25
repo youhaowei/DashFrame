@@ -23,6 +23,11 @@ export interface AddConnectionPanelProps {
   ) => void;
   /** Whether to show Notion connector (feature flag) */
   showNotion?: boolean;
+  /**
+   * Whether to show Postgres connector (feature flag, default false).
+   * Hidden until the renderer-side connect UI is complete.
+   */
+  showPostgres?: boolean;
 }
 
 /**
@@ -43,9 +48,13 @@ export function AddConnectionPanel({
   onFileSelect,
   onConnect,
   showNotion = false,
+  showPostgres = false,
 }: AddConnectionPanelProps) {
   // Get connectors from registry with feature flags
-  const connectors = useMemo(() => getConnectors({ showNotion }), [showNotion]);
+  const connectors = useMemo(
+    () => getConnectors({ showNotion, showPostgres }),
+    [showNotion, showPostgres],
+  );
 
   return (
     <div className="space-y-6">

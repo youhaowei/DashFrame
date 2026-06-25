@@ -16,6 +16,7 @@
   "dependencies": {
     "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
+    "@dashframe/connector-postgres": "workspace:*",
     "@dashframe/core": "workspace:*",
     "@dashframe/csv": "workspace:*",
     "@dashframe/engine": "workspace:*",

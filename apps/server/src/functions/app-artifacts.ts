@@ -1,4 +1,5 @@
 import { makeNotionConnector } from "@dashframe/connector-notion";
+import { makePostgresConnector } from "@dashframe/connector-postgres";
 // The canonical bound-resolver type — aliased for readability at the mint site.
 import type { SecretResolver as BoundSecretResolver } from "@dashframe/engine";
 import { schema } from "@dashframe/server-core";
@@ -1193,6 +1194,124 @@ const queryNotionDatabase = mutation({
   },
 });
 
+// ============================================================================
+// Postgres connector factory — mirrors notionConnectorFor.
+// postgresConnectorFor is the single seam where a postgres connector is
+// created from a DataSource id. Both postgres data-plane routes go through it.
+// ============================================================================
+
+/**
+ * Build a Postgres connector for a DataSource: read the row, verify it's a
+ * postgres source, mint a bound resolver from the stored connectionString ref,
+ * and construct the connector.
+ *
+ * @throws when the row is missing, not a postgres source, or has no valid ref
+ */
+async function postgresConnectorFor(
+  ctx: FunctionContext,
+  dataSourceId: UUID,
+): Promise<ReturnType<typeof makePostgresConnector>> {
+  const vault = vaultFromCtx(ctx);
+  const row = (await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .first()) as DataSourceRow | undefined;
+  if (!row) throw new Error(`DataSource ${dataSourceId} not found`);
+  if (row.kind !== "postgres") {
+    throw new Error(`DataSource ${dataSourceId} is not a postgres source`);
+  }
+  const config = (row.config ?? {}) as DataSourceConfig;
+  // connectionString holds the SecretRef (same vault slot as Notion's apiKey).
+  const auth = mintBoundResolver(
+    vault,
+    config.connectionString,
+    `DataSource(${dataSourceId})`,
+  );
+  // connectionStringRef is for introspection only; the bound `auth` resolver
+  // is the actual credential source. Pass the ref as-is — never coerce to "".
+  //
+  // Sink guard: defaultSchema flows into quoteIdentifier() in connect(); verify
+  // it's a string before passing it through (config is an untyped JSON blob).
+  const defaultSchema =
+    typeof config.defaultSchema === "string" ? config.defaultSchema : undefined;
+  return makePostgresConnector(auth, {
+    connectionStringRef: config.connectionString,
+    defaultSchema,
+  });
+}
+
+// ============================================================================
+// Postgres data-plane routes — server-side connector calls via bound resolver.
+// postgresConnectorFor is the only place postgres connectors are constructed.
+// ============================================================================
+
+/**
+ * Serializable result of a Postgres query — raw Arrow IPC buffer (base64) +
+ * field ids + field definitions. The renderer materializes the browser
+ * DataFrame from this; no plaintext and no live DataFrame crosses the boundary.
+ */
+type PostgresQueryResult = {
+  arrowBuffer: string;
+  fieldIds: string[];
+  fields: Field[];
+  rowCount: number;
+};
+
+/**
+ * listPostgresTables — connect to Postgres and list tables/views in the
+ * configured schema.
+ *
+ * Resolves the credential via the vault; the handler has no plaintext in scope.
+ * Accepts the DataSource id — the ref is read from the row, never from the client.
+ */
+const listPostgresTables = mutation({
+  args: { dataSourceId: uuid },
+  handler: async (
+    ctx,
+    { dataSourceId },
+  ): Promise<{ id: string; title: string }[]> => {
+    const connector = await postgresConnectorFor(ctx, dataSourceId);
+    const tables = await connector.connect();
+    return tables.map((t) => ({ id: t.id, title: t.name }));
+  },
+});
+
+/**
+ * queryPostgresTable — fetch rows from a Postgres table or run a SELECT
+ * server-side and return a serializable result the renderer can materialize.
+ *
+ * The credential resolves via the bound resolver inside `connector.query`; the
+ * handler has no plaintext in scope and the client receives only data.
+ * The connector enforces read-only at both layers (allowlist + SET SESSION).
+ */
+const queryPostgresTable = mutation({
+  args: {
+    dataSourceId: uuid,
+    /** "schema.table" ref from listPostgresTables, or a user SELECT statement */
+    databaseId: text,
+    tableId: uuid,
+    /** Optional cap on rows fetched for the preview. */
+    limit: int.optional(),
+  },
+  handler: async (
+    ctx,
+    { dataSourceId, databaseId, tableId, limit },
+  ): Promise<PostgresQueryResult> => {
+    const connector = await postgresConnectorFor(ctx, dataSourceId);
+    const pagination =
+      limit !== undefined && Number.isInteger(limit) && limit > 0
+        ? { pagination: { offset: 0, limit } }
+        : undefined;
+    const result = await connector.query(databaseId, tableId, pagination);
+    return {
+      arrowBuffer: result.arrowBuffer,
+      fieldIds: result.fieldIds,
+      fields: result.fields,
+      rowCount: result.rowCount,
+    };
+  },
+});
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -1228,4 +1347,7 @@ export const appArtifactFunctions = {
   // Notion data-plane routes (auth-blind via bound resolver)
   listNotionDatabases,
   queryNotionDatabase,
+  // Postgres data-plane routes (auth-blind via bound resolver)
+  listPostgresTables,
+  queryPostgresTable,
 };
