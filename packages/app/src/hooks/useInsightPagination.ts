@@ -226,12 +226,20 @@ export function useInsightPagination({
 
   // Initialize: resolve tables, load DataFrames, get count
   useEffect(() => {
-    // Skip initialization if hook is disabled (lazy loading optimization)
+    // Skip initialization if hook is disabled (lazy loading optimization).
+    // Bump the token on this path too: if `enabled` flips false while a prior
+    // init is in flight (e.g. the insight clears on a mounted VisualizationDisplay),
+    // incrementing here invalidates that in-flight init's gen check so its stale
+    // result is discarded instead of landing over the now-disabled state.
     if (!enabled) {
+      ++genRef.current;
       return;
     }
 
     if (!connection || !isInitialized || isDuckDBLoading) {
+      // Same rationale for the not-ready path: bump so an in-flight init from a
+      // moment when DuckDB WAS ready cannot land after it goes unavailable.
+      ++genRef.current;
       requestAnimationFrame(() => setIsReady(false));
       return;
     }

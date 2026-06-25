@@ -128,6 +128,13 @@ export function useDataFrameData(
       isDuckDBLoading ||
       skip
     ) {
+      // Bump the token even on the skip path. If the hook flips to skipped /
+      // no-id while a prior load is in flight (e.g. dataFrameId cleared or
+      // skip toggled true on a mounted component), incrementing here means the
+      // in-flight load's token check (currentLoadCount === loadCountRef.current)
+      // now fails, so its resolved-but-stale result is discarded instead of
+      // landing over the skipped state.
+      ++loadCountRef.current;
       return;
     }
 

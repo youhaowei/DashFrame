@@ -45,6 +45,12 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   // Fetch total count and column info on mount
   useEffect(() => {
     if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
+      // Bump the token on the skip path too. If the hook flips to skipped /
+      // no-id while a prior init is in flight (dataFrameId cleared, or DuckDB
+      // goes unavailable on a mounted component), incrementing here invalidates
+      // that in-flight init's gen check so its stale result is discarded
+      // instead of landing over the now-skipped state.
+      ++genRef.current;
       requestAnimationFrame(() => setIsReady(false));
       return;
     }

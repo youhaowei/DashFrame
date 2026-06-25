@@ -191,4 +191,51 @@ describe("useInsightPagination — stale-state guard", () => {
     expect(result.current.totalCount).toBe(42);
     expect(result.current.isReady).toBe(true);
   });
+
+  it("discards an in-flight init when `enabled` flips false before it resolves", async () => {
+    // Reachable path: VisualizationDisplay passes `enabled: !!insightForView`,
+    // so a mounted component can flip enabled true→false while an init is in
+    // flight (the insight clears). The skip branch must invalidate the
+    // in-flight init's generation token so its stale count/readiness never land.
+    const tableA = makeDataTable("tbl-a", "df-a");
+    const dfA = makeDataFrame("df-a");
+    const insightA = makeInsight("ins-a", "tbl-a");
+
+    let resolveTableA!: (value: DataTable) => void;
+    const slowTableAPromise = new Promise<DataTable>((res) => {
+      resolveTableA = res;
+    });
+
+    mockGetDataTable.mockImplementation((id: string) =>
+      id === "tbl-a" ? slowTableAPromise : Promise.resolve(null),
+    );
+    mockGetDataFrame.mockImplementation((id: string) =>
+      id === "df-a" ? Promise.resolve(dfA) : Promise.resolve(null),
+    );
+    mockBuildInsightSQL.mockReturnValue("SELECT 1 FROM tbl_a");
+    // If A's init were ever allowed to complete, it would set count=99 / ready.
+    mockConnection.query = vi.fn().mockResolvedValue({
+      toArray: () => [{ count: BigInt(99) }],
+    });
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useInsightPagination({ insight: insightA, enabled }),
+      { initialProps: { enabled: true } },
+    );
+
+    // A's init is stuck at getDataTable("tbl-a"). Disable the hook mid-flight.
+    rerender({ enabled: false });
+
+    // Release A's slow getDataTable — its continuation must be discarded
+    // because the !enabled re-render bumped the generation token.
+    await act(async () => {
+      resolveTableA(tableA);
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    // The disabled hook must expose neither A's count nor a ready state.
+    expect(result.current.totalCount).toBe(0);
+    expect(result.current.isReady).toBe(false);
+  });
 });

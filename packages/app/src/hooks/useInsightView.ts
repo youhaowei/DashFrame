@@ -15,7 +15,7 @@ import type {
   InsightMetric,
   UUID,
 } from "@dashframe/types";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Check whether a DataFrame can be served to the native chart engine.
@@ -256,15 +256,25 @@ export function useInsightView(
   // from superseded configs can discard their setState calls rather than
   // overwriting the state that a newer config already wrote.
   //
-  // Updated inside a useEffect (declared before the createView effect so it
-  // runs first each render) rather than synchronously during render, which
-  // avoids the react-compiler lint rule against ref mutation during render.
-  // By the time any async continuation from a prior render resumes, this
-  // effect has already fired and the ref reflects the current configKey.
+  // Synced in a useLayoutEffect (NOT a passive useEffect): layout effects
+  // flush synchronously inside React's commit phase, before control returns to
+  // the event loop. A passive useEffect runs in a later macrotask, leaving a
+  // window where config B has committed but the ref still holds A — an
+  // in-flight createView for A whose promise resolves as a microtask in that
+  // window would read currentConfigKeyRef.current === A, pass its own guard,
+  // and write A's resolvedViewName/nativeCapable over B's. useLayoutEffect
+  // closes that window because no microtask continuation can interleave before
+  // the ref is updated. (This package is the Electron/web renderer — no SSR —
+  // so the layout-effect SSR warning does not apply; VisualizationDisplay in
+  // the same package already uses useLayoutEffect.)
+  //
+  // React always flushes layout effects before passive effects, so this runs
+  // before the createView (passive) effect each render regardless of source
+  // ordering — the ref reflects the current configKey before createView reads
+  // it. Updating the ref here rather than during render also satisfies the
+  // react-compiler lint rule against ref mutation during render.
   const currentConfigKeyRef = useRef<string | null>(configKey);
-  // Sync the ref to the current configKey after every render. Declared before
-  // the createView effect so React fires this first when both deps change.
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentConfigKeyRef.current = configKey;
   });
 
