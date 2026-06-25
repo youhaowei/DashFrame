@@ -2,7 +2,7 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, useDataFrames } from "@dashframe/core";
 import type { UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Hook for paginated DataFrame queries via DuckDB
@@ -38,6 +38,10 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Generation counter: incremented on every effect run so stale async
+  // completions from a superseded dataFrameId never overwrite current state.
+  const genRef = useRef(0);
+
   // Fetch total count and column info on mount
   useEffect(() => {
     if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
@@ -45,9 +49,14 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
       return;
     }
 
+    // Capture token before the first await — any earlier in-flight init that
+    // resolves after this point will see a stale token and discard its results.
+    const gen = ++genRef.current;
+
     const init = async () => {
       try {
         const dataFrame = await getDataFrame(dataFrameId);
+        if (gen !== genRef.current) return; // superseded
         if (!dataFrame) {
           setError(`DataFrame not found: ${dataFrameId}`);
           setIsReady(false);
@@ -56,32 +65,41 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
 
         // Load table into DuckDB and get count
         const queryBuilder = await dataFrame.load(connection);
+        if (gen !== genRef.current) return; // superseded
 
         // Get total count
         const countSql = `SELECT COUNT(*) as count FROM (${await queryBuilder.sql()})`;
         const countResult = await connection.query(countSql);
+        if (gen !== genRef.current) return; // superseded
         const count = Number(countResult.toArray()[0]?.count ?? 0);
         setTotalCount(count);
 
         // Get column info from first row
         const previewSql = await queryBuilder.limit(1).sql();
         const previewResult = await connection.query(previewSql);
+        if (gen !== genRef.current) return; // superseded
         const rows = previewResult.toArray() as Record<string, unknown>[];
 
         if (rows.length > 0) {
           const cols = Object.keys(rows[0]!)
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
-          requestAnimationFrame(() => setColumns(cols));
+          requestAnimationFrame(() => {
+            if (gen !== genRef.current) return; // superseded inside rAF
+            setColumns(cols);
+          });
         }
 
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setIsReady(true);
           setError(null);
         });
       } catch (err) {
         console.error("Failed to initialize DataFrame pagination:", err);
+        if (gen !== genRef.current) return; // superseded
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setError(err instanceof Error ? err.message : "Failed to initialize");
           setIsReady(false);
         });

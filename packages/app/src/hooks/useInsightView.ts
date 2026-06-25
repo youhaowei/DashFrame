@@ -15,7 +15,7 @@ import type {
   InsightMetric,
   UUID,
 } from "@dashframe/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Check whether a DataFrame can be served to the native chart engine.
@@ -252,6 +252,18 @@ export function useInsightView(
     ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}`
     : null;
 
+  // Track the most recently rendered configKey so in-flight createView calls
+  // from superseded configs can discard their setState calls rather than
+  // overwriting the state that a newer config already wrote.
+  //
+  // Updated synchronously during render (not inside an effect) so it always
+  // reflects the latest configKey at the time any async continuation resumes.
+  // This is safe because configKey is derived from stable primitives (insightId,
+  // joinsKey, effectiveFiltersKey) and does not change between renders unless
+  // the insight config genuinely changed.
+  const currentConfigKeyRef = useRef<string | null>(configKey);
+  currentConfigKeyRef.current = configKey;
+
   // Check module-level cache for existing view (survives Strict Mode remounts)
   const cachedView = configKey
     ? (createdViewsCache.get(configKey) ?? null)
@@ -369,18 +381,20 @@ export function useInsightView(
         // Get base table
         const baseTable = await getDataTable(baseTableId);
         if (!baseTable || !baseTable.dataFrameId) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Base table not found");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
         // Ensure base DataFrame is loaded
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
         if (!baseDataFrame) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Base DataFrame not found");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
@@ -461,9 +475,10 @@ export function useInsightView(
         );
 
         if (!sql) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Failed to build SQL for insight view");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
@@ -500,15 +515,21 @@ export function useInsightView(
         });
         pendingRequests.delete(configKey);
 
+        // Guard: if the component has moved on to a different configKey while
+        // this async path was in-flight, discard these results. The newer
+        // config's createView will (or already did) set the correct state.
+        if (currentConfigKeyRef.current !== configKey) return;
+
         setResolvedViewName(newViewName);
         setResolvedConfigKey(configKey);
         setNativeCapable(allNativeCapable);
         setError(null);
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);
+        pendingRequests.delete(configKey);
+        if (currentConfigKeyRef.current !== configKey) return;
         setError(err instanceof Error ? err.message : "Failed to create view");
         setResolvedViewName(null);
-        pendingRequests.delete(configKey);
       }
     };
 

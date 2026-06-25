@@ -131,19 +131,22 @@ export function useDataFrameData(
       return;
     }
 
-    const dataFrame = await getDataFrame(dataFrameId);
-    if (!dataFrame) {
-      setError(`DataFrame not found: ${dataFrameId}`);
-      setData(null);
-      setIsLoading(false);
-      return;
-    }
-
-    // Increment load count to track this specific load operation
+    // Capture the generation token BEFORE the first await so that any
+    // in-flight request from a superseded dataFrameId can be discarded.
     const currentLoadCount = ++loadCountRef.current;
 
     setIsLoading(true);
     setError(null);
+
+    const dataFrame = await getDataFrame(dataFrameId);
+    if (!dataFrame) {
+      if (currentLoadCount === loadCountRef.current) {
+        setError(`DataFrame not found: ${dataFrameId}`);
+        setData(null);
+        setIsLoading(false);
+      }
+      return;
+    }
 
     try {
       // Wait for any existing load of this DataFrame to complete (mutex)

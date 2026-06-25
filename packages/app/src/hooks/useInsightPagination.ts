@@ -88,6 +88,10 @@ export function useInsightPagination({
   const [error, setError] = useState<string | null>(null);
   const [resolvedFields, setResolvedFields] = useState<Field[]>([]);
 
+  // Generation counter: incremented on every init effect run so stale async
+  // completions from a superseded insight config never overwrite current state.
+  const genRef = useRef(0);
+
   // Cache resolved tables to avoid re-fetching
   const resolvedTablesRef = useRef<{
     baseTable: DataTable | null;
@@ -185,7 +189,9 @@ export function useInsightPagination({
 
       const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
       if (!baseDataFrame) {
-        setError(`Base DataFrame not found: ${baseTable.dataFrameId}`);
+        // Do not call setError here — loadDataFrames has no access to the
+        // caller's generation token. The caller (init) checks the token after
+        // awaiting this function and emits the error there.
         return false;
       }
 
@@ -226,10 +232,15 @@ export function useInsightPagination({
       return;
     }
 
+    // Capture token before the first await — any earlier in-flight init that
+    // resolves after this point will see a stale token and discard its results.
+    const gen = ++genRef.current;
+
     const init = async () => {
       try {
         // Resolve tables
         const { baseTable, joinedTables, allFields } = await resolveTables();
+        if (gen !== genRef.current) return; // superseded
         if (!baseTable) {
           setError("Base table not found");
           setIsReady(false);
@@ -239,9 +250,13 @@ export function useInsightPagination({
         // Store resolved fields for display name mapping
         setResolvedFields(allFields);
 
-        // Load DataFrames into DuckDB
+        // Load DataFrames into DuckDB.
+        // Error messages from failed loads are emitted HERE (after the gen check)
+        // rather than inside loadDataFrames, which has no access to the gen token.
         const loaded = await loadDataFrames(baseTable, joinedTables);
+        if (gen !== genRef.current) return; // superseded
         if (!loaded) {
+          setError(`Failed to load DataFrames for table: ${baseTable.id}`);
           setIsReady(false);
           return;
         }
@@ -272,6 +287,7 @@ export function useInsightPagination({
         // Execute count query
         const countQuery = `SELECT COUNT(*) as count FROM (${countSQL})`;
         const countResult = await connection.query(countQuery);
+        if (gen !== genRef.current) return; // superseded
         const count = Number(countResult.toArray()[0]?.count ?? 0);
         setTotalCount(count);
 
@@ -284,6 +300,7 @@ export function useInsightPagination({
 
         if (previewSQL) {
           const previewResult = await connection.query(previewSQL);
+          if (gen !== genRef.current) return; // superseded
           const rows = previewResult.toArray() as Record<string, unknown>[];
 
           if (rows.length > 0) {
@@ -291,6 +308,7 @@ export function useInsightPagination({
               .filter((key) => !key.startsWith("_"))
               .map((name) => ({ name }));
             requestAnimationFrame(() => {
+              if (gen !== genRef.current) return; // superseded inside rAF
               setColumns(cols);
               setFieldCount(cols.length);
             });
@@ -298,12 +316,15 @@ export function useInsightPagination({
         }
 
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setIsReady(true);
           setError(null);
         });
       } catch (err) {
         console.error("Failed to initialize insight pagination:", err);
+        if (gen !== genRef.current) return; // superseded
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setError(err instanceof Error ? err.message : "Failed to initialize");
           setIsReady(false);
         });
