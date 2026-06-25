@@ -12,6 +12,7 @@ import {
   buildInsightSQL,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
+  metricToSqlExpression,
   type BuildInsightSQLOptions,
 } from "./insight-sql";
 
@@ -864,5 +865,65 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     // break out of the identifier — if the SQL were broken, DuckDB would reject it.
     // A simple structural check: the AS alias must be wrapped in outer quotes.
     expect(sql!).toMatch(/AS "my ""best"" sales table"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// metricToSqlExpression — DSL format contract
+//
+// Contract: metricToSqlExpression emits UNQUOTED column names.
+// This string is consumed by vgplot's parseEncodingValue DSL parser, which
+// extracts the column name via regex (e.g. /^sum\((.+)\)$/i) and passes it
+// to the Mosaic API (api.sum(columnName)). Mosaic quotes identifiers itself.
+// Quoting here would double-process: the regex would extract '"amount"' (with
+// embedded quotes) and Mosaic would look for a column literally named "amount"
+// (with quotes), which does not exist — charts would fail to render.
+//
+// The SQL injection guard for metricToSqlExpression is Mosaic, not this layer.
+// The real SQL sinks that need quoting are:
+//   - applyDateTransformToSql (date_trunc / monthname expressions)
+//   - buildColumnSelectWithFieldId, resolveMetricAggRef, buildMetricExpressionWithUUID
+//     (all inside buildInsightSQL — these call quoteIdentifier already)
+// ---------------------------------------------------------------------------
+
+describe("metricToSqlExpression — DSL format contract", () => {
+  const baseMetric = (overrides: Partial<InsightMetric>): InsightMetric => ({
+    id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
+    name: "Test Metric",
+    sourceTable: TABLE_ID,
+    aggregation: "sum",
+    ...overrides,
+  });
+
+  it("count(*) emits unquoted star", () => {
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "count", columnName: undefined }),
+    );
+    expect(expr).toBe("count(*)");
+  });
+
+  it("standard aggregation emits unquoted column name (vgplot DSL format)", () => {
+    // Must NOT be sum("amount") — vgplot regex would extract '"amount"' with quotes
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "sum", columnName: "amount" }),
+    );
+    expect(expr).toBe("sum(amount)");
+    expect(expr).not.toContain('"amount"');
+  });
+
+  it("count_distinct emits unquoted column name (vgplot DSL format)", () => {
+    // Must NOT be count_distinct("user_id") — same round-trip breakage
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "count_distinct", columnName: "user_id" }),
+    );
+    expect(expr).toBe("count_distinct(user_id)");
+    expect(expr).not.toContain('"user_id"');
+  });
+
+  it("aggregation with no columnName falls back to *", () => {
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "sum", columnName: undefined }),
+    );
+    expect(expr).toBe("sum(*)");
   });
 });

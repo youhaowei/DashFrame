@@ -27,6 +27,8 @@ import type {
   UUID,
 } from "@dashframe/types";
 
+import { quoteIdentifier } from "./quoting";
+
 // ============================================================================
 // UUID Column Naming Utilities
 // ============================================================================
@@ -113,12 +115,16 @@ export function metricToSqlExpression(metric: InsightMetric): string {
     return "count(*)";
   }
 
-  // COUNT(DISTINCT column)
+  // COUNT(DISTINCT column) — unquoted: this string is consumed by vgplot's
+  // parseEncodingValue DSL parser, which re-extracts the column name via regex
+  // and passes it to Mosaic (which quotes on its own). Quoting here would
+  // double-process the identifier and break the chart render.
   if (agg === "count_distinct" && metric.columnName) {
     return `count_distinct(${metric.columnName})`;
   }
 
-  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
+  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT — same reasoning as above.
+  // The Mosaic API (api.sum(col), api.avg(col), etc.) quotes internally.
   return `${agg}(${metric.columnName ?? "*"})`;
 }
 
@@ -826,11 +832,6 @@ function resolveFilterColumnRef(
     return `"${fieldIdToColumnAlias(field.id)}"`;
   }
   return `"${field.columnName ?? field.name}"`;
-}
-
-/** Quote a SQL identifier, escaping embedded double-quotes by doubling them. */
-function quoteIdentifier(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**

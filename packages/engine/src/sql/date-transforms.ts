@@ -27,6 +27,8 @@ import type {
   TemporalAggregation,
 } from "@dashframe/types";
 
+import { quoteIdentifier } from "./quoting";
+
 // ============================================================================
 // Auto-Selection Algorithm
 // ============================================================================
@@ -95,21 +97,19 @@ export function selectTemporalAggregation(
  * ```typescript
  * // Temporal aggregation
  * applyDateTransformToSql('created_at', { kind: 'temporal', aggregation: 'yearMonth' })
- * // Returns: "date_trunc('month', created_at)"
+ * // Returns: "date_trunc('month', \"created_at\")"
  *
  * // Categorical grouping
  * applyDateTransformToSql('created_at', { kind: 'categorical', groupBy: 'monthName' })
- * // Returns: "monthname(created_at)"
+ * // Returns: "monthname(\"created_at\")"
  * ```
  */
 export function applyDateTransformToSql(
   columnName: string,
   transform: DateTransform,
 ): string {
-  // Ensure column name is quoted if needed
-  const quotedColumn = columnName.startsWith('"')
-    ? columnName
-    : `"${columnName}"`;
+  // Quote the identifier at the sink — guard holds regardless of provenance.
+  const quotedColumn = quoteIdentifier(columnName);
 
   if (transform.kind === "temporal") {
     switch (transform.aggregation) {
