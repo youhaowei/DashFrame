@@ -29,6 +29,7 @@ import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import type { FunctionContext } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
+import { z } from "zod";
 
 import {
   applyCredentialField,
@@ -653,6 +654,27 @@ const removeDataTable = mutation({
   },
 });
 
+// Discriminated-union guard for patchDataTableArray mode inputs.
+// Guards the SINK — validates at the handler boundary before the helper call,
+// catching malformed payloads that arrive from any untrusted client path.
+const patchDataTableArrayArgsSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("add"),
+    value: z.object({ id: z.string().uuid() }).passthrough(),
+  }),
+  z.object({
+    mode: z.literal("update"),
+    itemId: z.string().uuid(),
+    // value is optional (partial patch object); the helper validates it is an
+    // object when present. The guard only enforces itemId is present and valid.
+    value: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({
+    mode: z.literal("delete"),
+    itemId: z.string().uuid(),
+  }),
+]);
+
 const patchDataTableArray = mutation({
   args: {
     dataTableId: uuid,
@@ -665,6 +687,14 @@ const patchDataTableArray = mutation({
     ctx,
     { dataTableId, kind, mode, itemId, value },
   ): Promise<{ ok: true }> => {
+    const parsed = patchDataTableArrayArgsSchema.safeParse({
+      mode,
+      itemId,
+      value,
+    });
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
     const table = await loadDataTable(ctx, dataTableId);
     if (kind !== "fields" && kind !== "metrics") {
       throw new Error(`Unsupported data table array ${kind}`);
@@ -920,6 +950,33 @@ const removeInsight = mutation({
   },
 });
 
+// Discriminated-union guard for patchInsight mode inputs.
+// Guards the SINK — validates at the handler boundary before the helper call,
+// catching malformed payloads that arrive from any untrusted client path.
+const patchInsightArgsSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("addMetric"),
+    metric: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    mode: z.literal("addField"),
+    fieldId: z.string().uuid(),
+  }),
+  z.object({
+    mode: z.literal("removeField"),
+    fieldId: z.string().uuid(),
+  }),
+  z.object({
+    mode: z.literal("updateMetric"),
+    metricId: z.string().uuid(),
+    updates: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    mode: z.literal("removeMetric"),
+    metricId: z.string().uuid(),
+  }),
+]);
+
 const patchInsight = mutation({
   args: {
     id: uuid,
@@ -930,6 +987,10 @@ const patchInsight = mutation({
     updates: jsonb.optional(),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    const parsed = patchInsightArgsSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(parsed.error.message);
+    }
     const current = await loadInsight(ctx, args.id);
     const { selectedFields, metrics } = patchInsightDefinition(current, args);
     await ctx.db

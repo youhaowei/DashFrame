@@ -157,6 +157,51 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("http://127.0.0.1:4100");
     });
 
+    it("should include ws: WyStack host in connect-src when VITE_WYSTACK_URL uses http:", () => {
+      // Browser CSP treats ws:/wss: as distinct from http:/https:.  Both must be
+      // present so WebSocket connections to the WyStack server are allowed.
+      const headers = getSecurityHeaders({
+        VITE_WYSTACK_URL: "http://127.0.0.1:4100/api",
+      });
+      const cspHeader = headers.find(
+        (h) => h.key === "Content-Security-Policy",
+      );
+      const connectSrc = cspHeader?.value
+        .split(";")
+        .find((d) => d.trim().startsWith("connect-src"));
+
+      expect(connectSrc).toContain("http://127.0.0.1:4100");
+      expect(connectSrc).toContain("ws://127.0.0.1:4100");
+    });
+
+    it("should include wss: WyStack host in connect-src when VITE_WYSTACK_URL uses https:", () => {
+      const headers = getSecurityHeaders({
+        VITE_WYSTACK_URL: "https://example.com/api",
+      });
+      const cspHeader = headers.find(
+        (h) => h.key === "Content-Security-Policy",
+      );
+      const connectSrc = cspHeader?.value
+        .split(";")
+        .find((d) => d.trim().startsWith("connect-src"));
+
+      expect(connectSrc).toContain("https://example.com");
+      expect(connectSrc).toContain("wss://example.com");
+    });
+
+    it("should not include ws: or wss: entries in connect-src when VITE_WYSTACK_URL is absent", () => {
+      const headers = getSecurityHeaders({});
+      const cspHeader = headers.find(
+        (h) => h.key === "Content-Security-Policy",
+      );
+      const connectSrc = cspHeader?.value
+        .split(";")
+        .find((d) => d.trim().startsWith("connect-src"));
+
+      expect(connectSrc).not.toMatch(/\bws:\/\//);
+      expect(connectSrc).not.toMatch(/\bwss:\/\//);
+    });
+
     it("should include PostHog hosts in script-src and connect-src", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(

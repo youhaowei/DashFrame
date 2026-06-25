@@ -89,11 +89,21 @@ export function getSecurityHeaders(
     customPostHogHost ? customPostHogHost : null,
   ].filter(Boolean);
   let wystackHost: string | null = null;
+  let wystackWsHost: string | null = null;
   if (env.VITE_WYSTACK_URL) {
     try {
-      wystackHost = new URL(env.VITE_WYSTACK_URL).origin;
+      const url = new URL(env.VITE_WYSTACK_URL);
+      wystackHost = url.origin;
+      // Browser CSP treats ws: and wss: as distinct schemes from http:/https:.
+      // WyStack uses WebSocket for live invalidation; without a ws:/wss: entry
+      // in connect-src the browser blocks the connection (default-src 'self'
+      // won't match a cross-origin WS). Derive the WS-equivalent from the HTTP
+      // origin so both schemes are covered.
+      const wsScheme = url.protocol === "https:" ? "wss:" : "ws:";
+      wystackWsHost = `${wsScheme}//${url.host}`;
     } catch {
       wystackHost = null;
+      wystackWsHost = null;
     }
   }
 
@@ -217,6 +227,7 @@ export function getSecurityHeaders(
       "connect-src 'self' blob: https://cdn.jsdelivr.net",
       ...postHogHosts,
       wystackHost,
+      wystackWsHost,
     ]
       .filter(Boolean)
       .join(" "),
