@@ -36,11 +36,33 @@ import {
   parseStringValueByType,
 } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
+import { isPrivateHost } from "./private-host.js";
 import type { RestConnectorConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * SSRF sink-guard for a fetch URL: throw unless the URL parses and its host is
+ * public. Shared by the fetch sink (`fetchPage`) and surfaced through
+ * `validate()` for the config form. Guard the sink, not the provenance — every
+ * fetch inherits this regardless of how the endpoint was authored.
+ */
+function assertPublicUrl(url: string): void {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    throw new Error(`[RestConnector] Invalid URL: ${url}`);
+  }
+  if (isPrivateHost(host)) {
+    throw new Error(
+      `[RestConnector] Endpoint host "${host}" is private/internal — ` +
+        "refusing to fetch (SSRF guard).",
+    );
+  }
+}
 
 /**
  * Traverse a dot-path in `data` and return the value at that path, or
@@ -254,6 +276,14 @@ async function fetchPage(
   method: string,
   headers: Record<string, string>,
 ): Promise<{ data: unknown; response: Response }> {
+  // SSRF sink-guard: this is the single fetch choke point — every pagination
+  // strategy and connect() route through here. Reject a private/loopback/
+  // link-local host BEFORE the request leaves the process, so the guard covers
+  // the initial endpoint and every paginated/redirect-resolved URL regardless of
+  // who authored the config. Guarding here (the sink) rather than only at form
+  // validation means a config persisted by any path — UI form, assistant, direct
+  // wire call — cannot reach an internal host.
+  assertPublicUrl(url);
   const response = await fetch(url, { method, headers });
   if (!response.ok) {
     throw new Error(
@@ -658,12 +688,32 @@ export class RestConnector extends RemoteApiConnector {
       };
     }
 
+    let parsed: URL;
     try {
-      new URL(endpoint);
+      parsed = new URL(endpoint);
     } catch {
       return {
         valid: false,
         errors: { endpoint: "Endpoint must be a valid URL." },
+      };
+    }
+
+    // SSRF check, form-side: reject endpoints addressing a private, loopback,
+    // link-local, or reserved host (RFC-1918, 127/8, 169.254/16 cloud-metadata,
+    // ::1, fc00::/7, fe80::/10, 0.0.0.0) so the config form surfaces the error
+    // early. This is UX — the AUTHORITATIVE guard is at the fetch sink
+    // (`fetchPage` → `assertPublicUrl`), which every fetch routes through
+    // regardless of how the endpoint was authored. (DNS-rebinding — a public
+    // hostname resolving to a private IP at fetch time — is a separate fetch-time
+    // concern; this synchronous check covers literal hosts.)
+    if (isPrivateHost(parsed.hostname)) {
+      return {
+        valid: false,
+        errors: {
+          endpoint:
+            "Endpoint must be a public host — private, loopback, and " +
+            "link-local addresses are not allowed.",
+        },
       };
     }
 

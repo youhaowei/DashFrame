@@ -704,6 +704,43 @@ describe("command vocabulary", () => {
       expect(stored["connectionString"]).toBeUndefined();
     });
 
+    it("SetDataSourceConfig extra: a REST connector config shape lands in config unstripped", async () => {
+      // The assistant authors a REST data source by writing the declarative
+      // connector config through `extra`. None of these keys are credentials, so
+      // the sink guard must let the whole REST shape through to config — only the
+      // typed apiKey/connectionString fields are rejected from `extra`.
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "rest", name: "GitHub" }),
+      );
+      await commit(
+        cmd("SetDataSourceConfig", {
+          id: sourceId,
+          extra: {
+            endpoint: "https://api.github.com/users",
+            method: "GET",
+            authRef: "secret-ref-123",
+            pagination: "cursor",
+            rowPath: "data",
+            fieldMap: { login: "username" },
+          } as Record<string, unknown>,
+        }),
+      );
+      const [row] = await sourcesById(sourceId);
+      const stored = row?.config as Record<string, unknown>;
+      expect(stored["endpoint"]).toBe("https://api.github.com/users");
+      expect(stored["method"]).toBe("GET");
+      // authRef is a SecretRef (an opaque id), NOT a plaintext credential — it is
+      // a reference the agent may author; it carries no secret value.
+      expect(stored["authRef"]).toBe("secret-ref-123");
+      expect(stored["pagination"]).toBe("cursor");
+      expect(stored["rowPath"]).toBe("data");
+      expect(stored["fieldMap"]).toEqual({ login: "username" });
+      // No credential slots were touched.
+      expect(stored["apiKey"]).toBeUndefined();
+      expect(stored["connectionString"]).toBeUndefined();
+    });
+
     it("should throw on UpdateField with a missing fieldId", async () => {
       const sourceId = id();
       const tableId = id();

@@ -30,7 +30,7 @@ export interface CommandGuideEntry {
   name: string;
   /** Logical group for navigation. */
   group:
-    | "dataSource"
+    | "connector"
     | "dataTable"
     | "field"
     | "metric"
@@ -52,17 +52,33 @@ export interface CommandGuideEntry {
  * COMMAND_PATHS).
  */
 export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
-  // --- DataSource ---
+  // --- Connector (data-source authoring) ---
+  //
+  // A connector KIND (file, notion, rest, postgres) is first-party shipped code.
+  // A connector CONFIG is per-source declarative data in DataSource.config — the
+  // pair below authors that config. A REST source, for example, is a DataSource
+  // of type "rest" whose config holds { endpoint, method, authRef, pagination,
+  // rowPath, fieldMap }; no new connector kind is registered.
+  //
+  // ASSISTANT SCOPE (today): these are HUMAN-ONLY operations. They are NOT in the
+  // applyCommand draft-safe allow-list — the assistant works with EXISTING data
+  // sources, it does not mint or configure them. Data-source creation is a
+  // human-owned trust step (a new data-access reference the human must review),
+  // and credential writes hit the OS keychain outside the draft transaction.
+  // These entries document the config CONTRACT (so the agent can read a source's
+  // shape); they are not an instruction that the agent may emit them.
   {
     name: "GetOrCreateDataSource",
-    group: "dataSource",
+    group: "connector",
     summary: "Idempotent upsert of a data source by client-minted id.",
     args: { id: "UUID", type: "connector id", name: "display name" },
-    notes: "Safe to retry — finds existing by PK or inserts. No credentials.",
+    notes:
+      "Human-only (not draft-safe). Safe to retry — finds existing by PK or " +
+      "inserts. No credentials.",
   },
   {
     name: "CreateDataSource",
-    group: "dataSource",
+    group: "connector",
     summary: "Create a data source, storing any credentials in the vault.",
     args: {
       id: "UUID",
@@ -71,19 +87,30 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       "apiKey?": "secret",
       "connectionString?": "secret",
     },
-    notes: "Credentials go to the vault; never echoed back on read.",
+    notes:
+      "Human-only (not draft-safe — vault side-effect + trust step). " +
+      "Credentials go to the vault; never echoed back on read. For a REST " +
+      'source: type "rest", then SetDataSourceConfig writes the endpoint config.',
   },
   {
     name: "SetDataSourceConfig",
-    group: "dataSource",
+    group: "connector",
     summary: "Replace a data source's credential + non-credential config.",
     args: {
       id: "UUID",
       "apiKey?": "secret",
       "connectionString?": "secret",
-      "extra?": "non-credential settings",
+      "extra?": "non-credential connector config (e.g. REST endpoint settings)",
     },
-    notes: "`extra` must NOT contain apiKey/connectionString (rejected).",
+    notes:
+      "Human-only (not draft-safe). `extra` carries the declarative connector " +
+      "config and must NOT contain apiKey/connectionString (rejected — use the " +
+      "typed credential fields). REST config shape: { endpoint, method, " +
+      "authRef (a SecretRef id, never a plaintext secret), pagination " +
+      "(offset|cursor|page-number|link-header), rowPath, fieldMap }. The REST " +
+      "connector rejects a private/internal endpoint host at the fetch sink and " +
+      "at config-form validation (SSRF guard); authRef must not be bypassed for " +
+      "authenticated sources.",
   },
   // --- DataTable ---
   {

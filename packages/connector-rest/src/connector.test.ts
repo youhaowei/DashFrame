@@ -190,7 +190,74 @@ describe("RestConnector", () => {
       const result = c.validate({ endpoint: "https://api.example.com/data" });
       expect(result.valid).toBe(true);
     });
+
+    // SSRF sink-guard: the endpoint URL is the attack vector. validate() must
+    // reject a private/loopback/link-local host regardless of who authored it.
+    // http:// (not https://) is deliberate — an internal/metadata target is
+    // typically plain-http; these are rejected-by-design fixtures, not real
+    // connection targets.
+    /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
+    it.each([
+      ["http://10.0.0.1/data", "RFC-1918 private"],
+      ["http://192.168.1.1/data", "RFC-1918 private"],
+      ["http://127.0.0.1:8080/admin", "loopback"],
+      ["http://localhost/data", "loopback hostname"],
+      ["http://169.254.169.254/latest/meta-data/", "cloud metadata"],
+      ["http://[::1]/data", "IPv6 loopback"],
+      // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
+      // which a dotted-form-only classifier would let through to cloud metadata.
+      // This fixture goes through the real validate() → URL → isPrivateHost path.
+      [
+        "http://[::ffff:169.254.169.254]/latest/meta-data/",
+        "IPv4-mapped metadata",
+      ],
+      ["http://[::ffff:10.0.0.1]/data", "IPv4-mapped private"],
+    ])("rejects a private/internal endpoint: %s (%s)", (endpoint) => {
+      const result = c.validate({ endpoint });
+      expect(result.valid).toBe(false);
+      expect(result.errors?.["endpoint"]).toBeTruthy();
+    });
+    /* eslint-enable sonarjs/no-clear-text-protocols */
+
+    it("passes for a public IP-literal URL", () => {
+      const result = c.validate({ endpoint: "https://8.8.8.8/api" });
+      expect(result.valid).toBe(true);
+    });
   });
+
+  // -------------------------------------------------------------------------
+  // SSRF guard at the FETCH SINK (the authoritative guard — validate() is
+  // form-side UX; this is what every authoring path inherits)
+  // -------------------------------------------------------------------------
+
+  /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
+  describe("fetch-sink SSRF guard", () => {
+    it("query() refuses a private endpoint BEFORE any fetch", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        // IPv4-mapped form URL.hostname normalizes to ::ffff:a9fe:a9fe — the
+        // cloud-metadata SSRF target. The fetch sink must reject it.
+        endpoint: "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      });
+      await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
+        /private\/internal|SSRF/i,
+      );
+      // The guard fires before the network call — fetch is never invoked.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("connect() refuses a loopback endpoint BEFORE any fetch", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        endpoint: "http://127.0.0.1:9200/_cluster/health",
+      });
+      await expect(c.connect()).rejects.toThrow(/private\/internal|SSRF/i);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+  /* eslint-enable sonarjs/no-clear-text-protocols */
 
   // -------------------------------------------------------------------------
   // 1. Offset pagination
