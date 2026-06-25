@@ -7,7 +7,7 @@ import {
 } from "../date-transforms";
 
 // ---------------------------------------------------------------------------
-// applyDateTransformToSql — identifier sink-guard tests (YW-306)
+// applyDateTransformToSql — identifier sink-guard tests
 //
 // Contract: column names are quoted via quoteIdentifier at the point of SQL
 // construction. An identifier containing an embedded double-quote must be

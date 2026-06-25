@@ -869,7 +869,7 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
 });
 
 // ---------------------------------------------------------------------------
-// metricToSqlExpression — sink-guard tests (YW-306)
+// metricToSqlExpression — sink-guard tests
 //
 // Contract: identifiers are quoted at the point of SQL construction.
 // A hostile column name containing an embedded double-quote must be escaped,
