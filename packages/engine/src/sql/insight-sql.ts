@@ -27,6 +27,8 @@ import type {
   UUID,
 } from "@dashframe/types";
 
+import { quoteIdentifier } from "./quoting";
+
 // ============================================================================
 // UUID Column Naming Utilities
 // ============================================================================
@@ -98,11 +100,11 @@ export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
  *
  * // Count distinct values
  * metricToSqlExpression({ name: "Unique Users", aggregation: "count_distinct", columnName: "user_id" })
- * // Returns: "count_distinct(user_id)"
+ * // Returns: "count_distinct(\"user_id\")"
  *
  * // Standard aggregation
  * metricToSqlExpression({ name: "Total Sales", aggregation: "sum", columnName: "amount" })
- * // Returns: "sum(amount)"
+ * // Returns: "sum(\"amount\")"
  * ```
  */
 export function metricToSqlExpression(metric: InsightMetric): string {
@@ -115,11 +117,12 @@ export function metricToSqlExpression(metric: InsightMetric): string {
 
   // COUNT(DISTINCT column)
   if (agg === "count_distinct" && metric.columnName) {
-    return `count_distinct(${metric.columnName})`;
+    return `count_distinct(${quoteIdentifier(metric.columnName)})`;
   }
 
   // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
-  return `${agg}(${metric.columnName ?? "*"})`;
+  // Guard at the sink: quote the identifier. COUNT(*) uses a literal *, not an identifier.
+  return `${agg}(${metric.columnName ? quoteIdentifier(metric.columnName) : "*"})`;
 }
 
 /**
@@ -826,11 +829,6 @@ function resolveFilterColumnRef(
     return `"${fieldIdToColumnAlias(field.id)}"`;
   }
   return `"${field.columnName ?? field.name}"`;
-}
-
-/** Quote a SQL identifier, escaping embedded double-quotes by doubling them. */
-function quoteIdentifier(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**

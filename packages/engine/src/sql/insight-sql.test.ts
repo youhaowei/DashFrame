@@ -12,6 +12,7 @@ import {
   buildInsightSQL,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
+  metricToSqlExpression,
   type BuildInsightSQLOptions,
 } from "./insight-sql";
 
@@ -864,5 +865,71 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     // break out of the identifier — if the SQL were broken, DuckDB would reject it.
     // A simple structural check: the AS alias must be wrapped in outer quotes.
     expect(sql!).toMatch(/AS "my ""best"" sales table"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// metricToSqlExpression — sink-guard tests (YW-306)
+//
+// Contract: identifiers are quoted at the point of SQL construction.
+// A hostile column name containing an embedded double-quote must be escaped,
+// not passed through raw. The literal `*` in COUNT(*) must NOT be quoted.
+// ---------------------------------------------------------------------------
+
+describe("metricToSqlExpression — identifier sink-guard", () => {
+  const baseMetric = (overrides: Partial<InsightMetric>): InsightMetric => ({
+    id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
+    name: "Test Metric",
+    sourceTable: TABLE_ID,
+    aggregation: "sum",
+    ...overrides,
+  });
+
+  it("count(*) emits a literal star, not a quoted identifier", () => {
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "count", columnName: undefined }),
+    );
+    expect(expr).toBe("count(*)");
+    // The star must not be wrapped in double-quotes
+    expect(expr).not.toContain('"*"');
+  });
+
+  it("standard aggregation with a normal column name is quoted", () => {
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "sum", columnName: "amount" }),
+    );
+    expect(expr).toBe('sum("amount")');
+  });
+
+  it("hostile column name with embedded double-quote is escaped at the sink", () => {
+    // Contract: the resulting SQL must not contain the raw hostile string.
+    // quoteIdentifier escapes " → "" so the identifier boundary stays closed.
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "sum", columnName: 'amount"malicious' }),
+    );
+    expect(expr).toBe('sum("amount""malicious")');
+    // The raw unescaped sequence `amount"m` (single quote, not doubled) must not appear —
+    // it would break out of the identifier boundary.
+    expect(expr).not.toContain('amount"m');
+  });
+
+  it("count_distinct with hostile column name is escaped at the sink", () => {
+    const expr = metricToSqlExpression(
+      baseMetric({
+        aggregation: "count_distinct",
+        columnName: 'user"id',
+      }),
+    );
+    expect(expr).toBe('count_distinct("user""id")');
+    expect(expr).not.toContain('user"i');
+  });
+
+  it("standard aggregation with no columnName falls back to * (not quoted)", () => {
+    // An aggregation other than count with no columnName — edge case fallthrough.
+    const expr = metricToSqlExpression(
+      baseMetric({ aggregation: "sum", columnName: undefined }),
+    );
+    expect(expr).toBe("sum(*)");
+    expect(expr).not.toContain('"*"');
   });
 });
