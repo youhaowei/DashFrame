@@ -129,13 +129,23 @@ export interface PgQueryConfig {
   values?: unknown[];
 }
 
+/** Minimal column descriptor returned by pg in result.fields. */
+export interface PgFieldDef {
+  name: string;
+  dataTypeID: number;
+}
+
+/** Result shape returned by query helpers — rows plus column metadata. */
+export interface PgQueryResult {
+  rows: Record<string, unknown>[];
+  /** Column metadata from pg. Present on every successful query, even zero-row results. */
+  fields: PgFieldDef[];
+}
+
 export interface PgClientLike {
-  query(text: string): Promise<{ rows: Record<string, unknown>[] }>;
-  query(
-    text: string,
-    values: unknown[],
-  ): Promise<{ rows: Record<string, unknown>[] }>;
-  query(config: PgQueryConfig): Promise<{ rows: Record<string, unknown>[] }>;
+  query(text: string): Promise<PgQueryResult>;
+  query(text: string, values: unknown[]): Promise<PgQueryResult>;
+  query(config: PgQueryConfig): Promise<PgQueryResult>;
   end(): Promise<void>;
 }
 
@@ -173,7 +183,7 @@ export async function listTablesInSchema(
 }
 
 // ---------------------------------------------------------------------------
-// Field inference from rows
+// Field inference from rows + pg column metadata
 // ---------------------------------------------------------------------------
 
 /**
@@ -193,19 +203,90 @@ const DANGEROUS_COLUMN_NAMES = new Set([
   "prototype",
 ]);
 
+/**
+ * Postgres OID → ColumnType.
+ *
+ * node-postgres returns NUMERIC (OID 1700) and BIGINT/int8 (OID 20) as
+ * **strings** even though their pg type is numeric. Coercing them to JS
+ * `number` would silently corrupt values outside IEEE-754 double precision
+ * (BIGINT > 2^53, high-precision NUMERIC). We therefore keep them as
+ * `"string"` — field-type and Arrow value-type agree (both string/lossless),
+ * and DuckDB casts VARCHAR→BIGINT/NUMERIC during ingest.
+ *
+ * All other OIDs are left as `undefined` — the caller falls back to
+ * value-based inference via `inferStringColumnType`.
+ */
+export function pgOidToColumnType(
+  dataTypeID: number,
+): ReturnType<typeof inferStringColumnType> | undefined {
+  switch (dataTypeID) {
+    // BIGINT / int8 — returned as string by node-postgres to preserve precision.
+    case 20:
+      return "string";
+    // NUMERIC / decimal — also returned as string by node-postgres.
+    case 1700:
+      return "string";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Infer Field[] from pg query result.
+ *
+ * Column list source priority:
+ *   1. `pgFields` (pg column metadata) — always present, even on zero-row
+ *      results. Used as the authoritative column list when available (fixes
+ *      empty-result schema loss).
+ *   2. Key-union of `rows` — fallback when no metadata is supplied (legacy
+ *      call-sites and spy clients that predate this change).
+ *
+ * Type source priority per column:
+ *   1. OID mapping via `pgOidToColumnType` — fixes NUMERIC/BIGINT coercion.
+ *   2. Value-based inference via `inferStringColumnType` — legacy path.
+ */
 function inferFieldsFromRows(
   rows: Record<string, unknown>[],
   tableId: UUID,
+  pgFields?: PgFieldDef[],
 ): Field[] {
-  const columnNames = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      if (DANGEROUS_COLUMN_NAMES.has(key)) continue; // never a real column
-      columnNames.add(key);
+  // --- Column list ---
+  let columnNames: string[];
+  /** OID lookup by column name, populated when pgFields is present. */
+  const oidByName = new Map<string, number>();
+
+  if (pgFields && pgFields.length > 0) {
+    // Use pg's column metadata as the canonical list (handles empty results).
+    columnNames = pgFields
+      .map((f) => f.name)
+      .filter((n) => !DANGEROUS_COLUMN_NAMES.has(n));
+    for (const f of pgFields) {
+      oidByName.set(f.name, f.dataTypeID);
     }
+  } else {
+    // Fallback: derive column names from the row key-union.
+    const seen = new Set<string>();
+    for (const row of rows) {
+      for (const key of Object.keys(row)) {
+        if (DANGEROUS_COLUMN_NAMES.has(key)) continue;
+        seen.add(key);
+      }
+    }
+    columnNames = [...seen];
   }
 
-  const columns = [...columnNames].map((name) => {
+  // --- Type per column ---
+  const columns = columnNames.map((name) => {
+    // 1. OID-based type (highest priority — covers empty-result + precision).
+    const oid = oidByName.get(name);
+    if (oid !== undefined) {
+      const oidType = pgOidToColumnType(oid);
+      if (oidType !== undefined) {
+        return { name, type: oidType };
+      }
+    }
+
+    // 2. Value-based inference fallback.
     let type: ReturnType<typeof inferStringColumnType> = "unknown";
     for (const row of rows) {
       const v = row[name];
@@ -406,6 +487,7 @@ export class PostgresConnector extends RemoteApiConnector {
 
     return this.#withClient(async (client) => {
       let rows: Record<string, unknown>[];
+      let pgFields: PgFieldDef[] | undefined;
 
       if (isTableRef) {
         // Table reference — split on the pre-computed dot index.
@@ -413,7 +495,15 @@ export class PostgresConnector extends RemoteApiConnector {
         const refTable = trimmed.slice(dotIdx + 1);
         // Sink 2: both parts quoted via quoteIdentifier(). Pagination is pushed
         // down into the SQL (LIMIT/OFFSET) so we never materialize a full table.
-        rows = await fetchTable(client, refSchema, refTable, limit, offset);
+        const result = await fetchTable(
+          client,
+          refSchema,
+          refTable,
+          limit,
+          offset,
+        );
+        rows = result.rows;
+        pgFields = result.fields;
       } else {
         // User-supplied SQL — allowlist already passed above; send with zero
         // interpolation. We deliberately do NOT wrap user SQL to inject
@@ -422,7 +512,9 @@ export class PostgresConnector extends RemoteApiConnector {
         // contract, and (2) break legal allowlisted forms like `EXPLAIN …`,
         // `TABLE …`, and trailing-`;` queries. The user authored this query and
         // can bound it; statement_timeout + the post-fetch slice are backstops.
-        rows = await runUserQuery(client, databaseId);
+        const result = await runUserQuery(client, databaseId);
+        rows = result.rows;
+        pgFields = result.fields;
       }
 
       // Slice only when the window was NOT already pushed into SQL.
@@ -431,8 +523,10 @@ export class PostgresConnector extends RemoteApiConnector {
           ? rows.slice(offset, offset + limit)
           : rows;
 
-      // Infer fields from rows.
-      const fields = inferFieldsFromRows(slicedRows, tableId);
+      // Infer fields from rows + pg column metadata.
+      // pgFields is the authoritative column list (handles empty results and
+      // OID-based type overrides for NUMERIC/BIGINT precision).
+      const fields = inferFieldsFromRows(slicedRows, tableId, pgFields);
 
       // Build Arrow column arrays from the inferred field set.
       const columnArrays: Record<string, unknown[]> = Object.create(
@@ -462,7 +556,7 @@ export class PostgresConnector extends RemoteApiConnector {
 // ---------------------------------------------------------------------------
 
 /**
- * Run a user-supplied SELECT and return its rows.
+ * Run a user-supplied SELECT and return rows plus pg column metadata.
  *
  * Sink 3 compliance: the query text is sent as-is, with NO string
  * interpolation of any user value. The text has already passed the allowlist
@@ -481,9 +575,8 @@ export class PostgresConnector extends RemoteApiConnector {
 async function runUserQuery(
   client: PgClientLike,
   sql: string,
-): Promise<Record<string, unknown>[]> {
-  const result = await client.query({ text: sql, queryMode: "extended" });
-  return result.rows;
+): Promise<PgQueryResult> {
+  return client.query({ text: sql, queryMode: "extended" });
 }
 
 /**
@@ -497,6 +590,9 @@ async function runUserQuery(
  * preview with `limit: 50` must NOT pull an unbounded table into Node memory
  * and slice afterward. When `limit` is undefined, the plain SELECT is emitted
  * unchanged (full-table behavior preserved for callers that want every row).
+ *
+ * Returns rows plus pg column metadata (result.fields) for OID-based type
+ * inference and zero-row schema recovery.
  */
 async function fetchTable(
   client: PgClientLike,
@@ -504,18 +600,13 @@ async function fetchTable(
   table: string,
   limit?: number,
   offset = 0,
-): Promise<Record<string, unknown>[]> {
+): Promise<PgQueryResult> {
   const base = `SELECT * FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`;
   if (limit === undefined) {
-    const result = await client.query(base);
-    return result.rows;
+    return client.query(base);
   }
   // Bound window: limit/offset as $1/$2 value parameters → extended protocol.
-  const result = await client.query(`${base} LIMIT $1 OFFSET $2`, [
-    limit,
-    offset,
-  ]);
-  return result.rows;
+  return client.query(`${base} LIMIT $1 OFFSET $2`, [limit, offset]);
 }
 
 /**
