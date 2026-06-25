@@ -426,14 +426,26 @@ const setDataSourceConfig = mutation({
       .first()) as DataSourceRow | undefined;
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
+    // Sink guard FIRST: callers may not sneak credential keys in via `extra`.
+    // This validation must run BEFORE applyCredentialField, because a clear/rotate
+    // releases the prior vault ref (an irreversible keychain side-effect). If the
+    // guard threw after the release, a rejected request would have already deleted
+    // the live secret while the DB row still pointed at it — a dangling ref.
+    // Validation before side-effects keeps a rejected write fully consistent.
+    if (isRecord(extra) && ("apiKey" in extra || "connectionString" in extra)) {
+      throw new Error(
+        "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
+      );
+    }
     // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
-    // (deletes the config key so hasApiKey reads false) / leave-on-undefined.
+    // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
+    // / leave-on-undefined.
     // applyCredentialField is the single choke point; a real store fails closed when
-    // no vault is injected. Orphaned old refs (on replace or clear) are not deleted
-    // from the vault here — the same deferred cleanup as rotation; the locator is
-    // dropped from config so the data-plane resolver stops using it, and the
-    // plaintext-never-at-rest invariant is unaffected.
-    // In preview mode vault writes are skipped (keychain is not transactional).
+    // no vault is injected. The prior vault ref (on replace or clear) is released
+    // inside applyCredentialField after the new ref is stored (rotate) or before
+    // the key is dropped (clear). The release fires only once the store/validation
+    // above has succeeded.
+    // In preview mode vault writes and releases are skipped (keychain is not transactional).
     await applyCredentialField(
       config,
       "apiKey",
@@ -450,14 +462,8 @@ const setDataSourceConfig = mutation({
       `connectionString-${id}`,
       preview,
     );
-    // Sink guard: callers may not sneak credential keys in via `extra`.
+    // Merge non-credential keys from `extra` into the config (guarded above).
     if (isRecord(extra)) {
-      if ("apiKey" in extra || "connectionString" in extra) {
-        throw new Error(
-          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
-        );
-      }
-      // Merge non-credential keys into the config.
       Object.assign(config, extra);
     }
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });

@@ -109,13 +109,19 @@ export async function storeCredential(
 
 /**
  * Release every `SecretRef` present in a `DataSourceConfig` from the vault.
- * Called before a data-source row is deleted so the mapping row and backend
- * blob do not accumulate as permanent orphans in the OS keychain.
+ * Called in three places: (1) before a data-source row is deleted, (2) when a
+ * credential field is cleared (CLEAR branch in {@link applyCredentialField}),
+ * (3) when a credential is overwritten with a new value (ROTATE branch). In all
+ * cases the goal is to avoid orphaned keychain blobs + mapping rows.
+ *
+ * Callers may pass a full config or a single-field slice
+ * (`{ [field]: prior }`); only fields that satisfy {@link isSecretRef} are
+ * included in the delete batch, so an absent or non-ref field is always a no-op.
  *
  * **Vault-absent policy (fail-closed consistency):** `storeCredential` throws
  * when no vault is injected, so a config holding a real `SecretRef` could only
  * have been written with a vault present. If that same vault is absent at
- * delete time — which would be a server mis-configuration — we throw rather
+ * release time — which would be a server mis-configuration — we throw rather
  * than silently leaving an orphan. This keeps the invariant symmetric: the
  * fail-closed store implies a fail-closed delete.
  *
@@ -162,17 +168,37 @@ export async function releaseCredentialRefs(
  * Apply an inbound credential value to a config slice, in place. Three-way:
  *
  *   - `undefined` → leave the existing config key untouched (not part of this write).
- *   - `""`        → CLEAR the credential: delete the key so `hasApiKey` reads false.
+ *   - `""`        → CLEAR the credential: release the prior vault ref (if any),
+ *                   then delete the key so `hasApiKey` reads false.
  *                   (Empty string is an explicit "remove it", never a stored value —
- *                   storing it would make `vault.has(ref)` lie.) The old vault ref
- *                   is orphaned, not deleted — same deferred cleanup as rotation.
- *   - non-empty   → store via the vault and write the returned `SecretRef`.
+ *                   storing it would make `vault.has(ref)` lie.)
+ *   - non-empty   → store via the vault and write the returned `SecretRef`, then
+ *                   release the prior ref so the old keychain blob + mapping row
+ *                   do not accumulate as permanent orphans (rotate path).
+ *
+ * **Release ordering (rotate):** the new ref is stored first, then the old one is
+ * released. This way a failure mid-rotate does not orphan the newly-stored secret;
+ * the worst-case outcome is that the old secret lingers until the next successful
+ * rotate (idempotent cleanup, same as the delete-path guarantee).
+ *
+ * **Preview-mode guard:** vault deletes are keychain side-effects outside the DB
+ * transaction. In preview mode the transaction rolls back, so neither the new store
+ * nor a release of the old ref should touch the keychain. The clear and rotate
+ * release calls are skipped when `preview` is `true`, mirroring the guard that the
+ * DeleteNode / removeDataSource paths apply via `modeFromCtx()`.
+ *
+ * **Vault-absent (clear):** `storeCredential` throws on vault-absent + non-empty
+ * plaintext, so a real `SecretRef` in `config[field]` could only have been written
+ * with a vault present. A clear with no vault and no prior ref is therefore a valid
+ * no-op. `releaseCredentialRefs` early-returns when no `isSecretRef` value is found,
+ * so passing a single-field slice is always safe for an already-absent field.
  *
  * The vault-absent refusal lives in {@link storeCredential}, so a clear (`""`) or
- * an untouched field (`undefined`) does NOT require a vault — only a real store does.
+ * an untouched field (`undefined`) with no prior ref does NOT require a vault.
  *
  * @param preview When `true` (preview-mode execution) the vault write is skipped
  *   and a no-op placeholder ref is stored instead. See {@link storeCredential}.
+ *   Vault releases are also skipped in preview mode.
  */
 export async function applyCredentialField(
   config: DataSourceConfig,
@@ -184,10 +210,22 @@ export async function applyCredentialField(
 ): Promise<void> {
   if (value === undefined) return; // not part of this write
   if (value.length === 0) {
+    // CLEAR branch: release the prior vault ref before dropping the config key.
+    // Only attempted in commit mode — preview transactions roll back and must not
+    // produce keychain side-effects.
+    if (!preview) {
+      await releaseCredentialRefs({ [field]: config[field] }, vault);
+    }
     delete config[field]; // explicit clear
     return;
   }
+  // ROTATE branch: capture prior ref before overwriting, store new first,
+  // then release old (store-new-then-release-old preserves the new secret on failure).
+  const prior = config[field];
   config[field] = await storeCredential(vault, value, locatorHint, preview);
+  if (!preview) {
+    await releaseCredentialRefs({ [field]: prior }, vault);
+  }
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
