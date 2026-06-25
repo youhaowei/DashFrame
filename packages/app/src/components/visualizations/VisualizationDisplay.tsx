@@ -129,12 +129,11 @@ export function VisualizationDisplay({
   // IMPORTANT: this is intentionally the minimal structural shape
   // (id, name, baseTableId, joins) — exactly as the pre-override path.  It must
   // NOT carry selectedFields/metrics/filters/sorts: this surface renders the
-  // RAW model view (vgplot computes aggregations from raw rows via the encoding),
-  // and useInsightPagination below queries the same raw model. Adding
-  // metrics/selectedFields here would make pagination emit aggregated/metric
-  // columns that don't exist in the raw model view the chart queries, breaking
-  // chart column resolution.  Cell overrides are layered separately via
-  // effectiveParams, which is undefined unless `overrides` is present.
+  // RAW model view (vgplot computes aggregations from raw rows via the encoding).
+  // Adding metrics/selectedFields here would make the chart view emit aggregated
+  // columns that break chart column resolution.  Cell overrides are layered
+  // separately via effectiveParams (useInsightView) / paginationEffectiveParams
+  // (useInsightPagination), neither of which mutates this object.
   const insightForView: Insight | null = useMemo(() => {
     if (!insight) return null;
     return {
@@ -145,11 +144,9 @@ export function VisualizationDisplay({
     } as Insight;
   }, [insight]);
 
-  // Resolve the effective params for this cell = insight defaults ⊕ overrides.
-  // Only computed when overrides are present.  When absent, both hooks get
-  // `effectiveParams: undefined` and follow the exact pre-override path
-  // (no-override no-regression).  The insight's own filters/sorts come from the
-  // raw server `insight` object, not `insightForView` (which is kept minimal).
+  // Resolve the effective params for useInsightView (chart).
+  // Only computed when overrides are present — the chart view is pre-filtered
+  // only when the dashboard cell has overrides.
   const effectiveParams = useMemo(
     () =>
       overrides && insight
@@ -157,6 +154,24 @@ export function VisualizationDisplay({
             insight.filters,
             insight.sorts,
             undefined, // insight-level limit (not stored on Insight type yet)
+            overrides,
+          )
+        : undefined,
+    [insight, overrides],
+  );
+
+  // Resolve effective params for useInsightPagination (table).
+  // When overrides are present, these are identical to `effectiveParams` above.
+  // When absent, we still forward the insight's own filters/sorts so the table
+  // reflects the saved insight config — without this the stripped `insightForView`
+  // (which has no filters/sorts) would silently drop them from buildInsightSQL.
+  const paginationEffectiveParams = useMemo(
+    () =>
+      insight
+        ? resolveEffectiveParams(
+            insight.filters,
+            insight.sorts,
+            undefined,
             overrides,
           )
         : undefined,
@@ -184,10 +199,10 @@ export function VisualizationDisplay({
   });
 
   // Use insight pagination for table data (queries DuckDB directly).
-  // When overrides are present, effectiveParams carries the merged filter/sort/limit
-  // and buildInsightSQL replaces the insight's own params with them.
-  // When absent, effectiveParams is undefined and buildInsightSQL reads
-  // insight.filters/sorts natively — byte-identical to the pre-override path.
+  // paginationEffectiveParams always carries the insight's own filters/sorts
+  // (merging in cell overrides when present), so buildInsightSQL receives them
+  // even when `overrides` is absent. Without this, the stripped `insightForView`
+  // (which has no filters/sorts) would silently drop the saved insight config.
   const {
     fetchData,
     totalCount,
@@ -198,7 +213,7 @@ export function VisualizationDisplay({
     insight: insightForView ?? ({} as Insight),
     showModelPreview: false, // Apply full insight transformations
     enabled: !!insightForView, // Only enable when we have an insight
-    effectiveParams,
+    effectiveParams: paginationEffectiveParams,
   });
 
   // Helper to calculate visible rows from container dimensions
