@@ -256,13 +256,17 @@ export function useInsightView(
   // from superseded configs can discard their setState calls rather than
   // overwriting the state that a newer config already wrote.
   //
-  // Updated synchronously during render (not inside an effect) so it always
-  // reflects the latest configKey at the time any async continuation resumes.
-  // This is safe because configKey is derived from stable primitives (insightId,
-  // joinsKey, effectiveFiltersKey) and does not change between renders unless
-  // the insight config genuinely changed.
+  // Updated inside a useEffect (declared before the createView effect so it
+  // runs first each render) rather than synchronously during render, which
+  // avoids the react-compiler lint rule against ref mutation during render.
+  // By the time any async continuation from a prior render resumes, this
+  // effect has already fired and the ref reflects the current configKey.
   const currentConfigKeyRef = useRef<string | null>(configKey);
-  currentConfigKeyRef.current = configKey;
+  // Sync the ref to the current configKey after every render. Declared before
+  // the createView effect so React fires this first when both deps change.
+  useEffect(() => {
+    currentConfigKeyRef.current = configKey;
+  });
 
   // Check module-level cache for existing view (survives Strict Mode remounts)
   const cachedView = configKey
@@ -365,6 +369,7 @@ export function useInsightView(
     // buildViewSQLOptions — so only filters are snapshotted here.
     const snapshotEffectiveFilters = effectiveParams?.filters ?? null;
 
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (currentConfigKeyRef checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
     const createView = async () => {
       try {
         // Double-check cache in case another effect already created it

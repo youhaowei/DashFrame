@@ -236,6 +236,7 @@ export function useInsightPagination({
     // resolves after this point will see a stale token and discard its results.
     const gen = ++genRef.current;
 
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (gen checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
     const init = async () => {
       try {
         // Resolve tables
