@@ -1229,9 +1229,14 @@ async function postgresConnectorFor(
   );
   // connectionStringRef is for introspection only; the bound `auth` resolver
   // is the actual credential source. Pass the ref as-is — never coerce to "".
+  //
+  // Sink guard: defaultSchema flows into quoteIdentifier() in connect(); verify
+  // it's a string before passing it through (config is an untyped JSON blob).
+  const defaultSchema =
+    typeof config.defaultSchema === "string" ? config.defaultSchema : undefined;
   return makePostgresConnector(auth, {
     connectionStringRef: config.connectionString,
-    defaultSchema: config.defaultSchema,
+    defaultSchema,
   });
 }
 

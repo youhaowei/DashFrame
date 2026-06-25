@@ -19,7 +19,7 @@ import {
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PgClientLike } from "./connector.js";
+import type { PgClientLike, PgQueryConfig } from "./connector.js";
 import {
   PostgresConnector,
   assertReadOnlyQuery,
@@ -55,10 +55,18 @@ function makeBoundResolver(
 // Returns a PgClientLike whose query() calls are tracked via a vi.fn() spy.
 // The first query is assumed to be the read-only SET statement; subsequent
 // calls return the rows passed to the factory.
+//
+// query() accepts either a string or a PgQueryConfig object — normalize to
+// extract the text in both cases.
 // ---------------------------------------------------------------------------
 
 interface SpyClient extends PgClientLike {
   spy: ReturnType<typeof vi.fn>;
+}
+
+/** Extract the SQL text from either call form (string | PgQueryConfig). */
+function callText(arg: string | PgQueryConfig): string {
+  return typeof arg === "string" ? arg : arg.text;
 }
 
 function makeSpyClient(dataRows: Record<string, unknown>[] = []): SpyClient {
@@ -68,8 +76,9 @@ function makeSpyClient(dataRows: Record<string, unknown>[] = []): SpyClient {
   //   1. SET SESSION CHARACTERISTICS... (returns empty rows)
   //   2. SET search_path TO ... (returns empty rows — for listTablesInSchema)
   //   3. Any other query (returns dataRows)
-  spy.mockImplementation((text: string) => {
-    const upper = String(text).toUpperCase().trim();
+  // The first arg may be a string OR a PgQueryConfig object (when queryMode is set).
+  spy.mockImplementation((arg: string | PgQueryConfig) => {
+    const upper = callText(arg).toUpperCase().trim();
     if (upper.startsWith("SET")) {
       return Promise.resolve({ rows: [] });
     }
@@ -227,10 +236,8 @@ describe("AC1 — non-SELECT rejected at allowlist, before any client.query", ()
       connector.query("DROP TABLE foo", crypto.randomUUID()),
     ).rejects.toThrow(/non-SELECT query rejected/i);
 
-    // The SET SESSION ... statement was issued (Layer 1), but no data query.
-    // Verify zero data queries were made (spy calls = only the SET statement).
-    // Because the allowlist runs BEFORE the auth/client path, even the SET
-    // statement must NOT have been called.
+    // The allowlist check runs BEFORE the auth/client path is entered —
+    // so even the SET SESSION statement is never issued. Zero pg calls total.
     expect(spyClient.spy).not.toHaveBeenCalled();
   });
 
@@ -250,6 +257,13 @@ describe("AC1 — non-SELECT rejected at allowlist, before any client.query", ()
 // AC2 — First query on every connection is the read-only SET statement
 // ---------------------------------------------------------------------------
 
+// Normalize spy call first arg — may be a string or a PgQueryConfig object.
+type SpyCall = [string | PgQueryConfig, ...unknown[]];
+
+function spyCallText(c: SpyCall): string {
+  return callText(c[0]);
+}
+
 describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first query", () => {
   it("issues the read-only SET before any query in connect()", async () => {
     const spyClient = makeSpyClient([{ table_name: "users" }]);
@@ -257,9 +271,9 @@ describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first 
 
     await connector.connect();
 
-    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    const calls = spyClient.spy.mock.calls as SpyCall[];
     expect(calls.length).toBeGreaterThanOrEqual(1);
-    expect(calls[0]?.[0].toUpperCase()).toBe(
+    expect(spyCallText(calls[0]!).toUpperCase()).toBe(
       "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
     );
   });
@@ -270,15 +284,15 @@ describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first 
 
     await connector.query("SELECT * FROM users", crypto.randomUUID());
 
-    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    const calls = spyClient.spy.mock.calls as SpyCall[];
     // Connection setup: SET SESSION CHARACTERISTICS + SET statement_timeout + data query.
     expect(calls.length).toBeGreaterThanOrEqual(3);
-    expect(calls[0]?.[0].toUpperCase()).toBe(
+    expect(spyCallText(calls[0]!).toUpperCase()).toBe(
       "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
     );
     // The SELECT must come AFTER both SET statements.
     const selectIdx = calls.findIndex((c) =>
-      c[0]?.toUpperCase().includes("SELECT"),
+      spyCallText(c).toUpperCase().includes("SELECT"),
     );
     expect(selectIdx).toBeGreaterThan(0);
   });
@@ -289,29 +303,33 @@ describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first 
 
     await connector.query("SELECT * FROM users", crypto.randomUUID());
 
-    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    const calls = spyClient.spy.mock.calls as SpyCall[];
     // Second call (index 1) must be the statement_timeout guard.
-    expect(calls[1]?.[0].toUpperCase()).toContain("STATEMENT_TIMEOUT");
+    expect(spyCallText(calls[1]!).toUpperCase()).toContain("STATEMENT_TIMEOUT");
   });
 
-  it("sends user SQL via extended query protocol (empty params array)", async () => {
-    // The extended query protocol forces Postgres to reject multi-statement SQL
-    // during Parse — closing the `SELECT 1; BEGIN READ WRITE; …` bypass.
-    // The mock spy can't actually reject multi-statement, but we verify the
-    // empty-params contract so that real pg uses the Parse/Bind/Execute path.
+  it("sends user SQL via extended query protocol (queryMode: 'extended')", async () => {
+    // `queryMode: "extended"` forces node-postgres onto the Parse/Bind/Execute
+    // path. Postgres rejects multi-statement SQL during Parse in that path,
+    // closing the `SELECT 1; BEGIN READ WRITE; …` bypass.
+    // The spy can't enforce the wire-level rejection, but we verify that the
+    // config object with queryMode is what reaches pg — not a bare string call.
     const spyClient = makeSpyClient([{ n: 1 }]);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
 
     await connector.query("SELECT 1 AS n", crypto.randomUUID());
 
-    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
-    // Find the SELECT call.
+    const calls = spyClient.spy.mock.calls as SpyCall[];
+    // Find the SELECT call — it's the config-object form.
     const selectCall = calls.find((c) =>
-      c[0]?.toUpperCase().startsWith("SELECT"),
+      spyCallText(c).toUpperCase().startsWith("SELECT"),
     );
     expect(selectCall).toBeDefined();
-    // Must be called with an empty params array — this is the extended protocol signal.
-    expect(selectCall?.[1]).toEqual([]);
+    // First arg must be a PgQueryConfig object with queryMode: "extended".
+    const arg = selectCall![0];
+    expect(typeof arg).toBe("object");
+    expect((arg as PgQueryConfig).queryMode).toBe("extended");
+    expect((arg as PgQueryConfig).text).toBe("SELECT 1 AS n");
   });
 });
 
@@ -614,8 +632,8 @@ describe("read-only guard: allowlisted queries pass through to pg", () => {
 
   it("SELECT query reaches pg after SET SESSION", async () => {
     await connector.query("SELECT count(*) FROM users", crypto.randomUUID());
-    const calls = spyClient.spy.mock.calls as Array<[string]>;
-    const queries = calls.map((c) => c[0].toUpperCase());
+    const calls = spyClient.spy.mock.calls as SpyCall[];
+    const queries = calls.map((c) => spyCallText(c).toUpperCase());
     expect(queries[0]).toContain("SET SESSION CHARACTERISTICS");
     expect(queries.some((q) => q.includes("SELECT"))).toBe(true);
   });

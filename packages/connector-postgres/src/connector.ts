@@ -122,12 +122,20 @@ export function assertReadOnlyQuery(sql: string): void {
  * Minimal interface for a pg Client used by this connector.
  * Keeps the seam narrow — only the two methods we call are required.
  */
+/** Config-object form — used when setting queryMode. */
+export interface PgQueryConfig {
+  text: string;
+  queryMode?: "extended" | "simple";
+  values?: unknown[];
+}
+
 export interface PgClientLike {
   query(text: string): Promise<{ rows: Record<string, unknown>[] }>;
   query(
     text: string,
     values: unknown[],
   ): Promise<{ rows: Record<string, unknown>[] }>;
+  query(config: PgQueryConfig): Promise<{ rows: Record<string, unknown>[] }>;
   end(): Promise<void>;
 }
 
@@ -427,17 +435,21 @@ export class PostgresConnector extends RemoteApiConnector {
  * interpolation of any user value. The text has already passed the allowlist
  * check (Layer 2) and runs on the read-only connection (Layer 1).
  *
- * The empty `[]` params array forces the pg extended query protocol (Parse →
- * Bind → Execute). Postgres rejects multi-statement SQL during Parse in this
- * protocol, closing the `SELECT 1; BEGIN READ WRITE; …` bypass that would
- * otherwise let an explicit transaction override the session-level read-only
- * default set by SET SESSION CHARACTERISTICS.
+ * `queryMode: "extended"` forces node-postgres onto the extended query
+ * protocol (Parse → Bind → Execute). Postgres rejects multi-statement SQL
+ * during Parse in this protocol, closing the `SELECT 1; BEGIN READ WRITE; …`
+ * bypass that would otherwise let an explicit transaction override the
+ * session-level read-only default set by SET SESSION CHARACTERISTICS.
+ *
+ * Note: passing an empty values array `[]` does NOT achieve this — pg checks
+ * `values.length > 0` in requiresPreparation(), so `[]` stays on the simple
+ * protocol. The `queryMode` field in the config object is the correct opt-in.
  */
 async function runUserQuery(
   client: PgClientLike,
   sql: string,
 ): Promise<Record<string, unknown>[]> {
-  const result = await client.query(sql, []);
+  const result = await client.query({ text: sql, queryMode: "extended" });
   return result.rows;
 }
 

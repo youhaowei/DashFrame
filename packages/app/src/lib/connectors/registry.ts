@@ -121,6 +121,14 @@ export function clearConnectorRegistry(): void {
 export interface GetConnectorsOptions {
   /** Show Notion connector (default: false for feature flag control) */
   showNotion?: boolean;
+  /**
+   * Show Postgres connector (default: false).
+   *
+   * Postgres is registered for static metadata and server-side query routing
+   * but the renderer-side connect() flow is not yet wired. Keep hidden until
+   * the connect UI is complete.
+   */
+  showPostgres?: boolean;
   /** Filter by source type */
   sourceType?: "file" | "remote-api";
 }
@@ -133,6 +141,11 @@ export function getConnectors(options?: GetConnectorsOptions): AnyConnector[] {
   return Array.from(connectorMap.values()).filter((connector) => {
     // Feature flag: Notion
     if (connector.id === "notion" && !(options?.showNotion ?? false)) {
+      return false;
+    }
+
+    // Feature flag: Postgres (connect UI not yet wired)
+    if (connector.id === "postgres" && !(options?.showPostgres ?? false)) {
       return false;
     }
 
