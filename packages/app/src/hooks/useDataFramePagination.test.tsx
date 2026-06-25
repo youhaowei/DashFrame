@@ -4,13 +4,14 @@
  * Contract: when a resolved result has zero rows, columns must be reset to []
  * rather than left at the prior DataFrame's column set.
  *
- * This guards against the YW-311 regression: if (rows.length > 0) skipping
+ * This guards against the regression where `if (rows.length > 0)` skipped
  * setColumns on the zero-row path, leaving stale schema visible for an empty
  * table.
  *
- * The generation-guard invariant from YW-303 must NOT be regressed: the reset
- * fires only inside the current generation's resolved continuation (after the
- * gen check at the preview step), never from a superseded in-flight init.
+ * The generation-guard invariant (stale-async-state fix) must NOT be
+ * regressed: the reset fires only inside the current generation's resolved
+ * continuation (after the gen check at the preview step), never from a
+ * superseded in-flight init.
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,7 +68,7 @@ const READY_DDB = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("useDataFramePagination — empty-result column reset (YW-311)", () => {
+describe("useDataFramePagination — empty-result column reset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -79,7 +80,7 @@ describe("useDataFramePagination — empty-result column reset (YW-311)", () => 
     // Phase 1: render DataFrame A — preview returns 1 row with columns col_a, col_b.
     // Phase 2: switch to DataFrame B — preview returns 0 rows.
     // Expected: columns = [] after B settles.
-    // Pre-fix: columns = [{name:'col_a'}, {name:'col_b'}] — the YW-311 bug.
+    // Pre-fix: columns = [{name:'col_a'}, {name:'col_b'}] — stale schema bug.
 
     const { dataFrame: dfA } = makeQueryBuilder([{ col_a: "v1", col_b: "v2" }]);
     const { dataFrame: dfB } = makeQueryBuilder([]);

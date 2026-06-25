@@ -277,21 +277,21 @@ describe("useInsightPagination — allFields excludes dropped right join-keys", 
 });
 
 // ---------------------------------------------------------------------------
-// Empty-result column reset (YW-311)
+// Empty-result column reset
 // ---------------------------------------------------------------------------
 
 /**
  * Contract: when a resolved result returns zero preview rows, columns and
  * fieldCount must reset to [] / 0, not retain the prior insight's values.
  *
- * This guards the YW-311 bug: `if (rows.length > 0)` skipping setColumns on
+ * This guards the bug where `if (rows.length > 0)` skipping setColumns on
  * the zero-row path left stale schema visible.
  *
- * Generation-guard invariant (YW-303) must hold: the reset fires only inside
- * the current generation's continuation — after the gen check — so a
- * superseded in-flight init never resets the current state.
+ * The generation-guard invariant (stale-async-state fix) must hold: the
+ * reset fires only inside the current generation's continuation — after the
+ * gen check — so a superseded in-flight init never resets the current state.
  */
-describe("useInsightPagination — empty-result column reset (YW-311)", () => {
+describe("useInsightPagination — empty-result column reset", () => {
   // Minimal single-table insight; no joins needed to exercise the column path.
   const TABLE_ID = "cc000000-0000-0000-0000-000000000001" as UUID;
   const DF_ID = "cc000000-0000-0000-0000-000000000002" as UUID;
@@ -350,7 +350,7 @@ describe("useInsightPagination — empty-result column reset (YW-311)", () => {
     // Phase 1 — insight A: preview returns 1 row, populating columns + fieldCount.
     // Phase 2 — insight B: preview returns 0 rows → columns/fieldCount must clear.
     // Pre-fix: the `if (rows.length > 0)` guard skipped setColumns([]), leaving
-    // A's columns/fieldCount visible — the YW-311 bug.
+    // A's columns/fieldCount visible — stale schema bug.
 
     // Phase 1 mocks: getDataTable × 1, buildInsightSQL, count query, preview query (1 row).
     mockGetDataTable.mockResolvedValue(table);
