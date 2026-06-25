@@ -1,12 +1,12 @@
 /**
  * Tests for VisualizationDisplay — saved-insight-params forwarded to pagination
- * when no cell overrides are present (YW-304, Finding 1).
+ * when no cell overrides are present.
  *
  * Contract: when `overrides` is absent, `useInsightPagination` must receive
  * effectiveParams that carry the insight's own filters/sorts so the table
  * row count reflects the saved insight configuration.
  *
- * F1 scope: VisualizationDisplay.tsx only.
+ * Scope: VisualizationDisplay.tsx only (pagination effectiveParams invariant).
  */
 import type { Insight, Visualization } from "@dashframe/types";
 import { render } from "@testing-library/react";

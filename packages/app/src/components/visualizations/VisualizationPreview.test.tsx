@@ -1,14 +1,15 @@
 /**
- * Tests for VisualizationPreview terminal-state routing (YW-304).
+ * Tests for VisualizationPreview terminal-state routing.
  *
  * Three branch contracts:
  * (a) Loading — spinner is shown while insight or view is not yet ready.
  * (b) View-creation error — terminal/error UI is shown (not spinner) even when
- *     `isReady` is false, which previously spun forever due to guard ordering.
+ *     `isReady` is false (guard ordering bug: error must be checked before
+ *     the loading guard to avoid an indefinite spinner).
  * (c) Missing encoding — "Encoding missing" text is shown (not spinner) when
  *     `resolvedEncoding` has no x/y channel after the view is ready.
  *
- * F2 scope: VisualizationPreview.tsx only.
+ * Scope: VisualizationPreview.tsx only.
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
