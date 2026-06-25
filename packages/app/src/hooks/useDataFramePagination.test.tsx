@@ -42,8 +42,8 @@ vi.mock("@dashframe/core", () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a mock queryBuilder that produces the given preview rows. */
-function makeQueryBuilder(previewRows: Record<string, unknown>[]) {
+/** Build a mock queryBuilder (rows are controlled by the connection.query mock). */
+function makeQueryBuilder() {
   const queryBuilder = {
     sql: vi.fn().mockResolvedValue("SELECT 1"),
     limit: vi.fn().mockReturnThis(),
@@ -82,8 +82,8 @@ describe("useDataFramePagination — empty-result column reset", () => {
     // Expected: columns = [] after B settles.
     // Pre-fix: columns = [{name:'col_a'}, {name:'col_b'}] — stale schema bug.
 
-    const { dataFrame: dfA } = makeQueryBuilder([{ col_a: "v1", col_b: "v2" }]);
-    const { dataFrame: dfB } = makeQueryBuilder([]);
+    const { dataFrame: dfA } = makeQueryBuilder();
+    const { dataFrame: dfB } = makeQueryBuilder();
 
     // Single shared connection whose .query is swapped between phases.
     const connection = {
