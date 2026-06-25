@@ -161,6 +161,32 @@ describe("VisualizationPreview — (b) view-creation error branch", () => {
     expect(screen.getByTestId("custom-fallback")).not.toBeNull();
     expect(screen.queryByText("Failed to load")).toBeNull();
   });
+
+  it("does NOT show stale error from prior insight while the new insight is loading", () => {
+    // Regression: after the guard reorder (error before loading), a stale error
+    // from insight A can persist in useInsightView while insight B is loading
+    // (isLoadingInsight=true). The `!isLoadingInsight` guard prevents the stale
+    // error from surfacing as "Failed to load" during the transition.
+    //
+    // Simulate: component re-rendered for a new visualization/insight.
+    // isLoadingInsight=true (new insight fetch in flight).
+    // error is still set from the prior insight's view-creation failure.
+    mockUseInsight.mockReturnValue({ data: undefined, isLoading: true });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: "stale error from prior insight A",
+    });
+
+    const { container } = render(
+      <VisualizationPreview visualization={visualization} />,
+    );
+
+    // Must show spinner, NOT the stale error UI
+    expect(screen.queryByText("Failed to load")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
 });
 
 // ── (c) Encoding missing — distinct text, not spinner ───────────────────────

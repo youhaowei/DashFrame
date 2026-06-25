@@ -86,7 +86,13 @@ export function VisualizationPreview({
 
   // Error state — checked BEFORE the loading guard so that view-creation errors
   // that leave `isReady=false` reach a terminal UI instead of spinning forever.
-  if (error) {
+  //
+  // Guard: `!isLoadingInsight` prevents stale-error bleed-through. When the
+  // visualization prop changes to a new insight that is still loading, the prior
+  // useInsightView error persists briefly (the hook resets it only when
+  // createView succeeds). Without this guard, a stale error from insight A
+  // would flash "Failed to load" while insight B is being fetched.
+  if (!isLoadingInsight && error) {
     return (
       fallback ?? (
         <div className="flex h-full w-full items-center justify-center bg-neutral-bg-muted/50 text-xs text-neutral-fg-subtle">
@@ -97,7 +103,8 @@ export function VisualizationPreview({
   }
 
   // Loading state — waiting for insight data or view creation.
-  // Only reached when there is no error.
+  // Only reached when there is no error (or isLoadingInsight is true, in which
+  // case any prior error is stale and the spinner is the correct state).
   if (isLoadingInsight || !isReady || !viewName) {
     return <PreviewLoading />;
   }
