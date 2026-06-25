@@ -1189,4 +1189,343 @@ describe("vault lifecycle — preview mode skips vault delete", () => {
       false,
     );
   });
+
+  // Preview-mode guard for the CLEAR and ROTATE branches in applyCredentialField.
+  // The `!preview` guard in applyCredentialField must prevent vault.delete() from firing
+  // in preview mode for SetDataSourceConfig, just as it does for DeleteNode.
+  // These tests use the spy on vault.delete() already set up by this describe's beforeEach.
+
+  it("preview mode — SetDataSourceConfig with apiKey clear never calls vault.delete() (prior ref survives)", async () => {
+    // Arrange: commit a credentialed source so a real SecretRef is live.
+    const id = crypto.randomUUID();
+    await commitApp.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Preview Clear Guard",
+      apiKey: "do-not-release-on-preview-clear",
+    });
+    const configBefore = await readConfig(db, id);
+    const apiKeyRef = configBefore!["apiKey"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const deleteCountBefore = deleteCallCount;
+
+    // Act: preview a SetDataSourceConfig that clears the apiKey (empty string).
+    // The transaction rolls back, so the DB row is unchanged. More importantly,
+    // the CLEAR branch in applyCredentialField must not call vault.delete() in preview.
+    await buildPreviewDiff(
+      previewApp,
+      db,
+      [cmd("SetDataSourceConfig", { id, apiKey: "" })],
+      { vault },
+    );
+
+    // Assert: the guard fired — vault.delete() was never called during preview.
+    expect(deleteCallCount).toBe(deleteCountBefore);
+    // The canonical row still holds the original ref (rollback preserved it)...
+    const configAfter = await readConfig(db, id);
+    expect(configAfter!["apiKey"]).toBe(apiKeyRef);
+    // ...and the credential is still resolvable (NOT orphaned by the preview clear).
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+  });
+
+  it("preview mode — SetDataSourceConfig with apiKey rotate never calls vault.delete() (prior ref survives)", async () => {
+    // Arrange: commit a credentialed source so a real SecretRef is live.
+    const id = crypto.randomUUID();
+    await commitApp.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Preview Rotate Guard",
+      apiKey: "do-not-release-on-preview-rotate",
+    });
+    const configBefore = await readConfig(db, id);
+    const apiKeyRef = configBefore!["apiKey"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const deleteCountBefore = deleteCallCount;
+
+    // Act: preview a SetDataSourceConfig that rotates the apiKey to a new value.
+    // The ROTATE branch in applyCredentialField must not call vault.delete() in preview.
+    await buildPreviewDiff(
+      previewApp,
+      db,
+      [cmd("SetDataSourceConfig", { id, apiKey: "rotated-preview-value" })],
+      { vault },
+    );
+
+    // Assert: the guard fired — vault.delete() was never called during preview.
+    expect(deleteCallCount).toBe(deleteCountBefore);
+    // The canonical row still holds the original ref (rollback preserved it)...
+    const configAfter = await readConfig(db, id);
+    expect(configAfter!["apiKey"]).toBe(apiKeyRef);
+    // ...and the credential is still resolvable (NOT orphaned by the preview rotate).
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clear/rotate branches release prior SecretRef (applyCredentialField)
+// ---------------------------------------------------------------------------
+//
+// AC1: store → clear → old ref no longer in vault (vault.has false) + config key absent.
+// AC2: store → rotate → old ref released, new ref resolves (vault.has new=true, old=false).
+// AC3: vault-absent clear with no prior ref is a no-op (no throw).
+//
+// The fix lives in applyCredentialField (utils.ts): CLEAR captures the prior ref,
+// calls releaseCredentialRefs({[field]: prior}, vault) BEFORE deleting the key;
+// ROTATE stores the new ref first, THEN releases the old one (store-new-then-release-old
+// preserves the new secret on mid-rotate failure). Both skipped in preview mode.
+// ---------------------------------------------------------------------------
+
+describe("vault lifecycle: clear releases prior SecretRef (AC1)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-clear-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    const rawApp = await createWyStack({ db, functions });
+    app = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("AC1 — store credential → clear it → old SecretRef is released from vault and config key is absent", async () => {
+    // Arrange: create a source with an apiKey so a real SecretRef is minted.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Clear Me",
+      apiKey: "clear-this-secret",
+    });
+    const configBefore = await readConfig(db, id);
+    const oldRef = configBefore!["apiKey"] as string;
+    expect(isSecretRef(oldRef)).toBe(true);
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: clear the credential by passing an empty string.
+    await app.call("setDataSourceConfig", { id, apiKey: "" });
+
+    // Assert AC1a: the old ref is no longer in the vault.
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+    // Assert AC1b: the config key is absent (not just null/undefined in jsonb).
+    const configAfter = await readConfig(db, id);
+    expect(configAfter!["apiKey"]).toBeUndefined();
+  });
+
+  it("a rejected clear (extra-key sink-guard fires) does NOT release the prior ref — validation runs before the irreversible vault.delete", async () => {
+    // Regression: the sink-guard that rejects credential keys in `extra` must run
+    // BEFORE applyCredentialField does the vault release. Otherwise a request that
+    // clears apiKey AND smuggles apiKey via `extra` would delete the live secret,
+    // then throw — leaving the surviving DB row pointing at a now-dead ref.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Reject Me",
+      apiKey: "must-survive-a-rejected-write",
+    });
+    const configBefore = await readConfig(db, id);
+    const oldRef = configBefore!["apiKey"] as string;
+    expect(isSecretRef(oldRef)).toBe(true);
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: clear apiKey while illegally smuggling apiKey through `extra`.
+    await expect(
+      app.call("setDataSourceConfig", {
+        id,
+        apiKey: "",
+        extra: { apiKey: "sneaky" },
+      }),
+    ).rejects.toThrow(/typed credential fields/i);
+
+    // Assert: the guard rejected before any release fired — the prior ref is intact
+    // and the DB row still references it (consistent, no dangling pointer).
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const configAfter = await readConfig(db, id);
+    expect(configAfter!["apiKey"]).toBe(oldRef);
+  });
+
+  it("clearing apiKey releases ONLY the apiKey ref — the connectionString sibling stays live in the vault", async () => {
+    // Single-field scope: applyCredentialField passes { [field]: prior } to
+    // releaseCredentialRefs, so clearing one credential must not touch the other.
+    // This is the regression fence for the single-field slice — a full-config
+    // release would wrongly delete the sibling's vault entry.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "postgres",
+      name: "Both Creds",
+      apiKey: "the-api-key",
+      connectionString: "postgresql://u:p@h/db",
+    });
+    const configBefore = await readConfig(db, id);
+    const apiKeyRef = configBefore!["apiKey"] as string;
+    const csRef = configBefore!["connectionString"] as string;
+    expect(isSecretRef(apiKeyRef)).toBe(true);
+    expect(isSecretRef(csRef)).toBe(true);
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    expect(await vault.has(csRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: clear ONLY apiKey.
+    await app.call("setDataSourceConfig", { id, apiKey: "" });
+
+    // Assert: apiKey ref released, connectionString ref untouched (vault + config).
+    expect(await vault.has(apiKeyRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+    expect(await vault.has(csRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+    const configAfter = await readConfig(db, id);
+    expect(configAfter!["apiKey"]).toBeUndefined();
+    expect(configAfter!["connectionString"]).toBe(csRef);
+  });
+});
+
+describe("vault lifecycle: rotate releases prior SecretRef (AC2)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-vault-rotate-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    const rawApp = await createWyStack({ db, functions });
+    app = {
+      ...rawApp,
+      async call(path, args, ctx) {
+        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      },
+      async runHandler(path, args, tracked, ctx) {
+        return rawApp.runHandler(path, args, tracked, {
+          ...(ctx ?? {}),
+          vault,
+        });
+      },
+    };
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("AC2 — store credential → rotate to new value → old ref released, new ref resolves", async () => {
+    // Arrange: create a source with an initial apiKey.
+    const id = crypto.randomUUID();
+    await app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Rotate Me",
+      apiKey: "original-secret",
+    });
+    const configBefore = await readConfig(db, id);
+    const oldRef = configBefore!["apiKey"] as string;
+    expect(isSecretRef(oldRef)).toBe(true);
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+
+    // Act: rotate to a new credential value.
+    await app.call("setDataSourceConfig", { id, apiKey: "rotated-secret" });
+
+    // Assert AC2a: old ref is released from the vault.
+    expect(await vault.has(oldRef as Parameters<typeof vault.has>[0])).toBe(
+      false,
+    );
+    // Assert AC2b: the new ref is live and distinct from the old one.
+    const configAfter = await readConfig(db, id);
+    const newRef = configAfter!["apiKey"] as string;
+    expect(isSecretRef(newRef)).toBe(true);
+    expect(newRef).not.toBe(oldRef);
+    expect(await vault.has(newRef as Parameters<typeof vault.has>[0])).toBe(
+      true,
+    );
+  });
+});
+
+describe("vault lifecycle: vault-absent clear is a no-op (AC3)", () => {
+  // AC3 unit anchor: the underlying releaseCredentialRefs early-return semantics.
+  it("AC3 unit — releaseCredentialRefs with no prior ref and no vault does not throw (early-return)", async () => {
+    // releaseCredentialRefs early-returns when refs.length === 0, so no vault is
+    // consulted. This pins the primitive that applyCredentialField relies on for AC3.
+    await expect(
+      releaseCredentialRefs({ apiKey: undefined }, undefined),
+    ).resolves.toBeUndefined();
+  });
+
+  // AC3 end-to-end: applyCredentialField with value="" on a source with no prior
+  // credential, no vault injected. The full path: handler → applyCredentialField →
+  // CLEAR branch → releaseCredentialRefs({apiKey: undefined}, undefined) → early-return.
+  it("AC3 e2e — setDataSourceConfig with apiKey clear on a no-credential source succeeds with no vault injected", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dashframe-vault-ac3-"));
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    // No vault injected — this is a vault-absent server.
+    const app = await createWyStack({ db, functions });
+
+    try {
+      // Arrange: create a source with no credential (allowed without vault).
+      const id = crypto.randomUUID();
+      await app.call("createDataSource", {
+        id,
+        type: "csv",
+        name: "AC3 Source",
+      });
+      const configBefore = await readConfig(db, id);
+      expect(configBefore!["apiKey"]).toBeUndefined(); // confirm no prior ref
+
+      // Act: clear the (already-absent) apiKey with no vault. Must not throw.
+      await expect(
+        app.call("setDataSourceConfig", { id, apiKey: "" }),
+      ).resolves.toBeDefined();
+
+      // Assert: config still has no apiKey (clear on absent field is a no-op).
+      const configAfter = await readConfig(db, id);
+      expect(configAfter!["apiKey"]).toBeUndefined();
+    } finally {
+      await db.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
