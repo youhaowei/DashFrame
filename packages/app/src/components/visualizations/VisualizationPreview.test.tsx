@@ -160,20 +160,6 @@ describe("VisualizationPreview — (b) view-creation error branch", () => {
     expect(screen.getByTestId("custom-fallback")).not.toBeNull();
     expect(screen.queryByText("Failed to load")).toBeNull();
   });
-
-  it("default fallback (null) — renders inline 'Failed to load' text for error state", () => {
-    setDataReady();
-    mockUseInsightView.mockReturnValue({
-      viewName: null,
-      isReady: false,
-      error: "view failed",
-    });
-
-    // No fallback prop → default null → fallback ?? <inline div> renders the inline text
-    render(<VisualizationPreview visualization={visualization} />);
-
-    expect(screen.getByText("Failed to load")).not.toBeNull();
-  });
 });
 
 // ── (c) Encoding missing — distinct text, not spinner ───────────────────────

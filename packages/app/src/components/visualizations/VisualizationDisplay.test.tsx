@@ -215,4 +215,28 @@ describe("VisualizationDisplay — saved params forwarded when overrides absent"
     expect(Array.isArray(callOpts?.effectiveParams?.filters)).toBe(true);
     expect(Array.isArray(callOpts?.effectiveParams?.sorts)).toBe(true);
   });
+
+  it("when overrides are present, paginationEffectiveParams merges them into effectiveParams for pagination", () => {
+    // Regression: paginationEffectiveParams is always computed from resolveEffectiveParams
+    // with overrides forwarded — this path verifies the override is merged (not lost).
+    const overrideFilter = {
+      field: "region",
+      operator: "eq" as const,
+      value: "west",
+    };
+    const overrides = { filters: [overrideFilter] };
+
+    render(
+      <VisualizationDisplay
+        visualizationId="viz-1"
+        overrides={overrides as never}
+      />,
+    );
+
+    const callOpts = mockUseInsightPagination.mock.calls[0]?.[0];
+    // The override filter should reach useInsightPagination (mock merges overrides.filters ?? insight.filters)
+    expect(callOpts?.effectiveParams?.filters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "region" })]),
+    );
+  });
 });
