@@ -100,11 +100,11 @@ export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
  *
  * // Count distinct values
  * metricToSqlExpression({ name: "Unique Users", aggregation: "count_distinct", columnName: "user_id" })
- * // Returns: "count_distinct(\"user_id\")"
+ * // Returns: "count_distinct(user_id)"
  *
  * // Standard aggregation
  * metricToSqlExpression({ name: "Total Sales", aggregation: "sum", columnName: "amount" })
- * // Returns: "sum(\"amount\")"
+ * // Returns: "sum(amount)"
  * ```
  */
 export function metricToSqlExpression(metric: InsightMetric): string {
@@ -115,14 +115,17 @@ export function metricToSqlExpression(metric: InsightMetric): string {
     return "count(*)";
   }
 
-  // COUNT(DISTINCT column)
+  // COUNT(DISTINCT column) — unquoted: this string is consumed by vgplot's
+  // parseEncodingValue DSL parser, which re-extracts the column name via regex
+  // and passes it to Mosaic (which quotes on its own). Quoting here would
+  // double-process the identifier and break the chart render.
   if (agg === "count_distinct" && metric.columnName) {
-    return `count_distinct(${quoteIdentifier(metric.columnName)})`;
+    return `count_distinct(${metric.columnName})`;
   }
 
-  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
-  // Guard at the sink: quote the identifier. COUNT(*) uses a literal *, not an identifier.
-  return `${agg}(${metric.columnName ? quoteIdentifier(metric.columnName) : "*"})`;
+  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT — same reasoning as above.
+  // The Mosaic API (api.sum(col), api.avg(col), etc.) quotes internally.
+  return `${agg}(${metric.columnName ?? "*"})`;
 }
 
 /**

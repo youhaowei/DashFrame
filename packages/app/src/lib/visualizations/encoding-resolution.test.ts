@@ -74,7 +74,7 @@ describe("encoding-resolution", () => {
 
     it("should resolve metric encoding to SQL expression", () => {
       const result = resolveToSql(metricEncoding("metric-1" as UUID), context);
-      expect(result).toBe('sum("revenue")');
+      expect(result).toBe("sum(revenue)");
     });
 
     it("should resolve count(*) metric correctly", () => {
@@ -84,7 +84,7 @@ describe("encoding-resolution", () => {
 
     it("should resolve count_distinct metric correctly", () => {
       const result = resolveToSql(metricEncoding("metric-3" as UUID), context);
-      expect(result).toBe('count_distinct("category")');
+      expect(result).toBe("count_distinct(category)");
     });
 
     it("should return undefined for undefined input", () => {
@@ -137,7 +137,7 @@ describe("encoding-resolution", () => {
       expect(result).toEqual({
         columnName: "metric_metric_1", // metric_<uuid with dashes replaced by underscores>
         isMetric: true,
-        sqlExpression: 'sum("revenue")',
+        sqlExpression: "sum(revenue)",
         valid: true,
       });
     });
@@ -180,7 +180,7 @@ describe("encoding-resolution", () => {
       const result = resolveEncodingToSql(encoding, context);
 
       expect(result.x).toBe("field_field_1");
-      expect(result.y).toBe('sum("revenue")');
+      expect(result.y).toBe("sum(revenue)");
       expect(result.color).toBe("field_field_3");
     });
 
@@ -207,7 +207,7 @@ describe("encoding-resolution", () => {
       const result = resolveEncodingToSql(encoding, context);
 
       expect(result.x).toBe("field_field_1");
-      expect(result.y).toBe('sum("revenue")');
+      expect(result.y).toBe("sum(revenue)");
       // Empty string should resolve to undefined, not be passed through
       expect(result.color).toBeUndefined();
     });
@@ -223,7 +223,7 @@ describe("encoding-resolution", () => {
       const result = resolveEncodingToSql(encoding, context);
 
       expect(result.x).toBeUndefined();
-      expect(result.y).toBe('sum("revenue")');
+      expect(result.y).toBe("sum(revenue)");
       expect(result.color).toBeUndefined();
     });
 
@@ -238,7 +238,7 @@ describe("encoding-resolution", () => {
       const result = resolveEncodingToSql(encoding, context);
 
       expect(result.x).toBe("field_field_1");
-      expect(result.y).toBe('sum("revenue")');
+      expect(result.y).toBe("sum(revenue)");
       expect(Object.keys(result).sort()).toEqual(["color", "size", "x", "y"]);
     });
   });
