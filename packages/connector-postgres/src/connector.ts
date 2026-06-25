@@ -1,0 +1,470 @@
+/**
+ * PostgresConnector — read-only Postgres data-source connector.
+ *
+ * Auth-blind: the connector is constructed with a bound SecretResolver
+ * pre-bound to the DataSource's credential ref. Data methods (connect, query)
+ * carry NO credential arguments — the pipeline call site has no vault, ref,
+ * or plaintext in scope (enforced by type).
+ *
+ * Security contracts — ALL MANDATORY:
+ *
+ * 1. Read-only, two layers:
+ *    Layer 1 (hard guard): SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY
+ *    sets the default transaction mode. In addition, user queries are sent via
+ *    the extended query protocol (empty params array) which causes Postgres to
+ *    reject multi-statement SQL at the Parse phase — preventing the
+ *    `SELECT 1; BEGIN READ WRITE; CREATE TABLE …` bypass.
+ *    Layer 2 (fast-fail): A regex allowlist rejects any user-supplied query
+ *    whose first non-comment, non-whitespace token is not SELECT/WITH/EXPLAIN/
+ *    TABLE — before touching the wire.
+ *
+ * DEPLOYMENT REQUIREMENT — least-privilege role:
+ *    The DSN MUST use a Postgres role that holds only SELECT grants on the
+ *    target schemas. The connector cannot enforce this. Using a superuser or
+ *    a role with WRITE/DDL grants breaks the read-only guarantee regardless of
+ *    the connector's guards — `pg_read_file`, `dblink`, and similar superuser
+ *    functions bypass all statement-level controls.
+ *
+ * 2. Credential never plaintext in config: the DSN is resolved inside
+ *    this.auth(async dsn => { ... }). The pg Client is constructed and closed
+ *    inside the callback scope; the plaintext DSN never escapes.
+ *
+ * 3. SQL sink guards:
+ *    Sink 1 — connection string assembled only inside auth callback.
+ *    Sink 2 — schema/table identifiers quoted via quoteIdentifier(); values
+ *             passed as $1/$2 parameters to information_schema queries.
+ *    Sink 3 — user query sent with ZERO string interpolation.
+ *
+ * 4. Fail-closed: if the resolver yields empty, throw before constructing
+ *    a client (no unauthenticated connection opened).
+ *
+ * pg is a Node-only package — all imports are dynamic (inside the auth
+ * callback) so this module is safe to import in the renderer for static
+ * metadata (id/name/icon/getFormFields) without pulling in Node APIs.
+ */
+
+import type {
+  ConnectorQueryResult,
+  Field,
+  FormField,
+  QueryOptions,
+  RemoteDatabase,
+  SecretResolver,
+  UUID,
+  ValidationResult,
+} from "@dashframe/engine";
+import {
+  RemoteApiConnector,
+  createFieldsFromColumns,
+  inferStringColumnType,
+  quoteIdentifier,
+} from "@dashframe/engine";
+import { tableFromArrays, tableToIPC } from "apache-arrow";
+import type { PostgresConnectorConfig } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Read-only guard (Layer 2 — fast-fail allowlist)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip leading SQL line comments (-- ...) and block comments (/* ... *\/).
+ * Iterative — no regex backtracking on arbitrary input.
+ */
+function stripLeadingComments(sql: string): string {
+  let s = sql.trimStart();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (s.startsWith("--")) {
+      const nl = s.indexOf("\n");
+      s = nl === -1 ? "" : s.slice(nl + 1).trimStart();
+    } else if (s.startsWith("/*")) {
+      const end = s.indexOf("*/");
+      if (end === -1) {
+        s = "";
+      } else {
+        s = s.slice(end + 2).trimStart();
+      }
+    } else {
+      break;
+    }
+  }
+  return s;
+}
+
+/**
+ * Assert that a user-supplied SQL string's first token is an allowlisted
+ * read-only keyword: SELECT, WITH, EXPLAIN, or TABLE.
+ *
+ * The check is Layer 2 (fast-fail at the surface). Layer 1 (SET SESSION
+ * CHARACTERISTICS AS TRANSACTION READ ONLY) is the load-bearing guard.
+ *
+ * @throws if the first token is not on the allowlist.
+ */
+export function assertReadOnlyQuery(sql: string): void {
+  const stripped = stripLeadingComments(sql);
+  // Match the first word token, case-insensitive.
+  const match = /^([A-Za-z]+)(?:\s|$|;|\()/u.exec(stripped);
+  const first = match?.[1]?.toUpperCase() ?? "";
+  const allowed = new Set(["SELECT", "WITH", "EXPLAIN", "TABLE"]);
+  if (!allowed.has(first)) {
+    throw new Error(
+      `[PostgresConnector] Non-SELECT query rejected (first token: "${first || "(empty)"}"). ` +
+        `Only SELECT / WITH / EXPLAIN / TABLE statements are allowed. ` +
+        `This connector is read-only.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Client abstraction (injectable for tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal interface for a pg Client used by this connector.
+ * Keeps the seam narrow — only the two methods we call are required.
+ */
+export interface PgClientLike {
+  query(text: string): Promise<{ rows: Record<string, unknown>[] }>;
+  query(
+    text: string,
+    values: unknown[],
+  ): Promise<{ rows: Record<string, unknown>[] }>;
+  end(): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Introspection helpers (exported for unit testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * List tables and views in the given schema using information_schema.
+ *
+ * Sink 2 compliance:
+ *   - schema name appears as a $1 PARAMETER VALUE in the WHERE clause.
+ *   - schema name is also used as an identifier in SET search_path — it is
+ *     quoted via quoteIdentifier() before interpolation.
+ *   - No user input is ever concatenated raw into SQL text.
+ */
+export async function listTablesInSchema(
+  client: PgClientLike,
+  schema: string,
+): Promise<string[]> {
+  // Set search_path for this session — schema name as a quoted identifier.
+  await client.query(`SET search_path TO ${quoteIdentifier(schema)}`);
+
+  // Query information_schema: schema name as a $1 value parameter.
+  const result = await client.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = $1
+       AND table_type IN ('BASE TABLE', 'VIEW')
+     ORDER BY table_name`,
+    [schema],
+  );
+
+  return result.rows.map((row) => String(row["table_name"] ?? ""));
+}
+
+// ---------------------------------------------------------------------------
+// Field inference from rows
+// ---------------------------------------------------------------------------
+
+function inferFieldsFromRows(
+  rows: Record<string, unknown>[],
+  tableId: UUID,
+): Field[] {
+  const columnNames = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      columnNames.add(key);
+    }
+  }
+
+  const columns = [...columnNames].map((name) => {
+    let type: ReturnType<typeof inferStringColumnType> = "unknown";
+    for (const row of rows) {
+      const v = row[name];
+      if (v !== null && v !== undefined) {
+        type = inferStringColumnType(String(v));
+        break;
+      }
+    }
+    return { name, type };
+  });
+
+  return createFieldsFromColumns(columns, tableId);
+}
+
+// ---------------------------------------------------------------------------
+// Connector
+// ---------------------------------------------------------------------------
+
+/**
+ * PostgresConnector — read-only, auth-blind Postgres source connector.
+ *
+ * Constructed via {@link makePostgresConnector} with a bound SecretResolver
+ * and declarative config. Call `connect()` and `query()` with no credential
+ * arguments — the pipeline call site has no vault, ref, or plaintext in scope.
+ *
+ * pg is dynamically imported inside the auth callback to avoid pulling the
+ * Node-only `pg` package into the renderer bundle (the renderer imports this
+ * module for static metadata only and never calls connect/query).
+ */
+export class PostgresConnector extends RemoteApiConnector {
+  readonly id = "postgres";
+  readonly name = "PostgreSQL";
+  readonly description = "Connect to a PostgreSQL database (read-only).";
+  readonly icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.657 4.03 3 9 3s9-1.343 9-3V5"/><path d="M3 12c0 1.657 4.03 3 9 3s9-1.343 9-3"/></svg>`;
+
+  readonly #config: PostgresConnectorConfig;
+
+  /**
+   * Overridable client factory — enables test subclasses to inject a spy/stub
+   * without dynamic-importing the real pg package. The default implementation
+   * dynamically imports pg, constructs a Client, and connects it.
+   *
+   * @param dsn - Plaintext DSN, valid only within the auth callback scope.
+   */
+  protected async createClient(dsn: string): Promise<PgClientLike> {
+    // Dynamic import: keeps pg out of the renderer bundle. The renderer imports
+    // this class for static metadata (id/name/icon/getFormFields) and never
+    // calls createClient — so pg is never evaluated in a browser context.
+    const { default: pg } = await import("pg");
+    const client = new pg.Client({ connectionString: dsn });
+    await client.connect();
+    return client as unknown as PgClientLike;
+  }
+
+  constructor(auth: SecretResolver, config: PostgresConnectorConfig) {
+    super(auth);
+    this.#config = config;
+  }
+
+  /**
+   * Open a read-only pg client scoped to the auth callback.
+   *
+   * The DSN plaintext is consumed here and NEVER escapes this method.
+   * Layer 1 read-only guard is applied first: SET SESSION CHARACTERISTICS AS
+   * TRANSACTION READ ONLY is the very first query executed on every connection.
+   * If the resolver yields an empty DSN, we throw before constructing the client
+   * (fail-closed).
+   */
+  async #withClient<T>(use: (client: PgClientLike) => Promise<T>): Promise<T> {
+    return this.auth(async (dsn) => {
+      // Fail-closed: a connectionStringRef implies the credential is required.
+      if (!dsn) {
+        throw new Error(
+          "[PostgresConnector] connectionStringRef is configured but the " +
+            "secret resolver returned no DSN — refusing to open a connection " +
+            "(fail-closed).",
+        );
+      }
+
+      // Sink 1: DSN is used only here, inside the auth callback. The client is
+      // constructed with the DSN and closed before the callback returns.
+      const client = await this.createClient(dsn);
+
+      try {
+        // Layer 1 — hard read-only guard. This is the FIRST query on every
+        // connection — before any introspection or user query.
+        await client.query(
+          "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
+        );
+        // Bound statement execution time. Protects against pg_sleep() and
+        // other long-running queries (DoS mitigation — no user-facing timeout).
+        await client.query("SET statement_timeout = '30s'");
+        return await use(client);
+      } finally {
+        // Ensure the client is closed even on error — DSN never escapes.
+        await client.end().catch(() => {
+          // Swallow end() errors: the caller's error takes priority.
+        });
+      }
+    });
+  }
+
+  getFormFields(): FormField[] {
+    return [
+      {
+        name: "connectionString",
+        label: "Connection String",
+        type: "password",
+        placeholder: "postgres://user:password@host:5432/dbname",
+        hint: "Stored securely in the vault. Never exposed in config.",
+        required: true,
+      },
+      {
+        name: "defaultSchema",
+        label: "Default Schema",
+        type: "text",
+        placeholder: "public",
+        hint: "Schema to list tables from (default: public).",
+      },
+    ];
+  }
+
+  validate(formData: Record<string, unknown>): ValidationResult {
+    const cs = formData["connectionString"] as string | undefined;
+    if (!cs) {
+      return {
+        valid: false,
+        errors: { connectionString: "Connection string is required." },
+      };
+    }
+    return { valid: true };
+  }
+
+  /**
+   * Connect to the Postgres database and list tables/views in the configured
+   * schema. Returns one RemoteDatabase entry per table/view.
+   *
+   * Credentials are resolved via `this.auth` — no credential argument.
+   */
+  async connect(): Promise<RemoteDatabase[]> {
+    const schema = this.#config.defaultSchema ?? "public";
+    return this.#withClient(async (client) => {
+      const tables = await listTablesInSchema(client, schema);
+      return tables.map((table) => ({
+        id: `${schema}.${table}`,
+        name: table,
+      }));
+    });
+  }
+
+  /**
+   * Query the Postgres database and return a serializable Arrow IPC result.
+   *
+   * `databaseId` is either a fully-qualified table name ("schema.table" from
+   * connect()) or a user-supplied SELECT statement. User-supplied SQL is
+   * validated by the Layer 2 allowlist before hitting the wire.
+   *
+   * Returns Arrow IPC bytes (base64) + fieldIds + fields — NOT a live DataFrame.
+   * The renderer materializes the browser DataFrame from arrowBuffer after it
+   * crosses the IPC boundary.
+   *
+   * Credentials are resolved via `this.auth` — no credential argument.
+   */
+  async query(
+    databaseId: string,
+    tableId: UUID,
+    options?: QueryOptions,
+  ): Promise<ConnectorQueryResult> {
+    const schema = this.#config.defaultSchema ?? "public";
+
+    // Determine if databaseId is a "schema.table" reference (from connect())
+    // or a raw user SQL statement. This check happens BEFORE auth/client
+    // construction: a non-SELECT user query is rejected immediately (Layer 2
+    // fast-fail) with zero client.query calls — the error surfaces without
+    // touching the wire or the vault.
+    const isTableRef = /^[^(\s;]+\.[^(\s;]+$/.test(databaseId.trim());
+
+    if (!isTableRef) {
+      // Layer 2 allowlist — runs BEFORE #withClient (zero network side-effects).
+      assertReadOnlyQuery(databaseId);
+    }
+
+    return this.#withClient(async (client) => {
+      let rows: Record<string, unknown>[];
+
+      if (isTableRef) {
+        // Table reference — split on the first dot.
+        const dotIdx = databaseId.indexOf(".");
+        const refSchema = databaseId.slice(0, dotIdx);
+        const refTable = databaseId.slice(dotIdx + 1);
+        // Sink 2: both parts quoted via quoteIdentifier().
+        rows = await fetchTable(client, refSchema, refTable);
+      } else {
+        // User-supplied SQL — allowlist already passed above; send with zero interpolation.
+        // Sink 3: query sent with zero interpolation.
+        rows = await runUserQuery(client, databaseId);
+      }
+
+      // Apply pagination window if requested.
+      const limit = options?.pagination?.limit;
+      const offset = options?.pagination?.offset ?? 0;
+      const slicedRows =
+        limit !== undefined ? rows.slice(offset, offset + limit) : rows;
+
+      // Infer fields from rows.
+      const fields = inferFieldsFromRows(slicedRows, tableId);
+
+      // Build Arrow column arrays from the inferred field set.
+      const columnArrays: Record<string, unknown[]> = Object.create(
+        null,
+      ) as Record<string, unknown[]>;
+      for (const field of fields) {
+        const colName = field.columnName ?? field.name;
+        columnArrays[colName] = slicedRows.map((r) => r[colName] ?? null);
+      }
+
+      const arrowTable = tableFromArrays(columnArrays);
+      const ipcBuffer = tableToIPC(arrowTable);
+      const base64 = Buffer.from(ipcBuffer).toString("base64");
+
+      return {
+        arrowBuffer: base64,
+        fieldIds: fields.map((f) => f.id),
+        fields,
+        rowCount: slicedRows.length,
+      };
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers (after class definition to keep the class block clean)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a user-supplied SELECT and return its rows.
+ *
+ * Sink 3 compliance: the query text is sent as-is, with NO string
+ * interpolation of any user value. The text has already passed the allowlist
+ * check (Layer 2) and runs on the read-only connection (Layer 1).
+ *
+ * The empty `[]` params array forces the pg extended query protocol (Parse →
+ * Bind → Execute). Postgres rejects multi-statement SQL during Parse in this
+ * protocol, closing the `SELECT 1; BEGIN READ WRITE; …` bypass that would
+ * otherwise let an explicit transaction override the session-level read-only
+ * default set by SET SESSION CHARACTERISTICS.
+ */
+async function runUserQuery(
+  client: PgClientLike,
+  sql: string,
+): Promise<Record<string, unknown>[]> {
+  const result = await client.query(sql, []);
+  return result.rows;
+}
+
+/**
+ * Fetch all rows of a named table (schema-qualified).
+ * Used when databaseId is a table name rather than a raw SELECT statement.
+ *
+ * Sink 2 compliance: schema and table are both quoted via quoteIdentifier().
+ */
+async function fetchTable(
+  client: PgClientLike,
+  schema: string,
+  table: string,
+): Promise<Record<string, unknown>[]> {
+  const sql = `SELECT * FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`;
+  const result = await client.query(sql);
+  return result.rows;
+}
+
+/**
+ * Factory — mint a PostgresConnector bound to the given SecretResolver and config.
+ *
+ * This is the single construction site for PostgresConnector. The server-layer
+ * connector factory calls this after minting the bound resolver from
+ * `vault.withSecret.bind(vault, ref)`.
+ *
+ * @param auth   - SecretResolver pre-bound to this DataSource's credential ref
+ * @param config - Postgres config (connectionStringRef, optional defaultSchema)
+ */
+export function makePostgresConnector(
+  auth: SecretResolver,
+  config: PostgresConnectorConfig,
+): PostgresConnector {
+  return new PostgresConnector(auth, config);
+}

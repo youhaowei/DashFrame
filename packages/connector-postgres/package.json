@@ -1,0 +1,30 @@
+{
+  "name": "@dashframe/connector-postgres",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dashframe/engine": "workspace:*",
+    "@types/pg": "^8.11.11",
+    "apache-arrow": "^21.1.0",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
+    "@wystack/secret-vault": "workspace:*",
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.16"
+  }
+}

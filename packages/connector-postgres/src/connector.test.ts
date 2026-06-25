@@ -1,0 +1,633 @@
+/**
+ * PostgresConnector tests
+ *
+ * Pattern: makePostgresConnector(auth, config) — the connector is auth-blind.
+ * For vault tests we build a TestBackend vault and mint a bound resolver.
+ * For pg interaction tests we subclass PostgresConnector and inject a spy
+ * client via overriding createClient() — no real pg connection needed.
+ *
+ * WARNING: TestBackend / InMemoryMappingStore / SecretRegistry / SecretVault
+ * are CI/dev-only doubles — NEVER import these in production or renderer code.
+ */
+
+import type { SecretResolver } from "@dashframe/engine";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
+import { tableFromIPC } from "apache-arrow";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PgClientLike } from "./connector.js";
+import {
+  PostgresConnector,
+  assertReadOnlyQuery,
+  listTablesInSchema,
+  makePostgresConnector,
+} from "./connector.js";
+import type { PostgresConnectorConfig } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Vault factory
+// ---------------------------------------------------------------------------
+
+async function makeTestVaultWithSecret(plaintext: string) {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  const vault = new SecretVault(registry, new InMemoryMappingStore());
+  const ref = await vault.store(plaintext, { class: "connector-key" });
+  return { vault, ref };
+}
+
+function makeBoundResolver(
+  vault: SecretVault,
+  ref: Awaited<ReturnType<SecretVault["store"]>>,
+): SecretResolver {
+  return (use) => vault.withSecret(ref, use);
+}
+
+// ---------------------------------------------------------------------------
+// Spy client builder
+//
+// Returns a PgClientLike whose query() calls are tracked via a vi.fn() spy.
+// The first query is assumed to be the read-only SET statement; subsequent
+// calls return the rows passed to the factory.
+// ---------------------------------------------------------------------------
+
+interface SpyClient extends PgClientLike {
+  spy: ReturnType<typeof vi.fn>;
+}
+
+function makeSpyClient(dataRows: Record<string, unknown>[] = []): SpyClient {
+  const spy = vi.fn();
+
+  // The spy handles three call shapes:
+  //   1. SET SESSION CHARACTERISTICS... (returns empty rows)
+  //   2. SET search_path TO ... (returns empty rows — for listTablesInSchema)
+  //   3. Any other query (returns dataRows)
+  spy.mockImplementation((text: string) => {
+    const upper = String(text).toUpperCase().trim();
+    if (upper.startsWith("SET")) {
+      return Promise.resolve({ rows: [] });
+    }
+    return Promise.resolve({ rows: dataRows });
+  });
+
+  return {
+    spy,
+    query: spy as unknown as PgClientLike["query"],
+    end: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Injectable subclass
+//
+// Overrides createClient to inject a spy client without touching real pg.
+// ---------------------------------------------------------------------------
+
+class TestPostgresConnector extends PostgresConnector {
+  #clientToInject: PgClientLike | null = null;
+
+  injectClient(client: PgClientLike): void {
+    this.#clientToInject = client;
+  }
+
+  protected override async createClient(_dsn: string): Promise<PgClientLike> {
+    if (this.#clientToInject) {
+      return this.#clientToInject;
+    }
+    throw new Error("TestPostgresConnector: no client injected");
+  }
+}
+
+function makeTestConnector(
+  auth: SecretResolver,
+  config: PostgresConnectorConfig,
+  client: PgClientLike,
+): TestPostgresConnector {
+  const connector = new TestPostgresConnector(auth, config);
+  connector.injectClient(client);
+  return connector;
+}
+
+// Simple noop resolver — yields a non-empty DSN so fail-closed doesn't fire.
+const testDsn = "postgres://user:pass@localhost:5432/testdb";
+const noopDsnResolver: SecretResolver = (use) => use(testDsn);
+const emptyDsnResolver: SecretResolver = (use) => use("");
+
+const baseConfig: PostgresConnectorConfig = {
+  connectionStringRef: "secret:00000000-0000-0000-0000-000000000001",
+  defaultSchema: "public",
+};
+
+// ---------------------------------------------------------------------------
+// Unit: assertReadOnlyQuery
+// ---------------------------------------------------------------------------
+
+describe("assertReadOnlyQuery", () => {
+  it("accepts SELECT", () => {
+    expect(() => assertReadOnlyQuery("SELECT * FROM foo")).not.toThrow();
+  });
+
+  it("accepts WITH (CTE)", () => {
+    expect(() =>
+      assertReadOnlyQuery("WITH cte AS (SELECT 1) SELECT * FROM cte"),
+    ).not.toThrow();
+  });
+
+  it("accepts EXPLAIN", () => {
+    expect(() => assertReadOnlyQuery("EXPLAIN SELECT 1")).not.toThrow();
+  });
+
+  it("accepts TABLE shorthand", () => {
+    expect(() => assertReadOnlyQuery("TABLE foo")).not.toThrow();
+  });
+
+  it("accepts SELECT after leading line comment", () => {
+    expect(() =>
+      assertReadOnlyQuery("-- fetch all\nSELECT * FROM foo"),
+    ).not.toThrow();
+  });
+
+  it("accepts SELECT after leading block comment", () => {
+    expect(() =>
+      assertReadOnlyQuery("/* get rows */ SELECT * FROM foo"),
+    ).not.toThrow();
+  });
+
+  it("is case-insensitive", () => {
+    expect(() => assertReadOnlyQuery("select * from foo")).not.toThrow();
+    expect(() => assertReadOnlyQuery("Select 1")).not.toThrow();
+  });
+
+  it("rejects DROP", () => {
+    expect(() => assertReadOnlyQuery("DROP TABLE foo")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects INSERT", () => {
+    expect(() => assertReadOnlyQuery("INSERT INTO foo VALUES (1)")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects UPDATE", () => {
+    expect(() => assertReadOnlyQuery("UPDATE foo SET x=1")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects DELETE", () => {
+    expect(() => assertReadOnlyQuery("DELETE FROM foo")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects CREATE", () => {
+    expect(() => assertReadOnlyQuery("CREATE TABLE foo (id int)")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("does NOT match SELECT token inside a DROP (keyword-anywhere trap)", () => {
+    // "DROP TABLE select_log" — first token is DROP, not SELECT.
+    expect(() => assertReadOnlyQuery("DROP TABLE select_log")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects empty/whitespace-only input", () => {
+    expect(() => assertReadOnlyQuery("   ")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+
+  it("rejects DROP after leading comment (comment-bypass attempt)", () => {
+    expect(() => assertReadOnlyQuery("-- SELECT\nDROP TABLE foo")).toThrow(
+      /non-SELECT query rejected/i,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC1 — Non-SELECT is rejected BEFORE client.query is called
+// ---------------------------------------------------------------------------
+
+describe("AC1 — non-SELECT rejected at allowlist, before any client.query", () => {
+  it("throws for DROP TABLE before any pg query call", async () => {
+    const spyClient = makeSpyClient();
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("DROP TABLE foo", crypto.randomUUID()),
+    ).rejects.toThrow(/non-SELECT query rejected/i);
+
+    // The SET SESSION ... statement was issued (Layer 1), but no data query.
+    // Verify zero data queries were made (spy calls = only the SET statement).
+    // Because the allowlist runs BEFORE the auth/client path, even the SET
+    // statement must NOT have been called.
+    expect(spyClient.spy).not.toHaveBeenCalled();
+  });
+
+  it("throws for INSERT before any pg query call", async () => {
+    const spyClient = makeSpyClient();
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("INSERT INTO foo VALUES (1)", crypto.randomUUID()),
+    ).rejects.toThrow(/non-SELECT query rejected/i);
+
+    expect(spyClient.spy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC2 — First query on every connection is the read-only SET statement
+// ---------------------------------------------------------------------------
+
+describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first query", () => {
+  it("issues the read-only SET before any query in connect()", async () => {
+    const spyClient = makeSpyClient([{ table_name: "users" }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await connector.connect();
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls[0]?.[0].toUpperCase()).toBe(
+      "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
+    );
+  });
+
+  it("issues the read-only SET before the data query in query()", async () => {
+    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await connector.query("SELECT * FROM users", crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    // Connection setup: SET SESSION CHARACTERISTICS + SET statement_timeout + data query.
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(calls[0]?.[0].toUpperCase()).toBe(
+      "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
+    );
+    // The SELECT must come AFTER both SET statements.
+    const selectIdx = calls.findIndex((c) =>
+      c[0]?.toUpperCase().includes("SELECT"),
+    );
+    expect(selectIdx).toBeGreaterThan(0);
+  });
+
+  it("issues SET statement_timeout immediately after the read-only SET", async () => {
+    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await connector.query("SELECT * FROM users", crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    // Second call (index 1) must be the statement_timeout guard.
+    expect(calls[1]?.[0].toUpperCase()).toContain("STATEMENT_TIMEOUT");
+  });
+
+  it("sends user SQL via extended query protocol (empty params array)", async () => {
+    // The extended query protocol forces Postgres to reject multi-statement SQL
+    // during Parse — closing the `SELECT 1; BEGIN READ WRITE; …` bypass.
+    // The mock spy can't actually reject multi-statement, but we verify the
+    // empty-params contract so that real pg uses the Parse/Bind/Execute path.
+    const spyClient = makeSpyClient([{ n: 1 }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await connector.query("SELECT 1 AS n", crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    // Find the SELECT call.
+    const selectCall = calls.find((c) =>
+      c[0]?.toUpperCase().startsWith("SELECT"),
+    );
+    expect(selectCall).toBeDefined();
+    // Must be called with an empty params array — this is the extended protocol signal.
+    expect(selectCall?.[1]).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC3 — Credential never plaintext in config
+// ---------------------------------------------------------------------------
+
+describe("AC3 — credential never plaintext in config", () => {
+  it("config stores a SecretRef string, never a postgres:// DSN", () => {
+    const plainDsn = "postgres://user:pass@host:5432/db";
+    const config: PostgresConnectorConfig = {
+      connectionStringRef: "secret:00000000-0000-0000-0000-000000000002",
+    };
+
+    const connector = makePostgresConnector(noopDsnResolver, config);
+
+    // Inspect all enumerable and own non-enumerable properties on the instance.
+    // The plaintext DSN must NOT appear as any property value.
+    const proto = Object.getPrototypeOf(connector) as object;
+    const ownKeys = [
+      ...Object.getOwnPropertyNames(connector),
+      ...Object.getOwnPropertyNames(proto),
+    ];
+    for (const key of ownKeys) {
+      try {
+        const val = (connector as unknown as Record<string, unknown>)[key];
+        if (typeof val === "string") {
+          expect(val).not.toBe(plainDsn);
+          expect(val).not.toContain("postgres://");
+        }
+      } catch {
+        // Private fields / accessors may throw — that's fine.
+      }
+    }
+
+    // connectionStringRef must be a SecretRef pattern or omitted.
+    // (We set it explicitly, so check it's the ref we gave.)
+    const configRef = config.connectionStringRef;
+    expect(configRef).toMatch(/^secret:/);
+    expect(configRef).not.toContain("postgres://");
+  });
+
+  it("fail-closed: empty DSN from resolver throws before creating a client", async () => {
+    const spyClient = makeSpyClient();
+    const connector = makeTestConnector(
+      emptyDsnResolver,
+      baseConfig,
+      spyClient,
+    );
+
+    await expect(connector.connect()).rejects.toThrow(/fail-closed/i);
+    // The spy client was never reached.
+    expect(spyClient.spy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC4 — Identifier quoting: double-quote in schema name is escaped
+// ---------------------------------------------------------------------------
+
+describe("AC4 — identifier quoting", () => {
+  it("quotes a schema name containing a double-quote in SET search_path", async () => {
+    const evilSchema = 'public"injection';
+    const spyClient = makeSpyClient([]);
+
+    // Call listTablesInSchema directly to isolate the quoting path.
+    await listTablesInSchema(spyClient, evilSchema);
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+
+    // First call is SET search_path — the schema must be double-quoted with
+    // the embedded " doubled: "public""injection"
+    const setCall = calls.find((c) => String(c[0]).includes("search_path"));
+    expect(setCall).toBeDefined();
+    const setQuery = String(setCall?.[0] ?? "");
+    expect(setQuery).toContain('"public""injection"');
+    // Must NOT contain the raw unescaped name.
+    expect(setQuery).not.toContain(`'${evilSchema}'`);
+
+    // Second call is the information_schema SELECT — schema passed as $1 value.
+    const selectCall = calls.find((c) =>
+      String(c[0]).toLowerCase().includes("information_schema"),
+    );
+    expect(selectCall).toBeDefined();
+    // The schema value must appear as the $1 parameter array entry, not
+    // interpolated into the SQL text.
+    const paramValues = selectCall?.[1] as unknown[];
+    expect(paramValues).toBeDefined();
+    expect(paramValues?.[0]).toBe(evilSchema);
+
+    // The SQL text itself must NOT contain the unquoted evil schema.
+    const selectQuery = String(selectCall?.[0] ?? "");
+    expect(selectQuery).toContain("$1");
+    expect(selectQuery).not.toContain(evilSchema);
+  });
+
+  it("quotes table name with double-quote when fetching by table ref", async () => {
+    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    // Trigger the table-ref path: "schema.table" format.
+    await connector.query('public.my"table', crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    const fetchCall = calls.find((c) =>
+      String(c[0]).toUpperCase().startsWith("SELECT * FROM"),
+    );
+    expect(fetchCall).toBeDefined();
+    // Table name "my"table" must be quoted as "my""table"
+    expect(String(fetchCall?.[0] ?? "")).toContain('"my""table"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC5 — Arrow output shape matches registry contract
+// ---------------------------------------------------------------------------
+
+describe("AC5 — Arrow output shape matches registry contract", () => {
+  it("returns arrowBuffer (base64), fieldIds, fields, rowCount for a two-column result", async () => {
+    const tableId = crypto.randomUUID();
+    const testRows = [
+      { id: 1, name: "Alice" },
+      { id: 2, name: "Bob" },
+    ];
+    const spyClient = makeSpyClient(testRows);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query("SELECT * FROM users", tableId);
+
+    // Shape contract
+    expect(typeof result.arrowBuffer).toBe("string");
+    expect(Array.isArray(result.fieldIds)).toBe(true);
+    expect(Array.isArray(result.fields)).toBe(true);
+    expect(result.rowCount).toBe(2);
+
+    // fieldIds and fields must be aligned.
+    expect(result.fieldIds).toHaveLength(result.fields.length);
+
+    // Deserialize Arrow buffer and verify column names.
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    const colNames = table.schema.fields.map((f) => f.name);
+
+    // Both "id" and "name" columns must be present.
+    const fieldNames = result.fields.map((f) => f.name);
+    for (const name of fieldNames) {
+      expect(colNames).toContain(name);
+    }
+    expect(table.numRows).toBe(2);
+  });
+
+  it("returns rowCount = 0 for an empty result set", async () => {
+    const spyClient = makeSpyClient([]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT * FROM empty",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    expect(result.fields).toHaveLength(0);
+    expect(result.fieldIds).toHaveLength(0);
+    // arrowBuffer should still be a valid base64 string (empty Arrow table).
+    expect(typeof result.arrowBuffer).toBe("string");
+    expect(result.arrowBuffer.length).toBeGreaterThan(0);
+  });
+
+  it("returns correct rowCount for connect() listing tables", async () => {
+    const spyClient = makeSpyClient([
+      { table_name: "users" },
+      { table_name: "orders" },
+    ]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const databases = await connector.connect();
+
+    expect(databases).toHaveLength(2);
+    expect(databases[0]).toEqual({
+      id: "public.users",
+      name: "users",
+    });
+    expect(databases[1]).toEqual({
+      id: "public.orders",
+      name: "orders",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Static metadata
+// ---------------------------------------------------------------------------
+
+describe("static metadata", () => {
+  const c = makePostgresConnector(noopDsnResolver, baseConfig);
+
+  it("has id = 'postgres'", () => {
+    expect(c.id).toBe("postgres");
+  });
+
+  it("has sourceType = 'remote-api'", () => {
+    expect(c.sourceType).toBe("remote-api");
+  });
+
+  it("is an instance of PostgresConnector", () => {
+    expect(c).toBeInstanceOf(PostgresConnector);
+  });
+
+  it("getFormFields includes connectionString and defaultSchema", () => {
+    const fields = c.getFormFields();
+    const names = fields.map((f) => f.name);
+    expect(names).toContain("connectionString");
+    expect(names).toContain("defaultSchema");
+  });
+
+  it("validate() fails when connectionString is absent", () => {
+    const result = c.validate({});
+    expect(result.valid).toBe(false);
+    expect(result.errors?.["connectionString"]).toBeTruthy();
+  });
+
+  it("validate() passes when connectionString is present", () => {
+    const result = c.validate({
+      connectionString: "postgres://user:pass@host:5432/db",
+    });
+    expect(result.valid).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vault round-trip: SecretResolver wired to real vault
+// ---------------------------------------------------------------------------
+
+describe("vault round-trip: bound resolver from real SecretVault", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("resolves DSN from vault and passes it to createClient", async () => {
+    const plainDsn = "postgres://vault-user:vault-pass@host:5432/testdb";
+    const { vault, ref } = await makeTestVaultWithSecret(plainDsn);
+    const auth = makeBoundResolver(vault, ref);
+
+    let capturedDsn: string | undefined;
+
+    class CapturingConnector extends PostgresConnector {
+      protected override async createClient(
+        dsn: string,
+      ): Promise<PgClientLike> {
+        capturedDsn = dsn;
+        // Return a spy client to avoid real pg call.
+        const spyClient = makeSpyClient([]);
+        return spyClient;
+      }
+    }
+
+    const config: PostgresConnectorConfig = {
+      connectionStringRef: ref,
+    };
+    const connector = new CapturingConnector(auth, config);
+    await connector.connect();
+
+    expect(capturedDsn).toBe(plainDsn);
+    // The plaintext DSN only appeared inside createClient — not on the connector.
+    expect(
+      (connector as unknown as Record<string, unknown>)["dsn"],
+    ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fail-closed: resolver throws
+// ---------------------------------------------------------------------------
+
+describe("fail-closed: resolver failure", () => {
+  it("throws before constructing a client when the resolver rejects", async () => {
+    const failResolver: SecretResolver = async (_use) => {
+      throw new Error("vault unavailable");
+    };
+    const spyClient = makeSpyClient();
+    const connector = makeTestConnector(failResolver, baseConfig, spyClient);
+
+    await expect(connector.connect()).rejects.toThrow(/vault unavailable/i);
+    expect(spyClient.spy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read-only guard wired end-to-end
+// ---------------------------------------------------------------------------
+
+describe("read-only guard: allowlisted queries pass through to pg", () => {
+  let spyClient: SpyClient;
+  let connector: TestPostgresConnector;
+
+  beforeEach(() => {
+    spyClient = makeSpyClient([{ count: 42 }]);
+    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+  });
+
+  it("SELECT query reaches pg after SET SESSION", async () => {
+    await connector.query("SELECT count(*) FROM users", crypto.randomUUID());
+    const calls = spyClient.spy.mock.calls as Array<[string]>;
+    const queries = calls.map((c) => c[0].toUpperCase());
+    expect(queries[0]).toContain("SET SESSION CHARACTERISTICS");
+    expect(queries.some((q) => q.includes("SELECT"))).toBe(true);
+  });
+
+  it("WITH query passes the allowlist", async () => {
+    spyClient = makeSpyClient([{ n: 1 }]);
+    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+    await expect(
+      connector.query(
+        "WITH cte AS (SELECT 1 AS n) SELECT * FROM cte",
+        crypto.randomUUID(),
+      ),
+    ).resolves.toBeDefined();
+  });
+});
