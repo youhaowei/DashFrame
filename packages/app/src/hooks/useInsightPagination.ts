@@ -88,6 +88,10 @@ export function useInsightPagination({
   const [error, setError] = useState<string | null>(null);
   const [resolvedFields, setResolvedFields] = useState<Field[]>([]);
 
+  // Generation counter: incremented on every init effect run so stale async
+  // completions from a superseded insight config never overwrite current state.
+  const genRef = useRef(0);
+
   // Cache resolved tables to avoid re-fetching
   const resolvedTablesRef = useRef<{
     baseTable: DataTable | null;
@@ -119,8 +123,12 @@ export function useInsightPagination({
       }
     });
 
-    // Cache for later use
-    resolvedTablesRef.current = { baseTable, joinedTables };
+    // NOTE: the cache write (resolvedTablesRef.current = ...) is intentionally
+    // NOT done here. Writing the cache inside resolveTables() — before any
+    // generation check — would allow a stale init for insight A to overwrite
+    // the cache after insight B's init has already populated it, corrupting
+    // subsequent fetchData calls with A's table references.
+    // The caller (init) writes the cache after its generation check passes.
 
     // Collect all fields from base + joined tables
     const allFields: Field[] = [
@@ -185,7 +193,9 @@ export function useInsightPagination({
 
       const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
       if (!baseDataFrame) {
-        setError(`Base DataFrame not found: ${baseTable.dataFrameId}`);
+        // Do not call setError here — loadDataFrames has no access to the
+        // caller's generation token. The caller (init) checks the token after
+        // awaiting this function and emits the error there.
         return false;
       }
 
@@ -216,32 +226,54 @@ export function useInsightPagination({
 
   // Initialize: resolve tables, load DataFrames, get count
   useEffect(() => {
-    // Skip initialization if hook is disabled (lazy loading optimization)
+    // Skip initialization if hook is disabled (lazy loading optimization).
+    // Bump the token on this path too: if `enabled` flips false while a prior
+    // init is in flight (e.g. the insight clears on a mounted VisualizationDisplay),
+    // incrementing here invalidates that in-flight init's gen check so its stale
+    // result is discarded instead of landing over the now-disabled state.
     if (!enabled) {
+      ++genRef.current;
       return;
     }
 
     if (!connection || !isInitialized || isDuckDBLoading) {
+      // Same rationale for the not-ready path: bump so an in-flight init from a
+      // moment when DuckDB WAS ready cannot land after it goes unavailable.
+      ++genRef.current;
       requestAnimationFrame(() => setIsReady(false));
       return;
     }
 
+    // Capture token before the first await — any earlier in-flight init that
+    // resolves after this point will see a stale token and discard its results.
+    const gen = ++genRef.current;
+
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (gen checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
     const init = async () => {
       try {
         // Resolve tables
         const { baseTable, joinedTables, allFields } = await resolveTables();
+        if (gen !== genRef.current) return; // superseded
         if (!baseTable) {
           setError("Base table not found");
           setIsReady(false);
           return;
         }
 
+        // Write the table cache AFTER the gen check so a stale init for insight A
+        // cannot overwrite the cache that a faster init for insight B already set.
+        resolvedTablesRef.current = { baseTable, joinedTables };
+
         // Store resolved fields for display name mapping
         setResolvedFields(allFields);
 
-        // Load DataFrames into DuckDB
+        // Load DataFrames into DuckDB.
+        // Error messages from failed loads are emitted HERE (after the gen check)
+        // rather than inside loadDataFrames, which has no access to the gen token.
         const loaded = await loadDataFrames(baseTable, joinedTables);
+        if (gen !== genRef.current) return; // superseded
         if (!loaded) {
+          setError(`Failed to load DataFrames for table: ${baseTable.id}`);
           setIsReady(false);
           return;
         }
@@ -272,6 +304,7 @@ export function useInsightPagination({
         // Execute count query
         const countQuery = `SELECT COUNT(*) as count FROM (${countSQL})`;
         const countResult = await connection.query(countQuery);
+        if (gen !== genRef.current) return; // superseded
         const count = Number(countResult.toArray()[0]?.count ?? 0);
         setTotalCount(count);
 
@@ -284,6 +317,7 @@ export function useInsightPagination({
 
         if (previewSQL) {
           const previewResult = await connection.query(previewSQL);
+          if (gen !== genRef.current) return; // superseded
           const rows = previewResult.toArray() as Record<string, unknown>[];
 
           if (rows.length > 0) {
@@ -291,6 +325,7 @@ export function useInsightPagination({
               .filter((key) => !key.startsWith("_"))
               .map((name) => ({ name }));
             requestAnimationFrame(() => {
+              if (gen !== genRef.current) return; // superseded inside rAF
               setColumns(cols);
               setFieldCount(cols.length);
             });
@@ -298,12 +333,15 @@ export function useInsightPagination({
         }
 
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setIsReady(true);
           setError(null);
         });
       } catch (err) {
         console.error("Failed to initialize insight pagination:", err);
+        if (gen !== genRef.current) return; // superseded
         requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
           setError(err instanceof Error ? err.message : "Failed to initialize");
           setIsReady(false);
         });

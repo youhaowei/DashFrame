@@ -128,22 +128,32 @@ export function useDataFrameData(
       isDuckDBLoading ||
       skip
     ) {
+      // Bump the token even on the skip path. If the hook flips to skipped /
+      // no-id while a prior load is in flight (e.g. dataFrameId cleared or
+      // skip toggled true on a mounted component), incrementing here means the
+      // in-flight load's token check (currentLoadCount === loadCountRef.current)
+      // now fails, so its resolved-but-stale result is discarded instead of
+      // landing over the skipped state.
+      ++loadCountRef.current;
       return;
     }
 
-    const dataFrame = await getDataFrame(dataFrameId);
-    if (!dataFrame) {
-      setError(`DataFrame not found: ${dataFrameId}`);
-      setData(null);
-      setIsLoading(false);
-      return;
-    }
-
-    // Increment load count to track this specific load operation
+    // Capture the generation token BEFORE the first await so that any
+    // in-flight request from a superseded dataFrameId can be discarded.
     const currentLoadCount = ++loadCountRef.current;
 
     setIsLoading(true);
     setError(null);
+
+    const dataFrame = await getDataFrame(dataFrameId);
+    if (!dataFrame) {
+      if (currentLoadCount === loadCountRef.current) {
+        setError(`DataFrame not found: ${dataFrameId}`);
+        setData(null);
+        setIsLoading(false);
+      }
+      return;
+    }
 
     try {
       // Wait for any existing load of this DataFrame to complete (mutex)

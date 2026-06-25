@@ -15,7 +15,7 @@ import type {
   InsightMetric,
   UUID,
 } from "@dashframe/types";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * Check whether a DataFrame can be served to the native chart engine.
@@ -252,6 +252,32 @@ export function useInsightView(
     ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}`
     : null;
 
+  // Track the most recently rendered configKey so in-flight createView calls
+  // from superseded configs can discard their setState calls rather than
+  // overwriting the state that a newer config already wrote.
+  //
+  // Synced in a useLayoutEffect (NOT a passive useEffect): layout effects
+  // flush synchronously inside React's commit phase, before control returns to
+  // the event loop. A passive useEffect runs in a later macrotask, leaving a
+  // window where config B has committed but the ref still holds A — an
+  // in-flight createView for A whose promise resolves as a microtask in that
+  // window would read currentConfigKeyRef.current === A, pass its own guard,
+  // and write A's resolvedViewName/nativeCapable over B's. useLayoutEffect
+  // closes that window because no microtask continuation can interleave before
+  // the ref is updated. (This package is the Electron/web renderer — no SSR —
+  // so the layout-effect SSR warning does not apply; VisualizationDisplay in
+  // the same package already uses useLayoutEffect.)
+  //
+  // React always flushes layout effects before passive effects, so this runs
+  // before the createView (passive) effect each render regardless of source
+  // ordering — the ref reflects the current configKey before createView reads
+  // it. Updating the ref here rather than during render also satisfies the
+  // react-compiler lint rule against ref mutation during render.
+  const currentConfigKeyRef = useRef<string | null>(configKey);
+  useLayoutEffect(() => {
+    currentConfigKeyRef.current = configKey;
+  });
+
   // Check module-level cache for existing view (survives Strict Mode remounts)
   const cachedView = configKey
     ? (createdViewsCache.get(configKey) ?? null)
@@ -353,6 +379,7 @@ export function useInsightView(
     // buildViewSQLOptions — so only filters are snapshotted here.
     const snapshotEffectiveFilters = effectiveParams?.filters ?? null;
 
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (currentConfigKeyRef checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
     const createView = async () => {
       try {
         // Double-check cache in case another effect already created it
@@ -369,18 +396,20 @@ export function useInsightView(
         // Get base table
         const baseTable = await getDataTable(baseTableId);
         if (!baseTable || !baseTable.dataFrameId) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Base table not found");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
         // Ensure base DataFrame is loaded
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
         if (!baseDataFrame) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Base DataFrame not found");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
@@ -461,9 +490,10 @@ export function useInsightView(
         );
 
         if (!sql) {
+          pendingRequests.delete(configKey);
+          if (currentConfigKeyRef.current !== configKey) return;
           setError("Failed to build SQL for insight view");
           setResolvedViewName(null);
-          pendingRequests.delete(configKey);
           return;
         }
 
@@ -500,15 +530,21 @@ export function useInsightView(
         });
         pendingRequests.delete(configKey);
 
+        // Guard: if the component has moved on to a different configKey while
+        // this async path was in-flight, discard these results. The newer
+        // config's createView will (or already did) set the correct state.
+        if (currentConfigKeyRef.current !== configKey) return;
+
         setResolvedViewName(newViewName);
         setResolvedConfigKey(configKey);
         setNativeCapable(allNativeCapable);
         setError(null);
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);
+        pendingRequests.delete(configKey);
+        if (currentConfigKeyRef.current !== configKey) return;
         setError(err instanceof Error ? err.message : "Failed to create view");
         setResolvedViewName(null);
-        pendingRequests.delete(configKey);
       }
     };
 

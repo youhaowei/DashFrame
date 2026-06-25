@@ -732,6 +732,81 @@ describe("useDataFrameData", () => {
     });
   });
 
+  describe("stale-state guard (input change mid-flight)", () => {
+    it("discards in-flight result from A when dataFrameId changes to B before A resolves", async () => {
+      // A resolves slowly; B resolves fast.
+      // After B settles, releasing A must not overwrite B's data.
+      let resolveA!: (value: unknown) => void;
+      const slowLoadA = new Promise((res) => {
+        resolveA = res;
+      });
+
+      const rowsA = [{ id: "a", name: "Alpha" }];
+      const rowsB = [{ id: "b", name: "Beta" }];
+
+      const dfA = {
+        id: "df-a",
+        load: vi.fn().mockReturnValue(
+          slowLoadA.then(() => ({
+            limit: vi.fn().mockReturnThis(),
+            sql: vi.fn().mockResolvedValue("SELECT * FROM a"),
+          })),
+        ),
+      };
+      const dfB = {
+        id: "df-b",
+        load: vi.fn().mockResolvedValue({
+          limit: vi.fn().mockReturnThis(),
+          sql: vi.fn().mockResolvedValue("SELECT * FROM b"),
+        }),
+      };
+
+      mockGetDataFrame.mockImplementation((id: string) => {
+        if (id === "df-a") return Promise.resolve(dfA);
+        if (id === "df-b") return Promise.resolve(dfB);
+        return Promise.resolve(null);
+      });
+
+      // Route by SQL so the guard is observable: if A's stale continuation
+      // were allowed to run, it would call query("SELECT * FROM a") and write
+      // rowsA, failing the final toEqual(rowsB) assertion.
+      mockQuery.mockImplementation((sql: string) => {
+        if (sql.includes("FROM a"))
+          return Promise.resolve(createMockQueryResult(rowsA));
+        return Promise.resolve(createMockQueryResult(rowsB));
+      });
+
+      const { result, rerender } = renderHook(
+        ({ id }) => useDataFrameData(id),
+        { initialProps: { id: "df-a" as string } },
+      );
+
+      // A's getDataFrame resolves immediately but A's load() is stuck in slowLoadA.
+      // Switch to B before A's load resolves.
+      rerender({ id: "df-b" });
+
+      // Wait for B to settle (B loads instantly).
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // B's data should be present.
+      expect(result.current.data?.rows).toEqual(rowsB);
+
+      // Now release A's slow load. A must not overwrite B's state.
+      await act(async () => {
+        resolveA(undefined);
+      });
+
+      // Give the event loop a few cycles to let A's continuation run.
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Still B's data — A's stale result was discarded.
+      expect(result.current.data?.rows).toEqual(rowsB);
+      expect(result.current.isLoading).toBe(false);
+    });
+  });
+
   describe("hook stability", () => {
     it("should return stable reload function reference", async () => {
       const mockRows = [{ id: 1 }];
