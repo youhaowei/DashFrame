@@ -1,4 +1,5 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
@@ -122,15 +123,34 @@ export function useInsightPagination({
     // Cache for later use
     resolvedTablesRef.current = { baseTable, joinedTables };
 
-    // Collect all fields from base + joined tables
-    const allFields: Field[] = [
-      ...(baseTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
-    ];
-    for (const joinTable of joinedTables.values()) {
-      allFields.push(
-        ...(joinTable.fields ?? []).filter((f) => !f.name.startsWith("_")),
-      );
-    }
+    // Collect fields visible in the SQL result set.
+    // Raw concatenation of base + joined table fields includes right join-key
+    // fields that processSingleJoin drops from the emitted subquery.
+    // columnDisplayNames / columnTypeMap built from those stale entries would
+    // let VirtualTable resolve wrong display names or types for UUID aliases
+    // that don't exist in the result.
+    //
+    // We drop ONLY the right join-key fields (step 1 of computeFilterableFields)
+    // — those are the columns processSingleJoin excludes from SELECT.  We do NOT
+    // apply step 2 (ambiguous-bare-name exclusion): that step exists for filter-
+    // picker safety, but both sides of a bare-name collision still appear in the
+    // SQL result under distinct UUID aliases, so they MUST keep display-name and
+    // type-map entries (else VirtualTable shows raw field_<uuid> and loses type).
+    const allDataTables = [baseTable, ...joinedTables.values()];
+    const { fields: combinedFields } = computeCombinedFields(
+      baseTable,
+      insight.joins,
+      allDataTables,
+    );
+    const rightKeySet = new Set(
+      (insight.joins ?? []).map(
+        (j) => `${j.rightTableId}:${j.rightKey.toLowerCase()}`,
+      ),
+    );
+    const allFields: Field[] = combinedFields.filter((f) => {
+      const colKey = `${f.sourceTableId}:${(f.columnName ?? f.name).toLowerCase()}`;
+      return !rightKeySet.has(colKey);
+    });
 
     return { baseTable, joinedTables, allFields };
   }, [insight.baseTableId, insight.joins]);
