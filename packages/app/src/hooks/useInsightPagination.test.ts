@@ -275,3 +275,125 @@ describe("useInsightPagination — allFields excludes dropped right join-keys", 
     expect(result.current.columnTypeMap[joinAuditAlias]).toBe("date");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Empty-result column reset (YW-311)
+// ---------------------------------------------------------------------------
+
+/**
+ * Contract: when a resolved result returns zero preview rows, columns and
+ * fieldCount must reset to [] / 0, not retain the prior insight's values.
+ *
+ * This guards the YW-311 bug: `if (rows.length > 0)` skipping setColumns on
+ * the zero-row path left stale schema visible.
+ *
+ * Generation-guard invariant (YW-303) must hold: the reset fires only inside
+ * the current generation's continuation — after the gen check — so a
+ * superseded in-flight init never resets the current state.
+ */
+describe("useInsightPagination — empty-result column reset (YW-311)", () => {
+  // Minimal single-table insight; no joins needed to exercise the column path.
+  const TABLE_ID = "cc000000-0000-0000-0000-000000000001" as UUID;
+  const DF_ID = "cc000000-0000-0000-0000-000000000002" as UUID;
+
+  const field: Field = {
+    id: "cc111111-aaaa-aaaa-aaaa-111111111111" as UUID,
+    name: "amount",
+    tableId: TABLE_ID,
+    columnName: "amount",
+    type: "number",
+  };
+
+  const table: DataTable = {
+    id: TABLE_ID,
+    name: "sales",
+    dataSourceId: "55555555-5555-5555-5555-555555555555" as UUID,
+    table: "sales.csv",
+    fields: [field],
+    metrics: [],
+    dataFrameId: DF_ID,
+    createdAt: 0,
+  };
+
+  const insightA: Insight = {
+    id: "insightA-0000-0000-0000-000000000001" as UUID,
+    name: "Sales insight A",
+    baseTableId: TABLE_ID,
+    selectedFields: [field.id],
+    metrics: [],
+    createdAt: 0,
+  };
+
+  const insightB: Insight = {
+    id: "insightB-0000-0000-0000-000000000002" as UUID,
+    name: "Sales insight B (empty result)",
+    baseTableId: TABLE_ID,
+    selectedFields: [field.id],
+    metrics: [],
+    createdAt: 0,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockUseDuckDB.mockReturnValue({
+      connection: mockConnection,
+      isInitialized: true,
+      isLoading: false,
+    });
+
+    mockGetDataFrame.mockResolvedValue({ id: DF_ID, storageType: "indexeddb" });
+    mockEnsureTableLoaded.mockResolvedValue(undefined);
+  });
+
+  it("resets columns and fieldCount to empty when the current generation returns zero preview rows", async () => {
+    // Phase 1 — insight A: preview returns 1 row, populating columns + fieldCount.
+    // Phase 2 — insight B: preview returns 0 rows → columns/fieldCount must clear.
+    // Pre-fix: the `if (rows.length > 0)` guard skipped setColumns([]), leaving
+    // A's columns/fieldCount visible — the YW-311 bug.
+
+    // Phase 1 mocks: getDataTable × 1, buildInsightSQL, count query, preview query (1 row).
+    mockGetDataTable.mockResolvedValue(table);
+    mockBuildInsightSQL.mockReturnValue("SELECT amount FROM sales");
+
+    mockQuery
+      // A — count
+      .mockResolvedValueOnce({ toArray: () => [{ count: 5 }] })
+      // A — preview (1 row with column `amount`)
+      .mockResolvedValueOnce({ toArray: () => [{ amount: 42 }] });
+
+    const { result, rerender } = renderHook(
+      ({ insight }: { insight: Insight }) =>
+        useInsightPagination({ insight, enabled: true }),
+      { initialProps: { insight: insightA } },
+    );
+
+    // Baseline: wait for A's columns to populate (non-triviality guard — ensures
+    // the test would be red on pre-fix code if it reached the assertion).
+    await waitFor(() => {
+      expect(result.current.columns.length).toBeGreaterThan(0);
+    });
+    expect(result.current.fieldCount).toBe(1);
+
+    // Phase 2 mocks: same table, but preview returns 0 rows.
+    mockQuery
+      // B — count
+      .mockResolvedValueOnce({ toArray: () => [{ count: 0 }] })
+      // B — preview (empty result)
+      .mockResolvedValueOnce({ toArray: () => [] });
+
+    // Switch to insight B.
+    rerender({ insight: insightB });
+
+    // Wait for B's totalCount to settle (observable without depending on isReady timing).
+    await waitFor(() => {
+      expect(result.current.totalCount).toBe(0);
+    });
+
+    // Critical assertions: stale schema from A must be gone.
+    await waitFor(() => {
+      expect(result.current.columns).toEqual([]);
+    });
+    expect(result.current.fieldCount).toBe(0);
+  });
+});

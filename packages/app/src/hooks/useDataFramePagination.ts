@@ -86,15 +86,16 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         if (gen !== genRef.current) return; // superseded
         const rows = previewResult.toArray() as Record<string, unknown>[];
 
-        if (rows.length > 0) {
-          const cols = Object.keys(rows[0]!)
-            .filter((key) => !key.startsWith("_"))
-            .map((name) => ({ name }));
-          requestAnimationFrame(() => {
-            if (gen !== genRef.current) return; // superseded inside rAF
-            setColumns(cols);
-          });
-        }
+        const cols =
+          rows.length > 0
+            ? Object.keys(rows[0]!)
+                .filter((key) => !key.startsWith("_"))
+                .map((name) => ({ name }))
+            : [];
+        requestAnimationFrame(() => {
+          if (gen !== genRef.current) return; // superseded inside rAF
+          setColumns(cols);
+        });
 
         requestAnimationFrame(() => {
           if (gen !== genRef.current) return; // superseded inside rAF
