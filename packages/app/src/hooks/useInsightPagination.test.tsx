@@ -143,14 +143,14 @@ describe("useInsightPagination — stale-state guard", () => {
       return Promise.resolve(null);
     });
 
-    // B's count SQL returns 42; A's would return 99 (should never be seen)
-    mockBuildInsightSQL.mockImplementation(
-      (_baseTable: DataTable, _joinedTables: unknown, insight: Insight) => {
-        return insight.id === "ins-b"
-          ? "SELECT 1 FROM tbl_b"
-          : "SELECT 1 FROM tbl_a";
-      },
-    );
+    // Discriminate the built SQL on the BASE TABLE actually passed in (not the
+    // insight id), so a fetchData that reads a corrupted resolvedTablesRef
+    // (holding A's table) is detectable: it would build SQL against tbl_a.
+    mockBuildInsightSQL.mockImplementation((baseTable: DataTable) => {
+      return baseTable.id === "tbl-b"
+        ? "SELECT 1 FROM tbl_b"
+        : "SELECT 1 FROM tbl_a";
+    });
 
     mockConnection.query = vi.fn().mockImplementation((sql: string) => {
       if (sql.includes("tbl_b")) {
@@ -190,6 +190,23 @@ describe("useInsightPagination — stale-state guard", () => {
     // B's state must be intact — A's stale result was discarded.
     expect(result.current.totalCount).toBe(42);
     expect(result.current.isReady).toBe(true);
+
+    // Cache-corruption guard: A's released init must NOT have written its tables
+    // into resolvedTablesRef (the cache write is now behind the gen check). A
+    // subsequent fetchData reuses that cache, so it must build SQL against B's
+    // table (tbl_b), never A's (tbl_a). Without the gen-guarded cache write, A's
+    // resolveTables side-effect would have overwritten the ref and fetchData
+    // would query tbl_a here.
+    const queriedSqls: string[] = [];
+    mockConnection.query = vi.fn().mockImplementation((sql: string) => {
+      queriedSqls.push(sql);
+      return Promise.resolve({ toArray: () => [] });
+    });
+    await act(async () => {
+      await result.current.fetchData({ offset: 0, limit: 10 });
+    });
+    expect(queriedSqls.some((sql) => sql.includes("tbl_b"))).toBe(true);
+    expect(queriedSqls.some((sql) => sql.includes("tbl_a"))).toBe(false);
   });
 
   it("discards an in-flight init when `enabled` flips false before it resolves", async () => {
