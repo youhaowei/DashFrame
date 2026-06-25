@@ -176,6 +176,23 @@ export async function listTablesInSchema(
 // Field inference from rows
 // ---------------------------------------------------------------------------
 
+/**
+ * Column names that must never reach `apache-arrow`'s `tableFromArrays`: they
+ * corrupt Arrow's column iteration. Verified against apache-arrow 21.1.0: a
+ * `__proto__` column does NOT throw — it silently makes Arrow drop the sibling
+ * real columns from the built table (e.g. `{__proto__:[…], id:[…]}` → schema
+ * with zero fields). `constructor`/`prototype` pass through as ordinary columns
+ * but are never legitimate data-column names. A Postgres column can technically
+ * be named any of these (identifiers are quoted), so all three are dropped
+ * before inference and serialization — fail-safe, mirroring the REST
+ * connector's DANGEROUS_KEYS.
+ */
+const DANGEROUS_COLUMN_NAMES = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
 function inferFieldsFromRows(
   rows: Record<string, unknown>[],
   tableId: UUID,
@@ -183,6 +200,7 @@ function inferFieldsFromRows(
   const columnNames = new Set<string>();
   for (const row of rows) {
     for (const key of Object.keys(row)) {
+      if (DANGEROUS_COLUMN_NAMES.has(key)) continue; // never a real column
       columnNames.add(key);
     }
   }
@@ -377,6 +395,15 @@ export class PostgresConnector extends RemoteApiConnector {
       assertReadOnlyQuery(databaseId);
     }
 
+    const limit = options?.pagination?.limit;
+    const offset = options?.pagination?.offset ?? 0;
+
+    // The table-ref path pushes LIMIT/OFFSET into SQL, so it is already
+    // windowed by the DB. The user-SQL path is NOT (see below) and is sliced
+    // in-process as a backstop. INVARIANT: pushdown and in-process slice are
+    // mutually exclusive — exactly one applies a given window, never both.
+    const pushedDown = isTableRef && limit !== undefined;
+
     return this.#withClient(async (client) => {
       let rows: Record<string, unknown>[];
 
@@ -384,19 +411,25 @@ export class PostgresConnector extends RemoteApiConnector {
         // Table reference — split on the pre-computed dot index.
         const refSchema = trimmed.slice(0, dotIdx);
         const refTable = trimmed.slice(dotIdx + 1);
-        // Sink 2: both parts quoted via quoteIdentifier().
-        rows = await fetchTable(client, refSchema, refTable);
+        // Sink 2: both parts quoted via quoteIdentifier(). Pagination is pushed
+        // down into the SQL (LIMIT/OFFSET) so we never materialize a full table.
+        rows = await fetchTable(client, refSchema, refTable, limit, offset);
       } else {
-        // User-supplied SQL — allowlist already passed above; send with zero interpolation.
-        // Sink 3: query sent with zero interpolation.
+        // User-supplied SQL — allowlist already passed above; send with zero
+        // interpolation. We deliberately do NOT wrap user SQL to inject
+        // LIMIT/OFFSET: wrapping (`SELECT * FROM (<user sql>) ...`) would (1)
+        // re-interpolate user text, breaking the Sink 3 zero-interpolation
+        // contract, and (2) break legal allowlisted forms like `EXPLAIN …`,
+        // `TABLE …`, and trailing-`;` queries. The user authored this query and
+        // can bound it; statement_timeout + the post-fetch slice are backstops.
         rows = await runUserQuery(client, databaseId);
       }
 
-      // Apply pagination window if requested.
-      const limit = options?.pagination?.limit;
-      const offset = options?.pagination?.offset ?? 0;
+      // Slice only when the window was NOT already pushed into SQL.
       const slicedRows =
-        limit !== undefined ? rows.slice(offset, offset + limit) : rows;
+        !pushedDown && limit !== undefined
+          ? rows.slice(offset, offset + limit)
+          : rows;
 
       // Infer fields from rows.
       const fields = inferFieldsFromRows(slicedRows, tableId);
@@ -454,18 +487,34 @@ async function runUserQuery(
 }
 
 /**
- * Fetch all rows of a named table (schema-qualified).
- * Used when databaseId is a table name rather than a raw SELECT statement.
+ * Fetch rows of a named table (schema-qualified), with LIMIT/OFFSET pushed
+ * into the SQL when a pagination window is requested.
  *
- * Sink 2 compliance: schema and table are both quoted via quoteIdentifier().
+ * Sink 2 compliance: schema and table are both quoted via quoteIdentifier();
+ * limit/offset are bound as `$1`/`$2` parameter VALUES (never interpolated).
+ *
+ * Pushdown matters because this is the system-generated table-preview path: a
+ * preview with `limit: 50` must NOT pull an unbounded table into Node memory
+ * and slice afterward. When `limit` is undefined, the plain SELECT is emitted
+ * unchanged (full-table behavior preserved for callers that want every row).
  */
 async function fetchTable(
   client: PgClientLike,
   schema: string,
   table: string,
+  limit?: number,
+  offset = 0,
 ): Promise<Record<string, unknown>[]> {
-  const sql = `SELECT * FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`;
-  const result = await client.query(sql);
+  const base = `SELECT * FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`;
+  if (limit === undefined) {
+    const result = await client.query(base);
+    return result.rows;
+  }
+  // Bound window: limit/offset as $1/$2 value parameters → extended protocol.
+  const result = await client.query(`${base} LIMIT $1 OFFSET $2`, [
+    limit,
+    offset,
+  ]);
   return result.rows;
 }
 

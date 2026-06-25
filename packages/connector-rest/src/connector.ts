@@ -103,11 +103,13 @@ export function assertFieldMapNoCollision(
 }
 
 /**
- * Keys that must never become column names. They mutate object prototypes
- * (`__proto__`) or, even when stored on a null-prototype object, crash
- * `apache-arrow`'s `tableFromArrays` (it recurses on these names). A REST source
- * cannot have a legitimate data column named any of these, so they are dropped
- * from every row before inference/serialization — fail-safe, not fail-loud.
+ * Keys that must never become column names. They corrupt `apache-arrow`'s
+ * column iteration: verified against apache-arrow 21.1.0, a `__proto__` column
+ * does NOT throw — it silently makes Arrow drop the sibling real columns from
+ * the built table. `constructor`/`prototype` pass through but are never
+ * legitimate column names. A REST source cannot have a legitimate data column
+ * named any of these, so they are dropped from every row before
+ * inference/serialization — fail-safe, not fail-loud.
  */
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 

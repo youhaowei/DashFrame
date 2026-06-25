@@ -520,6 +520,88 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Pagination pushdown — table-ref path emits LIMIT/OFFSET into the SQL
+// ---------------------------------------------------------------------------
+
+describe("pagination pushdown (table-ref path)", () => {
+  it("pushes LIMIT $1 OFFSET $2 into the SQL with bound params when limit is set", async () => {
+    const spyClient = makeSpyClient([{ id: 1 }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    // "public.users" is a table ref (one dot, no spaces) → fetchTable path.
+    await connector.query("public.users", crypto.randomUUID(), {
+      pagination: { offset: 20, limit: 50 },
+    });
+
+    const calls = spyClient.spy.mock.calls as SpyCall[];
+    const fetchCall = calls.find((c) =>
+      spyCallText(c).toUpperCase().startsWith("SELECT * FROM"),
+    );
+    expect(fetchCall).toBeDefined();
+    // Emitted SQL carries the bound window, NOT a literal.
+    expect(spyCallText(fetchCall!)).toContain("LIMIT $1 OFFSET $2");
+    // limit/offset are passed as value params (no interpolation).
+    expect(fetchCall![1]).toEqual([50, 20]);
+  });
+
+  it("emits a plain SELECT (no LIMIT) when no pagination is requested", async () => {
+    const spyClient = makeSpyClient([{ id: 1 }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await connector.query("public.users", crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as SpyCall[];
+    const fetchCall = calls.find((c) =>
+      spyCallText(c).toUpperCase().startsWith("SELECT * FROM"),
+    );
+    expect(fetchCall).toBeDefined();
+    expect(spyCallText(fetchCall!)).not.toContain("LIMIT");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Arrow-reserved column names are dropped before serialization
+// ---------------------------------------------------------------------------
+
+describe("reserved column names (Arrow safety)", () => {
+  it("drops __proto__/constructor/prototype columns before building Arrow", async () => {
+    // A row whose keys include Arrow-hostile names alongside a real column.
+    // Build with defineProperty so `__proto__` is an OWN ENUMERABLE key (an
+    // object literal `{ __proto__: ... }` would set the prototype instead).
+    const row: Record<string, unknown> = { id: 1 };
+    for (const k of ["__proto__", "constructor", "prototype"]) {
+      Object.defineProperty(row, k, {
+        value: "danger",
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    const rows = [row];
+    const spyClient = makeSpyClient(rows);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    // Must not throw (unfiltered, these crash tableFromArrays).
+    const result = await connector.query(
+      "SELECT * FROM weird",
+      crypto.randomUUID(),
+    );
+
+    const fieldNames = result.fields.map((f) => f.name);
+    expect(fieldNames).toContain("id");
+    expect(fieldNames).not.toContain("__proto__");
+    expect(fieldNames).not.toContain("constructor");
+    expect(fieldNames).not.toContain("prototype");
+
+    // The Arrow buffer must deserialize and expose only the safe column.
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    const colNames = table.schema.fields.map((f) => f.name);
+    expect(colNames).toEqual(["id"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Static metadata
 // ---------------------------------------------------------------------------
 
