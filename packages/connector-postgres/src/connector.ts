@@ -72,7 +72,6 @@ import type { PostgresConnectorConfig } from "./types.js";
  */
 function stripLeadingComments(sql: string): string {
   let s = sql.trimStart();
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (s.startsWith("--")) {
       const nl = s.indexOf("\n");
@@ -349,14 +348,21 @@ export class PostgresConnector extends RemoteApiConnector {
     tableId: UUID,
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
-    const schema = this.#config.defaultSchema ?? "public";
-
     // Determine if databaseId is a "schema.table" reference (from connect())
     // or a raw user SQL statement. This check happens BEFORE auth/client
     // construction: a non-SELECT user query is rejected immediately (Layer 2
     // fast-fail) with zero client.query calls — the error surfaces without
     // touching the wire or the vault.
-    const isTableRef = /^[^(\s;]+\.[^(\s;]+$/.test(databaseId.trim());
+    // A "schema.table" ref (from connect()) has exactly one dot and no spaces,
+    // semicolons, or parentheses — it cannot be a SQL statement.
+    // A raw SQL statement always contains at least one space (e.g. "SELECT …").
+    const trimmed = databaseId.trim();
+    const dotIdx = trimmed.indexOf(".");
+    const isTableRef =
+      dotIdx > 0 &&
+      !trimmed.includes(" ") &&
+      !trimmed.includes(";") &&
+      !trimmed.includes("(");
 
     if (!isTableRef) {
       // Layer 2 allowlist — runs BEFORE #withClient (zero network side-effects).
@@ -367,10 +373,9 @@ export class PostgresConnector extends RemoteApiConnector {
       let rows: Record<string, unknown>[];
 
       if (isTableRef) {
-        // Table reference — split on the first dot.
-        const dotIdx = databaseId.indexOf(".");
-        const refSchema = databaseId.slice(0, dotIdx);
-        const refTable = databaseId.slice(dotIdx + 1);
+        // Table reference — split on the pre-computed dot index.
+        const refSchema = trimmed.slice(0, dotIdx);
+        const refTable = trimmed.slice(dotIdx + 1);
         // Sink 2: both parts quoted via quoteIdentifier().
         rows = await fetchTable(client, refSchema, refTable);
       } else {
