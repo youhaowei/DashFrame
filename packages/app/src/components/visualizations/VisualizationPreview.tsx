@@ -38,7 +38,7 @@ interface VisualizationPreviewProps {
 export function VisualizationPreview({
   visualization,
   height = PREVIEW_HEIGHT,
-  fallback = <PreviewLoading />,
+  fallback = null,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = useInsight(
@@ -84,12 +84,8 @@ export function VisualizationPreview({
     };
   }, [visualization.encoding, dataTable, insight]);
 
-  // Loading state - waiting for insight data or view creation
-  if (isLoadingInsight || !isReady || !viewName) {
-    return <PreviewLoading />;
-  }
-
-  // Error state - show fallback if view creation failed
+  // Error state — checked BEFORE the loading guard so that view-creation errors
+  // that leave `isReady=false` reach a terminal UI instead of spinning forever.
   if (error) {
     return (
       fallback ?? (
@@ -100,11 +96,18 @@ export function VisualizationPreview({
     );
   }
 
+  // Loading state — waiting for insight data or view creation.
+  // Only reached when there is no error.
+  if (isLoadingInsight || !isReady || !viewName) {
+    return <PreviewLoading />;
+  }
+
   // Check if encoding has required data channels (x or y)
   // Visualizations created before the encoding fix may be missing these
   const hasValidEncoding = resolvedEncoding.x || resolvedEncoding.y;
 
-  // Show fallback for visualizations with missing encoding (legacy data)
+  // Show distinct terminal UI for missing encoding — callers that omit `fallback`
+  // get the inline "Encoding missing" text here, not a spinner.
   if (!hasValidEncoding) {
     return (
       fallback ?? (
