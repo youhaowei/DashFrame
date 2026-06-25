@@ -481,6 +481,20 @@ describe("patchDataTableArray — Zod guard rejects malformed inputs", () => {
       }),
     ).rejects.toThrow(/not found/i);
   });
+
+  it("should reject an unsupported mode before reaching the helper", async () => {
+    // Zod discriminated union rejects an unrecognized discriminator value.
+    // Guard runs before loadDataTable — no real DB row needed.
+    const dataTableId = crypto.randomUUID();
+    await expect(
+      call("patchDataTableArray", {
+        dataTableId,
+        kind: "fields",
+        mode: "bogusMode",
+      }),
+      // Zod v4 error for invalid union discriminator uses code "invalid_union".
+    ).rejects.toThrow(/invalid_union/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
