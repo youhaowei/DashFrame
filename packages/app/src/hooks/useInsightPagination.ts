@@ -123,8 +123,12 @@ export function useInsightPagination({
       }
     });
 
-    // Cache for later use
-    resolvedTablesRef.current = { baseTable, joinedTables };
+    // NOTE: the cache write (resolvedTablesRef.current = ...) is intentionally
+    // NOT done here. Writing the cache inside resolveTables() — before any
+    // generation check — would allow a stale init for insight A to overwrite
+    // the cache after insight B's init has already populated it, corrupting
+    // subsequent fetchData calls with A's table references.
+    // The caller (init) writes the cache after its generation check passes.
 
     // Collect all fields from base + joined tables
     const allFields: Field[] = [
@@ -247,6 +251,10 @@ export function useInsightPagination({
           setIsReady(false);
           return;
         }
+
+        // Write the table cache AFTER the gen check so a stale init for insight A
+        // cannot overwrite the cache that a faster init for insight B already set.
+        resolvedTablesRef.current = { baseTable, joinedTables };
 
         // Store resolved fields for display name mapping
         setResolvedFields(allFields);
