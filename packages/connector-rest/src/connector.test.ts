@@ -58,13 +58,21 @@ function makeBoundResolver(
 /** Build a minimal Response-like object for vi.stubGlobal('fetch', ...) */
 function makeResponse(
   body: unknown,
-  opts: { ok?: boolean; status?: number; linkHeader?: string } = {},
+  opts: {
+    ok?: boolean;
+    status?: number;
+    linkHeader?: string;
+    location?: string;
+  } = {},
 ): Response {
   const ok = opts.ok ?? true;
   const status = opts.status ?? 200;
   const headers = new Map<string, string>();
   if (opts.linkHeader) {
     headers.set("link", opts.linkHeader);
+  }
+  if (opts.location) {
+    headers.set("location", opts.location);
   }
   return {
     ok,
@@ -190,7 +198,212 @@ describe("RestConnector", () => {
       const result = c.validate({ endpoint: "https://api.example.com/data" });
       expect(result.valid).toBe(true);
     });
+
+    // SSRF sink-guard: the endpoint URL is the attack vector. validate() must
+    // reject a private/loopback/link-local host regardless of who authored it.
+    // http:// (not https://) is deliberate — an internal/metadata target is
+    // typically plain-http; these are rejected-by-design fixtures, not real
+    // connection targets.
+    /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
+    it.each([
+      ["http://10.0.0.1/data", "RFC-1918 private"],
+      ["http://192.168.1.1/data", "RFC-1918 private"],
+      ["http://127.0.0.1:8080/admin", "loopback"],
+      ["http://localhost/data", "loopback hostname"],
+      ["http://169.254.169.254/latest/meta-data/", "cloud metadata"],
+      ["http://[::1]/data", "IPv6 loopback"],
+      // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
+      // which a dotted-form-only classifier would let through to cloud metadata.
+      // This fixture goes through the real validate() → URL → isPrivateHost path.
+      [
+        "http://[::ffff:169.254.169.254]/latest/meta-data/",
+        "IPv4-mapped metadata",
+      ],
+      ["http://[::ffff:10.0.0.1]/data", "IPv4-mapped private"],
+    ])("rejects a private/internal endpoint: %s (%s)", (endpoint) => {
+      const result = c.validate({ endpoint });
+      expect(result.valid).toBe(false);
+      expect(result.errors?.["endpoint"]).toBeTruthy();
+    });
+    /* eslint-enable sonarjs/no-clear-text-protocols */
+
+    it("passes for a public IP-literal URL", () => {
+      const result = c.validate({ endpoint: "https://8.8.8.8/api" });
+      expect(result.valid).toBe(true);
+    });
   });
+
+  // -------------------------------------------------------------------------
+  // SSRF guard at the FETCH SINK (the authoritative guard — validate() is
+  // form-side UX; this is what every authoring path inherits)
+  // -------------------------------------------------------------------------
+
+  /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
+  describe("fetch-sink SSRF guard", () => {
+    it("query() refuses a private endpoint BEFORE any fetch", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        // IPv4-mapped form URL.hostname normalizes to ::ffff:a9fe:a9fe — the
+        // cloud-metadata SSRF target. The fetch sink must reject it.
+        endpoint: "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      });
+      await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
+        /private\/internal|SSRF/i,
+      );
+      // The guard fires before the network call — fetch is never invoked.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("connect() refuses a loopback endpoint BEFORE any fetch", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        endpoint: "http://127.0.0.1:9200/_cluster/health",
+      });
+      await expect(c.connect()).rejects.toThrow(/private\/internal|SSRF/i);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("refuses a redirect from a public endpoint to a private host", async () => {
+      // A public endpoint 30x-redirects to cloud metadata. We follow redirects
+      // manually (redirect:"manual") and re-validate each Location — the private
+      // hop must be refused. The mock returns the 302; the connector resolves
+      // and re-checks the target itself.
+      const mockFetch = vi.fn().mockResolvedValueOnce(
+        makeResponse(null, {
+          status: 302,
+          location: "http://169.254.169.254/latest/meta-data/",
+        }),
+      );
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        endpoint: "https://api.example.com/data",
+      });
+      await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
+        /private\/internal|SSRF/i,
+      );
+      // The public first hop was fetched; the private redirect target was NOT.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe("https://api.example.com/data");
+    });
+
+    it("follows a redirect to another public host", async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          makeResponse(null, {
+            status: 302,
+            location: "https://cdn.example.com/data",
+          }),
+        )
+        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(noopResolver, {
+        endpoint: "https://api.example.com/data",
+      });
+      const result = await c.query("db", crypto.randomUUID());
+      expect(result.fields.length).toBeGreaterThan(0);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[1]?.[0]).toBe("https://cdn.example.com/data");
+    });
+
+    it("drops the Authorization header on a cross-host redirect (no credential leak)", async () => {
+      // The first (configured) host carries the vault Bearer token; a redirect
+      // to a DIFFERENT public host must NOT forward it. Uses a real vault +
+      // bound resolver so an actual token is present — noopResolver would make
+      // this test blind (no token to leak).
+      const { vault, ref } =
+        await makeTestVaultWithSecret("super-secret-token");
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          makeResponse(null, {
+            status: 302,
+            location: "https://other.example.net/data",
+          }),
+        )
+        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(makeBoundResolver(vault, ref), {
+        endpoint: "https://api.example.com/data",
+        authRef: ref,
+      });
+      await c.query("db", crypto.randomUUID());
+
+      const firstHeaders = mockFetch.mock.calls[0]?.[1]?.headers as Record<
+        string,
+        string
+      >;
+      const secondHeaders = mockFetch.mock.calls[1]?.[1]?.headers as Record<
+        string,
+        string
+      >;
+      // The configured host got the credential…
+      expect(firstHeaders?.["Authorization"]).toBe("Bearer super-secret-token");
+      // …the cross-host redirect target did NOT.
+      expect(secondHeaders?.["Authorization"]).toBeUndefined();
+    });
+
+    it("keeps the Authorization header on a same-host scheme upgrade", async () => {
+      const { vault, ref } =
+        await makeTestVaultWithSecret("super-secret-token");
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          // http→https on the SAME host: a credential-preserving upgrade.
+          makeResponse(null, {
+            status: 302,
+            location: "https://api.example.com/data",
+          }),
+        )
+        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(makeBoundResolver(vault, ref), {
+        // http→https same-host upgrade keeps auth (covered by the block-level
+        // no-clear-text-protocols disable above).
+        endpoint: "http://api.example.com/data",
+        authRef: ref,
+      });
+      await c.query("db", crypto.randomUUID());
+
+      const secondHeaders = mockFetch.mock.calls[1]?.[1]?.headers as Record<
+        string,
+        string
+      >;
+      expect(secondHeaders?.["Authorization"]).toBe(
+        "Bearer super-secret-token",
+      );
+    });
+
+    it("drops the Authorization header on a same-host scheme DOWNGRADE (https→http)", async () => {
+      // https→http on the same host re-sends the Bearer over cleartext — drop it.
+      const { vault, ref } =
+        await makeTestVaultWithSecret("super-secret-token");
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          makeResponse(null, {
+            status: 302,
+            location: "http://api.example.com/data",
+          }),
+        )
+        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
+      vi.stubGlobal("fetch", mockFetch);
+      const c = makeRestConnector(makeBoundResolver(vault, ref), {
+        endpoint: "https://api.example.com/data",
+        authRef: ref,
+      });
+      await c.query("db", crypto.randomUUID());
+
+      const secondHeaders = mockFetch.mock.calls[1]?.[1]?.headers as Record<
+        string,
+        string
+      >;
+      expect(secondHeaders?.["Authorization"]).toBeUndefined();
+    });
+  });
+  /* eslint-enable sonarjs/no-clear-text-protocols */
 
   // -------------------------------------------------------------------------
   // 1. Offset pagination

@@ -18,7 +18,8 @@
   "dependencies": {
     "@dashframe/engine": "workspace:*",
     "@wystack/secret-vault": "workspace:*",
-    "apache-arrow": "^21.1.0"
+    "apache-arrow": "^21.1.0",
+    "ipaddr.js": "2.4.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.16",

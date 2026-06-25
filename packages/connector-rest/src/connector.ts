@@ -36,11 +36,33 @@ import {
   parseStringValueByType,
 } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
+import { isPrivateHost } from "./private-host.js";
 import type { RestConnectorConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * SSRF sink-guard for a fetch URL: throw unless the URL parses and its host is
+ * public. Shared by the fetch sink (`fetchPage`) and surfaced through
+ * `validate()` for the config form. Guard the sink, not the provenance — every
+ * fetch inherits this regardless of how the endpoint was authored.
+ */
+function assertPublicUrl(url: string): void {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    throw new Error(`[RestConnector] Invalid URL: ${url}`);
+  }
+  if (isPrivateHost(host)) {
+    throw new Error(
+      `[RestConnector] Endpoint host "${host}" is private/internal — ` +
+        "refusing to fetch (SSRF guard).",
+    );
+  }
+}
 
 /**
  * Traverse a dot-path in `data` and return the value at that path, or
@@ -246,22 +268,130 @@ function coercePageSize(value: unknown, fallback: number): number {
   return Math.floor(n);
 }
 
+/** Max redirect hops followed manually, matching `fetch`'s default cap of 20. */
+const MAX_REDIRECTS = 20;
+
+/** Header names dropped when a redirect crosses to a different host (credential-leak guard). */
+const SENSITIVE_HEADERS = new Set(["authorization", "cookie"]);
+
+/** Remove credential-bearing headers (case-insensitive) — used on a cross-host redirect. */
+function stripSensitiveHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (!SENSITIVE_HEADERS.has(k.toLowerCase())) out[k] = v;
+  }
+  return out;
+}
+
+/** One leg of a manual redirect chain: the next URL, method, and headers to use. */
+interface RedirectStep {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+}
+
 /**
- * Perform a single HTTP request. Throws on non-ok status.
+ * Resolve a 3xx response into the next request leg. Throws if the redirect is
+ * malformed (no/invalid Location).
+ *
+ * Applies two guards:
+ *  - Credential-leak: drops Authorization/Cookie when the target HOST differs
+ *    (a same-host scheme upgrade http→https keeps them, matching curl/browser).
+ *  - Method downgrade: 301/302/303 switch the follow-up to GET.
+ *
+ * The SSRF host check is NOT here — it runs in `fetchPage` before every fetch,
+ * so the resolved URL is re-validated at the top of the next loop iteration.
+ */
+function resolveRedirect(
+  response: Response,
+  current: RedirectStep,
+): RedirectStep {
+  const location = response.headers.get("Location");
+  if (!location) {
+    throw new Error(
+      `[RestConnector] HTTP ${response.status} redirect with no Location — ${current.url}`,
+    );
+  }
+  let resolved: URL;
+  try {
+    resolved = new URL(location, current.url);
+  } catch {
+    throw new Error(
+      `[RestConnector] redirect Location "${location}" is not a valid URL — ${current.url}`,
+    );
+  }
+  const from = new URL(current.url);
+  // Drop credentials when the redirect crosses to a different HOST, OR downgrades
+  // the scheme https→http (re-sending the Bearer over cleartext to an on-path
+  // observer). A same-host upgrade http→https keeps them, matching curl/browser.
+  const crossHost = resolved.hostname !== from.hostname;
+  const schemeDowngrade =
+    from.protocol === "https:" && resolved.protocol === "http:";
+  const dropCredentials = crossHost || schemeDowngrade;
+  const downgradeToGet =
+    response.status === 301 ||
+    response.status === 302 ||
+    response.status === 303;
+  return {
+    url: resolved.toString(),
+    method: downgradeToGet ? "GET" : current.method,
+    headers: dropCredentials
+      ? stripSensitiveHeaders(current.headers)
+      : current.headers,
+  };
+}
+
+/**
+ * Perform a single HTTP request, following redirects MANUALLY. Throws on non-ok
+ * status.
+ *
+ * SSRF sink-guard: this is the single fetch choke point — every pagination
+ * strategy and connect() route through here. The host is re-validated before
+ * EVERY hop, so the guard covers the initial endpoint, paginated URLs, AND
+ * redirect targets, regardless of how the config was authored (UI form,
+ * assistant, direct wire call).
+ *
+ * Why manual redirects (`redirect: "manual"`):
+ *  - A configured PUBLIC endpoint can 30x-redirect to a PRIVATE host (e.g.
+ *    `http://169.254.169.254/` cloud metadata). Auto-following (`fetch`'s
+ *    default) would reach the internal host and bypass the guard — the SSRF
+ *    vector is the host actually reached, not just the configured one. We
+ *    re-run `assertPublicUrl` on each resolved `Location` before following it.
+ *  - Going manual means WE own the cross-origin credential-stripping the
+ *    platform does on auto-follow (see `resolveRedirect`): the vault Bearer
+ *    token must not cross to a different host.
  */
 async function fetchPage(
   url: string,
   method: string,
   headers: Record<string, string>,
 ): Promise<{ data: unknown; response: Response }> {
-  const response = await fetch(url, { method, headers });
-  if (!response.ok) {
-    throw new Error(
-      `[RestConnector] HTTP ${response.status} ${response.statusText} — ${url}`,
-    );
+  let step: RedirectStep = { url, method, headers };
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    assertPublicUrl(step.url);
+    const response = await fetch(step.url, {
+      method: step.method,
+      headers: step.headers,
+      redirect: "manual",
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      step = resolveRedirect(response, step);
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(
+        `[RestConnector] HTTP ${response.status} ${response.statusText} — ${step.url}`,
+      );
+    }
+    const data: unknown = await response.json();
+    return { data, response };
   }
-  const data: unknown = await response.json();
-  return { data, response };
+  throw new Error(
+    `[RestConnector] too many redirects (>${MAX_REDIRECTS}) — ${url}`,
+  );
 }
 
 // The `budget` arg threaded through pagination is a max-rows count: pagination
@@ -658,12 +788,32 @@ export class RestConnector extends RemoteApiConnector {
       };
     }
 
+    let parsed: URL;
     try {
-      new URL(endpoint);
+      parsed = new URL(endpoint);
     } catch {
       return {
         valid: false,
         errors: { endpoint: "Endpoint must be a valid URL." },
+      };
+    }
+
+    // SSRF check, form-side: reject endpoints addressing a private, loopback,
+    // link-local, or reserved host (RFC-1918, 127/8, 169.254/16 cloud-metadata,
+    // ::1, fc00::/7, fe80::/10, 0.0.0.0) so the config form surfaces the error
+    // early. This is UX — the AUTHORITATIVE guard is at the fetch sink
+    // (`fetchPage` → `assertPublicUrl`), which every fetch routes through
+    // regardless of how the endpoint was authored. (DNS-rebinding — a public
+    // hostname resolving to a private IP at fetch time — is a separate fetch-time
+    // concern; this synchronous check covers literal hosts.)
+    if (isPrivateHost(parsed.hostname)) {
+      return {
+        valid: false,
+        errors: {
+          endpoint:
+            "Endpoint must be a public host — private, loopback, and " +
+            "link-local addresses are not allowed.",
+        },
       };
     }
 
