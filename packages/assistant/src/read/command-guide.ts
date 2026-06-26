@@ -306,9 +306,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Place a viz panel or markdown block on a dashboard.",
     args: {
       dashboardId: "UUID",
-      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height }",
+      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height, overrides?: DashboardItemOverridesInput }",
     },
-    notes: "Rejects a duplicate item id.",
+    notes:
+      "Rejects a duplicate item id. " +
+      "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
+      "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {
     name: "UpdateDashboardItem",

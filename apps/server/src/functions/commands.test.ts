@@ -2393,6 +2393,33 @@ describe("command vocabulary", () => {
       );
     });
 
+    it("should use placement-supplied width/height when provided (overrides source dimensions)", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      const cloneId = id();
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "region",
+          placements: [
+            { id: cloneId, value: "EMEA", x: 0, y: 8, width: 3, height: 2 },
+          ],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        width: number;
+        height: number;
+      }[];
+      const clone = layout.find((it) => it.id === cloneId)!;
+      // Explicit placement dims take precedence over source item's 6×4.
+      expect(clone.width).toBe(3);
+      expect(clone.height).toBe(2);
+    });
+
     it("should reject a source item that is markdown (no visualizationId to clone)", async () => {
       const dashId = id();
       const markdownId = id();

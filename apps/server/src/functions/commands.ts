@@ -2145,12 +2145,27 @@ export interface TypedInsightFilter {
 }
 
 /**
- * Filter override for a single dashboard item. Mirrors the domain
- * `InsightFilterOverride` shape — kept here to avoid a shared-package coupling.
+ * Filter override for a single dashboard item. Intentional subset of the domain
+ * `InsightFilterOverride` (from @dashframe/types):
+ *   - No `id?` field — override filters created by the fan-out primitive are
+ *     anonymous (id is a UI-path concern for stable re-targeting concurrent edits).
+ *   - `cleared?` is retained — callers can widen a source item's filter by passing
+ *     `cleared: true` to cancel a specific field's inherited filter.
+ *   - Kept inline (not imported) to avoid a circular package dependency from the
+ *     server layer back into @dashframe/types.
  */
 export interface DashboardItemFilterOverride {
   field: string;
-  operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
+  operator:
+    | "eq"
+    | "ne"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "contains"
+    | "in"
+    | "between";
   value: unknown;
   cleared?: boolean;
 }
