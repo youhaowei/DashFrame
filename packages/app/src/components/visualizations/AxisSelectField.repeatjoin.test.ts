@@ -1,23 +1,25 @@
 /**
- * Acceptance: repeat-join instance identity in the axis picker.
+ * Repeat-join instance identity: picker helper composition + charting
+ * encoding resolution.
  *
- * Contract: given an insight that joins the same right table twice (e.g.
- * orders→users on created_by AND on approved_by), the axis picker must
- * surface BOTH join instances as DISTINCT selectable options, and the
- * encoding value for the second instance must resolve to the correct
- * `_j1`-suffixed SQL alias so the chart queries the right column.
+ * What this file proves:
+ * (A) PICKER LOGIC — the helper composition that AxisSelectField now uses
+ *     (extractColumnAliasComponents → synthetic field-ID → fieldEncoding)
+ *     maps both repeat-join instances to DISTINCT encoding values.
+ * (B) CHARTING PATH — resolveEncodingToSql with instance-aware fields
+ *     (from buildInsightAvailableFields) resolves field:<uuid>_j1 to the
+ *     correct _j1-suffixed SQL alias; and fails (undefined) when called
+ *     with bare dataTable.fields, catching the regression gap.
  *
- * This is the user-facing acceptance for the fix introduced in this PR.
- * The test exercises the core matching logic that AxisSelectField.tsx
- * now uses: extractColumnAliasComponents → synthetic field-ID → distinct
- * encoding value per instance. It also validates the charting path via
- * fieldIdToColumnAlias(syntheticId) producing the correct SQL alias.
+ * What this file does NOT prove: end-to-end React rendering of the picker
+ * or the chart component — those require DuckDB and full provider mounts.
  */
 
 import {
   buildInsightAvailableFields,
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
+  resolveEncodingToSql,
 } from "@dashframe/engine";
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { fieldEncoding } from "@dashframe/types";
@@ -227,21 +229,51 @@ describe("AxisSelectField — repeat-join instance identity (acceptance)", () =>
     expect(enc1).toBe(`field:${U_NAME_FIELD.id}_j1`);
   });
 
-  it("instance-0 encoding resolves to bare SQL alias, instance-1 to _j1-suffixed alias", () => {
-    // CHARTING PATH: encoding → fieldIdToColumnAlias → SQL alias.
-    // The chart queries the model view by this alias — both must be distinct
-    // and correct for the chart to display the right data.
-    const j0Id = U_NAME_FIELD.id;
-    const j1Id = `${U_NAME_FIELD.id}_j1` as UUID;
+  it("resolveEncodingToSql with instance-aware fields resolves _j1 encoding to the correct SQL alias", () => {
+    // CHARTING PATH (B): proves the full resolution pipeline used by
+    // VisualizationDisplay and VisualizationPreview after this fix.
+    // resolveEncodingToSql is the real function called by those components;
+    // testing against it catches surface regressions the helper-composition
+    // tests above cannot see.
+    const instanceAwareFields =
+      buildInsightAvailableFields(
+        ordersTable,
+        joinedTables,
+        doubleJoinInsight,
+      ) ?? [];
 
-    const j0Alias = fieldIdToColumnAlias(j0Id);
-    const j1Alias = fieldIdToColumnAlias(j1Id);
+    const j0Enc = `field:${U_NAME_FIELD.id}`;
+    const j1Enc = `field:${U_NAME_FIELD.id}_j1`;
 
-    // j1 alias has the _j1 suffix — matches what DuckDB emits
-    expect(j1Alias).toBe(`${j0Alias}_j1`);
+    const context = {
+      fields: instanceAwareFields,
+      metrics: [],
+    };
 
-    // The two SQL aliases are distinct — each maps to a different DuckDB column
-    expect(j0Alias).not.toBe(j1Alias);
+    // Instance 0: resolves to bare alias
+    const j0Sql = resolveEncodingToSql({ x: j0Enc }, context);
+    expect(j0Sql.x).toBe(fieldIdToColumnAlias(U_NAME_FIELD.id));
+
+    // Instance 1: resolves to the _j1-suffixed alias — the SQL alias DuckDB emits
+    const j1Sql = resolveEncodingToSql({ x: j1Enc }, context);
+    expect(j1Sql.x).toBe(`${fieldIdToColumnAlias(U_NAME_FIELD.id)}_j1`);
+
+    // Verify they differ (regression guard)
+    expect(j0Sql.x).not.toBe(j1Sql.x);
+  });
+
+  it("resolveEncodingToSql with bare dataTable.fields cannot resolve a _j1 encoding", () => {
+    // Proves the gap that existed BEFORE this fix on Preview/Display surfaces.
+    // If bare fields are used (old behavior), instance-1 resolves to undefined.
+    // This test is the detector that would have caught VisualizationPreview's bug.
+    const j1Enc = `field:${U_NAME_FIELD.id}_j1`;
+    const bareContext = {
+      fields: usersTable.fields ?? [],
+      metrics: [],
+    };
+
+    const result = resolveEncodingToSql({ x: j1Enc }, bareContext);
+    expect(result.x).toBeUndefined();
   });
 
   it("single-join insight is unaffected — field still resolves to bare encoding", () => {
