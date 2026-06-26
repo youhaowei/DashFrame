@@ -58,10 +58,14 @@ function matchColumnToField(
     components.instanceIndex === 0
       ? components.uuid
       : `${components.uuid}_j${components.instanceIndex}`;
-  return (
-    selectableFields.find((f) => f.id === syntheticId) ??
-    selectableFields.find((f) => f.id === components.uuid)
-  );
+  // For repeat-join instances (instanceIndex > 0), only match the exact
+  // synthetic ID — do NOT fall back to the bare UUID.  Falling back would
+  // collapse the j1 column onto the j0 field, corrupting encodingToSqlAlias
+  // and making both instances appear identical in the picker.
+  const exactMatch = selectableFields.find((f) => f.id === syntheticId);
+  if (exactMatch || components.instanceIndex > 0) return exactMatch;
+  // instanceIndex === 0: bare-UUID fallback is safe (no disambiguation needed).
+  return selectableFields.find((f) => f.id === components.uuid);
 }
 
 interface AxisSelectFieldProps {
