@@ -35,6 +35,35 @@ import {
 import { AlertCircleIcon, ArrowUpDownIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo } from "react";
 
+/**
+ * Match a column analysis entry to a selectable Field using instance-qualified
+ * synthetic IDs. For repeat-join instances, `columnAlias` carries a `_j{n}`
+ * suffix (e.g. `field_<uuid>_j1`); extractColumnAliasComponents recovers the
+ * bare UUID and instance index so we can reconstruct the synthetic field ID
+ * (`<uuid>_j1`) and match it against `selectableFields`.
+ *
+ * Returns `undefined` when no match is found (raw column with no Field).
+ */
+function matchColumnToField(
+  fieldId: string | undefined,
+  columnAlias: string,
+  selectableFields: Field[],
+): Field | undefined {
+  if (fieldId) {
+    return selectableFields.find((f) => f.id === fieldId);
+  }
+  const components = extractColumnAliasComponents(columnAlias);
+  if (!components) return undefined;
+  const syntheticId =
+    components.instanceIndex === 0
+      ? components.uuid
+      : `${components.uuid}_j${components.instanceIndex}`;
+  return (
+    selectableFields.find((f) => f.id === syntheticId) ??
+    selectableFields.find((f) => f.id === components.uuid)
+  );
+}
+
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */
   label: string;
@@ -171,25 +200,11 @@ export function AxisSelectField({
     // selectableFields — which now carries instance-qualified fields when
     // availableFields comes from buildInsightAvailableFields.
     columnAnalysis.forEach((column) => {
-      let matchedField: Field | undefined;
-      if (column.fieldId) {
-        matchedField = selectableFields.find((f) => f.id === column.fieldId);
-      } else {
-        const components = extractColumnAliasComponents(column.columnName);
-        if (components) {
-          const syntheticId =
-            components.instanceIndex === 0
-              ? components.uuid
-              : `${components.uuid}_j${components.instanceIndex}`;
-          matchedField = selectableFields.find((f) => f.id === syntheticId);
-          // Fallback: bare UUID match (for single-join or base-table columns)
-          if (!matchedField) {
-            matchedField = selectableFields.find(
-              (f) => f.id === components.uuid,
-            );
-          }
-        }
-      }
+      const matchedField = matchColumnToField(
+        column.fieldId,
+        column.columnName,
+        selectableFields,
+      );
       const mappedLabel = columnDisplayNames?.[column.columnName];
       const value = matchedField
         ? fieldEncoding(matchedField.id as UUID)
@@ -236,24 +251,11 @@ export function AxisSelectField({
       map.set(enc, alias);
     });
     for (const column of columnAnalysis) {
-      let matchedField: Field | undefined;
-      if (column.fieldId) {
-        matchedField = selectableFields.find((f) => f.id === column.fieldId);
-      } else {
-        const components = extractColumnAliasComponents(column.columnName);
-        if (components) {
-          const syntheticId =
-            components.instanceIndex === 0
-              ? components.uuid
-              : `${components.uuid}_j${components.instanceIndex}`;
-          matchedField = selectableFields.find((f) => f.id === syntheticId);
-          if (!matchedField) {
-            matchedField = selectableFields.find(
-              (f) => f.id === components.uuid,
-            );
-          }
-        }
-      }
+      const matchedField = matchColumnToField(
+        column.fieldId,
+        column.columnName,
+        selectableFields,
+      );
       if (matchedField) {
         map.set(fieldEncoding(matchedField.id as UUID), column.columnName);
       } else {
@@ -270,19 +272,11 @@ export function AxisSelectField({
           field.columnName === column.name || field.name === column.name,
       );
       const analyzedColumn = matchedField
-        ? columnAnalysis.find((c) => {
-            if (c.fieldId) return c.fieldId === matchedField.id;
-            const components = extractColumnAliasComponents(c.columnName);
-            if (!components) return false;
-            const syntheticId =
-              components.instanceIndex === 0
-                ? components.uuid
-                : `${components.uuid}_j${components.instanceIndex}`;
-            return (
-              syntheticId === matchedField.id ||
-              components.uuid === matchedField.id
-            );
-          })?.columnName
+        ? columnAnalysis.find(
+            (c) =>
+              matchColumnToField(c.fieldId, c.columnName, selectableFields)
+                ?.id === matchedField.id,
+          )?.columnName
         : undefined;
       map.set(column.name, analyzedColumn ?? column.name);
     });
