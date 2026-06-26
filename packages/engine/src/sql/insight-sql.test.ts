@@ -1394,4 +1394,240 @@ describe("join-instance identity — two joins to the same table", () => {
     // No _j1-suffixed entry should exist
     expect(fields!.find((f) => f.id.endsWith("_j1"))).toBeUndefined();
   });
+
+  it("counter does NOT advance when join is skipped due to missing right key", () => {
+    // Symmetric counterpart to the missing-leftKey test: the right table exists
+    // but its join key is not present as a column → join is skipped.
+    // The second valid join must still get instance index 0 (canonical alias).
+    const insightWithBadRightKey: Insight = {
+      ...doubleJoinInsight,
+      joins: [
+        // invalid: rightKey "no_such_col" not in usersTable → skip
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "created_by",
+          rightKey: "no_such_col",
+        },
+        // valid: approved_by → id (must become instance 0, not 1)
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "approved_by",
+          rightKey: "id",
+        },
+      ],
+    };
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      insightWithBadRightKey,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
+    expect(sql!).not.toContain(`_j1`);
+
+    // Mirror for buildInsightAvailableFields
+    const fields = buildInsightAvailableFields(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      insightWithBadRightKey,
+    );
+    expect(fields).not.toBeNull();
+    expect(fields!.find((f) => f.id === U_NAME_FIELD.id)).toBeDefined();
+    expect(fields!.find((f) => f.id.endsWith("_j1"))).toBeUndefined();
+  });
+
+  it("counter is not disrupted by a skip between two successful joins — [valid, invalid, valid]", () => {
+    // Pattern: first join succeeds (instance 0, canonical), second join is
+    // skipped (bad leftKey), third join must get instance 1 (NOT 2).
+    // A regression here would produce `_j2` for the third join.
+    const insightMiddleSkip: Insight = {
+      ...doubleJoinInsight,
+      joins: [
+        // valid: created_by → id → instance 0
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "created_by",
+          rightKey: "id",
+        },
+        // invalid: bad left key → skipped, counter stays at 1
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "no_such_field",
+          rightKey: "id",
+        },
+        // valid: approved_by → id → must be instance 1 (alias _j1)
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "approved_by",
+          rightKey: "id",
+        },
+      ],
+    };
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      insightMiddleSkip,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+    // Instance 0: canonical aliases present
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
+    // Instance 1: _j1 aliases present (NOT _j2)
+    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
+    expect(sql!).toContain(`AS "${emailAliasJ1}"`);
+    expect(sql!).not.toContain(`_j2`);
+
+    // Mirror for buildInsightAvailableFields
+    const fields = buildInsightAvailableFields(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      insightMiddleSkip,
+    );
+    expect(fields).not.toBeNull();
+    const j1NameId = `${U_NAME_FIELD.id}_j1` as UUID;
+    expect(fields!.find((f) => f.id === U_NAME_FIELD.id)).toBeDefined();
+    expect(fields!.find((f) => f.id === j1NameId)).toBeDefined();
+    expect(fields!.find((f) => f.id.endsWith("_j2"))).toBeUndefined();
+  });
+
+  it("buildInsightAvailableFields field IDs match buildInsightSQL column aliases — round-trip", () => {
+    // The single-source contract: every alias that buildInsightAvailableFields
+    // implies (via fieldIdToColumnAlias) must appear in the SQL that buildInsightSQL emits.
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      doubleJoinInsight,
+      { mode: "model" },
+    );
+    const fields = buildInsightAvailableFields(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      doubleJoinInsight,
+    );
+    expect(sql).not.toBeNull();
+    expect(fields).not.toBeNull();
+
+    // Every non-base-table field's implied alias must appear in the SQL
+    const ordersFieldIds = new Set(ordersTable.fields?.map((f) => f.id) ?? []);
+    const joinedFields = fields!.filter(
+      (f) => !ordersFieldIds.has(f.id as UUID),
+    );
+    for (const f of joinedFields) {
+      const alias = fieldIdToColumnAlias(f.id);
+      expect(sql!).toContain(`AS "${alias}"`);
+    }
+  });
+
+  it("counters are independent per table — mixed tables (orders→users×2 AND orders→products×1)", () => {
+    // Introduce a separate "products" table joined once.
+    // The products join must get instance index 0 regardless of the users joins.
+    const PRODUCTS_TABLE_ID = "60606060-6060-6060-6060-606060606060" as UUID;
+    const PRODUCTS_DF_ID = "70707070-7070-7070-7070-707070707070" as UUID;
+    const P_ID_FIELD: Field = {
+      id: "11111111-2222-3333-4444-555555555555" as UUID,
+      name: "Product ID",
+      tableId: PRODUCTS_TABLE_ID,
+      columnName: "id",
+      type: "string",
+    };
+    const P_NAME_FIELD: Field = {
+      id: "aaaabbbb-cccc-dddd-eeee-ffffffffffff" as UUID,
+      name: "Product Name",
+      tableId: PRODUCTS_TABLE_ID,
+      columnName: "name",
+      type: "string",
+    };
+    const productsTable: DataTable = {
+      id: PRODUCTS_TABLE_ID,
+      name: "products",
+      dataSourceId: "33333333-3333-3333-3333-333333333333" as UUID,
+      table: "products.csv",
+      fields: [P_ID_FIELD, P_NAME_FIELD],
+      metrics: [],
+      dataFrameId: PRODUCTS_DF_ID,
+      createdAt: 0,
+    };
+    const ordersFieldsExtended = [
+      ...ordersTable.fields!,
+      {
+        id: "99998888-7777-6666-5555-444433332222" as UUID,
+        name: "Product ID Ref",
+        tableId: ORDERS_TABLE_ID,
+        columnName: "product_id",
+        type: "string" as const,
+      },
+    ];
+    const ordersTableExtended: DataTable = {
+      ...ordersTable,
+      fields: ordersFieldsExtended,
+    };
+    const mixedJoinInsight: Insight = {
+      ...doubleJoinInsight,
+      joins: [
+        // users join 0 (instance 0)
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "created_by",
+          rightKey: "id",
+        },
+        // products join (independent counter, instance 0)
+        {
+          type: "inner",
+          rightTableId: PRODUCTS_TABLE_ID,
+          leftKey: "product_id",
+          rightKey: "id",
+        },
+        // users join 1 (instance 1 for users counter)
+        {
+          type: "inner",
+          rightTableId: USERS_TABLE_ID,
+          leftKey: "approved_by",
+          rightKey: "id",
+        },
+      ],
+    };
+    const productNameAlias = fieldIdToColumnAlias(P_NAME_FIELD.id);
+
+    const sql = buildInsightSQL(
+      ordersTableExtended,
+      new Map([
+        [USERS_TABLE_ID, usersTable],
+        [PRODUCTS_TABLE_ID, productsTable],
+      ]),
+      mixedJoinInsight,
+      { mode: "model" },
+    );
+    expect(sql).not.toBeNull();
+    // Users instance 0 (canonical)
+    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
+    // Products canonical (no suffix — independent counter)
+    expect(sql!).toContain(`AS "${productNameAlias}"`);
+    expect(sql!).not.toContain(`${productNameAlias}_j`);
+    // Users instance 1
+    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
+
+    // Mirror for buildInsightAvailableFields
+    const fields = buildInsightAvailableFields(
+      ordersTableExtended,
+      new Map([
+        [USERS_TABLE_ID, usersTable],
+        [PRODUCTS_TABLE_ID, productsTable],
+      ]),
+      mixedJoinInsight,
+    );
+    expect(fields).not.toBeNull();
+    expect(fields!.find((f) => f.id === P_NAME_FIELD.id)).toBeDefined();
+    expect(
+      fields!.find((f) => f.id === (`${P_NAME_FIELD.id}_j1` as UUID)),
+    ).toBeUndefined();
+  });
 });
