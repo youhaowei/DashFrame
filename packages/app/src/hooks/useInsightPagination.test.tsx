@@ -58,6 +58,11 @@ vi.mock("@dashframe/engine-browser", () => ({
 // engine exports used by the hook at import time
 vi.mock("@dashframe/engine", () => ({
   buildInsightSQL: (...args: unknown[]) => mockBuildInsightSQL(...args),
+  buildInsightAvailableFields: (
+    baseTable: DataTable,
+    _joinedTables: unknown,
+    _insight: unknown,
+  ) => baseTable.fields ?? [],
   fieldIdToColumnAlias: (id: string) => `field_${id.replace(/-/g, "_")}`,
   metricIdToColumnAlias: (id: string) => `metric_${id.replace(/-/g, "_")}`,
 }));
