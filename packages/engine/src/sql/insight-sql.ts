@@ -661,7 +661,7 @@ function buildJoinedSQL(
 export function buildInsightAvailableFields(
   baseTable: DataTable,
   joinedTables: Map<UUID, DataTable>,
-  insight: Insight,
+  insight: Pick<Insight, "joins">,
 ): Field[] | null {
   if (!baseTable.dataFrameId) return null;
 
@@ -697,6 +697,12 @@ export function buildInsightAvailableFields(
 
     const rightColName = joinKeyField.columnName ?? joinKeyField.name;
     const rawJoinType = join.type ?? "inner";
+    // Intentional divergence from processSingleJoin: that function throws on an
+    // invalid join type (fail-closed SQL path), while here we skip the join
+    // instead.  `buildInsightAvailableFields` must never throw — it runs in
+    // render-path hooks that have no error boundary around this call.  The
+    // counters stay in sync because the throw in buildJoinedSQL prevents
+    // `joinInstanceCount.set` from ever being reached for the invalid join.
     if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) continue;
 
     const nonKeyJoinFields = joinFields.filter(

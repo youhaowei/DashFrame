@@ -147,15 +147,12 @@ export function useInsightPagination({
     // to n+1, putting the hook's map one alias ahead of what DuckDB emitted.
     // Single-sourcing through `buildInsightAvailableFields` eliminates that gap.
     //
-    // We pass a minimal Insight-shaped object containing only `joins` — the only
-    // field buildInsightAvailableFields reads from the insight. `insight.joins` is
-    // already in the dep array below, so the closure captures it through `joins`
-    // without adding the full mutable `insight` reference as a dependency.
+    // `buildInsightAvailableFields` accepts `Pick<Insight, "joins">`, so we extract
+    // `joins` and pass a minimal object. This also keeps `insight.joins` in the dep
+    // array below without introducing the full mutable `insight` reference.
     const joins = insight.joins;
     const allFields: Field[] =
-      buildInsightAvailableFields(baseTable, joinedTables, {
-        joins,
-      } as Insight) ??
+      buildInsightAvailableFields(baseTable, joinedTables, { joins }) ??
       (baseTable.fields ?? []).filter((f) => !f.name.startsWith("_"));
 
     return { baseTable, joinedTables, allFields };
