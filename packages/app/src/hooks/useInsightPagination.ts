@@ -1,8 +1,8 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
+  buildInsightAvailableFields,
   buildInsightSQL,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
@@ -132,33 +132,31 @@ export function useInsightPagination({
     // The caller (init) writes the cache after its generation check passes.
 
     // Collect fields visible in the SQL result set.
-    // Raw concatenation of base + joined table fields includes right join-key
-    // fields that processSingleJoin drops from the emitted subquery.
-    // columnDisplayNames / columnTypeMap built from those stale entries would
-    // let VirtualTable resolve wrong display names or types for UUID aliases
-    // that don't exist in the result.
     //
-    // We drop ONLY the right join-key fields (step 1 of computeFilterableFields)
-    // — those are the columns processSingleJoin excludes from SELECT.  We do NOT
-    // apply step 2 (ambiguous-bare-name exclusion): that step exists for filter-
-    // picker safety, but both sides of a bare-name collision still appear in the
-    // SQL result under distinct UUID aliases, so they MUST keep display-name and
-    // type-map entries (else VirtualTable shows raw field_<uuid> and loses type).
-    const allDataTables = [baseTable, ...joinedTables.values()];
-    const { fields: combinedFields } = computeCombinedFields(
-      baseTable,
-      insight.joins,
-      allDataTables,
-    );
-    const rightKeySet = new Set(
-      (insight.joins ?? []).map(
-        (j) => `${j.rightTableId}:${j.rightKey.toLowerCase()}`,
-      ),
-    );
-    const allFields: Field[] = combinedFields.filter((f) => {
-      const colKey = `${f.sourceTableId}:${(f.columnName ?? f.name).toLowerCase()}`;
-      return !rightKeySet.has(colKey);
-    });
+    // `buildInsightAvailableFields` mirrors `buildJoinedSQL`'s field accumulation
+    // exactly — it drops right join-keys and returns synthetic Field objects with
+    // instance-suffixed IDs (field.id = `<uuid>_j{n}`) for repeat-joins (two
+    // joins to the same rightTableId).  Because `columnDisplayNames` and
+    // `columnTypeMap` are keyed on `fieldIdToColumnAlias(field.id)`, they will
+    // map `field_<uuid>_j{n}` → the right display name / type — matching the
+    // actual SQL column aliases DuckDB produces from the join builder.
+    //
+    // Deriving this list independently (e.g. via computeCombinedFields + manual
+    // key-drop) risks a desync: if the builder skips a join instance (missing
+    // keys), the counter stays at n while an independent re-derive would advance
+    // to n+1, putting the hook's map one alias ahead of what DuckDB emitted.
+    // Single-sourcing through `buildInsightAvailableFields` eliminates that gap.
+    //
+    // We pass a minimal Insight-shaped object containing only `joins` — the only
+    // field buildInsightAvailableFields reads from the insight. `insight.joins` is
+    // already in the dep array below, so the closure captures it through `joins`
+    // without adding the full mutable `insight` reference as a dependency.
+    const joins = insight.joins;
+    const allFields: Field[] =
+      buildInsightAvailableFields(baseTable, joinedTables, {
+        joins,
+      } as Insight) ??
+      (baseTable.fields ?? []).filter((f) => !f.name.startsWith("_"));
 
     return { baseTable, joinedTables, allFields };
   }, [insight.baseTableId, insight.joins]);

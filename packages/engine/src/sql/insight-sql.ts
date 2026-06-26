@@ -9,11 +9,13 @@
  * All columns use UUID-based aliases for consistency:
  * - Fields: `field_<uuid>` (e.g., `field_dd05ef4b_1234_5678_abcd_ef1234567890`)
  * - Metrics: `metric_<uuid>` (e.g., `metric_cc33dd44_1234_5678_abcd_ef1234567890`)
+ * - Repeat-join fields: `field_<uuid>_j{n}` (index≥1; e.g., `field_<uuid>_j1`)
  *
  * This ensures:
  * - No collision handling needed (UUIDs are globally unique)
  * - Encoding value = SQL column name = axis selection key (zero transformation)
  * - Display names looked up from field/metric definitions when rendering UI
+ * - Two joins to the same table each get distinct aliases (via `_j{n}` suffix)
  */
 
 import type {
@@ -37,12 +39,35 @@ import { quoteIdentifier } from "./quoting";
  * Convert a field ID to a SQL-safe column alias.
  * Format: field_<uuid_with_underscores>
  *
+ * For repeat-join columns the caller passes an INSTANCE-QUALIFIED field ID
+ * (produced by `joinInstanceFieldId`) so the resulting alias is
+ * `field_<uuid>_j{n}` — distinct from the first instance's `field_<uuid>`.
+ *
  * @example
  * fieldIdToColumnAlias("dd05ef4b-1234-5678-abcd-ef1234567890")
  * // Returns: "field_dd05ef4b_1234_5678_abcd_ef1234567890"
  */
 export function fieldIdToColumnAlias(fieldId: string): string {
   return `field_${fieldId.replace(/-/g, "_")}`;
+}
+
+/**
+ * Encode a join instance index into a field ID so two joins to the same table
+ * produce distinct column aliases.
+ *
+ * - index 0 (first join): returns `fieldId` unchanged → alias stays `field_<uuid>`
+ * - index ≥ 1 (repeat join): returns `fieldId_j{n}` → alias becomes `field_<uuid>_j{n}`
+ *
+ * This is an internal SQL-builder helper only — the returned value is NEVER
+ * stored in the Insight model or compared against real field IDs. It is only
+ * fed into `fieldIdToColumnAlias` to produce unique SQL aliases.
+ */
+function joinInstanceFieldId(
+  fieldId: string,
+  joinInstanceIndex: number,
+): string {
+  if (joinInstanceIndex === 0) return fieldId;
+  return `${fieldId}_j${joinInstanceIndex}`;
 }
 
 /**
@@ -59,27 +84,77 @@ export function metricIdToColumnAlias(metricId: string): string {
 
 /**
  * Extract the original UUID from a column alias.
- * Handles both field_* and metric_* formats.
+ * Handles both field_* and metric_* formats, including repeat-join suffixed
+ * aliases produced by `joinInstanceFieldId` (e.g. `field_<uuid>_j1`).
+ *
+ * The join-instance suffix is stripped before UUID reconstruction so all callers
+ * that need only the canonical field ID work correctly. Consumers that must
+ * distinguish join instances should call `extractColumnAliasComponents` instead.
  *
  * @example
  * extractUUIDFromColumnAlias("field_dd05ef4b_1234_5678_abcd_ef1234567890")
+ * // Returns: "dd05ef4b-1234-5678-abcd-ef1234567890"
+ *
+ * extractUUIDFromColumnAlias("field_dd05ef4b_1234_5678_abcd_ef1234567890_j1")
  * // Returns: "dd05ef4b-1234-5678-abcd-ef1234567890"
  */
 export function extractUUIDFromColumnAlias(columnAlias: string): string | null {
   const match = columnAlias.match(/^(?:field|metric)_(.+)$/);
   if (!match) return null;
 
-  // Convert underscores back to hyphens in UUID format
-  const uuidPart = match[1];
-  if (!uuidPart) return null;
+  // Strip the join-instance suffix appended by joinInstanceFieldId (e.g. `_j1`,
+  // `_j2`) before reconstructing the UUID.
+  const rawPart = (match[1] ?? "").replace(/_j\d+$/, "");
+  if (!rawPart) return null;
   // UUID format: 8-4-4-4-12 characters
   // With underscores: 8_4_4_4_12
-  const parts = uuidPart.split("_");
+  const parts = rawPart.split("_");
   if (parts.length === 5) {
     return parts.join("-");
   }
   // Fallback: just replace all underscores (may not be exact UUID format)
-  return uuidPart.replace(/_/g, "-");
+  return rawPart.replace(/_/g, "-");
+}
+
+/**
+ * Extract both the canonical UUID and the join-instance index from a column alias.
+ *
+ * Use this when downstream code needs to DISTINGUISH two join instances of the
+ * same field (e.g. orders→users via created_by vs approved_by).
+ * `extractUUIDFromColumnAlias` returns only the UUID (stripping the suffix);
+ * this function returns the full breakdown.
+ *
+ * @example
+ * extractColumnAliasComponents("field_dd05ef4b_1234_5678_abcd_ef1234567890")
+ * // Returns: { uuid: "dd05ef4b-1234-5678-abcd-ef1234567890", instanceIndex: 0 }
+ *
+ * extractColumnAliasComponents("field_dd05ef4b_1234_5678_abcd_ef1234567890_j1")
+ * // Returns: { uuid: "dd05ef4b-1234-5678-abcd-ef1234567890", instanceIndex: 1 }
+ */
+export function extractColumnAliasComponents(
+  columnAlias: string,
+): { uuid: string; instanceIndex: number } | null {
+  const match = columnAlias.match(/^(?:field|metric)_(.+)$/);
+  if (!match) return null;
+
+  const rawPart = match[1] ?? "";
+  // Check for join-instance suffix
+  const instanceMatch = rawPart.match(/^(.+)_j(\d+)$/);
+  let uuidRaw: string;
+  let instanceIndex: number;
+  if (instanceMatch) {
+    uuidRaw = instanceMatch[1] ?? "";
+    instanceIndex = parseInt(instanceMatch[2] ?? "0", 10);
+  } else {
+    uuidRaw = rawPart;
+    instanceIndex = 0;
+  }
+  if (!uuidRaw) return null;
+
+  const parts = uuidRaw.split("_");
+  const uuid =
+    parts.length === 5 ? parts.join("-") : uuidRaw.replace(/_/g, "-");
+  return { uuid, instanceIndex };
 }
 
 // ============================================================================
@@ -510,6 +585,13 @@ function buildFieldSelects(tableName: string, fields: Field[]): string[] {
  *
  * The first step wraps the base table with UUID aliases, then subsequent joins
  * can reference columns by their UUID alias names.
+ *
+ * When the same `rightTableId` appears in multiple joins (a legitimate
+ * double-join, e.g. orders→users on `created_by` AND `approved_by`), the
+ * second and later instances get `_j{n}`-suffixed aliases so DuckDB never sees
+ * duplicate column names in the SELECT.  `availableFields` contains synthetic
+ * Field objects with the instance-qualified IDs so that display-name/type maps
+ * keyed on `fieldIdToColumnAlias(field.id)` match the emitted aliases exactly.
  */
 function buildJoinedSQL(
   baseDFTable: string,
@@ -523,28 +605,116 @@ function buildJoinedSQL(
   let currentSQL = `(SELECT ${baseSelects.join(", ")} FROM ${baseDFTable} AS ${quoteIdentifier(baseDisplayName)})`;
   let currentFields = baseFields;
 
+  // Track how many times each rightTableId has been successfully joined so
+  // processSingleJoin can suffix aliases for repeat-join instances.
+  // IMPORTANT: the counter is only incremented on SUCCESSFUL joins — a skipped
+  // join (missing table, missing keys, invalid type) does NOT advance the index.
+  // This keeps the emitted suffix and the hooks' display-name maps in sync.
+  const joinInstanceCount = new Map<UUID, number>();
+
   for (const join of insight.joins ?? []) {
+    const instanceIndex = joinInstanceCount.get(join.rightTableId) ?? 0;
+
     const joinResult = processSingleJoin(
       join,
       joinedTables,
       currentSQL,
       baseDisplayName,
       currentFields,
+      instanceIndex,
     );
 
     if (joinResult) {
+      // Advance the counter ONLY on success — a skipped join must not consume
+      // an index slot, otherwise the next valid join gets a wrong suffix.
+      joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
       currentSQL = joinResult.sql;
       // Accumulate fields from all joined tables for subsequent joins.
-      // `joinResult.allFields` excludes dropped right join-keys, so it is the
-      // accurate set of columns actually present in `currentSQL`.
+      // `joinResult.allFields` excludes dropped right join-keys and contains
+      // synthetic Fields with instance-suffixed IDs for repeat-joins, so it is
+      // the accurate column set actually present in `currentSQL`.
       currentFields = joinResult.allFields;
     }
   }
 
   // `currentFields` is the exact column set in the emitted subquery — dropped
-  // join keys are already excluded. Returning it lets callers build a field map
-  // that matches the FROM clause, so filters can't reference a missing column.
+  // join keys and instance suffixes already applied. Returning it lets callers
+  // build display-name/type maps that match the FROM clause precisely.
   return { sql: currentSQL, availableFields: currentFields };
+}
+
+/**
+ * Compute the field set that `buildInsightSQL` will emit for a given insight.
+ *
+ * Returns the same synthetic Field list that `buildJoinedSQL` accumulates
+ * internally: base fields + joined fields with dropped right join-keys and
+ * instance-suffixed IDs for repeat-joins (`field_<uuid>_j{n}` for index≥1).
+ *
+ * Use this in hooks/UI code to build display-name and type maps that are
+ * keyed on `fieldIdToColumnAlias(field.id)` and therefore match the SQL
+ * column names DuckDB actually produces — without re-deriving the instance
+ * index logic in multiple places (the desync risk #162 left open).
+ *
+ * Returns `null` when `baseTable.dataFrameId` is absent (same guard as
+ * `buildInsightSQL`).
+ */
+export function buildInsightAvailableFields(
+  baseTable: DataTable,
+  joinedTables: Map<UUID, DataTable>,
+  insight: Insight,
+): Field[] | null {
+  if (!baseTable.dataFrameId) return null;
+
+  const baseFields = (baseTable.fields ?? []).filter(
+    (f) => !f.name.startsWith("_"),
+  );
+
+  if (!insight.joins?.length) {
+    return baseFields;
+  }
+
+  // Mirror buildJoinedSQL's field accumulation without emitting any SQL.
+  const joinInstanceCount = new Map<UUID, number>();
+  let currentFields: Field[] = baseFields;
+
+  for (const join of insight.joins) {
+    const instanceIndex = joinInstanceCount.get(join.rightTableId) ?? 0;
+    const joinTable = joinedTables.get(join.rightTableId);
+    if (!joinTable || !joinTable.dataFrameId) continue;
+
+    const joinFields = (joinTable.fields ?? []).filter(
+      (f) => !f.name.startsWith("_"),
+    );
+
+    // Validate join keys exactly as processSingleJoin does; skip if invalid.
+    const currentKeyField = currentFields.find(
+      (f) => (f.columnName ?? f.name) === join.leftKey,
+    );
+    const joinKeyField = joinFields.find(
+      (f) => (f.columnName ?? f.name) === join.rightKey,
+    );
+    if (!currentKeyField || !joinKeyField) continue;
+
+    const rightColName = joinKeyField.columnName ?? joinKeyField.name;
+    const rawJoinType = join.type ?? "inner";
+    if (!JOIN_TYPE_WHITELIST_CONST.has(rawJoinType)) continue;
+
+    const nonKeyJoinFields = joinFields.filter(
+      (f) => (f.columnName ?? f.name) !== rightColName,
+    );
+
+    // Mirror processSingleJoin: instance 0 → canonical IDs; index≥1 → suffixed.
+    const instanceFields: Field[] = nonKeyJoinFields.map((f) => ({
+      ...f,
+      id: joinInstanceFieldId(f.id, instanceIndex) as UUID,
+    }));
+
+    // Counter advances only on a valid join (mirrors buildJoinedSQL).
+    joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
+    currentFields = [...currentFields, ...instanceFields];
+  }
+
+  return currentFields;
 }
 
 /** Result from processing a single join */
@@ -557,6 +727,13 @@ interface JoinResult {
 /**
  * Process a single join and return the updated SQL with UUID-based column aliases.
  * Returns null if join is invalid.
+ *
+ * @param joinInstanceIndex - How many times this `rightTableId` has been
+ *   successfully joined BEFORE this call (0 = first time, 1 = second, …).
+ *   When > 0, the right-side non-key columns get `_j{n}`-suffixed aliases so
+ *   two joins to the same table emit distinct SQL output column names.
+ *   Without this, DuckDB silently keeps only the first occurrence → the second
+ *   join's columns are unreachable (silent wrong results).
  */
 function processSingleJoin(
   join: NonNullable<Insight["joins"]>[number],
@@ -564,6 +741,7 @@ function processSingleJoin(
   currentSQL: string,
   currentDisplayName: string,
   currentFields: Field[],
+  joinInstanceIndex: number,
 ): JoinResult | null {
   // Validate join table
   const joinTable = joinedTables.get(join.rightTableId);
@@ -623,20 +801,23 @@ function processSingleJoin(
     return `"${alias}"`;
   });
 
-  // For the right side, select with UUID aliases (excluding join key to avoid duplication)
-  const joinSelects = joinFields
-    .filter((f) => {
-      const colName = f.columnName ?? f.name;
-      return colName !== rightColName;
-    })
-    .map((field) => {
-      const columnName = field.columnName ?? field.name;
-      return buildColumnSelectWithFieldId(
-        joinDisplayName,
-        columnName,
-        field.id,
-      );
-    });
+  // Right side: exclude the join key; suffix aliases for repeat-join instances.
+  // For instance 0 (first join to this table) the suffix is absent → alias is
+  // the canonical `field_<uuid>` (no regression vs. the pre-fix behaviour).
+  // For instance ≥ 1 the alias becomes `field_<uuid>_j{n}` so DuckDB sees two
+  // distinct output columns and cannot silently discard the second (the bug).
+  const nonKeyJoinFields = joinFields.filter(
+    (f) => (f.columnName ?? f.name) !== rightColName,
+  );
+  const joinSelects = nonKeyJoinFields.map((field) => {
+    const columnName = field.columnName ?? field.name;
+    const instanceId = joinInstanceFieldId(field.id, joinInstanceIndex);
+    return buildColumnSelectWithFieldId(
+      joinDisplayName,
+      columnName,
+      instanceId,
+    );
+  });
 
   const selectParts = [...baseSelects, ...joinSelects];
 
@@ -648,14 +829,18 @@ function processSingleJoin(
     ON "${leftKeyAlias}" = ${quoteIdentifier(joinDisplayName)}.${quoteIdentifier(rightColName)}
   )`;
 
-  // Combine all fields for subsequent joins (excluding duplicate join key)
-  const allFields = [
-    ...currentFields,
-    ...joinFields.filter((f) => {
-      const colName = f.columnName ?? f.name;
-      return colName !== rightColName;
-    }),
-  ];
+  // Combine fields for subsequent joins (excluding dropped right join-key).
+  // For repeat-join instances, create synthetic Fields with instance-suffixed IDs
+  // so that subsequent join iterations see the correct suffixed aliases when
+  // building their passthrough SELECTs — not the original IDs from a prior instance.
+  // Note: selectedFields / metrics / filters in the Insight model still reference
+  // canonical (un-suffixed) field IDs — they map to the first join instance.
+  const instanceFields = nonKeyJoinFields.map((f) => ({
+    ...f,
+    id: joinInstanceFieldId(f.id, joinInstanceIndex) as UUID,
+  }));
+
+  const allFields = [...currentFields, ...instanceFields];
 
   return { sql, allFields, displayName: joinDisplayName };
 }
