@@ -64,7 +64,10 @@ export function Select({
         onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
-          className={cn("w-full", error && "border-red-500 focus:ring-red-500")}
+          className={cn(
+            "w-full",
+            error && "border-palette-danger focus:ring-palette-danger",
+          )}
         >
           <SelectValue placeholder={placeholder}>
             {selectedOption?.label}
@@ -96,7 +99,7 @@ export function Select({
           ))}
         </SelectContent>
       </SelectPrimitive>
-      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-1 text-xs text-palette-danger">{error}</p>}
     </Field>
   );
 }
