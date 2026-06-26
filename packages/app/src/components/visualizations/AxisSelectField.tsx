@@ -10,7 +10,7 @@ import {
   isColumnValidForChannel,
 } from "@/lib/visualizations/encoding-enforcer";
 import {
-  extractUUIDFromColumnAlias,
+  extractColumnAliasComponents,
   fieldIdToColumnAlias,
   getMetricDisplayLabel,
   isGeneratedColumnLabel,
@@ -163,12 +163,33 @@ export function AxisSelectField({
     // NOT guaranteed to share an order — joins and hidden columns can shift
     // the alignment. Match by fieldId; if that fails, surface the generated
     // alias rather than guessing positionally.
+    //
+    // For repeat-joins, column.columnName carries the join-instance suffix
+    // (e.g. `field_<uuid>_j1`). extractColumnAliasComponents recovers the
+    // bare UUID AND the instanceIndex so we can reconstruct the synthetic
+    // field ID (`<uuid>_j1` for instanceIndex≥1) and match it against
+    // selectableFields — which now carries instance-qualified fields when
+    // availableFields comes from buildInsightAvailableFields.
     columnAnalysis.forEach((column) => {
-      const fieldId =
-        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
-      const matchedField = fieldId
-        ? selectableFields.find((field) => field.id === fieldId)
-        : undefined;
+      let matchedField: Field | undefined;
+      if (column.fieldId) {
+        matchedField = selectableFields.find((f) => f.id === column.fieldId);
+      } else {
+        const components = extractColumnAliasComponents(column.columnName);
+        if (components) {
+          const syntheticId =
+            components.instanceIndex === 0
+              ? components.uuid
+              : `${components.uuid}_j${components.instanceIndex}`;
+          matchedField = selectableFields.find((f) => f.id === syntheticId);
+          // Fallback: bare UUID match (for single-join or base-table columns)
+          if (!matchedField) {
+            matchedField = selectableFields.find(
+              (f) => f.id === components.uuid,
+            );
+          }
+        }
+      }
       const mappedLabel = columnDisplayNames?.[column.columnName];
       const value = matchedField
         ? fieldEncoding(matchedField.id as UUID)
@@ -215,11 +236,24 @@ export function AxisSelectField({
       map.set(enc, alias);
     });
     for (const column of columnAnalysis) {
-      const fieldId =
-        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
-      const matchedField = fieldId
-        ? selectableFields.find((field) => field.id === fieldId)
-        : undefined;
+      let matchedField: Field | undefined;
+      if (column.fieldId) {
+        matchedField = selectableFields.find((f) => f.id === column.fieldId);
+      } else {
+        const components = extractColumnAliasComponents(column.columnName);
+        if (components) {
+          const syntheticId =
+            components.instanceIndex === 0
+              ? components.uuid
+              : `${components.uuid}_j${components.instanceIndex}`;
+          matchedField = selectableFields.find((f) => f.id === syntheticId);
+          if (!matchedField) {
+            matchedField = selectableFields.find(
+              (f) => f.id === components.uuid,
+            );
+          }
+        }
+      }
       if (matchedField) {
         map.set(fieldEncoding(matchedField.id as UUID), column.columnName);
       } else {
@@ -237,8 +271,17 @@ export function AxisSelectField({
       );
       const analyzedColumn = matchedField
         ? columnAnalysis.find((c) => {
-            const fid = c.fieldId ?? extractUUIDFromColumnAlias(c.columnName);
-            return fid === matchedField.id;
+            if (c.fieldId) return c.fieldId === matchedField.id;
+            const components = extractColumnAliasComponents(c.columnName);
+            if (!components) return false;
+            const syntheticId =
+              components.instanceIndex === 0
+                ? components.uuid
+                : `${components.uuid}_j${components.instanceIndex}`;
+            return (
+              syntheticId === matchedField.id ||
+              components.uuid === matchedField.id
+            );
           })?.columnName
         : undefined;
       map.set(column.name, analyzedColumn ?? column.name);

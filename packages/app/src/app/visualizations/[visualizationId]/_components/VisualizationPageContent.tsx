@@ -176,12 +176,15 @@ export default function VisualizationPageContent({
   // Get DuckDB view name for analysis (uses UUID-based column names)
   const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
     useInsightView(insightForView);
-  const { columns: modelColumns, columnDisplayNames: modelColumnDisplayNames } =
-    useInsightPagination({
-      insight: insightForView ?? ({} as InsightType),
-      showModelPreview: true,
-      enabled: !!insightForView,
-    });
+  const {
+    columns: modelColumns,
+    columnDisplayNames: modelColumnDisplayNames,
+    resolvedFields: instanceAwareFields,
+  } = useInsightPagination({
+    insight: insightForView ?? ({} as InsightType),
+    showModelPreview: true,
+    enabled: !!insightForView,
+  });
   const { columnDisplayNames: renderedColumnDisplayNames } =
     useInsightPagination({
       insight: insightForView ?? ({} as InsightType),
@@ -932,7 +935,11 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
-                  availableFields={dataTable?.fields}
+                  availableFields={
+                    instanceAwareFields.length > 0
+                      ? instanceAwareFields
+                      : dataTable?.fields
+                  }
                   availableColumns={axisSourceColumns}
                   columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.y}
@@ -965,7 +972,11 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
-                  availableFields={dataTable?.fields}
+                  availableFields={
+                    instanceAwareFields.length > 0
+                      ? instanceAwareFields
+                      : dataTable?.fields
+                  }
                   availableColumns={axisSourceColumns}
                   columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.x}

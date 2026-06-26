@@ -486,5 +486,13 @@ export function useInsightPagination({
      * Values: "string" | "number" | "boolean" | "date" | "unknown"
      */
     columnTypeMap,
+    /**
+     * Instance-qualified Field list produced by buildInsightAvailableFields.
+     * For repeat-joins (same rightTableId twice), fields from the Nth instance
+     * carry synthetic IDs with `_j{N}` suffix (e.g. `<uuid>_j1`).
+     * Use this as `availableFields` in pickers that must expose both instances
+     * as distinct selectable options.
+     */
+    resolvedFields,
   };
 }
