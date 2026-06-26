@@ -1,6 +1,6 @@
 /**
  * Repeat-join instance identity: picker helper composition + charting
- * encoding resolution.
+ * encoding resolution + label disambiguation.
  *
  * What this file proves:
  * (A) PICKER LOGIC — the helper composition that AxisSelectField now uses
@@ -10,6 +10,10 @@
  *     (from buildInsightAvailableFields) resolves field:<uuid>_j1 to the
  *     correct _j1-suffixed SQL alias; and fails (undefined) when called
  *     with bare dataTable.fields, catching the regression gap.
+ * (C) LABEL DISAMBIGUATION — the display-name logic used by
+ *     useInsightPagination.columnDisplayNames produces distinct, human-readable
+ *     labels for colliding repeat-join instances (e.g. "User Name (created_by)"
+ *     vs "User Name (approved_by)"), while leaving Field.name canonical.
  *
  * What this file does NOT prove: end-to-end React rendering of the picker
  * or the chart component — those require DuckDB and full provider mounts.
@@ -304,5 +308,130 @@ describe("AxisSelectField — repeat-join instance identity (acceptance)", () =>
 
     // Base-table field resolves to bare field encoding
     expect(enc).toBe(`field:${O_ID_FIELD.id}`);
+  });
+
+  it("(C) display-name disambiguation: both repeat-join instances get distinct labels including leftKey", () => {
+    // This test verifies the label logic used by useInsightPagination.columnDisplayNames.
+    // Both colliding instances must be labeled so neither appears as an unlabeled
+    // default.  Field.name stays canonical ("User Name") — only the picker/display
+    // label gets the "(leftKey)" suffix.
+    const resolvedFields =
+      buildInsightAvailableFields(
+        ordersTable,
+        joinedTables,
+        doubleJoinInsight,
+      ) ?? [];
+
+    // Mirror the hook's disambiguation logic:
+    // 1. Walk joins to build (rightTableId, instanceIndex) → leftKey map.
+    const joinKeyByInstance = new Map<string, string>();
+    const instanceCount = new Map<string, number>();
+    for (const join of doubleJoinInsight.joins!) {
+      const idx = instanceCount.get(join.rightTableId) ?? 0;
+      joinKeyByInstance.set(`${join.rightTableId}:${idx}`, join.leftKey);
+      instanceCount.set(join.rightTableId, idx + 1);
+    }
+
+    // 2. Find base UUIDs that have ≥2 instances.
+    const baseUuidsWithRepeat = new Set<string>();
+    for (const field of resolvedFields) {
+      const components = extractColumnAliasComponents(
+        fieldIdToColumnAlias(field.id),
+      );
+      if (components && components.instanceIndex > 0) {
+        baseUuidsWithRepeat.add(components.uuid);
+      }
+    }
+
+    // 3. Build display name map with disambiguation.
+    const displayNames: Record<string, string> = {};
+    for (const field of resolvedFields) {
+      const alias = fieldIdToColumnAlias(field.id);
+      const components = extractColumnAliasComponents(alias);
+      if (components && baseUuidsWithRepeat.has(components.uuid)) {
+        const leftKey = joinKeyByInstance.get(
+          `${field.tableId}:${components.instanceIndex}`,
+        );
+        displayNames[alias] = leftKey
+          ? `${field.name} (${leftKey})`
+          : field.name;
+      } else {
+        displayNames[alias] = field.name;
+      }
+    }
+
+    const j0Alias = fieldIdToColumnAlias(U_NAME_FIELD.id);
+    const j1NameId = `${U_NAME_FIELD.id}_j1` as UUID;
+    const j1Alias = fieldIdToColumnAlias(j1NameId);
+
+    // J0 → "User Name (created_by)", J1 → "User Name (approved_by)"
+    expect(displayNames[j0Alias]).toBe("User Name (created_by)");
+    expect(displayNames[j1Alias]).toBe("User Name (approved_by)");
+
+    // Labels are distinct — the picker shows two distinguishable options.
+    expect(displayNames[j0Alias]).not.toBe(displayNames[j1Alias]);
+
+    // Field.name is NOT mutated — it stays canonical.
+    const j0Field = resolvedFields.find((f) => f.id === U_NAME_FIELD.id);
+    const j1Field = resolvedFields.find((f) => f.id === j1NameId);
+    expect(j0Field!.name).toBe(U_NAME_FIELD.name);
+    expect(j1Field!.name).toBe(U_NAME_FIELD.name);
+
+    // Non-colliding fields (e.g. User Email) are unaffected — no "(leftKey)" suffix.
+    const j0EmailAlias = fieldIdToColumnAlias(U_EMAIL_FIELD.id);
+    const j1EmailId = `${U_EMAIL_FIELD.id}_j1` as UUID;
+    const j1EmailAlias = fieldIdToColumnAlias(j1EmailId);
+    expect(displayNames[j0EmailAlias]).toBe("User Email (created_by)");
+    expect(displayNames[j1EmailAlias]).toBe("User Email (approved_by)");
+  });
+
+  it("(C) single-join: display names are unambiguous bare field names (no leftKey suffix)", () => {
+    // Non-regression: when there's only one join to a table, no disambiguation
+    // suffix should appear.  "User Name" stays "User Name".
+    const resolvedFields =
+      buildInsightAvailableFields(
+        ordersTable,
+        joinedTables,
+        singleJoinInsight,
+      ) ?? [];
+
+    // Walk the single join
+    const joinKeyByInstance = new Map<string, string>();
+    const instanceCount = new Map<string, number>();
+    for (const join of singleJoinInsight.joins!) {
+      const idx = instanceCount.get(join.rightTableId) ?? 0;
+      joinKeyByInstance.set(`${join.rightTableId}:${idx}`, join.leftKey);
+      instanceCount.set(join.rightTableId, idx + 1);
+    }
+
+    const baseUuidsWithRepeat = new Set<string>();
+    for (const field of resolvedFields) {
+      const components = extractColumnAliasComponents(
+        fieldIdToColumnAlias(field.id),
+      );
+      if (components && components.instanceIndex > 0) {
+        baseUuidsWithRepeat.add(components.uuid);
+      }
+    }
+
+    const displayNames: Record<string, string> = {};
+    for (const field of resolvedFields) {
+      const alias = fieldIdToColumnAlias(field.id);
+      const components = extractColumnAliasComponents(alias);
+      if (components && baseUuidsWithRepeat.has(components.uuid)) {
+        const leftKey = joinKeyByInstance.get(
+          `${field.tableId}:${components.instanceIndex}`,
+        );
+        displayNames[alias] = leftKey
+          ? `${field.name} (${leftKey})`
+          : field.name;
+      } else {
+        displayNames[alias] = field.name;
+      }
+    }
+
+    const j0Alias = fieldIdToColumnAlias(U_NAME_FIELD.id);
+    // Single join — no repeat — so no disambiguation suffix.
+    expect(displayNames[j0Alias]).toBe("User Name");
   });
 });

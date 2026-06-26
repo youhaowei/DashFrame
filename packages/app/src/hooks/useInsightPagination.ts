@@ -4,6 +4,7 @@ import type { EffectiveParams } from "@dashframe/engine";
 import {
   buildInsightAvailableFields,
   buildInsightSQL,
+  extractColumnAliasComponents,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
@@ -17,6 +18,71 @@ import type {
 } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// ── Module-level pure helpers ─────────────────────────────────────────────────
+
+/**
+ * Build a map of `"${rightTableId}:${instanceIndex}" → leftKey` by walking
+ * insight.joins with the same counter logic as buildInsightAvailableFields.
+ * Used by buildRepeatJoinDisplayNames to recover which join leftKey produced
+ * each field alias, without needing to re-derive from the field alone.
+ */
+function buildJoinKeyByInstance(
+  joins: NonNullable<Insight["joins"]>,
+): Map<string, string> {
+  const result = new Map<string, string>();
+  const instanceCount = new Map<string, number>();
+  for (const join of joins) {
+    const idx = instanceCount.get(join.rightTableId) ?? 0;
+    result.set(`${join.rightTableId}:${idx}`, join.leftKey);
+    instanceCount.set(join.rightTableId, idx + 1);
+  }
+  return result;
+}
+
+/**
+ * Build a display-name record for the given resolved fields, disambiguating
+ * repeat-join collisions by appending the join's leftKey in parentheses.
+ *
+ * When the same right-table is joined twice (e.g. orders→users on `created_by`
+ * AND `approved_by`), both instances produce fields with the same `field.name`
+ * (e.g. "User Name").  This function detects collisions and produces distinct
+ * labels for BOTH: "User Name (created_by)" and "User Name (approved_by)".
+ * Fields not involved in a collision keep their bare `field.name`.
+ *
+ * `field.name` is NOT mutated — it remains the canonical human name.
+ */
+function buildRepeatJoinDisplayNames(
+  resolvedFields: Field[],
+  joinKeyByInstance: Map<string, string>,
+): Record<string, string> {
+  // First pass: find which base UUIDs have ≥2 instances (any _j1+ sibling).
+  const baseUuidsWithRepeat = new Set<string>();
+  for (const field of resolvedFields) {
+    const components = extractColumnAliasComponents(
+      fieldIdToColumnAlias(field.id),
+    );
+    if (components && components.instanceIndex > 0) {
+      baseUuidsWithRepeat.add(components.uuid);
+    }
+  }
+
+  // Second pass: build display names, applying disambiguation for collisions.
+  const displayNames: Record<string, string> = {};
+  for (const field of resolvedFields) {
+    const alias = fieldIdToColumnAlias(field.id);
+    const components = extractColumnAliasComponents(alias);
+    if (components && baseUuidsWithRepeat.has(components.uuid)) {
+      const leftKey = joinKeyByInstance.get(
+        `${field.tableId}:${components.instanceIndex}`,
+      );
+      displayNames[alias] = leftKey ? `${field.name} (${leftKey})` : field.name;
+    } else {
+      displayNames[alias] = field.name;
+    }
+  }
+  return displayNames;
+}
 
 /**
  * Options for useInsightPagination hook.
@@ -158,16 +224,23 @@ export function useInsightPagination({
     return { baseTable, joinedTables, allFields };
   }, [insight.baseTableId, insight.joins]);
 
-  // Build mapping from UUID column aliases to display names
-  // This allows VirtualTable to show human-readable column headers
+  // Build mapping from UUID column aliases to display names.
+  // This allows VirtualTable to show human-readable column headers.
+  //
+  // For repeat-join insights (same rightTableId joined twice), both join
+  // instances produce fields with identical `field.name` values.
+  // buildRepeatJoinDisplayNames detects these collisions and appends the
+  // join's leftKey so pickers and headers show e.g. "User Name (created_by)"
+  // vs "User Name (approved_by)".  field.name is NOT mutated.
   const columnDisplayNames = useMemo(() => {
-    const displayNames: Record<string, string> = {};
+    const joinKeyByInstance = insight.joins?.length
+      ? buildJoinKeyByInstance(insight.joins)
+      : new Map<string, string>();
 
-    // Map field IDs to display names
-    for (const field of resolvedFields) {
-      const alias = fieldIdToColumnAlias(field.id);
-      displayNames[alias] = field.name;
-    }
+    const displayNames = buildRepeatJoinDisplayNames(
+      resolvedFields,
+      joinKeyByInstance,
+    );
 
     // Map metric IDs to display names
     for (const metric of insight.metrics ?? []) {
@@ -176,7 +249,7 @@ export function useInsightPagination({
     }
 
     return displayNames;
-  }, [resolvedFields, insight.metrics]);
+  }, [resolvedFields, insight.metrics, insight.joins]);
 
   // Build mapping from UUID column aliases to ColumnType.
   // Metrics are always numeric (aggregations); fields carry their declared type.
