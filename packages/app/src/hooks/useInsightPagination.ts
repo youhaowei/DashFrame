@@ -23,19 +23,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Build a map of `"${rightTableId}:${instanceIndex}" → leftKey` by walking
- * insight.joins with the same counter logic as buildInsightAvailableFields.
- * Used by buildRepeatJoinDisplayNames to recover which join leftKey produced
- * each field alias, without needing to re-derive from the field alone.
+ * insight.joins, mirroring buildInsightAvailableFields' skip behaviour.
+ *
+ * A join that was SKIPPED by buildInsightAvailableFields (invalid type, missing
+ * table, missing key fields) must NOT advance the per-rightTableId counter —
+ * otherwise subsequent valid joins get a wrong index, and
+ * buildRepeatJoinDisplayNames would look up the wrong leftKey for each synthetic
+ * field's (tableId, instanceIndex) pair.
+ *
+ * We detect skipped joins by checking whether resolvedFields contains any field
+ * from that (rightTableId, instanceIndex) slot.  Because resolvedFields is the
+ * OUTPUT of buildInsightAvailableFields, any index it consumed is guaranteed
+ * valid; indices not represented in resolvedFields were skipped.  This avoids
+ * re-implementing the engine's whitelist + key-validation logic in the hook.
  */
 function buildJoinKeyByInstance(
   joins: NonNullable<Insight["joins"]>,
+  resolvedFields: Field[],
 ): Map<string, string> {
+  // Build a quick-lookup set of (tableId, instanceIndex) pairs that exist in
+  // resolvedFields.  If a slot is absent, the join at that logical position was
+  // skipped by buildInsightAvailableFields.
+  const resolvedSlots = new Set<string>();
+  for (const field of resolvedFields) {
+    const components = extractColumnAliasComponents(
+      fieldIdToColumnAlias(field.id),
+    );
+    if (components) {
+      resolvedSlots.add(`${field.tableId}:${components.instanceIndex}`);
+    }
+  }
+
   const result = new Map<string, string>();
   const instanceCount = new Map<string, number>();
   for (const join of joins) {
     const idx = instanceCount.get(join.rightTableId) ?? 0;
-    result.set(`${join.rightTableId}:${idx}`, join.leftKey);
-    instanceCount.set(join.rightTableId, idx + 1);
+    const slot = `${join.rightTableId}:${idx}`;
+    if (resolvedSlots.has(slot)) {
+      // This join was NOT skipped by buildInsightAvailableFields — record it.
+      result.set(slot, join.leftKey);
+      instanceCount.set(join.rightTableId, idx + 1);
+    }
+    // Skipped join: do NOT advance the counter.
   }
   return result;
 }
@@ -44,11 +73,12 @@ function buildJoinKeyByInstance(
  * Build a display-name record for the given resolved fields, disambiguating
  * repeat-join collisions by appending the join's leftKey in parentheses.
  *
- * When the same right-table is joined twice (e.g. orders→users on `created_by`
- * AND `approved_by`), both instances produce fields with the same `field.name`
- * (e.g. "User Name").  This function detects collisions and produces distinct
- * labels for BOTH: "User Name (created_by)" and "User Name (approved_by)".
- * Fields not involved in a collision keep their bare `field.name`.
+ * When the same right-table is joined more than once (N≥2, e.g. orders→users on
+ * `created_by` AND `approved_by`), all instances produce fields with the same
+ * `field.name` (e.g. "User Name").  This function detects collisions and
+ * produces distinct labels for ALL instances: "User Name (created_by)" and
+ * "User Name (approved_by)".  Fields not involved in a collision keep their
+ * bare `field.name`.
  *
  * `field.name` is NOT mutated — it remains the canonical human name.
  */
@@ -234,7 +264,7 @@ export function useInsightPagination({
   // vs "User Name (approved_by)".  field.name is NOT mutated.
   const columnDisplayNames = useMemo(() => {
     const joinKeyByInstance = insight.joins?.length
-      ? buildJoinKeyByInstance(insight.joins)
+      ? buildJoinKeyByInstance(insight.joins, resolvedFields)
       : new Map<string, string>();
 
     const displayNames = buildRepeatJoinDisplayNames(

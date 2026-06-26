@@ -328,9 +328,14 @@ export function VisualizationDisplay({
 
       const parsed = parseEncoding(encodingValue);
       if (parsed?.type === "field") {
-        // Prefer instanceAwareFields so repeat-join instances (synthetic IDs like
-        // `<uuid>_j1`) resolve to their human-readable name. Fall back to the
-        // raw data-table fields for the common single-join / no-join case.
+        // Prefer the disambiguated label from columnDisplayNames (keyed on the
+        // SQL alias, e.g. `field_<uuid>_j1`) so repeat-join instances show
+        // "User Name (approved_by)" instead of the bare "User Name" that a
+        // direct field.name lookup would return.  Fall back to field.name for
+        // the common case where no disambiguation entry exists (single join or
+        // base-table field), then to the raw resolvedValue as a last resort.
+        const disambiguated = columnDisplayNames[resolvedValue];
+        if (disambiguated) return disambiguated;
         const effectiveFields =
           instanceAwareFields.length > 0
             ? instanceAwareFields

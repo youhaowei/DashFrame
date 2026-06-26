@@ -58,9 +58,15 @@ export function fieldIdToColumnAlias(fieldId: string): string {
  * - index 0 (first join): returns `fieldId` unchanged → alias stays `field_<uuid>`
  * - index ≥ 1 (repeat join): returns `fieldId_j{n}` → alias becomes `field_<uuid>_j{n}`
  *
- * This is an internal SQL-builder helper only — the returned value is NEVER
- * stored in the Insight model or compared against real field IDs. It is only
- * fed into `fieldIdToColumnAlias` to produce unique SQL aliases.
+ * This helper is used in two ways:
+ * - SQL emission: fed into `fieldIdToColumnAlias` to produce unique SQL column aliases.
+ * - Field accumulation: used as `Field.id` on SYNTHETIC Field objects returned by
+ *   `buildInsightAvailableFields` and `processSingleJoin` so display-name / type maps
+ *   keyed on `fieldIdToColumnAlias(field.id)` match the emitted aliases exactly.
+ *
+ * The instance-qualified ID is NEVER stored in the persisted Insight model; it
+ * exists only in transient in-memory synthetic Field objects produced during a
+ * single SQL-build or field-accumulation pass.
  */
 function joinInstanceFieldId(
   fieldId: string,
