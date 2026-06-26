@@ -276,6 +276,13 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: (a) => `Remove dashboard item ${String(a.itemId)}`,
   },
+  fanOutDashboardItemsCmd: {
+    kind: "dashboard",
+    targetId: byDashboardId,
+    change: "update",
+    summary: (a) =>
+      `Fan out "${String(a.field)}" across ${Array.isArray(a.placements) ? a.placements.length : 0} item(s)`,
+  },
   renameNode: {
     // Polymorphic — the real kind comes from the handler's reported `renamed`
     // target (read in buildDirectNodes), NOT from this declared value. This
@@ -332,6 +339,7 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   updateDashboardItemCmd: "UpdateDashboardItem",
   setDashboardLayout: "SetDashboardLayout",
   removeDashboardItemCmd: "RemoveDashboardItem",
+  fanOutDashboardItemsCmd: "FanOutDashboardItems",
   renameNode: "RenameNode",
   deleteNode: "DeleteNode",
 };

@@ -2130,6 +2130,376 @@ describe("command vocabulary", () => {
   });
 
   // ===========================================================================
+  // FanOutDashboardItems
+  // ===========================================================================
+
+  describe("FanOutDashboardItems", () => {
+    /**
+     * Seed a dashboard with one visualization item; returns ids needed by tests.
+     * The source insight definition is intentionally minimal — the fan-out primitive
+     * must never read or write it.
+     */
+    async function makeDashWithVizItem(overrides?: {
+      existingFilters?: {
+        field: string;
+        operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
+        value: unknown;
+      }[];
+    }) {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const dashId = id();
+      const sourceItemId = id();
+
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Sales Insight",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Sales Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+        cmd("CreateDashboard", { id: dashId, name: "Sales Dashboard" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: sourceItemId,
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+            ...(overrides?.existingFilters
+              ? {
+                  overrides: {
+                    filters: overrides.existingFilters,
+                  },
+                }
+              : {}),
+          },
+        }),
+      );
+
+      return { tableId, insightId, vizId, dashId, sourceItemId };
+    }
+
+    it("should emit exactly N new items for N placements, each with the correct field pin", async () => {
+      const { dashId, sourceItemId, vizId } = await makeDashWithVizItem();
+      const ids = [id(), id(), id()];
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "region",
+          placements: [
+            { id: ids[0]!, value: "EMEA", x: 0, y: 5 },
+            { id: ids[1]!, value: "APAC", x: 6, y: 5 },
+            { id: ids[2]!, value: "AMER", x: 12, y: 5 },
+          ],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        visualizationId: string;
+        overrides: {
+          filters: { field: string; operator: string; value: unknown }[];
+        };
+      }[];
+
+      // Source item is still there → total = 1 (source) + 3 (clones).
+      expect(layout).toHaveLength(4);
+
+      // All three clone ids are present.
+      for (const cloneId of ids) {
+        expect(layout.map((it) => it.id)).toContain(cloneId);
+      }
+
+      // Each clone shares the source visualizationId.
+      for (const cloneId of ids) {
+        const clone = layout.find((it) => it.id === cloneId)!;
+        expect(clone.visualizationId).toBe(vizId);
+      }
+
+      // Each clone pins the field to the correct value (order follows placements).
+      const cloneByValue = (v: unknown) =>
+        layout.find(
+          (it) =>
+            it.overrides?.filters?.some(
+              (f) => f.field === "region" && f.value === v,
+            ) ?? false,
+        );
+      expect(cloneByValue("EMEA")?.id).toBe(ids[0]);
+      expect(cloneByValue("APAC")?.id).toBe(ids[1]);
+      expect(cloneByValue("AMER")?.id).toBe(ids[2]);
+    });
+
+    it("should use operator 'eq' for all pinned filters", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      const cloneId = id();
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "status",
+          placements: [{ id: cloneId, value: "active", x: 0, y: 8 }],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        overrides: {
+          filters: { field: string; operator: string; value: unknown }[];
+        };
+      }[];
+      const clone = layout.find((it) => it.id === cloneId)!;
+      const pin = clone.overrides.filters.find((f) => f.field === "status")!;
+      expect(pin.operator).toBe("eq");
+      expect(pin.value).toBe("active");
+    });
+
+    it("should inherit source item dimensions as defaults when placement omits width/height", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      const cloneId = id();
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "category",
+          placements: [{ id: cloneId, value: "A", x: 7, y: 0 }],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        width: number;
+        height: number;
+      }[];
+      const clone = layout.find((it) => it.id === cloneId)!;
+      // Source item was 6×4; clone must inherit those dimensions.
+      expect(clone.width).toBe(6);
+      expect(clone.height).toBe(4);
+    });
+
+    it("should preserve existing overrides on the source item and not mutate it", async () => {
+      const existingFilters = [
+        { field: "year", operator: "eq" as const, value: 2024 },
+      ];
+      const { dashId, sourceItemId } = await makeDashWithVizItem({
+        existingFilters,
+      });
+      const cloneId = id();
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "region",
+          placements: [{ id: cloneId, value: "EMEA", x: 0, y: 8 }],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        overrides?: {
+          filters?: { field: string; operator: string; value: unknown }[];
+        };
+      }[];
+
+      // Source item's overrides are byte-identical (not mutated by fan-out).
+      const source = layout.find((it) => it.id === sourceItemId)!;
+      expect(source.overrides?.filters).toEqual(existingFilters);
+
+      // Clone carries both the inherited year filter AND the new region pin.
+      const clone = layout.find((it) => it.id === cloneId)!;
+      const cloneFilters = clone.overrides?.filters ?? [];
+      expect(cloneFilters).toContainEqual(existingFilters[0]);
+      expect(cloneFilters).toContainEqual({
+        field: "region",
+        operator: "eq",
+        value: "EMEA",
+      });
+    });
+
+    it("should replace an existing same-field filter on the source rather than duplicating it", async () => {
+      const existingFilters = [
+        { field: "region", operator: "eq" as const, value: "US" },
+      ];
+      const { dashId, sourceItemId } = await makeDashWithVizItem({
+        existingFilters,
+      });
+      const cloneId = id();
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "region",
+          placements: [{ id: cloneId, value: "EMEA", x: 0, y: 8 }],
+        }),
+      );
+
+      const [row] = await dashboardsById(dashId);
+      const layout = row?.layout as {
+        id: string;
+        overrides?: {
+          filters?: { field: string; operator: string; value: unknown }[];
+        };
+      }[];
+      const clone = layout.find((it) => it.id === cloneId)!;
+      const regionFilters = (clone.overrides?.filters ?? []).filter(
+        (f) => f.field === "region",
+      );
+      // Exactly one region filter — the old "US" filter was replaced by "EMEA".
+      expect(regionFilters).toHaveLength(1);
+      expect(regionFilters[0]?.value).toBe("EMEA");
+    });
+
+    it("should leave the insight definition byte-identical after fan-out (source insight never mutated)", async () => {
+      const { dashId, sourceItemId, insightId } = await makeDashWithVizItem();
+
+      const insightBefore = (await insightsById(insightId))[0];
+
+      await commit(
+        cmd("FanOutDashboardItems", {
+          dashboardId: dashId,
+          sourceItemId,
+          field: "country",
+          placements: [
+            { id: id(), value: "US", x: 0, y: 6 },
+            { id: id(), value: "GB", x: 6, y: 6 },
+          ],
+        }),
+      );
+
+      const insightAfter = (await insightsById(insightId))[0];
+      // The insight row is structurally identical — fan-out only writes layout.
+      expect(JSON.stringify(insightAfter?.definition)).toBe(
+        JSON.stringify(insightBefore?.definition),
+      );
+    });
+
+    it("should reject a source item that is markdown (no visualizationId to clone)", async () => {
+      const dashId = id();
+      const markdownId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: markdownId,
+            type: "markdown",
+            content: "## Title",
+            x: 0,
+            y: 0,
+            width: 12,
+            height: 2,
+          },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId: markdownId,
+            field: "region",
+            placements: [{ id: id(), value: "EMEA", x: 0, y: 4 }],
+          }),
+        ),
+      ).rejects.toThrow(/visualization/);
+    });
+
+    it("should reject a missing sourceItemId (no silent no-op)", async () => {
+      const { dashId } = await makeDashWithVizItem();
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId: id(),
+            field: "region",
+            placements: [{ id: id(), value: "EMEA", x: 0, y: 4 }],
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject empty placements (no silent no-op)", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId,
+            field: "region",
+            placements: [],
+          }),
+        ),
+      ).rejects.toThrow(/non-empty/);
+    });
+
+    it("should reject duplicate placement ids (no corrupt layout state)", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      const dupId = id();
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId,
+            field: "region",
+            placements: [
+              { id: dupId, value: "EMEA", x: 0, y: 4 },
+              { id: dupId, value: "APAC", x: 6, y: 4 },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/duplicate/);
+    });
+
+    it("should reject a placement id that already exists in the layout (client-id invariant)", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      // Use the source item's own id as a collision.
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId,
+            field: "region",
+            placements: [{ id: sourceItemId, value: "EMEA", x: 0, y: 4 }],
+          }),
+        ),
+      ).rejects.toThrow(/already exists/);
+    });
+
+    it("should reject a missing dashboard (no silent no-op)", async () => {
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: id(),
+            sourceItemId: id(),
+            field: "region",
+            placements: [{ id: id(), value: "EMEA", x: 0, y: 4 }],
+          }),
+        ),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+
+  // ===========================================================================
   // Cross-cutting — DeleteNode + extended RenameNode
   // ===========================================================================
 
