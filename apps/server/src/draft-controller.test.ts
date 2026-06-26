@@ -717,4 +717,101 @@ describe("DraftController (persisted draft overlay)", () => {
       (await db.select().from(insights)).find((r) => r.id === insightId)?.name,
     ).toBe("Original");
   });
+
+  it("rolls back the canonical replay when the log delete fails mid-publish — no double-replay, draft survives for retry (GH #157)", async () => {
+    // The crash-safety contract this slice exists to close. publishDraft replays
+    // the command log onto canonical, then deletes the log + sweeps the shadow.
+    // BEFORE the fix those were separate transactions: a process death between the
+    // canonical commit and the log delete left canonical written but the log
+    // intact, so a retried publish replayed a SECOND time — a duplicate-PK throw
+    // for create commands, with no clean recovery. The fix wraps replay + log
+    // delete + sweep in ONE outer transaction (the applyCommands `tx` seam), so a
+    // failure at the log delete rolls the canonical replay back with it.
+    //
+    // We exercise the exact #157 scenario by injecting a throw at the log delete
+    // INSIDE the publish transaction (the bookkeeping step that previously ran in
+    // its own autocommit). The interceptor wraps `app.createTracked().transaction`
+    // and patches the tx-bound raw handle's `delete` to throw for the
+    // draft_command_log table only — matched by table REFERENCE, not SQL text. If
+    // the replay and the log delete share a commit boundary, the failure unwinds
+    // both; if they don't, canonical stays committed and the retry double-replays.
+    const { tableId } = await seedTable(controller);
+    const insightId = id();
+
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Crash-window",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    );
+
+    // Install the fault injector on the SAME app the controller publishes through
+    // (openStack returns this app; the controller calls app.createTracked() at
+    // publish time, so post-build patching takes effect).
+    // The fault injector reaches into the tracked-tx seam structurally (patching
+    // `tx.raw.delete` by table reference), so a few `any`s are unavoidable here —
+    // scoped to this block, not the suite.
+    /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam */
+    let failLogDelete = false;
+    const realCreateTracked = app.createTracked.bind(app);
+    (app as any).createTracked = () => {
+      const t = realCreateTracked();
+      const realTx = t.transaction.bind(t);
+      t.transaction = ((fn: any, opts: any) =>
+        realTx(async (tx) => {
+          const realDelete = tx.raw.delete.bind(tx.raw);
+          tx.raw.delete = (table: any) => {
+            if (table === draftCommandLog && failLogDelete) {
+              throw new Error("injected log-delete failure");
+            }
+            return realDelete(table);
+          };
+          return fn(tx);
+        }, opts)) as any;
+      return t;
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    // First publish: the log delete throws inside the tx → the whole publish
+    // (canonical replay included) must roll back. The rejection must carry OUR
+    // injected message, so a spy that never fired cannot pass this test green.
+    failLogDelete = true;
+    await expect(controller.publishDraft(draftId)).rejects.toThrow(
+      "injected log-delete failure",
+    );
+
+    // The canonical replay rolled back with the failed log delete — the insight
+    // is NOT on canonical. (Before the fix it would be committed here.)
+    expect(
+      (await canonicalInsights()).find((r) => r.id === insightId),
+    ).toBeUndefined();
+    // The draft survived intact for a retry: its command log is still present.
+    const logRowsAfterFailure = (
+      await db.select().from(draftCommandLog)
+    ).filter((r) => r.draftId === draftId);
+    expect(logRowsAfterFailure).toHaveLength(1);
+
+    // Retry the publish with the fault cleared. This is the DISCRIMINATING proof:
+    // if the first attempt had committed canonical (the #157 bug), this retry
+    // would replay onto an already-populated canonical and throw a duplicate-PK.
+    // It succeeds because the first attempt rolled back fully.
+    failLogDelete = false;
+    await controller.publishDraft(draftId);
+
+    // Canonical holds the insight EXACTLY ONCE (no double-replay), and the draft
+    // is fully torn down (log + shadow swept).
+    const canonical = (await canonicalInsights()).filter(
+      (r) => r.id === insightId,
+    );
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0]?.name).toBe("Crash-window");
+    expect(await draftInsightRows(draftId)).toHaveLength(0);
+    const logRowsAfterRetry = (await db.select().from(draftCommandLog)).filter(
+      (r) => r.draftId === draftId,
+    );
+    expect(logRowsAfterRetry).toHaveLength(0);
+  });
 });

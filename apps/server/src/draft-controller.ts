@@ -67,7 +67,7 @@ import {
   type DraftCommand,
   type WyStackApp,
 } from "@wystack/server";
-import { eq, getTableName } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
@@ -85,6 +85,16 @@ const DRAFT_SHADOW_TABLES = [
   visualizationsDraft,
   dashboardsDraft,
 ] as const;
+
+/**
+ * The DB-handle surface the teardown helpers (`deleteLog`/`sweepShadows`) need:
+ * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) keeps
+ * the publish path's `tx.raw` cast honest — a transaction-bound raw handle does
+ * NOT expose `.transaction()`, so widening to `ArtifactDb` would advertise a
+ * method that fails at runtime. With this type, any future helper that reaches for
+ * `.transaction()` is a compile error, not a latent footgun.
+ */
+type DeleteExecutor = Pick<ArtifactDb, "delete">;
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -141,10 +151,13 @@ export interface DraftController {
     context?: Record<string, unknown>,
   ): Promise<CommandResult[]>;
   /**
-   * Publish = replay the durable command log atomically onto canonical via
-   * `applyCommands(app, log, {commit})`, then sweep the (now-inert) shadow + log.
-   * Reads ONLY `draft_command_log` — never the shadow — so it works identically
-   * whether or not the opening process is still alive. Returns the CommitResult
+   * Publish = replay the durable command log onto canonical via
+   * `applyCommands(app, log, {commit, tx})`, with the log delete + shadow sweep
+   * running in the SAME outer transaction. Replay, log delete, and sweep share
+   * ONE commit boundary — a crash between them is impossible (both land together
+   * or both roll back), closing the double-replay crash window (GH #157). Reads
+   * ONLY `draft_command_log` — never the shadow — so it works identically whether
+   * or not the opening process is still alive. Returns the CommitResult
    * (`tablesWritten` is what the host flushes to invalidation).
    */
   publishDraft(
@@ -233,38 +246,45 @@ export function createDraftController(
    * `publishDraft` reads only `draft_command_log`, so once the log is gone a
    * retried publish reads an empty log and is a no-op rather than a second replay
    * onto canonical. A failure here MUST surface (the log still drives publish).
+   *
+   * `exec` is the Drizzle handle the DELETE runs against. The publish path passes
+   * the OUTER transaction's handle (`tx.raw`) so the log delete commits ATOMICALLY
+   * with the canonical replay — this is the load-bearing step that closes the
+   * crash window (a process death between replay-commit and log-delete is no
+   * longer possible; both land in one commit or both roll back). Other callers
+   * (discard) pass the autocommit `db` handle. Defaults to `db`.
    */
-  async function deleteLog(draftId: string): Promise<void> {
-    await db
+  async function deleteLog(
+    draftId: string,
+    exec: DeleteExecutor = db,
+  ): Promise<void> {
+    await exec
       .delete(draftCommandLog)
       .where(eq(draftCommandLog.draftId, draftId));
   }
 
   /**
-   * Sweep a draft's `<table>__draft` shadow rows across the closed set. These
-   * rows are INERT once the log is gone (publish never reads the shadow; a read
-   * overlay for a draft with no log coalesces nothing), so a partial sweep leaves
-   * only orphaned, ignored rows. `throwOnError` lets the caller choose: discard
-   * wants a hard failure (the draft must be fully gone); post-publish cleanup
-   * wants best-effort (the canonical commit already succeeded — a sweep error
-   * must NOT turn a committed publish into a reported failure).
+   * Sweep a draft's `<table>__draft` shadow rows across the closed set. `exec` is
+   * the Drizzle handle the DELETEs run against — the publish path passes the outer
+   * transaction's `tx.raw` so the sweep commits ATOMICALLY with the canonical
+   * replay + log delete (defaults to the autocommit `db` for discard).
+   *
+   * A sweep failure HARD-FAILS (propagates). Both callers want this:
+   *   - discard — the whole draft must be fully gone; a partial sweep must surface.
+   *   - publish — the sweep runs inside the outer tx, so a failure must roll back
+   *     the whole publish (canonical replay + log delete included) and leave the
+   *     draft intact for a clean retry, never canonical-committed with a half-swept
+   *     shadow. (Earlier this path swept best-effort AFTER the commit; in-tx, there
+   *     is no committed state to preserve, so propagating is strictly correct.)
    */
   async function sweepShadows(
     draftId: string,
-    { throwOnError }: { throwOnError: boolean },
+    exec: DeleteExecutor = db,
   ): Promise<void> {
     for (const shadow of DRAFT_SHADOW_TABLES) {
       // `draftId` is a BOUND parameter (guard the sink); the table identifiers
       // are static schema objects, not caller input.
-      try {
-        await db.delete(shadow).where(eq(shadow.draftId, draftId));
-      } catch (err) {
-        if (throwOnError) throw err;
-        console.error(
-          `[dashframe] draft ${draftId}: shadow sweep of ${getTableName(shadow)} failed (inert rows orphaned, log already cleared):`,
-          err,
-        );
-      }
+      await exec.delete(shadow).where(eq(shadow.draftId, draftId));
     }
   }
 
@@ -275,7 +295,7 @@ export function createDraftController(
    */
   async function dropDraft(draftId: string): Promise<void> {
     await deleteLog(draftId);
-    await sweepShadows(draftId, { throwOnError: true });
+    await sweepShadows(draftId);
   }
 
   return {
@@ -339,39 +359,54 @@ export function createDraftController(
       // draft-scoped write). `publishContext` carries the rest (e.g. vault).
       const publishContext = { ...context };
       delete publishContext.draftId;
-      const result = (await applyCommands(app, log, {
-        mode: "commit",
-        context: publishContext,
-      })) as CommitResult;
-      // Teardown AFTER the canonical commit landed durably. Two phases, in order:
+
+      // ATOMIC PUBLISH (closes GH #157): open ONE outer transaction so the
+      // canonical command-log replay, the log delete, and the shadow sweep share
+      // a single commit boundary. Previously the replay ran in `applyCommands`'s
+      // own transaction and the `deleteLog`/`sweepShadows` ran AFTER it returned
+      // (separate autocommit statements) — a process death in that gap left
+      // canonical committed but the log intact, so a retried publish replayed onto
+      // canonical a second time (a duplicate-PK throw for create commands, no
+      // clean recovery). Wiring all three into one tx via the `applyCommands`
+      // outer-tx seam (its optional `tx` param) eliminates the window: if either
+      // teardown step fails, the replay rolls back with it and the draft survives
+      // intact for a clean retry. This mirrors wystack's own consumer
+      // (draft-lifecycle.ts `publish()`), the reference adoption of the same seam.
       //
-      //  1. deleteLog — the idempotency gate. This MUST run and surface failures:
-      //     publish reads only the log, so deleting it is what makes a retried
-      //     publish a no-op instead of a second canonical replay.
-      //  2. sweepShadows — BEST-EFFORT. The shadow rows are inert once the log is
-      //     gone (publish never reads them). A sweep error must NOT turn an
-      //     already-committed publish into a reported failure (the caller would
-      //     surface a false error or retry into an empty log); we log and return
-      //     the CommitResult. Orphaned inert shadow rows are harmless and are
-      //     re-swept by the next discard/publish of the same draftId.
-      //
+      // `TrackedDb.transaction` is generic over its callback's return type, so we
+      // capture the CommitResult directly. `tx.raw` is the native Drizzle handle
+      // bound to this transaction — passing it to `deleteLog`/`sweepShadows`
+      // routes their DELETEs through the same commit boundary as the replay.
+      const result = await app.createTracked().transaction(async (tx) => {
+        const committed = (await applyCommands(app, log, {
+          mode: "commit",
+          context: publishContext,
+          tx,
+        })) as CommitResult;
+        // Teardown INSIDE the same tx, AFTER the replay writes are staged:
+        //
+        //  1. deleteLog — the idempotency gate. Deleting the log inside the tx is
+        //     what makes the fix atomic: once committed, a retried publish reads
+        //     an empty log and is a no-op rather than a second canonical replay.
+        //  2. sweepShadows — the (now-inert) shadow rows, swept in the same tx.
+        //     The sweep hard-fails here (unlike the old post-commit best-effort
+        //     posture): a sweep failure must roll back the whole publish so the
+        //     draft survives for a clean retry — there is no half-committed state
+        //     to preserve, because nothing has committed yet.
+        //
+        // The `tablesWritten` snapshot is taken by `applyCommands` at its own
+        // return (before these DELETEs) and the DELETEs run through `tx.raw`
+        // (untracked), so the log/shadow tables never flush to invalidation —
+        // matching the wystack consumer's posture.
+        const exec = tx.raw as DeleteExecutor;
+        await deleteLog(draftId, exec);
+        await sweepShadows(draftId, exec);
+        return committed;
+      });
       // The host flushes result.tablesWritten to invalidation (the controller
-      // does not, mirroring applyCommands' posture).
-      //
-      // KNOWN DURABILITY WINDOW (tracked: see GitHub issue referenced below): the
-      // canonical commit and `deleteLog` are two separate transactions —
-      // `applyCommands` owns its own tx and does not accept an outer one. A
-      // process crash in the gap (canonical committed, log not yet deleted) leaves
-      // the log intact, so a retried publish replays onto canonical a second time
-      // — a duplicate-PK throw for create commands, with no clean recovery
-      // (canonical already holds the row; discard only sweeps the shadow). Closing
-      // this needs either an `applyCommands` that accepts an outer transaction
-      // (wystack-side) or a durable publish-state marker on a draft record (no
-      // draft record exists in this slice). Out of scope for the mechanism slice;
-      // must be closed before the seam is wired live — tracked as DashFrame
-      // GitHub issue #157.
-      await deleteLog(draftId);
-      await sweepShadows(draftId, { throwOnError: false });
+      // does not, mirroring applyCommands' posture). No post-commit teardown
+      // remains — the outer tx already swept the log + shadow atomically with the
+      // replay, so a crash here cannot leave a double-replay window.
       return result;
     },
 
