@@ -1,0 +1,45 @@
+{
+  "controls": [
+    {
+      "id": "dev",
+      "title": "Desktop Dev",
+      "command": "bun run dev",
+      "cwd": ".",
+      "height": 280
+    },
+    {
+      "id": "dev-web",
+      "title": "Web Dev",
+      "command": "bun run dev:web",
+      "cwd": ".",
+      "height": 280
+    },
+    {
+      "id": "typecheck",
+      "title": "Typecheck",
+      "command": "bun run typecheck",
+      "cwd": ".",
+      "height": 220
+    },
+    {
+      "id": "test",
+      "title": "Tests",
+      "command": "bun run test",
+      "cwd": ".",
+      "height": 220
+    },
+    {
+      "id": "git-status",
+      "title": "Git Status",
+      "command": "while true; do clear; git -c color.status=always status -sb; echo; git -c color.ui=always log --oneline -8; sleep 2; done",
+      "cwd": ".",
+      "height": 240
+    },
+    {
+      "id": "prs",
+      "title": "Open PRs",
+      "command": "gh pr list",
+      "cwd": "."
+    }
+  ]
+}
