@@ -1876,6 +1876,54 @@ describe("command vocabulary", () => {
       expect(layout[0]?.x).toBe(2);
     });
 
+    it("should update overrides on a dashboard item via UpdateDashboardItem", async () => {
+      // Verifies that UpdateDashboardItem propagates the overrides field through
+      // sanitizeDashboardItemUpdates — so agents can adjust a cloned panel's
+      // filter pin without re-creating it.
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "visualization" as const,
+            visualizationId: id(),
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+      );
+
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: {
+            overrides: {
+              filters: [
+                { field: "region", operator: "eq" as const, value: "EMEA" },
+              ],
+            },
+          },
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (
+        rows[0]?.layout as {
+          id: string;
+          overrides?: { filters?: { field: string; value: unknown }[] };
+        }[]
+      ).find((it) => it.id === itemId)!;
+      expect(item.overrides?.filters).toEqual([
+        { field: "region", operator: "eq", value: "EMEA" },
+      ]);
+    });
+
     it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
@@ -2523,6 +2571,41 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/not found/);
+    });
+
+    it("should reject a placement that omits the value key (null is allowed, absent is not)", async () => {
+      const { dashId, sourceItemId } = await makeDashWithVizItem();
+      // A placement with value: null is valid (pin IS NULL).
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId,
+            field: "region",
+            placements: [{ id: id(), value: null, x: 0, y: 8 }],
+          }),
+        ),
+      ).resolves.toMatchObject({ mode: "commit" });
+
+      // A placement without a value key at all must be rejected (would produce a
+      // valueless filter object in JSON — `{"field":"region","operator":"eq"}`).
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId,
+            field: "status",
+            placements: [
+              { id: id(), x: 0, y: 10 } as unknown as {
+                id: string;
+                value: unknown;
+                x: number;
+                y: number;
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/value key/);
     });
   });
 

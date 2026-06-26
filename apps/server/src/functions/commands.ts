@@ -1304,7 +1304,21 @@ interface DashboardItem {
  * a circular package dependency from the server layer.
  */
 interface DashboardItemOverrides {
-  filters?: { field: string; operator: string; value: unknown }[];
+  filters?: {
+    field: string;
+    operator:
+      | "eq"
+      | "ne"
+      | "gt"
+      | "gte"
+      | "lt"
+      | "lte"
+      | "contains"
+      | "in"
+      | "between";
+    value: unknown;
+    cleared?: boolean;
+  }[];
   sorts?: { field: string; direction: "asc" | "desc" }[];
   limit?: number;
 }
@@ -1369,6 +1383,15 @@ function sanitizeDashboardItemUpdates(
   if (typeof updates.y === "number") next.y = updates.y;
   if (typeof updates.width === "number") next.width = updates.width;
   if (typeof updates.height === "number") next.height = updates.height;
+  // `overrides` is passed through as-is — callers use this to update or clear
+  // a panel's filter/sort/limit bag. The shape is opaque jsonb; downstream
+  // rendering validates filters at query time, not at the write boundary.
+  // An explicit `undefined` means "not updating overrides" (the key was absent
+  // in the updates object); `null` is not in the type so omit check mirrors
+  // the other field guards.
+  if ("overrides" in updates) {
+    next.overrides = updates.overrides as DashboardItemOverrides | undefined;
+  }
   return next;
 }
 
@@ -1560,6 +1583,13 @@ const fanOutDashboardItems = mutation({
           "FanOutDashboardItems: each placement must have numeric x and y",
         );
       }
+      // Reject missing `value` key explicitly (use `in` not truthiness so that
+      // null and false are valid pin values — only absent-key is an error).
+      if (!("value" in p)) {
+        throw new Error(
+          "FanOutDashboardItems: each placement must include a value key",
+        );
+      }
     }
 
     const items = await requireDashboardItems(ctx, dashboardId);
@@ -1598,14 +1628,19 @@ const fanOutDashboardItems = mutation({
     // sorts/limit) then replaces/appends the pin for `field`.
     const sourceFilters: DashboardItemOverrides["filters"] =
       source.overrides?.filters ?? [];
-    const sourceSorts = source.overrides?.sorts;
+    // Spread to avoid sharing the same array reference across all N clones —
+    // the serialization collapses the alias today, but explicit isolation makes
+    // any future per-clone mutation safe.
+    const sourceSorts = source.overrides?.sorts
+      ? [...source.overrides.sorts]
+      : undefined;
     const sourceLimit = source.overrides?.limit;
 
     const clones: DashboardItem[] = placements.map((p) => {
       // Clone the source filters array; replace the filter for `field` in-place
       // if one exists, otherwise append. Stable ordering for reproducibility.
       const baseFilters = sourceFilters.filter((f) => f.field !== field);
-      const pin = { field, operator: "eq", value: p.value };
+      const pin = { field, operator: "eq" as const, value: p.value };
       const filters = [...baseFilters, pin];
 
       const overrides: DashboardItemOverrides = { filters };
