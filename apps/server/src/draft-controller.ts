@@ -86,6 +86,16 @@ const DRAFT_SHADOW_TABLES = [
   dashboardsDraft,
 ] as const;
 
+/**
+ * The DB-handle surface the teardown helpers (`deleteLog`/`sweepShadows`) need:
+ * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) keeps
+ * the publish path's `tx.raw` cast honest — a transaction-bound raw handle does
+ * NOT expose `.transaction()`, so widening to `ArtifactDb` would advertise a
+ * method that fails at runtime. With this type, any future helper that reaches for
+ * `.transaction()` is a compile error, not a latent footgun.
+ */
+type DeleteExecutor = Pick<ArtifactDb, "delete">;
+
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
   path: string;
@@ -246,7 +256,7 @@ export function createDraftController(
    */
   async function deleteLog(
     draftId: string,
-    exec: ArtifactDb = db,
+    exec: DeleteExecutor = db,
   ): Promise<void> {
     await exec
       .delete(draftCommandLog)
@@ -269,7 +279,7 @@ export function createDraftController(
    */
   async function sweepShadows(
     draftId: string,
-    exec: ArtifactDb = db,
+    exec: DeleteExecutor = db,
   ): Promise<void> {
     for (const shadow of DRAFT_SHADOW_TABLES) {
       // `draftId` is a BOUND parameter (guard the sink); the table identifiers
@@ -388,7 +398,7 @@ export function createDraftController(
         // return (before these DELETEs) and the DELETEs run through `tx.raw`
         // (untracked), so the log/shadow tables never flush to invalidation —
         // matching the wystack consumer's posture.
-        const exec = tx.raw as ArtifactDb;
+        const exec = tx.raw as DeleteExecutor;
         await deleteLog(draftId, exec);
         await sweepShadows(draftId, exec);
         return committed;
