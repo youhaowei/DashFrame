@@ -8,13 +8,6 @@
       "height": 280
     },
     {
-      "id": "dev-web",
-      "title": "Web Dev",
-      "command": "bun run dev:web",
-      "cwd": ".",
-      "height": 280
-    },
-    {
       "id": "typecheck",
       "title": "Typecheck",
       "command": "bun run typecheck",
