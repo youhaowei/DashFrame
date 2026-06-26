@@ -257,12 +257,22 @@ function inferFieldsFromRows(
 
   if (pgFields && pgFields.length > 0) {
     // Use pg's column metadata as the canonical list (handles empty results).
-    columnNames = pgFields
-      .map((f) => f.name)
-      .filter((n) => !DANGEROUS_COLUMN_NAMES.has(n));
+    // Deduplicate column names: a JOIN with overlapping column names produces
+    // duplicate entries in pg's result.fields. Keeping duplicates would let
+    // createFieldsFromColumns emit more Fields than Arrow has columns (the
+    // columnArrays object dedupes by key), violating the fieldIds↔arrowBuffer
+    // alignment contract. First-occurrence wins — consistent with the old
+    // key-union fallback path. The oidByName map is populated only from the
+    // surviving deduplicated set so dangerous-key filtering and OID lookup are
+    // always in sync.
+    const seenNames = new Set<string>();
     for (const f of pgFields) {
+      if (DANGEROUS_COLUMN_NAMES.has(f.name)) continue;
+      if (seenNames.has(f.name)) continue; // first-occurrence wins
+      seenNames.add(f.name);
       oidByName.set(f.name, f.dataTypeID);
     }
+    columnNames = [...seenNames];
   } else {
     // Fallback: derive column names from the row key-union.
     const seen = new Set<string>();

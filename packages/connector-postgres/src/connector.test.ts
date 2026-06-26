@@ -863,4 +863,33 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     expect(byName["balance"]?.type).toBe("string"); // NUMERIC OID override
     expect(byName["score"]?.type).toBe("string"); // BIGINT OID override
   });
+
+  it("deduplicates duplicate column names from pgFields (e.g. JOIN with shared column names)", async () => {
+    // A JOIN query can produce pgFields with the same column name twice.
+    // The connector must not emit more Fields than Arrow has columns — that
+    // would break the fieldIds↔arrowBuffer alignment contract.
+    const pgFields: PgFieldDef[] = [
+      { name: "id", dataTypeID: 23 }, // int4 — first occurrence
+      { name: "name", dataTypeID: 25 }, // text
+      { name: "id", dataTypeID: 23 }, // int4 — duplicate (JOIN ambiguity)
+    ];
+    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT a.id, a.name, b.id FROM a JOIN b ON a.id = b.id",
+      crypto.randomUUID(),
+    );
+
+    // Only 2 unique fields despite 3 pgFields entries.
+    expect(result.fields).toHaveLength(2);
+    expect(result.fieldIds).toHaveLength(2);
+    const fieldNames = result.fields.map((f) => f.name);
+    expect(fieldNames).toEqual(["id", "name"]);
+
+    // Arrow table must also have 2 columns — no fieldIds↔arrowBuffer mismatch.
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    expect(table.schema.fields).toHaveLength(2);
+  });
 });
