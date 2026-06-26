@@ -1295,6 +1295,32 @@ interface DashboardItem {
   y: number;
   width: number;
   height: number;
+  overrides?: DashboardItemOverrides;
+}
+
+/**
+ * Override bag written into `DashboardItem.overrides` by the fan-out primitive.
+ * Mirrors `DashboardItemOverrides` from @dashframe/types — kept inline to avoid
+ * a circular package dependency from the server layer.
+ */
+interface DashboardItemOverrides {
+  filters?: {
+    field: string;
+    operator:
+      | "eq"
+      | "ne"
+      | "gt"
+      | "gte"
+      | "lt"
+      | "lte"
+      | "contains"
+      | "in"
+      | "between";
+    value: unknown;
+    cleared?: boolean;
+  }[];
+  sorts?: { field: string; direction: "asc" | "desc" }[];
+  limit?: number;
 }
 
 /** Load a dashboard's layout array, throwing if the dashboard does not exist. */
@@ -1334,6 +1360,8 @@ function requireDashboardItem(value: unknown): DashboardItem {
       throw new Error(`AddDashboardItem: item.${key} must be a number`);
     }
   }
+  // `overrides` is passed through as-is — it is written by the fan-out primitive
+  // which controls the shape; the per-field filter pin is validated there.
   return value as unknown as DashboardItem;
 }
 
@@ -1355,6 +1383,15 @@ function sanitizeDashboardItemUpdates(
   if (typeof updates.y === "number") next.y = updates.y;
   if (typeof updates.width === "number") next.width = updates.width;
   if (typeof updates.height === "number") next.height = updates.height;
+  // `overrides` is passed through as-is — callers use this to update or clear
+  // a panel's filter/sort/limit bag. The shape is opaque jsonb; downstream
+  // rendering validates filters at query time, not at the write boundary.
+  // An explicit `undefined` means "not updating overrides" (the key was absent
+  // in the updates object); `null` is not in the type so omit check mirrors
+  // the other field guards.
+  if ("overrides" in updates) {
+    next.overrides = updates.overrides as DashboardItemOverrides | undefined;
+  }
   return next;
 }
 
@@ -1487,6 +1524,149 @@ const removeDashboardItem = mutation({
       .where(eq("id", dashboardId))
       .update({ layout: items.filter((it) => it.id !== itemId) });
     return { ok: true };
+  },
+});
+
+/**
+ * FanOutDashboardItems — batch-clone a source viz item N times, each pinning
+ * one value of a field in its `overrides`.
+ *
+ * The agent supplies all inputs deterministically:
+ *   - `sourceItemId`  — the existing viz panel to clone
+ *   - `field`         — the field name to pin in each clone's overrides
+ *   - `placements`    — one entry per value: `{ id, value, x, y, width?, height? }`
+ *     `width`/`height` default to the source item's dimensions if omitted.
+ *
+ * Contracts:
+ *   - Source item must be a `visualization` (has `visualizationId`); markdown
+ *     items have no insight to override.
+ *   - `placements` must be non-empty (no silent no-op).
+ *   - All clone ids must be unique against each other AND the existing layout.
+ *   - Source item's existing `overrides.filters` are cloned; the pin for `field`
+ *     replaces an existing filter on the same field (in-place) or appends.
+ *   - The source item itself and the insight definition are never mutated.
+ */
+const fanOutDashboardItems = mutation({
+  args: {
+    dashboardId: uuid,
+    sourceItemId: uuid,
+    field: text,
+    placements: jsonb,
+  },
+  handler: async (
+    ctx,
+    { dashboardId, sourceItemId, field, placements: rawPlacements },
+  ): Promise<{ ok: true; created: string[] }> => {
+    // Validate placements shape.
+    if (!Array.isArray(rawPlacements) || rawPlacements.length === 0) {
+      throw new Error(
+        "FanOutDashboardItems: placements must be a non-empty array",
+      );
+    }
+    type Placement = {
+      id: string;
+      value: unknown;
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+    };
+    const placements = rawPlacements as Placement[];
+    for (const p of placements) {
+      if (typeof p.id !== "string") {
+        throw new Error(
+          "FanOutDashboardItems: each placement must have a string id",
+        );
+      }
+      if (typeof p.x !== "number" || typeof p.y !== "number") {
+        throw new Error(
+          "FanOutDashboardItems: each placement must have numeric x and y",
+        );
+      }
+      // Reject missing `value` key explicitly (use `in` not truthiness so that
+      // null and false are valid pin values — only absent-key is an error).
+      if (!("value" in p)) {
+        throw new Error(
+          "FanOutDashboardItems: each placement must include a value key",
+        );
+      }
+    }
+
+    const items = await requireDashboardItems(ctx, dashboardId);
+
+    // Locate the source item.
+    const source = items.find((it) => it.id === sourceItemId);
+    if (!source) {
+      throw new Error(
+        `FanOutDashboardItems: source item ${sourceItemId} not found`,
+      );
+    }
+    if (source.type !== "visualization" || !source.visualizationId) {
+      throw new Error(
+        "FanOutDashboardItems: source item must be a visualization with a visualizationId",
+      );
+    }
+
+    // Guard: all clone ids must be unique against each other AND the existing
+    // layout (the client-id invariant).
+    const existingIds = new Set(items.map((it) => it.id));
+    const newIds = placements.map((p) => p.id);
+    if (new Set(newIds).size !== newIds.length) {
+      throw new Error(
+        "FanOutDashboardItems: placements contains duplicate ids",
+      );
+    }
+    for (const newId of newIds) {
+      if (existingIds.has(newId)) {
+        throw new Error(
+          `FanOutDashboardItems: clone id ${newId} already exists in the dashboard`,
+        );
+      }
+    }
+
+    // Build N clones. Each clone inherits the source's overrides.filters (and
+    // sorts/limit) then replaces/appends the pin for `field`.
+    const sourceFilters: DashboardItemOverrides["filters"] =
+      source.overrides?.filters ?? [];
+    // Spread to avoid sharing the same array reference across all N clones —
+    // the serialization collapses the alias today, but explicit isolation makes
+    // any future per-clone mutation safe.
+    const sourceSorts = source.overrides?.sorts
+      ? [...source.overrides.sorts]
+      : undefined;
+    const sourceLimit = source.overrides?.limit;
+
+    const clones: DashboardItem[] = placements.map((p) => {
+      // Clone the source filters array; replace the filter for `field` in-place
+      // if one exists, otherwise append. Stable ordering for reproducibility.
+      const baseFilters = sourceFilters.filter((f) => f.field !== field);
+      const pin = { field, operator: "eq" as const, value: p.value };
+      const filters = [...baseFilters, pin];
+
+      const overrides: DashboardItemOverrides = { filters };
+      if (sourceSorts) overrides.sorts = sourceSorts;
+      if (sourceLimit !== undefined) overrides.limit = sourceLimit;
+
+      return {
+        id: p.id,
+        type: "visualization",
+        visualizationId: source.visualizationId,
+        x: p.x,
+        y: p.y,
+        width: typeof p.width === "number" ? p.width : source.width,
+        height: typeof p.height === "number" ? p.height : source.height,
+        overrides,
+      };
+    });
+
+    // Write all clones into the layout in one read-modify-write.
+    const next = [...items, ...clones];
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ layout: next });
+
+    return { ok: true, created: newIds };
   },
 });
 
@@ -1949,6 +2129,7 @@ export const commandFunctions = {
   updateDashboardItemCmd: updateDashboardItem,
   setDashboardLayout,
   removeDashboardItemCmd: removeDashboardItem,
+  fanOutDashboardItemsCmd: fanOutDashboardItems,
   // Cross-cutting
   renameNode,
   deleteNode,
@@ -1998,6 +2179,39 @@ export interface TypedInsightFilter {
   value: FilterOperandValue;
 }
 
+/**
+ * Filter override for a single dashboard item. Intentional subset of the domain
+ * `InsightFilterOverride` (from @dashframe/types):
+ *   - No `id?` field — override filters created by the fan-out primitive are
+ *     anonymous (id is a UI-path concern for stable re-targeting concurrent edits).
+ *   - `cleared?` is retained — callers can widen a source item's filter by passing
+ *     `cleared: true` to cancel a specific field's inherited filter.
+ *   - Kept inline (not imported) to avoid a circular package dependency from the
+ *     server layer back into @dashframe/types.
+ */
+export interface DashboardItemFilterOverride {
+  field: string;
+  operator:
+    | "eq"
+    | "ne"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "contains"
+    | "in"
+    | "between";
+  value: unknown;
+  cleared?: boolean;
+}
+
+/** Override bag for a dashboard item (instrument-level overrides). */
+export interface DashboardItemOverridesInput {
+  filters?: DashboardItemFilterOverride[];
+  sorts?: { field: string; direction: "asc" | "desc" }[];
+  limit?: number;
+}
+
 /** A Dashboard item as supplied in AddDashboardItem / SetDashboardLayout. */
 export interface DashboardItemInput {
   id: UUID;
@@ -2008,6 +2222,7 @@ export interface DashboardItemInput {
   y: number;
   width: number;
   height: number;
+  overrides?: DashboardItemOverridesInput;
 }
 
 /**
@@ -2103,6 +2318,19 @@ export interface CommandPayloads {
   };
   SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
   RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
+  FanOutDashboardItems: {
+    dashboardId: UUID;
+    sourceItemId: UUID;
+    field: string;
+    placements: {
+      id: UUID;
+      value: unknown;
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+    }[];
+  };
   // Cross-cutting
   RenameNode: { id: UUID; name: string };
   DeleteNode: { id: UUID };
@@ -2146,6 +2374,7 @@ export const COMMAND_PATHS: {
   UpdateDashboardItem: "updateDashboardItemCmd",
   SetDashboardLayout: "setDashboardLayout",
   RemoveDashboardItem: "removeDashboardItemCmd",
+  FanOutDashboardItems: "fanOutDashboardItemsCmd",
   RenameNode: "renameNode",
   DeleteNode: "deleteNode",
 };

@@ -306,9 +306,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Place a viz panel or markdown block on a dashboard.",
     args: {
       dashboardId: "UUID",
-      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height }",
+      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height, overrides?: DashboardItemOverridesInput }",
     },
-    notes: "Rejects a duplicate item id.",
+    notes:
+      "Rejects a duplicate item id. " +
+      "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
+      "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {
     name: "UpdateDashboardItem",
@@ -334,6 +337,23 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Remove one panel from a dashboard.",
     args: { dashboardId: "UUID", itemId: "UUID" },
     notes: "Rejects a missing itemId.",
+  },
+  {
+    name: "FanOutDashboardItems",
+    group: "dashboard",
+    summary:
+      "Batch-clone a source viz item N times, each pinning one value of a field in its overrides.",
+    args: {
+      dashboardId: "UUID",
+      sourceItemId: "UUID — the viz panel to clone",
+      field: "string — the field name to pin",
+      placements:
+        "{ id: UUID, value: unknown, x: number, y: number, width?: number, height?: number }[] — one per clone",
+    },
+    notes:
+      "Source item must be a visualization. All placement ids must be unique and not already in the layout. " +
+      "width/height default to the source item's dimensions if omitted. " +
+      "The source item and insight definition are never mutated — only DashboardItem.overrides is written.",
   },
   // --- Cross-cutting (polymorphic over artifact kinds) ---
   {
