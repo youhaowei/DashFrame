@@ -1,3 +1,4 @@
+import { DuckDBInstance } from "@duckdb/node-api";
 import {
   Bool,
   DateDay,
@@ -351,5 +352,69 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       );
       expect(Number(staging.rows[0]?.cnt)).toBe(0);
     });
+  });
+});
+
+// ─── Cleanup-path mechanism: fresh connection after appender error ────────────
+//
+// On Linux, duckdb_appender_close() on a failed appender marks the connection
+// with a pending-result error. The next duckdb_query() on the same connection
+// then fails with "Attempting to execute an unsuccessful or closed pending
+// query result" — emitted as an unhandled NAPI-layer rejection that bypasses
+// the surrounding JS try/catch. The fix routes the catch-block cleanup through
+// a fresh DuckDBConnection (not tainted by the appender error), eliminating
+// the unhandled rejection.
+//
+// TEMP table scope caveat: staging tables are connection-local. A fresh
+// connection cannot see them, so the DROP in the catch block is effectively a
+// no-op (IF EXISTS guards it from throwing). The staging table drops on
+// `conn` disconnect (dispose()). The fix's value is crash-prevention, not
+// early cleanup.
+//
+// These tests pin the mechanism at the DuckDBInstance layer, independent of
+// the registerArrowTable contract tests above.
+describe("DuckDB cleanup-path mechanism — appender-error does not poison fresh connection", () => {
+  it("a fresh connection can issue DROP after appender close in error state without throwing", async () => {
+    // Reproduce appender error → closeSync → fresh conn.run() — the sequence
+    // that the catch block uses. The key assertion: resolves (no throw), not
+    // that the TEMP table was actually removed (it wasn't — TEMP is conn-local).
+    const instance = await DuckDBInstance.create(":memory:");
+    const conn = await instance.connect();
+
+    try {
+      await conn.run(
+        "CREATE TEMP TABLE __staging_test_1 (x INTEGER, y INTEGER)",
+      );
+
+      // Force the appender into error state: flush an incomplete row
+      // (1 value appended, 2 columns required → "incomplete append to row").
+      const appender = await conn.createAppender("__staging_test_1");
+      appender.appendInteger(42); // only 1 of 2 required columns
+      try {
+        appender.flushSync();
+      } catch {
+        /* expected: incomplete row */
+      }
+      try {
+        appender.closeSync();
+      } catch {
+        /* expected: appender in error state */
+      }
+
+      // A fresh connection from the same instance must not throw — even though
+      // the TEMP table is connection-local and the DROP is a no-op, the fresh
+      // connection is untainted and the call resolves cleanly.
+      const cleanupConn = await instance.connect();
+      try {
+        await expect(
+          cleanupConn.run("DROP TABLE IF EXISTS __staging_test_1"),
+        ).resolves.toBeDefined();
+      } finally {
+        cleanupConn.disconnectSync();
+      }
+    } finally {
+      conn.disconnectSync();
+      instance.closeSync();
+    }
   });
 });

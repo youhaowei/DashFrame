@@ -200,9 +200,11 @@ export class NativeDuckDBEngine implements QueryEngine {
 
     // Create a session-scoped TEMP table for staging — if the append fails
     // partway through, the live table is untouched (atomic all-or-nothing).
-    // The TEMP table is session-scoped: DuckDB drops it automatically when the
-    // connection closes, and the explicit DROP after the swap ensures we don't
-    // accumulate stale staging tables across repeated registerArrowTable calls.
+    // The TEMP table is session-scoped (connection-local): DuckDB drops it
+    // automatically when `conn` closes. On the success path, the explicit DROP
+    // after the swap keeps stale staging tables from accumulating across
+    // repeated registerArrowTable calls. On the failure path, the staging table
+    // is left until dispose() — see the catch-block comment below.
     //
     // The staging name carries a per-call unique suffix. Two concurrent
     // registrations of the SAME live table would otherwise share one
@@ -242,10 +244,31 @@ export class NativeDuckDBEngine implements QueryEngine {
       } catch {
         // ignore close error — propagate original
       }
+      // Issue the cleanup on a FRESH connection, never on `conn`.
+      //
+      // On Linux, duckdb_appender_close() on a failed appender marks `conn`
+      // with a pending-result error. The next duckdb_query() on the same
+      // connection then fails with "Attempting to execute an unsuccessful or
+      // closed pending query result" — emitted as an unhandled NAPI-layer
+      // rejection that bypasses the surrounding try/catch. A fresh connection
+      // from the same instance is not affected by the appender's error state.
+      //
+      // Note: staging tables are TEMP and connection-local — a fresh connection
+      // cannot see them, so the DROP is a no-op (passes only via IF EXISTS).
+      // The table drops automatically when `conn` is eventually disconnected
+      // (dispose()). Early cleanup is therefore not achieved here; the goal is
+      // solely to avoid the unhandled NAPI rejection.
       try {
-        await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+        const cleanupConn = await this.instance!.connect();
+        try {
+          await cleanupConn.run(
+            `DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`,
+          );
+        } finally {
+          cleanupConn.disconnectSync();
+        }
       } catch {
-        // best-effort cleanup
+        // best-effort — swallow any connect-or-disconnect failure
       }
       throw err;
     }
