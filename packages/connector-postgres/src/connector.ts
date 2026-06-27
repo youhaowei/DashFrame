@@ -293,8 +293,17 @@ export function pgOidToColumnType(
  * duplicate entries in pg's result.fields. Duplicates would let
  * createFieldsFromColumns emit more Fields than Arrow has columns (the
  * columnArrays object deduplicates by key), violating the fieldIds↔arrowBuffer
- * alignment contract. First-occurrence wins — consistent with the row key-union
- * fallback path. Dangerous column names are excluded from both outputs.
+ * alignment contract. Dangerous column names are excluded from both outputs.
+ *
+ * Column order: first-occurrence determines position (so column order is stable
+ * and consistent with what the query author expects).
+ *
+ * OID: last-occurrence wins. node-postgres overwrites earlier same-name columns
+ * in the row object with the later column's value, so the row value for a
+ * duplicate-name column comes from the last occurrence. Using that occurrence's
+ * OID ensures field.type and the actual Arrow value are in agreement, even when
+ * the two same-name columns have different Postgres types (e.g. int4 + int8 in
+ * a cross-type JOIN).
  */
 function columnListFromPgFields(pgFields: PgFieldDef[]): {
   columnNames: string[];
@@ -304,8 +313,10 @@ function columnListFromPgFields(pgFields: PgFieldDef[]): {
   const oidByName = new Map<string, number>();
   for (const f of pgFields) {
     if (DANGEROUS_COLUMN_NAMES.has(f.name)) continue;
-    if (seenNames.has(f.name)) continue; // first-occurrence wins
+    // Track first-occurrence for column-list ordering.
     seenNames.add(f.name);
+    // Always overwrite OID — last-occurrence aligns with how pg's row object
+    // resolves duplicate names (last value wins).
     oidByName.set(f.name, f.dataTypeID);
   }
   return { columnNames: [...seenNames], oidByName };

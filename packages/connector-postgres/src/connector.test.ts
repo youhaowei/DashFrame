@@ -887,12 +887,15 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const field = result.fields.find((f) => f.name === "big_id");
     expect(field?.type).toBe("string");
 
-    // Arrow round-trip: the value must survive byte-for-byte as a string.
+    // Arrow round-trip: the value must survive byte-for-byte as a string —
+    // not just be stringifiable (Number/BigInt can also pass String()). Arrow
+    // encodes a string-typed column as Utf8; the recovered value is a JS string.
     const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
     const table = tableFromIPC(bytes);
     const arrowValue = table.getChildAt(0)?.get(0);
-    // Arrow stores it as a string column — the exact value must be preserved.
-    expect(String(arrowValue)).toBe(bigValue);
+    // The Arrow column must be a true string type (Utf8), not numeric.
+    expect(typeof arrowValue).toBe("string");
+    expect(arrowValue).toBe(bigValue);
   });
 
   it("NUMERIC column: field type is 'string' and Arrow value is a string (no precision loss)", async () => {
@@ -913,11 +916,14 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const field = result.fields.find((f) => f.name === "amount");
     expect(field?.type).toBe("string");
 
-    // Arrow round-trip: exact decimal string must be preserved.
+    // Arrow round-trip: exact decimal string must be preserved as a true string
+    // (not numeric — String("123456789.987654321") works for number too, so we
+    // check typeof to enforce the Utf8 column type contract).
     const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
     const table = tableFromIPC(bytes);
     const arrowValue = table.getChildAt(0)?.get(0);
-    expect(String(arrowValue)).toBe(numericValue);
+    expect(typeof arrowValue).toBe("string");
+    expect(arrowValue).toBe(numericValue);
   });
 
   it("mixed row: OID path takes priority; BIGINT/NUMERIC → 'string', int4 → 'number'", async () => {
@@ -947,12 +953,20 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     // A JOIN query can produce pgFields with the same column name twice.
     // The connector must not emit more Fields than Arrow has columns — that
     // would break the fieldIds↔arrowBuffer alignment contract.
+    // Use DIFFERENT OIDs for the duplicate name to test that last-occurrence OID
+    // is selected — aligning with node-postgres row object behavior (last value wins).
     const pgFields: PgFieldDef[] = [
-      { name: "id", dataTypeID: 23 }, // int4 — first occurrence
+      { name: "id", dataTypeID: 23 }, // int4 — first occurrence (row value comes from last)
       { name: "name", dataTypeID: 25 }, // text
-      { name: "id", dataTypeID: 23 }, // int4 — duplicate (JOIN ambiguity)
+      { name: "id", dataTypeID: 20 }, // BIGINT — last occurrence (pg row: id = string value)
     ];
-    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }], pgFields);
+    // Simulate pg row: node-postgres overwrites id with the last column's value.
+    // BIGINT (OID 20) is returned as a string by pg.
+    const bigIntId = "9007199254740993";
+    const spyClient = makeSpyClient(
+      [{ id: bigIntId, name: "Alice" }],
+      pgFields,
+    );
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
 
     const result = await connector.query(
@@ -966,9 +980,17 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const fieldNames = result.fields.map((f) => f.name);
     expect(fieldNames).toEqual(["id", "name"]);
 
-    // Arrow table must also have 2 columns — no fieldIds↔arrowBuffer mismatch.
+    // Last-occurrence OID (20 / BIGINT → "string") must win for the id field
+    // so field.type agrees with the actual Arrow value (a string from bigint).
+    const idField = result.fields.find((f) => f.name === "id");
+    expect(idField?.type).toBe("string"); // OID 20 (last) → "string", not OID 23 (first) → "number"
+
+    // Arrow table must have 2 columns and the id value must round-trip as a string.
     const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
     const table = tableFromIPC(bytes);
     expect(table.schema.fields).toHaveLength(2);
+    const arrowId = table.getChildAt(0)?.get(0);
+    expect(typeof arrowId).toBe("string");
+    expect(arrowId).toBe(bigIntId);
   });
 });
