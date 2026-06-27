@@ -378,6 +378,10 @@ describe("DuckDB cleanup-path mechanism — appender-error does not poison fresh
     // Reproduce appender error → closeSync → fresh conn.run() — the sequence
     // that the catch block uses. The key assertion: resolves (no throw), not
     // that the TEMP table was actually removed (it wasn't — TEMP is conn-local).
+    //
+    // Engine-level usability after a failed registerArrowTable (the "primary conn
+    // taint" concern) is covered by the "atomic ingest" test above: engine.query()
+    // is called on the same NativeDuckDBEngine instance after rejects.toThrow().
     const instance = await DuckDBInstance.create(":memory:");
     const conn = await instance.connect();
 
@@ -388,17 +392,15 @@ describe("DuckDB cleanup-path mechanism — appender-error does not poison fresh
 
       // Force the appender into error state: flush an incomplete row
       // (1 value appended, 2 columns required → "incomplete append to row").
+      // Assert that flushSync() actually throws — the catch block only exercises
+      // the failure path when this precondition holds.
       const appender = await conn.createAppender("__staging_test_1");
       appender.appendInteger(42); // only 1 of 2 required columns
-      try {
-        appender.flushSync();
-      } catch {
-        /* expected: incomplete row */
-      }
+      expect(() => appender.flushSync()).toThrow(); // precondition: must throw
       try {
         appender.closeSync();
       } catch {
-        /* expected: appender in error state */
+        /* close may also throw in error state — ignored, propagate nothing */
       }
 
       // A fresh connection from the same instance must not throw — even though
