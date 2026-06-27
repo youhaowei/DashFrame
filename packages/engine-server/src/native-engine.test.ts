@@ -9,6 +9,7 @@ import {
   tableFromIPC,
   tableToIPC,
   TimestampMillisecond,
+  Uint64,
   Utf8,
   vectorFromArray,
 } from "apache-arrow";
@@ -445,10 +446,24 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
 
   it("engine remains usable for query() and registerArrowTable() after a failed ingest", async () => {
     // Scenario: registerArrowTable fails INSIDE the append loop (valid Arrow
-    // buffer, but the value causes appendTimestamp to throw before flushSync).
-    // A very-large TimestampMillisecond value overflows DuckDB's range and
-    // throws synchronously in appendArrowValue — inside the try block, after
-    // the appender is created and the connection is potentially tainted.
+    // buffer decodes without error, but appending a Uint64 value that exceeds
+    // DuckDB's signed BIGINT range throws "bigint out of int64 range" synchronously
+    // inside appendArrowValue — after the appender is created and the connection
+    // is potentially tainted on Linux).
+    //
+    // Arrow `Uint64` maps to typeId `ArrowType.Int` (isSigned=false, bitWidth=64).
+    // `arrowFieldToDuckDBType` maps it to `BIGINT` (signed int64), and
+    // `appendArrowValue` calls `appendBigInt(value)` since `.get()` returns a
+    // BigInt. A value of 2^63 (= 9223372036854775808n) exceeds int64 max and
+    // throws at the native DuckDB layer — inside the try block, after the
+    // appender is open.
+    //
+    // On macOS this path does NOT taint the connection (macOS-specific DuckDB
+    // behavior), so the test passes regardless of the fix there. On Linux the
+    // connection IS tainted by the failed appendBigInt; without the fix the
+    // subsequent query() would hit the "pending-result" unhandled rejection.
+    // Linux CI is the discriminating run; this test documents the contract and
+    // verifies the catch-block failure path is actually reached.
     engine = new NativeDuckDBEngine();
     await engine.initialize();
 
@@ -462,31 +477,28 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
     );
     expect(Number(before.rows[0]?.cnt)).toBe(3); // precondition
 
-    // Now trigger a failure inside the append loop.
+    // Trigger a failure INSIDE the append loop (inside the try block, after the
+    // appender is created). 2^63 is a valid Uint64 value in Arrow but exceeds
+    // DuckDB BIGINT max (2^63 - 1), so appendBigInt throws.
+    const OVER_INT64 = 9223372036854775808n; // 2^63 = INT64_MAX + 1
     const overflowBuf = tableToIPC(
       new Table({
-        ts: vectorFromArray(
-          // 2.5e18 ms is ~year 79270000 — far outside DuckDB TIMESTAMP range.
-          // The value is valid in Arrow (TimestampMillisecond accepts any bigint),
-          // but appendTimestamp throws before flushSync is reached.
-          [2.5e18, 1000],
-          new TimestampMillisecond(),
-        ),
+        n: vectorFromArray([1n, OVER_INT64, 3n], new Uint64()),
       }),
     );
     await expect(
       engine.registerArrowTable("df_overflow", overflowBuf),
-    ).rejects.toThrow(); // precondition: must fail inside the try block
+    ).rejects.toThrow("bigint out of int64 range"); // precondition: catch block exercised
 
     // The engine must still be operational after the failure.
-    // query() must not throw the "pending-result" NAPI error.
+    // On Linux without the fix this would throw "executing an unsuccessful or
+    // closed pending query result" as an unhandled NAPI rejection.
     const after = await engine.query('SELECT COUNT(*) AS cnt FROM "df_before"');
     expect(Number(after.rows[0]?.cnt)).toBe(3); // pre-existing table intact
 
     // registerArrowTable with valid data must succeed on the SAME engine instance.
-    const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
     const goodBuf = tableToIPC(
-      new Table({ ts: vectorFromArray([ts], new TimestampMillisecond()) }),
+      new Table({ n: vectorFromArray([1.0], new Float64()) }),
     );
     await expect(
       engine.registerArrowTable("df_after_failure", goodBuf),
