@@ -200,9 +200,11 @@ export class NativeDuckDBEngine implements QueryEngine {
 
     // Create a session-scoped TEMP table for staging — if the append fails
     // partway through, the live table is untouched (atomic all-or-nothing).
-    // The TEMP table is session-scoped: DuckDB drops it automatically when the
-    // connection closes, and the explicit DROP after the swap ensures we don't
-    // accumulate stale staging tables across repeated registerArrowTable calls.
+    // TEMP tables are connection-local: DuckDB drops them automatically when
+    // the owning connection closes. On the success path, the explicit DROP after
+    // the swap keeps stale staging tables from accumulating across repeated
+    // registerArrowTable calls. On the failure path, the catch block disconnects
+    // and replaces this.connection, so the staging table is dropped then too.
     //
     // The staging name carries a per-call unique suffix. Two concurrent
     // registrations of the SAME live table would otherwise share one
@@ -235,17 +237,36 @@ export class NativeDuckDBEngine implements QueryEngine {
       }
       appender.flushSync();
     } catch (err) {
-      // Append failed — staging table may be partially written; clean it up
-      // before surfacing the error so the live table is never replaced.
+      // Append failed — staging table may be partially written.
       try {
         appender.closeSync();
       } catch {
         // ignore close error — propagate original
       }
+      // On Linux, duckdb_appender_close() on a failed appender marks the
+      // connection with a pending-result error. The next duckdb_query() on the
+      // same connection fails with "Attempting to execute an unsuccessful or
+      // closed pending query result" — emitted as an unhandled NAPI-layer
+      // rejection that bypasses the surrounding try/catch.
+      //
+      // `conn` is `this.connection` — the PERSISTENT connection reused for the
+      // whole session (query, queryArrow, registerArrowTable). Leaving it tainted
+      // relocates the flake to the NEXT operation instead of killing it.
+      //
+      // Fix: disconnect the tainted connection and replace it with a fresh one
+      // from the same instance. When the old connection closes, DuckDB drops all
+      // its TEMP tables — including the partial staging table — so the cleanup
+      // also happens for free.
       try {
-        await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+        this.connection!.disconnectSync();
       } catch {
-        // best-effort cleanup
+        // best-effort — continue to reconnect even if disconnect throws
+      }
+      this.connection = null;
+      try {
+        this.connection = await this.instance!.connect();
+      } catch {
+        // Reconnect failed — engine is unusable; surface on next call via conn()
       }
       throw err;
     }
