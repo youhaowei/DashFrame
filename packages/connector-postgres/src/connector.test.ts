@@ -525,9 +525,65 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     const fieldNames = result.fields.map((f) => f.name);
     expect(fieldNames).toContain("id");
     expect(fieldNames).toContain("amount");
+    // int4 (OID 23) must map to "number".
+    const idField = result.fields.find((f) => f.name === "id");
+    expect(idField?.type).toBe("number");
     // NUMERIC (OID 1700) must map to "string" — lossless coercion.
     const amountField = result.fields.find((f) => f.name === "amount");
     expect(amountField?.type).toBe("string");
+  });
+
+  it("recovers common OID types (bool, text, float8) on a zero-row result", async () => {
+    // Verifies the extended OID map covers standard column types for empty-result
+    // schema recovery. A zero-row result has no sample values — OID is the only
+    // type signal, so every listed type must map to a non-"unknown" ColumnType.
+    const pgFields: PgFieldDef[] = [
+      { name: "active", dataTypeID: 16 }, // bool   → "boolean"
+      { name: "label", dataTypeID: 25 }, //  text   → "string"
+      { name: "score", dataTypeID: 701 }, // float8 → "number"
+    ];
+    const spyClient = makeSpyClient([], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT active, label, score FROM metrics WHERE 1=0",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    expect(result.fields).toHaveLength(3);
+    const byName = Object.fromEntries(
+      result.fields.map((f) => [f.name, f.type]),
+    );
+    expect(byName["active"]).toBe("boolean");
+    expect(byName["label"]).toBe("string");
+    expect(byName["score"]).toBe("number");
+  });
+
+  it("unmapped OID on zero-row result falls back to 'unknown' without throwing", async () => {
+    // When pgFields lists a column with an OID that pgOidToColumnType doesn't map
+    // (e.g. jsonb OID 3802, uuid OID 2950), and there are no rows to run value
+    // inference, inferColumnType must return "unknown" cleanly without throwing.
+    // The Arrow buffer must still be valid (empty column, schema preserved).
+    const pgFields: PgFieldDef[] = [
+      { name: "payload", dataTypeID: 3802 }, // jsonb — not in OID map
+    ];
+    const spyClient = makeSpyClient([], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT payload FROM events WHERE 1=0",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    expect(result.fields).toHaveLength(1);
+    const field = result.fields.find((f) => f.name === "payload");
+    expect(field?.type).toBe("unknown");
+    // Arrow buffer must still be valid with 1 column (schema preserved)
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    expect(table.schema.fields).toHaveLength(1);
   });
 
   it("returns correct rowCount for connect() listing tables", async () => {
@@ -777,11 +833,34 @@ describe("pgOidToColumnType", () => {
     expect(pgOidToColumnType(1700)).toBe("string");
   });
 
+  it("maps common integer/float OIDs to 'number'", () => {
+    expect(pgOidToColumnType(21)).toBe("number"); // int2
+    expect(pgOidToColumnType(23)).toBe("number"); // int4
+    expect(pgOidToColumnType(700)).toBe("number"); // float4
+    expect(pgOidToColumnType(701)).toBe("number"); // float8
+  });
+
+  it("maps bool (OID 16) to 'boolean'", () => {
+    expect(pgOidToColumnType(16)).toBe("boolean");
+  });
+
+  it("maps text/varchar/char OIDs to 'string'", () => {
+    expect(pgOidToColumnType(18)).toBe("string"); // internal "char" (1-byte)
+    expect(pgOidToColumnType(25)).toBe("string"); // text
+    expect(pgOidToColumnType(1042)).toBe("string"); // bpchar / CHAR(n)
+    expect(pgOidToColumnType(1043)).toBe("string"); // varchar
+  });
+
+  it("maps date/timestamp OIDs to 'date'", () => {
+    expect(pgOidToColumnType(1082)).toBe("date"); // date
+    expect(pgOidToColumnType(1114)).toBe("date"); // timestamp
+    expect(pgOidToColumnType(1184)).toBe("date"); // timestamptz
+  });
+
   it("returns undefined for unrecognized OIDs (fall through to value inference)", () => {
-    expect(pgOidToColumnType(23)).toBeUndefined(); // int4
-    expect(pgOidToColumnType(25)).toBeUndefined(); // text
-    expect(pgOidToColumnType(16)).toBeUndefined(); // bool
-    expect(pgOidToColumnType(700)).toBeUndefined(); // float4
+    expect(pgOidToColumnType(0)).toBeUndefined();
+    expect(pgOidToColumnType(3802)).toBeUndefined(); // jsonb
+    expect(pgOidToColumnType(2950)).toBeUndefined(); // uuid
   });
 });
 
@@ -841,11 +920,11 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     expect(String(arrowValue)).toBe(numericValue);
   });
 
-  it("mixed row: only BIGINT/NUMERIC columns are typed as 'string'; others use value inference", async () => {
+  it("mixed row: OID path takes priority; BIGINT/NUMERIC → 'string', int4 → 'number'", async () => {
     const pgFields: PgFieldDef[] = [
-      { name: "id", dataTypeID: 23 }, // int4 → value inference → "number"
-      { name: "balance", dataTypeID: 1700 }, // NUMERIC → "string"
-      { name: "score", dataTypeID: 20 }, // BIGINT → "string"
+      { name: "id", dataTypeID: 23 }, // int4 → OID 23 → "number"
+      { name: "balance", dataTypeID: 1700 }, // NUMERIC → OID 1700 → "string"
+      { name: "score", dataTypeID: 20 }, // BIGINT → OID 20 → "string"
     ];
     const spyClient = makeSpyClient(
       [{ id: 1, balance: "9999.99", score: "42" }],
@@ -859,9 +938,9 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     );
 
     const byName = Object.fromEntries(result.fields.map((f) => [f.name, f]));
-    expect(byName["id"]?.type).toBe("number"); // int4 — value inference
-    expect(byName["balance"]?.type).toBe("string"); // NUMERIC OID override
-    expect(byName["score"]?.type).toBe("string"); // BIGINT OID override
+    expect(byName["id"]?.type).toBe("number"); // int4 — OID path
+    expect(byName["balance"]?.type).toBe("string"); // NUMERIC — OID path
+    expect(byName["score"]?.type).toBe("string"); // BIGINT — OID path
   });
 
   it("deduplicates duplicate column names from pgFields (e.g. JOIN with shared column names)", async () => {
