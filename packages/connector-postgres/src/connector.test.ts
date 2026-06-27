@@ -19,12 +19,13 @@ import {
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PgClientLike, PgQueryConfig } from "./connector.js";
+import type { PgClientLike, PgFieldDef, PgQueryConfig } from "./connector.js";
 import {
   PostgresConnector,
   assertReadOnlyQuery,
   listTablesInSchema,
   makePostgresConnector,
+  pgOidToColumnType,
 } from "./connector.js";
 import type { PostgresConnectorConfig } from "./types.js";
 
@@ -69,20 +70,23 @@ function callText(arg: string | PgQueryConfig): string {
   return typeof arg === "string" ? arg : arg.text;
 }
 
-function makeSpyClient(dataRows: Record<string, unknown>[] = []): SpyClient {
+function makeSpyClient(
+  dataRows: Record<string, unknown>[] = [],
+  dataFields: PgFieldDef[] = [],
+): SpyClient {
   const spy = vi.fn();
 
   // The spy handles three call shapes:
   //   1. SET SESSION CHARACTERISTICS... (returns empty rows)
   //   2. SET search_path TO ... (returns empty rows — for listTablesInSchema)
-  //   3. Any other query (returns dataRows)
+  //   3. Any other query (returns dataRows + dataFields)
   // The first arg may be a string OR a PgQueryConfig object (when queryMode is set).
   spy.mockImplementation((arg: string | PgQueryConfig) => {
     const upper = callText(arg).toUpperCase().trim();
     if (upper.startsWith("SET")) {
-      return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [], fields: [] });
     }
-    return Promise.resolve({ rows: dataRows });
+    return Promise.resolve({ rows: dataRows, fields: dataFields });
   });
 
   return {
@@ -481,8 +485,10 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     expect(table.numRows).toBe(2);
   });
 
-  it("returns rowCount = 0 for an empty result set", async () => {
-    const spyClient = makeSpyClient([]);
+  it("returns rowCount = 0 for an empty result set (no pg column metadata)", async () => {
+    // When the spy provides no fields metadata (legacy / no OID info),
+    // the result is an empty schema — this is the pre-fix baseline.
+    const spyClient = makeSpyClient([], []);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
 
     const result = await connector.query(
@@ -496,6 +502,88 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     // arrowBuffer should still be a valid base64 string (empty Arrow table).
     expect(typeof result.arrowBuffer).toBe("string");
     expect(result.arrowBuffer.length).toBeGreaterThan(0);
+  });
+
+  it("preserves schema from pg column metadata on a zero-row result (empty-result schema fix)", async () => {
+    // Simulate pg returning column descriptors even when rows is empty.
+    const pgFields: PgFieldDef[] = [
+      { name: "id", dataTypeID: 23 }, // int4
+      { name: "amount", dataTypeID: 1700 }, // NUMERIC
+    ];
+    const spyClient = makeSpyClient([], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT id, amount FROM ledger WHERE 1=0",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    // Schema must be inferred from pg column metadata, not from rows.
+    expect(result.fields).toHaveLength(2);
+    expect(result.fieldIds).toHaveLength(2);
+    const fieldNames = result.fields.map((f) => f.name);
+    expect(fieldNames).toContain("id");
+    expect(fieldNames).toContain("amount");
+    // int4 (OID 23) must map to "number".
+    const idField = result.fields.find((f) => f.name === "id");
+    expect(idField?.type).toBe("number");
+    // NUMERIC (OID 1700) must map to "string" — lossless coercion.
+    const amountField = result.fields.find((f) => f.name === "amount");
+    expect(amountField?.type).toBe("string");
+  });
+
+  it("recovers common OID types (bool, text, float8) on a zero-row result", async () => {
+    // Verifies the extended OID map covers standard column types for empty-result
+    // schema recovery. A zero-row result has no sample values — OID is the only
+    // type signal, so every listed type must map to a non-"unknown" ColumnType.
+    const pgFields: PgFieldDef[] = [
+      { name: "active", dataTypeID: 16 }, // bool   → "boolean"
+      { name: "label", dataTypeID: 25 }, //  text   → "string"
+      { name: "score", dataTypeID: 701 }, // float8 → "number"
+    ];
+    const spyClient = makeSpyClient([], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT active, label, score FROM metrics WHERE 1=0",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    expect(result.fields).toHaveLength(3);
+    const byName = Object.fromEntries(
+      result.fields.map((f) => [f.name, f.type]),
+    );
+    expect(byName["active"]).toBe("boolean");
+    expect(byName["label"]).toBe("string");
+    expect(byName["score"]).toBe("number");
+  });
+
+  it("unmapped OID on zero-row result falls back to 'unknown' without throwing", async () => {
+    // When pgFields lists a column with an OID that pgOidToColumnType doesn't map
+    // (e.g. jsonb OID 3802, uuid OID 2950), and there are no rows to run value
+    // inference, inferColumnType must return "unknown" cleanly without throwing.
+    // The Arrow buffer must still be valid (empty column, schema preserved).
+    const pgFields: PgFieldDef[] = [
+      { name: "payload", dataTypeID: 3802 }, // jsonb — not in OID map
+    ];
+    const spyClient = makeSpyClient([], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT payload FROM events WHERE 1=0",
+      crypto.randomUUID(),
+    );
+
+    expect(result.rowCount).toBe(0);
+    expect(result.fields).toHaveLength(1);
+    const field = result.fields.find((f) => f.name === "payload");
+    expect(field?.type).toBe("unknown");
+    // Arrow buffer must still be valid with 1 column (schema preserved)
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    expect(table.schema.fields).toHaveLength(1);
   });
 
   it("returns correct rowCount for connect() listing tables", async () => {
@@ -729,5 +817,180 @@ describe("read-only guard: allowlisted queries pass through to pg", () => {
         crypto.randomUUID(),
       ),
     ).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pgOidToColumnType — OID → ColumnType mapping
+// ---------------------------------------------------------------------------
+
+describe("pgOidToColumnType", () => {
+  it("maps BIGINT (OID 20) to 'string' — preserves precision for values > 2^53", () => {
+    expect(pgOidToColumnType(20)).toBe("string");
+  });
+
+  it("maps NUMERIC (OID 1700) to 'string' — preserves decimal precision", () => {
+    expect(pgOidToColumnType(1700)).toBe("string");
+  });
+
+  it("maps common integer/float OIDs to 'number'", () => {
+    expect(pgOidToColumnType(21)).toBe("number"); // int2
+    expect(pgOidToColumnType(23)).toBe("number"); // int4
+    expect(pgOidToColumnType(700)).toBe("number"); // float4
+    expect(pgOidToColumnType(701)).toBe("number"); // float8
+  });
+
+  it("maps bool (OID 16) to 'boolean'", () => {
+    expect(pgOidToColumnType(16)).toBe("boolean");
+  });
+
+  it("maps text/varchar/char OIDs to 'string'", () => {
+    expect(pgOidToColumnType(18)).toBe("string"); // internal "char" (1-byte)
+    expect(pgOidToColumnType(25)).toBe("string"); // text
+    expect(pgOidToColumnType(1042)).toBe("string"); // bpchar / CHAR(n)
+    expect(pgOidToColumnType(1043)).toBe("string"); // varchar
+  });
+
+  it("maps date/timestamp OIDs to 'date'", () => {
+    expect(pgOidToColumnType(1082)).toBe("date"); // date
+    expect(pgOidToColumnType(1114)).toBe("date"); // timestamp
+    expect(pgOidToColumnType(1184)).toBe("date"); // timestamptz
+  });
+
+  it("returns undefined for unrecognized OIDs (fall through to value inference)", () => {
+    expect(pgOidToColumnType(0)).toBeUndefined();
+    expect(pgOidToColumnType(3802)).toBeUndefined(); // jsonb
+    expect(pgOidToColumnType(2950)).toBeUndefined(); // uuid
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NUMERIC / BIGINT Arrow coercion — field-type matches value-type (string)
+// ---------------------------------------------------------------------------
+
+describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", () => {
+  it("BIGINT column: field type is 'string' and Arrow value is a string (no precision loss)", async () => {
+    // node-postgres returns BIGINT (OID 20) as a string.
+    const bigValue = "9007199254740993"; // > Number.MAX_SAFE_INTEGER
+    const pgFields: PgFieldDef[] = [
+      { name: "big_id", dataTypeID: 20 }, // BIGINT
+    ];
+    const spyClient = makeSpyClient([{ big_id: bigValue }], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT big_id FROM things",
+      crypto.randomUUID(),
+    );
+
+    // Field type must be "string" (matches the string value pg returns).
+    const field = result.fields.find((f) => f.name === "big_id");
+    expect(field?.type).toBe("string");
+
+    // Arrow round-trip: the value must survive byte-for-byte as a string —
+    // not just be stringifiable (Number/BigInt can also pass String()). Arrow
+    // encodes a string-typed column as Utf8; the recovered value is a JS string.
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    const arrowValue = table.getChildAt(0)?.get(0);
+    // The Arrow column must be a true string type (Utf8), not numeric.
+    expect(typeof arrowValue).toBe("string");
+    expect(arrowValue).toBe(bigValue);
+  });
+
+  it("NUMERIC column: field type is 'string' and Arrow value is a string (no precision loss)", async () => {
+    // node-postgres returns NUMERIC (OID 1700) as a string.
+    const numericValue = "123456789.987654321";
+    const pgFields: PgFieldDef[] = [
+      { name: "amount", dataTypeID: 1700 }, // NUMERIC
+    ];
+    const spyClient = makeSpyClient([{ amount: numericValue }], pgFields);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT amount FROM ledger",
+      crypto.randomUUID(),
+    );
+
+    // Field type must be "string".
+    const field = result.fields.find((f) => f.name === "amount");
+    expect(field?.type).toBe("string");
+
+    // Arrow round-trip: exact decimal string must be preserved as a true string
+    // (not numeric — String("123456789.987654321") works for number too, so we
+    // check typeof to enforce the Utf8 column type contract).
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    const arrowValue = table.getChildAt(0)?.get(0);
+    expect(typeof arrowValue).toBe("string");
+    expect(arrowValue).toBe(numericValue);
+  });
+
+  it("mixed row: OID path takes priority; BIGINT/NUMERIC → 'string', int4 → 'number'", async () => {
+    const pgFields: PgFieldDef[] = [
+      { name: "id", dataTypeID: 23 }, // int4 → OID 23 → "number"
+      { name: "balance", dataTypeID: 1700 }, // NUMERIC → OID 1700 → "string"
+      { name: "score", dataTypeID: 20 }, // BIGINT → OID 20 → "string"
+    ];
+    const spyClient = makeSpyClient(
+      [{ id: 1, balance: "9999.99", score: "42" }],
+      pgFields,
+    );
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT * FROM scores",
+      crypto.randomUUID(),
+    );
+
+    const byName = Object.fromEntries(result.fields.map((f) => [f.name, f]));
+    expect(byName["id"]?.type).toBe("number"); // int4 — OID path
+    expect(byName["balance"]?.type).toBe("string"); // NUMERIC — OID path
+    expect(byName["score"]?.type).toBe("string"); // BIGINT — OID path
+  });
+
+  it("deduplicates duplicate column names from pgFields (e.g. JOIN with shared column names)", async () => {
+    // A JOIN query can produce pgFields with the same column name twice.
+    // The connector must not emit more Fields than Arrow has columns — that
+    // would break the fieldIds↔arrowBuffer alignment contract.
+    // Use DIFFERENT OIDs for the duplicate name to test that last-occurrence OID
+    // is selected — aligning with node-postgres row object behavior (last value wins).
+    const pgFields: PgFieldDef[] = [
+      { name: "id", dataTypeID: 23 }, // int4 — first occurrence (row value comes from last)
+      { name: "name", dataTypeID: 25 }, // text
+      { name: "id", dataTypeID: 20 }, // BIGINT — last occurrence (pg row: id = string value)
+    ];
+    // Simulate pg row: node-postgres overwrites id with the last column's value.
+    // BIGINT (OID 20) is returned as a string by pg.
+    const bigIntId = "9007199254740993";
+    const spyClient = makeSpyClient(
+      [{ id: bigIntId, name: "Alice" }],
+      pgFields,
+    );
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    const result = await connector.query(
+      "SELECT a.id, a.name, b.id FROM a JOIN b ON a.id = b.id",
+      crypto.randomUUID(),
+    );
+
+    // Only 2 unique fields despite 3 pgFields entries.
+    expect(result.fields).toHaveLength(2);
+    expect(result.fieldIds).toHaveLength(2);
+    const fieldNames = result.fields.map((f) => f.name);
+    expect(fieldNames).toEqual(["id", "name"]);
+
+    // Last-occurrence OID (20 / BIGINT → "string") must win for the id field
+    // so field.type agrees with the actual Arrow value (a string from bigint).
+    const idField = result.fields.find((f) => f.name === "id");
+    expect(idField?.type).toBe("string"); // OID 20 (last) → "string", not OID 23 (first) → "number"
+
+    // Arrow table must have 2 columns and the id value must round-trip as a string.
+    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
+    const table = tableFromIPC(bytes);
+    expect(table.schema.fields).toHaveLength(2);
+    const arrowId = table.getChildAt(0)?.get(0);
+    expect(typeof arrowId).toBe("string");
+    expect(arrowId).toBe(bigIntId);
   });
 });
