@@ -1,9 +1,10 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
+  buildInsightAvailableFields,
   buildInsightSQL,
+  extractColumnAliasComponents,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
@@ -17,6 +18,101 @@ import type {
 } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// ── Module-level pure helpers ─────────────────────────────────────────────────
+
+/**
+ * Build a map of `"${rightTableId}:${instanceIndex}" → leftKey` by walking
+ * insight.joins, mirroring buildInsightAvailableFields' skip behaviour.
+ *
+ * A join that was SKIPPED by buildInsightAvailableFields (invalid type, missing
+ * table, missing key fields) must NOT advance the per-rightTableId counter —
+ * otherwise subsequent valid joins get a wrong index, and
+ * buildRepeatJoinDisplayNames would look up the wrong leftKey for each synthetic
+ * field's (tableId, instanceIndex) pair.
+ *
+ * We detect skipped joins by checking whether resolvedFields contains any field
+ * from that (rightTableId, instanceIndex) slot.  Because resolvedFields is the
+ * OUTPUT of buildInsightAvailableFields, any index it consumed is guaranteed
+ * valid; indices not represented in resolvedFields were skipped.  This avoids
+ * re-implementing the engine's whitelist + key-validation logic in the hook.
+ */
+function buildJoinKeyByInstance(
+  joins: NonNullable<Insight["joins"]>,
+  resolvedFields: Field[],
+): Map<string, string> {
+  // Build a quick-lookup set of (tableId, instanceIndex) pairs that exist in
+  // resolvedFields.  If a slot is absent, the join at that logical position was
+  // skipped by buildInsightAvailableFields.
+  const resolvedSlots = new Set<string>();
+  for (const field of resolvedFields) {
+    const components = extractColumnAliasComponents(
+      fieldIdToColumnAlias(field.id),
+    );
+    if (components) {
+      resolvedSlots.add(`${field.tableId}:${components.instanceIndex}`);
+    }
+  }
+
+  const result = new Map<string, string>();
+  const instanceCount = new Map<string, number>();
+  for (const join of joins) {
+    const idx = instanceCount.get(join.rightTableId) ?? 0;
+    const slot = `${join.rightTableId}:${idx}`;
+    if (resolvedSlots.has(slot)) {
+      // This join was NOT skipped by buildInsightAvailableFields — record it.
+      result.set(slot, join.leftKey);
+      instanceCount.set(join.rightTableId, idx + 1);
+    }
+    // Skipped join: do NOT advance the counter.
+  }
+  return result;
+}
+
+/**
+ * Build a display-name record for the given resolved fields, disambiguating
+ * repeat-join collisions by appending the join's leftKey in parentheses.
+ *
+ * When the same right-table is joined more than once (N≥2, e.g. orders→users on
+ * `created_by` AND `approved_by`), all instances produce fields with the same
+ * `field.name` (e.g. "User Name").  This function detects collisions and
+ * produces distinct labels for ALL instances: "User Name (created_by)" and
+ * "User Name (approved_by)".  Fields not involved in a collision keep their
+ * bare `field.name`.
+ *
+ * `field.name` is NOT mutated — it remains the canonical human name.
+ */
+function buildRepeatJoinDisplayNames(
+  resolvedFields: Field[],
+  joinKeyByInstance: Map<string, string>,
+): Record<string, string> {
+  // First pass: find which base UUIDs have ≥2 instances (any _j1+ sibling).
+  const baseUuidsWithRepeat = new Set<string>();
+  for (const field of resolvedFields) {
+    const components = extractColumnAliasComponents(
+      fieldIdToColumnAlias(field.id),
+    );
+    if (components && components.instanceIndex > 0) {
+      baseUuidsWithRepeat.add(components.uuid);
+    }
+  }
+
+  // Second pass: build display names, applying disambiguation for collisions.
+  const displayNames: Record<string, string> = {};
+  for (const field of resolvedFields) {
+    const alias = fieldIdToColumnAlias(field.id);
+    const components = extractColumnAliasComponents(alias);
+    if (components && baseUuidsWithRepeat.has(components.uuid)) {
+      const leftKey = joinKeyByInstance.get(
+        `${field.tableId}:${components.instanceIndex}`,
+      );
+      displayNames[alias] = leftKey ? `${field.name} (${leftKey})` : field.name;
+    } else {
+      displayNames[alias] = field.name;
+    }
+  }
+  return displayNames;
+}
 
 /**
  * Options for useInsightPagination hook.
@@ -132,47 +228,49 @@ export function useInsightPagination({
     // The caller (init) writes the cache after its generation check passes.
 
     // Collect fields visible in the SQL result set.
-    // Raw concatenation of base + joined table fields includes right join-key
-    // fields that processSingleJoin drops from the emitted subquery.
-    // columnDisplayNames / columnTypeMap built from those stale entries would
-    // let VirtualTable resolve wrong display names or types for UUID aliases
-    // that don't exist in the result.
     //
-    // We drop ONLY the right join-key fields (step 1 of computeFilterableFields)
-    // — those are the columns processSingleJoin excludes from SELECT.  We do NOT
-    // apply step 2 (ambiguous-bare-name exclusion): that step exists for filter-
-    // picker safety, but both sides of a bare-name collision still appear in the
-    // SQL result under distinct UUID aliases, so they MUST keep display-name and
-    // type-map entries (else VirtualTable shows raw field_<uuid> and loses type).
-    const allDataTables = [baseTable, ...joinedTables.values()];
-    const { fields: combinedFields } = computeCombinedFields(
-      baseTable,
-      insight.joins,
-      allDataTables,
-    );
-    const rightKeySet = new Set(
-      (insight.joins ?? []).map(
-        (j) => `${j.rightTableId}:${j.rightKey.toLowerCase()}`,
-      ),
-    );
-    const allFields: Field[] = combinedFields.filter((f) => {
-      const colKey = `${f.sourceTableId}:${(f.columnName ?? f.name).toLowerCase()}`;
-      return !rightKeySet.has(colKey);
-    });
+    // `buildInsightAvailableFields` mirrors `buildJoinedSQL`'s field accumulation
+    // exactly — it drops right join-keys and returns synthetic Field objects with
+    // instance-suffixed IDs (field.id = `<uuid>_j{n}`) for repeat-joins (two
+    // joins to the same rightTableId).  Because `columnDisplayNames` and
+    // `columnTypeMap` are keyed on `fieldIdToColumnAlias(field.id)`, they will
+    // map `field_<uuid>_j{n}` → the right display name / type — matching the
+    // actual SQL column aliases DuckDB produces from the join builder.
+    //
+    // Deriving this list independently (e.g. via computeCombinedFields + manual
+    // key-drop) risks a desync: if the builder skips a join instance (missing
+    // keys), the counter stays at n while an independent re-derive would advance
+    // to n+1, putting the hook's map one alias ahead of what DuckDB emitted.
+    // Single-sourcing through `buildInsightAvailableFields` eliminates that gap.
+    //
+    // `buildInsightAvailableFields` accepts `Pick<Insight, "joins">`, so we extract
+    // `joins` and pass a minimal object. This also keeps `insight.joins` in the dep
+    // array below without introducing the full mutable `insight` reference.
+    const joins = insight.joins;
+    const allFields: Field[] =
+      buildInsightAvailableFields(baseTable, joinedTables, { joins }) ??
+      (baseTable.fields ?? []).filter((f) => !f.name.startsWith("_"));
 
     return { baseTable, joinedTables, allFields };
   }, [insight.baseTableId, insight.joins]);
 
-  // Build mapping from UUID column aliases to display names
-  // This allows VirtualTable to show human-readable column headers
+  // Build mapping from UUID column aliases to display names.
+  // This allows VirtualTable to show human-readable column headers.
+  //
+  // For repeat-join insights (same rightTableId joined twice), both join
+  // instances produce fields with identical `field.name` values.
+  // buildRepeatJoinDisplayNames detects these collisions and appends the
+  // join's leftKey so pickers and headers show e.g. "User Name (created_by)"
+  // vs "User Name (approved_by)".  field.name is NOT mutated.
   const columnDisplayNames = useMemo(() => {
-    const displayNames: Record<string, string> = {};
+    const joinKeyByInstance = insight.joins?.length
+      ? buildJoinKeyByInstance(insight.joins, resolvedFields)
+      : new Map<string, string>();
 
-    // Map field IDs to display names
-    for (const field of resolvedFields) {
-      const alias = fieldIdToColumnAlias(field.id);
-      displayNames[alias] = field.name;
-    }
+    const displayNames = buildRepeatJoinDisplayNames(
+      resolvedFields,
+      joinKeyByInstance,
+    );
 
     // Map metric IDs to display names
     for (const metric of insight.metrics ?? []) {
@@ -181,7 +279,7 @@ export function useInsightPagination({
     }
 
     return displayNames;
-  }, [resolvedFields, insight.metrics]);
+  }, [resolvedFields, insight.metrics, insight.joins]);
 
   // Build mapping from UUID column aliases to ColumnType.
   // Metrics are always numeric (aggregations); fields carry their declared type.
@@ -491,5 +589,13 @@ export function useInsightPagination({
      * Values: "string" | "number" | "boolean" | "date" | "unknown"
      */
     columnTypeMap,
+    /**
+     * Instance-qualified Field list produced by buildInsightAvailableFields.
+     * For repeat-joins (same rightTableId twice), fields from the Nth instance
+     * carry synthetic IDs with `_j{N}` suffix (e.g. `<uuid>_j1`).
+     * Use this as `availableFields` in pickers that must expose both instances
+     * as distinct selectable options.
+     */
+    resolvedFields,
   };
 }

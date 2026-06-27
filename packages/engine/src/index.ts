@@ -97,7 +97,9 @@ export type {
 // ============================================================================
 
 export {
+  buildInsightAvailableFields,
   buildInsightSQL,
+  extractColumnAliasComponents,
   extractUUIDFromColumnAlias,
   // UUID column naming utilities
   fieldIdToColumnAlias,

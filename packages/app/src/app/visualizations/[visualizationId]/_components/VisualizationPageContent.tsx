@@ -26,6 +26,7 @@ import {
   useVisualizations,
 } from "@dashframe/core";
 import {
+  extractColumnAliasComponents,
   fieldIdToColumnAlias,
   getMetricDisplayLabel,
   isGeneratedColumnLabel,
@@ -176,12 +177,15 @@ export default function VisualizationPageContent({
   // Get DuckDB view name for analysis (uses UUID-based column names)
   const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
     useInsightView(insightForView);
-  const { columns: modelColumns, columnDisplayNames: modelColumnDisplayNames } =
-    useInsightPagination({
-      insight: insightForView ?? ({} as InsightType),
-      showModelPreview: true,
-      enabled: !!insightForView,
-    });
+  const {
+    columns: modelColumns,
+    columnDisplayNames: modelColumnDisplayNames,
+    resolvedFields: instanceAwareFields,
+  } = useInsightPagination({
+    insight: insightForView ?? ({} as InsightType),
+    showModelPreview: true,
+    enabled: !!insightForView,
+  });
   const { columnDisplayNames: renderedColumnDisplayNames } =
     useInsightPagination({
       insight: insightForView ?? ({} as InsightType),
@@ -476,9 +480,16 @@ export default function VisualizationPageContent({
     isAnalysisViewReady,
   ]);
 
-  // Get column options for Color/Size selects (derived from compiledInsight)
-  // Uses storage encoding format (field:<uuid>, metric:<uuid>) for values
-  // Includes icons to show column types
+  // Get column options for Color/Size selects (derived from compiledInsight +
+  // instance-aware fields for repeat-joins).
+  // Uses storage encoding format (field:<uuid>, metric:<uuid>) for values.
+  // Includes icons to show column types.
+  //
+  // `compiledInsight.dimensions` only contains bare-ID fields that were
+  // explicitly selected.  Repeat-join instances (field id `<uuid>_j1`) are
+  // available in `instanceAwareFields` but absent from `compiledInsight`.
+  // We append any such missing instances so Color/Size pickers expose the full
+  // set of chartable fields — matching the axis picker's behavior.
   const columnOptions = useMemo(() => {
     if (!compiledInsight) return [];
 
@@ -492,16 +503,43 @@ export default function VisualizationPageContent({
       icon: React.ComponentType<{ className?: string }>;
     }> = [];
 
-    // Add dimensions (resolved Field objects from compiledInsight)
-    // Use field:<uuid> encoding format for value
+    // Track which field encodings we have already added to avoid duplicates.
+    const addedEncodings = new Set<string>();
+
+    // Add dimensions (resolved Field objects from compiledInsight).
+    // Use disambiguated display names from axisColumnDisplayNames when available
+    // (they carry "(leftKey)" suffixes for repeat-join collisions).
     compiledInsight.dimensions.forEach((field) => {
       const sqlAlias = fieldIdToColumnAlias(field.id);
+      const enc = `field:${field.id}`;
+      const label = axisColumnDisplayNames[sqlAlias] ?? field.name;
       options.push({
-        label: field.name,
-        value: `field:${field.id}`,
+        label,
+        value: enc,
         icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
       });
+      addedEncodings.add(enc);
     });
+
+    // Append any repeat-join instance fields from instanceAwareFields that are
+    // not already covered by compiledInsight.dimensions.  A field is a repeat-
+    // join instance when extractColumnAliasComponents returns instanceIndex > 0.
+    for (const field of instanceAwareFields) {
+      const enc = `field:${field.id}`;
+      if (addedEncodings.has(enc)) continue;
+      const components = extractColumnAliasComponents(
+        fieldIdToColumnAlias(field.id),
+      );
+      if (!components || components.instanceIndex === 0) continue; // only j1+
+      const sqlAlias = fieldIdToColumnAlias(field.id);
+      const label = axisColumnDisplayNames[sqlAlias] ?? field.name;
+      options.push({
+        label,
+        value: enc,
+        icon: getColumnIcon(sqlAlias, columnAnalysis, metricAliases),
+      });
+      addedEncodings.add(enc);
+    }
 
     // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
@@ -514,7 +552,13 @@ export default function VisualizationPageContent({
     });
 
     return options;
-  }, [compiledInsight, columnAnalysis, dataTable?.fields]);
+  }, [
+    compiledInsight,
+    columnAnalysis,
+    dataTable?.fields,
+    instanceAwareFields,
+    axisColumnDisplayNames,
+  ]);
 
   // Validate encoding configuration - returns errors for X/Y if invalid
   const encodingErrors = useMemo(() => {
@@ -932,7 +976,11 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
-                  availableFields={dataTable?.fields}
+                  availableFields={
+                    instanceAwareFields.length > 0
+                      ? instanceAwareFields
+                      : dataTable?.fields
+                  }
                   availableColumns={axisSourceColumns}
                   columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.y}
@@ -965,7 +1013,11 @@ export default function VisualizationPageContent({
                   chartType={visualization.visualizationType}
                   columnAnalysis={columnAnalysis}
                   compiledInsight={compiledInsight}
-                  availableFields={dataTable?.fields}
+                  availableFields={
+                    instanceAwareFields.length > 0
+                      ? instanceAwareFields
+                      : dataTable?.fields
+                  }
                   availableColumns={axisSourceColumns}
                   columnDisplayNames={axisColumnDisplayNames}
                   otherAxisColumn={visualization.encoding?.x}

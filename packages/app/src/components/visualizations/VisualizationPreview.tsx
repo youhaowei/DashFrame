@@ -1,7 +1,8 @@
+import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
-import type { ChartEncoding, Visualization } from "@dashframe/types";
+import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 import { Spinner } from "@wystack/ui";
 import { useMemo } from "react";
@@ -53,9 +54,29 @@ export function VisualizationPreview({
     ? undefined
     : dataTables.find((t) => t.id === insight.baseTableId);
 
+  // Build a minimal insight shape for hook consumption (joins only; no
+  // selectedFields/metrics/filters — preview renders raw model data).
+  const insightForView = useMemo((): Insight | null => {
+    if (!insight) return null;
+    return {
+      id: insight.id,
+      name: insight.name,
+      baseTableId: insight.baseTableId,
+      joins: insight.joins,
+    } as Insight;
+  }, [insight]);
+
   // Create/get the DuckDB view using the same hook as insight pages
   // This ensures views are created on-demand and properly cached
   const { viewName, isReady, error } = useInsightView(insight);
+
+  // Resolve instance-qualified fields for repeat-join insights so that
+  // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
+  const { resolvedFields: instanceAwareFields } = useInsightPagination({
+    insight: insightForView ?? ({} as Insight),
+    showModelPreview: false,
+    enabled: !!insightForView,
+  });
 
   // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
   // - field:<uuid> → column name (e.g., "Product")
@@ -65,9 +86,16 @@ export function VisualizationPreview({
       return {};
     }
 
-    // Build resolution context with fields and metrics
+    // Build resolution context with fields and metrics.
+    // For repeat-joins, instanceAwareFields carries synthetic fields with
+    // instance-suffixed IDs (e.g. `<uuid>_j1`) that match the SQL aliases
+    // the model view emits. Fall back to bare table fields before the hook
+    // resolves (initial render) or when there are no joins.
     const context = {
-      fields: dataTable.fields ?? [],
+      fields:
+        instanceAwareFields.length > 0
+          ? instanceAwareFields
+          : (dataTable.fields ?? []),
       metrics: insight.metrics ?? [],
     };
 
@@ -82,7 +110,7 @@ export function VisualizationPreview({
       xTransform: visualization.encoding.xTransform,
       yTransform: visualization.encoding.yTransform,
     };
-  }, [visualization.encoding, dataTable, insight]);
+  }, [visualization.encoding, dataTable, insight, instanceAwareFields]);
 
   // Error state — checked BEFORE the loading guard so that view-creation errors
   // that leave `isReady=false` reach a terminal UI instead of spinning forever.

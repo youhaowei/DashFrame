@@ -209,6 +209,7 @@ export function VisualizationDisplay({
     columns,
     isReady: isPaginationReady,
     columnDisplayNames,
+    resolvedFields: instanceAwareFields,
   } = useInsightPagination({
     insight: insightForView ?? ({} as Insight),
     showModelPreview: false, // Apply full insight transformations
@@ -287,9 +288,16 @@ export function VisualizationDisplay({
       return {};
     }
 
-    // Build resolution context with fields and metrics
+    // Build resolution context with fields and metrics.
+    // For repeat-joins, instanceAwareFields carries synthetic fields with
+    // instance-suffixed IDs (e.g. `<uuid>_j1`) that match the SQL aliases
+    // DuckDB produces. Fall back to bare dataTable fields when the hook
+    // hasn't resolved yet (first render or no joins).
     const context = {
-      fields: dataTable.fields ?? [],
+      fields:
+        instanceAwareFields.length > 0
+          ? instanceAwareFields
+          : (dataTable.fields ?? []),
       metrics: insight.metrics ?? [],
     };
 
@@ -320,7 +328,19 @@ export function VisualizationDisplay({
 
       const parsed = parseEncoding(encodingValue);
       if (parsed?.type === "field") {
-        const field = dataTable.fields?.find((f) => f.id === parsed.id);
+        // Prefer the disambiguated label from columnDisplayNames (keyed on the
+        // SQL alias, e.g. `field_<uuid>_j1`) so repeat-join instances show
+        // "User Name (approved_by)" instead of the bare "User Name" that a
+        // direct field.name lookup would return.  Fall back to field.name for
+        // the common case where no disambiguation entry exists (single join or
+        // base-table field), then to the raw resolvedValue as a last resort.
+        const disambiguated = columnDisplayNames[resolvedValue];
+        if (disambiguated) return disambiguated;
+        const effectiveFields =
+          instanceAwareFields.length > 0
+            ? instanceAwareFields
+            : (dataTable.fields ?? []);
+        const field = effectiveFields.find((f) => f.id === parsed.id);
         return (
           field?.name ?? columnDisplayNames[resolvedValue] ?? resolvedValue
         );
@@ -353,7 +373,14 @@ export function VisualizationDisplay({
       colorLabel: getEncodingDisplayLabel(activeViz.encoding.color, color),
       sizeLabel: getEncodingDisplayLabel(activeViz.encoding.size, size),
     };
-  }, [activeViz, dataTable, insight, columns, columnDisplayNames]);
+  }, [
+    activeViz,
+    dataTable,
+    insight,
+    columns,
+    columnDisplayNames,
+    instanceAwareFields,
+  ]);
 
   // Build column configs for VirtualTable to show human-readable headers
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
@@ -368,7 +395,11 @@ export function VisualizationDisplay({
     const colorEncoding = activeViz?.encoding?.color;
     const parsed = parseEncoding(colorEncoding);
     if (parsed?.type === "field") {
-      const field = dataTable?.fields?.find((f) => f.id === parsed.id);
+      const effectiveFields =
+        instanceAwareFields.length > 0
+          ? instanceAwareFields
+          : (dataTable?.fields ?? []);
+      const field = effectiveFields.find((f) => f.id === parsed.id);
       return field?.name ?? columnDisplayNames[resolvedEncoding.color ?? ""];
     }
     if (parsed?.type === "metric") {
@@ -385,6 +416,7 @@ export function VisualizationDisplay({
     insight?.metrics,
     resolvedEncoding.color,
     columnDisplayNames,
+    instanceAwareFields,
   ]);
 
   // Check if there's enough space to show both views
