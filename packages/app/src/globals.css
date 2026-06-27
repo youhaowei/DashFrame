@@ -19,6 +19,17 @@
  * generated and the panel would render unstyled. */
 @source "./lib/**/*.{ts,tsx}";
 
+/* Fill the window. The shell root sizes itself with `h-screen` (100vh), but
+ * that only paints correctly when every ancestor up to the viewport also has
+ * height — a bare `#root` div collapses to content, leaving the window's native
+ * background showing in the unfilled remainder (visible at fixed/odd window
+ * sizes, especially in the Electron renderer). One rule anchors the chain. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 /* React Grid Layout drag placeholder */
 .react-grid-placeholder {
   background: var(--neutral-bg-muted) !important;
