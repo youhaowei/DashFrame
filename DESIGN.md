@@ -54,6 +54,16 @@ Neutral scale (`neutral-bg*`, `neutral-fg*`, `neutral-border`), palette (`palett
 - **Local extensions** live in `packages/ui` (`@dashframe/ui`) — e.g. SensitivityBadge.
 - **Rule**: don't restyle `@wystack/ui` primitives locally. If a primitive needs a different shape, upstream the change to the submodule (Rule of Three applies before generalizing).
 
+## Principle: a signal earns its surface
+
+**A signal (badge, flag, indicator, warning) earns a place on a surface only if it changes the user's judgment _there_. If it doesn't change what they do, it's noise — and noise on many rows drowns the one signal that matters.**
+
+Apply the test per surface, not per datum: the same fact can be signal on one surface and noise on another, because the user's _job_ differs. A classification surface (where the job is to resolve classification) should draw the eye to unresolved state; a consumption surface (where the job is to use the thing) should stay quiet about it and surface only what alters the choice being made.
+
+Track always, enforce silently, flag only where it's decision-affecting. A property can be tracked on the model and enforced by the system without ever being shown — show it to the user only at the surface where it changes a decision with consequences.
+
+- **Lesson (GH #81, 2026-06-13):** a per-field sensitivity badge in the insight field picker was built, reviewed clean, and _closed unmerged_ — at field-pick, sensitivity is informative, not decisive (a user who needs the field includes it regardless), and on a scan-list where most fields are unclassified the marker is wallpaper. Sensitivity is tracked on the field and enforced silently by the cache-write gate; the user-facing flag belongs at the **share/export boundary**, the one place it changes behavior (caution before sensitive data leaves the local context).
+
 ## Project-specific anti-patterns
 
 - **Per-surface UI forks.** Web and Electron renderers are identical — the engine-placement tripwire's UI twin. No `isElectron` branches in components; capability differences ride through providers/context.
