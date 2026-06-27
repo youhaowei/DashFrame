@@ -572,7 +572,7 @@ describe("DraftController (persisted draft overlay)", () => {
     // Regression: appendToDraft must NOT pre-build a raw `withDraft(draftId)`
     // handle (which `withDraftSeam` returns unchanged — no fall-through), or a
     // command handler reading a non-draftable table mid-append would throw on the
-    // missing `<table>__draft` relation. It must pass a BASE TrackedDb + draftId
+    // missing `<table>__draft` relation. It must pass a BASE DrizzleTracker + draftId
     // in context so `withDraftSeam` builds the per-table fall-through wrapper —
     // the identical seam the `call` path funnels through.
     //

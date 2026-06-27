@@ -78,7 +78,7 @@ export function createAssistantReadHost(
   const { app, draftId, readSourceFile } = opts;
 
   // Every read carries the draftId in context so the withDraftSeam routes the
-  // read against the draft overlay. A fresh TrackedDb per call (read-only; the
+  // read against the draft overlay. A fresh DrizzleTracker per call (read-only; the
   // tracking sets are discarded — we never publish from a read).
   const context: Record<string, unknown> =
     draftId !== undefined ? { draftId } : {};

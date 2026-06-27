@@ -41,7 +41,7 @@ import {
 import { schema } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
-import type { DraftTrackedDb, TrackedDb } from "@wystack/db";
+import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
 import {
   isSecretRef,
   type SecretRef,
@@ -266,15 +266,15 @@ const DRAFTABLE_TABLE_NAMES: ReadonlySet<string> = new Set([
  * in DashFrame (which owns the closed shadow set), not in the generic
  * @wystack/db `withDraft` primitive.
  *
- * Shape note: returned as `DraftTrackedDb` because that is the type the seam
+ * Shape note: returned as `DraftDrizzleTracker` because that is the type the seam
  * yields; both base and draft handles share the `from/into/transaction` surface
- * handlers use, and `runHandler` already casts to `TrackedDb` (the builder
+ * handlers use, and `runHandler` already casts to `DrizzleTracker` (the builder
  * return-type difference is never observed by a handler).
  */
 export function createFallThroughDraftDb(
-  base: TrackedDb,
+  base: DrizzleTracker,
   draftId: string,
-): DraftTrackedDb {
+): DraftDrizzleTracker {
   const draft = base.withDraft(draftId);
   const isDraftable = (table: Table): boolean =>
     DRAFTABLE_TABLE_NAMES.has(getTableName(table));
@@ -288,12 +288,12 @@ export function createFallThroughDraftDb(
     from(table) {
       return (
         isDraftable(table) ? draft.from(table) : base.from(table)
-      ) as ReturnType<DraftTrackedDb["from"]>;
+      ) as ReturnType<DraftDrizzleTracker["from"]>;
     },
     into(table) {
       return (
         isDraftable(table) ? draft.into(table) : base.into(table)
-      ) as ReturnType<DraftTrackedDb["into"]>;
+      ) as ReturnType<DraftDrizzleTracker["into"]>;
     },
     transaction: draft.transaction.bind(draft),
   };
@@ -332,13 +332,13 @@ export function createFallThroughDraftDb(
  *     authorize it against the caller (single-user desktop is exempt).
  */
 export function withDraftSeam(
-  tracked: TrackedDb | DraftTrackedDb,
+  tracked: DrizzleTracker | DraftDrizzleTracker,
   context: Record<string, unknown> | undefined,
-): TrackedDb | DraftTrackedDb {
+): DrizzleTracker | DraftDrizzleTracker {
   const draftId = draftIdFromContext(context);
   if (draftId === undefined) return tracked;
-  // A draft handle has no nested `withDraft`; only a base TrackedDb is scoped.
-  // `call` always passes a fresh base TrackedDb, so this is the live path. The
+  // A draft handle has no nested `withDraft`; only a base DrizzleTracker is scoped.
+  // `call` always passes a fresh base DrizzleTracker, so this is the live path. The
   // fall-through wrapper routes non-draftable tables to canonical.
   return "withDraft" in tracked
     ? createFallThroughDraftDb(tracked, draftId)
@@ -390,7 +390,7 @@ export function withDraftSeam(
  * route MUST fire `onWrite()` when `result.tablesWritten.size > 0` — the
  * controller does not fire it (mirroring `applyCommands`' posture). Adding
  * `onWrite` to this `runHandler` wrapper cannot safely cover that path because:
- * (a) preview also uses canonical `TrackedDb` handles that look identical at this
+ * (a) preview also uses canonical `DrizzleTracker` handles that look identical at this
  * level, and (b) `runHandler` is called per-command while `tablesWritten`
  * accumulates across the batch — the per-command check would fire multiple times
  * or miss the first-write-only case. The clean seam is the `publishDraft` return
@@ -411,7 +411,7 @@ export async function buildDashframeApp(opts: {
   const hasStaticContext = Object.keys(staticContext).length > 0;
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
-  // mints its own fresh TrackedDb internally, so a draftId-bearing `call` would
+  // mints its own fresh DrizzleTracker internally, so a draftId-bearing `call` would
   // otherwise hit canonical. We mirror rawApp.call's composition (fresh tracked
   // → runHandler → result shape) but pass the draft-scoped handle when a draftId
   // is present, leaving the no-draft path identical to rawApp.call.

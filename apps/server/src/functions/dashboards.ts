@@ -202,7 +202,7 @@ const removeDashboard = mutation({
 
 /** Load a dashboard's items for read-modify-write, or throw if missing. */
 async function loadItems(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
 ): Promise<DashboardItem[]> {
   const row = (await ctx.db.from(dashboards).where(eq("id", id)).first()) as

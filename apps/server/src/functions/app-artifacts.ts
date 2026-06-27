@@ -383,7 +383,7 @@ function rowToVisualization(row: VisualizationRow): Visualization {
 }
 
 async function loadDataTable(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
 ): Promise<DataTable> {
   const row = (await ctx.db.from(dataTables).where(eq("id", id)).first()) as
@@ -394,7 +394,7 @@ async function loadDataTable(
 }
 
 async function loadInsight(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
 ): Promise<Insight> {
   const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
@@ -1088,7 +1088,7 @@ const removeVisualization = mutation({
 const clearAllData = mutation({
   args: {},
   handler: async (ctx): Promise<{ ok: true }> => {
-    // One unconditional DELETE FROM per table (TrackedDb.delete() with no
+    // One unconditional DELETE FROM per table (DrizzleTracker.delete() with no
     // .where() clears the whole table). Idempotent and a single statement
     // each — no per-row round-trips, no partial-clear retry hazard. FK-child
     // tables first so cascade order is satisfied even without DB-level FKs.

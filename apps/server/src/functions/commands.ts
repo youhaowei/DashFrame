@@ -218,7 +218,7 @@ export const storedInsightDefinitionSchema = z.object({
  * produces a clear validation error instead of throwing on property access.
  */
 async function requireInsightDefinition(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   insightId: string,
 ): Promise<{ row: InsightRow; definition: StoredInsightDefinition }> {
   const row = (await ctx.db
@@ -246,7 +246,7 @@ async function requireInsightDefinition(
  * CreateInsight and SetInsightSource route source writes through here.
  */
 async function requireSourceExists(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   source: InsightSource,
 ): Promise<void> {
   const table = source.sourceType === "insight" ? insights : dataTables;
@@ -271,7 +271,7 @@ async function requireSourceExists(
  * handle or propagate that error.
  */
 async function wouldCreateCycle(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   startId: string,
   targetId: string,
 ): Promise<boolean> {
@@ -514,7 +514,7 @@ const createDataTable = mutation({
  * enforces (`setDataSourceConfig`, `renameNode`, `patchDataTableCollection`).
  */
 async function requireDataTable(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
 ): Promise<void> {
   const row = await ctx.db.from(dataTables).where(eq("id", id)).first();
@@ -915,7 +915,7 @@ type CollectionOp =
  * the command shape (`{ nodeId, ... }`) never needs to know the kind up front.
  */
 async function resolveNode(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   nodeId: string,
 ): Promise<ResolvedNode> {
   const table = (await ctx.db
@@ -965,7 +965,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
  *     against the read path. Fail loudly instead.
  */
 async function patchInsightSelectedFields(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   nodeId: string,
   _row: InsightRow,
   op: CollectionOp,
@@ -1019,7 +1019,7 @@ async function patchInsightSelectedFields(
  * backend needs SELECT FOR UPDATE or jsonb-native append.
  */
 async function patchDataTableCollection(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   nodeId: string,
   kind: "fields" | "metrics",
   op: CollectionOp,
@@ -1238,7 +1238,7 @@ const createVisualization = mutation({
 });
 
 async function requireVisualization(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
 ): Promise<void> {
   const row = await ctx.db.from(visualizations).where(eq("id", id)).first();
@@ -1325,7 +1325,7 @@ interface DashboardItemOverrides {
 
 /** Load a dashboard's layout array, throwing if the dashboard does not exist. */
 async function requireDashboardItems(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   dashboardId: string,
 ): Promise<DashboardItem[]> {
   const row = (await ctx.db
@@ -1821,7 +1821,7 @@ function definitionRefers(
 }
 
 async function findOrphanedInsights(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   sourceId: string,
 ): Promise<{ id: string }[]> {
   const allInsights = (await ctx.db.from(insights).all()) as InsightRow[];
@@ -1845,7 +1845,7 @@ async function findOrphanedInsights(
  * `deleteArrowData(storage.key)` (see `packages/app-data/src/data-frames.ts`).
  */
 async function deleteInsightDataFrames(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   insightId: string,
 ): Promise<void> {
   // Delete all DataFrame rows whose insightId matches — there should be at
@@ -1867,7 +1867,7 @@ async function deleteInsightDataFrames(
  * tables do not produce N round-trips.
  */
 async function deleteDataSourceDependents(
-  ctx: { db: import("@wystack/db").TrackedDb },
+  ctx: { db: import("@wystack/db").DrizzleTracker },
   ownedTables: (typeof dataTables.$inferSelect)[],
 ): Promise<OrphanedNode[]> {
   // Fetch all insights once — avoids O(N) full-table scans inside the loop.
