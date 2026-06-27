@@ -306,7 +306,7 @@ export function createDraftController(
     },
 
     async appendToDraft(draftId, batch, context = {}) {
-      // Route writes through the draft overlay by passing a BASE TrackedDb plus a
+      // Route writes through the draft overlay by passing a BASE DrizzleTracker plus a
       // `draftId` in context, so `app.runHandler`'s `withDraftSeam` builds the
       // per-table FALL-THROUGH draft handle (draftable tables → `<table>__draft`,
       // non-draftable like project_meta → canonical). Building the raw
@@ -373,7 +373,7 @@ export function createDraftController(
       // intact for a clean retry. This mirrors wystack's own consumer
       // (draft-lifecycle.ts `publish()`), the reference adoption of the same seam.
       //
-      // `TrackedDb.transaction` is generic over its callback's return type, so we
+      // `DrizzleTracker.transaction` is generic over its callback's return type, so we
       // capture the CommitResult directly. `tx.raw` is the native Drizzle handle
       // bound to this transaction — passing it to `deleteLog`/`sweepShadows`
       // routes their DELETEs through the same commit boundary as the replay.

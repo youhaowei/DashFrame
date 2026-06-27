@@ -49,9 +49,9 @@
  * - `.update(dataFrames).set(...)`                 → set payload stripped
  * - `db.transaction(async (tx) => ...)`            → `tx` is itself gated, so
  *   transactional and nested-transaction (savepoint) writes are stripped too.
- *   This composes with WyStack's TrackedDb, which calls `db.transaction(...)`
+ *   This composes with WyStack's DrizzleTracker, which calls `db.transaction(...)`
  *   on the underlying Drizzle instance and hands the resulting `tx` to its own
- *   wrapper — TrackedDb receives a gated `tx`, not a raw one.
+ *   wrapper — DrizzleTracker receives a gated `tx`, not a raw one.
  * - A `sql\`…\`` expression supplied as the `analysis` value (e.g.
  *   `.set({ analysis: sql\`…\` })`) cannot be statically stripped, so the gate
  *   THROWS rather than letting it through silently.  See

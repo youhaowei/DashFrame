@@ -602,7 +602,7 @@ describe("buildDashframeApp — vault injection seam", () => {
     // This test confirms the injected vault is available to handlers on the
     // app.call path — a credential-bearing write that requires vault.store().
     // The runHandler wrapper uses the identical merge; direct runHandler coverage
-    // would require a caller-supplied TrackedDb (low-level escape hatch).
+    // would require a caller-supplied DrizzleTracker (low-level escape hatch).
     const { vault: injectedVault } = makeTestVault();
     const app = await buildDashframeApp({
       db: project.db,
