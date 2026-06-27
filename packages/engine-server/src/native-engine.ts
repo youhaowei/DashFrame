@@ -200,11 +200,11 @@ export class NativeDuckDBEngine implements QueryEngine {
 
     // Create a session-scoped TEMP table for staging — if the append fails
     // partway through, the live table is untouched (atomic all-or-nothing).
-    // The TEMP table is session-scoped (connection-local): DuckDB drops it
-    // automatically when `conn` closes. On the success path, the explicit DROP
-    // after the swap keeps stale staging tables from accumulating across
-    // repeated registerArrowTable calls. On the failure path, the staging table
-    // is left until dispose() — see the catch-block comment below.
+    // TEMP tables are connection-local: DuckDB drops them automatically when
+    // the owning connection closes. On the success path, the explicit DROP after
+    // the swap keeps stale staging tables from accumulating across repeated
+    // registerArrowTable calls. On the failure path, the catch block disconnects
+    // and replaces this.connection, so the staging table is dropped then too.
     //
     // The staging name carries a per-call unique suffix. Two concurrent
     // registrations of the SAME live table would otherwise share one
@@ -237,38 +237,36 @@ export class NativeDuckDBEngine implements QueryEngine {
       }
       appender.flushSync();
     } catch (err) {
-      // Append failed — staging table may be partially written; clean it up
-      // before surfacing the error so the live table is never replaced.
+      // Append failed — staging table may be partially written.
       try {
         appender.closeSync();
       } catch {
         // ignore close error — propagate original
       }
-      // Issue the cleanup on a FRESH connection, never on `conn`.
-      //
-      // On Linux, duckdb_appender_close() on a failed appender marks `conn`
-      // with a pending-result error. The next duckdb_query() on the same
-      // connection then fails with "Attempting to execute an unsuccessful or
+      // On Linux, duckdb_appender_close() on a failed appender marks the
+      // connection with a pending-result error. The next duckdb_query() on the
+      // same connection fails with "Attempting to execute an unsuccessful or
       // closed pending query result" — emitted as an unhandled NAPI-layer
-      // rejection that bypasses the surrounding try/catch. A fresh connection
-      // from the same instance is not affected by the appender's error state.
+      // rejection that bypasses the surrounding try/catch.
       //
-      // Note: staging tables are TEMP and connection-local — a fresh connection
-      // cannot see them, so the DROP is a no-op (passes only via IF EXISTS).
-      // The table drops automatically when `conn` is eventually disconnected
-      // (dispose()). Early cleanup is therefore not achieved here; the goal is
-      // solely to avoid the unhandled NAPI rejection.
+      // `conn` is `this.connection` — the PERSISTENT connection reused for the
+      // whole session (query, queryArrow, registerArrowTable). Leaving it tainted
+      // relocates the flake to the NEXT operation instead of killing it.
+      //
+      // Fix: disconnect the tainted connection and replace it with a fresh one
+      // from the same instance. When the old connection closes, DuckDB drops all
+      // its TEMP tables — including the partial staging table — so the cleanup
+      // also happens for free.
       try {
-        const cleanupConn = await this.instance!.connect();
-        try {
-          await cleanupConn.run(
-            `DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`,
-          );
-        } finally {
-          cleanupConn.disconnectSync();
-        }
+        this.connection!.disconnectSync();
       } catch {
-        // best-effort — swallow any connect-or-disconnect failure
+        // best-effort — continue to reconnect even if disconnect throws
+      }
+      this.connection = null;
+      try {
+        this.connection = await this.instance!.connect();
+      } catch {
+        // Reconnect failed — engine is unusable; surface on next call via conn()
       }
       throw err;
     }

@@ -355,68 +355,146 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   });
 });
 
-// ─── Cleanup-path mechanism: fresh connection after appender error ────────────
+// ─── Connection-reset mechanism: disconnect + reconnect after appender error ──
 //
 // On Linux, duckdb_appender_close() on a failed appender marks the connection
 // with a pending-result error. The next duckdb_query() on the same connection
 // then fails with "Attempting to execute an unsuccessful or closed pending
 // query result" — emitted as an unhandled NAPI-layer rejection that bypasses
-// the surrounding JS try/catch. The fix routes the catch-block cleanup through
-// a fresh DuckDBConnection (not tainted by the appender error), eliminating
-// the unhandled rejection.
+// the surrounding JS try/catch.
 //
-// TEMP table scope caveat: staging tables are connection-local. A fresh
-// connection cannot see them, so the DROP in the catch block is effectively a
-// no-op (IF EXISTS guards it from throwing). The staging table drops on
-// `conn` disconnect (dispose()). The fix's value is crash-prevention, not
-// early cleanup.
+// this.connection is the PERSISTENT connection reused for the whole session
+// (query, queryArrow, every registerArrowTable call). A simple "issue cleanup
+// on a fresh connection" approach leaves this.connection tainted, relocating
+// the flake to the NEXT operation. The fix disconnects this.connection and
+// reconnects from the same DuckDBInstance — preserving all non-TEMP tables
+// (instance-scoped) while discarding the tainted connection state. The partial
+// staging TEMP table (connection-local) is dropped automatically by DuckDB
+// when the old connection closes.
 //
 // These tests pin the mechanism at the DuckDBInstance layer, independent of
-// the registerArrowTable contract tests above.
-describe("DuckDB cleanup-path mechanism — appender-error does not poison fresh connection", () => {
-  it("a fresh connection can issue DROP after appender close in error state without throwing", async () => {
-    // Reproduce appender error → closeSync → fresh conn.run() — the sequence
-    // that the catch block uses. The key assertion: resolves (no throw), not
-    // that the TEMP table was actually removed (it wasn't — TEMP is conn-local).
-    //
-    // Engine-level usability after a failed registerArrowTable (the "primary conn
-    // taint" concern) is covered by the "atomic ingest" test above: engine.query()
-    // is called on the same NativeDuckDBEngine instance after rejects.toThrow().
+// the registerArrowTable contract tests above. The Linux-specific taint cannot
+// be reproduced on macOS (conn.run() succeeds after appender error there), so
+// these tests act as a smoke screen locally; Linux CI is the discriminating run.
+describe("DuckDB connection-reset mechanism — appender-error recovery", () => {
+  it("a fresh connection from the same instance works after a tainted appender closeSync", async () => {
+    // Reproduce: force appender into error state → closeSync → disconnect the
+    // tainted conn → reconnect from same instance → new conn is clean.
+    // The TEMP staging table (connection-local) must be gone after disconnect.
     const instance = await DuckDBInstance.create(":memory:");
     const conn = await instance.connect();
 
+    let freshConn;
     try {
       await conn.run(
-        "CREATE TEMP TABLE __staging_test_1 (x INTEGER, y INTEGER)",
+        "CREATE TEMP TABLE __staging_reset_test (x INTEGER, y INTEGER)",
       );
 
       // Force the appender into error state: flush an incomplete row
       // (1 value appended, 2 columns required → "incomplete append to row").
-      // Assert that flushSync() actually throws — the catch block only exercises
-      // the failure path when this precondition holds.
-      const appender = await conn.createAppender("__staging_test_1");
+      // Precondition: flushSync must throw — this is what triggers the taint.
+      const appender = await conn.createAppender("__staging_reset_test");
       appender.appendInteger(42); // only 1 of 2 required columns
       expect(() => appender.flushSync()).toThrow(); // precondition: must throw
       try {
         appender.closeSync();
       } catch {
-        /* close may also throw in error state — ignored, propagate nothing */
+        /* close may also throw in error state — ignored */
       }
 
-      // A fresh connection from the same instance must not throw — even though
-      // the TEMP table is connection-local and the DROP is a no-op, the fresh
-      // connection is untainted and the call resolves cleanly.
-      const cleanupConn = await instance.connect();
-      try {
-        await expect(
-          cleanupConn.run("DROP TABLE IF EXISTS __staging_test_1"),
-        ).resolves.toBeDefined();
-      } finally {
-        cleanupConn.disconnectSync();
-      }
-    } finally {
+      // Disconnect the tainted connection (mirrors the fix in registerArrowTable).
       conn.disconnectSync();
+
+      // A fresh connection from the same instance must be clean and functional.
+      freshConn = await instance.connect();
+
+      // The staging TEMP table was connection-local to `conn` — it is gone now.
+      // Query duckdb_tables() to confirm: zero rows matching the staging name.
+      const reader = await freshConn.runAndReadAll(
+        "SELECT count(*) AS cnt FROM duckdb_tables() WHERE table_name = '__staging_reset_test'",
+      );
+      const rows = reader.getRowObjectsJson() as Array<{ cnt: unknown }>;
+      expect(Number(rows[0]?.cnt)).toBe(0);
+
+      // The fresh connection can execute arbitrary queries without error.
+      const reader2 = await freshConn.runAndReadAll("SELECT 1 AS alive");
+      const rows2 = reader2.getRowObjectsJson() as Array<{ alive: unknown }>;
+      expect(Number(rows2[0]?.alive)).toBe(1);
+    } finally {
+      freshConn?.disconnectSync();
       instance.closeSync();
     }
+  });
+});
+
+// ─── Engine reuse regression: query succeeds after registerArrowTable fails ───
+//
+// The taint is Linux-only; macOS conn.run() succeeds even after appender error.
+// This test verifies the ENGINE-LEVEL contract: registerArrowTable failure must
+// not leave the engine in a state where subsequent operations throw. On macOS
+// this passes regardless of fix (no taint), so the local run is a smoke test;
+// Linux CI is the discriminating run. The test documents the CONTRACT even if
+// it cannot reproduce the exact failure mode here.
+describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => {
+  let engine: NativeDuckDBEngine | null = null;
+
+  afterEach(async () => {
+    await engine?.dispose();
+    engine = null;
+  });
+
+  it("engine remains usable for query() and registerArrowTable() after a failed ingest", async () => {
+    // Scenario: registerArrowTable fails INSIDE the append loop (valid Arrow
+    // buffer, but the value causes appendTimestamp to throw before flushSync).
+    // A very-large TimestampMillisecond value overflows DuckDB's range and
+    // throws synchronously in appendArrowValue — inside the try block, after
+    // the appender is created and the connection is potentially tainted.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    // Register a good table first so we can verify it survives the failure.
+    const goodInitBuf = tableToIPC(
+      new Table({ n: vectorFromArray([1.0, 2.0, 3.0], new Float64()) }),
+    );
+    await engine.registerArrowTable("df_before", goodInitBuf);
+    const before = await engine.query(
+      'SELECT COUNT(*) AS cnt FROM "df_before"',
+    );
+    expect(Number(before.rows[0]?.cnt)).toBe(3); // precondition
+
+    // Now trigger a failure inside the append loop.
+    const overflowBuf = tableToIPC(
+      new Table({
+        ts: vectorFromArray(
+          // 2.5e18 ms is ~year 79270000 — far outside DuckDB TIMESTAMP range.
+          // The value is valid in Arrow (TimestampMillisecond accepts any bigint),
+          // but appendTimestamp throws before flushSync is reached.
+          [2.5e18, 1000],
+          new TimestampMillisecond(),
+        ),
+      }),
+    );
+    await expect(
+      engine.registerArrowTable("df_overflow", overflowBuf),
+    ).rejects.toThrow(); // precondition: must fail inside the try block
+
+    // The engine must still be operational after the failure.
+    // query() must not throw the "pending-result" NAPI error.
+    const after = await engine.query('SELECT COUNT(*) AS cnt FROM "df_before"');
+    expect(Number(after.rows[0]?.cnt)).toBe(3); // pre-existing table intact
+
+    // registerArrowTable with valid data must succeed on the SAME engine instance.
+    const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
+    const goodBuf = tableToIPC(
+      new Table({ ts: vectorFromArray([ts], new TimestampMillisecond()) }),
+    );
+    await expect(
+      engine.registerArrowTable("df_after_failure", goodBuf),
+    ).resolves.toBeUndefined();
+
+    const afterReg = await engine.query(
+      'SELECT COUNT(*) AS cnt FROM "df_after_failure"',
+    );
+    expect(Number(afterReg.rows[0]?.cnt)).toBe(1);
   });
 });
