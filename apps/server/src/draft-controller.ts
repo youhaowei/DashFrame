@@ -175,6 +175,21 @@ export interface DraftController {
 }
 
 /**
+ * Optional hooks the host injects into the controller without coupling it to
+ * DashFrame-specific command knowledge.
+ */
+export interface CreateDraftControllerOptions {
+  /**
+   * Pre-bind seam: rewrite a command BEFORE it is run + snapshotted into the log.
+   * The host uses this to capture plaintext credential args into vault refs so the
+   * durable log carries a ref, never plaintext (capture-before-log). Returns the
+   * command to run + snapshot; the controller stays free of credential knowledge.
+   * Absent → commands are run and logged verbatim.
+   */
+  captureCredentials?: (cmd: DraftCommand) => Promise<DraftCommand>;
+}
+
+/**
  * Build the persistent draft controller over a WyStack app + the project's
  * artifact DB. The app resolves command paths and backs both the shadow writes
  * (via `withDraft`) and the publish replay; the typed `ArtifactDb` is the durable
@@ -183,7 +198,9 @@ export interface DraftController {
 export function createDraftController(
   app: WyStackApp,
   db: ArtifactDb,
+  options: CreateDraftControllerOptions = {},
 ): DraftController {
+  const { captureCredentials } = options;
   /** Read the draft's persisted command log, ordered for replay. */
   async function readLog(draftId: string): Promise<DraftCommand[]> {
     const rows = await db
@@ -328,14 +345,19 @@ export function createDraftController(
       // envelopes (path/args/id/compactionKey/kind) so it round-trips cleanly.
       const ranSnapshots: DraftCommand[] = [];
       for (const cmd of batch) {
+        // Capture-before-log: the host may rewrite plaintext credential args into
+        // vault refs BEFORE the command runs and is snapshotted, so the durable
+        // log never holds plaintext. The rewritten command is what the handler
+        // runs AND what we snapshot — shadow, log, and handler all see the ref.
+        const bound = captureCredentials ? await captureCredentials(cmd) : cmd;
         const value = await app.runHandler(
-          cmd.path,
-          cmd.args,
+          bound.path,
+          bound.args,
           baseDb,
           draftContext,
         );
-        ranSnapshots.push(structuredClone(cmd) as DraftCommand);
-        results.push({ id: cmd.id, value });
+        ranSnapshots.push(structuredClone(bound) as DraftCommand);
+        results.push({ id: bound.id, value });
       }
       // Project the compacted full log into draft_command_log. Read the prior
       // log, concat the snapshots of what just ran, compact (wystack's exported

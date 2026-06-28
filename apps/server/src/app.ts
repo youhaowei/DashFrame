@@ -56,6 +56,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { type ArtifactDb } from "@dashframe/server-core";
 
+import { captureCommandCredentials } from "./credential-release";
 import { createDraftController } from "./draft-controller";
 import { functions } from "./functions";
 
@@ -579,6 +580,13 @@ export async function createDashframeServer(
   serverContext.draftController = createDraftController(
     app,
     opts.db as ArtifactDb,
+    {
+      // Capture-before-log: rewrite plaintext credential args into vault refs
+      // before a credential command is snapshotted into draft_command_log, so the
+      // durable log never holds plaintext. The vault closure makes the store real
+      // (a draft append is never a preview); a missing vault fails closed.
+      captureCredentials: (cmd) => captureCommandCredentials(cmd, opts.vault),
+    },
   );
   serverContext.onWrite = opts.onWrite;
 

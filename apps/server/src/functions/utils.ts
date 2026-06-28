@@ -3,6 +3,7 @@
  * the command vocabulary (`commands.ts`) while both write paths coexist
  * (transition window while legacy coarse handlers and the command vocabulary coexist).
  */
+import type { ArtifactProvenance } from "@dashframe/server-core";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import type { FunctionContext } from "@wystack/server";
@@ -54,6 +55,70 @@ export function modeFromCtx(
   const m = ctx.mode;
   if (m === "preview" || m === "commit") return m;
   return undefined;
+}
+
+/**
+ * Context key marking a handler invocation as the PUBLISH REPLAY of a draft's
+ * command log (not a direct canonical call). The draft RPC `publishDraft` passes
+ * `{ [PUBLISH_REPLAY_CONTEXT_KEY]: true }` into `DraftController.publishDraft`,
+ * which forwards it (minus `draftId`) into the `applyCommands(mode:'commit')`
+ * context — so every replayed handler sees it.
+ *
+ * It is the signal credential command handlers use to recognise the one
+ * sanctioned canonical-commit path. Credential commands DEFER ref release to a
+ * lifecycle transition; a *direct* canonical commit (no draft, no replay) would
+ * orphan a replaced ref, so {@link assertDeferredReleaseContext} refuses it.
+ */
+export const PUBLISH_REPLAY_CONTEXT_KEY = "__publishReplay";
+
+/**
+ * True when the handler is running inside a draft append — `appendToDraft` threads
+ * the `draftId` into the handler context. On this path credential writes are
+ * captured to refs BEFORE the log snapshot and their release is deferred to the
+ * publish/discard transition, so synchronous release must NOT fire here.
+ */
+export function inDraftContext(ctx: FunctionContext): boolean {
+  return (ctx as Record<string, unknown>).draftId != null;
+}
+
+/** True when the handler is running as the publish replay of a draft log. */
+export function isPublishReplay(ctx: FunctionContext): boolean {
+  return (ctx as Record<string, unknown>)[PUBLISH_REPLAY_CONTEXT_KEY] === true;
+}
+
+/**
+ * Whether a credential command should DEFER release of the prior vault ref to a
+ * lifecycle transition instead of releasing it synchronously. True on the two
+ * transition-backed paths:
+ *   - a draft append (`inDraftContext`)  — discard/publish releases later;
+ *   - the publish replay (`isPublishReplay`) — the RPC releases post-commit, with
+ *     the cross-draft check.
+ * A DIRECT canonical call is neither, so it keeps synchronous release (the prior
+ * ref is released inline — no transition will run to clean it up).
+ */
+export function shouldDeferRelease(ctx: FunctionContext): boolean {
+  return inDraftContext(ctx) || isPublishReplay(ctx);
+}
+
+/**
+ * Validate a raw artifact-provenance value (carried in a command's args by the
+ * EMITTER) into an {@link ArtifactProvenance}, defaulting to `{ kind: "user" }`.
+ *
+ * Provenance must travel IN the command, not the handler context: publish replays
+ * the durable command log, and the append-time context is not persisted — so a
+ * context-only provenance would be lost on publish. The agent enablement emits
+ * `createdBy: { kind: "agent" }` as a command arg; it round-trips through the log
+ * to the canonical row. A malformed/absent value falls back to user (fail-safe:
+ * an unrecognised provenance is never silently trusted as agent).
+ */
+export function coerceProvenance(value: unknown): ArtifactProvenance {
+  if (isRecord(value) && (value.kind === "user" || value.kind === "agent")) {
+    const prov: ArtifactProvenance = { kind: value.kind };
+    if (typeof value.id === "string") prov.id = value.id;
+    if (typeof value.runId === "string") prov.runId = value.runId;
+    return prov;
+  }
+  return { kind: "user" };
 }
 
 /**
@@ -201,6 +266,19 @@ export async function releaseCredentialRefs(
  * @param preview When `true` (preview-mode execution) the vault write is skipped
  *   and a no-op placeholder ref is stored instead. See {@link storeCredential}.
  *   Vault releases are also skipped in preview mode.
+ * @param deferRelease When `true`, the release of the PRIOR ref (clear / rotate)
+ *   is SKIPPED — it is deferred to a lifecycle transition (publish releases the
+ *   replaced canonical ref; discard releases the draft-minted ref). The
+ *   deferred-release credential commands (CreateDataSource/SetDataSourceConfig)
+ *   pass this; the legacy coarse handlers leave it `false` (synchronous release).
+ *
+ * **Ref pass-through (capture-before-log):** when `value` is already a
+ * `SecretRef` — the credential was captured to a ref before the command was
+ * snapshotted into `draft_command_log`, or the command is being replayed from
+ * that log on publish — it is ADOPTED verbatim, never re-stored. Re-storing a ref
+ * string would double-wrap it as plaintext (the historical rotate-branch trap)
+ * AND write the ref into the durable log. Pass-through is the seam that keeps
+ * plaintext out of the log.
  */
 export async function applyCredentialField(
   config: DataSourceConfig,
@@ -209,23 +287,33 @@ export async function applyCredentialField(
   vault: SecretVault | undefined,
   locatorHint: string,
   preview = false,
+  deferRelease = false,
 ): Promise<void> {
   if (value === undefined) return; // not part of this write
+  const prior = config[field];
   if (value.length === 0) {
     // CLEAR branch: release the prior vault ref before dropping the config key.
-    // Only attempted in commit mode — preview transactions roll back and must not
-    // produce keychain side-effects.
-    if (!preview) {
-      await releaseCredentialRefs({ [field]: config[field] }, vault);
+    // Release is skipped in preview (rolled back) and when deferred to a
+    // transition (the publish/discard path releases the prior ref instead).
+    if (!preview && !deferRelease) {
+      await releaseCredentialRefs({ [field]: prior }, vault);
     }
     delete config[field]; // explicit clear
     return;
   }
-  // ROTATE branch: capture prior ref before overwriting, store new first,
-  // then release old (store-new-then-release-old preserves the new secret on failure).
-  const prior = config[field];
-  config[field] = await storeCredential(vault, value, locatorHint, preview);
-  if (!preview) {
+  if (isSecretRef(value)) {
+    // PASS-THROUGH: the value is already a vault ref (captured before the log
+    // snapshot, or replayed from the durable log). Adopt it; never re-store.
+    config[field] = value;
+  } else {
+    // ROTATE/SET branch: plaintext → store, adopt the returned ref.
+    // store-new-first preserves the new secret if a later release fails.
+    config[field] = await storeCredential(vault, value, locatorHint, preview);
+  }
+  // Release the prior ref unless it is unchanged (idempotent re-set of the same
+  // ref — releasing it would destroy the live secret the new config points at),
+  // skipped in preview, or deferred to a lifecycle transition.
+  if (!preview && !deferRelease && prior !== config[field]) {
     await releaseCredentialRefs({ [field]: prior }, vault);
   }
 }
