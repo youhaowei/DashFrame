@@ -285,6 +285,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     // Drive the debounced snapshot scheduler on the headless serve path too, so
     // `dashframe serve` gets the same crash-durability guarantee as desktop.
     onWrite: () => project.touchSnapshot(),
+    // Durable counterpart: used by the pre-release gate before deleting a vault
+    // ref so the snapshot that drops the ref is confirmed on disk first.
+    flushSnapshot: () => project.flushSnapshot(),
   });
 
   closeOnSignal(project, server);

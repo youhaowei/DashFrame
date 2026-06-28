@@ -80,7 +80,10 @@ interface Harness {
   controller: DraftController;
 }
 
-async function makeHarness(opts?: { onWrite?: () => void }): Promise<Harness> {
+async function makeHarness(opts?: {
+  onWrite?: () => void;
+  flushSnapshot?: () => Promise<void>;
+}): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "dashframe-cred-release-"));
   const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
   const { vault } = makeTestVault();
@@ -109,6 +112,7 @@ async function makeHarness(opts?: { onWrite?: () => void }): Promise<Harness> {
   serverContext.draftController = controller;
   serverContext.artifactDb = db;
   if (opts?.onWrite) serverContext.onWrite = opts.onWrite;
+  if (opts?.flushSnapshot) serverContext.flushSnapshot = opts.flushSnapshot;
 
   return { dir, db, vault, app, controller };
 }
@@ -970,5 +974,255 @@ describe("credential write path — capture-before-log + transition release", ()
         apiKey: makeSecretRef(), // valid ref shape, must NOT be adopted
       }),
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC#2 — Pre-release flush gate: publishDraft and discardDraft await
+// flushSnapshot before releasing credential refs, so a crash between onWrite
+// return and snapshot durability cannot leave a ref released-but-not-snapshotted.
+// ---------------------------------------------------------------------------
+describe("pre-release flush gate (flushSnapshot — transition-time path)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    // No flushSnapshot by default — tests that need it construct their own harness.
+    h = await makeHarness();
+  });
+  afterEach(async () => {
+    await h.db.$client.close();
+    rmSync(h.dir, { recursive: true, force: true });
+  });
+
+  // AC#2 core: when flushSnapshot is provided and succeeds, the publish path
+  // releases the replaced canonical ref (the flush resolved → ref released).
+  it("publishDraft releases replaced ref after flushSnapshot succeeds", async () => {
+    const flushCalls: number[] = [];
+    const flushing = await makeHarness({
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        flushing,
+        "old-key",
+      );
+      const draftId = await flushing.controller.openDraft();
+      await flushing.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "new-key" }),
+      ]);
+      await flushing.app.call("publishDraft", { draftId });
+      // flushSnapshot was called (the pre-release gate fired on credential refs)
+      expect(flushCalls).toHaveLength(1);
+      // old ref was released after the flush
+      expect(await flushing.vault.has(oldRef)).toBe(false);
+    } finally {
+      await flushing.db.$client.close();
+      rmSync(flushing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#2 fail-safe: when flushSnapshot throws, the old ref is NOT released —
+  // it becomes an inert orphan rather than a dangling live reference.
+  // (Same invariant as the existing onWrite test, now using the durable gate.)
+  it("publishDraft skips credential release when flushSnapshot fails", async () => {
+    const failing = await makeHarness({
+      flushSnapshot: () => Promise.reject(new Error("disk full")),
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        failing,
+        "orig-key",
+      );
+      const draftId = await failing.controller.openDraft();
+      await failing.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "rotated-key" }),
+      ]);
+      // Publish commits, but flushSnapshot throws → release is skipped,
+      // leaving old ref as an inert orphan, NOT a dangling live reference.
+      await failing.app.call("publishDraft", { draftId });
+      expect(await failing.vault.has(oldRef)).toBe(true);
+    } finally {
+      await failing.db.$client.close();
+      rmSync(failing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#2 for discardDraft: same gate — discard uses flushSnapshot when it has
+  // credential refs to release (draft-minted refs).
+  it("discardDraft releases minted ref after flushSnapshot succeeds", async () => {
+    const flushCalls: number[] = [];
+    const flushing = await makeHarness({
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      // Seed a canonical source so the draft can reference it
+      const { id } = await seedCanonicalSource(flushing, "canonical-key");
+      const draftId = await flushing.controller.openDraft();
+      // Append a credential command — capture-before-log mints a new ref in the log
+      await flushing.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "draft-key" }),
+      ]);
+      // Read the minted ref from the log
+      const logArgs = await firstLogArgs(flushing, draftId);
+      const mintedRef = logArgs.apiKey as SecretRef;
+      expect(isSecretRef(mintedRef)).toBe(true);
+      expect(await flushing.vault.has(mintedRef)).toBe(true);
+
+      await flushing.app.call("discardDraft", { draftId });
+      // flushSnapshot called — draft-minted refs triggered the durable gate
+      expect(flushCalls).toHaveLength(1);
+      // minted ref released after flush
+      expect(await flushing.vault.has(mintedRef)).toBe(false);
+    } finally {
+      await flushing.db.$client.close();
+      rmSync(flushing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // Non-credential publish still uses the debounced onWrite path (no expensive
+  // flush on every publish — only on credential-bearing ones).
+  it("publishDraft uses onWrite (not flushSnapshot) when no credential refs are replaced", async () => {
+    const onWriteCalls: number[] = [];
+    const flushCalls: number[] = [];
+    const mixed = await makeHarness({
+      onWrite: () => onWriteCalls.push(Date.now()),
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      const draftId = await mixed.controller.openDraft();
+      await mixed.controller.appendToDraft(draftId, [
+        // No credential fields — this create has no apiKey/connectionString
+        cmd("CreateDataSource", {
+          id: crypto.randomUUID(),
+          type: "csv",
+          name: "NoCredential",
+        }),
+      ]);
+      await mixed.app.call("publishDraft", { draftId });
+      // No credential refs → debounced onWrite used, not flushSnapshot
+      expect(onWriteCalls).toHaveLength(1);
+      expect(flushCalls).toHaveLength(0);
+    } finally {
+      await mixed.db.$client.close();
+      rmSync(mixed.dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC#3 — Legacy synchronous release path: direct canonical calls
+// (setDataSourceConfig / deleteNode without a draft) flush the snapshot before
+// releasing the superseded vault ref.
+// ---------------------------------------------------------------------------
+describe("pre-release flush gate (legacy direct canonical calls)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await makeHarness();
+  });
+  afterEach(async () => {
+    await h.db.$client.close();
+    rmSync(h.dir, { recursive: true, force: true });
+  });
+
+  // AC#3 rotate: setDataSourceConfig direct canonical call flushes before release.
+  it("setDataSourceConfig releases old ref after flushSnapshot on direct canonical call", async () => {
+    const flushCalls: number[] = [];
+    const flushing = await makeHarness({
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        flushing,
+        "old-key",
+      );
+      // Direct canonical call — no draftId in context → deferRelease = false → legacy path
+      await flushing.app.call("setDataSourceConfig", { id, apiKey: "new-key" });
+      // flushSnapshot was called before the release
+      expect(flushCalls).toHaveLength(1);
+      // old ref was released after the flush
+      expect(await flushing.vault.has(oldRef)).toBe(false);
+    } finally {
+      await flushing.db.$client.close();
+      rmSync(flushing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#3 fail-safe: if flushSnapshot throws on the legacy path, the old ref is
+  // NOT released — inert orphan rather than dangling live reference.
+  it("setDataSourceConfig skips credential release when flushSnapshot fails", async () => {
+    const failing = await makeHarness({
+      flushSnapshot: () => Promise.reject(new Error("flush failed")),
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        failing,
+        "orig-key",
+      );
+      // Direct canonical call — flushSnapshot fails → skip release
+      await failing.app.call("setDataSourceConfig", {
+        id,
+        apiKey: "rotated-key",
+      });
+      // Old ref NOT released (safe inert orphan, not a dangling live reference)
+      expect(await failing.vault.has(oldRef)).toBe(true);
+    } finally {
+      await failing.db.$client.close();
+      rmSync(failing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#3 delete: deleteNode flushes snapshot before releasing data-source config refs.
+  it("deleteNode/dataSource releases config refs after flushSnapshot", async () => {
+    const flushCalls: number[] = [];
+    const flushing = await makeHarness({
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      const { id, ref } = await seedCanonicalSource(flushing, "key");
+      expect(await flushing.vault.has(ref)).toBe(true);
+      // Direct canonical delete (no draft context)
+      await flushing.app.call("deleteNode", { id });
+      // flushSnapshot called before ref release
+      expect(flushCalls).toHaveLength(1);
+      // config ref released after the snapshot was flushed
+      expect(await flushing.vault.has(ref)).toBe(false);
+    } finally {
+      await flushing.db.$client.close();
+      rmSync(flushing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#3 clear: setDataSourceConfig with empty string clears the credential
+  // (CLEAR branch) — same flush-before-release ordering applies.
+  it("setDataSourceConfig clears credential after flushSnapshot (CLEAR branch)", async () => {
+    const flushCalls: number[] = [];
+    const flushing = await makeHarness({
+      flushSnapshot: async () => {
+        flushCalls.push(Date.now());
+      },
+    });
+    try {
+      const { id, ref } = await seedCanonicalSource(flushing, "to-be-cleared");
+      // Clear the credential — empty string triggers CLEAR branch
+      await flushing.app.call("setDataSourceConfig", { id, apiKey: "" });
+      // flush before release
+      expect(flushCalls).toHaveLength(1);
+      // cleared ref is gone from vault
+      expect(await flushing.vault.has(ref)).toBe(false);
+    } finally {
+      await flushing.db.$client.close();
+      rmSync(flushing.dir, { recursive: true, force: true });
+    }
   });
 });

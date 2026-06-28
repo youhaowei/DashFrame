@@ -100,22 +100,46 @@ const publishDraft = mutation({
     // a non-empty command log (its deletion is itself a durable change).
     let snapshotPersisted = true;
     if (result.tablesWritten.size > 0 || prePublishLog.length > 0) {
+      // When the publish replaces credential refs, use flushSnapshot (durable,
+      // immediate write) instead of onWrite (debounced, fire-and-forget). The
+      // pre-release gate requires the snapshot to be confirmed on disk BEFORE
+      // any replaced ref is deleted — onWrite's debounce cannot provide that
+      // guarantee. For publishes with no credential refs, the debounced path
+      // is sufficient (no release is gated on it) and avoids the snapshot cost.
+      const flushSnapshot = ctx.flushSnapshot as
+        | (() => Promise<void>)
+        | undefined;
       const onWrite = ctx.onWrite as (() => void) | undefined;
-      try {
-        onWrite?.();
-      } catch (err) {
-        snapshotPersisted = false;
-        console.error("[dashframe] publishDraft: onWrite hook threw:", err);
+      if (replacedRefs.length > 0 && flushSnapshot != null) {
+        try {
+          await flushSnapshot();
+        } catch (err) {
+          snapshotPersisted = false;
+          console.error(
+            "[dashframe] publishDraft: flushSnapshot failed, skipping credential release:",
+            err,
+          );
+        }
+      } else {
+        // No credential refs to gate, or no durable-flush hook — use the
+        // debounced schedule (existing behaviour; release is not gated on it).
+        try {
+          onWrite?.();
+        } catch (err) {
+          snapshotPersisted = false;
+          console.error("[dashframe] publishDraft: onWrite hook threw:", err);
+        }
       }
     }
 
     // Publish has committed: release the replaced canonical refs that are no
     // longer referenced by canonical or any other open draft (best-effort —
     // a release failure leaves an inert orphan, never fails the committed publish).
-    // GATED on snapshot persistence: if onWrite failed, the post-publish state was
-    // not durably snapshotted, so a restart could restore the PRE-publish snapshot
-    // (old canonical ref) — releasing that ref now would dangle it. Skip the
-    // release (leave an inert orphan) rather than risk a dangling live reference.
+    // GATED on snapshot persistence: if flushSnapshot failed (or onWrite on the
+    // non-credential path), the post-publish state was not durably snapshotted,
+    // so a restart could restore the PRE-publish snapshot (old canonical ref) —
+    // releasing that ref now would dangle it. Skip the release (leave an inert
+    // orphan) rather than risk a dangling live reference.
     if (artifactDb != null && snapshotPersisted) {
       await releaseRefsAtTransition(artifactDb, vault, replacedRefs, draftId);
     }
@@ -173,13 +197,35 @@ const discardDraft = mutation({
     // run before the credential release below: if the post-discard state is not
     // snapshotted, a restart restores the draft (referencing its refs), so those
     // refs must not have been released yet.
+    //
+    // When the draft minted credential refs, use flushSnapshot (durable,
+    // immediate) instead of onWrite (debounced, fire-and-forget). The pre-release
+    // gate requires the snapshot to be confirmed on disk before any ref is deleted.
+    // For discards with no credential refs, the debounced path is sufficient.
     let snapshotPersisted = true;
+    const flushSnapshot = ctx.flushSnapshot as
+      | (() => Promise<void>)
+      | undefined;
     const onWrite = ctx.onWrite as (() => void) | undefined;
-    try {
-      onWrite?.();
-    } catch (err) {
-      snapshotPersisted = false;
-      console.error("[dashframe] discardDraft: onWrite hook threw:", err);
+    if (mintedRefs.length > 0 && flushSnapshot != null) {
+      try {
+        await flushSnapshot();
+      } catch (err) {
+        snapshotPersisted = false;
+        console.error(
+          "[dashframe] discardDraft: flushSnapshot failed, skipping credential release:",
+          err,
+        );
+      }
+    } else {
+      // No credential refs to gate, or no durable-flush hook — use the
+      // debounced schedule (existing behaviour; release is not gated on it).
+      try {
+        onWrite?.();
+      } catch (err) {
+        snapshotPersisted = false;
+        console.error("[dashframe] discardDraft: onWrite hook threw:", err);
+      }
     }
 
     // Release the draft-minted refs now that the draft is gone AND that removal is
