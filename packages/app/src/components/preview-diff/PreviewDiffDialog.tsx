@@ -116,25 +116,35 @@ export function PreviewDiffDialog({
       }}
     >
       {/*
-       * Three-row grid (DialogContent base sets display:grid): header (auto) /
-       * scroll body (1fr) / footer (auto). Only apply the row template when
-       * the footer renders — an empty third track still consumes a gap-4 gap.
+       * Grid layout (DialogContent base sets display:grid):
+       *   actionable: header (auto) / scroll body (1fr) / footer (auto)
+       *   read-only:  header (auto) / scroll body (1fr)
        *
-       * min-h-0 on the scroll wrapper is required: grid items default to
-       * min-height:auto, which prevents shrinking below content height and
-       * makes overflow-y-auto a no-op.
+       * Both modes use grid-rows so the 1fr body track is bounded by
+       * max-h-[80vh], which makes overflow-y-auto on the body effective.
+       * Without the 1fr track the grid item defaults to min-height:auto
+       * and the scroll wrapper can never shrink — overflow-y-auto becomes
+       * a no-op and tall diffs clip instead of scroll.
+       *
+       * min-h-0 on the scroll wrapper is still required: grid items default
+       * to min-height:auto, which prevents shrinking below content height.
        */}
       <DialogContent
         className={
           hasActions
             ? "grid-rows-[auto_1fr_auto] max-h-[80vh] max-w-2xl overflow-hidden"
-            : "max-h-[80vh] max-w-2xl overflow-hidden"
+            : "grid-rows-[auto_1fr] max-h-[80vh] max-w-2xl overflow-hidden"
         }
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto">
+        <div
+          className="min-h-0 overflow-y-auto"
+          role="region"
+          aria-label="Diff preview"
+          tabIndex={0}
+        >
           {filledDiff ? (
             <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
           ) : (
