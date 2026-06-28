@@ -195,6 +195,23 @@ export interface DashframeServerOptions {
    */
   onWrite?: () => void;
   /**
+   * Optional async hook that cancels any pending debounced timer, forces an
+   * IMMEDIATE snapshot write to disk, and resolves only after the write is
+   * durable — propagating errors to the caller.
+   *
+   * This is the durable counterpart to `onWrite`. It is ONLY called when the
+   * pre-release gate requires durability before releasing a vault ref: a
+   * credential ref is released only after the snapshot that drops it from the
+   * config has been confirmed written. `onWrite`'s debounced schedule cannot
+   * provide this guarantee because it returns immediately without awaiting the
+   * write.
+   *
+   * Desktop passes `() => project.flushSnapshot()`. Surfaces that do not need
+   * the guarantee may omit it; the pre-release gate falls back to the
+   * debounced `onWrite` behaviour in that case (existing semantics).
+   */
+  flushSnapshot?: () => Promise<void>;
+  /**
    * Secret vault for credential storage. The runtime composer (Electron main
    * or `dashframe serve`) registers a backend into a SecretRegistry, builds a
    * SecretVault, and injects it here. The server itself never picks or
@@ -590,6 +607,11 @@ export async function createDashframeServer(
     },
   );
   serverContext.onWrite = opts.onWrite;
+  // Durable counterpart to onWrite: cancels the debounce and forces an
+  // immediate snapshot write, awaited for durability. Used by the pre-release
+  // gate (publishDraft / discardDraft / direct canonical credential writes) to
+  // guarantee the snapshot dropping a ref is on disk before the ref is deleted.
+  serverContext.flushSnapshot = opts.flushSnapshot;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();

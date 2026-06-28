@@ -26,6 +26,7 @@ import type { Command } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
 
 import {
+  collectDeletedSourceRefs,
   collectDiscardCandidateRefs,
   collectSupersededRefs,
   releaseRefsAtTransition,
@@ -55,6 +56,64 @@ interface PublishDraftInternalResult {
  * server app wrapper also uses `__extraTablesWritten` (stripped before the
  * response reaches the client) to drive WS reactive invalidation.
  */
+
+/**
+ * Fire the correct snapshot path and return whether durability was confirmed.
+ * Extracted to keep `publishDraft` and `discardDraft` within the cognitive-
+ * complexity budget (each snapshot/gate block is identical in both handlers).
+ *
+ * - credential refs + flushSnapshot hook present → await flush; return true/false.
+ * - credential refs + no flushSnapshot hook → fail-closed: log + return false;
+ *   onWrite still fires for non-credential snapshot scheduling.
+ * - no credential refs → call onWrite; return true on success.
+ */
+async function gateSnapshotForRelease(
+  ctx: Record<string, unknown>,
+  hasCredentialRefs: boolean,
+  label: string,
+): Promise<boolean> {
+  const flushSnapshot = ctx.flushSnapshot as (() => Promise<void>) | undefined;
+  const onWrite = ctx.onWrite as (() => void) | undefined;
+
+  if (hasCredentialRefs && flushSnapshot != null) {
+    try {
+      await flushSnapshot();
+      return true;
+    } catch (err) {
+      console.error(
+        `[dashframe] ${label}: flushSnapshot failed, skipping credential release:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  if (hasCredentialRefs) {
+    // Fail-closed: no durable flush hook — release blocked.
+    console.error(
+      `[dashframe] ${label}: credential refs present but no flushSnapshot ` +
+        "hook — skipping release (fail-closed). Wire flushSnapshot to ensure " +
+        "refs are released after this lifecycle event.",
+    );
+    // Still schedule onWrite for non-credential snapshot durability (best-effort).
+    try {
+      onWrite?.();
+    } catch {
+      // Non-credential path; onWrite failure here doesn't affect credential safety.
+    }
+    return false;
+  }
+
+  // No credential refs — debounced path is sufficient.
+  try {
+    onWrite?.();
+    return true;
+  } catch (err) {
+    console.error(`[dashframe] ${label}: onWrite hook threw:`, err);
+    return false;
+  }
+}
+
 const publishDraft = mutation({
   args: { draftId: text },
   handler: async (ctx, { draftId }): Promise<PublishDraftInternalResult> => {
@@ -77,14 +136,27 @@ const publishDraft = mutation({
     const prePublishLog = await draftController.getDraftLog(draftId);
 
     // TRANSITION-TIME RELEASE — publish half. Collect the canonical refs each
-    // command will REPLACE *before* replay overwrites them; release runs only
-    // AFTER the publish transaction commits (below), so a rolled-back publish
-    // never deletes a still-live secret.
+    // command will REPLACE or DELETE *before* replay acts on them; release runs
+    // only AFTER the publish transaction commits (below), so a rolled-back
+    // publish never deletes a still-live secret.
+    //
+    // Two collectors:
+    //  - collectSupersededRefs: credential-WRITE commands (CreateDataSource,
+    //    SetDataSourceConfig) — refs whose field is overwritten by the replay.
+    //  - collectDeletedSourceRefs: DeleteNode commands — credential refs held
+    //    in the config of a DataSource being deleted. DeleteNode is NOT in
+    //    CREDENTIAL_COMMAND_FIELDS so collectSupersededRefs cannot see it;
+    //    handling it here (pre-commit) lets the deleteNode replay handler skip
+    //    flushSnapshot+release inside the uncommitted transaction, preserving
+    //    the ordering invariant (delete-row → commit → flush → release-ref).
     const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
     const vault = ctx.vault as SecretVault | undefined;
     const replacedRefs =
       artifactDb != null
-        ? await collectSupersededRefs(artifactDb, prePublishLog)
+        ? [
+            ...(await collectSupersededRefs(artifactDb, prePublishLog)),
+            ...(await collectDeletedSourceRefs(artifactDb, prePublishLog)),
+          ]
         : [];
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
@@ -98,24 +170,25 @@ const publishDraft = mutation({
     // used inside publishDraft). We call it explicitly via the injected callback.
     // Condition: fire when canonical tables were written OR when the draft had
     // a non-empty command log (its deletion is itself a durable change).
+    // When credential refs are replaced, a durable flush (not debounced onWrite)
+    // is required — `gateSnapshotForRelease` handles both paths.
     let snapshotPersisted = true;
     if (result.tablesWritten.size > 0 || prePublishLog.length > 0) {
-      const onWrite = ctx.onWrite as (() => void) | undefined;
-      try {
-        onWrite?.();
-      } catch (err) {
-        snapshotPersisted = false;
-        console.error("[dashframe] publishDraft: onWrite hook threw:", err);
-      }
+      snapshotPersisted = await gateSnapshotForRelease(
+        ctx as Record<string, unknown>,
+        replacedRefs.length > 0,
+        "publishDraft",
+      );
     }
 
     // Publish has committed: release the replaced canonical refs that are no
     // longer referenced by canonical or any other open draft (best-effort —
     // a release failure leaves an inert orphan, never fails the committed publish).
-    // GATED on snapshot persistence: if onWrite failed, the post-publish state was
-    // not durably snapshotted, so a restart could restore the PRE-publish snapshot
-    // (old canonical ref) — releasing that ref now would dangle it. Skip the
-    // release (leave an inert orphan) rather than risk a dangling live reference.
+    // GATED on snapshot persistence: if flushSnapshot failed (or onWrite on the
+    // non-credential path), the post-publish state was not durably snapshotted,
+    // so a restart could restore the PRE-publish snapshot (old canonical ref) —
+    // releasing that ref now would dangle it. Skip the release (leave an inert
+    // orphan) rather than risk a dangling live reference.
     if (artifactDb != null && snapshotPersisted) {
       await releaseRefsAtTransition(artifactDb, vault, replacedRefs, draftId);
     }
@@ -172,15 +245,14 @@ const discardDraft = mutation({
     // durable store; a stale snapshot would resurrect them on restart. This MUST
     // run before the credential release below: if the post-discard state is not
     // snapshotted, a restart restores the draft (referencing its refs), so those
-    // refs must not have been released yet.
-    let snapshotPersisted = true;
-    const onWrite = ctx.onWrite as (() => void) | undefined;
-    try {
-      onWrite?.();
-    } catch (err) {
-      snapshotPersisted = false;
-      console.error("[dashframe] discardDraft: onWrite hook threw:", err);
-    }
+    // refs must not have been released yet. When credential refs are minted, a
+    // durable flush (not debounced onWrite) is required — `gateSnapshotForRelease`
+    // handles both paths.
+    const snapshotPersisted = await gateSnapshotForRelease(
+      ctx as Record<string, unknown>,
+      mintedRefs.length > 0,
+      "discardDraft",
+    );
 
     // Release the draft-minted refs now that the draft is gone AND that removal is
     // durably snapshotted (best-effort; gated so a stale-snapshot restore cannot

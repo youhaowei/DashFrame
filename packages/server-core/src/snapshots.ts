@@ -446,6 +446,51 @@ export class SnapshotScheduler {
     await this.inFlight.catch(() => {});
   }
 
+  /**
+   * Cancel any pending debounced timer, force an IMMEDIATE snapshot, and await
+   * it — propagating errors to the caller.
+   *
+   * Unlike `touch()` (which schedules a debounced write and returns void), this
+   * method guarantees the snapshot is durably persisted on disk before it
+   * resolves. It is the primitive for the pre-release flush gate: a credential
+   * ref must not be released from the vault until the snapshot that drops that
+   * ref from the config is known to be durable.
+   *
+   * Serialisation: the write is chained onto `inFlight` exactly as `fireNow()`
+   * does, so it cannot overlap a concurrently running debounced write or the
+   * final snapshot from `ProjectHandle.close()`.
+   *
+   * Error propagation: unlike `fireNow()`, which swallows errors to keep the
+   * chain healthy for the next debounced snapshot, this method surfaces write
+   * failures to the caller. The caller (pre-release gate) decides whether to
+   * skip the release and leave an inert orphan rather than risk a dangling live
+   * reference.
+   */
+  async flushNow(): Promise<void> {
+    // Cancel any pending debounce timer — we are writing immediately.
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.firstPendingAt = null;
+
+    // Chain onto the in-flight tail (prevents overlap) and capture a promise
+    // that both (a) updates inFlight to suppress "nothing pending" and (b)
+    // propagates the error to this caller. The chain has TWO branches:
+    //   - inFlight (error-swallowed): keeps the chain healthy for future
+    //     debounced calls if this flush is later followed by more touch() calls.
+    //   - write (error-propagated): returned to the caller so the pre-release
+    //     gate learns whether durability was achieved.
+    const write = this.inFlight
+      .catch(() => {}) // don't let a prior failure block this write
+      .then(() => writeSnapshot(this.pgliteClient, this.projectDir));
+    // Register the error-swallowed tail so future debounced writes still chain
+    // correctly even if `write` throws.
+    this.inFlight = write.catch(() => {});
+    // Await with error propagation — callers must handle rejection.
+    await write;
+  }
+
   /** Cancel any pending debounced snapshot (call before close). */
   cancel(): void {
     if (this.timer !== null) {

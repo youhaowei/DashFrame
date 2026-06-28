@@ -129,6 +129,22 @@ export interface ProjectHandle {
    * debounced snapshot timer is reset.
    */
   touchSnapshot(): void;
+  /**
+   * Cancel any pending debounced timer, force an IMMEDIATE snapshot write, and
+   * await it — propagating errors to the caller.
+   *
+   * Provides the durability guarantee required by the credential pre-release
+   * gate: a vault ref must not be deleted until the snapshot that drops that ref
+   * from the config has been confirmed written to disk. The debounced
+   * `touchSnapshot()` cannot provide this because it returns before the write
+   * starts. Use `flushSnapshot()` immediately after a credential-bearing
+   * canonical write (publish/discard transition or direct config update) and
+   * before releasing the superseded vault ref.
+   *
+   * Propagates write errors so the caller can decide to skip the release and
+   * leave an inert orphan rather than risk a dangling live reference.
+   */
+  flushSnapshot(): Promise<void>;
   /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
   close(): Promise<CloseResult>;
 }
@@ -277,6 +293,7 @@ export async function openProject(
     meta,
     recovery,
     touchSnapshot: () => scheduler.touch(),
+    flushSnapshot: () => scheduler.flushNow(),
     close,
   };
 }

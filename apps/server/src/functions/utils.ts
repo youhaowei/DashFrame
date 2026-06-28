@@ -241,6 +241,25 @@ export async function releaseCredentialRefs(
 }
 
 /**
+ * Push the prior ref into the superseded collector (when one is provided) or
+ * release it immediately via `releaseCredentialRefs`. Extracted to reduce
+ * `applyCredentialField`'s cognitive complexity — the two call sites have
+ * identical branch logic.
+ */
+async function pushOrRelease(
+  prior: unknown,
+  field: "apiKey" | "connectionString",
+  vault: SecretVault | undefined,
+  superseded: SecretRef[] | undefined,
+): Promise<void> {
+  if (superseded != null && isSecretRef(prior)) {
+    superseded.push(prior);
+  } else {
+    await releaseCredentialRefs({ [field]: prior }, vault);
+  }
+}
+
+/**
  * Apply an inbound credential value to a config slice, in place. Three-way:
  *
  *   - `undefined` → leave the existing config key untouched (not part of this write).
@@ -296,6 +315,24 @@ export async function applyCredentialField(
   locatorHint: string,
   preview = false,
   deferRelease = false,
+  /**
+   * When provided (and `!preview && !deferRelease`), the superseded prior ref
+   * is PUSHED into this array instead of being released immediately. The caller
+   * is then responsible for: (1) performing the canonical DB write, (2) calling
+   * `flushSnapshot()` to ensure the snapshot capturing the new config is durable,
+   * and (3) calling `releaseCredentialRefs` (or equivalent) on the collected refs.
+   *
+   * This deferred-release collector is the fix for the legacy synchronous release
+   * path's crash window: previously the prior ref was released inside this function
+   * BEFORE the caller wrote the new config to the DB and flushed the snapshot,
+   * leaving a window where the ref was gone from the vault but the snapshot could
+   * still reference it. With the collector, the caller can guarantee the ordering:
+   *   store-new → canonical-write → flush-snapshot → release-old.
+   *
+   * When `superseded` is `undefined`, behaviour is unchanged: immediate release
+   * (backward-compatible for callers not exercising the flush-before-release path).
+   */
+  superseded?: SecretRef[],
 ): Promise<void> {
   if (value === undefined) return; // not part of this write
   const prior = config[field];
@@ -303,8 +340,9 @@ export async function applyCredentialField(
     // CLEAR branch: release the prior vault ref before dropping the config key.
     // Release is skipped in preview (rolled back) and when deferred to a
     // transition (the publish/discard path releases the prior ref instead).
+    // When a collector is provided, push instead of releasing immediately.
     if (!preview && !deferRelease) {
-      await releaseCredentialRefs({ [field]: prior }, vault);
+      await pushOrRelease(prior, field, vault, superseded);
     }
     delete config[field]; // explicit clear
     return;
@@ -328,8 +366,9 @@ export async function applyCredentialField(
   // Release the prior ref unless it is unchanged (idempotent re-set of the same
   // ref — releasing it would destroy the live secret the new config points at),
   // skipped in preview, or deferred to a lifecycle transition.
+  // When a collector is provided, push instead of releasing immediately.
   if (!preview && !deferRelease && prior !== config[field]) {
-    await releaseCredentialRefs({ [field]: prior }, vault);
+    await pushOrRelease(prior, field, vault, superseded);
   }
 }
 

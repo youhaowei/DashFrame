@@ -94,6 +94,7 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
+import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 import { z } from "zod";
@@ -421,6 +422,54 @@ const createDataSource = mutation({
  * schema). Sink guard: any key in `extra` that matches "apiKey" or
  * "connectionString" is rejected — callers must use the typed credential fields.
  */
+
+/**
+ * Flush a durable snapshot then release superseded credential refs. Extracted from
+ * `setDataSourceConfig` Phase 3 to keep the handler within the cognitive-complexity
+ * budget. Fail-closed: if `flushSnapshot` is absent or throws, release is skipped
+ * (inert orphan rather than dangling live reference).
+ */
+async function flushAndReleaseRefs(
+  ctx: import("@wystack/server").FunctionContext,
+  supersededRefs: SecretRef[],
+  vault: import("@wystack/secret-vault").SecretVault | undefined,
+  label: string,
+): Promise<void> {
+  const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
+    | (() => Promise<void>)
+    | undefined;
+  if (flushSnapshot == null) {
+    console.error(
+      `[dashframe] ${label}: no flushSnapshot hook — skipping credential release ` +
+        "(fail-closed). Wire flushSnapshot to ensure replaced credential refs are released.",
+    );
+    return;
+  }
+  try {
+    await flushSnapshot();
+  } catch (err) {
+    console.error(
+      `[dashframe] ${label}: flushSnapshot failed, skipping credential release:`,
+      err,
+    );
+    return;
+  }
+  // Best-effort: a release failure leaves an inert orphan; it must never fail the
+  // committed write. Parallel deletes; log any failures.
+  const results = await Promise.allSettled(
+    supersededRefs.map((ref) => vault?.delete(ref)),
+  );
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${label}: ${failures.length} of ${supersededRefs.length} credential ref(s) failed to release (inert orphan):`,
+      failures.map((f) => f.reason),
+    );
+  }
+}
+
 const setDataSourceConfig = mutation({
   args: {
     id: uuid,
@@ -463,8 +512,17 @@ const setDataSourceConfig = mutation({
     // is NOT released here (deferRelease): release is the publish transition's job
     // (it releases the replaced canonical ref post-commit, with a cross-draft-
     // reference check) so a rolled-back publish never deletes a still-live secret.
-    // On a direct canonical call, the prior ref is released synchronously.
+    // On a direct canonical call, the prior ref is collected here and released AFTER
+    // the canonical write is committed AND a snapshot is flushed to disk, so the
+    // snapshot capturing the new config is durable before the old ref is removed.
     // In preview mode vault writes are skipped (keychain is not transactional).
+    //
+    // PRE-RELEASE FLUSH GATE (direct canonical path, !deferRelease, !preview):
+    //   store-new → canonical-write → flush-snapshot → release-old
+    // The superseded collector captures the old ref inside applyCredentialField
+    // instead of releasing it immediately, so the canonical write and snapshot
+    // flush can happen first.
+    const supersededRefs: SecretRef[] = [];
     await applyCredentialField(
       config,
       "apiKey",
@@ -473,6 +531,7 @@ const setDataSourceConfig = mutation({
       `apiKey-${id}`,
       preview,
       deferRelease,
+      supersededRefs,
     );
     await applyCredentialField(
       config,
@@ -482,12 +541,30 @@ const setDataSourceConfig = mutation({
       `connectionString-${id}`,
       preview,
       deferRelease,
+      supersededRefs,
     );
     // Merge non-credential keys from `extra` into the config (guarded above).
     if (isRecord(extra)) {
       Object.assign(config, extra);
     }
+    // PHASE 2: canonical write — new config (with new ref) is now committed.
     await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
+
+    // PHASE 3: flush snapshot then release old refs (direct canonical path only).
+    // Only relevant when the direct call actually superseded credential refs
+    // (!deferRelease is implied — deferRelease callers pass an empty superseded
+    // because applyCredentialField skips the collector on those paths).
+    // Fail-closed: `flushAndReleaseRefs` skips release when flushSnapshot is absent
+    // or throws — inert orphan rather than dangling live reference.
+    if (supersededRefs.length > 0 && !preview) {
+      await flushAndReleaseRefs(
+        ctx,
+        supersededRefs,
+        vault,
+        "setDataSourceConfig",
+      );
+    }
+
     return { ok: true };
   },
 });
@@ -1924,6 +2001,101 @@ async function deleteDataSourceDependents(
 }
 
 /**
+ * After a DataSource row has been deleted, flush a durable snapshot and then
+ * release any credential vault refs that were held in its config. Extracted to
+ * reduce `deleteNode`'s handler cognitive complexity.
+ *
+ * Ordering invariant: delete-row → this function → refs released.
+ * This ensures the snapshot that lands on disk already reflects the absent row,
+ * so a crash-and-restart cannot produce a snapshot that references a deleted ref.
+ *
+ * Skips if:
+ *  (a) preview mode — vault is not transactional; releasing here would orphan
+ *      the surviving row's refs after the rolled-back transaction.
+ *  (b) the config holds no credential refs — nothing to release.
+ *  (c) shouldDeferRelease — on the publish-replay path, `publishDraft` collected
+ *      these refs via `collectDeletedSourceRefs` BEFORE the transaction and will
+ *      release them POST-COMMIT; doing it inside the transaction would flush the
+ *      pre-commit state (row not yet deleted) and then release a still-canonical ref.
+ *
+ * Fail-closed: if `flushSnapshot` is absent OR throws, the release is skipped —
+ * inert orphan, never a dangling live reference.
+ */
+async function releaseDataSourceCredentials(
+  ctx: import("@wystack/server").FunctionContext,
+  sourceConfig: DataSourceConfig,
+): Promise<void> {
+  const vault = vaultFromCtx(ctx);
+  const preview = modeFromCtx(ctx) === "preview";
+  const hasCredentialRefs =
+    isSecretRef(sourceConfig.apiKey) ||
+    isSecretRef(sourceConfig.connectionString);
+  // (a) preview, (b) no refs, (c) deferred path — all skip.
+  if (preview || !hasCredentialRefs || shouldDeferRelease(ctx)) return;
+
+  const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
+    | (() => Promise<void>)
+    | undefined;
+  if (flushSnapshot == null) {
+    // Fail-closed: no durable-flush hook → cannot prove snapshot precedes
+    // release → skip to avoid a dangling live reference on a stale snapshot.
+    console.error(
+      "[dashframe] deleteNode/dataSource: no flushSnapshot hook — skipping " +
+        "credential release (fail-closed). Wire flushSnapshot to ensure refs " +
+        "are released after a DataSource delete.",
+    );
+    return;
+  }
+  try {
+    await flushSnapshot();
+  } catch (err) {
+    console.error(
+      "[dashframe] deleteNode/dataSource: flushSnapshot failed, skipping credential release:",
+      err,
+    );
+    return; // skip release — inert orphan is safer than a dangling live ref
+  }
+  try {
+    await releaseCredentialRefs(sourceConfig, vault);
+  } catch (err) {
+    console.error(
+      "[dashframe] deleteNode/dataSource: credential ref release failed (inert orphan):",
+      err,
+    );
+  }
+}
+
+/**
+ * Pre-delete vault guard for a DataSource delete (direct canonical path only).
+ * Throws BEFORE the row is deleted when the config holds credential refs but
+ * the server has no vault injected — this preserves the row so a correctly-
+ * configured server can retry the delete.
+ *
+ * Not invoked on deferred-release paths (publish-replay, draft-append) because
+ * those do not call `releaseDataSourceCredentials` at all; the publish handler
+ * collects the refs via `collectDeletedSourceRefs` before the transaction.
+ */
+function assertVaultPresentForCredentialDelete(
+  ctx: import("@wystack/server").FunctionContext,
+  sourceConfig: DataSourceConfig,
+): void {
+  if (shouldDeferRelease(ctx)) return; // deferred path: vault check is not this fn's job
+  const preview = modeFromCtx(ctx) === "preview";
+  if (preview) return; // preview: vault ops skipped entirely
+  const hasCredentialRefs =
+    isSecretRef(sourceConfig.apiKey) ||
+    isSecretRef(sourceConfig.connectionString);
+  if (!hasCredentialRefs) return;
+  if (vaultFromCtx(ctx) == null) {
+    throw new Error(
+      "[secret-vault] cannot delete DataSource: config holds credential refs " +
+        "but no vault is injected. The vault that was present at store time " +
+        "must also be present at delete time.",
+    );
+  }
+}
+
+/**
  * DeleteNode — one polymorphic delete that implements the Artifact Model's
  * typed-edge cascade rule (Spec — DashFrame Artifact Model, "Edge types and
  * the delete cascade"):
@@ -2087,22 +2259,33 @@ const deleteNode = mutation({
         .where(eq("dataSourceId", id))
         .all()) as (typeof dataTables.$inferSelect)[];
       const orphanedNodes = await deleteDataSourceDependents(ctx, ownedTables);
-      // Release any SecretRefs in the config BEFORE deleting the row so the
-      // mapping row + backend blob are not permanently orphaned in the OS keychain.
-      // vault-absent-with-a-ref is treated as an error (fail-closed symmetry):
-      // a ref can only exist if vault.store() was called, which requires a vault.
+      // PRE-RELEASE FLUSH GATE — collect credential refs from the config BEFORE
+      // deleting the row, then delete the row, then flush a snapshot (so the
+      // snapshot captures the "row deleted" state and can no longer reference
+      // these refs), and only THEN release the refs. This ordering guarantees:
+      //   collect-refs → delete-row → flush-snapshot → release-refs
+      //
+      // The previous ordering (release BEFORE delete) violated the invariant:
+      // a ref was deleted from the vault before the canonical row was gone, and
+      // before the snapshot captured its absence — a crash between release and
+      // the next snapshot could leave the snapshot referencing a now-deleted ref.
+      //
       // In preview mode vault.delete() is skipped — like vault.store(), it is a
       // keychain side-effect outside the DB transaction. A preview executes then
       // rolls back: the DataSource row (with its refs) survives, so its credential
       // must survive too. Releasing here would orphan the surviving row's refs.
-      if (modeFromCtx(ctx) !== "preview") {
-        await releaseCredentialRefs(
-          (source.config ?? {}) as DataSourceConfig,
-          vaultFromCtx(ctx),
-        );
-      }
+      const sourceConfig = (source.config ?? {}) as DataSourceConfig;
+      // Vault pre-check: throw BEFORE the delete when the config holds credential
+      // refs but no vault is injected, so the row is preserved for retry.
+      // (Deferred and preview paths are no-ops inside this guard.)
+      assertVaultPresentForCredentialDelete(ctx, sourceConfig);
       // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
+      // Flush a snapshot and release credential vault refs held in the config.
+      // See `releaseDataSourceCredentials` for the ordering guarantee and
+      // fail-safe semantics. Credential-free deletes and deferred paths (publish
+      // replay) are no-ops here — publish collects refs via collectDeletedSourceRefs.
+      await releaseDataSourceCredentials(ctx, sourceConfig);
       return { ok: true, deleted: { kind: "dataSource", id }, orphanedNodes };
     }
 
