@@ -5,12 +5,12 @@ Related: YW-312, PR #183
 
 ## What this PR ships (in-repo, fail-closed)
 
-| Artefact | What it does |
-|---|---|
-| `scripts/ensure-worktree.sh` | Proactive bootstrap: provisions `~/worktrees/dashframe/<branch>` and prints the path. Agents call this FIRST; hard-exits on any failure. |
-| `.husky/pre-commit` (addition) | Fail-closed git-layer guard: blocks commits on a non-default branch in the main checkout. Detection is symlink-safe (compares `--git-dir` vs `--git-common-dir`, not `.git`-is-a-file). Bypass: `ALLOW_MAIN_CHECKOUT_COMMIT=1`. |
-| `scripts/test-worktree-guard.sh` | Runnable proof: 7 scenarios against a scratch repo. All pass. |
-| `CLAUDE.md` note | Discoverability: agents reading the repo learn the bootstrap command. |
+| Artefact                         | What it does                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/ensure-worktree.sh`     | Proactive bootstrap: provisions `~/worktrees/dashframe/<branch>` and prints the path. Agents call this FIRST; hard-exits on any failure.                                                                                        |
+| `.husky/pre-commit` (addition)   | Fail-closed git-layer guard: blocks commits on a non-default branch in the main checkout. Detection is symlink-safe (compares `--git-dir` vs `--git-common-dir`, not `.git`-is-a-file). Bypass: `ALLOW_MAIN_CHECKOUT_COMMIT=1`. |
+| `scripts/test-worktree-guard.sh` | Runnable proof: 7 scenarios against a scratch repo. All pass.                                                                                                                                                                   |
+| `CLAUDE.md` note                 | Discoverability: agents reading the repo learn the bootstrap command.                                                                                                                                                           |
 
 ## What this PR does NOT fix (harness-side gap — needs owner decision)
 
@@ -18,11 +18,11 @@ Related: YW-312, PR #183
 The pre-commit hook fires at commit time. It catches one of the two collision modes from YW-312:
 
 ✅ Cross-stacking a foreign commit onto another agent's branch ref (commit blocked)  
-❌ Reverting another agent's *uncommitted* work (no pre-checkout hook; file-level races happen before any commit)
+❌ Reverting another agent's _uncommitted_ work (no pre-checkout hook; file-level races happen before any commit)
 
 The uncommitted-work race is only fully prevented by provisioning worktrees **before** agents start writing files — i.e., option (a) in the ticket's acceptance criteria:
 
-> *the dispatch harness provisions the worktree FOR the agent (not a brief instruction the agent executes)*
+> _the dispatch harness provisions the worktree FOR the agent (not a brief instruction the agent executes)_
 
 That lives in `~/.claude/skills/cockpit/references/dispatch-discipline.md` — outside the repo. The brief template's "Isolation" line currently reads:
 

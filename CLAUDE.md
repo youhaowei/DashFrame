@@ -11,6 +11,7 @@ Key facts: product register; `@wystack/ui` tokens are the source of truth (vendo
 Every dispatched agent that touches source files MUST work in an isolated git worktree — never in the shared main checkout (`/Users/youhaowei/Projects/DashFrame`). Two agents in the same checkout will revert each other's uncommitted work.
 
 **Bootstrap (first step in any feature-branch brief):**
+
 ```sh
 worktree=$(scripts/ensure-worktree.sh <branch-name>)
 cd "$worktree"
