@@ -81,13 +81,27 @@ async function releaseRefsBestEffort(
 /**
  * Rewrite a draft command's PLAINTEXT credential args to vault refs, returning a
  * NEW command (the input is never mutated) plus a rollback for the minted refs.
- * Non-credential commands, empty-string (clear), undefined, and already-ref values
- * pass through untouched.
+ * Non-credential commands, empty-string (clear), and undefined pass through
+ * untouched.
  *
  * Called by `appendToDraft` BEFORE the command is run and snapshotted, so the
  * command that reaches the handler — and the durable log — carries a ref. The
  * vault store is real (a draft append is never a preview): a plaintext credential
  * with no vault throws (fail-closed, via {@link storeCredential}).
+ *
+ * SECURITY — REFUSE A CALLER-SUPPLIED REF (fail-closed). A ref-shaped credential
+ * value reaching capture is never legitimate: capture runs ONLY on a FRESH draft
+ * append (publish replay bypasses it — it replays the already-captured durable log
+ * via `applyCommands`, never `appendToDraft`), and a fresh credential write must
+ * carry plaintext. Adopting a caller-supplied `secret:<uuid>` would let an
+ * (untrusted) caller — e.g. the assistant, once `CreateDataSource` /
+ * `SetDataSourceConfig` are agent-emittable — point a source at a secret it does
+ * NOT own, skipping `storeCredential` and the fail-closed vault guard (the
+ * foreign-ref hole). So a ref-shaped value is REJECTED here, mirroring the
+ * direct-canonical-path principle ("store/verify a ref-shaped input, never adopt
+ * an unverified one"). The agent additionally gets an earlier, clearer rejection
+ * at the `applyCommand` tool boundary, but THIS seam is the durable guarantee:
+ * every `appendToDraft` caller is covered, not just the tool.
  *
  * ATOMIC per command: if storing a later field throws, the refs already minted for
  * this command are released before the error propagates — a partially-captured
@@ -129,8 +143,17 @@ export async function captureCommandCredentials(
       const value = args[field];
       // undefined (not part of this write) and "" (clear) carry no plaintext.
       if (typeof value !== "string" || value.length === 0) continue;
-      // Already a ref (idempotent re-capture / pre-bound) — leave it.
-      if (isSecretRef(value)) continue;
+      // Refuse a caller-supplied ref (fail-closed) — see the SECURITY note above.
+      // A fresh credential write must be plaintext; a ref-shaped value here would
+      // be adopted unverified, the foreign-ref hole. Thrown inside the try so any
+      // ref minted for an earlier field in this command is released first.
+      if (isSecretRef(value)) {
+        throw new Error(
+          `[secret-vault] credential command '${cmd.path}' field '${field}' must ` +
+            "be the plaintext secret, not a vault ref — refusing to adopt a " +
+            "caller-supplied ref (it would skip storeCredential + the fail-closed guard).",
+        );
+      }
       const id = typeof args.id === "string" ? args.id : "unknown";
       const ref = await storeCredential(vault, value, `${field}-${id}`, false);
       minted.push(ref);

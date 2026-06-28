@@ -191,6 +191,72 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(resolved).toBe("super-secret-plaintext");
   });
 
+  // SECURITY (YW-346) — the capture seam must REFUSE a caller-supplied ref on a
+  // fresh draft append, never adopt it. This is the durable guarantee for agent
+  // DataSource authoring: even driving appendToDraft directly (the runtime-
+  // reachable seam, not just the applyCommand tool) a foreign `secret:<uuid>` is
+  // rejected, so an untrusted caller cannot point a source at a secret it does
+  // not own (bypassing storeCredential + the fail-closed guard).
+  it("REFUSES a caller-supplied foreign ref on a draft append (CreateDataSource)", async () => {
+    const foreign = makeSecretRef(); // valid shape, NOT stored in this vault
+    const id = crypto.randomUUID();
+    const draftId = await h.controller.openDraft();
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id,
+          type: "notion",
+          name: "Foreign",
+          apiKey: foreign,
+        }),
+      ]),
+    ).rejects.toThrow(/must be the plaintext secret, not a vault ref/i);
+
+    // Nothing adopted, nothing logged — the rejected append left no draft state.
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0);
+  });
+
+  it("REFUSES a caller-supplied foreign ref on a draft append (SetDataSourceConfig)", async () => {
+    const { id } = await seedCanonicalSource(h, "orig-key");
+    const foreign = makeSecretRef();
+    const draftId = await h.controller.openDraft();
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, connectionString: foreign }),
+      ]),
+    ).rejects.toThrow(/must be the plaintext secret, not a vault ref/i);
+  });
+
+  it("stores a plaintext credential as a ref on a draft append (agent happy path)", async () => {
+    // The sanctioned input: plaintext is stored via storeCredential and the log
+    // carries the minted ref (the same path the assistant exercises post-flip).
+    const id = crypto.randomUUID();
+    const draftId = await h.controller.openDraft();
+    await h.controller.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id,
+        type: "rest",
+        name: "Agent source",
+        apiKey: "pk-live-plaintext",
+      }),
+    ]);
+
+    const args = await firstLogArgs(h, draftId);
+    expect(args.apiKey).not.toBe("pk-live-plaintext");
+    expect(isSecretRef(args.apiKey)).toBe(true);
+    const resolved = await h.vault.withSecret(
+      args.apiKey as SecretRef,
+      async (pt) => pt,
+    );
+    expect(resolved).toBe("pk-live-plaintext");
+  });
+
   // 3 — no synchronous release on the draft path.
   it("does not release the prior canonical ref during a draft rotate", async () => {
     const { id, ref: oldRef } = await seedCanonicalSource(h, "orig-key");
