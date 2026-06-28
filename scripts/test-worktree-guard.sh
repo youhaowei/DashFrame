@@ -51,9 +51,9 @@ git commit --no-verify -m "init" --quiet
 git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main 2>/dev/null || true
 
 # Install only the worktree guard section of the hook (not lint-staged which
-# isn't installed in the scratch repo).  We extract everything from the guard
-# comment onward and write it as the hook.
-awk '/── Worktree isolation guard/,0' "$GUARD_HOOK" > .git/hooks/pre-commit
+# isn't installed in the scratch repo).  We extract the guard block using the
+# sentinels embedded in the hook — this is robust to reordering of hook sections.
+awk '/── Worktree isolation guard/{f=1} /── end guard ──/{f=0} f' "$GUARD_HOOK" > .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 
 info "Scratch repo: $SCRATCH"

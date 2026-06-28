@@ -45,11 +45,12 @@ git_common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/nu
 }
 
 if [ "$git_dir" != "$git_common_dir" ]; then
-  # Already in an isolated worktree — verify branch matches and we're clean.
+  # Already in an isolated worktree — verify branch matches.
   current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
   if [ "$current_branch" != "$branch" ] && [ "$current_branch" != "HEAD" ]; then
-    echo "WARNING [ensure-worktree]: worktree is on '$current_branch', expected '$branch'." >&2
-    # Soft warning only; the caller can still proceed — it's isolated regardless.
+    echo "ERROR [ensure-worktree]: already in a worktree on '$current_branch', expected '$branch'." >&2
+    echo "  Switch to the correct worktree for '$branch' or run from the default branch." >&2
+    exit 1
   fi
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
   git rev-parse --show-toplevel
@@ -79,6 +80,14 @@ if [ -d "$worktree_path" ]; then
     echo "ERROR [ensure-worktree]: '$worktree_path' exists but is not a valid git checkout." >&2
     exit 1
   fi
+  # Verify the existing directory is a worktree of *this* repo (shares git-common-dir).
+  wt_common_dir=$(git -C "$worktree_path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "")
+  if [ "$wt_common_dir" != "$git_common_dir" ]; then
+    echo "ERROR [ensure-worktree]: '$worktree_path' belongs to a different repository." >&2
+    echo "  Expected: $git_common_dir" >&2
+    echo "  Found:    $wt_common_dir" >&2
+    exit 1
+  fi
   if [ "$existing_branch" != "$branch" ] && [ "$existing_branch" != "HEAD" ]; then
     echo "ERROR [ensure-worktree]: '$worktree_path' exists but is on '$existing_branch', not '$branch'." >&2
     echo "  Remove it manually ('git worktree remove $worktree_path') or choose a different base." >&2
@@ -104,6 +113,10 @@ if git show-ref --verify --quiet "refs/heads/$branch"; then
 else
   # Try to track from origin; error out if the branch doesn't exist anywhere.
   if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+    # Fetch to ensure the local remote-tracking ref exists — ls-remote verifies the
+    # branch on the network but git worktree add resolves against the local
+    # refs/remotes/origin/<branch> ref, which only exists after a fetch.
+    git fetch origin "$branch" >/dev/null 2>&1 || true
     git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
   else
     rm -f "$_wt_log"

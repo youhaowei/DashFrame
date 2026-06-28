@@ -18,7 +18,7 @@ cd "$worktree"
 # all work happens here
 ```
 
-`scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch>` if not already there and prints the path. If it fails, STOP — do not improvise another location.
+`scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch-slug>` (forward-slashes and colons in the branch name become dashes, lowercase) if not already there and prints the path. If it fails, STOP — do not improvise another location.
 
 **Enforcement:** `.husky/pre-commit` blocks commits on a non-default branch in the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you knowingly own that checkout.
 
