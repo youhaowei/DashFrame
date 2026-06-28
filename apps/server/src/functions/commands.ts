@@ -78,7 +78,7 @@
  * source the two are interchangeable, for an Insight source `baseTableId` holds
  * the upstream insight id.
  */
-import { schema } from "@dashframe/server-core";
+import { type ArtifactProvenance, schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   Field,
@@ -100,11 +100,13 @@ import { z } from "zod";
 
 import {
   applyCredentialField,
+  coerceProvenance,
   type DataSourceConfig,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
   requireRecordWithId,
+  shouldDeferRelease,
   vaultFromCtx,
 } from "./utils";
 
@@ -356,13 +358,20 @@ const createDataSource = mutation({
     name: text,
     apiKey: text.optional(),
     connectionString: text.optional(),
+    /** Artifact provenance carried by the emitter (agent vs user). */
+    createdBy: jsonb.optional(),
   },
   handler: async (
     ctx,
-    { id, type, name, apiKey, connectionString },
+    { id, type, name, apiKey, connectionString, createdBy },
   ): Promise<{ id: string }> => {
     const vault = vaultFromCtx(ctx);
     const preview = modeFromCtx(ctx) === "preview";
+    // On the draft / publish-replay path, a captured credential arrives here AS a
+    // ref (pass-through, no re-store) and the prior-ref release is deferred to the
+    // lifecycle transition; on a direct canonical call, release is synchronous.
+    // (A fresh create has no prior ref, so deferral only matters for symmetry.)
+    const deferRelease = shouldDeferRelease(ctx);
     const config: DataSourceConfig = {};
     // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
     // empty string is a no-op. A real store fails closed when no vault is injected.
@@ -376,6 +385,7 @@ const createDataSource = mutation({
       vault,
       `apiKey-${id}`,
       preview,
+      deferRelease,
     );
     await applyCredentialField(
       config,
@@ -384,14 +394,18 @@ const createDataSource = mutation({
       vault,
       `connectionString-${id}`,
       preview,
+      deferRelease,
     );
     const [row] = (await ctx.db.into(dataSources).insert({
       id,
       name,
       kind: type,
       storage: "live",
+      // Agent-emitted creates carry agent provenance (in the command, so it
+      // survives the publish log replay) so agent-authored sources are auditably
+      // distinct; an absent/malformed value defaults to user.
+      createdBy: coerceProvenance(createdBy),
       config,
-      createdBy: { kind: "user" },
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
@@ -420,6 +434,9 @@ const setDataSourceConfig = mutation({
   ): Promise<{ ok: true }> => {
     const vault = vaultFromCtx(ctx);
     const preview = modeFromCtx(ctx) === "preview";
+    // Defer prior-ref release to the publish/discard transition on the draft path;
+    // release synchronously on a direct canonical call (see createDataSource).
+    const deferRelease = shouldDeferRelease(ctx);
     const current = (await ctx.db
       .from(dataSources)
       .where(eq("id", id))
@@ -427,11 +444,11 @@ const setDataSourceConfig = mutation({
     if (!current) throw new Error(`Data source ${id} not found`);
     const config = { ...((current.config ?? {}) as DataSourceConfig) };
     // Sink guard FIRST: callers may not sneak credential keys in via `extra`.
-    // This validation must run BEFORE applyCredentialField, because a clear/rotate
-    // releases the prior vault ref (an irreversible keychain side-effect). If the
-    // guard threw after the release, a rejected request would have already deleted
-    // the live secret while the DB row still pointed at it — a dangling ref.
-    // Validation before side-effects keeps a rejected write fully consistent.
+    // This validation must run BEFORE applyCredentialField, because a rotate stores
+    // a NEW vault ref (an irreversible keychain side-effect). If the guard threw
+    // after the store, a rejected request would have already minted an orphan
+    // secret. Validation before side-effects keeps a rejected write fully consistent.
+    // (Prior-ref release is deferred to the publish transition, not run here.)
     if (isRecord(extra) && ("apiKey" in extra || "connectionString" in extra)) {
       throw new Error(
         "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
@@ -441,11 +458,13 @@ const setDataSourceConfig = mutation({
     // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
     // / leave-on-undefined.
     // applyCredentialField is the single choke point; a real store fails closed when
-    // no vault is injected. The prior vault ref (on replace or clear) is released
-    // inside applyCredentialField after the new ref is stored (rotate) or before
-    // the key is dropped (clear). The release fires only once the store/validation
-    // above has succeeded.
-    // In preview mode vault writes and releases are skipped (keychain is not transactional).
+    // no vault is injected. A captured/replayed ref passes through verbatim (no
+    // re-store, no plaintext in the log). On the draft path the prior canonical ref
+    // is NOT released here (deferRelease): release is the publish transition's job
+    // (it releases the replaced canonical ref post-commit, with a cross-draft-
+    // reference check) so a rolled-back publish never deletes a still-live secret.
+    // On a direct canonical call, the prior ref is released synchronously.
+    // In preview mode vault writes are skipped (keychain is not transactional).
     await applyCredentialField(
       config,
       "apiKey",
@@ -453,6 +472,7 @@ const setDataSourceConfig = mutation({
       vault,
       `apiKey-${id}`,
       preview,
+      deferRelease,
     );
     await applyCredentialField(
       config,
@@ -461,6 +481,7 @@ const setDataSourceConfig = mutation({
       vault,
       `connectionString-${id}`,
       preview,
+      deferRelease,
     );
     // Merge non-credential keys from `extra` into the config (guarded above).
     if (isRecord(extra)) {
@@ -2240,6 +2261,8 @@ export interface CommandPayloads {
     name: string;
     apiKey?: string;
     connectionString?: string;
+    /** Provenance of the emitter — `{ kind: "agent" }` for agent-authored. */
+    createdBy?: ArtifactProvenance;
   };
   SetDataSourceConfig: {
     id: UUID;
@@ -2390,3 +2413,22 @@ export function cmd<K extends CommandName>(
 ): Command {
   return { path: COMMAND_PATHS[name], args: payload };
 }
+
+/**
+ * Which credential fields each command's `args` may carry, keyed by the REGISTRY
+ * PATH the command dispatches against (`COMMAND_PATHS` value, the same string
+ * stored in `draft_command_log.path`). The single source of truth tying a
+ * command path to its credential-bearing arg fields.
+ *
+ * Used by both the capture-before-log seam (rewrite plaintext args → vault refs
+ * before the command is snapshotted into the log) and the transition-release
+ * mechanism (extract draft-minted / replaced refs from the durable log). Keeping
+ * this with the vocabulary keeps the credential-field set in lockstep with the
+ * command handlers that read those fields.
+ */
+export const CREDENTIAL_COMMAND_FIELDS: Readonly<
+  Record<string, ReadonlyArray<"apiKey" | "connectionString">>
+> = {
+  [COMMAND_PATHS.CreateDataSource]: ["apiKey", "connectionString"],
+  [COMMAND_PATHS.SetDataSourceConfig]: ["apiKey", "connectionString"],
+};

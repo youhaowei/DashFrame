@@ -19,11 +19,19 @@
  *   explicitly here — the outer `buildDashframeApp` wrapper does not fire it for
  *   the same sub-tracker reason.
  */
+import type { ArtifactDb } from "@dashframe/server-core";
 import { text } from "@wystack/db";
+import type { SecretVault } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
 
+import {
+  collectDiscardCandidateRefs,
+  collectSupersededRefs,
+  releaseRefsAtTransition,
+} from "../credential-release";
 import type { DraftController } from "../draft-controller";
+import { PUBLISH_REPLAY_CONTEXT_KEY } from "./utils";
 
 /**
  * Internal-only return shape for `publishDraft`. The `__extraTablesWritten`
@@ -68,20 +76,48 @@ const publishDraft = mutation({
     // leaving a resurrection window across server restarts.
     const prePublishLog = await draftController.getDraftLog(draftId);
 
-    const result = await draftController.publishDraft(draftId, {});
+    // TRANSITION-TIME RELEASE — publish half. Collect the canonical refs each
+    // command will REPLACE *before* replay overwrites them; release runs only
+    // AFTER the publish transaction commits (below), so a rolled-back publish
+    // never deletes a still-live secret.
+    const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
+    const vault = ctx.vault as SecretVault | undefined;
+    const replacedRefs =
+      artifactDb != null
+        ? await collectSupersededRefs(artifactDb, prePublishLog)
+        : [];
+
+    // Mark the replay as the sanctioned canonical-commit path so the credential
+    // command handlers' direct-call guard accepts it (release is handled here).
+    const result = await draftController.publishDraft(draftId, {
+      [PUBLISH_REPLAY_CONTEXT_KEY]: true,
+    });
 
     // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does
     // NOT fire `onWrite` here (its tracker sees zero writes from the sub-tracker
     // used inside publishDraft). We call it explicitly via the injected callback.
     // Condition: fire when canonical tables were written OR when the draft had
     // a non-empty command log (its deletion is itself a durable change).
+    let snapshotPersisted = true;
     if (result.tablesWritten.size > 0 || prePublishLog.length > 0) {
       const onWrite = ctx.onWrite as (() => void) | undefined;
       try {
         onWrite?.();
       } catch (err) {
+        snapshotPersisted = false;
         console.error("[dashframe] publishDraft: onWrite hook threw:", err);
       }
+    }
+
+    // Publish has committed: release the replaced canonical refs that are no
+    // longer referenced by canonical or any other open draft (best-effort —
+    // a release failure leaves an inert orphan, never fails the committed publish).
+    // GATED on snapshot persistence: if onWrite failed, the post-publish state was
+    // not durably snapshotted, so a restart could restore the PRE-publish snapshot
+    // (old canonical ref) — releasing that ref now would dangle it. Skip the
+    // release (leave an inert orphan) rather than risk a dangling live reference.
+    if (artifactDb != null && snapshotPersisted) {
+      await releaseRefsAtTransition(artifactDb, vault, replacedRefs, draftId);
     }
 
     const tablesWritten = [...result.tablesWritten];
@@ -115,15 +151,42 @@ const discardDraft = mutation({
       );
     }
 
+    // TRANSITION-TIME RELEASE — discard half. Read the draft-minted credential
+    // refs from its log BEFORE the discard drops the log + shadow; release them
+    // AFTER the draft is gone (best-effort), gated so a ref another open draft
+    // still references is never deleted.
+    const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
+    const vault = ctx.vault as SecretVault | undefined;
+    const mintedRefs =
+      artifactDb != null
+        ? await collectDiscardCandidateRefs(
+            artifactDb,
+            draftId,
+            await draftController.getDraftLog(draftId),
+          )
+        : [];
+
     await draftController.discardDraft(draftId);
 
     // Trigger snapshot persistence after discard — the shadow rows live in the
-    // durable store; a stale snapshot would resurrect them on restart.
+    // durable store; a stale snapshot would resurrect them on restart. This MUST
+    // run before the credential release below: if the post-discard state is not
+    // snapshotted, a restart restores the draft (referencing its refs), so those
+    // refs must not have been released yet.
+    let snapshotPersisted = true;
     const onWrite = ctx.onWrite as (() => void) | undefined;
     try {
       onWrite?.();
     } catch (err) {
+      snapshotPersisted = false;
       console.error("[dashframe] discardDraft: onWrite hook threw:", err);
+    }
+
+    // Release the draft-minted refs now that the draft is gone AND that removal is
+    // durably snapshotted (best-effort; gated so a stale-snapshot restore cannot
+    // resurrect a draft referencing an already-released secret).
+    if (artifactDb != null && snapshotPersisted) {
+      await releaseRefsAtTransition(artifactDb, vault, mintedRefs, draftId);
     }
   },
 });
