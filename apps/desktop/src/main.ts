@@ -352,6 +352,12 @@ app
         // The server owns no reference to ProjectHandle — the narrow callback
         // is the boundary (#88).
         onWrite: () => project.touchSnapshot(),
+        // Durable counterpart to onWrite: used by the pre-release flush gate so
+        // a credential ref is deleted from the vault only AFTER the snapshot that
+        // drops it from the config has been confirmed written to disk. Without
+        // this, the gate degrades to the debounced-schedule path and the crash
+        // window reopens. The narrow callback preserves the no-import boundary.
+        flushSnapshot: () => project.flushSnapshot(),
         // Inject the fully-composed SecretVault. The server RECEIVES this vault;
         // it never instantiates a backend itself. Control-plane mutations
         // (create/update DataSource) call vault.store → ref; reads call

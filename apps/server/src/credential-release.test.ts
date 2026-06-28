@@ -1083,6 +1083,34 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
     }
   });
 
+  // AC#2 fail-safe for discardDraft: if flushSnapshot fails, draft-minted refs
+  // must NOT be released — they are inert orphans, not dangling live references.
+  it("discardDraft skips credential release when flushSnapshot fails", async () => {
+    const failing = await makeHarness({
+      flushSnapshot: () => Promise.reject(new Error("flush failed")),
+    });
+    try {
+      const { id } = await seedCanonicalSource(failing, "canonical-key");
+      const draftId = await failing.controller.openDraft();
+      await failing.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "draft-key" }),
+      ]);
+      // Read the minted ref before discarding
+      const logArgs = await firstLogArgs(failing, draftId);
+      const mintedRef = logArgs.apiKey as SecretRef;
+      expect(isSecretRef(mintedRef)).toBe(true);
+      expect(await failing.vault.has(mintedRef)).toBe(true);
+
+      // Discard — flushSnapshot fails → release must be skipped
+      await failing.app.call("discardDraft", { draftId });
+      // Minted ref NOT released (safe inert orphan)
+      expect(await failing.vault.has(mintedRef)).toBe(true);
+    } finally {
+      await failing.db.$client.close();
+      rmSync(failing.dir, { recursive: true, force: true });
+    }
+  });
+
   // Non-credential publish still uses the debounced onWrite path (no expensive
   // flush on every publish — only on credential-bearing ones).
   it("publishDraft uses onWrite (not flushSnapshot) when no credential refs are replaced", async () => {
@@ -1200,6 +1228,25 @@ describe("pre-release flush gate (legacy direct canonical calls)", () => {
     } finally {
       await flushing.db.$client.close();
       rmSync(flushing.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#3 fail-safe for delete: if flushSnapshot fails, config refs must NOT be
+  // released — inert orphan rather than dangling live reference.
+  it("deleteNode/dataSource skips credential release when flushSnapshot fails", async () => {
+    const failing = await makeHarness({
+      flushSnapshot: () => Promise.reject(new Error("flush failed")),
+    });
+    try {
+      const { id, ref } = await seedCanonicalSource(failing, "del-key");
+      expect(await failing.vault.has(ref)).toBe(true);
+      // Direct canonical delete — flushSnapshot fails → skip release
+      await failing.app.call("deleteNode", { id });
+      // Config ref NOT released (safe inert orphan)
+      expect(await failing.vault.has(ref)).toBe(true);
+    } finally {
+      await failing.db.$client.close();
+      rmSync(failing.dir, { recursive: true, force: true });
     }
   });
 

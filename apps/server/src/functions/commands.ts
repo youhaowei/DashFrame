@@ -94,7 +94,7 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
-import type { SecretRef } from "@wystack/secret-vault";
+import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 import { mutation } from "@wystack/server";
 import { z } from "zod";
@@ -2150,10 +2150,18 @@ const deleteNode = mutation({
       const sourceConfig = (source.config ?? {}) as DataSourceConfig;
       const vault = vaultFromCtx(ctx);
       const preview = modeFromCtx(ctx) === "preview";
+      // Gate: only the credential paths require a durable pre-release flush.
+      // Non-credential deletes still get a snapshot via the outer onWrite handler.
+      const hasCredentialRefs =
+        isSecretRef(sourceConfig.apiKey) ||
+        isSecretRef(sourceConfig.connectionString);
       // Delete the DataSource — schema FK cascade removes its DataTables.
       await ctx.db.from(dataSources).where(eq("id", id)).delete();
-      // After the row is deleted, flush a snapshot before releasing vault refs.
-      if (!preview) {
+      // After the row is deleted, flush a snapshot BEFORE releasing vault refs.
+      // This gate only applies when the config holds live SecretRefs — a
+      // credential-free delete has nothing to release, so it skips the
+      // synchronous flush and lets the outer debounced onWrite handle it.
+      if (!preview && hasCredentialRefs) {
         const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
           | (() => Promise<void>)
           | undefined;
