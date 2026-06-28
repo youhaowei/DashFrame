@@ -31,6 +31,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  cn,
 } from "@wystack/ui";
 
 import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
@@ -130,11 +131,10 @@ export function PreviewDiffDialog({
        * to min-height:auto, which prevents shrinking below content height.
        */}
       <DialogContent
-        className={
-          hasActions
-            ? "grid-rows-[auto_1fr_auto] max-h-[80vh] max-w-2xl overflow-hidden"
-            : "grid-rows-[auto_1fr] max-h-[80vh] max-w-2xl overflow-hidden"
-        }
+        className={cn(
+          "max-h-[80vh] max-w-2xl overflow-hidden",
+          hasActions ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]",
+        )}
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
