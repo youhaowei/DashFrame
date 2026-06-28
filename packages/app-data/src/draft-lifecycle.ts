@@ -3,10 +3,8 @@
  * getDraftLog.
  *
  * These parallel the pattern in data-sources.ts / preview-diff.ts: imperative
- * helpers for direct async calls and `use*` hooks for React component binding.
+ * helpers for direct async calls.
  */
-import { useMutation } from "@wystack/client";
-
 import { api } from "./api";
 import { getWyStackClient } from "./client";
 import type { PreviewCommand } from "./preview-diff";
@@ -42,19 +40,4 @@ export async function discardDraft(draftId: string): Promise<void> {
  */
 export async function getDraftLog(draftId: string): Promise<PreviewCommand[]> {
   return getWyStackClient().query(api.getDraftLog, { draftId });
-}
-
-/**
- * React hook: bind the `publishDraft` mutation to a component. Returns the
- * `useMutation` handle so components can track pending / error state.
- */
-export function usePublishDraft() {
-  return useMutation(api.publishDraft);
-}
-
-/**
- * React hook: bind the `discardDraft` mutation to a component.
- */
-export function useDiscardDraft() {
-  return useMutation(api.discardDraft);
 }

@@ -101,11 +101,5 @@ export { DatabaseProvider, useDatabase } from "./compat";
 // Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
 export { previewBatch, type PreviewCommand } from "./preview-diff";
 
-// Draft lifecycle — publish, discard, and log-read RPCs + React hooks.
-export {
-  discardDraft,
-  getDraftLog,
-  publishDraft,
-  useDiscardDraft,
-  usePublishDraft,
-} from "./draft-lifecycle";
+// Draft lifecycle — publish, discard, and log-read RPCs.
+export { discardDraft, getDraftLog, publishDraft } from "./draft-lifecycle";
