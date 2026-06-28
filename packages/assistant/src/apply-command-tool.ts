@@ -233,6 +233,38 @@ function assertNoCallerSuppliedRefs(type: string, args: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
+// Agent-provenance stamp
+// ---------------------------------------------------------------------------
+
+/**
+ * Commands whose created artifact carries a `createdBy` provenance arg that this
+ * tool stamps as agent-authored. The provenance must travel IN the command (not
+ * the context) so it survives the publish log replay; the tool sets it here so an
+ * agent-created artifact is auditably distinct from a human-created one — without
+ * relying on the model to remember to pass it.
+ *
+ * Stamping OVERRIDES any caller-supplied value: the applyCommand tool IS the agent
+ * write path, so every artifact it creates is agent-authored; a model cannot claim
+ * `{ kind: "user" }`. NOTE provenance is DISPLAY/AUDIT only — it MUST NEVER gate a
+ * trust decision (see the server's coerceProvenance) — so this is for auditability,
+ * not the security guard. Only `CreateDataSource` plumbs `createdBy` among the
+ * allow-listed commands today; the set grows as more create commands do.
+ */
+const AGENT_PROVENANCE_COMMANDS = new Set(["CreateDataSource"]);
+
+/**
+ * Return `args` with `createdBy: { kind: "agent" }` stamped for a provenance-
+ * bearing command, else `args` unchanged. Never mutates the input.
+ */
+function stampAgentProvenance(type: string, args: unknown): unknown {
+  if (!AGENT_PROVENANCE_COMMANDS.has(type)) return args;
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return args; // malformed args fall through to the handler's own validation
+  }
+  return { ...(args as Record<string, unknown>), createdBy: { kind: "agent" } };
+}
+
+// ---------------------------------------------------------------------------
 // applyCommand result detail
 // ---------------------------------------------------------------------------
 
@@ -402,6 +434,12 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       // fail-closed guard. See CREDENTIAL_COMMAND_ARG_FIELDS for the threat model.
       assertNoCallerSuppliedRefs(type, args);
 
+      // PROVENANCE: stamp agent authorship into the args for a provenance-bearing
+      // command (e.g. CreateDataSource), overriding any caller value — the tool is
+      // the agent write path, so its artifacts are agent-authored. Audit/display
+      // only; never gates trust (see AGENT_PROVENANCE_COMMANDS).
+      const stampedArgs = stampAgentProvenance(type, args);
+
       // Build the Command envelope. `buildCommand` is the host-injected bridge
       // to cmd() in commands.ts — the single source of truth for name→path
       // mapping. An unknown command type throws here with a clear error before
@@ -409,7 +447,7 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       //
       // TRANSPARENT: the command is constructed and emitted as an explicit plan
       // step visible in the draft log — no behind-the-scenes canonical write.
-      const command = buildCommand(type, args);
+      const command = buildCommand(type, stampedArgs);
 
       // Emit into the draft via the controller's sanctioned write path.
       // NEVER CANONICAL: appendToDraft → runHandler → withDraft overlay.

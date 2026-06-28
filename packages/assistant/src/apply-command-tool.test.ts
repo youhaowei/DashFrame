@@ -614,6 +614,85 @@ describe("createApplyCommandTool — credential-ref gate (agent authoring)", () 
 });
 
 // ---------------------------------------------------------------------------
+// 5b. Agent-provenance stamp — CreateDataSource is marked agent-authored
+// ---------------------------------------------------------------------------
+
+describe("createApplyCommandTool — agent provenance stamp", () => {
+  it("stamps createdBy:{kind:'agent'} into CreateDataSource args", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov", {
+      type: "CreateDataSource",
+      args: { id: "ds-1", type: "rest", name: "API", apiKey: "plaintext" },
+    });
+
+    // The command built (and thus appended) carries agent provenance so the row
+    // is auditably agent-authored after publish replay.
+    expect(buildCommandSpy).toHaveBeenCalledWith(
+      "CreateDataSource",
+      expect.objectContaining({ createdBy: { kind: "agent" } }),
+    );
+  });
+
+  it("OVERRIDES a caller-supplied createdBy — the agent cannot claim user authorship", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov-override",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov-override", {
+      type: "CreateDataSource",
+      args: {
+        id: "ds-2",
+        type: "rest",
+        name: "API",
+        apiKey: "plaintext",
+        createdBy: { kind: "user" },
+      },
+    });
+
+    const passedArgs = buildCommandSpy.mock.calls[0]![1] as {
+      createdBy: unknown;
+    };
+    expect(passedArgs.createdBy).toEqual({ kind: "agent" });
+  });
+
+  it("does NOT stamp provenance on a non-provenance command", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov-none",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov-none", {
+      type: "CreateInsight",
+      args: {
+        id: "i-1",
+        name: "Trend",
+        source: { sourceType: "dataTable", sourceId: "t-1" },
+      },
+    });
+
+    const passedArgs = buildCommandSpy.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect(passedArgs).not.toHaveProperty("createdBy");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 6. Tool metadata — executionMode, name (as a single invariant group)
 // ---------------------------------------------------------------------------
 
