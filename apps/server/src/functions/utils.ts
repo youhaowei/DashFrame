@@ -65,9 +65,10 @@ export function modeFromCtx(
  * context — so every replayed handler sees it.
  *
  * It is the signal credential command handlers use to recognise the one
- * sanctioned canonical-commit path. Credential commands DEFER ref release to a
- * lifecycle transition; a *direct* canonical commit (no draft, no replay) would
- * orphan a replaced ref, so {@link assertDeferredReleaseContext} refuses it.
+ * sanctioned canonical-commit path: {@link shouldDeferRelease} returns true on it,
+ * so the replay defers the replaced ref's release to the publish RPC (which runs
+ * the release post-commit). A *direct* canonical commit (no draft, no replay)
+ * defers nothing and releases the prior ref synchronously.
  */
 export const PUBLISH_REPLAY_CONTEXT_KEY = "__publishReplay";
 
@@ -110,6 +111,14 @@ export function shouldDeferRelease(ctx: FunctionContext): boolean {
  * `createdBy: { kind: "agent" }` as a command arg; it round-trips through the log
  * to the canonical row. A malformed/absent value falls back to user (fail-safe:
  * an unrecognised provenance is never silently trusted as agent).
+ *
+ * INVARIANT — provenance is CALLER-ASSERTED, not authenticated. `kind` travels in
+ * the command (it must, to survive publish replay), so any emitter can claim
+ * `agent`. This is a DISPLAY/AUDIT signal ONLY and MUST NEVER gate a privileged
+ * operation or a trust decision. Authenticating the emitter belongs with the
+ * agent-dispatch seam (a context flag the dispatcher sets, which this would then
+ * consult) — that seam is not built yet, so the field stays caller-asserted until
+ * it exists. See PR #188 review thread (provenance spoofing).
  */
 export function coerceProvenance(value: unknown): ArtifactProvenance {
   if (isRecord(value) && (value.kind === "user" || value.kind === "agent")) {

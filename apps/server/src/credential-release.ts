@@ -92,6 +92,14 @@ async function releaseRefsBestEffort(
  * ATOMIC per command: if storing a later field throws, the refs already minted for
  * this command are released before the error propagates — a partially-captured
  * command never leaks a ref.
+ *
+ * INVARIANT — a credential command MUST NOT carry a `compactionKey`. The current
+ * vocabulary (`cmd()` builder) sets none, so two credential writes to one field are
+ * both kept in the log and {@link collectSupersededRefs} releases the intermediate
+ * ref. If a credential command ever adopted a `compactionKey`, `compactLog` would
+ * DROP the earlier write — orphaning the ref it minted here (the log no longer
+ * references it, so no transition releases it). Keep credential commands
+ * compaction-free, or teach capture to release a ref whose command is compacted away.
  */
 export async function captureCommandCredentials(
   cmd: DraftCommand,
@@ -143,19 +151,32 @@ function refsFromCommandArgs(path: string, args: unknown): SecretRef[] {
   return refs;
 }
 
+/**
+ * The credential ref-bearing fields of `DataSourceConfig` — the SINGLE source of
+ * truth every ref-lifecycle reader iterates: {@link refsFromConfig} (cross-draft
+ * protection), {@link collectSupersededRefs}, and the simulate seed. Hardcoding the
+ * field set in each reader independently was the silent-drift hazard: adding a third
+ * field (e.g. `oauthToken`) to one reader but not another would let
+ * `collectReferencedRefs` stop protecting it and release a still-live secret.
+ *
+ * `credential-release.test.ts` BRIDGES this to the command-side truth
+ * (`CREDENTIAL_COMMAND_FIELDS`), so a new credential field added to commands but
+ * not here (or vice-versa) fails the build, not a production secret.
+ */
+export const CREDENTIAL_CONFIG_FIELDS = ["apiKey", "connectionString"] as const;
+type CredentialField = (typeof CREDENTIAL_CONFIG_FIELDS)[number];
+type SimulatedConfig = Partial<Record<CredentialField, SecretRef | undefined>>;
+
 /** Collect the credential refs held in a stored DataSource config. */
 function refsFromConfig(config: unknown): SecretRef[] {
   if (!isRecord(config)) return [];
   const c = config as DataSourceConfig;
   const refs: SecretRef[] = [];
-  if (isSecretRef(c.apiKey)) refs.push(c.apiKey);
-  if (isSecretRef(c.connectionString)) refs.push(c.connectionString);
+  for (const field of CREDENTIAL_CONFIG_FIELDS) {
+    if (isSecretRef(c[field])) refs.push(c[field]);
+  }
   return refs;
 }
-
-const CREDENTIAL_FIELDS = ["apiKey", "connectionString"] as const;
-type CredentialField = (typeof CREDENTIAL_FIELDS)[number];
-type SimulatedConfig = Partial<Record<CredentialField, SecretRef | undefined>>;
 
 /** The data-source id a credential command targets, or undefined if not one. */
 function credentialCommandId(cmd: Command): string | undefined {
@@ -213,7 +234,7 @@ export async function collectSupersededRefs(
     const id = credentialCommandId(cmd);
     const cur = id !== undefined ? simulated.get(id) : undefined;
     if (!cur || !isRecord(cmd.args)) continue;
-    for (const field of CREDENTIAL_FIELDS) {
+    for (const field of CREDENTIAL_CONFIG_FIELDS) {
       supersedeField(cur, field, cmd.args[field], candidates);
     }
   }
@@ -235,7 +256,7 @@ async function seedSimulatedConfigs(
       .where(eq(dataSources.id, id));
     const c = (rows[0]?.config ?? {}) as DataSourceConfig;
     const seed: SimulatedConfig = {};
-    for (const f of CREDENTIAL_FIELDS)
+    for (const f of CREDENTIAL_CONFIG_FIELDS)
       seed[f] = isSecretRef(c[f]) ? c[f] : undefined;
     simulated.set(id, seed);
   }

@@ -44,7 +44,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildDashframeApp } from "./app";
-import { captureCommandCredentials } from "./credential-release";
+import {
+  captureCommandCredentials,
+  CREDENTIAL_CONFIG_FIELDS,
+} from "./credential-release";
 import {
   createDraftController,
   type DraftController,
@@ -436,6 +439,20 @@ describe("credential write path — capture-before-log + transition release", ()
         );
       }
     }
+  });
+
+  // Drift bridge — the config-side credential field list (CREDENTIAL_CONFIG_FIELDS,
+  // iterated by refsFromConfig / collectSupersededRefs / the simulate seed) must
+  // match the command-side truth (CREDENTIAL_COMMAND_FIELDS). A new credential field
+  // added to commands but not to the config-reader list would make
+  // collectReferencedRefs silently stop protecting it → a live secret released while
+  // another draft still references it. Bridge the two so that drift fails the build.
+  it("CREDENTIAL_CONFIG_FIELDS matches the command-side credential fields", () => {
+    const commandSide = new Set(
+      Object.values(CREDENTIAL_COMMAND_FIELDS).flat(),
+    );
+    const configSide = new Set<string>(CREDENTIAL_CONFIG_FIELDS);
+    expect(configSide).toEqual(commandSide);
   });
 
   // Orphan-on-append-failure — capture's rollback releases the minted ref.
