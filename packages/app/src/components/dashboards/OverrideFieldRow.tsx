@@ -145,13 +145,11 @@ export interface OverrideFieldRowProps {
 
 function InlineFilterEditor({
   fieldName,
-  combinedField,
   initialDraft,
   onSave,
   onCancel,
 }: {
   fieldName: string;
-  combinedField?: CombinedField;
   initialDraft: FilterDraft;
   onSave: (filter: InsightFilterOverride) => void;
   onCancel: () => void;
@@ -458,7 +456,6 @@ export function OverrideFieldRow({
       {isEditing && (
         <InlineFilterEditor
           fieldName={fieldName}
-          combinedField={combinedField}
           initialDraft={initialDraft}
           onSave={handlePinSave}
           onCancel={stopEditing}
