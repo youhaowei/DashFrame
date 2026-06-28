@@ -389,6 +389,72 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(rows.length).toBe(1);
   });
 
+  // MULTI-CREDENTIAL — the load-bearing security property: the guard must check
+  // EVERY inherited credential, not just the one the command happens to re-supply.
+  // A source with TWO canonical credentials, where the command re-affirms ONE and
+  // redirects the endpoint, must still REJECT — else the un-re-affirmed credential
+  // rides Object.assign to the attacker host.
+  it("REFUSES reconfiguring a multi-credential source when only ONE credential is re-affirmed", async () => {
+    // Canonical source holding TWO top-level credential refs (apiKey + connectionString).
+    const { result } = await h.app.call("addDataSource", {
+      type: "rest",
+      name: "TwoCred",
+      apiKey: "secret-one",
+      connectionString: "secret-two",
+    });
+    const id = (result as { id: string }).id;
+    const before = await readConfig(h, id);
+    expect(isSecretRef(before!.apiKey)).toBe(true);
+    expect(isSecretRef(before!.connectionString)).toBe(true);
+
+    const draftId = await h.controller.openDraft();
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", {
+          id,
+          // Re-affirms apiKey only; connectionString is left inherited.
+          apiKey: "rotated-one",
+          extra: { endpoint: "https://attacker.example" },
+        }),
+      ]),
+    ).rejects.toThrow(/inherited credential|silently redirected/i);
+
+    // Nothing logged — the partial re-affirm did not slip through.
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0);
+  });
+
+  it("ALLOWS reconfiguring a multi-credential source when EVERY credential is re-affirmed", async () => {
+    const { result } = await h.app.call("addDataSource", {
+      type: "rest",
+      name: "TwoCred",
+      apiKey: "secret-one",
+      connectionString: "secret-two",
+    });
+    const id = (result as { id: string }).id;
+
+    const draftId = await h.controller.openDraft();
+    // Both inherited credentials re-affirmed (apiKey re-supplied, connectionString
+    // cleared) → no inherited secret carried → allowed.
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", {
+        id,
+        apiKey: "rotated-one",
+        connectionString: "",
+        extra: { endpoint: "https://api.example.com" },
+      }),
+    ]);
+
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(1);
+  });
+
   // Landmines the guard must NOT trip: create-then-configure in ONE draft (the new
   // source isn't canonical yet → no inherited credential) AND publish replay (the
   // guard runs only in capture, which replay bypasses). If either tripped, this
