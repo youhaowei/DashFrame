@@ -1069,28 +1069,31 @@ export function suggestByChartType(
         }
       } else {
         // Default: categorical X-axis for comparing values across categories.
-        // Iterate through candidates so a repeat-join's j1 instance is tried
-        // when j0's encoding is already in excludeEncodings.
+        // Outer loop over numerical (y-axis) candidates, inner loop over
+        // categorical (x-axis) candidates. This ensures a repeat-join's j1
+        // column is tried for EITHER axis when earlier combinations are already
+        // in excludeEncodings.
         if (categorical.length > 0 && numerical.length > 0) {
-          const yCol = numerical[0]!;
-          for (const xCol of categorical) {
-            const encoding: SuggestionEncoding = {
-              x: xCol.columnName,
-              y: `sum(${yCol.columnName})`,
-              xType: getAxisType(xCol),
-              yType: "quantitative",
-              xLabel: xCol.displayName,
-              yLabel: `sum of ${yCol.displayName}`,
-            };
-            if (!isExcludedEncoding(encoding)) {
-              suggestion = {
-                id: `barY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
-                title: `${yCol.displayName} by ${xCol.displayName}`,
-                chartType: "barY",
-                encoding,
-                rationale: "Categorical dimension with numeric measure",
+          outerBarY: for (const yCol of numerical) {
+            for (const xCol of categorical) {
+              const encoding: SuggestionEncoding = {
+                x: xCol.columnName,
+                y: `sum(${yCol.columnName})`,
+                xType: getAxisType(xCol),
+                yType: "quantitative",
+                xLabel: xCol.displayName,
+                yLabel: `sum of ${yCol.displayName}`,
               };
-              break;
+              if (!isExcludedEncoding(encoding)) {
+                suggestion = {
+                  id: `barY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
+                  title: `${yCol.displayName} by ${xCol.displayName}`,
+                  chartType: "barY",
+                  encoding,
+                  rationale: "Categorical dimension with numeric measure",
+                };
+                break outerBarY;
+              }
             }
           }
         }
@@ -1099,28 +1102,30 @@ export function suggestByChartType(
 
     case "barX":
       // Horizontal Bar: numerical X + categorical Y.
-      // Iterate through categorical candidates so a repeat-join's j1 column is
-      // tried when j0's encoding is already excluded.
+      // Outer loop over numerical (x-axis) candidates, inner loop over
+      // categorical (y-axis) candidates. Both axes are iterated so a
+      // repeat-join's j1 column is tried when earlier combinations are excluded.
       if (categorical.length > 0 && numerical.length > 0) {
-        const xCol = numerical[0]!;
-        for (const yCol of categorical) {
-          const encoding: SuggestionEncoding = {
-            x: `sum(${xCol.columnName})`,
-            y: yCol.columnName,
-            xType: "quantitative",
-            yType: getAxisType(yCol),
-            xLabel: `sum of ${xCol.displayName}`,
-            yLabel: yCol.displayName,
-          };
-          if (!isExcludedEncoding(encoding)) {
-            suggestion = {
-              id: `barX-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
-              title: `${xCol.displayName} by ${yCol.displayName}`,
-              chartType: "barX",
-              encoding,
-              rationale: "Horizontal categorical comparison",
+        outerBarX: for (const xCol of numerical) {
+          for (const yCol of categorical) {
+            const encoding: SuggestionEncoding = {
+              x: `sum(${xCol.columnName})`,
+              y: yCol.columnName,
+              xType: "quantitative",
+              yType: getAxisType(yCol),
+              xLabel: `sum of ${xCol.displayName}`,
+              yLabel: yCol.displayName,
             };
-            break;
+            if (!isExcludedEncoding(encoding)) {
+              suggestion = {
+                id: `barX-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
+                title: `${xCol.displayName} by ${yCol.displayName}`,
+                chartType: "barX",
+                encoding,
+                rationale: "Horizontal categorical comparison",
+              };
+              break outerBarX;
+            }
           }
         }
       }

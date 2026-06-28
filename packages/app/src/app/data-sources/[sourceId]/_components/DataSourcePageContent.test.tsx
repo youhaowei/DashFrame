@@ -309,10 +309,16 @@ describe("DataSourcePageContent — loading state contract", () => {
 // entries. j1 must never overwrite j0.
 
 describe("buildAnalysisByFieldId — repeat-join identity", () => {
-  // Stable UUID used across fixtures
+  // Repeat-join fixtures:
+  //   COL_J0 → bare alias (first instance, NO _j0 suffix, per engine convention)
+  //   COL_J1 → _j1-suffixed alias (second instance)
   const UUID = "dd05ef4b-1234-5678-abcd-ef1234567890";
-  const COL_J0 = `field_${UUID.replace(/-/g, "_")}`;
-  const COL_J1 = `${COL_J0}_j1`;
+  const COL_J0 = `field_${UUID.replace(/-/g, "_")}`; // bare = first instance
+  const COL_J1 = `${COL_J0}_j1`; // _j1 suffix = second instance
+
+  // Single-join fixture: uses a DISTINCT UUID so it's unambiguous vs repeat-join.
+  const SINGLE_UUID = "ccbbaa99-1234-5678-abcd-ef1234567890";
+  const COL_SINGLE = `field_${SINGLE_UUID.replace(/-/g, "_")}`;
 
   // Inline parser matching the real extractColumnAliasComponents behaviour.
   const realParser = (alias: string) => {
@@ -354,13 +360,15 @@ describe("buildAnalysisByFieldId — repeat-join identity", () => {
   });
 
   it("single-join (no _j suffix) — not regressed, uses bare UUID key", () => {
-    const col = makeCol(COL_J0, 10);
+    // COL_SINGLE comes from a table joined exactly once (bare alias).
+    // Uses a distinct UUID so this test is unambiguous vs the repeat-join tests above.
+    const col = makeCol(COL_SINGLE, 10);
     const map = buildAnalysisByFieldId([col]);
 
-    expect(map.has(UUID)).toBe(true);
+    expect(map.has(SINGLE_UUID)).toBe(true);
     expect(map.size).toBe(1);
     // Must NOT create a _j0 key
-    expect(map.has(`${UUID}_j0`)).toBe(false);
+    expect(map.has(`${SINGLE_UUID}_j0`)).toBe(false);
   });
 
   it("prefers explicit fieldId over parsed columnName when fieldId is set", () => {

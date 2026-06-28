@@ -32,15 +32,29 @@ const STUB_INSIGHT: Insight = {
   updatedAt: 0,
 };
 
-// Stable base UUID for all fixtures
+// ── Repeat-join fixtures (COL_J0 / COL_J1) ───────────────────────────────────
+// When the same table is joined twice the engine produces:
+//   first instance  → bare alias (NO _j0 suffix): field_<uuid>
+//   second instance → _j1-suffixed alias:         field_<uuid>_j1
+// COL_J0 uses the bare alias because that is what the engine emits for
+// instanceIndex === 0 (see insight-sql.ts joinInstanceFieldId).
 const BASE_UUID = "dd05ef4b-1234-5678-abcd-ef1234567890";
-// Column-alias format used by the engine (hyphens → underscores, prefixed)
-const COL_J0 = `field_${BASE_UUID.replace(/-/g, "_")}`;
-const COL_J1 = `${COL_J0}_j1`;
+const COL_J0 = `field_${BASE_UUID.replace(/-/g, "_")}`; // bare = first instance
+const COL_J1 = `${COL_J0}_j1`; // _j1 suffix = second instance
+
+// ── Single-join fixture (COL_SINGLE) ─────────────────────────────────────────
+// A column that comes from a table joined exactly once — also a bare alias,
+// but uses a DISTINCT UUID so single-join regression tests are unambiguous.
+const SINGLE_UUID = "ccbbaa99-1234-5678-abcd-ef1234567890";
+const COL_SINGLE = `field_${SINGLE_UUID.replace(/-/g, "_")}`;
 
 // Numerical column that is distinct from the categorical ones above
 const NUM_UUID = "aabbccdd-1234-5678-abcd-ef1234567890";
 const COL_NUM = `field_${NUM_UUID.replace(/-/g, "_")}`;
+
+// Second numerical column (different UUID) for testing numerical fallback
+const NUM2_UUID = "11223344-1234-5678-abcd-ef1234567890";
+const COL_NUM2 = `field_${NUM2_UUID.replace(/-/g, "_")}`;
 
 function makeCategorical(columnName: string, cardinality = 10): ColumnAnalysis {
   return {
@@ -159,8 +173,10 @@ describe("suggestByChartType — repeat-join instance identity", () => {
   });
 
   it("single-join (no _j suffix) — suggestion ID does not include _j suffix", () => {
+    // COL_SINGLE is a column from a table joined exactly once (bare alias,
+    // no _j suffix). Its suggestion ID must not gain an instance suffix.
     const analysis: ColumnAnalysis[] = [
-      makeCategorical(COL_J0), // no _j1 suffix → single-join instance
+      makeCategorical(COL_SINGLE),
       makeNumerical(COL_NUM),
     ];
 
@@ -174,6 +190,64 @@ describe("suggestByChartType — repeat-join instance identity", () => {
 
     expect(suggestion).not.toBeNull();
     expect(suggestion!.id).not.toMatch(/_j\d+/);
+  });
+});
+
+// ── numerical-candidate iteration ─────────────────────────────────────────────
+//
+// barY and barX iterate over BOTH numerical and categorical candidates, so a
+// suggestion is returned even when all xJ0/yNum0 and xJ1/yNum0 combos are
+// excluded but xJ0/yNum1 (alternate numerical column) is not.
+
+describe("suggestByChartType — numerical candidate fallback (barY)", () => {
+  it("returns a suggestion using the alternate numerical column when num0 combos are all excluded", () => {
+    const analysis: ColumnAnalysis[] = [
+      makeCategorical(COL_J0),
+      makeCategorical(COL_J1),
+      makeNumerical(COL_NUM), // num0 — all combos excluded below
+      makeNumerical(COL_NUM2), // num1 — should be tried as fallback
+    ];
+    // Exclude every combination of categorical × num0
+    const excludeEncodings = new Set([
+      `${COL_J0}|sum(${COL_NUM})|`,
+      `${COL_J1}|sum(${COL_NUM})|`,
+    ]);
+
+    const suggestion = suggestByChartType(
+      STUB_INSIGHT,
+      analysis,
+      1000,
+      {},
+      "barY",
+      { excludeEncodings },
+    );
+
+    // Must return a suggestion using num1 (not null)
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.encoding.y).toBe(`sum(${COL_NUM2})`);
+  });
+
+  it("returns null only when all numerical × categorical combinations are excluded (barY)", () => {
+    const analysis: ColumnAnalysis[] = [
+      makeCategorical(COL_J0),
+      makeNumerical(COL_NUM),
+      makeNumerical(COL_NUM2),
+    ];
+    const excludeEncodings = new Set([
+      `${COL_J0}|sum(${COL_NUM})|`,
+      `${COL_J0}|sum(${COL_NUM2})|`,
+    ]);
+
+    const suggestion = suggestByChartType(
+      STUB_INSIGHT,
+      analysis,
+      1000,
+      {},
+      "barY",
+      { excludeEncodings },
+    );
+
+    expect(suggestion).toBeNull();
   });
 });
 
