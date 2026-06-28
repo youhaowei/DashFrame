@@ -245,4 +245,23 @@ describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
     // key is dropped from JSONB, and the read-back item has no overrides field.
     expect(item.overrides).toBeUndefined();
   });
+
+  it("should treat empty filters array as a clear ([] is truthy but ![] is false)", async () => {
+    // Guards the empty-array bypass: ![] is false, so a naive !filters check
+    // passes through {filters: []} as a non-empty bag. The fix uses .length.
+    const { id: dashboardId } = (await call("createDashboard", {
+      name: "Empty-Array Test",
+    })) as { id: string };
+    const itemId = await addVisualizationItem(dashboardId);
+
+    await call("updateDashboardItem", {
+      dashboardId,
+      itemId,
+      updates: { overrides: { filters: [], sorts: null, limit: -5 } },
+    });
+
+    const item = await getItem(dashboardId, itemId);
+    // filters: [] with no valid sorts/limit must also be cleared.
+    expect(item.overrides).toBeUndefined();
+  });
 });

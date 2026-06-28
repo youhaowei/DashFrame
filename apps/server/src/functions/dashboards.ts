@@ -163,9 +163,15 @@ function sanitizeItemOverrides(
   const sorts = Array.isArray(ov.sorts) ? ov.sorts : undefined;
   const limit =
     typeof ov.limit === "number" && ov.limit > 0 ? ov.limit : undefined;
-  // Normalise all-undefined bags to undefined so {filters:undefined,…} is
-  // never persisted as {} in JSONB, which the engine would treat as "has overrides".
-  if (!filters && sorts === undefined && limit === undefined) return undefined;
+  // Normalise empty/all-undefined bags to undefined so they are never persisted
+  // as {} or {filters:[]} in JSONB, which the engine would treat as "has overrides".
+  // Note: ![] is false (arrays are truthy), so we must use .length to check empties.
+  if (
+    (filters == null || filters.length === 0) &&
+    sorts === undefined &&
+    limit === undefined
+  )
+    return undefined;
   return { filters, sorts, limit };
 }
 
