@@ -25,7 +25,7 @@ function deriveTableName(dataFrameId: string): string {
   return `df_${dataFrameId.replace(/-/g, "_")}`;
 }
 
-describe("join SQL — join type keyword mapping (YW-351)", () => {
+describe("join SQL — join type keyword mapping", () => {
   // These tests guard the production mapping used at the preview SQL emit site.
   // The mapping must be explicit (not .toUpperCase()) so "outer" → "FULL OUTER JOIN"
   // rather than the invalid "OUTER JOIN" that DuckDB rejects.
