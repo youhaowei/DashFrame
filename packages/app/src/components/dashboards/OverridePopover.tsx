@@ -351,17 +351,25 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function saveOverrides(next: DashboardItemOverrides) {
-    // Collapse truthy-but-empty bags to undefined so cells with no overrides
-    // don't produce a non-undefined `overrides` object that triggers a needless
+    // Collapse truthy-but-empty bags so cells with no overrides don't
+    // produce a non-undefined `overrides` object that triggers a needless
     // per-cell DuckDB view.  Guards the same hazard documented in
     // computeItemOverrides (controls.ts:137-150).
-    const clean =
+    const hasContent =
       (next.filters?.length ?? 0) > 0 ||
       next.sorts !== undefined ||
-      next.limit !== undefined
-        ? next
-        : undefined;
-    updateItem(dashboardId, item.id, { overrides: clean });
+      next.limit !== undefined;
+
+    if (hasContent) {
+      updateItem(dashboardId, item.id, { overrides: next });
+    } else {
+      // Explicit clear: send null so JSON.stringify preserves the key.
+      // `undefined` would be dropped by JSON.stringify → the server's
+      // `"overrides" in input` gate never fires → clear is silently skipped.
+      // null is already handled: sanitizeItemOverrides(null) → undefined → JSONB cleared.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      updateItem(dashboardId, item.id, { overrides: null } as any);
+    }
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
