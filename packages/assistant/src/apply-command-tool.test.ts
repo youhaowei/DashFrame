@@ -16,11 +16,14 @@
  *      no silent mutation or drop.
  *   7. An empty `appendToDraft` result array is a host contract violation and
  *      throws rather than silently returning null.
- *   8. Credential commands (CreateDataSource, SetDataSourceConfig, DeleteNode)
- *      are DENIED at the allow-list gate — no vault call, no appendToDraft call.
+ *   8. DeleteNode is DENIED at the allow-list gate — no vault call, no append.
  *   9. Unlisted arbitrary command types are DENIED at the gate (default-deny).
  *  10. Draft-safe artifact commands (CreateInsight, etc.) pass the gate and
  *      append normally.
+ *  11. Credential commands (CreateDataSource, SetDataSourceConfig) are allowed
+ *      with PLAINTEXT credentials, but a caller-supplied ref-shaped credential
+ *      is REJECTED at the credential-ref gate — before buildCommand / append —
+ *      so the agent cannot adopt a foreign/arbitrary vault ref.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -84,6 +87,8 @@ const TEST_COMMANDS: Record<string, string> = {
   CreateVisualization: "createVisualizationCmd",
   AddDashboardItem: "addDashboardItemCmd",
   CreateDashboard: "createDashboardCmd",
+  CreateDataSource: "createDataSourceCmd",
+  SetDataSourceConfig: "setDataSourceConfigCmd",
 };
 
 const buildCommand = makeBuildCommand(TEST_COMMANDS);
@@ -381,20 +386,20 @@ describe("createApplyCommandTool — multi-command drive loop", () => {
 
 describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () => {
   /**
-   * The three command types that are explicitly DENIED:
+   * `DeleteNode` is explicitly DENIED:
+   *   - on a DataSource it calls vault.delete as an OS-keychain side effect the
+   *     draft overlay does not draft or roll back;
+   *   - on Insight / DataTable it uses non-PK cascade ops the overlay cannot
+   *     safely replicate.
    *
-   *   CreateDataSource    — vault.store OS-keychain side effect (not drafted)
-   *   SetDataSourceConfig — vault.store OS-keychain side effect (not drafted)
-   *   DeleteNode          — vault.delete (DataSource path) + non-PK cascade ops
+   * (CreateDataSource / SetDataSourceConfig are NO LONGER denied — they are
+   * draft-safe on the capture-before-log credential path; the credential-ref
+   * gate below covers their security boundary instead.)
    *
-   * The tool must reject these BEFORE calling buildCommand or appendToDraft
+   * The tool must reject DeleteNode BEFORE calling buildCommand or appendToDraft
    * so that no vault state is created from a supposed sandbox operation.
    */
-  const deniedCredentialCommands = [
-    "CreateDataSource",
-    "SetDataSourceConfig",
-    "DeleteNode",
-  ] as const;
+  const deniedCredentialCommands = ["DeleteNode"] as const;
 
   it.each(deniedCredentialCommands)(
     "denies credential/unsafe command '%s' with an honest error — no appendToDraft, no buildCommand",
@@ -465,6 +470,121 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
     // Result details reflect the handler value.
     expect(result.details.commandType).toBe("CreateInsight");
     expect(result.details.commandResult).toEqual({ id: "i-allow-1" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Credential-ref gate — agent must supply plaintext, never a ref
+// ---------------------------------------------------------------------------
+
+describe("createApplyCommandTool — credential-ref gate (agent authoring)", () => {
+  // A valid-shaped SecretRef (`secret:<uuid>`) the agent does NOT own — the
+  // foreign-ref attack the gate must block.
+  const FOREIGN_REF = "secret:11111111-1111-4111-8111-111111111111";
+
+  const refRejectionCases = [
+    { type: "CreateDataSource", field: "apiKey" },
+    { type: "CreateDataSource", field: "connectionString" },
+    { type: "SetDataSourceConfig", field: "apiKey" },
+    { type: "SetDataSourceConfig", field: "connectionString" },
+  ] as const;
+
+  it.each(refRejectionCases)(
+    "REJECTS a caller-supplied ref in $type.$field — no buildCommand, no appendToDraft",
+    async ({ type, field }) => {
+      const controller = makeMockController();
+      const buildCommandSpy = vi.fn(buildCommand);
+      const tool = createApplyCommandTool({
+        controller,
+        draftId: "draft-cred-reject",
+        buildCommand: buildCommandSpy,
+      });
+
+      // A ref-shaped credential value must be rejected so the agent cannot adopt
+      // a foreign/arbitrary vault ref (bypassing storeCredential + fail-closed guard).
+      await expect(
+        tool.execute("call-cred-reject", {
+          type,
+          args: { id: "ds-1", type: "rest", name: "X", [field]: FOREIGN_REF },
+        }),
+      ).rejects.toThrow(/must be the plaintext credential, not a vault ref/i);
+
+      // CRITICAL: rejected BEFORE buildCommand and BEFORE appendToDraft — no
+      // command is constructed, nothing reaches the draft / capture seam.
+      expect(buildCommandSpy).not.toHaveBeenCalled();
+      expect(controller.appendCalls).toHaveLength(0);
+    },
+  );
+
+  it("ALLOWS a plaintext credential — the agent can author a data source", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { id: "ds-plain" } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-allow",
+      buildCommand,
+    });
+
+    // Plaintext (not ref-shaped) is the sanctioned input — passes the gate and
+    // appends; the server's capture-before-log path stores it as a vault ref.
+    const result = await tool.execute("call-cred-allow", {
+      type: "CreateDataSource",
+      args: {
+        id: "ds-plain",
+        type: "rest",
+        name: "My API",
+        apiKey: "sk-live-super-secret-plaintext",
+      },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+    expect(controller.appendCalls[0]!.batch[0]!.path).toBe(
+      "createDataSourceCmd",
+    );
+    expect(result.details.commandType).toBe("CreateDataSource");
+    expect(result.details.commandResult).toEqual({ id: "ds-plain" });
+  });
+
+  it("ALLOWS a plaintext-only SetDataSourceConfig (no credential field) through", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { ok: true } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-noncred",
+      buildCommand,
+    });
+
+    // A config update that touches no credential field is unaffected by the gate.
+    await tool.execute("call-cred-noncred", {
+      type: "SetDataSourceConfig",
+      args: { id: "ds-1", extra: { database: "analytics" } },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+  });
+
+  it("does not reject a NON-credential command carrying a ref-shaped string field", async () => {
+    const controller = makeMockController();
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-unrelated",
+      buildCommand,
+    });
+
+    // The gate is scoped to credential commands' credential fields — an
+    // unrelated command with a coincidentally ref-shaped field is untouched.
+    await tool.execute("call-cred-unrelated", {
+      type: "CreateInsight",
+      args: {
+        id: "secret:22222222-2222-4222-8222-222222222222",
+        name: "Not a credential",
+        source: { sourceType: "dataTable", sourceId: "t-1" },
+      },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
   });
 });
 

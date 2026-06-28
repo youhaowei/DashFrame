@@ -43,6 +43,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CREDENTIAL_COMMAND_ARG_FIELDS } from "@dashframe/assistant";
 import { buildDashframeApp } from "./app";
 import {
   captureCommandCredentials,
@@ -52,8 +53,10 @@ import {
   createDraftController,
   type DraftController,
 } from "./draft-controller";
+
 import {
   cmd,
+  COMMAND_PATHS,
   commandFunctions,
   CREDENTIAL_COMMAND_FIELDS,
 } from "./functions/commands";
@@ -466,6 +469,39 @@ describe("credential write path — capture-before-log + transition release", ()
           [...credFields].sort(),
         );
       }
+    }
+  });
+
+  // Drift guard — the assistant's agent-path credential-ref gate
+  // (CREDENTIAL_COMMAND_ARG_FIELDS, keyed by command NAME) must stay in lockstep
+  // with the server's capture/release source of truth (CREDENTIAL_COMMAND_FIELDS,
+  // keyed by command PATH). If a new credential field is added server-side but
+  // not to the agent gate, the agent could supply a foreign ref in that field and
+  // bypass the guard — so this fails the build instead of leaking the hole.
+  it("agent credential-ref gate matches the server credential-field map", () => {
+    // 1. Every command the agent gate guards maps to a server credential command
+    //    with the SAME field set (via COMMAND_PATHS name→path).
+    for (const [name, fields] of Object.entries(
+      CREDENTIAL_COMMAND_ARG_FIELDS,
+    )) {
+      const path = COMMAND_PATHS[name as keyof typeof COMMAND_PATHS];
+      expect(path, `no COMMAND_PATHS entry for "${name}"`).toBeDefined();
+      expect([...(CREDENTIAL_COMMAND_FIELDS[path] ?? [])].sort()).toEqual(
+        [...fields].sort(),
+      );
+    }
+    // 2. Conversely, every server credential command is covered by the agent
+    //    gate — a new credential command must update the gate or fail here.
+    const guardedPaths = new Set(
+      Object.keys(CREDENTIAL_COMMAND_ARG_FIELDS).map(
+        (name) => COMMAND_PATHS[name as keyof typeof COMMAND_PATHS],
+      ),
+    );
+    for (const path of Object.keys(CREDENTIAL_COMMAND_FIELDS)) {
+      expect(
+        guardedPaths.has(path as never),
+        `server credential command "${path}" is not covered by the agent credential-ref gate`,
+      ).toBe(true);
     }
   });
 
