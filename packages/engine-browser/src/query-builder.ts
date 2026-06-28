@@ -2,6 +2,7 @@ import type { DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { BrowserDataFrame } from "./dataframe";
 import { debugLog } from "./debug";
+import { joinTypeToSQL } from "./join-sql";
 import { loadArrowData } from "./storage";
 
 // ============================================================================
@@ -345,8 +346,8 @@ export class QueryBuilder {
         join.rightDataFrame,
         this.conn,
       );
-      const joinType = (join.options.type ?? "inner").toUpperCase();
-      clause = `${clause} ${joinType} JOIN ${quoteIdent(rightTable)} ON ${quoteIdent(baseTableName)}.${quoteIdent(join.options.leftColumn)} = ${quoteIdent(rightTable)}.${quoteIdent(join.options.rightColumn)}`;
+      const joinTypeKeyword = joinTypeToSQL(join.options.type ?? "inner");
+      clause = `${clause} ${joinTypeKeyword} JOIN ${quoteIdent(rightTable)} ON ${quoteIdent(baseTableName)}.${quoteIdent(join.options.leftColumn)} = ${quoteIdent(rightTable)}.${quoteIdent(join.options.rightColumn)}`;
     }
 
     return clause;

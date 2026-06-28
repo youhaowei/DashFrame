@@ -10,7 +10,11 @@
  * against the real production helpers in `join-preview-run.test.ts`.
  */
 
-import { quoteIdentifier } from "@dashframe/engine-browser";
+import {
+  JOIN_TYPE_TO_SQL_KEYWORD,
+  joinTypeToSQL,
+  quoteIdentifier,
+} from "@dashframe/engine-browser";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -20,6 +24,42 @@ import { describe, expect, it } from "vitest";
 function deriveTableName(dataFrameId: string): string {
   return `df_${dataFrameId.replace(/-/g, "_")}`;
 }
+
+describe("join SQL — join type keyword mapping (YW-351)", () => {
+  // These tests guard the production mapping used at the preview SQL emit site.
+  // The mapping must be explicit (not .toUpperCase()) so "outer" → "FULL OUTER JOIN"
+  // rather than the invalid "OUTER JOIN" that DuckDB rejects.
+
+  it.each([
+    ["inner", "INNER"],
+    ["left", "LEFT"],
+    ["right", "RIGHT"],
+    // "outer" is the UI display value; must map to FULL OUTER, not bare OUTER.
+    ["outer", "FULL OUTER"],
+    // "full" is the persisted config value; toConfigType maps "outer" → "full".
+    ["full", "FULL OUTER"],
+  ] as Array<[string, string]>)(
+    "joinTypeToSQL('%s') === '%s JOIN …'",
+    (type, expectedKeyword) => {
+      expect(joinTypeToSQL(type)).toBe(expectedKeyword);
+    },
+  );
+
+  it("outer produces a valid FULL OUTER JOIN fragment (not bare OUTER JOIN)", () => {
+    const fragment = `${joinTypeToSQL("outer")} JOIN t ON a = b`;
+    expect(fragment).toBe("FULL OUTER JOIN t ON a = b");
+  });
+
+  it("throws for an unrecognised join type (fail-closed, never emits 'undefined JOIN')", () => {
+    expect(() => joinTypeToSQL("cross")).toThrow("unknown join type");
+  });
+
+  it("JOIN_TYPE_TO_SQL_KEYWORD covers all four UI join types", () => {
+    for (const type of ["inner", "left", "right", "outer"] as const) {
+      expect(JOIN_TYPE_TO_SQL_KEYWORD[type]).toBeDefined();
+    }
+  });
+});
 
 describe("join SQL — table name sink-guard", () => {
   it("quoteIdentifier wraps the dataFrameId-derived table name in double-quotes", () => {
