@@ -77,7 +77,7 @@ export class NativeDuckDBEngine implements QueryEngine {
    * Global serializer for `registerArrowTable`. DuckDB appenders are not
    * concurrent-safe on a shared connection — two in-flight registrations sharing
    * `this.connection` can trigger the "pending-result" NAPI taint that kills the
-   * next operation (same mechanism as YW-307, concurrent-registration path).
+   * next operation on the connection.
    *
    * The lock is a promise chain: each caller captures the previous tail, then
    * installs a new tail whose resolution (`unlock`) it calls in `finally`. Only
@@ -208,7 +208,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     // Serialize all registrations through a global promise-chain lock. DuckDB
     // appenders are not concurrent-safe on a shared connection — two in-flight
     // registrations both using `this.connection` can trigger the Linux
-    // "pending-result" NAPI taint (same mechanism as YW-307), corrupting the
+    // "pending-result" NAPI taint on the shared connection, corrupting the
     // next operation on the connection. Global (not per-name): the taint is
     // per-connection, not per-table, so two different-name concurrent uploads
     // race just as badly.
