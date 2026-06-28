@@ -94,14 +94,17 @@ mkdir -p "$worktree_base"
 
 # Run git worktree add; redirect BOTH stdout and stderr to a temp log so the
 # only thing this script writes to stdout is the final worktree path.
-# Check $? directly (not through a pipe) to preserve the exit status.
+# Use `|| _wt_rc=$?` (not `; _wt_rc=$?`) to capture the exit code under
+# set -e: with `set -e`, a bare semicolon sequence exits immediately on
+# failure before the assignment runs.
 _wt_log=$(mktemp)
+_wt_rc=0
 if git show-ref --verify --quiet "refs/heads/$branch"; then
-  git worktree add "$worktree_path" "$branch" >"$_wt_log" 2>&1; _wt_rc=$?
+  git worktree add "$worktree_path" "$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
 else
   # Try to track from origin; error out if the branch doesn't exist anywhere.
   if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-    git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1; _wt_rc=$?
+    git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
   else
     rm -f "$_wt_log"
     echo "ERROR [ensure-worktree]: branch '$branch' not found locally or on origin." >&2

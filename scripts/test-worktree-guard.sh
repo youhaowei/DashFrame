@@ -154,7 +154,10 @@ echo ""
 
 echo "Test 7: ensure-worktree.sh from an existing worktree → returns current path"
 WTP="$SCRATCH/wt-out/feature-d"
-if [ -d "$WTP" ]; then
+if [ ! -d "$WTP" ]; then
+  # Test 6 failed to provision the worktree — make that explicit so FAILURES increments.
+  fail "Test 7 prerequisite missing: worktree '$WTP' was not created by Test 6"
+else
   cd "$WTP"
   returned=$(WORKTREE_BASE="$SCRATCH/wt-out" "$HELPER" feature-d 2>/dev/null) || true
   # Resolve symlinks before comparing: macOS /var → /private/var etc.
