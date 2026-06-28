@@ -400,7 +400,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         ];
       });
 
-      await expect(Promise.all(tasks)).resolves.not.toThrow();
+      // If any registration rejects, Promise.all rejects and the test fails.
+      await Promise.all(tasks);
 
       for (const { name, expectedCounts } of uploads) {
         const result = await engine!.query(

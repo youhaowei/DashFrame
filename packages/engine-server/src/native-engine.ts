@@ -219,8 +219,8 @@ export class NativeDuckDBEngine implements QueryEngine {
     });
     await gate;
 
-    const conn = this.conn();
     try {
+      const conn = this.conn();
       // Decode the Arrow IPC stream buffer.
       const arrowTable = tableFromIPC(arrow);
       const fields = arrowTable.schema.fields;
