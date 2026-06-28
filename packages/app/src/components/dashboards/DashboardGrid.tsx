@@ -217,6 +217,7 @@ export function DashboardGrid({
             dashboardId={dashboard.id}
             isEditable={isEditable}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
+            controls={dashboard.controls ?? []}
           />
         </div>
       ))}

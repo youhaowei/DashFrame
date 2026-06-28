@@ -137,7 +137,42 @@ function sanitizeDashboardUpdates(
   if (typeof input.y === "number") next.y = input.y;
   if (typeof input.width === "number") next.width = input.width;
   if (typeof input.height === "number") next.height = input.height;
+
+  // Per-cell override bag — sanitized by the helper below.
+  if ("overrides" in input) {
+    next.overrides = sanitizeItemOverrides(input.overrides);
+  }
+
   return next;
+}
+
+/**
+ * Sanitize the per-cell override bag received from the client.
+ *
+ * Shape contract: the object must conform to `DashboardItemOverrides`
+ * (@dashframe/types).  The engine reads it back as JSONB so we only gate on
+ * structural plausibility — `null` / undefined → remove overrides, non-object
+ * shapes are silently dropped (unexpected client payload).
+ */
+function sanitizeItemOverrides(
+  ov: unknown,
+): DashboardItem["overrides"] | undefined {
+  if (ov == null) return undefined; // null or undefined → clear
+  if (!isRecord(ov)) return undefined; // unexpected shape — ignore silently
+  const filters = Array.isArray(ov.filters) ? ov.filters : undefined;
+  const sorts = Array.isArray(ov.sorts) ? ov.sorts : undefined;
+  const limit =
+    typeof ov.limit === "number" && ov.limit > 0 ? ov.limit : undefined;
+  // Normalise empty/all-undefined bags to undefined so they are never persisted
+  // as {} or {filters:[]} in JSONB, which the engine would treat as "has overrides".
+  // Note: ![] is false (arrays are truthy), so we must use .length to check empties.
+  if (
+    (filters == null || filters.length === 0) &&
+    sorts === undefined &&
+    limit === undefined
+  )
+    return undefined;
+  return { filters, sorts, limit };
 }
 
 const listDashboards = query({
