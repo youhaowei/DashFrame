@@ -54,6 +54,9 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { type ArtifactDb } from "@dashframe/server-core";
+
+import { createDraftController } from "./draft-controller";
 import { functions } from "./functions";
 
 type CorsOrigin =
@@ -521,7 +524,33 @@ export async function createDashframeServer(
     ...vaultWrapped,
     async call(path, args, context) {
       const merged = { ...(context ?? {}), ...serverContext };
-      return vaultWrapped.call(path, args, merged);
+      const callResult = await vaultWrapped.call(path, args, merged);
+
+      // Handlers that use a sub-tracker (e.g. publishDraft, which calls
+      // applyCommands with its own fresh tracked context) cannot surface their
+      // writes via the outer DrizzleTracker. They signal the tables they wrote
+      // by returning `__extraTablesWritten` in the result object. The wrapper
+      // merges those tables into `callResult.tablesWritten` so the route layer
+      // (`createRoutes`) broadcasts the correct WS invalidation set — then
+      // strips the field before the result reaches the HTTP client.
+      const rawResult = callResult.result as
+        | ({ __extraTablesWritten?: string[] } & object)
+        | null
+        | undefined;
+      if (
+        rawResult != null &&
+        Array.isArray(rawResult.__extraTablesWritten) &&
+        rawResult.__extraTablesWritten.length > 0
+      ) {
+        const { __extraTablesWritten, ...cleanResult } = rawResult;
+        const merged = new Set([
+          ...callResult.tablesWritten,
+          ...(__extraTablesWritten as string[]),
+        ]);
+        return { ...callResult, result: cleanResult, tablesWritten: merged };
+      }
+
+      return callResult;
     },
     async runHandler(path, args, tracked, context) {
       const merged = { ...(context ?? {}), ...serverContext };
@@ -533,6 +562,17 @@ export async function createDashframeServer(
   // Done post-assignment because app itself is the wrapped version.
   serverContext.wyStackApp = app;
   serverContext.artifactDb = opts.db;
+
+  // Inject the persistent draft controller. Must come after `app` is finalized
+  // because the controller's `publishDraft` replay uses the full wrapped app.
+  // The `onWrite` callback is also surfaced here so the `publishDraft` handler
+  // can fire it explicitly — `buildDashframeApp`'s outer tracker never sees the
+  // sub-tracker writes from `applyCommands(mode:'commit')` inside the controller.
+  serverContext.draftController = createDraftController(
+    app,
+    opts.db as ArtifactDb,
+  );
+  serverContext.onWrite = opts.onWrite;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();

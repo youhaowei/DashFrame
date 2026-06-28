@@ -3,6 +3,7 @@ import { Button } from "@wystack/ui";
 import { CloseIcon, SparklesIcon } from "@wystack/ui-icons";
 
 import { AssistantEmptyState } from "./AssistantEmptyState";
+import { DraftReviewPanel } from "./DraftReviewPanel";
 import { useArtifactContext } from "./artifact-context";
 
 /**
@@ -30,6 +31,7 @@ export function AssistantSidebar() {
 function AssistantPanelBody() {
   const artifact = useArtifactContext();
   const close = useAssistantStore((s) => s.close);
+  const pendingDraftId = useAssistantStore((s) => s.pendingDraftId);
 
   return (
     <>
@@ -59,7 +61,11 @@ function AssistantPanelBody() {
       </header>
 
       <div className="min-h-0 flex-1">
-        <AssistantEmptyState artifact={artifact} />
+        {pendingDraftId ? (
+          <DraftReviewPanel draftId={pendingDraftId} />
+        ) : (
+          <AssistantEmptyState artifact={artifact} />
+        )}
       </div>
     </>
   );

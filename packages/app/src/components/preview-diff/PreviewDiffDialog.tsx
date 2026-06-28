@@ -5,15 +5,30 @@
  *   1. Accepts a PreviewDiff (metadata-only from the server).
  *   2. Fills compute slots lazily via usePreviewComputeFill (client-side DuckDB).
  *   3. Renders immediately with metadata; compute fills progressively per node.
+ *   4. Optionally shows Publish / Discard actions when callbacks are supplied.
  *
  * SPLIT-TIER: this component owns the compute-fill boundary. It takes a
  * `PreviewDiff` with `compute: undefined` on all direct nodes and hands the
  * filled diff to `PreviewDiffRenderer` as compute resolves. No server round-trip
  * for row data — all compute is local DuckDB.
+ *
+ * ACTION CALLBACKS: `onPublish` and `onDiscard` are optional. When absent the
+ * dialog is read-only (preview only). When present a footer renders with
+ * "Discard" (destructive) and "Publish" (primary) buttons. The dialog stays
+ * open while either action is in-flight — the callback controls close timing.
  */
 
+import { useState } from "react";
+
 import type { PreviewDiff } from "@dashframe/types";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@wystack/ui";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@wystack/ui";
 
 import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
 import { usePreviewComputeFill } from "./usePreviewComputeFill";
@@ -27,6 +42,17 @@ interface PreviewDiffDialogProps {
   onClose: () => void;
   /** Optional title override. Defaults to "Preview changes". */
   title?: string;
+  /**
+   * When provided, a "Publish" button appears in the footer. The dialog
+   * disables both actions while the callback is in-flight. The callback is
+   * responsible for closing the dialog (call `onClose`) after completion.
+   */
+  onPublish?: () => Promise<void> | void;
+  /**
+   * When provided, a "Discard" button appears in the footer alongside Publish.
+   * Same in-flight semantics as `onPublish`.
+   */
+  onDiscard?: () => Promise<void> | void;
 }
 
 /**
@@ -38,18 +64,46 @@ export function PreviewDiffDialog({
   open,
   onClose,
   title = "Preview changes",
+  onPublish,
+  onDiscard,
 }: PreviewDiffDialogProps) {
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
+  const isBusy = isPublishing || isDiscarding;
+
   // Fill compute slots lazily — runs entirely client-side, no server RPC.
   // Gate on `open`: a closed (hidden) dialog must not kick DuckDB compute work.
   // Passing null when closed also flips the hook's effect-cleanup cancellation,
   // freeing the single DuckDB-WASM worker.
   const { diff: filledDiff } = usePreviewComputeFill(open ? diff : null);
 
+  const hasActions = onPublish !== undefined || onDiscard !== undefined;
+
+  async function handlePublish() {
+    if (!onPublish || isBusy) return;
+    setIsPublishing(true);
+    try {
+      await onPublish();
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function handleDiscard() {
+    if (!onDiscard || isBusy) return;
+    setIsDiscarding(true);
+    try {
+      await onDiscard();
+    } finally {
+      setIsDiscarding(false);
+    }
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(isOpen) => {
-        if (!isOpen) onClose();
+        if (!isOpen && !isBusy) onClose();
       }}
     >
       <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
@@ -60,6 +114,25 @@ export function PreviewDiffDialog({
           <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
         ) : (
           <p className="text-sm text-neutral-fg/50">No changes to preview.</p>
+        )}
+        {hasActions && (
+          <DialogFooter>
+            {onDiscard && (
+              <Button
+                label={isDiscarding ? "Discarding…" : "Discard"}
+                variant="outline"
+                onClick={handleDiscard}
+                disabled={isBusy}
+              />
+            )}
+            {onPublish && (
+              <Button
+                label={isPublishing ? "Publishing…" : "Publish"}
+                onClick={handlePublish}
+                disabled={isBusy}
+              />
+            )}
+          </DialogFooter>
         )}
       </DialogContent>
     </Dialog>

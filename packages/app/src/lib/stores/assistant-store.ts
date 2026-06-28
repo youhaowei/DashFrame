@@ -6,16 +6,28 @@ import { createJSONStorage, persist } from "zustand/middleware";
  * assistant's concern — it shares the shell's right Dock, whose width lives in
  * the shell store (see RightDock). This store holds only the open/closed state
  * and its ⌘J summon.
+ *
+ * `pendingDraftId` is a transient draft waiting for user review. It is NOT
+ * persisted — a persisted draftId could go stale across server restarts. The
+ * pi-agent sets this when it produces a draft; the DraftReviewPanel reads it.
  */
 interface AssistantState {
   /** Whether the assistant panel is visible. */
   isOpen: boolean;
+  /**
+   * A draft the assistant has queued for user review. When non-null the
+   * assistant panel shows the DraftReviewPanel instead of the empty state.
+   * Set by the pi-agent producer; cleared on publish or discard.
+   */
+  pendingDraftId: string | null;
 }
 
 interface AssistantActions {
   open: () => void;
   close: () => void;
   toggle: () => void;
+  /** Set (or clear) a draft waiting for review. Opens the panel when non-null. */
+  setPendingDraft: (id: string | null) => void;
 }
 
 /**
@@ -68,16 +80,25 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
   persist(
     (set) => ({
       isOpen: false,
+      // Transient — not persisted. A stale draftId across a server restart
+      // would surface a "draft not found" error in the review panel.
+      pendingDraftId: null,
 
       open: () => set({ isOpen: true }),
       close: () => set({ isOpen: false }),
       toggle: () => set((s) => ({ isOpen: !s.isOpen })),
+      setPendingDraft: (id) =>
+        set((s) => ({
+          pendingDraftId: id,
+          // Open the panel automatically when a draft is queued.
+          isOpen: id !== null ? true : s.isOpen,
+        })),
     }),
     {
       name: "dashframe:assistant",
       storage: createJSONStorage(() => safeLocalStorage),
       skipHydration: true,
-      // Persist only last-open state; actions are derived.
+      // Persist only last-open state; pendingDraftId is session-only.
       partialize: (s) => ({ isOpen: s.isOpen }),
     },
   ),
