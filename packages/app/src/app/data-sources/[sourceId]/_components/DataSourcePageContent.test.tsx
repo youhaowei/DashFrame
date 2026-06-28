@@ -1,16 +1,18 @@
 /**
- * Route-level loading-state contract for DataSourcePageContent.
+ * DataSourcePageContent tests.
  *
- * Contract: when useDataSources is loading, the component shows a loading
- * indicator and NEVER shows "Data source not found" for a source that exists
- * in the resolved data. Once data arrives the content renders.
+ * Section 1 — loading-state contract:
+ *   When useDataSources is loading, the component shows a loading indicator and
+ *   NEVER shows "Data source not found" for a source that exists in the resolved
+ *   data. Once data arrives the content renders.
+ *   (Regression for the hardcoded `const isLoading = false` bug.)
  *
- * This tests the fix for the hardcoded `const isLoading = false` bug: on
- * initial render allDataSources is empty until the store hydrates, so without
- * the real flag the component flashed "not found" before data arrived.
+ * Section 2 — buildAnalysisByFieldId repeat-join identity:
+ *   Columns from a repeat-join have _j0 / _j1 suffixes on their aliases. The
+ *   analysis map must store them under distinct keys so j1 cannot overwrite j0.
  */
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ vi.mock("@/lib/perf", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 vi.mock("@dashframe/engine", () => ({
-  extractUUIDFromColumnAlias: () => null,
+  extractColumnAliasComponents: vi.fn(() => null),
 }));
 
 vi.mock("@dashframe/types", () => ({
@@ -181,8 +183,11 @@ vi.mock("@/components/data-sources/SensitivityBadge", () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 
+import { extractColumnAliasComponents } from "@dashframe/engine";
 import React from "react";
-import DataSourcePageContent from "./DataSourcePageContent";
+import DataSourcePageContent, {
+  buildAnalysisByFieldId,
+} from "./DataSourcePageContent";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -296,3 +301,98 @@ describe("DataSourcePageContent — loading state contract", () => {
     screen.getByDisplayValue("My Database");
   });
 });
+
+// ── buildAnalysisByFieldId — repeat-join identity ────────────────────────────
+//
+// Contract: two analysis columns for the same base field but different join
+// instances (field_<uuid>_j0 and field_<uuid>_j1) must occupy DISTINCT map
+// entries. j1 must never overwrite j0.
+
+describe("buildAnalysisByFieldId — repeat-join identity", () => {
+  // Repeat-join fixtures:
+  //   COL_J0 → bare alias (first instance, NO _j0 suffix, per engine convention)
+  //   COL_J1 → _j1-suffixed alias (second instance)
+  const UUID = "dd05ef4b-1234-5678-abcd-ef1234567890";
+  const COL_J0 = `field_${UUID.replace(/-/g, "_")}`; // bare = first instance
+  const COL_J1 = `${COL_J0}_j1`; // _j1 suffix = second instance
+
+  // Single-join fixture: uses a DISTINCT UUID so it's unambiguous vs repeat-join.
+  const SINGLE_UUID = "ccbbaa99-1234-5678-abcd-ef1234567890";
+  const COL_SINGLE = `field_${SINGLE_UUID.replace(/-/g, "_")}`;
+
+  // Inline parser matching the real extractColumnAliasComponents behaviour.
+  const realParser = (alias: string) => {
+    const m = alias.match(/^(?:field|metric)_(.+)$/);
+    if (!m) return null;
+    const raw = m[1] ?? "";
+    const inst = raw.match(/^(.+)_j(\d+)$/);
+    const uuidRaw = inst ? (inst[1] ?? "") : raw;
+    const instanceIndex = inst ? parseInt(inst[2] ?? "0", 10) : 0;
+    const parts = uuidRaw.split("_");
+    const uuid =
+      parts.length === 5 ? parts.join("-") : uuidRaw.replace(/_/g, "-");
+    return { uuid, instanceIndex };
+  };
+
+  beforeEach(() => {
+    vi.mocked(extractColumnAliasComponents).mockImplementation(realParser);
+  });
+
+  afterEach(() => {
+    vi.mocked(extractColumnAliasComponents).mockReturnValue(null);
+  });
+
+  it("maps j0 column to the bare UUID key", () => {
+    const col = makeCol(COL_J0, 5);
+    const map = buildAnalysisByFieldId([col]);
+    expect(map.has(UUID)).toBe(true);
+    expect(map.get(UUID)).toBe(col);
+  });
+
+  it("maps j1 column to <uuid>_j1 key — does NOT overwrite j0", () => {
+    const j0 = makeCol(COL_J0, 5);
+    const j1 = makeCol(COL_J1, 15);
+    const map = buildAnalysisByFieldId([j0, j1]);
+
+    expect(map.size).toBe(2);
+    expect(map.get(UUID)).toBe(j0);
+    expect(map.get(`${UUID}_j1`)).toBe(j1);
+  });
+
+  it("single-join (no _j suffix) — not regressed, uses bare UUID key", () => {
+    // COL_SINGLE comes from a table joined exactly once (bare alias).
+    // Uses a distinct UUID so this test is unambiguous vs the repeat-join tests above.
+    const col = makeCol(COL_SINGLE, 10);
+    const map = buildAnalysisByFieldId([col]);
+
+    expect(map.has(SINGLE_UUID)).toBe(true);
+    expect(map.size).toBe(1);
+    // Must NOT create a _j0 key
+    expect(map.has(`${SINGLE_UUID}_j0`)).toBe(false);
+  });
+
+  it("prefers explicit fieldId over parsed columnName when fieldId is set", () => {
+    const explicitId = "explicit-field-id";
+    const col = { ...makeCol(COL_J0, 3), fieldId: explicitId };
+    const map = buildAnalysisByFieldId([col]);
+
+    expect(map.get(explicitId)).toBe(col);
+    expect(map.has(UUID)).toBe(false); // not re-parsed
+  });
+});
+
+// Minimal categorical ColumnAnalysis fixture.
+function makeCol(
+  columnName: string,
+  cardinality: number,
+): import("@dashframe/types").ColumnAnalysis {
+  return {
+    columnName,
+    dataType: "string",
+    semantic: "categorical",
+    cardinality,
+    uniqueness: 0.5,
+    nullCount: 0,
+    sampleValues: [],
+  };
+}

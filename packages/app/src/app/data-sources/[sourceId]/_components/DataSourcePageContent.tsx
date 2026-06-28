@@ -15,7 +15,7 @@ import {
   useDataTableMutations,
   useDataTables,
 } from "@dashframe/core";
-import { extractUUIDFromColumnAlias } from "@dashframe/engine";
+import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {
   buildSensitivityUpdate,
@@ -64,6 +64,48 @@ const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
   cleared: "Field marked as not sensitive",
   unclassified: "Field reset to unclassified",
 };
+
+/**
+ * Build a lookup map from field ID → column analysis.
+ *
+ * Keys use the same synthetic-ID convention as `buildInsightAvailableFields`:
+ * - Base / first-join instance (j0): canonical UUID  → `"<uuid>"`
+ * - Repeat-join j1, j2, …:          instance-qualified → `"<uuid>_j1"`, `"<uuid>_j2"`
+ *
+ * This prevents a repeat-join's j1 analysis from overwriting j0's in the map,
+ * and ensures that `analysisByFieldId.get(field.id)` returns the correct instance
+ * for every field shown in the UI.
+ *
+ * Exported for unit testing.
+ */
+export function buildAnalysisByFieldId(
+  columns: ColumnAnalysis[],
+): Map<string, ColumnAnalysis> {
+  const map = new Map<string, ColumnAnalysis>();
+  for (const column of columns) {
+    if (column.fieldId) {
+      // Fast-path: analysis already carries an explicit fieldId.
+      // IMPORTANT: if fieldId is ever populated via extractUUIDFromColumnAlias
+      // (which strips the _jN suffix), this path will silently re-introduce the
+      // j1-overwrites-j0 collapse. The only safe source for fieldId here is a
+      // value already instance-qualified (e.g. "<uuid>_j1") — matching the keys
+      // produced by buildInsightAvailableFields.
+      // As of today, analyze.ts does NOT persist fieldId onto ColumnAnalysis, so
+      // this branch is dead. Keep it as-is to not break any future caller that
+      // correctly provides instance-qualified fieldIds.
+      map.set(column.fieldId, column);
+      continue;
+    }
+    const components = extractColumnAliasComponents(column.columnName);
+    if (!components) continue;
+    const fieldId =
+      components.instanceIndex === 0
+        ? components.uuid
+        : `${components.uuid}_j${components.instanceIndex}`;
+    map.set(fieldId, column);
+  }
+  return map;
+}
 
 // Get icon for a data source type, driven by the connector registry.
 // Renders the connector's own icon; falls back to a generic database glyph.
@@ -196,15 +238,10 @@ export default function DataSourcePageContent({
 
   // Cached column analysis keyed by field ID, for data-driven sensitivity
   // signals (email-shaped values, free text) beyond name heuristics.
-  const analysisByFieldId = useMemo(() => {
-    const map = new Map<string, ColumnAnalysis>();
-    for (const column of dataFrameEntry?.analysis?.columns ?? []) {
-      const fieldId =
-        column.fieldId ?? extractUUIDFromColumnAlias(column.columnName);
-      if (fieldId) map.set(fieldId, column);
-    }
-    return map;
-  }, [dataFrameEntry]);
+  const analysisByFieldId = useMemo(
+    () => buildAnalysisByFieldId(dataFrameEntry?.analysis?.columns ?? []),
+    [dataFrameEntry],
+  );
 
   // One-click sensitivity marking. Confirming a classifier suggestion keeps
   // its reasons; deliberate marking/clearing is recorded as a user decision.
