@@ -551,7 +551,11 @@ export async function createDashframeServer(
           extra.length > 0
             ? new Set([...callResult.tablesWritten, ...extra])
             : callResult.tablesWritten;
-        return { ...callResult, result: cleanResult, tablesWritten: mergedTables };
+        return {
+          ...callResult,
+          result: cleanResult,
+          tablesWritten: mergedTables,
+        };
       }
 
       return callResult;

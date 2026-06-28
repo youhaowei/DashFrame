@@ -31,7 +31,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openArtifactDb, openProject, type ArtifactDb, type ProjectHandle } from "@dashframe/server-core";
+import {
+  openProject,
+  type ArtifactDb,
+  type ProjectHandle,
+} from "@dashframe/server-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -54,11 +58,7 @@ function post(url: string, path: string, body: unknown): Promise<Response> {
   });
 }
 
-async function postOk<T>(
-  url: string,
-  path: string,
-  body: unknown,
-): Promise<T> {
+async function postOk<T>(url: string, path: string, body: unknown): Promise<T> {
   const res = await post(url, path, body);
   expect(res.status, `POST ${path} returned ${res.status}`).toBe(200);
   const json = (await res.json()) as { data: T };

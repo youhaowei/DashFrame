@@ -35,10 +35,7 @@ import type { DraftController } from "../draft-controller";
  */
 const publishDraft = mutation({
   args: { draftId: text },
-  handler: async (
-    ctx,
-    { draftId },
-  ): Promise<{ tablesWritten: string[] }> => {
+  handler: async (ctx, { draftId }): Promise<{ tablesWritten: string[] }> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
       throw new Error(
@@ -124,4 +121,8 @@ const getDraftLog = query({
   },
 });
 
-export const draftLifecycleFunctions = { publishDraft, discardDraft, getDraftLog };
+export const draftLifecycleFunctions = {
+  publishDraft,
+  discardDraft,
+  getDraftLog,
+};
