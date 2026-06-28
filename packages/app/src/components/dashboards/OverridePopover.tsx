@@ -381,8 +381,9 @@ export function OverridePopover({
       // `undefined` would be dropped by JSON.stringify → the server's
       // `"overrides" in input` gate never fires → clear is silently skipped.
       // null is already handled: sanitizeItemOverrides(null) → undefined → JSONB cleared.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      updateItem(dashboardId, item.id, { overrides: null } as any);
+      updateItem(dashboardId, item.id, {
+        overrides: null as unknown as undefined,
+      });
     }
   }
 
