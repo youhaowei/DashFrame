@@ -104,7 +104,7 @@ async function makeHarness(opts?: { onWrite?: () => void }): Promise<Harness> {
   };
 
   const controller = createDraftController(app, db, {
-    captureCredentials: (c) => captureCommandCredentials(c, vault),
+    captureCredentials: (c) => captureCommandCredentials(c, vault, db),
   });
   serverContext.draftController = controller;
   serverContext.artifactDb = db;
@@ -263,43 +263,50 @@ describe("credential write path — capture-before-log + transition release", ()
   // orphaned keychain blob from the abandoned batch).
   it("releases a prior command's minted ref when a later batch command is rejected", async () => {
     const storeSpy = vi.spyOn(h.vault, "store");
-    const draftId = await h.controller.openDraft();
-    const foreign = makeSecretRef();
+    try {
+      const draftId = await h.controller.openDraft();
+      const foreign = makeSecretRef();
 
-    await expect(
-      h.controller.appendToDraft(draftId, [
-        cmd("CreateDataSource", {
-          id: crypto.randomUUID(),
-          type: "rest",
-          name: "First",
-          apiKey: "plaintext-first",
-        }),
-        cmd("SetDataSourceConfig", {
-          id: crypto.randomUUID(),
-          apiKey: foreign,
-        }),
-      ]),
-    ).rejects.toThrow(/plaintext secret, not a vault ref/i);
+      await expect(
+        h.controller.appendToDraft(draftId, [
+          cmd("CreateDataSource", {
+            id: crypto.randomUUID(),
+            type: "rest",
+            name: "First",
+            apiKey: "plaintext-first",
+          }),
+          cmd("SetDataSourceConfig", {
+            id: crypto.randomUUID(),
+            apiKey: foreign,
+          }),
+        ]),
+      ).rejects.toThrow(/plaintext secret, not a vault ref/i);
 
-    // The first command minted exactly one ref; it must have been released.
-    expect(storeSpy).toHaveBeenCalledTimes(1);
-    const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
-    expect(await h.vault.has(mintedRef)).toBe(false);
+      // The first command minted exactly one ref; it must have been released.
+      expect(storeSpy).toHaveBeenCalledTimes(1);
+      const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
+      expect(await h.vault.has(mintedRef)).toBe(false);
 
-    // Nothing persisted — the rejected batch left no draft state.
-    const rows = await h.db
-      .select()
-      .from(draftCommandLog)
-      .where(eq(draftCommandLog.draftId, draftId));
-    expect(rows.length).toBe(0);
-    storeSpy.mockRestore();
+      // Nothing persisted — the rejected batch left no draft state.
+      const rows = await h.db
+        .select()
+        .from(draftCommandLog)
+        .where(eq(draftCommandLog.draftId, draftId));
+      expect(rows.length).toBe(0);
+    } finally {
+      storeSpy.mockRestore();
+    }
   });
 
-  it("ALLOWS non-credential extra config (no ref) on a draft append", async () => {
-    const { id } = await seedCanonicalSource(h, "orig-key");
+  it("ALLOWS endpoint/extra config on a NON-credentialed source", async () => {
+    // No inherited credential → nothing to exfil → the config change is allowed.
+    const { result } = await h.app.call("addDataSource", {
+      type: "rest",
+      name: "NoCred",
+    });
+    const id = (result as { id: string }).id;
     const draftId = await h.controller.openDraft();
 
-    // A plaintext-only config update with no ref-shaped value is unaffected.
     await h.controller.appendToDraft(draftId, [
       cmd("SetDataSourceConfig", {
         id,
@@ -312,6 +319,103 @@ describe("credential write path — capture-before-log + transition release", ()
       .from(draftCommandLog)
       .where(eq(draftCommandLog.draftId, draftId));
     expect(rows.length).toBe(1);
+  });
+
+  // SECURITY — endpoint-redirect exfil of an INHERITED credential. A
+  // SetDataSourceConfig that changes config (e.g. a new endpoint) on an EXISTING
+  // credentialed source WITHOUT re-affirming the credential would carry the user's
+  // secret to the new target (the connector resolves config.<cred> and sends it to
+  // config.endpoint; the SSRF guard is private-range-only, a public host passes).
+  // Same threat class as the foreign-ref hole — the foreign-ENDPOINT variant.
+  it("REFUSES reconfiguring a credentialed source without re-affirming the credential", async () => {
+    const { id, ref } = await seedCanonicalSource(h, "user-secret");
+    const draftId = await h.controller.openDraft();
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", {
+          id,
+          extra: { endpoint: "https://attacker.example" },
+        }),
+      ]),
+    ).rejects.toThrow(/inherited credential|silently redirected/i);
+
+    // Nothing logged; the user's secret is untouched and still live.
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0);
+    expect(await h.vault.has(ref)).toBe(true);
+  });
+
+  it("ALLOWS reconfiguring a credentialed source when the credential is RE-SUPPLIED", async () => {
+    const { id } = await seedCanonicalSource(h, "user-secret");
+    const draftId = await h.controller.openDraft();
+
+    // Re-supplying apiKey (plaintext) in the same command re-affirms the credential.
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", {
+        id,
+        apiKey: "rotated",
+        extra: { endpoint: "https://api.example.com" },
+      }),
+    ]);
+
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(1);
+  });
+
+  it("ALLOWS reconfiguring a credentialed source when the credential is CLEARED", async () => {
+    const { id } = await seedCanonicalSource(h, "user-secret");
+    const draftId = await h.controller.openDraft();
+
+    // Clearing apiKey ("") drops the inherited secret → nothing carried → allowed.
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", {
+        id,
+        apiKey: "",
+        extra: { endpoint: "https://api.example.com" },
+      }),
+    ]);
+
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(1);
+  });
+
+  // Landmines the guard must NOT trip: create-then-configure in ONE draft (the new
+  // source isn't canonical yet → no inherited credential) AND publish replay (the
+  // guard runs only in capture, which replay bypasses). If either tripped, this
+  // throws.
+  it("ALLOWS create-then-configure in one draft and PUBLISHES (canonical-keyed + replay-exempt)", async () => {
+    const id = crypto.randomUUID();
+    const draftId = await h.controller.openDraft();
+
+    await h.controller.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id,
+        type: "rest",
+        name: "Agent REST",
+        apiKey: "agent-secret",
+      }),
+      cmd("SetDataSourceConfig", {
+        id,
+        extra: { endpoint: "https://api.example.com" },
+      }),
+    ]);
+
+    await h.app.call("publishDraft", { draftId });
+
+    const config = await readConfig(h, id);
+    expect(config).not.toBeNull();
+    expect(config!.endpoint).toBe("https://api.example.com");
+    expect(isSecretRef(config!.apiKey)).toBe(true);
   });
 
   it("stores a plaintext credential as a ref on a draft append (agent happy path)", async () => {

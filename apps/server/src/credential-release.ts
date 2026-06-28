@@ -45,7 +45,7 @@ import { isSecretRef } from "@wystack/secret-vault";
 import type { Command, DraftCommand } from "@wystack/server";
 import { eq, ne } from "drizzle-orm";
 
-import { CREDENTIAL_COMMAND_FIELDS } from "./functions/commands";
+import { COMMAND_PATHS, CREDENTIAL_COMMAND_FIELDS } from "./functions/commands";
 import {
   isRecord,
   storeCredential,
@@ -90,6 +90,98 @@ function assertNoSecretRefDeep(value: unknown, path: string): void {
   }
   if (isRecord(value)) {
     for (const item of Object.values(value)) assertNoSecretRefDeep(item, path);
+  }
+}
+
+/**
+ * Refuse a fresh-append `SetDataSourceConfig` that would carry an INHERITED
+ * canonical credential into a reconfigured source without re-affirming it.
+ *
+ * The exfil this closes: a `SetDataSourceConfig` that supplies NO credential (just
+ * `extra`, e.g. a new `endpoint`) keeps the source's existing canonical credential
+ * via `{...current.config}` + `Object.assign(config, extra)` in the handler. An
+ * agent could thus redirect a user-authored, credentialed source at an attacker
+ * endpoint, and the connector would resolve and send the user's secret there (the
+ * REST SSRF guard is a private-range denylist — a public attacker host passes).
+ * Same threat class as the foreign-ref hole, the foreign-ENDPOINT variant.
+ *
+ * Shape (confirmed against the credential-seam review):
+ *  - CANONICAL-keyed: reads RAW canonical (not the draft-coalesced handle), so the
+ *    create-then-configure happy path — `CreateDataSource` then `SetDataSourceConfig`
+ *    in ONE draft — is allowed (the new source isn't canonical yet).
+ *  - FRESH-APPEND-only: this runs inside capture, which only the append path calls;
+ *    publish replay (`applyCommands`) bypasses it, so replay never trips the guard.
+ *  - TRIGGER = `extra` supplied: the untyped connector-config bag is the ONLY
+ *    vector that can introduce a new DESTINATION (e.g. a REST `endpoint`) for an
+ *    inherited credential. The typed fields (apiKey/connectionString) are
+ *    credentials, not destinations — setting one re-affirms a credential, it does
+ *    not redirect another (so a typed-only edit, e.g. rotating connectionString
+ *    while apiKey is inherited, is NOT a redirect and is allowed). Within `extra`
+ *    the check is field-AGNOSTIC (endpoint / baseUrl / webhookUrl all count — no
+ *    per-key allow-list, the enumeration trap that let authRef slip).
+ *  - CREDENTIAL = ANY canonical `SecretRef` (covers apiKey / connectionString /
+ *    authRef without enumeration).
+ *  - REQUIRE RE-AFFIRM: every inherited credential must be re-supplied (plaintext)
+ *    or cleared in THIS command; an untouched one is carried verbatim → reject.
+ */
+async function assertNoInheritedCredentialExfil(
+  cmd: DraftCommand,
+  args: Record<string, unknown>,
+  db: ArtifactDb | undefined,
+): Promise<void> {
+  // Only SetDataSourceConfig reconfigures an EXISTING source. CreateDataSource
+  // inserts a new row (a colliding id throws in the handler), so it cannot inherit
+  // a canonical credential.
+  if (cmd.path !== COMMAND_PATHS.SetDataSourceConfig) return;
+  const id = typeof args.id === "string" ? args.id : undefined;
+  if (id === undefined) return; // malformed — the handler's own validation rejects it
+
+  // Only an `extra` change can introduce a new destination for an inherited
+  // credential; a typed-credential-only update redirects nothing. No `extra` →
+  // not a redirect → nothing to guard.
+  const extra = isRecord(args.extra) ? args.extra : undefined;
+  if (extra === undefined || Object.keys(extra).length === 0) return;
+
+  if (db == null) {
+    // Fail-closed: the guard needs canonical state to reason about. Production
+    // always injects the artifact db; its absence is a wiring error, not licence
+    // to skip a credential guard.
+    throw new Error(
+      `[secret-vault] cannot verify inherited-credential safety for '${cmd.path}' ` +
+        "— no artifact db injected into the capture seam.",
+    );
+  }
+
+  const rows = await db
+    .select({ config: dataSources.config })
+    .from(dataSources)
+    .where(eq(dataSources.id, id));
+  const canonical = rows[0]?.config;
+  // No existing canonical source (e.g. created in this same draft) → nothing to
+  // inherit, nothing to exfil.
+  if (!isRecord(canonical)) return;
+
+  // Field-agnostic credential detection: any canonical config value that is a
+  // SecretRef is an inherited credential (apiKey / connectionString / authRef / …).
+  const inheritedCredFields = Object.keys(canonical).filter((k) =>
+    isSecretRef(canonical[k]),
+  );
+  if (inheritedCredFields.length === 0) return; // source holds no credential
+
+  // The command must RE-AFFIRM every inherited credential — supply (plaintext) or
+  // clear it in THIS command (a typed arg, or the same key under `extra`). A field
+  // the command leaves untouched is carried verbatim into the new config: reject.
+  const reaffirmed = (k: string): boolean =>
+    (k in args && args[k] !== undefined) || k in extra;
+  const carried = inheritedCredFields.filter((k) => !reaffirmed(k));
+  if (carried.length > 0) {
+    throw new Error(
+      `[secret-vault] SetDataSourceConfig on credentialed source '${id}' would carry ` +
+        `inherited credential(s) [${carried.join(", ")}] unchanged while reconfiguring ` +
+        "it — refusing so an inherited secret cannot be silently redirected to a new " +
+        "endpoint/target. Re-supply the credential as plaintext, or clear it, in the " +
+        "same command.",
+    );
   }
 }
 
@@ -143,6 +235,7 @@ async function releaseRefsBestEffort(
 export async function captureCommandCredentials(
   cmd: DraftCommand,
   vault: SecretVault | undefined,
+  db?: ArtifactDb,
 ): Promise<CapturedCommand> {
   const fields = CREDENTIAL_COMMAND_FIELDS[cmd.path];
   const args = cmd.args;
@@ -170,6 +263,18 @@ export async function captureCommandCredentials(
   // letting a caller point a source at a secret it does not own (the foreign-ref
   // hole). Runs BEFORE any mint, so nothing needs releasing on this throw.
   assertNoSecretRefDeep(args, cmd.path);
+
+  // SECURITY (fail-closed) — refuse to silently carry an INHERITED credential
+  // into a reconfigured source. The foreign-REF variant above is closed, but a
+  // SetDataSourceConfig that supplies NO credential (just `extra`, e.g. a new
+  // `endpoint`) keeps the existing canonical credential via `{...current.config}`
+  // + `Object.assign` — so an agent could redirect a credentialed source at an
+  // attacker endpoint and the connector would send the user's secret there (the
+  // SSRF guard is a private-range denylist; a public attacker host passes). Runs
+  // ONLY on a fresh append (replay bypasses capture), reads RAW canonical, and is
+  // field-agnostic on BOTH sides (credential = any SecretRef in canonical; target
+  // = any config change) so a future connector target field cannot reopen it.
+  await assertNoInheritedCredentialExfil(cmd, args, db);
 
   const minted: SecretRef[] = [];
   let nextArgs: Record<string, unknown> | undefined;

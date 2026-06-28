@@ -208,13 +208,13 @@ describe("createApplyCommandTool — error propagation", () => {
 
     // An unknown type must throw — no false success, no canonical write.
     // The allow-list gate fires BEFORE buildCommand, so the error comes from
-    // the gate ("not available to the assistant") rather than from buildCommand.
+    // the gate ("not draft-safe") rather than from buildCommand.
     await expect(
       tool.execute("call-bad-type", {
         type: "NonExistentCommand",
         args: {},
       }),
-    ).rejects.toThrow(/not available to the assistant/);
+    ).rejects.toThrow(/not draft-safe/);
 
     // appendToDraft was NOT called (gate rejected before reaching appendToDraft).
     expect(controller.appendCalls).toHaveLength(0);
@@ -412,12 +412,10 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
         buildCommand: buildCommandSpy,
       });
 
-      // Must throw — describing the command as unavailable to the assistant.
+      // Must throw — describing the command as not draft-safe for the assistant.
       await expect(
         tool.execute("call-deny", { type: commandType, args: {} }),
-      ).rejects.toThrow(
-        /not available to the assistant.*credential operations/i,
-      );
+      ).rejects.toThrow(/not draft-safe for the assistant/i);
 
       // CRITICAL: buildCommand must NOT have been called (gate fires before it).
       expect(buildCommandSpy).not.toHaveBeenCalled();
@@ -439,7 +437,7 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
         type: "SomeUnknownCommand",
         args: {},
       }),
-    ).rejects.toThrow(/not available to the assistant/i);
+    ).rejects.toThrow(/not draft-safe/i);
 
     expect(controller.appendCalls).toHaveLength(0);
   });

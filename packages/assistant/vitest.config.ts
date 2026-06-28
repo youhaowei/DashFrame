@@ -1,6 +1,9 @@
-import path from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vitest/config";
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
@@ -12,8 +15,9 @@ export default defineConfig({
     alias: {
       // Resolve the credential-ref guard's shape predicate from source so the
       // unit tests do not depend on a built wystack dist (mirrors connector-rest).
-      "@wystack/secret-vault": path.resolve(
-        __dirname,
+      // ESM-safe base (this package is type:module; no __dirname at runtime).
+      "@wystack/secret-vault": resolve(
+        configDir,
         "../../libs/wystack/packages/secret-vault/src/index.ts",
       ),
     },

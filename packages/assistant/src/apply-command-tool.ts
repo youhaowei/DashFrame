@@ -405,24 +405,25 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       const { type, args } = params;
 
       // SECURITY GATE: enforce the draft-safe allow-list BEFORE calling
-      // buildCommand or appendToDraft. This is a default-deny boundary:
+      // buildCommand or appendToDraft. Default-deny — everything not in
+      // DRAFT_SAFE_COMMANDS is rejected. The notable denials:
       //
-      //   - Credential commands (CreateDataSource, SetDataSourceConfig,
-      //     DeleteNode on DataSource) call vault.store/vault.delete as
-      //     OS-keychain side effects OUTSIDE the DB transaction. These ops are
-      //     NOT drafted and NOT rolled back on discard — allowing the agent to
-      //     trigger them would create real credential state from a sandbox.
+      //   - DeleteNode — on a DataSource it calls vault.delete as an OS-keychain
+      //     side effect OUTSIDE the DB transaction (not drafted, not rolled back
+      //     on discard); on Insight/DataTable it uses non-PK-filtered cascade
+      //     operations the draft overlay cannot safely replicate.
+      //   - GetOrCreateDataSource — legacy coarse create with no
+      //     capture-before-log credential path (use CreateDataSource instead).
       //
-      //   - Draft-overlay-unsafe deletes (DeleteNode on Insight/DataTable)
-      //     use non-PK-filtered cascade operations that the draft overlay
-      //     cannot safely replicate.
+      // CreateDataSource / SetDataSourceConfig ARE allow-listed — they route
+      // through the safe credential write path; the credential-ref gate and the
+      // server-side inherited-credential guard are their security boundary.
       //
       // Rejecting here — before buildCommand — means no vault call, no append,
       // no draft mutation: a clean, auditable deny at the tool seam.
       if (!DRAFT_SAFE_COMMANDS.has(type)) {
         throw new Error(
-          `applyCommand: command type "${type}" is not available to the assistant. ` +
-            "Credential operations and data-source configuration are human-only. " +
+          `applyCommand: command type "${type}" is not draft-safe for the assistant. ` +
             `Available commands: ${[...DRAFT_SAFE_COMMANDS].sort().join(", ")}`,
         );
       }

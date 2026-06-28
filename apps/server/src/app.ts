@@ -585,7 +585,8 @@ export async function createDashframeServer(
       // before a credential command is snapshotted into draft_command_log, so the
       // durable log never holds plaintext. The vault closure makes the store real
       // (a draft append is never a preview); a missing vault fails closed.
-      captureCredentials: (cmd) => captureCommandCredentials(cmd, opts.vault),
+      captureCredentials: (cmd) =>
+        captureCommandCredentials(cmd, opts.vault, opts.db as ArtifactDb),
     },
   );
   serverContext.onWrite = opts.onWrite;
