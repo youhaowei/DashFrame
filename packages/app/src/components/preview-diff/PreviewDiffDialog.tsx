@@ -115,15 +115,32 @@ export function PreviewDiffDialog({
         if (!isOpen && !isBusy) onClose();
       }}
     >
-      <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+      {/*
+       * Three-row grid (DialogContent base sets display:grid): header (auto) /
+       * scroll body (1fr) / footer (auto). Only apply the row template when
+       * the footer renders — an empty third track still consumes a gap-4 gap.
+       *
+       * min-h-0 on the scroll wrapper is required: grid items default to
+       * min-height:auto, which prevents shrinking below content height and
+       * makes overflow-y-auto a no-op.
+       */}
+      <DialogContent
+        className={
+          hasActions
+            ? "grid-rows-[auto_1fr_auto] max-h-[80vh] max-w-2xl overflow-hidden"
+            : "max-h-[80vh] max-w-2xl overflow-hidden"
+        }
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {filledDiff ? (
-          <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
-        ) : (
-          <p className="text-sm text-neutral-fg/50">No changes to preview.</p>
-        )}
+        <div className="min-h-0 overflow-y-auto">
+          {filledDiff ? (
+            <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
+          ) : (
+            <p className="text-sm text-neutral-fg/50">No changes to preview.</p>
+          )}
+        </div>
         {hasActions && (
           <DialogFooter>
             {onDiscard && (
