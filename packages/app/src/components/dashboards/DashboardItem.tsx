@@ -1,6 +1,7 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDashboardMutations } from "@dashframe/core";
 import type {
+  DashboardControl,
   DashboardItemOverrides,
   DashboardItem as DashboardItemType,
 } from "@dashframe/types";
@@ -8,6 +9,7 @@ import { Button, cn, Surface } from "@wystack/ui";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-icons";
 import { useState } from "react";
 import { MarkdownWidget } from "./MarkdownWidget";
+import { OverridePopover } from "./OverridePopover";
 
 interface DashboardItemProps {
   item: DashboardItemType;
@@ -20,6 +22,11 @@ interface DashboardItemProps {
    * When absent, the item's own saved `overrides` are used as before.
    */
   effectiveOverrides?: DashboardItemOverrides;
+  /**
+   * Dashboard-level controls passed down from DashboardGrid.  Used by the
+   * OverridePopover to derive field-bound state and offer bind/unbind affordances.
+   */
+  controls?: DashboardControl[];
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -33,6 +40,7 @@ export function DashboardItem({
   dashboardId,
   isEditable,
   effectiveOverrides,
+  controls = [],
   className,
   style,
   onMouseDown,
@@ -113,6 +121,21 @@ export function DashboardItem({
             </div>
           )}
         </div>
+
+        {/* Customize button + override badge — visualization cells only.
+            Visible on hover, anchored bottom-right inside the surface. */}
+        {item.type === "visualization" && (
+          <div
+            className="absolute right-2 bottom-2 z-20 opacity-0 transition-opacity group-hover:opacity-100"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <OverridePopover
+              item={item}
+              dashboardId={dashboardId}
+              controls={controls}
+            />
+          </div>
+        )}
       </Surface>
     </div>
   );
