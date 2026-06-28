@@ -59,8 +59,8 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
       setDiff(preview);
       setDialogOpen(true);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setLoadError(`Could not load draft: ${msg}`);
+      console.error("[DraftReviewPanel] failed to load draft:", err);
+      setLoadError("Could not load draft. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -74,8 +74,8 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
       setDialogOpen(false);
       setPendingDraft(null);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Publish failed: ${msg}`);
+      console.error("[DraftReviewPanel] publish failed:", err);
+      toast.error("Publish failed. Please try again.");
       // Do not re-throw: PreviewDiffDialog swallows callback errors and its
       // `finally` block already resets the loading state.
     }
@@ -90,27 +90,34 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
       setDiff(null);
       setPendingDraft(null);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Discard failed: ${msg}`);
+      console.error("[DraftReviewPanel] discard failed:", err);
+      toast.error("Discard failed. Please try again.");
       // Do not re-throw — same as handlePublish.
     }
   }, [draftId, setPendingDraft]);
 
   /**
-   * Quick-discard from the panel card (no dialog, no re-throw). Errors surface
-   * as toasts; promise is safe to fire-and-forget.
+   * Quick-discard from the panel card (no dialog, no re-throw). Guards against
+   * double-click by tracking its own in-flight state independently of `isLoading`
+   * (which covers `handleReview`). Errors surface as toasts; promise is safe to
+   * fire-and-forget.
    */
+  const [isQuickDiscarding, setIsQuickDiscarding] = useState(false);
+
   const handleQuickDiscard = useCallback(async () => {
-    if (isLoading) return;
+    if (isLoading || isQuickDiscarding) return;
+    setIsQuickDiscarding(true);
     try {
       await discardDraft(draftId);
       toast.info("Draft discarded.");
       setPendingDraft(null);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Discard failed: ${msg}`);
+      console.error("[DraftReviewPanel] quick-discard failed:", err);
+      toast.error("Discard failed. Please try again.");
+    } finally {
+      setIsQuickDiscarding(false);
     }
-  }, [draftId, isLoading, setPendingDraft]);
+  }, [draftId, isLoading, isQuickDiscarding, setPendingDraft]);
 
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
@@ -154,10 +161,10 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
                 size="sm"
               />
               <Button
-                label="Discard draft"
+                label={isQuickDiscarding ? "Discarding…" : "Discard draft"}
                 variant="ghost"
                 onClick={() => void handleQuickDiscard()}
-                disabled={isLoading}
+                disabled={isLoading || isQuickDiscarding}
                 className="w-full text-neutral-fg-subtle hover:text-neutral-fg"
                 size="sm"
               />
