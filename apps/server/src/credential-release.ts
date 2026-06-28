@@ -69,6 +69,30 @@ export interface CapturedCommand {
   rollback: () => Promise<void>;
 }
 
+/**
+ * Throw if ANY string anywhere in `value` is a {@link SecretRef} (recursive over
+ * arrays + plain objects). The fail-closed primitive behind the capture seam's
+ * caller-supplied-ref refusal: it does not care WHICH field holds the ref, so a
+ * ref-shaped connector slot outside the typed credential fields (e.g. a REST
+ * source's `extra.authRef`) is caught the same as `apiKey` / `connectionString`.
+ */
+function assertNoSecretRefDeep(value: unknown, path: string): void {
+  if (isSecretRef(value)) {
+    throw new Error(
+      `[secret-vault] credential command '${path}' must be given the plaintext ` +
+        "secret, not a vault ref — refusing to adopt a caller-supplied ref " +
+        "(it would skip storeCredential + the fail-closed guard).",
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertNoSecretRefDeep(item, path);
+    return;
+  }
+  if (isRecord(value)) {
+    for (const item of Object.values(value)) assertNoSecretRefDeep(item, path);
+  }
+}
+
 /** Best-effort delete of refs (idempotent); swallows errors (cleanup path). */
 async function releaseRefsBestEffort(
   vault: SecretVault | undefined,
@@ -136,24 +160,26 @@ export async function captureCommandCredentials(
     );
   }
 
+  // SECURITY (fail-closed) — refuse a caller-supplied ref ANYWHERE in the args.
+  // FIELD-AGNOSTIC + RECURSIVE on purpose: the typed credential fields
+  // (apiKey/connectionString) are not the only ref-shaped slots — a connector
+  // config carries its own (e.g. a REST source's `extra.authRef`, which the REST
+  // connector resolves via the vault). Enumerating fields would let any such slot
+  // not in CREDENTIAL_COMMAND_FIELDS slip the guard (authRef did). A fresh
+  // credential write must carry plaintext; a ref here would be adopted unverified,
+  // letting a caller point a source at a secret it does not own (the foreign-ref
+  // hole). Runs BEFORE any mint, so nothing needs releasing on this throw.
+  assertNoSecretRefDeep(args, cmd.path);
+
   const minted: SecretRef[] = [];
   let nextArgs: Record<string, unknown> | undefined;
   try {
     for (const field of fields) {
       const value = args[field];
       // undefined (not part of this write) and "" (clear) carry no plaintext.
+      // Ref-shaped values are already rejected by assertNoSecretRefDeep above, so
+      // every non-empty string reaching here is plaintext to store.
       if (typeof value !== "string" || value.length === 0) continue;
-      // Refuse a caller-supplied ref (fail-closed) — see the SECURITY note above.
-      // A fresh credential write must be plaintext; a ref-shaped value here would
-      // be adopted unverified, the foreign-ref hole. Thrown inside the try so any
-      // ref minted for an earlier field in this command is released first.
-      if (isSecretRef(value)) {
-        throw new Error(
-          `[secret-vault] credential command '${cmd.path}' field '${field}' must ` +
-            "be the plaintext secret, not a vault ref — refusing to adopt a " +
-            "caller-supplied ref (it would skip storeCredential + the fail-closed guard).",
-        );
-      }
       const id = typeof args.id === "string" ? args.id : "unknown";
       const ref = await storeCredential(vault, value, `${field}-${id}`, false);
       minted.push(ref);

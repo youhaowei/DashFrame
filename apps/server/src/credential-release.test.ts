@@ -211,7 +211,7 @@ describe("credential write path — capture-before-log + transition release", ()
           apiKey: foreign,
         }),
       ]),
-    ).rejects.toThrow(/must be the plaintext secret, not a vault ref/i);
+    ).rejects.toThrow(/plaintext secret, not a vault ref/i);
 
     // Nothing adopted, nothing logged — the rejected append left no draft state.
     const rows = await h.db
@@ -230,7 +230,50 @@ describe("credential write path — capture-before-log + transition release", ()
       h.controller.appendToDraft(draftId, [
         cmd("SetDataSourceConfig", { id, connectionString: foreign }),
       ]),
-    ).rejects.toThrow(/must be the plaintext secret, not a vault ref/i);
+    ).rejects.toThrow(/plaintext secret, not a vault ref/i);
+  });
+
+  // The hole the typed-field-only guard missed: a ref nested in `extra` (e.g. a
+  // REST source's `extra.authRef`, which the REST connector resolves via the
+  // vault). The reject is field-agnostic + recursive, so the nested ref is caught.
+  it("REFUSES a caller-supplied foreign ref nested in extra.authRef (SetDataSourceConfig)", async () => {
+    const { id } = await seedCanonicalSource(h, "orig-key");
+    const foreign = makeSecretRef();
+    const draftId = await h.controller.openDraft();
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", {
+          id,
+          extra: { endpoint: "https://api.example.com", authRef: foreign },
+        }),
+      ]),
+    ).rejects.toThrow(/plaintext secret, not a vault ref/i);
+
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0);
+  });
+
+  it("ALLOWS non-credential extra config (no ref) on a draft append", async () => {
+    const { id } = await seedCanonicalSource(h, "orig-key");
+    const draftId = await h.controller.openDraft();
+
+    // A plaintext-only config update with no ref-shaped value is unaffected.
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", {
+        id,
+        extra: { endpoint: "https://api.example.com", method: "GET" },
+      }),
+    ]);
+
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(1);
   });
 
   it("stores a plaintext credential as a ref on a draft append (agent happy path)", async () => {

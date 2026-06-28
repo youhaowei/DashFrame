@@ -482,16 +482,37 @@ describe("createApplyCommandTool — credential-ref gate (agent authoring)", () 
   // foreign-ref attack the gate must block.
   const FOREIGN_REF = "secret:11111111-1111-4111-8111-111111111111";
 
+  // Each case puts a foreign ref in a different slot — the typed credential
+  // fields AND a nested connector field (`extra.authRef`, which the REST connector
+  // resolves via the vault). The gate is field-agnostic + recursive, so every slot
+  // is caught — enumerating only apiKey/connectionString is what let authRef slip.
   const refRejectionCases = [
-    { type: "CreateDataSource", field: "apiKey" },
-    { type: "CreateDataSource", field: "connectionString" },
-    { type: "SetDataSourceConfig", field: "apiKey" },
-    { type: "SetDataSourceConfig", field: "connectionString" },
+    {
+      type: "CreateDataSource",
+      args: { id: "d", type: "rest", name: "X", apiKey: "" },
+    },
+    {
+      type: "SetDataSourceConfig",
+      args: { id: "d", connectionString: "" },
+    },
+    {
+      type: "SetDataSourceConfig",
+      args: { id: "d", extra: { endpoint: "https://x", authRef: "" } },
+    },
+    {
+      type: "CreateDataSource",
+      args: {
+        id: "d",
+        type: "rest",
+        name: "X",
+        extra: { nested: { authRef: "" } },
+      },
+    },
   ] as const;
 
   it.each(refRejectionCases)(
-    "REJECTS a caller-supplied ref in $type.$field — no buildCommand, no appendToDraft",
-    async ({ type, field }) => {
+    "REJECTS a caller-supplied ref anywhere in $type args — no buildCommand, no appendToDraft",
+    async ({ type, args }) => {
       const controller = makeMockController();
       const buildCommandSpy = vi.fn(buildCommand);
       const tool = createApplyCommandTool({
@@ -500,14 +521,18 @@ describe("createApplyCommandTool — credential-ref gate (agent authoring)", () 
         buildCommand: buildCommandSpy,
       });
 
-      // A ref-shaped credential value must be rejected so the agent cannot adopt
-      // a foreign/arbitrary vault ref (bypassing storeCredential + fail-closed guard).
+      // Inject the foreign ref into whichever slot the case left empty.
+      const withRef = JSON.parse(
+        JSON.stringify(args).replace('""', `"${FOREIGN_REF}"`),
+      );
+
+      // A ref-shaped value must be rejected so the agent cannot adopt a
+      // foreign/arbitrary vault ref (bypassing storeCredential + fail-closed guard).
       await expect(
-        tool.execute("call-cred-reject", {
-          type,
-          args: { id: "ds-1", type: "rest", name: "X", [field]: FOREIGN_REF },
-        }),
-      ).rejects.toThrow(/must be the plaintext credential, not a vault ref/i);
+        tool.execute("call-cred-reject", { type, args: withRef }),
+      ).rejects.toThrow(
+        /must carry the plaintext credential, not a.*vault ref/is,
+      );
 
       // CRITICAL: rejected BEFORE buildCommand and BEFORE appendToDraft — no
       // command is constructed, nothing reaches the draft / capture seam.

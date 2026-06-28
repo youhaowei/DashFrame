@@ -169,30 +169,19 @@ export const DRAFT_SAFE_COMMANDS = new Set([
 // ---------------------------------------------------------------------------
 
 /**
- * The credential-bearing arg fields of each allow-listed command, BY command
- * name. The agent-path security boundary: for a command in this map, any field
- * here whose value is a ref-shaped string (`secret:<uuid>`) is REJECTED before
- * the command reaches `buildCommand` / `appendToDraft` (see {@link execute}).
+ * Commands that author connector credentials, mapped to their TYPED credential
+ * fields (`apiKey` / `connectionString`). This map serves two purposes:
+ *   - membership: a command listed here is credential-bearing, so the
+ *     credential-ref gate ({@link assertNoCallerSuppliedRefs}) runs on it;
+ *   - drift guard: it MIRRORS the server's `CREDENTIAL_COMMAND_FIELDS` (the
+ *     capture/release lifecycle source of truth), bridged by a server-side test
+ *     so the two cannot diverge.
  *
- * **WHY (the foreign-ref threat)** — the server's draft credential path captures
- * a PLAINTEXT credential to a vault ref before the log snapshot, but it ADOPTS a
- * value that is ALREADY a ref (capture-before-log + `applyCredentialField`'s
- * deferred-release branch both pass a ref through verbatim, to carry a
- * legitimately-captured / replayed ref). That adopt seam is safe for the trusted
- * human UI, but the instant the agent can emit `CreateDataSource` /
- * `SetDataSourceConfig` it could supply an arbitrary or FOREIGN `secret:<uuid>`
- * instead of plaintext — adopting a ref it does not own, skipping
- * `storeCredential` and the fail-closed vault guard. The agent has NO legitimate
- * reason to supply a pre-existing ref (it authors fresh credentials), so we
- * FORBID caller-supplied refs entirely on the agent path: plaintext only, which
- * the server then stores via the sanctioned `storeCredential` choke point.
- *
- * The applyCommand tool is the only sanctioned agent write path, so enforcing
- * here is fail-closed by construction — no host wiring or context flag required.
- *
- * MIRRORS the server's `CREDENTIAL_COMMAND_FIELDS` (the capture/release source of
- * truth). A server-side bridging test asserts the two stay in lockstep, so a new
- * credential field added server-side without updating this map fails the build.
+ * NOTE the gate's reject is field-AGNOSTIC (see {@link assertNoCallerSuppliedRefs})
+ * — it does not rely on this field list. The typed fields here only document the
+ * plaintext-capture lifecycle; the reject scans the whole args, because a connector
+ * config carries ref-shaped slots beyond these (e.g. a REST source's
+ * `extra.authRef`) that must be guarded too.
  */
 export const CREDENTIAL_COMMAND_ARG_FIELDS: Readonly<
   Record<string, ReadonlyArray<"apiKey" | "connectionString">>
@@ -201,24 +190,45 @@ export const CREDENTIAL_COMMAND_ARG_FIELDS: Readonly<
   SetDataSourceConfig: ["apiKey", "connectionString"],
 };
 
+/** True if any string anywhere in `value` is a SecretRef (recursive). */
+function hasSecretRefDeep(value: unknown): boolean {
+  if (isSecretRef(value)) return true;
+  if (Array.isArray(value)) return value.some(hasSecretRefDeep);
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).some(hasSecretRefDeep);
+  }
+  return false;
+}
+
 /**
- * Reject a credential command whose credential arg is a caller-supplied ref.
- * No-op for commands with no credential fields. Throws an honest, actionable
- * error (the agent should supply the plaintext secret, not a ref) — surfaced to
- * the agent as a tool error so it can correct and retry.
+ * Reject a credential command whose args carry a caller-supplied vault ref —
+ * ANYWHERE, recursively (a typed field OR a nested connector slot like
+ * `extra.authRef`). No-op for non-credential commands.
+ *
+ * **WHY (the foreign-ref threat)** — the server's draft credential path stores a
+ * PLAINTEXT credential to a vault ref before the log snapshot. The agent has NO
+ * legitimate reason to supply a pre-existing ref — it authors fresh credentials —
+ * and a caller-supplied `secret:<uuid>` would let it point a source at a secret it
+ * does NOT own (e.g. a REST `extra.authRef` the connector resolves and sends to an
+ * agent-controlled endpoint), skipping `storeCredential` + the fail-closed guard.
+ * So we FORBID caller-supplied refs on the agent path: plaintext only.
+ *
+ * Field-agnostic on purpose — enumerating credential fields is what let `authRef`
+ * (not in the typed field map) slip past an earlier version of this guard.
+ *
+ * This is the agent's EARLY, clear error; the server capture seam enforces the
+ * same rule as the durable guarantee for every `appendToDraft` caller. Thrown as a
+ * tool error so the agent can correct and retry.
  */
 function assertNoCallerSuppliedRefs(type: string, args: unknown): void {
-  const fields = CREDENTIAL_COMMAND_ARG_FIELDS[type];
-  if (!fields || typeof args !== "object" || args === null) return;
-  const record = args as Record<string, unknown>;
-  for (const field of fields) {
-    if (isSecretRef(record[field])) {
-      throw new Error(
-        `applyCommand: command "${type}" field "${field}" must be the plaintext ` +
-          "credential, not a vault ref. The assistant cannot adopt a pre-existing " +
-          "secret ref — supply the raw secret value and it will be stored securely.",
-      );
-    }
+  if (!(type in CREDENTIAL_COMMAND_ARG_FIELDS)) return;
+  if (hasSecretRefDeep(args)) {
+    throw new Error(
+      `applyCommand: command "${type}" must carry the plaintext credential, not a ` +
+        "vault ref. The assistant cannot adopt a pre-existing secret ref (in any " +
+        "field, including nested connector config) — supply the raw secret value " +
+        "and it will be stored securely.",
+    );
   }
 }
 
