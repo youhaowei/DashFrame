@@ -40,7 +40,7 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildDashframeApp } from "./app";
 import { captureCommandCredentials } from "./credential-release";
@@ -48,7 +48,11 @@ import {
   createDraftController,
   type DraftController,
 } from "./draft-controller";
-import { cmd } from "./functions/commands";
+import {
+  cmd,
+  commandFunctions,
+  CREDENTIAL_COMMAND_FIELDS,
+} from "./functions/commands";
 
 const { dataSources } = schema;
 
@@ -300,6 +304,9 @@ describe("credential write path — capture-before-log + transition release", ()
     ).rejects.toThrow();
 
     // Canonical secret intact — a rolled-back publish never deletes a live secret.
+    // (This asserts the OUTCOME; the post-commit ORDERING is enforced structurally
+    // in the publishDraft RPC, which releases only after `await publishDraft`
+    // resolves — a rejected publish skips release entirely.)
     expect(await h.vault.has(canonicalRef)).toBe(true);
     expect((await readConfig(h, id))!.apiKey).toBe(canonicalRef);
   });
@@ -325,5 +332,68 @@ describe("credential write path — capture-before-log + transition release", ()
       .from(dataSources)
       .where(eq(dataSources.id, id));
     expect(rows[0]?.createdBy).toEqual({ kind: "agent" });
+  });
+
+  // Exhaustiveness — the capture map must cover EVERY credential-bearing command.
+  // This is load-bearing for "plaintext never at rest": capture rewrites only
+  // commands in CREDENTIAL_COMMAND_FIELDS, so a credential-bearing command missing
+  // from it would log plaintext. Derive the truth from the command arg schemas so
+  // the linkage cannot silently drift when the vocabulary grows.
+  it("CREDENTIAL_COMMAND_FIELDS covers every credential-bearing command", () => {
+    const CRED = ["apiKey", "connectionString"] as const;
+    for (const [path, def] of Object.entries(commandFunctions)) {
+      const argKeys = Object.keys(
+        (def as { args: Record<string, unknown> }).args,
+      );
+      const credFields = CRED.filter((f) => argKeys.includes(f));
+      if (credFields.length === 0) {
+        expect(CREDENTIAL_COMMAND_FIELDS[path]).toBeUndefined();
+      } else {
+        expect(CREDENTIAL_COMMAND_FIELDS[path]).toBeDefined();
+        expect([...(CREDENTIAL_COMMAND_FIELDS[path] ?? [])].sort()).toEqual(
+          [...credFields].sort(),
+        );
+      }
+    }
+  });
+
+  // Orphan-on-append-failure — capture's rollback releases the minted ref.
+  it("capture rollback releases the ref it minted", async () => {
+    const { command, rollback } = await captureCommandCredentials(
+      cmd("CreateDataSource", {
+        id: crypto.randomUUID(),
+        type: "notion",
+        name: "x",
+        apiKey: "plaintext",
+      }),
+      h.vault,
+    );
+    const ref = (command.args as Record<string, unknown>).apiKey as SecretRef;
+    expect(isSecretRef(ref)).toBe(true);
+    expect(await h.vault.has(ref)).toBe(true);
+    await rollback();
+    expect(await h.vault.has(ref)).toBe(false);
+  });
+
+  it("releases captured refs when a draft command fails before it is logged", async () => {
+    const delSpy = vi.spyOn(h.vault, "delete");
+    const draftId = await h.controller.openDraft();
+    // SetDataSourceConfig on a missing id throws in the handler AFTER capture mints
+    // the ref — the failed append must release it, not orphan it.
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", {
+          id: crypto.randomUUID(),
+          apiKey: "will-fail",
+        }),
+      ]),
+    ).rejects.toThrow();
+
+    expect(delSpy).toHaveBeenCalled(); // rollback released the minted ref
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0); // nothing logged
   });
 });

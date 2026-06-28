@@ -55,38 +55,74 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * The result of capturing one command's credentials: the command to run + log
+ * (with plaintext rewritten to refs), and a rollback that releases the refs this
+ * capture MINTED. `appendToDraft` calls `rollback` if the command's run fails
+ * before the batch is persisted to the durable log — the minted ref would
+ * otherwise be in the vault but in no log, so the discard path (which reads the
+ * log) could never find it. Best-effort: a rollback failure leaves an inert orphan.
+ */
+export interface CapturedCommand {
+  command: DraftCommand;
+  rollback: () => Promise<void>;
+}
+
+/** Best-effort delete of refs (idempotent); swallows errors (cleanup path). */
+async function releaseRefsBestEffort(
+  vault: SecretVault | undefined,
+  refs: SecretRef[],
+): Promise<void> {
+  if (vault == null || refs.length === 0) return;
+  await Promise.allSettled(refs.map((ref) => vault.delete(ref)));
+}
+
+/**
  * Rewrite a draft command's PLAINTEXT credential args to vault refs, returning a
- * new command (the input is never mutated). Non-credential commands, empty-string
- * (clear), undefined, and already-ref values pass through untouched.
+ * NEW command (the input is never mutated) plus a rollback for the minted refs.
+ * Non-credential commands, empty-string (clear), undefined, and already-ref values
+ * pass through untouched.
  *
  * Called by `appendToDraft` BEFORE the command is run and snapshotted, so the
  * command that reaches the handler — and the durable log — carries a ref. The
  * vault store is real (a draft append is never a preview): a plaintext credential
  * with no vault throws (fail-closed, via {@link storeCredential}).
+ *
+ * ATOMIC per command: if storing a later field throws, the refs already minted for
+ * this command are released before the error propagates — a partially-captured
+ * command never leaks a ref.
  */
 export async function captureCommandCredentials(
   cmd: DraftCommand,
   vault: SecretVault | undefined,
-): Promise<DraftCommand> {
+): Promise<CapturedCommand> {
   const fields = CREDENTIAL_COMMAND_FIELDS[cmd.path];
-  if (!fields) return cmd;
   const args = cmd.args;
-  if (!isRecord(args)) return cmd;
-
-  let nextArgs: Record<string, unknown> | undefined;
-  for (const field of fields) {
-    const value = args[field];
-    // undefined (not part of this write) and "" (clear) carry no plaintext.
-    if (typeof value !== "string" || value.length === 0) continue;
-    // Already a ref (idempotent re-capture / pre-bound) — leave it.
-    if (isSecretRef(value)) continue;
-    const id = typeof args.id === "string" ? args.id : "unknown";
-    const ref = await storeCredential(vault, value, `${field}-${id}`, false);
-    nextArgs ??= { ...args };
-    nextArgs[field] = ref;
+  if (!fields || !isRecord(args)) {
+    return { command: cmd, rollback: async () => {} };
   }
-  if (!nextArgs) return cmd;
-  return { ...cmd, args: nextArgs };
+
+  const minted: SecretRef[] = [];
+  let nextArgs: Record<string, unknown> | undefined;
+  try {
+    for (const field of fields) {
+      const value = args[field];
+      // undefined (not part of this write) and "" (clear) carry no plaintext.
+      if (typeof value !== "string" || value.length === 0) continue;
+      // Already a ref (idempotent re-capture / pre-bound) — leave it.
+      if (isSecretRef(value)) continue;
+      const id = typeof args.id === "string" ? args.id : "unknown";
+      const ref = await storeCredential(vault, value, `${field}-${id}`, false);
+      minted.push(ref);
+      nextArgs ??= { ...args };
+      nextArgs[field] = ref;
+    }
+  } catch (err) {
+    await releaseRefsBestEffort(vault, minted);
+    throw err;
+  }
+
+  const command = nextArgs ? { ...cmd, args: nextArgs } : cmd;
+  return { command, rollback: () => releaseRefsBestEffort(vault, minted) };
 }
 
 // ---------------------------------------------------------------------------

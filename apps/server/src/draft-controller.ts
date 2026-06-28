@@ -183,10 +183,14 @@ export interface CreateDraftControllerOptions {
    * Pre-bind seam: rewrite a command BEFORE it is run + snapshotted into the log.
    * The host uses this to capture plaintext credential args into vault refs so the
    * durable log carries a ref, never plaintext (capture-before-log). Returns the
-   * command to run + snapshot; the controller stays free of credential knowledge.
-   * Absent → commands are run and logged verbatim.
+   * command to run + snapshot, plus a `rollback` the controller invokes if the
+   * command's run fails before the batch is logged (so a captured-but-unlogged ref
+   * does not orphan). The controller stays free of credential knowledge — the
+   * rollback is opaque. Absent → commands are run and logged verbatim.
    */
-  captureCredentials?: (cmd: DraftCommand) => Promise<DraftCommand>;
+  captureCredentials?: (
+    cmd: DraftCommand,
+  ) => Promise<{ command: DraftCommand; rollback: () => Promise<void> }>;
 }
 
 /**
@@ -344,20 +348,39 @@ export function createDraftController(
       // form. `structuredClone` handles nested args; commands are plain JSON-ish
       // envelopes (path/args/id/compactionKey/kind) so it round-trips cleanly.
       const ranSnapshots: DraftCommand[] = [];
-      for (const cmd of batch) {
-        // Capture-before-log: the host may rewrite plaintext credential args into
-        // vault refs BEFORE the command runs and is snapshotted, so the durable
-        // log never holds plaintext. The rewritten command is what the handler
-        // runs AND what we snapshot — shadow, log, and handler all see the ref.
-        const bound = captureCredentials ? await captureCredentials(cmd) : cmd;
-        const value = await app.runHandler(
-          bound.path,
-          bound.args,
-          baseDb,
-          draftContext,
-        );
-        ranSnapshots.push(structuredClone(bound) as DraftCommand);
-        results.push({ id: bound.id, value });
+      // Rollbacks for credentials captured in this batch — invoked only if a
+      // command fails before the batch is persisted to the log (the minted ref
+      // would otherwise be in the vault but in no log, so the log-driven discard
+      // release could never find it). On batch success they are dropped (the refs
+      // are legitimately in the log).
+      const captureRollbacks: Array<() => Promise<void>> = [];
+      try {
+        for (const cmd of batch) {
+          // Capture-before-log: the host may rewrite plaintext credential args
+          // into vault refs BEFORE the command runs and is snapshotted, so the
+          // durable log never holds plaintext. The rewritten command is what the
+          // handler runs AND what we snapshot — shadow, log, handler all see the ref.
+          const captured = captureCredentials
+            ? await captureCredentials(cmd)
+            : { command: cmd, rollback: async () => {} };
+          captureRollbacks.push(captured.rollback);
+          const value = await app.runHandler(
+            captured.command.path,
+            captured.command.args,
+            baseDb,
+            draftContext,
+          );
+          ranSnapshots.push(structuredClone(captured.command) as DraftCommand);
+          results.push({ id: captured.command.id, value });
+        }
+      } catch (err) {
+        // The batch is non-atomic by contract (recovery = re-append, which
+        // re-mints); release the refs captured so far so a failed append leaves
+        // no orphaned secret. Best-effort — a release failure leaves an inert orphan.
+        for (const rollback of captureRollbacks) {
+          await rollback().catch(() => {});
+        }
+        throw err;
       }
       // Project the compacted full log into draft_command_log. Read the prior
       // log, concat the snapshots of what just ran, compact (wystack's exported
