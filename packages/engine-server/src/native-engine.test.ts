@@ -316,10 +316,15 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     });
 
     it("does not corrupt concurrent registrations of the same table name", async () => {
-      // Two in-flight registrations of the same live table must not clobber
-      // each other's staging table mid-append. Per-call unique staging names
-      // isolate them; the live table ends with one upload's full contents
-      // (last-writer-wins), never a partial/mixed result or a thrown error.
+      // Two in-flight registrations of the same live table must not corrupt
+      // each other. The global registration lock serializes them; the live table
+      // ends with one upload's complete rows (last-writer-wins), never a mix or
+      // a thrown error.
+      //
+      // The NAPI pending-result taint (the corruption mechanism) is Linux-only;
+      // this test passes on macOS regardless of the fix. It documents the
+      // contract and fires on Linux CI as the discriminating run. A higher-
+      // concurrency stress variant below maximises interleaving on both platforms.
       engine = new NativeDuckDBEngine();
 
       const bufferA = tableToIPC(
@@ -352,6 +357,64 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
          WHERE table_name LIKE '__staging_df_concurrent%'`,
       );
       expect(Number(staging.rows[0]?.cnt)).toBe(0);
+    });
+
+    it("handles high-concurrency registrations without corruption or error", async () => {
+      // Stress variant: 8 concurrent uploads across 4 distinct table names
+      // (2 per name) maximise lock-queue depth and appender interleaving.
+      // Contract: each named table ends with one upload's complete row count;
+      // no thrown errors; no leaked staging tables.
+      //
+      // Like the 2-way variant above, the NAPI taint is Linux-only; the
+      // structural argument (global serialization lock) is the durable proof.
+      engine = new NativeDuckDBEngine();
+
+      const uploads: Array<{ name: string; expectedCounts: number[] }> = [
+        { name: "df_stress_a", expectedCounts: [10, 20] },
+        { name: "df_stress_b", expectedCounts: [15, 25] },
+        { name: "df_stress_c", expectedCounts: [12, 30] },
+        { name: "df_stress_d", expectedCounts: [8, 40] },
+      ];
+
+      const tasks = uploads.flatMap(({ name, expectedCounts }) => {
+        const [countA, countB] = expectedCounts;
+        const bufA = tableToIPC(
+          new Table({
+            v: vectorFromArray(
+              Array.from({ length: countA! }, (_, i) => i),
+              new Int32(),
+            ),
+          }),
+        );
+        const bufB = tableToIPC(
+          new Table({
+            v: vectorFromArray(
+              Array.from({ length: countB! }, (_, i) => i + 100),
+              new Int32(),
+            ),
+          }),
+        );
+        return [
+          engine!.registerArrowTable(name, bufA),
+          engine!.registerArrowTable(name, bufB),
+        ];
+      });
+
+      await expect(Promise.all(tasks)).resolves.not.toThrow();
+
+      for (const { name, expectedCounts } of uploads) {
+        const result = await engine!.query(
+          `SELECT COUNT(*) AS cnt FROM "${name}"`,
+        );
+        expect(expectedCounts).toContain(Number(result.rows[0]?.cnt));
+      }
+
+      // No staging tables should survive.
+      const leaked = await engine!.query(
+        `SELECT COUNT(*) AS cnt FROM duckdb_tables()
+         WHERE table_name LIKE '__staging_%'`,
+      );
+      expect(Number(leaked.rows[0]?.cnt)).toBe(0);
     });
   });
 });

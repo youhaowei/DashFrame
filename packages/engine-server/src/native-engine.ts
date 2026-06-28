@@ -73,6 +73,21 @@ export class NativeDuckDBEngine implements QueryEngine {
    * answer `hasTable`/`getTableNames` without an async DB round-trip.
    */
   private _registeredTables = new Set<string>();
+  /**
+   * Global serializer for `registerArrowTable`. DuckDB appenders are not
+   * concurrent-safe on a shared connection — two in-flight registrations sharing
+   * `this.connection` can trigger the "pending-result" NAPI taint that kills the
+   * next operation (same mechanism as YW-307, concurrent-registration path).
+   *
+   * The lock is a promise chain: each caller captures the previous tail, then
+   * installs a new tail whose resolution (`unlock`) it calls in `finally`. Only
+   * one registration runs at a time; arrivals queue in order.
+   *
+   * Global (not per-name) because the taint is per-connection, not per-table:
+   * two concurrent registrations for *different* names share the same
+   * `this.connection` and race just as badly.
+   */
+  private _registrationLock: Promise<void> = Promise.resolve();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
     this.databasePath = options.databasePath ?? ":memory:";
@@ -189,103 +204,119 @@ export class NativeDuckDBEngine implements QueryEngine {
    */
   async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
     await this.initialize();
+
+    // Serialize all registrations through a global promise-chain lock. DuckDB
+    // appenders are not concurrent-safe on a shared connection — two in-flight
+    // registrations both using `this.connection` can trigger the Linux
+    // "pending-result" NAPI taint (same mechanism as YW-307), corrupting the
+    // next operation on the connection. Global (not per-name): the taint is
+    // per-connection, not per-table, so two different-name concurrent uploads
+    // race just as badly.
+    const gate = this._registrationLock;
+    let unlock!: () => void;
+    this._registrationLock = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    await gate;
+
     const conn = this.conn();
-
-    // Decode the Arrow IPC stream buffer.
-    const arrowTable = tableFromIPC(arrow);
-    const fields = arrowTable.schema.fields;
-    if (fields.length === 0) {
-      throw new Error(`Arrow buffer for table "${name}" has no columns`);
-    }
-
-    // Create a session-scoped TEMP table for staging — if the append fails
-    // partway through, the live table is untouched (atomic all-or-nothing).
-    // TEMP tables are connection-local: DuckDB drops them automatically when
-    // the owning connection closes. On the success path, the explicit DROP after
-    // the swap keeps stale staging tables from accumulating across repeated
-    // registerArrowTable calls. On the failure path, the catch block disconnects
-    // and replaces this.connection, so the staging table is dropped then too.
-    //
-    // The staging name carries a per-call unique suffix. Two concurrent
-    // registrations of the SAME live table would otherwise share one
-    // deterministic staging name and clobber each other's rows mid-append
-    // (CREATE OR REPLACE on the second call drops the first's staging table
-    // while its appender is still flushing) → intermittent failures or wrong
-    // contents. A unique suffix isolates each upload's staging table; the final
-    // CREATE OR REPLACE of the live table is naturally last-writer-wins.
-    const stagingName = `__staging_${name}_${nextStagingId()}`;
-    const columnDefs = fields
-      .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
-      .join(", ");
-    await conn.run(
-      `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
-    );
-
-    // Stream rows into the staging table — no disk, no string round-trip.
-    const appender = await conn.createAppender(stagingName);
     try {
-      const columns = fields.map((f) => ({
-        field: f,
-        vector: arrowTable.getChild(f.name),
-      }));
-      const rowCount = arrowTable.numRows;
-      for (let i = 0; i < rowCount; i++) {
-        for (const col of columns) {
-          appendArrowValue(appender, col.field, col.vector?.get(i));
-        }
-        appender.endRow();
+      // Decode the Arrow IPC stream buffer.
+      const arrowTable = tableFromIPC(arrow);
+      const fields = arrowTable.schema.fields;
+      if (fields.length === 0) {
+        throw new Error(`Arrow buffer for table "${name}" has no columns`);
       }
-      appender.flushSync();
-    } catch (err) {
-      // Append failed — staging table may be partially written.
+
+      // Create a session-scoped TEMP table for staging — if the append fails
+      // partway through, the live table is untouched (atomic all-or-nothing).
+      // TEMP tables are connection-local: DuckDB drops them automatically when
+      // the owning connection closes. On the success path, the explicit DROP after
+      // the swap keeps stale staging tables from accumulating across repeated
+      // registerArrowTable calls. On the failure path, the catch block disconnects
+      // and replaces this.connection, so the staging table is dropped then too.
+      //
+      // The staging name carries a per-call unique suffix so that the
+      // intermediate per-table catalog entry is distinct per upload even though
+      // only one registration runs at a time (the suffix is still useful if the
+      // same engine is ever queried while a registration is in-flight, and it
+      // documents intent clearly).
+      const stagingName = `__staging_${name}_${nextStagingId()}`;
+      const columnDefs = fields
+        .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
+        .join(", ");
+      await conn.run(
+        `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+      );
+
+      // Stream rows into the staging table — no disk, no string round-trip.
+      const appender = await conn.createAppender(stagingName);
+      try {
+        const columns = fields.map((f) => ({
+          field: f,
+          vector: arrowTable.getChild(f.name),
+        }));
+        const rowCount = arrowTable.numRows;
+        for (let i = 0; i < rowCount; i++) {
+          for (const col of columns) {
+            appendArrowValue(appender, col.field, col.vector?.get(i));
+          }
+          appender.endRow();
+        }
+        appender.flushSync();
+      } catch (err) {
+        // Append failed — staging table may be partially written.
+        try {
+          appender.closeSync();
+        } catch {
+          // ignore close error — propagate original
+        }
+        // On Linux, duckdb_appender_close() on a failed appender marks the
+        // connection with a pending-result error. The next duckdb_query() on the
+        // same connection fails with "Attempting to execute an unsuccessful or
+        // closed pending query result" — emitted as an unhandled NAPI-layer
+        // rejection that bypasses the surrounding try/catch.
+        //
+        // `conn` is `this.connection` — the PERSISTENT connection reused for the
+        // whole session (query, queryArrow, registerArrowTable). Leaving it tainted
+        // relocates the flake to the NEXT operation instead of killing it.
+        //
+        // Fix: disconnect the tainted connection and replace it with a fresh one
+        // from the same instance. When the old connection closes, DuckDB drops all
+        // its TEMP tables — including the partial staging table — so the cleanup
+        // also happens for free.
+        try {
+          this.connection!.disconnectSync();
+        } catch {
+          // best-effort — continue to reconnect even if disconnect throws
+        }
+        this.connection = null;
+        try {
+          this.connection = await this.instance!.connect();
+        } catch {
+          // Reconnect failed — engine is unusable; surface on next call via conn()
+        }
+        throw err;
+      }
+      // Flush succeeded — close the appender before the swap.
       try {
         appender.closeSync();
       } catch {
-        // ignore close error — propagate original
+        // close failure after a successful flush must not abort the swap
       }
-      // On Linux, duckdb_appender_close() on a failed appender marks the
-      // connection with a pending-result error. The next duckdb_query() on the
-      // same connection fails with "Attempting to execute an unsuccessful or
-      // closed pending query result" — emitted as an unhandled NAPI-layer
-      // rejection that bypasses the surrounding try/catch.
-      //
-      // `conn` is `this.connection` — the PERSISTENT connection reused for the
-      // whole session (query, queryArrow, registerArrowTable). Leaving it tainted
-      // relocates the flake to the NEXT operation instead of killing it.
-      //
-      // Fix: disconnect the tainted connection and replace it with a fresh one
-      // from the same instance. When the old connection closes, DuckDB drops all
-      // its TEMP tables — including the partial staging table — so the cleanup
-      // also happens for free.
-      try {
-        this.connection!.disconnectSync();
-      } catch {
-        // best-effort — continue to reconnect even if disconnect throws
-      }
-      this.connection = null;
-      try {
-        this.connection = await this.instance!.connect();
-      } catch {
-        // Reconnect failed — engine is unusable; surface on next call via conn()
-      }
-      throw err;
-    }
-    // Flush succeeded — close the appender before the swap.
-    try {
-      appender.closeSync();
-    } catch {
-      // close failure after a successful flush must not abort the swap
-    }
 
-    // Atomic swap: replace the live table with the fully-ingested staging copy.
-    // Both DDL statements run in the same connection, so the live table is never
-    // observable in a half-replaced state.
-    await conn.run(
-      `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
-    );
-    await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+      // Atomic swap: replace the live table with the fully-ingested staging copy.
+      // Both DDL statements run in the same connection, so the live table is never
+      // observable in a half-replaced state.
+      await conn.run(
+        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+      );
+      await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
 
-    this._registeredTables.add(name);
+      this._registeredTables.add(name);
+    } finally {
+      unlock();
+    }
   }
 
   async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
