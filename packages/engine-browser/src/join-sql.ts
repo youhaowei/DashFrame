@@ -27,8 +27,9 @@ const JOIN_TYPE_TO_SQL_KEYWORD: Readonly<
  * Throws for unrecognised types (fail-closed: never emit `undefined JOIN`).
  */
 export function joinTypeToSQL(type: string): string {
-  const keyword =
-    (JOIN_TYPE_TO_SQL_KEYWORD as Record<string, string | undefined>)[type];
+  const keyword = (
+    JOIN_TYPE_TO_SQL_KEYWORD as Record<string, string | undefined>
+  )[type];
   if (keyword === undefined) {
     throw new Error(
       `joinTypeToSQL: unknown join type "${type}" — must be one of: ${Object.keys(JOIN_TYPE_TO_SQL_KEYWORD).join(", ")}`,
