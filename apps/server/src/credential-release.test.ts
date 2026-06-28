@@ -1145,6 +1145,78 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
     }
   });
 
+  // AC#2 isolation — no-flushSnapshot + onWrite-succeeds pin: when
+  // credential refs are present but NO flushSnapshot hook is wired, a resolving
+  // debounced onWrite MUST NOT satisfy the release gate.
+  // "onWrite returned" != "durably persisted" — a future refactor that lets a
+  // successful onWrite satisfy the gate would silently re-open the
+  // crash-window for credentials (process exits between onWrite return and the
+  // debounced write; old snapshot is restored; ref already released → dangling).
+  it("publishDraft blocks credential release when flushSnapshot absent but onWrite succeeds", async () => {
+    const onWriteCalls: number[] = [];
+    const noHook = await makeHarness({
+      onWrite: () => onWriteCalls.push(Date.now()), // onWrite present and resolves
+      // flushSnapshot intentionally absent — the gate must block release here
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        noHook,
+        "original-key",
+      );
+      // Release candidate is live before publish — the gate has something to block.
+      expect(await noHook.vault.has(oldRef)).toBe(true);
+
+      const draftId = await noHook.controller.openDraft();
+      await noHook.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "rotated-key" }),
+      ]);
+      await noHook.app.call("publishDraft", { draftId });
+
+      // onWrite was invoked (proves the gate ran, not an early error — the
+      // fail-closed branch calls onWrite for non-credential snapshot scheduling
+      // before returning false). Combined with the vault assertion below, this
+      // pins the no-flushSnapshot credential branch of the gate.
+      expect(onWriteCalls).toHaveLength(1);
+      // Credential ref NOT released — gate blocks because durability is unproven.
+      expect(await noHook.vault.has(oldRef)).toBe(true);
+    } finally {
+      await noHook.db.$client.close();
+      rmSync(noHook.dir, { recursive: true, force: true });
+    }
+  });
+
+  // AC#2 isolation — discard twin: same invariant holds for discardDraft.
+  it("discardDraft blocks credential release when flushSnapshot absent but onWrite succeeds", async () => {
+    const onWriteCalls: number[] = [];
+    const noHook = await makeHarness({
+      onWrite: () => onWriteCalls.push(Date.now()), // onWrite present and resolves
+      // flushSnapshot intentionally absent
+    });
+    try {
+      const { id } = await seedCanonicalSource(noHook, "canonical-key");
+      const draftId = await noHook.controller.openDraft();
+      await noHook.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "draft-key" }),
+      ]);
+      // capture-before-log minted a ref in the log — read it to assert it survives.
+      const logArgs = await firstLogArgs(noHook, draftId);
+      const mintedRef = logArgs.apiKey as SecretRef;
+      expect(isSecretRef(mintedRef)).toBe(true);
+      // Release candidate is live before discard — the gate has something to block.
+      expect(await noHook.vault.has(mintedRef)).toBe(true);
+
+      await noHook.app.call("discardDraft", { draftId });
+
+      // onWrite was invoked (proves we reached the fail-closed branch, not an early error).
+      expect(onWriteCalls).toHaveLength(1);
+      // Minted credential ref NOT released — gate blocks because durability is unproven.
+      expect(await noHook.vault.has(mintedRef)).toBe(true);
+    } finally {
+      await noHook.db.$client.close();
+      rmSync(noHook.dir, { recursive: true, force: true });
+    }
+  });
+
   // Non-credential publish still uses the debounced onWrite path (no expensive
   // flush on every publish — only on credential-bearing ones).
   it("publishDraft uses onWrite (not flushSnapshot) when no credential refs are replaced", async () => {
