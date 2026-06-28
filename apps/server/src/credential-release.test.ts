@@ -257,6 +257,44 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(rows.length).toBe(0);
   });
 
+  // No-orphan on a PARTIAL-BATCH reject: a first command mints a real ref, a
+  // later command in the same batch carries a foreign ref and is rejected — the
+  // whole append throws and the first command's minted ref is released (no
+  // orphaned keychain blob from the abandoned batch).
+  it("releases a prior command's minted ref when a later batch command is rejected", async () => {
+    const storeSpy = vi.spyOn(h.vault, "store");
+    const draftId = await h.controller.openDraft();
+    const foreign = makeSecretRef();
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: crypto.randomUUID(),
+          type: "rest",
+          name: "First",
+          apiKey: "plaintext-first",
+        }),
+        cmd("SetDataSourceConfig", {
+          id: crypto.randomUUID(),
+          apiKey: foreign,
+        }),
+      ]),
+    ).rejects.toThrow(/plaintext secret, not a vault ref/i);
+
+    // The first command minted exactly one ref; it must have been released.
+    expect(storeSpy).toHaveBeenCalledTimes(1);
+    const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
+    expect(await h.vault.has(mintedRef)).toBe(false);
+
+    // Nothing persisted — the rejected batch left no draft state.
+    const rows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(rows.length).toBe(0);
+    storeSpy.mockRestore();
+  });
+
   it("ALLOWS non-credential extra config (no ref) on a draft append", async () => {
     const { id } = await seedCanonicalSource(h, "orig-key");
     const draftId = await h.controller.openDraft();
