@@ -156,7 +156,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
               <Button
                 label={isLoading ? "Loading diff…" : "Review changes"}
                 onClick={handleReview}
-                disabled={isLoading}
+                disabled={isLoading || isQuickDiscarding}
                 className="w-full"
                 size="sm"
               />
