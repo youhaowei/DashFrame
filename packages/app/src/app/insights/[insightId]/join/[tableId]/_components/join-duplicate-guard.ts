@@ -6,8 +6,7 @@
  * that situation clearly so the user can disambiguate instances rather than
  * silently producing confusing output.
  *
- * Per the YW-295 decision these functions never prevent creation — they only
- * classify the pending join so the UI can label it correctly.
+ * Classification only — these functions never prevent creation.
  */
 
 import type { InsightJoinConfig } from "@dashframe/types";

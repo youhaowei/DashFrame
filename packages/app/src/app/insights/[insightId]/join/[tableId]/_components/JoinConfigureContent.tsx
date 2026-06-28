@@ -208,6 +208,14 @@ export default function JoinConfigureContent({
     [insight?.joins, joinTableId],
   );
 
+  // Normalise the UI join type ("outer") to the stored config type ("full").
+  // Used in both duplicate detection and persist — single source of truth.
+  const toConfigType = useCallback(
+    (t: typeof joinType): InsightJoinConfig["type"] =>
+      t === "outer" ? "full" : t,
+    [],
+  );
+
   // Exact-duplicate detection: same table + same keys + same type.
   // Not a hard block — just surfaces a non-blocking warning so the user knows
   // they are adding a redundant join rather than a different-key one.
@@ -219,13 +227,10 @@ export default function JoinConfigureContent({
     if (!leftField || !rightField) return false;
     const leftKey = leftField.columnName ?? leftField.name;
     const rightKey = rightField.columnName ?? rightField.name;
-    // Normalise "outer" → "full" to match the stored config type.
-    const configType: InsightJoinConfig["type"] =
-      joinType === "outer" ? "full" : joinType;
     return isExactDuplicateJoin(existingJoinsToThisTable, {
       leftKey,
       rightKey,
-      type: configType,
+      type: toConfigType(joinType),
     });
   }, [
     leftFieldId,
@@ -234,6 +239,7 @@ export default function JoinConfigureContent({
     baseFields,
     joinFields,
     joinType,
+    toConfigType,
   ]);
 
   // Column configs for highlighting selected columns in source tables
@@ -814,7 +820,7 @@ export default function JoinConfigureContent({
         // Create join config using the Core schema
         // Uses column names (strings) as join keys, not field UUIDs
         const joinConfig: InsightJoinConfig = {
-          type: joinType === "outer" ? "full" : joinType, // "outer" → "full" for Core type
+          type: toConfigType(joinType),
           rightTableId: joinTable.id,
           leftKey: leftField.columnName ?? leftField.name,
           rightKey: rightField.columnName ?? rightField.name,
@@ -848,6 +854,7 @@ export default function JoinConfigureContent({
     updateInsight,
     previewResult,
     navigate,
+    toConfigType,
   ]);
 
   // Loading state - wait for all stores to hydrate before rendering
@@ -942,7 +949,7 @@ export default function JoinConfigureContent({
               />
               <div>
                 <h1 className="text-xl font-semibold">
-                  {existingJoinsToThisTable.length >= 1
+                  {existingJoinsToThisTable.length > 0
                     ? `Join ${existingJoinsToThisTable.length + 1}: ${baseTable.name} + ${joinTable.name}`
                     : `Join: ${baseTable.name} + ${joinTable.name}`}
                 </h1>
@@ -1029,7 +1036,7 @@ export default function JoinConfigureContent({
                       {" = "}
                       <span className="font-mono">{j.rightKey}</span>
                       {" ("}
-                      {j.type}
+                      {j.type === "full" ? "outer" : j.type}
                       {")"}
                     </li>
                   ))}
@@ -1305,7 +1312,7 @@ export default function JoinConfigureContent({
           </Surface>
 
           {/* Exact-duplicate warning — non-blocking; user can still submit */}
-          {isExactDuplicate && !error && (
+          {isExactDuplicate && (
             <Alert>
               <AlertDescription>
                 These keys and join type are identical to an existing join on{" "}

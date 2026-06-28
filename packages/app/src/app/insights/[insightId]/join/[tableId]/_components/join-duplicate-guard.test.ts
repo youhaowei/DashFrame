@@ -139,4 +139,38 @@ describe("isExactDuplicateJoin", () => {
       }),
     ).toBe(true);
   });
+
+  it("detects duplicate for stored type 'full' (the outer-join production path)", () => {
+    // The UI exposes "outer"; the component normalises it to "full" before
+    // calling this helper. This test guards that production path directly.
+    const joinAFull: InsightJoinConfig = {
+      type: "full",
+      rightTableId: TABLE_A,
+      leftKey: "created_by",
+      rightKey: "id",
+    };
+    expect(
+      isExactDuplicateJoin([joinAFull], {
+        leftKey: "created_by",
+        rightKey: "id",
+        type: "full",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not flag type 'full' as a duplicate of type 'inner' on the same keys", () => {
+    const joinAFull: InsightJoinConfig = {
+      type: "full",
+      rightTableId: TABLE_A,
+      leftKey: "created_by",
+      rightKey: "id",
+    };
+    expect(
+      isExactDuplicateJoin([joinAFull], {
+        leftKey: "created_by",
+        rightKey: "id",
+        type: "inner",
+      }),
+    ).toBe(false);
+  });
 });
