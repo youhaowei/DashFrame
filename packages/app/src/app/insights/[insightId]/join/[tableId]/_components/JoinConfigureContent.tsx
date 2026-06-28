@@ -40,6 +40,10 @@ import {
 import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@wystack/ui-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  findExistingJoinsToTable,
+  isExactDuplicateJoin,
+} from "./join-duplicate-guard";
+import {
   createLatestRunGuard,
   runJoinSubmit,
   type LatestRunGuard,
@@ -194,6 +198,43 @@ export default function JoinConfigureContent({
     () => joinTable?.fields?.filter((f) => !f.name.startsWith("_")) ?? [],
     [joinTable],
   );
+
+  // Detect existing joins to this right table so the UI can label instances.
+  // A non-empty list means the user is adding a second (or further) join to the
+  // same table — legitimate (e.g. orders→users on created_by AND approved_by),
+  // but the UI must disambiguate the instances clearly.
+  const existingJoinsToThisTable = useMemo(
+    () => findExistingJoinsToTable(insight?.joins, joinTableId),
+    [insight?.joins, joinTableId],
+  );
+
+  // Exact-duplicate detection: same table + same keys + same type.
+  // Not a hard block — just surfaces a non-blocking warning so the user knows
+  // they are adding a redundant join rather than a different-key one.
+  const isExactDuplicate = useMemo(() => {
+    if (!leftFieldId || !rightFieldId || existingJoinsToThisTable.length === 0)
+      return false;
+    const leftField = baseFields.find((f) => f.id === leftFieldId);
+    const rightField = joinFields.find((f) => f.id === rightFieldId);
+    if (!leftField || !rightField) return false;
+    const leftKey = leftField.columnName ?? leftField.name;
+    const rightKey = rightField.columnName ?? rightField.name;
+    // Normalise "outer" → "full" to match the stored config type.
+    const configType: InsightJoinConfig["type"] =
+      joinType === "outer" ? "full" : joinType;
+    return isExactDuplicateJoin(existingJoinsToThisTable, {
+      leftKey,
+      rightKey,
+      type: configType,
+    });
+  }, [
+    leftFieldId,
+    rightFieldId,
+    existingJoinsToThisTable,
+    baseFields,
+    joinFields,
+    joinType,
+  ]);
 
   // Column configs for highlighting selected columns in source tables
   const baseColumnConfigs = useMemo((): VirtualTableColumnConfig[] => {
@@ -901,7 +942,9 @@ export default function JoinConfigureContent({
               />
               <div>
                 <h1 className="text-xl font-semibold">
-                  Join: {baseTable.name} + {joinTable.name}
+                  {existingJoinsToThisTable.length >= 1
+                    ? `Join ${existingJoinsToThisTable.length + 1}: ${baseTable.name} + ${joinTable.name}`
+                    : `Join: ${baseTable.name} + ${joinTable.name}`}
                 </h1>
                 <p className="text-sm text-neutral-fg-subtle">
                   Configure how to combine these datasets
@@ -962,6 +1005,43 @@ export default function JoinConfigureContent({
           {/* Join Configuration */}
           <Surface elevation="raised" className="rounded-2xl p-6">
             <h2 className="mb-4 text-lg font-semibold">Join Configuration</h2>
+
+            {/* Existing-join disambiguation banner — only shown when this table
+                is already joined to the insight at least once. Informs the user
+                which keys the prior join(s) use so they can pick different ones
+                for a legitimate double-join (e.g. created_by + approved_by). */}
+            {existingJoinsToThisTable.length > 0 && (
+              <div className="mb-4 rounded-xl border border-neutral-border/60 bg-neutral-bg-muted/50 p-4">
+                <p className="mb-2 text-sm font-medium">
+                  {joinTable.name} is already joined to this insight
+                  {existingJoinsToThisTable.length > 1
+                    ? ` (${existingJoinsToThisTable.length} times)`
+                    : ""}
+                </p>
+                <ul className="space-y-1">
+                  {existingJoinsToThisTable.map((j, i) => (
+                    <li
+                      key={`${j.leftKey}|${j.rightKey}|${j.type}|${i}`}
+                      className="text-xs text-neutral-fg-subtle"
+                    >
+                      Join {i + 1}:{" "}
+                      <span className="font-mono">{j.leftKey}</span>
+                      {" = "}
+                      <span className="font-mono">{j.rightKey}</span>
+                      {" ("}
+                      {j.type}
+                      {")"}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-neutral-fg-subtle">
+                  Joining the same table on different keys is valid — for
+                  example, <span className="font-mono">created_by</span> and{" "}
+                  <span className="font-mono">approved_by</span> can both join
+                  the same users table.
+                </p>
+              </div>
+            )}
 
             {/* Matching column suggestions */}
             {columnSuggestions.length > 0 && (
@@ -1223,6 +1303,17 @@ export default function JoinConfigureContent({
               )}
             </div>
           </Surface>
+
+          {/* Exact-duplicate warning — non-blocking; user can still submit */}
+          {isExactDuplicate && !error && (
+            <Alert>
+              <AlertDescription>
+                These keys and join type are identical to an existing join on{" "}
+                {joinTable.name}. The result will include duplicate columns.
+                Choose different keys to join on a different relationship.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Error Display */}
           {error && (
