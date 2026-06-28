@@ -1313,7 +1313,7 @@ export default function JoinConfigureContent({
 
           {/* Exact-duplicate warning — non-blocking; user can still submit */}
           {isExactDuplicate && (
-            <Alert>
+            <Alert color="warning">
               <AlertDescription>
                 These keys and join type are identical to an existing join on{" "}
                 {joinTable.name}. The result will include duplicate columns.
