@@ -1074,7 +1074,9 @@ export function suggestByChartType(
         // column is tried for EITHER axis when earlier combinations are already
         // in excludeEncodings.
         if (categorical.length > 0 && numerical.length > 0) {
-          outerBarY: for (const yCol of numerical) {
+          let foundBarY = false;
+          for (const yCol of numerical) {
+            if (foundBarY) break;
             for (const xCol of categorical) {
               const encoding: SuggestionEncoding = {
                 x: xCol.columnName,
@@ -1092,7 +1094,8 @@ export function suggestByChartType(
                   encoding,
                   rationale: "Categorical dimension with numeric measure",
                 };
-                break outerBarY;
+                foundBarY = true;
+                break;
               }
             }
           }
@@ -1106,7 +1109,9 @@ export function suggestByChartType(
       // categorical (y-axis) candidates. Both axes are iterated so a
       // repeat-join's j1 column is tried when earlier combinations are excluded.
       if (categorical.length > 0 && numerical.length > 0) {
-        outerBarX: for (const xCol of numerical) {
+        let foundBarX = false;
+        for (const xCol of numerical) {
+          if (foundBarX) break;
           for (const yCol of categorical) {
             const encoding: SuggestionEncoding = {
               x: `sum(${xCol.columnName})`,
@@ -1124,7 +1129,8 @@ export function suggestByChartType(
                 encoding,
                 rationale: "Horizontal categorical comparison",
               };
-              break outerBarX;
+              foundBarX = true;
+              break;
             }
           }
         }
