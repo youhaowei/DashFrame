@@ -14,6 +14,7 @@ import { query } from "@wystack/server";
 import { appArtifactFunctions } from "./functions/app-artifacts";
 import { commandFunctions } from "./functions/commands";
 import { dashboardFunctions } from "./functions/dashboards";
+import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { previewDiffFunctions } from "./functions/preview-diff";
 
 const { projectMeta } = schema;
@@ -60,6 +61,7 @@ export const functions = {
   ...appArtifactFunctions,
   ...commandFunctions,
   ...dashboardFunctions,
+  ...draftLifecycleFunctions,
   ...previewDiffFunctions,
 };
 

@@ -54,6 +54,9 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { type ArtifactDb } from "@dashframe/server-core";
+
+import { createDraftController } from "./draft-controller";
 import { functions } from "./functions";
 
 type CorsOrigin =
@@ -521,7 +524,41 @@ export async function createDashframeServer(
     ...vaultWrapped,
     async call(path, args, context) {
       const merged = { ...(context ?? {}), ...serverContext };
-      return vaultWrapped.call(path, args, merged);
+      const callResult = await vaultWrapped.call(path, args, merged);
+
+      // Handlers that use a sub-tracker (e.g. publishDraft, which calls
+      // applyCommands with its own fresh tracked context) cannot surface their
+      // writes via the outer DrizzleTracker. They signal the tables they wrote
+      // by returning `__extraTablesWritten: string[]` in the result object. The
+      // wrapper always strips the field (so clients never see it) and merges it
+      // into `callResult.tablesWritten` when non-empty (so `createRoutes`
+      // broadcasts the correct WS invalidation set).
+      //
+      // The double-underscore prefix is a reserved-internal convention. Any
+      // handler whose result carries a non-empty `__extraTablesWritten` will
+      // have those tables merged into the invalidation set — this is a
+      // deliberate extension point, not accidental behaviour.
+      const rawResult = callResult.result as
+        | ({ __extraTablesWritten?: unknown } & object)
+        | null
+        | undefined;
+      if (rawResult != null && "__extraTablesWritten" in rawResult) {
+        const { __extraTablesWritten, ...cleanResult } = rawResult;
+        const extra = Array.isArray(__extraTablesWritten)
+          ? (__extraTablesWritten as string[])
+          : [];
+        const mergedTables =
+          extra.length > 0
+            ? new Set([...callResult.tablesWritten, ...extra])
+            : callResult.tablesWritten;
+        return {
+          ...callResult,
+          result: cleanResult,
+          tablesWritten: mergedTables,
+        };
+      }
+
+      return callResult;
     },
     async runHandler(path, args, tracked, context) {
       const merged = { ...(context ?? {}), ...serverContext };
@@ -533,6 +570,17 @@ export async function createDashframeServer(
   // Done post-assignment because app itself is the wrapped version.
   serverContext.wyStackApp = app;
   serverContext.artifactDb = opts.db;
+
+  // Inject the persistent draft controller. Must come after `app` is finalized
+  // because the controller's `publishDraft` replay uses the full wrapped app.
+  // The `onWrite` callback is also surfaced here so the `publishDraft` handler
+  // can fire it explicitly — `buildDashframeApp`'s outer tracker never sees the
+  // sub-tracker writes from `applyCommands(mode:'commit')` inside the controller.
+  serverContext.draftController = createDraftController(
+    app,
+    opts.db as ArtifactDb,
+  );
+  serverContext.onWrite = opts.onWrite;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
