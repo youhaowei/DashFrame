@@ -74,6 +74,12 @@ const publishDraft = mutation({
 /**
  * Discard a draft: delete the command log and sweep all draft shadow rows for
  * this draftId. Canonical tables are never touched.
+ *
+ * Fires `onWrite` (snapshot persistence) after a successful discard. The discard
+ * deletes rows from the `draft_command_log` table and the six `<table>__draft`
+ * shadows — all durable stores. If the process crashes before the next scheduled
+ * snapshot, those rows would survive in the stale snapshot and resurrect the draft.
+ * Triggering a snapshot after discard closes that window and prevents orphan rows.
  */
 const discardDraft = mutation({
   args: { draftId: text },
@@ -87,6 +93,15 @@ const discardDraft = mutation({
     }
 
     await draftController.discardDraft(draftId);
+
+    // Trigger snapshot persistence after discard — the shadow rows live in the
+    // durable store; a stale snapshot would resurrect them on restart.
+    const onWrite = ctx.onWrite as (() => void) | undefined;
+    try {
+      onWrite?.();
+    } catch (err) {
+      console.error("[dashframe] discardDraft: onWrite hook threw:", err);
+    }
   },
 });
 

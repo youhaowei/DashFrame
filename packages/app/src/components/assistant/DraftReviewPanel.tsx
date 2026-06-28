@@ -71,15 +71,12 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Publish failed: ${msg}`);
-      // Re-throw so PreviewDiffDialog shows the button as no longer spinning.
-      throw err;
+      // Do not re-throw: PreviewDiffDialog swallows callback errors and its
+      // `finally` block already resets the loading state.
     }
   }, [draftId, setPendingDraft]);
 
-  /**
-   * Discard the draft. Re-throws on failure so PreviewDiffDialog can reset its
-   * loading state. Used as the dialog's `onDiscard` prop.
-   */
+  /** Discard the draft and close the review surface. Used as the dialog's `onDiscard` prop. */
   const handleDiscard = useCallback(async () => {
     try {
       await discardDraft(draftId);
@@ -90,7 +87,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Discard failed: ${msg}`);
-      throw err;
+      // Do not re-throw — same as handlePublish.
     }
   }, [draftId, setPendingDraft]);
 
@@ -138,7 +135,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
             </p>
 
             {loadError && (
-              <p className="mb-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-600 dark:text-red-400">
+              <p className="mb-3 rounded-lg border border-palette-danger/30 bg-palette-danger/5 px-3 py-2 text-[11px] text-palette-danger">
                 {loadError}
               </p>
             )}

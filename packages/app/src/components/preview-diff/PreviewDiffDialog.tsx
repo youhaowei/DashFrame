@@ -14,8 +14,11 @@
  *
  * ACTION CALLBACKS: `onPublish` and `onDiscard` are optional. When absent the
  * dialog is read-only (preview only). When present a footer renders with
- * "Discard" (destructive) and "Publish" (primary) buttons. The dialog stays
- * open while either action is in-flight — the callback controls close timing.
+ * "Discard" (outline variant) and "Publish" (primary variant) buttons. Both
+ * buttons are disabled while either action is in-flight; the spinner resets via
+ * `finally` regardless of outcome. The callback owns user-facing error surfacing
+ * (toast); errors thrown by a callback are swallowed here to prevent unhandled
+ * promise rejections.
  */
 
 import { useState } from "react";
@@ -84,6 +87,10 @@ export function PreviewDiffDialog({
     setIsPublishing(true);
     try {
       await onPublish();
+    } catch {
+      // The callback owns user-facing error surfacing (toast). Swallow here so
+      // the dialog doesn't emit an unhandled rejection — `finally` resets the
+      // spinner regardless.
     } finally {
       setIsPublishing(false);
     }
@@ -94,6 +101,8 @@ export function PreviewDiffDialog({
     setIsDiscarding(true);
     try {
       await onDiscard();
+    } catch {
+      // Same pattern as handlePublish — callback owns the toast, swallow here.
     } finally {
       setIsDiscarding(false);
     }

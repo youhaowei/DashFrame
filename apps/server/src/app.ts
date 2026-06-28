@@ -529,25 +529,29 @@ export async function createDashframeServer(
       // Handlers that use a sub-tracker (e.g. publishDraft, which calls
       // applyCommands with its own fresh tracked context) cannot surface their
       // writes via the outer DrizzleTracker. They signal the tables they wrote
-      // by returning `__extraTablesWritten` in the result object. The wrapper
-      // merges those tables into `callResult.tablesWritten` so the route layer
-      // (`createRoutes`) broadcasts the correct WS invalidation set — then
-      // strips the field before the result reaches the HTTP client.
+      // by returning `__extraTablesWritten: string[]` in the result object. The
+      // wrapper always strips the field (so clients never see it) and merges it
+      // into `callResult.tablesWritten` when non-empty (so `createRoutes`
+      // broadcasts the correct WS invalidation set).
+      //
+      // The double-underscore prefix is a reserved-internal convention. Any
+      // handler whose result carries a non-empty `__extraTablesWritten` will
+      // have those tables merged into the invalidation set — this is a
+      // deliberate extension point, not accidental behaviour.
       const rawResult = callResult.result as
-        | ({ __extraTablesWritten?: string[] } & object)
+        | ({ __extraTablesWritten?: unknown } & object)
         | null
         | undefined;
-      if (
-        rawResult != null &&
-        Array.isArray(rawResult.__extraTablesWritten) &&
-        rawResult.__extraTablesWritten.length > 0
-      ) {
+      if (rawResult != null && "__extraTablesWritten" in rawResult) {
         const { __extraTablesWritten, ...cleanResult } = rawResult;
-        const merged = new Set([
-          ...callResult.tablesWritten,
-          ...(__extraTablesWritten as string[]),
-        ]);
-        return { ...callResult, result: cleanResult, tablesWritten: merged };
+        const extra = Array.isArray(__extraTablesWritten)
+          ? (__extraTablesWritten as string[])
+          : [];
+        const mergedTables =
+          extra.length > 0
+            ? new Set([...callResult.tablesWritten, ...extra])
+            : callResult.tablesWritten;
+        return { ...callResult, result: cleanResult, tablesWritten: mergedTables };
       }
 
       return callResult;
