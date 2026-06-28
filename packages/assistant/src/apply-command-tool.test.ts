@@ -16,11 +16,14 @@
  *      no silent mutation or drop.
  *   7. An empty `appendToDraft` result array is a host contract violation and
  *      throws rather than silently returning null.
- *   8. Credential commands (CreateDataSource, SetDataSourceConfig, DeleteNode)
- *      are DENIED at the allow-list gate — no vault call, no appendToDraft call.
+ *   8. DeleteNode is DENIED at the allow-list gate — no vault call, no append.
  *   9. Unlisted arbitrary command types are DENIED at the gate (default-deny).
  *  10. Draft-safe artifact commands (CreateInsight, etc.) pass the gate and
  *      append normally.
+ *  11. Credential commands (CreateDataSource, SetDataSourceConfig) are allowed
+ *      with PLAINTEXT credentials, but a caller-supplied ref-shaped credential
+ *      is REJECTED at the credential-ref gate — before buildCommand / append —
+ *      so the agent cannot adopt a foreign/arbitrary vault ref.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -84,6 +87,8 @@ const TEST_COMMANDS: Record<string, string> = {
   CreateVisualization: "createVisualizationCmd",
   AddDashboardItem: "addDashboardItemCmd",
   CreateDashboard: "createDashboardCmd",
+  CreateDataSource: "createDataSourceCmd",
+  SetDataSourceConfig: "setDataSourceConfigCmd",
 };
 
 const buildCommand = makeBuildCommand(TEST_COMMANDS);
@@ -203,13 +208,13 @@ describe("createApplyCommandTool — error propagation", () => {
 
     // An unknown type must throw — no false success, no canonical write.
     // The allow-list gate fires BEFORE buildCommand, so the error comes from
-    // the gate ("not available to the assistant") rather than from buildCommand.
+    // the gate ("not draft-safe") rather than from buildCommand.
     await expect(
       tool.execute("call-bad-type", {
         type: "NonExistentCommand",
         args: {},
       }),
-    ).rejects.toThrow(/not available to the assistant/);
+    ).rejects.toThrow(/not draft-safe/);
 
     // appendToDraft was NOT called (gate rejected before reaching appendToDraft).
     expect(controller.appendCalls).toHaveLength(0);
@@ -381,20 +386,20 @@ describe("createApplyCommandTool — multi-command drive loop", () => {
 
 describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () => {
   /**
-   * The three command types that are explicitly DENIED:
+   * `DeleteNode` is explicitly DENIED:
+   *   - on a DataSource it calls vault.delete as an OS-keychain side effect the
+   *     draft overlay does not draft or roll back;
+   *   - on Insight / DataTable it uses non-PK cascade ops the overlay cannot
+   *     safely replicate.
    *
-   *   CreateDataSource    — vault.store OS-keychain side effect (not drafted)
-   *   SetDataSourceConfig — vault.store OS-keychain side effect (not drafted)
-   *   DeleteNode          — vault.delete (DataSource path) + non-PK cascade ops
+   * (CreateDataSource / SetDataSourceConfig are NO LONGER denied — they are
+   * draft-safe on the capture-before-log credential path; the credential-ref
+   * gate below covers their security boundary instead.)
    *
-   * The tool must reject these BEFORE calling buildCommand or appendToDraft
+   * The tool must reject DeleteNode BEFORE calling buildCommand or appendToDraft
    * so that no vault state is created from a supposed sandbox operation.
    */
-  const deniedCredentialCommands = [
-    "CreateDataSource",
-    "SetDataSourceConfig",
-    "DeleteNode",
-  ] as const;
+  const deniedCredentialCommands = ["DeleteNode"] as const;
 
   it.each(deniedCredentialCommands)(
     "denies credential/unsafe command '%s' with an honest error — no appendToDraft, no buildCommand",
@@ -407,12 +412,10 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
         buildCommand: buildCommandSpy,
       });
 
-      // Must throw — describing the command as unavailable to the assistant.
+      // Must throw — describing the command as not draft-safe for the assistant.
       await expect(
         tool.execute("call-deny", { type: commandType, args: {} }),
-      ).rejects.toThrow(
-        /not available to the assistant.*credential operations/i,
-      );
+      ).rejects.toThrow(/not draft-safe for the assistant/i);
 
       // CRITICAL: buildCommand must NOT have been called (gate fires before it).
       expect(buildCommandSpy).not.toHaveBeenCalled();
@@ -434,7 +437,7 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
         type: "SomeUnknownCommand",
         args: {},
       }),
-    ).rejects.toThrow(/not available to the assistant/i);
+    ).rejects.toThrow(/not draft-safe/i);
 
     expect(controller.appendCalls).toHaveLength(0);
   });
@@ -465,6 +468,225 @@ describe("createApplyCommandTool — DRAFT_SAFE_COMMANDS allow-list gate", () =>
     // Result details reflect the handler value.
     expect(result.details.commandType).toBe("CreateInsight");
     expect(result.details.commandResult).toEqual({ id: "i-allow-1" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Credential-ref gate — agent must supply plaintext, never a ref
+// ---------------------------------------------------------------------------
+
+describe("createApplyCommandTool — credential-ref gate (agent authoring)", () => {
+  // A valid-shaped SecretRef (`secret:<uuid>`) the agent does NOT own — the
+  // foreign-ref attack the gate must block.
+  const FOREIGN_REF = "secret:11111111-1111-4111-8111-111111111111";
+
+  // Each case puts a foreign ref in a different slot — the typed credential
+  // fields AND a nested connector field (`extra.authRef`, which the REST connector
+  // resolves via the vault). The gate is field-agnostic + recursive, so every slot
+  // is caught — enumerating only apiKey/connectionString is what let authRef slip.
+  const refRejectionCases = [
+    {
+      type: "CreateDataSource",
+      args: { id: "d", type: "rest", name: "X", apiKey: "" },
+    },
+    {
+      type: "SetDataSourceConfig",
+      args: { id: "d", connectionString: "" },
+    },
+    {
+      type: "SetDataSourceConfig",
+      args: { id: "d", extra: { endpoint: "https://x", authRef: "" } },
+    },
+    {
+      type: "CreateDataSource",
+      args: {
+        id: "d",
+        type: "rest",
+        name: "X",
+        extra: { nested: { authRef: "" } },
+      },
+    },
+  ] as const;
+
+  it.each(refRejectionCases)(
+    "REJECTS a caller-supplied ref anywhere in $type args — no buildCommand, no appendToDraft",
+    async ({ type, args }) => {
+      const controller = makeMockController();
+      const buildCommandSpy = vi.fn(buildCommand);
+      const tool = createApplyCommandTool({
+        controller,
+        draftId: "draft-cred-reject",
+        buildCommand: buildCommandSpy,
+      });
+
+      // Inject the foreign ref into whichever slot the case left empty.
+      const withRef = JSON.parse(
+        JSON.stringify(args).replace('""', `"${FOREIGN_REF}"`),
+      );
+
+      // A ref-shaped value must be rejected so the agent cannot adopt a
+      // foreign/arbitrary vault ref (bypassing storeCredential + fail-closed guard).
+      await expect(
+        tool.execute("call-cred-reject", { type, args: withRef }),
+      ).rejects.toThrow(
+        /must carry the plaintext credential, not a.*vault ref/is,
+      );
+
+      // CRITICAL: rejected BEFORE buildCommand and BEFORE appendToDraft — no
+      // command is constructed, nothing reaches the draft / capture seam.
+      expect(buildCommandSpy).not.toHaveBeenCalled();
+      expect(controller.appendCalls).toHaveLength(0);
+    },
+  );
+
+  it("ALLOWS a plaintext credential — the agent can author a data source", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { id: "ds-plain" } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-allow",
+      buildCommand,
+    });
+
+    // Plaintext (not ref-shaped) is the sanctioned input — passes the gate and
+    // appends; the server's capture-before-log path stores it as a vault ref.
+    const result = await tool.execute("call-cred-allow", {
+      type: "CreateDataSource",
+      args: {
+        id: "ds-plain",
+        type: "rest",
+        name: "My API",
+        apiKey: "sk-live-super-secret-plaintext",
+      },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+    expect(controller.appendCalls[0]!.batch[0]!.path).toBe(
+      "createDataSourceCmd",
+    );
+    expect(result.details.commandType).toBe("CreateDataSource");
+    expect(result.details.commandResult).toEqual({ id: "ds-plain" });
+  });
+
+  it("ALLOWS a plaintext-only SetDataSourceConfig (no credential field) through", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { ok: true } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-noncred",
+      buildCommand,
+    });
+
+    // A config update that touches no credential field is unaffected by the gate.
+    await tool.execute("call-cred-noncred", {
+      type: "SetDataSourceConfig",
+      args: { id: "ds-1", extra: { database: "analytics" } },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+  });
+
+  it("does not reject a NON-credential command carrying a ref-shaped string field", async () => {
+    const controller = makeMockController();
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-cred-unrelated",
+      buildCommand,
+    });
+
+    // The gate is scoped to credential commands' credential fields — an
+    // unrelated command with a coincidentally ref-shaped field is untouched.
+    await tool.execute("call-cred-unrelated", {
+      type: "CreateInsight",
+      args: {
+        id: "secret:22222222-2222-4222-8222-222222222222",
+        name: "Not a credential",
+        source: { sourceType: "dataTable", sourceId: "t-1" },
+      },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. Agent-provenance stamp — CreateDataSource is marked agent-authored
+// ---------------------------------------------------------------------------
+
+describe("createApplyCommandTool — agent provenance stamp", () => {
+  it("stamps createdBy:{kind:'agent'} into CreateDataSource args", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov", {
+      type: "CreateDataSource",
+      args: { id: "ds-1", type: "rest", name: "API", apiKey: "plaintext" },
+    });
+
+    // The command built (and thus appended) carries agent provenance so the row
+    // is auditably agent-authored after publish replay.
+    expect(buildCommandSpy).toHaveBeenCalledWith(
+      "CreateDataSource",
+      expect.objectContaining({ createdBy: { kind: "agent" } }),
+    );
+  });
+
+  it("OVERRIDES a caller-supplied createdBy — the agent cannot claim user authorship", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov-override",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov-override", {
+      type: "CreateDataSource",
+      args: {
+        id: "ds-2",
+        type: "rest",
+        name: "API",
+        apiKey: "plaintext",
+        createdBy: { kind: "user" },
+      },
+    });
+
+    const passedArgs = buildCommandSpy.mock.calls[0]![1] as {
+      createdBy: unknown;
+    };
+    expect(passedArgs.createdBy).toEqual({ kind: "agent" });
+  });
+
+  it("does NOT stamp provenance on a non-provenance command", async () => {
+    const controller = makeMockController();
+    const buildCommandSpy = vi.fn(buildCommand);
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-prov-none",
+      buildCommand: buildCommandSpy,
+    });
+
+    await tool.execute("call-prov-none", {
+      type: "CreateInsight",
+      args: {
+        id: "i-1",
+        name: "Trend",
+        source: { sourceType: "dataTable", sourceId: "t-1" },
+      },
+    });
+
+    const passedArgs = buildCommandSpy.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect(passedArgs).not.toHaveProperty("createdBy");
   });
 });
 

@@ -23,6 +23,7 @@
     "@dashframe/types": "workspace:*",
     "@earendil-works/pi-agent-core": "0.79.6",
     "@earendil-works/pi-ai": "0.79.6",
+    "@wystack/secret-vault": "workspace:*",
     "typebox": "1.1.38"
   },
   "devDependencies": {

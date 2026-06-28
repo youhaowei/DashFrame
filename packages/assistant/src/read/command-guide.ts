@@ -60,21 +60,22 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
   // of type "rest" whose config holds { endpoint, method, authRef, pagination,
   // rowPath, fieldMap }; no new connector kind is registered.
   //
-  // ASSISTANT SCOPE (today): these are HUMAN-ONLY operations. They are NOT in the
-  // applyCommand draft-safe allow-list — the assistant works with EXISTING data
-  // sources, it does not mint or configure them. Data-source creation is a
-  // human-owned trust step (a new data-access reference the human must review),
-  // and credential writes hit the OS keychain outside the draft transaction.
-  // These entries document the config CONTRACT (so the agent can read a source's
-  // shape); they are not an instruction that the agent may emit them.
+  // ASSISTANT SCOPE: `CreateDataSource` and `SetDataSourceConfig` ARE draft-safe —
+  // the assistant may author data sources. Credentials must be supplied as raw
+  // PLAINTEXT: the draft path stores them in the vault (capture-before-log) and
+  // releases at the publish/discard transition. NEVER pass a vault ref
+  // (`secret:<uuid>`) in ANY field — including nested connector config such as a
+  // REST source's `extra.authRef` — it is REJECTED (the assistant cannot adopt a
+  // secret it does not own). `GetOrCreateDataSource` stays human-only (legacy
+  // coarse create, no capture-before-log path).
   {
     name: "GetOrCreateDataSource",
     group: "connector",
     summary: "Idempotent upsert of a data source by client-minted id.",
     args: { id: "UUID", type: "connector id", name: "display name" },
     notes:
-      "Human-only (not draft-safe). Safe to retry — finds existing by PK or " +
-      "inserts. No credentials.",
+      "Human-only (NOT draft-safe — legacy coarse create). Use CreateDataSource " +
+      "to author a source. No credentials.",
   },
   {
     name: "CreateDataSource",
@@ -84,13 +85,14 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       id: "UUID",
       type: "connector id",
       name: "display name",
-      "apiKey?": "secret",
-      "connectionString?": "secret",
+      "apiKey?": "plaintext secret (never a vault ref)",
+      "connectionString?": "plaintext secret (never a vault ref)",
     },
     notes:
-      "Human-only (not draft-safe — vault side-effect + trust step). " +
-      "Credentials go to the vault; never echoed back on read. For a REST " +
-      'source: type "rest", then SetDataSourceConfig writes the endpoint config.',
+      "Draft-safe. Supply credentials as raw PLAINTEXT — the draft path stores " +
+      "them in the vault and never echoes them back on read; a ref-shaped value " +
+      'is rejected. For a REST source: type "rest", then SetDataSourceConfig ' +
+      "writes the endpoint config.",
   },
   {
     name: "SetDataSourceConfig",
@@ -98,19 +100,20 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Replace a data source's credential + non-credential config.",
     args: {
       id: "UUID",
-      "apiKey?": "secret",
-      "connectionString?": "secret",
+      "apiKey?": "plaintext secret (never a vault ref)",
+      "connectionString?": "plaintext secret (never a vault ref)",
       "extra?": "non-credential connector config (e.g. REST endpoint settings)",
     },
     notes:
-      "Human-only (not draft-safe). `extra` carries the declarative connector " +
-      "config and must NOT contain apiKey/connectionString (rejected — use the " +
-      "typed credential fields). REST config shape: { endpoint, method, " +
-      "authRef (a SecretRef id, never a plaintext secret), pagination " +
-      "(offset|cursor|page-number|link-header), rowPath, fieldMap }. The REST " +
-      "connector rejects a private/internal endpoint host at the fetch sink and " +
-      "at config-form validation (SSRF guard); authRef must not be bypassed for " +
-      "authenticated sources.",
+      "Draft-safe. Supply credentials as raw PLAINTEXT. `extra` carries the " +
+      "declarative connector config and must NOT contain apiKey/connectionString " +
+      "(rejected — use the typed fields). REST config shape: { endpoint, method, " +
+      "authRef, pagination (offset|cursor|page-number|link-header), rowPath, " +
+      "fieldMap }. Do NOT supply a vault ref in any field, including " +
+      "`extra.authRef` — caller-supplied refs are rejected; an authenticated REST " +
+      "source's credential is set through the credential write path, not by " +
+      "referencing an existing secret. The REST connector also rejects a " +
+      "private/internal endpoint host (SSRF guard).",
   },
   // --- DataTable ---
   {

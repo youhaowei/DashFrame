@@ -44,6 +44,8 @@
  * the assistant package carries no server import.
  */
 
+import { isSecretRef } from "@wystack/secret-vault";
+
 import { defineToolHandler, Type } from "./tool.js";
 
 // ---------------------------------------------------------------------------
@@ -87,33 +89,42 @@ export interface DraftAppender {
  *
  * **WHY a separate allow-list (not the full vocabulary)**
  *
- * Two command categories are NOT safe for agent-driven draft execution:
+ * 1. Credential commands — `CreateDataSource` and `SetDataSourceConfig` are
+ *    draft-safe ON THE CREDENTIAL WRITE PATH built for them: their plaintext
+ *    credential args are captured to vault refs BEFORE the draft log snapshot
+ *    (plaintext-never-at-rest), and ref RELEASE is deferred to a lifecycle
+ *    transition (publish/discard) gated by a cross-draft reference check — so a
+ *    discarded draft leaves no orphaned keychain blob and a draft credential is
+ *    never released while still live. They are therefore in the allow-list, BUT
+ *    only when the agent supplies PLAINTEXT: a caller-supplied ref-shaped value
+ *    (`secret:<uuid>`) is REJECTED at the credential-ref gate below (see
+ *    {@link CREDENTIAL_COMMAND_ARG_FIELDS}) so the agent cannot adopt a foreign /
+ *    arbitrary ref and bypass `storeCredential` + the fail-closed vault guard.
  *
- * 1. Credential commands — `CreateDataSource`, `SetDataSourceConfig`, and
- *    `DeleteNode` on a DataSource call `vault.store` / `vault.delete` /
- *    `releaseCredentialRefs` as OS-keychain side effects OUTSIDE the DB
- *    transaction. The draft overlay only drafts DB writes; vault ops are NOT
- *    drafted and NOT rolled back on discard. Allowing the agent to invoke these
- *    would create real credential state from a supposed sandbox operation.
- *
- * 2. Draft-overlay-unsafe deletes — `DeleteNode` on Insight or DataTable
- *    uses non-PK-filtered cascade operations (e.g. DataFrame cleanup by
- *    `insightId`, Visualization scan by `insightId`) that the draft overlay
- *    cannot safely replicate. The draft handle does not emulate FK cascades,
- *    so delete cascades inside a draft can produce incorrect results.
+ * 2. Draft-overlay-unsafe deletes — `DeleteNode` on a DataSource calls
+ *    `vault.delete` / `releaseCredentialRefs` as an OS-keychain side effect that
+ *    the draft overlay does NOT draft or roll back, and `DeleteNode` on Insight
+ *    or DataTable uses non-PK-filtered cascade operations (e.g. DataFrame cleanup
+ *    by `insightId`, Visualization scan by `insightId`) the draft overlay cannot
+ *    safely replicate. So `DeleteNode` stays DENIED.
  *
  * `GetOrCreateDataSource` (no vault, PK-only insert) is excluded from the
- * allow-list because DataSource creation is a human-owned credential setup
- * step — even without a vault side-effect today, it creates a data-access
- * reference that the human must review. The assistant works with existing
- * DataSources/DataTables, not mint new ones.
+ * allow-list because its create half is the legacy coarse path that lacks the
+ * capture-before-log credential treatment; the assistant authors via the typed
+ * `CreateDataSource` / `SetDataSourceConfig` commands instead.
  *
- * This set is the exhaustive additive/update artifact vocabulary the
- * assistant can safely draft. New commands must be reviewed against the two
- * categories above before being added here.
+ * This set is the exhaustive additive/update artifact vocabulary the assistant
+ * can safely draft. New commands must be reviewed against the categories above
+ * before being added here — and any command with credential-bearing args must
+ * also be registered in {@link CREDENTIAL_COMMAND_ARG_FIELDS}.
  */
 export const DRAFT_SAFE_COMMANDS = new Set([
-  // DataTable (existing — assistant does not create/configure data sources)
+  // DataSource (credential write path — capture-before-log + transition-time
+  // release; agent-supplied refs are REJECTED at the credential-ref gate, agent
+  // must supply plaintext which routes through storeCredential + fail-closed guard)
+  "CreateDataSource",
+  "SetDataSourceConfig",
+  // DataTable
   "CreateDataTable",
   "SetDataTableSchema",
   "RefreshDataTable",
@@ -148,12 +159,110 @@ export const DRAFT_SAFE_COMMANDS = new Set([
   "RenameNode",
   //
   // NOT ALLOWED (default-deny for unlisted commands):
-  //   GetOrCreateDataSource — human-owned data-source creation step
-  //   CreateDataSource      — vault.store side-effect (not drafted)
-  //   SetDataSourceConfig   — vault.store side-effect (not drafted)
+  //   GetOrCreateDataSource — legacy coarse create, no capture-before-log path
   //   DeleteNode            — vault.delete (DataSource path) + non-PK cascade
   //                           (Insight/DataTable paths); draft-overlay-unsafe
 ]);
+
+// ---------------------------------------------------------------------------
+// Credential-ref gate — agent must supply plaintext, never a ref
+// ---------------------------------------------------------------------------
+
+/**
+ * Commands that author connector credentials, mapped to their TYPED credential
+ * fields (`apiKey` / `connectionString`). This map serves two purposes:
+ *   - membership: a command listed here is credential-bearing, so the
+ *     credential-ref gate ({@link assertNoCallerSuppliedRefs}) runs on it;
+ *   - drift guard: it MIRRORS the server's `CREDENTIAL_COMMAND_FIELDS` (the
+ *     capture/release lifecycle source of truth), bridged by a server-side test
+ *     so the two cannot diverge.
+ *
+ * NOTE the gate's reject is field-AGNOSTIC (see {@link assertNoCallerSuppliedRefs})
+ * — it does not rely on this field list. The typed fields here only document the
+ * plaintext-capture lifecycle; the reject scans the whole args, because a connector
+ * config carries ref-shaped slots beyond these (e.g. a REST source's
+ * `extra.authRef`) that must be guarded too.
+ */
+export const CREDENTIAL_COMMAND_ARG_FIELDS: Readonly<
+  Record<string, ReadonlyArray<"apiKey" | "connectionString">>
+> = {
+  CreateDataSource: ["apiKey", "connectionString"],
+  SetDataSourceConfig: ["apiKey", "connectionString"],
+};
+
+/** True if any string anywhere in `value` is a SecretRef (recursive). */
+function hasSecretRefDeep(value: unknown): boolean {
+  if (isSecretRef(value)) return true;
+  if (Array.isArray(value)) return value.some(hasSecretRefDeep);
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).some(hasSecretRefDeep);
+  }
+  return false;
+}
+
+/**
+ * Reject a credential command whose args carry a caller-supplied vault ref —
+ * ANYWHERE, recursively (a typed field OR a nested connector slot like
+ * `extra.authRef`). No-op for non-credential commands.
+ *
+ * **WHY (the foreign-ref threat)** — the server's draft credential path stores a
+ * PLAINTEXT credential to a vault ref before the log snapshot. The agent has NO
+ * legitimate reason to supply a pre-existing ref — it authors fresh credentials —
+ * and a caller-supplied `secret:<uuid>` would let it point a source at a secret it
+ * does NOT own (e.g. a REST `extra.authRef` the connector resolves and sends to an
+ * agent-controlled endpoint), skipping `storeCredential` + the fail-closed guard.
+ * So we FORBID caller-supplied refs on the agent path: plaintext only.
+ *
+ * Field-agnostic on purpose — enumerating credential fields is what let `authRef`
+ * (not in the typed field map) slip past an earlier version of this guard.
+ *
+ * This is the agent's EARLY, clear error; the server capture seam enforces the
+ * same rule as the durable guarantee for every `appendToDraft` caller. Thrown as a
+ * tool error so the agent can correct and retry.
+ */
+function assertNoCallerSuppliedRefs(type: string, args: unknown): void {
+  if (!(type in CREDENTIAL_COMMAND_ARG_FIELDS)) return;
+  if (hasSecretRefDeep(args)) {
+    throw new Error(
+      `applyCommand: command "${type}" must carry the plaintext credential, not a ` +
+        "vault ref. The assistant cannot adopt a pre-existing secret ref (in any " +
+        "field, including nested connector config) — supply the raw secret value " +
+        "and it will be stored securely.",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent-provenance stamp
+// ---------------------------------------------------------------------------
+
+/**
+ * Commands whose created artifact carries a `createdBy` provenance arg that this
+ * tool stamps as agent-authored. The provenance must travel IN the command (not
+ * the context) so it survives the publish log replay; the tool sets it here so an
+ * agent-created artifact is auditably distinct from a human-created one — without
+ * relying on the model to remember to pass it.
+ *
+ * Stamping OVERRIDES any caller-supplied value: the applyCommand tool IS the agent
+ * write path, so every artifact it creates is agent-authored; a model cannot claim
+ * `{ kind: "user" }`. NOTE provenance is DISPLAY/AUDIT only — it MUST NEVER gate a
+ * trust decision (see the server's coerceProvenance) — so this is for auditability,
+ * not the security guard. Only `CreateDataSource` plumbs `createdBy` among the
+ * allow-listed commands today; the set grows as more create commands do.
+ */
+const AGENT_PROVENANCE_COMMANDS = new Set(["CreateDataSource"]);
+
+/**
+ * Return `args` with `createdBy: { kind: "agent" }` stamped for a provenance-
+ * bearing command, else `args` unchanged. Never mutates the input.
+ */
+function stampAgentProvenance(type: string, args: unknown): unknown {
+  if (!AGENT_PROVENANCE_COMMANDS.has(type)) return args;
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return args; // malformed args fall through to the handler's own validation
+  }
+  return { ...(args as Record<string, unknown>), createdBy: { kind: "agent" } };
+}
 
 // ---------------------------------------------------------------------------
 // applyCommand result detail
@@ -267,8 +376,9 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       "plan as a visible step — nothing is written to canonical until the draft is " +
       "published (a separate, human-gated action). Supply `type` as a command name " +
       '(e.g. "CreateInsight", "AddDashboardItem") and `args` as the matching payload ' +
-      "object for that command. Only draft-safe artifact commands are available — " +
-      "credential and data-source configuration commands are human-only operations. " +
+      "object for that command. Only draft-safe commands are available. To author a " +
+      "data source, supply its credential (apiKey / connectionString) as the raw " +
+      "PLAINTEXT secret — never a vault ref; it is stored securely on your behalf. " +
       "On validation failure the error is returned so you can correct the args and retry. " +
       "NEVER emits to canonical.",
     label: "Apply Command",
@@ -282,7 +392,7 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
           "The command name from the draft-safe DashFrame vocabulary, e.g. " +
           '"CreateInsight", "CreateVisualization", "AddDashboardItem". ' +
           "Must be one of the allowed command names from the command guide. " +
-          "Data-source and credential commands are not available to the assistant.",
+          "For data-source credentials, pass the raw plaintext secret, not a vault ref.",
       }),
       args: Type.Unknown({
         description:
@@ -295,27 +405,41 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       const { type, args } = params;
 
       // SECURITY GATE: enforce the draft-safe allow-list BEFORE calling
-      // buildCommand or appendToDraft. This is a default-deny boundary:
+      // buildCommand or appendToDraft. Default-deny — everything not in
+      // DRAFT_SAFE_COMMANDS is rejected. The notable denials:
       //
-      //   - Credential commands (CreateDataSource, SetDataSourceConfig,
-      //     DeleteNode on DataSource) call vault.store/vault.delete as
-      //     OS-keychain side effects OUTSIDE the DB transaction. These ops are
-      //     NOT drafted and NOT rolled back on discard — allowing the agent to
-      //     trigger them would create real credential state from a sandbox.
+      //   - DeleteNode — on a DataSource it calls vault.delete as an OS-keychain
+      //     side effect OUTSIDE the DB transaction (not drafted, not rolled back
+      //     on discard); on Insight/DataTable it uses non-PK-filtered cascade
+      //     operations the draft overlay cannot safely replicate.
+      //   - GetOrCreateDataSource — legacy coarse create with no
+      //     capture-before-log credential path (use CreateDataSource instead).
       //
-      //   - Draft-overlay-unsafe deletes (DeleteNode on Insight/DataTable)
-      //     use non-PK-filtered cascade operations that the draft overlay
-      //     cannot safely replicate.
+      // CreateDataSource / SetDataSourceConfig ARE allow-listed — they route
+      // through the safe credential write path; the credential-ref gate and the
+      // server-side inherited-credential guard are their security boundary.
       //
       // Rejecting here — before buildCommand — means no vault call, no append,
       // no draft mutation: a clean, auditable deny at the tool seam.
       if (!DRAFT_SAFE_COMMANDS.has(type)) {
         throw new Error(
-          `applyCommand: command type "${type}" is not available to the assistant. ` +
-            "Credential operations and data-source configuration are human-only. " +
+          `applyCommand: command type "${type}" is not draft-safe for the assistant. ` +
             `Available commands: ${[...DRAFT_SAFE_COMMANDS].sort().join(", ")}`,
         );
       }
+
+      // CREDENTIAL-REF GATE: for a credential command, the agent must supply the
+      // PLAINTEXT secret — a caller-supplied ref (`secret:<uuid>`) is rejected
+      // here, before buildCommand / appendToDraft, so the agent cannot adopt a
+      // foreign / arbitrary vault ref and bypass storeCredential + the
+      // fail-closed guard. See CREDENTIAL_COMMAND_ARG_FIELDS for the threat model.
+      assertNoCallerSuppliedRefs(type, args);
+
+      // PROVENANCE: stamp agent authorship into the args for a provenance-bearing
+      // command (e.g. CreateDataSource), overriding any caller value — the tool is
+      // the agent write path, so its artifacts are agent-authored. Audit/display
+      // only; never gates trust (see AGENT_PROVENANCE_COMMANDS).
+      const stampedArgs = stampAgentProvenance(type, args);
 
       // Build the Command envelope. `buildCommand` is the host-injected bridge
       // to cmd() in commands.ts — the single source of truth for name→path
@@ -324,7 +448,7 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       //
       // TRANSPARENT: the command is constructed and emitted as an explicit plan
       // step visible in the draft log — no behind-the-scenes canonical write.
-      const command = buildCommand(type, args);
+      const command = buildCommand(type, stampedArgs);
 
       // Emit into the draft via the controller's sanctioned write path.
       // NEVER CANONICAL: appendToDraft → runHandler → withDraft overlay.
