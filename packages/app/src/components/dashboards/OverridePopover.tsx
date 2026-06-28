@@ -384,8 +384,10 @@ export function OverridePopover({
     saveOverrides(computeNewOverridesOnLimitChange(limit, item.overrides));
   }
 
-  function handleBind(fieldName: string, controlId: string) {
+  function handleBind(controlId: string) {
     // Add item.id to the control's boundInstances.  Replaces the whole controls array.
+    // fieldName is not needed here — control→field routing is already encoded in
+    // the control record (`c.field`); we look up by controlId directly.
     const next = controls.map((c) =>
       c.id === controlId
         ? { ...c, boundInstances: [...c.boundInstances, item.id] }
@@ -486,7 +488,7 @@ export function OverridePopover({
                       onPin={(filter) => handlePin(fieldName, filter)}
                       onClear={() => handleClear(fieldName)}
                       onInherit={() => handleInherit(fieldName)}
-                      onBind={(controlId) => handleBind(fieldName, controlId)}
+                      onBind={(controlId) => handleBind(controlId)}
                       onUnbind={
                         state.type === "bound"
                           ? () => handleUnbind(state.control.id)
@@ -516,6 +518,8 @@ export function OverridePopover({
             <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
               Limit
             </p>
+            {/* insightLimit: the Insight type has no row-limit field (v0.3).
+                The "default: N rows" hint is intentionally absent for now. */}
             <LimitOverrideRow
               insightLimit={undefined}
               overrideLimit={item.overrides?.limit}
