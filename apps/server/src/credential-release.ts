@@ -139,6 +139,11 @@ async function assertNoInheritedCredentialExfil(
   // Only an `extra` change can introduce a new destination for an inherited
   // credential; a typed-credential-only update redirects nothing. No `extra` →
   // not a redirect → nothing to guard.
+  // NOTE: target-side check is field-agnostic — ANY extra-key change on a credentialed
+  // source forces credential re-affirm, including non-destination edits (e.g. postgres
+  // defaultSchema, REST pagination/rowPath). When an extra-only editor for such fields
+  // is built, have the UI re-send the credential (or revisit this guard), else legitimate
+  // non-destination edits will error.
   const extra = isRecord(args.extra) ? args.extra : undefined;
   if (extra === undefined || Object.keys(extra).length === 0) return;
 
@@ -166,6 +171,10 @@ async function assertNoInheritedCredentialExfil(
   const inheritedCredFields = Object.keys(canonical).filter((k) =>
     isSecretRef(canonical[k]),
   );
+  // NOTE: inherited-credential detection scans TOP-LEVEL canonical keys only. If a
+  // future connector nests a credential SecretRef below top-level, mirror
+  // assertNoSecretRefDeep's recursive scan here — otherwise this inherited-exfil
+  // check is silently bypassed.
   if (inheritedCredFields.length === 0) return; // source holds no credential
 
   // The command must RE-AFFIRM every inherited credential — supply (plaintext) or
