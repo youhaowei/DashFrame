@@ -58,9 +58,22 @@ function post(url: string, path: string, body: unknown): Promise<Response> {
   });
 }
 
+/** GET /api/:path?args=<json> — for WyStack query endpoints. */
+function get(url: string, path: string, args: unknown): Promise<Response> {
+  const params = new URLSearchParams({ args: JSON.stringify(args) });
+  return fetch(`${url}/api/${path}?${params.toString()}`, { method: "GET" });
+}
+
 async function postOk<T>(url: string, path: string, body: unknown): Promise<T> {
   const res = await post(url, path, body);
   expect(res.status, `POST ${path} returned ${res.status}`).toBe(200);
+  const json = (await res.json()) as { data: T };
+  return json.data;
+}
+
+async function getOk<T>(url: string, path: string, args: unknown): Promise<T> {
+  const res = await get(url, path, args);
+  expect(res.status, `GET ${path} returned ${res.status}`).toBe(200);
   const json = (await res.json()) as { data: T };
   return json.data;
 }
@@ -233,7 +246,8 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
 
     server = await createDashframeServer({ db: project.db });
 
-    const commands = await postOk<{ path: string; args: unknown }[]>(
+    // getDraftLog is a WyStack query → GET /api/getDraftLog?args=<json>
+    const commands = await getOk<{ path: string; args: unknown }[]>(
       server.url,
       "getDraftLog",
       { draftId },
