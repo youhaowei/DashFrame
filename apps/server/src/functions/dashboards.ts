@@ -159,11 +159,14 @@ function sanitizeItemOverrides(
 ): DashboardItem["overrides"] | undefined {
   if (ov == null) return undefined; // null or undefined → clear
   if (!isRecord(ov)) return undefined; // unexpected shape — ignore silently
-  return {
-    filters: Array.isArray(ov.filters) ? ov.filters : undefined,
-    sorts: Array.isArray(ov.sorts) ? ov.sorts : undefined,
-    limit: typeof ov.limit === "number" && ov.limit > 0 ? ov.limit : undefined,
-  };
+  const filters = Array.isArray(ov.filters) ? ov.filters : undefined;
+  const sorts = Array.isArray(ov.sorts) ? ov.sorts : undefined;
+  const limit =
+    typeof ov.limit === "number" && ov.limit > 0 ? ov.limit : undefined;
+  // Normalise all-undefined bags to undefined so {filters:undefined,…} is
+  // never persisted as {} in JSONB, which the engine would treat as "has overrides".
+  if (!filters && sorts === undefined && limit === undefined) return undefined;
+  return { filters, sorts, limit };
 }
 
 const listDashboards = query({

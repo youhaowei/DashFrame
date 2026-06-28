@@ -127,3 +127,122 @@ describe("addDashboardItem — markdown widget persistence", () => {
     expect(second!.y).toBe(4);
   });
 });
+
+describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-ov-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  async function addVisualizationItem(dashboardId: string): Promise<string> {
+    const { itemId } = (await call("addDashboardItem", {
+      dashboardId,
+      type: "visualization",
+      visualizationId: crypto.randomUUID(),
+      position: { x: 0, y: 0, width: 4, height: 4 },
+    })) as { itemId: string };
+    return itemId;
+  }
+
+  async function getItem(
+    dashboardId: string,
+    itemId: string,
+  ): Promise<{ overrides?: unknown }> {
+    const list = (await call("listDashboards", {})) as Array<{
+      id: string;
+      items: Array<{ id: string; overrides?: unknown }>;
+    }>;
+    const dash = list.find((d) => d.id === dashboardId);
+    return dash!.items.find((i) => i.id === itemId) as { overrides?: unknown };
+  }
+
+  it("should persist a valid limit override", async () => {
+    const { id: dashboardId } = (await call("createDashboard", {
+      name: "Override Test",
+    })) as { id: string };
+    const itemId = await addVisualizationItem(dashboardId);
+
+    await call("updateDashboardItem", {
+      dashboardId,
+      itemId,
+      updates: { overrides: { limit: 50 } },
+    });
+
+    const item = await getItem(dashboardId, itemId);
+    expect((item.overrides as { limit?: number })?.limit).toBe(50);
+  });
+
+  it("should clear overrides when null is sent (clear sentinel)", async () => {
+    // This is the JSON.stringify hazard: { overrides: undefined } → {} → key
+    // absent → server gate never fires. The client sends null to preserve the
+    // key. The server must treat null as "remove overrides".
+    const { id: dashboardId } = (await call("createDashboard", {
+      name: "Clear Sentinel Test",
+    })) as { id: string };
+    const itemId = await addVisualizationItem(dashboardId);
+
+    // First pin a limit.
+    await call("updateDashboardItem", {
+      dashboardId,
+      itemId,
+      updates: { overrides: { limit: 25 } },
+    });
+    expect(
+      ((await getItem(dashboardId, itemId)).overrides as { limit?: number })
+        ?.limit,
+    ).toBe(25);
+
+    // Now clear via null sentinel.
+    await call("updateDashboardItem", {
+      dashboardId,
+      itemId,
+      updates: { overrides: null },
+    });
+
+    const item = await getItem(dashboardId, itemId);
+    // overrides must be absent — NOT {} — after a null clear.
+    expect(item.overrides).toBeUndefined();
+  });
+
+  it("should treat all-invalid-fields payload as a clear (not {} in JSONB)", async () => {
+    // Regression for the Greptile P1: sanitizeItemOverrides can produce a
+    // truthy empty object {filters:undefined,sorts:undefined,limit:undefined}
+    // when all three fields fail validation. JSON.stringify drops undefined
+    // values → stored as {} → engine reads non-null overrides field.
+    // The fix adds an all-undefined emptiness check that returns undefined.
+    const { id: dashboardId } = (await call("createDashboard", {
+      name: "All-Invalid Test",
+    })) as { id: string };
+    const itemId = await addVisualizationItem(dashboardId);
+
+    await call("updateDashboardItem", {
+      dashboardId,
+      itemId,
+      // All fields fail validation: filters wrong type, sorts wrong type,
+      // limit is negative (rejected by the > 0 guard).
+      updates: { overrides: { filters: "invalid", sorts: null, limit: -5 } },
+    });
+
+    const item = await getItem(dashboardId, itemId);
+    // Must not be persisted as {} — that would mean the engine reads a non-null
+    // overrides field and may create a per-cell DuckDB view for no reason.
+    // With the emptiness check, sanitizeItemOverrides returns undefined, the
+    // key is dropped from JSONB, and the read-back item has no overrides field.
+    expect(item.overrides).toBeUndefined();
+  });
+});

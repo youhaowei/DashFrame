@@ -365,22 +365,14 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function saveOverrides(next: DashboardItemOverrides) {
-    // Collapse truthy-but-empty bags so cells with no overrides don't
-    // produce a non-undefined `overrides` object that triggers a needless
-    // per-cell DuckDB view.  Guards the same hazard documented in
-    // computeItemOverrides (controls.ts:137-150).
-    const hasContent =
-      (next.filters?.length ?? 0) > 0 ||
-      next.sorts !== undefined ||
-      next.limit !== undefined;
-
-    if (hasContent) {
+    if (hasOverrides(next)) {
       updateItem(dashboardId, item.id, { overrides: next });
     } else {
       // Explicit clear: send null so JSON.stringify preserves the key.
       // `undefined` would be dropped by JSON.stringify → the server's
       // `"overrides" in input` gate never fires → clear is silently skipped.
       // null is already handled: sanitizeItemOverrides(null) → undefined → JSONB cleared.
+      // Empty-bag check is delegated to hasOverrides (tested in override-field-row-utils.test.ts).
       updateItem(dashboardId, item.id, {
         overrides: null as unknown as undefined,
       });
