@@ -1145,7 +1145,7 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
     }
   });
 
-  // AC#2 isolation — no-flushSnapshot + onWrite-succeeds pin (YW-356): when
+  // AC#2 isolation — no-flushSnapshot + onWrite-succeeds pin: when
   // credential refs are present but NO flushSnapshot hook is wired, a resolving
   // debounced onWrite MUST NOT satisfy the release gate.
   // "onWrite returned" != "durably persisted" — a future refactor that lets a
@@ -1185,7 +1185,7 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
     }
   });
 
-  // AC#2 isolation — discard twin (YW-356): same invariant holds for discardDraft.
+  // AC#2 isolation — discard twin: same invariant holds for discardDraft.
   it("discardDraft blocks credential release when flushSnapshot absent but onWrite succeeds", async () => {
     const onWriteCalls: number[] = [];
     const noHook = await makeHarness({
