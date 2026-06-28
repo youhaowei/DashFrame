@@ -441,6 +441,27 @@ describe("credential write path — capture-before-log + transition release", ()
     }
   });
 
+  // Fail-closed — a credential command carrying a compactionKey is rejected before
+  // any ref is minted. compactLog would drop a superseded write whose capture had
+  // already minted a ref, orphaning it (no log row → no transition release). The
+  // reject closes that window; assert no vault store happened (nothing to orphan).
+  it("rejects a credential command that carries a compactionKey, minting nothing", async () => {
+    const storeSpy = vi.spyOn(h.vault, "store");
+    const credCommand = cmd("CreateDataSource", {
+      id: crypto.randomUUID(),
+      type: "notion",
+      name: "Keyed",
+      apiKey: "plaintext",
+    });
+    await expect(
+      captureCommandCredentials(
+        { ...credCommand, compactionKey: "dup-key" },
+        h.vault,
+      ),
+    ).rejects.toThrow(/compactionKey/);
+    expect(storeSpy).not.toHaveBeenCalled(); // failed closed before minting
+  });
+
   // Drift bridge — the config-side credential field list (CREDENTIAL_CONFIG_FIELDS,
   // iterated by refsFromConfig / collectSupersededRefs / the simulate seed) must
   // match the command-side truth (CREDENTIAL_COMMAND_FIELDS). A new credential field

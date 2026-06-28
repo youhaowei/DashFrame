@@ -93,13 +93,14 @@ async function releaseRefsBestEffort(
  * this command are released before the error propagates — a partially-captured
  * command never leaks a ref.
  *
- * INVARIANT — a credential command MUST NOT carry a `compactionKey`. The current
- * vocabulary (`cmd()` builder) sets none, so two credential writes to one field are
- * both kept in the log and {@link collectSupersededRefs} releases the intermediate
- * ref. If a credential command ever adopted a `compactionKey`, `compactLog` would
- * DROP the earlier write — orphaning the ref it minted here (the log no longer
- * references it, so no transition releases it). Keep credential commands
- * compaction-free, or teach capture to release a ref whose command is compacted away.
+ * INVARIANT (enforced below) — a credential command MUST NOT carry a
+ * `compactionKey`. The vocabulary (`cmd()` builder) sets none, so two credential
+ * writes to one field are both kept in the log and {@link collectSupersededRefs}
+ * releases the intermediate ref. If a credential command carried a `compactionKey`,
+ * `compactLog` would DROP the earlier write — orphaning the ref it minted here (the
+ * log no longer references it, so no transition releases it). Rather than rely on a
+ * convention, we FAIL CLOSED: a credential command with a `compactionKey` is
+ * rejected before any ref is minted, so the orphan window cannot open.
  */
 export async function captureCommandCredentials(
   cmd: DraftCommand,
@@ -109,6 +110,16 @@ export async function captureCommandCredentials(
   const args = cmd.args;
   if (!fields || !isRecord(args)) {
     return { command: cmd, rollback: async () => {} };
+  }
+
+  // Fail closed on a compacted credential command: `compactLog` would drop a
+  // superseded write whose capture already minted a ref, orphaning it (no log row
+  // → no transition release). Reject BEFORE minting so nothing leaks.
+  if (cmd.compactionKey != null) {
+    throw new Error(
+      `[secret-vault] credential command '${cmd.path}' must not carry a ` +
+        `compactionKey: a compacted-away write would orphan its minted vault ref.`,
+    );
   }
 
   const minted: SecretRef[] = [];
