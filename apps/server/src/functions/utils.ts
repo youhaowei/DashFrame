@@ -241,6 +241,25 @@ export async function releaseCredentialRefs(
 }
 
 /**
+ * Push the prior ref into the superseded collector (when one is provided) or
+ * release it immediately via `releaseCredentialRefs`. Extracted to reduce
+ * `applyCredentialField`'s cognitive complexity — the two call sites have
+ * identical branch logic.
+ */
+async function pushOrRelease(
+  prior: unknown,
+  field: "apiKey" | "connectionString",
+  vault: SecretVault | undefined,
+  superseded: SecretRef[] | undefined,
+): Promise<void> {
+  if (superseded != null && isSecretRef(prior)) {
+    superseded.push(prior);
+  } else {
+    await releaseCredentialRefs({ [field]: prior }, vault);
+  }
+}
+
+/**
  * Apply an inbound credential value to a config slice, in place. Three-way:
  *
  *   - `undefined` → leave the existing config key untouched (not part of this write).
@@ -323,11 +342,7 @@ export async function applyCredentialField(
     // transition (the publish/discard path releases the prior ref instead).
     // When a collector is provided, push instead of releasing immediately.
     if (!preview && !deferRelease) {
-      if (superseded != null && isSecretRef(prior)) {
-        superseded.push(prior);
-      } else {
-        await releaseCredentialRefs({ [field]: prior }, vault);
-      }
+      await pushOrRelease(prior, field, vault, superseded);
     }
     delete config[field]; // explicit clear
     return;
@@ -353,11 +368,7 @@ export async function applyCredentialField(
   // skipped in preview, or deferred to a lifecycle transition.
   // When a collector is provided, push instead of releasing immediately.
   if (!preview && !deferRelease && prior !== config[field]) {
-    if (superseded != null && isSecretRef(prior)) {
-      superseded.push(prior);
-    } else {
-      await releaseCredentialRefs({ [field]: prior }, vault);
-    }
+    await pushOrRelease(prior, field, vault, superseded);
   }
 }
 
