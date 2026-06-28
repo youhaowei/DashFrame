@@ -77,7 +77,7 @@ interface Harness {
   controller: DraftController;
 }
 
-async function makeHarness(): Promise<Harness> {
+async function makeHarness(opts?: { onWrite?: () => void }): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "dashframe-cred-release-"));
   const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
   const { vault } = makeTestVault();
@@ -105,6 +105,7 @@ async function makeHarness(): Promise<Harness> {
   });
   serverContext.draftController = controller;
   serverContext.artifactDb = db;
+  if (opts?.onWrite) serverContext.onWrite = opts.onWrite;
 
   return { dir, db, vault, app, controller };
 }
@@ -336,6 +337,33 @@ describe("credential write path — capture-before-log + transition release", ()
       .from(dataSources)
       .where(eq(dataSources.id, id));
     expect(rows[0]?.createdBy).toEqual({ kind: "agent" });
+  });
+
+  // Snapshot-persistence gate — if onWrite (snapshot) throws, the replaced ref is
+  // NOT released, so a stale-snapshot restore can't dangle a still-referenced ref.
+  it("does not release the replaced ref when snapshot persistence fails", async () => {
+    const failing = await makeHarness({
+      onWrite: () => {
+        throw new Error("snapshot persistence failed");
+      },
+    });
+    try {
+      const { id, ref: oldRef } = await seedCanonicalSource(
+        failing,
+        "orig-key",
+      );
+      const draftId = await failing.controller.openDraft();
+      await failing.controller.appendToDraft(draftId, [
+        cmd("SetDataSourceConfig", { id, apiKey: "rotated-key" }),
+      ]);
+      // Publish commits, but onWrite throws → snapshot not persisted → release is
+      // skipped, leaving the old ref live (inert orphan) rather than dangling.
+      await failing.app.call("publishDraft", { draftId });
+      expect(await failing.vault.has(oldRef)).toBe(true);
+    } finally {
+      await failing.db.$client.close();
+      rmSync(failing.dir, { recursive: true, force: true });
+    }
   });
 
   // P1 — publish releases an intra-draft superseded ref (two writes to one field).
