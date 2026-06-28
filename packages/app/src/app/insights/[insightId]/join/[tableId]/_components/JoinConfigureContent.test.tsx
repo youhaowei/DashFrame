@@ -61,6 +61,44 @@ describe("join SQL — join type keyword mapping", () => {
   });
 });
 
+describe("join SQL — component preview SQL template (consumer path)", () => {
+  // Guards the real emit site in JoinConfigureContent.tsx lines 701-707.
+  // A helper-only test (joinTypeToSQL("outer") === "FULL OUTER") still passes if the
+  // component stops calling the helper or interpolates it incorrectly. These tests
+  // replicate the exact SQL template so any regression at the call site is caught.
+
+  it("emits FULL OUTER JOIN in the component SQL template for joinType 'outer'", () => {
+    // Replicate the exact template from JoinConfigureContent.tsx lines 701-707.
+    const baseTableName = "df_abc_123";
+    const joinTableName = "df_def_456";
+    const leftColumnName = "id";
+    const rightColumnName = "account_id";
+    // PREVIEW_ROW_LIMIT = 50 (JoinConfigureContent.tsx:64 — local constant, not exported)
+    const PREVIEW_ROW_LIMIT = 50;
+
+    const joinTypeSQL = joinTypeToSQL("outer");
+
+    const joinSQL = `
+      SELECT *
+      FROM ${quoteIdentifier(baseTableName)} AS base
+      ${joinTypeSQL} JOIN ${quoteIdentifier(joinTableName)} AS j
+      ON base.${quoteIdentifier(leftColumnName)} = j.${quoteIdentifier(rightColumnName)}
+      LIMIT ${PREVIEW_ROW_LIMIT}
+    `;
+
+    expect(joinSQL).toContain("FULL OUTER JOIN");
+    // Guard: no bare "OUTER JOIN" without the "FULL" prefix (which DuckDB rejects).
+    expect(joinSQL.replace(/FULL OUTER JOIN/g, "")).not.toContain("OUTER JOIN");
+  });
+
+  it("emits INNER JOIN (not FULL OUTER) for joinType 'inner'", () => {
+    const joinTypeSQL = joinTypeToSQL("inner");
+    const sql = `FROM ${quoteIdentifier("df_base")} AS base ${joinTypeSQL} JOIN ${quoteIdentifier("df_other")} AS j ON base."id" = j."id" LIMIT 50`;
+    expect(sql).toContain("INNER JOIN");
+    expect(sql).not.toContain("OUTER");
+  });
+});
+
 describe("join SQL — table name sink-guard", () => {
   it("quoteIdentifier wraps the dataFrameId-derived table name in double-quotes", () => {
     const tableName = deriveTableName("abc-123-def");

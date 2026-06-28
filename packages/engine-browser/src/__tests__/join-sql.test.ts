@@ -42,6 +42,16 @@ describe("joinTypeToSQL", () => {
     expect(() => joinTypeToSQL("")).toThrow(/unknown join type/);
     expect(() => joinTypeToSQL("OUTER")).toThrow(/unknown join type/);
   });
+
+  it("throws for prototype-chain keys (null-prototype guard)", () => {
+    // A plain {} inherits Object.prototype, so map["constructor"] / map["__proto__"] /
+    // map["toString"] return prototype properties rather than undefined — bypassing
+    // the fail-closed guard and potentially returning a non-string keyword.
+    // The null-prototype object ensures these keys are treated as unknown types.
+    expect(() => joinTypeToSQL("__proto__")).toThrow(/unknown join type/);
+    expect(() => joinTypeToSQL("constructor")).toThrow(/unknown join type/);
+    expect(() => joinTypeToSQL("toString")).toThrow(/unknown join type/);
+  });
 });
 
 describe("JOIN_TYPE_TO_SQL_KEYWORD", () => {
