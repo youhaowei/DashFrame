@@ -31,6 +31,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  cn,
 } from "@wystack/ui";
 
 import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
@@ -115,15 +116,41 @@ export function PreviewDiffDialog({
         if (!isOpen && !isBusy) onClose();
       }}
     >
-      <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+      {/*
+       * Grid layout (DialogContent base sets display:grid):
+       *   actionable: header (auto) / scroll body (1fr) / footer (auto)
+       *   read-only:  header (auto) / scroll body (1fr)
+       *
+       * Both modes use grid-rows so the 1fr body track is bounded by
+       * max-h-[80vh], which makes overflow-y-auto on the body effective.
+       * Without the 1fr track the grid item defaults to min-height:auto
+       * and the scroll wrapper can never shrink — overflow-y-auto becomes
+       * a no-op and tall diffs clip instead of scroll.
+       *
+       * min-h-0 on the scroll wrapper is still required: grid items default
+       * to min-height:auto, which prevents shrinking below content height.
+       */}
+      <DialogContent
+        className={cn(
+          "max-h-[80vh] max-w-2xl overflow-hidden",
+          hasActions ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]",
+        )}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {filledDiff ? (
-          <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
-        ) : (
-          <p className="text-sm text-neutral-fg/50">No changes to preview.</p>
-        )}
+        <div
+          className="min-h-0 overflow-y-auto"
+          role="region"
+          aria-label="Diff preview"
+          tabIndex={0}
+        >
+          {filledDiff ? (
+            <PreviewDiffRenderer diff={filledDiff} className="pb-2" />
+          ) : (
+            <p className="text-sm text-neutral-fg/50">No changes to preview.</p>
+          )}
+        </div>
         {hasActions && (
           <DialogFooter>
             {onDiscard && (
