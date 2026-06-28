@@ -415,6 +415,41 @@ export async function collectSupersededRefs(
   return candidates;
 }
 
+/**
+ * Refs that a PUBLISH should release due to `DeleteNode` commands in the log:
+ * the credential refs held in the canonical config of each DataSource targeted
+ * by a delete command. Collected BEFORE replay so the canonical rows still exist;
+ * they are released AFTER the publish transaction commits (their rows are gone).
+ *
+ * Unlike {@link collectSupersededRefs} — which handles credential-field writes —
+ * this covers the deletion case: `DeleteNode` is not in `CREDENTIAL_COMMAND_FIELDS`
+ * so it is invisible to `collectSupersededRefs`. Without this collector the
+ * `deleteNode` handler would have to flush+release INSIDE the publish transaction
+ * (before commit), which violates the pre-release flush ordering invariant (the
+ * snapshot captures pre-commit state where the deleted row can still reference the
+ * ref, so releasing the ref at snapshot-write time would dangle it from the
+ * surviving snapshot row).
+ *
+ * Reads committed canonical state via the raw artifact db, BEFORE replay.
+ */
+export async function collectDeletedSourceRefs(
+  db: ArtifactDb,
+  log: Command[],
+): Promise<SecretRef[]> {
+  const refs: SecretRef[] = [];
+  for (const cmd of log) {
+    if (cmd.path !== COMMAND_PATHS.DeleteNode || !isRecord(cmd.args)) continue;
+    const id = typeof cmd.args.id === "string" ? cmd.args.id : undefined;
+    if (!id) continue;
+    const rows = await db
+      .select({ config: dataSources.config })
+      .from(dataSources)
+      .where(eq(dataSources.id, id));
+    refs.push(...refsFromConfig(rows[0]?.config));
+  }
+  return refs;
+}
+
 /** Seed each touched source's simulated field→ref map from pre-publish canonical. */
 async function seedSimulatedConfigs(
   db: ArtifactDb,

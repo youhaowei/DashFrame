@@ -163,7 +163,11 @@ async function seedCanonicalSource(
 describe("credential write path — capture-before-log + transition release", () => {
   let h: Harness;
   beforeEach(async () => {
-    h = await makeHarness();
+    // Wire a no-op flushSnapshot so tests that publish/discard with credential
+    // refs get the durable-flush gate satisfied and refs are released as expected.
+    // Without this, the fail-closed path (no hook → skip release) would block
+    // all release assertions in this describe block.
+    h = await makeHarness({ flushSnapshot: async () => {} });
   });
   afterEach(async () => {
     await h.db.$client.close();
@@ -996,26 +1000,34 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
 
   // AC#2 core: when flushSnapshot is provided and succeeds, the publish path
   // releases the replaced canonical ref (the flush resolved → ref released).
+  // ORDER MATTERS: the ref must still be present DURING the flush callback
+  // (proving flush happens before release), and absent AFTER publish returns.
   it("publishDraft releases replaced ref after flushSnapshot succeeds", async () => {
-    const flushCalls: number[] = [];
+    let refPresentDuringFlush: boolean | undefined;
+    let flushAttempts = 0;
     const flushing = await makeHarness({
       flushSnapshot: async () => {
-        flushCalls.push(Date.now());
+        flushAttempts++;
+        // Capture vault state at flush time — the ref must still be live here.
+        refPresentDuringFlush = await flushing.vault.has(oldRef);
       },
     });
+    // Declared here so the flushSnapshot callback above can close over it.
+    let oldRef!: SecretRef;
     try {
-      const { id, ref: oldRef } = await seedCanonicalSource(
-        flushing,
-        "old-key",
-      );
+      const seeded = await seedCanonicalSource(flushing, "old-key");
+      const id = seeded.id;
+      oldRef = seeded.ref;
       const draftId = await flushing.controller.openDraft();
       await flushing.controller.appendToDraft(draftId, [
         cmd("SetDataSourceConfig", { id, apiKey: "new-key" }),
       ]);
       await flushing.app.call("publishDraft", { draftId });
-      // flushSnapshot was called (the pre-release gate fired on credential refs)
-      expect(flushCalls).toHaveLength(1);
-      // old ref was released after the flush
+      // flushSnapshot was invoked (the pre-release gate fired on credential refs)
+      expect(flushAttempts).toBe(1);
+      // the ref was still present DURING the flush — ordering invariant holds
+      expect(refPresentDuringFlush).toBe(true);
+      // old ref was released AFTER the flush resolved
       expect(await flushing.vault.has(oldRef)).toBe(false);
     } finally {
       await flushing.db.$client.close();
@@ -1027,8 +1039,12 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
   // it becomes an inert orphan rather than a dangling live reference.
   // (Same invariant as the existing onWrite test, now using the durable gate.)
   it("publishDraft skips credential release when flushSnapshot fails", async () => {
+    let flushAttempts = 0;
     const failing = await makeHarness({
-      flushSnapshot: () => Promise.reject(new Error("disk full")),
+      flushSnapshot: () => {
+        flushAttempts++;
+        return Promise.reject(new Error("disk full"));
+      },
     });
     try {
       const { id, ref: oldRef } = await seedCanonicalSource(
@@ -1042,6 +1058,9 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
       // Publish commits, but flushSnapshot throws → release is skipped,
       // leaving old ref as an inert orphan, NOT a dangling live reference.
       await failing.app.call("publishDraft", { draftId });
+      // The gate was attempted (flushSnapshot was called, not silently skipped)
+      expect(flushAttempts).toBeGreaterThanOrEqual(1);
+      // Old ref was NOT released — inert orphan, not a dangling live reference
       expect(await failing.vault.has(oldRef)).toBe(true);
     } finally {
       await failing.db.$client.close();
@@ -1051,11 +1070,18 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
 
   // AC#2 for discardDraft: same gate — discard uses flushSnapshot when it has
   // credential refs to release (draft-minted refs).
+  // ORDER MATTERS: the minted ref must still be present DURING the flush callback
+  // (proving flush happens before release), and absent AFTER discard returns.
   it("discardDraft releases minted ref after flushSnapshot succeeds", async () => {
-    const flushCalls: number[] = [];
+    let refPresentDuringFlush: boolean | undefined;
+    let flushAttempts = 0;
+    // mintedRef is bound after appendToDraft; the callback closes over the let binding.
+    let mintedRef!: SecretRef;
     const flushing = await makeHarness({
       flushSnapshot: async () => {
-        flushCalls.push(Date.now());
+        flushAttempts++;
+        // Capture vault state at flush time — ref must still be live here.
+        refPresentDuringFlush = await flushing.vault.has(mintedRef);
       },
     });
     try {
@@ -1068,14 +1094,16 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
       ]);
       // Read the minted ref from the log
       const logArgs = await firstLogArgs(flushing, draftId);
-      const mintedRef = logArgs.apiKey as SecretRef;
+      mintedRef = logArgs.apiKey as SecretRef;
       expect(isSecretRef(mintedRef)).toBe(true);
       expect(await flushing.vault.has(mintedRef)).toBe(true);
 
       await flushing.app.call("discardDraft", { draftId });
-      // flushSnapshot called — draft-minted refs triggered the durable gate
-      expect(flushCalls).toHaveLength(1);
-      // minted ref released after flush
+      // flushSnapshot was invoked (the pre-release gate fired on credential refs)
+      expect(flushAttempts).toBe(1);
+      // the minted ref was still present DURING the flush — ordering invariant holds
+      expect(refPresentDuringFlush).toBe(true);
+      // minted ref released AFTER the flush resolved
       expect(await flushing.vault.has(mintedRef)).toBe(false);
     } finally {
       await flushing.db.$client.close();
@@ -1086,8 +1114,12 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
   // AC#2 fail-safe for discardDraft: if flushSnapshot fails, draft-minted refs
   // must NOT be released — they are inert orphans, not dangling live references.
   it("discardDraft skips credential release when flushSnapshot fails", async () => {
+    let flushAttempts = 0;
     const failing = await makeHarness({
-      flushSnapshot: () => Promise.reject(new Error("flush failed")),
+      flushSnapshot: () => {
+        flushAttempts++;
+        return Promise.reject(new Error("flush failed"));
+      },
     });
     try {
       const { id } = await seedCanonicalSource(failing, "canonical-key");
@@ -1103,6 +1135,8 @@ describe("pre-release flush gate (flushSnapshot — transition-time path)", () =
 
       // Discard — flushSnapshot fails → release must be skipped
       await failing.app.call("discardDraft", { draftId });
+      // The gate was attempted (flushSnapshot was called, not silently skipped)
+      expect(flushAttempts).toBeGreaterThanOrEqual(1);
       // Minted ref NOT released (safe inert orphan)
       expect(await failing.vault.has(mintedRef)).toBe(true);
     } finally {

@@ -716,15 +716,19 @@ describe("vault lifecycle — delete releases SecretRefs (DeleteNode)", () => {
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
     const rawApp = await createWyStack({ db, functions });
+    // flushSnapshot is required by the fail-closed credential-release gate: refs are
+    // only released after a confirmed durable snapshot. Wire a no-op for tests
+    // exercising the direct canonical path (no actual snapshot needed here).
+    const ctx = { vault, flushSnapshot: async () => {} };
     app = {
       ...rawApp,
-      async call(path, args, ctx) {
-        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      async call(path, args, extraCtx) {
+        return rawApp.call(path, args, { ...ctx, ...(extraCtx ?? {}) });
       },
-      async runHandler(path, args, tracked, ctx) {
+      async runHandler(path, args, tracked, extraCtx) {
         return rawApp.runHandler(path, args, tracked, {
-          ...(ctx ?? {}),
-          vault,
+          ...ctx,
+          ...(extraCtx ?? {}),
         });
       },
     };
@@ -1089,15 +1093,19 @@ describe("vault lifecycle — preview mode skips vault delete", () => {
   let deleteCallCount: number;
 
   function wrapWithVault(rawApp: WyStackApp): WyStackApp {
+    // flushSnapshot is required by the fail-closed credential-release gate:
+    // refs are only released after a confirmed durable snapshot. Wire a no-op
+    // for tests exercising the direct canonical path.
+    const ctx = { vault, flushSnapshot: async () => {} };
     return {
       ...rawApp,
-      async call(path, args, ctx) {
-        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      async call(path, args, extraCtx) {
+        return rawApp.call(path, args, { ...ctx, ...(extraCtx ?? {}) });
       },
-      async runHandler(path, args, tracked, ctx) {
+      async runHandler(path, args, tracked, extraCtx) {
         return rawApp.runHandler(path, args, tracked, {
-          ...(ctx ?? {}),
-          vault,
+          ...ctx,
+          ...(extraCtx ?? {}),
         });
       },
     };
@@ -1296,15 +1304,19 @@ describe("vault lifecycle: clear releases prior SecretRef (AC1)", () => {
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
     const rawApp = await createWyStack({ db, functions });
+    // flushSnapshot is required by the fail-closed credential-release gate: refs are
+    // only released after a confirmed durable snapshot. Wire a no-op for tests
+    // exercising the direct canonical path (no actual snapshot needed here).
+    const ctx = { vault, flushSnapshot: async () => {} };
     app = {
       ...rawApp,
-      async call(path, args, ctx) {
-        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      async call(path, args, extraCtx) {
+        return rawApp.call(path, args, { ...ctx, ...(extraCtx ?? {}) });
       },
-      async runHandler(path, args, tracked, ctx) {
+      async runHandler(path, args, tracked, extraCtx) {
         return rawApp.runHandler(path, args, tracked, {
-          ...(ctx ?? {}),
-          vault,
+          ...ctx,
+          ...(extraCtx ?? {}),
         });
       },
     };
@@ -1432,15 +1444,19 @@ describe("vault lifecycle: rotate releases prior SecretRef (AC2)", () => {
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
     const rawApp = await createWyStack({ db, functions });
+    // flushSnapshot is required by the fail-closed credential-release gate: refs are
+    // only released after a confirmed durable snapshot. Wire a no-op for tests
+    // exercising the direct canonical path (no actual snapshot needed here).
+    const ctx = { vault, flushSnapshot: async () => {} };
     app = {
       ...rawApp,
-      async call(path, args, ctx) {
-        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+      async call(path, args, extraCtx) {
+        return rawApp.call(path, args, { ...ctx, ...(extraCtx ?? {}) });
       },
-      async runHandler(path, args, tracked, ctx) {
+      async runHandler(path, args, tracked, extraCtx) {
         return rawApp.runHandler(path, args, tracked, {
-          ...(ctx ?? {}),
-          vault,
+          ...ctx,
+          ...(extraCtx ?? {}),
         });
       },
     };
