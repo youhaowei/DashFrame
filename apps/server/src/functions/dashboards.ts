@@ -137,6 +137,27 @@ function sanitizeDashboardUpdates(
   if (typeof input.y === "number") next.y = input.y;
   if (typeof input.width === "number") next.width = input.width;
   if (typeof input.height === "number") next.height = input.height;
+
+  // Per-cell override bag — forwarded as-is when present.  The shape is typed
+  // at the client layer (@dashframe/types DashboardItemOverrides) and the engine
+  // reads it back as JSONB, so we only need to gate on structural plausibility:
+  // must be an object or undefined.  `null` is treated as "remove overrides"
+  // (revert to insight defaults) and forwarded as undefined to keep JSONB clean.
+  if ("overrides" in input) {
+    const ov = input.overrides;
+    if (ov === null || ov === undefined) {
+      next.overrides = undefined;
+    } else if (isRecord(ov)) {
+      next.overrides = {
+        filters: Array.isArray(ov.filters) ? ov.filters : undefined,
+        sorts: Array.isArray(ov.sorts) ? ov.sorts : undefined,
+        limit:
+          typeof ov.limit === "number" && ov.limit > 0 ? ov.limit : undefined,
+      };
+    }
+    // Non-object non-null overrides are silently ignored (unexpected shape).
+  }
+
   return next;
 }
 

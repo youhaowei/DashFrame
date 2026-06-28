@@ -351,7 +351,17 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function saveOverrides(next: DashboardItemOverrides) {
-    updateItem(dashboardId, item.id, { overrides: next });
+    // Collapse truthy-but-empty bags to undefined so cells with no overrides
+    // don't produce a non-undefined `overrides` object that triggers a needless
+    // per-cell DuckDB view.  Guards the same hazard documented in
+    // computeItemOverrides (controls.ts:137-150).
+    const clean =
+      (next.filters?.length ?? 0) > 0 ||
+      next.sorts !== undefined ||
+      next.limit !== undefined
+        ? next
+        : undefined;
+    updateItem(dashboardId, item.id, { overrides: clean });
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
@@ -469,6 +479,7 @@ export function OverridePopover({
                     <OverrideFieldRow
                       key={fieldName}
                       fieldName={fieldName}
+                      displayName={combinedField?.displayName ?? fieldName}
                       state={state}
                       combinedField={combinedField}
                       eligibleControls={eligible}
