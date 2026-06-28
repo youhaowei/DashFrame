@@ -1,1 +1,51 @@
-bunx lint-staged
+bunx lint-staged || exit 1
+
+# ── Worktree isolation guard ─────────────────────────────────────────────────
+# Refuse commits on a feature branch from the MAIN CHECKOUT.
+# Dispatched agents must work in an isolated worktree (scripts/ensure-worktree.sh).
+# Two concurrent agents committing in main corrupt each other's branch refs.
+#
+# Bypass (deliberate, documented):
+#   ALLOW_MAIN_CHECKOUT_COMMIT=1 git commit ...
+#
+# Detection: if --git-dir == --git-common-dir we are in the main checkout.
+# In a linked worktree those differ (--git-dir points to the per-worktree
+# gitdir, --git-common-dir to the shared .git).  This comparison is
+# path-independent and safe inside submodules.
+
+git_dir=$(git rev-parse --git-dir 2>/dev/null || true)
+git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null || true)
+
+if [ -n "$git_dir" ] && [ "$git_dir" = "$git_common_dir" ]; then
+  # We are in the main checkout.
+  current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+  default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|.*/||')
+  default_branch="${default_branch:-main}"
+
+  if [ "$current_branch" != "$default_branch" ] && [ "$current_branch" != "HEAD" ]; then
+    if [ "${ALLOW_MAIN_CHECKOUT_COMMIT:-0}" = "1" ]; then
+      echo "[worktree-guard] ALLOW_MAIN_CHECKOUT_COMMIT=1 — bypassing isolation check." >&2
+    else
+      echo "" >&2
+      echo "╔══════════════════════════════════════════════════════════════════╗" >&2
+      echo "║  WORKTREE ISOLATION GUARD — commit blocked                       ║" >&2
+      echo "╠══════════════════════════════════════════════════════════════════╣" >&2
+      echo "║  You are on '$current_branch'" >&2
+      echo "║  in the MAIN CHECKOUT (not an isolated worktree)." >&2
+      echo "║" >&2
+      echo "║  Feature-branch commits must happen in a dedicated worktree so" >&2
+      echo "║  concurrent agents cannot corrupt each other's work." >&2
+      echo "║" >&2
+      echo "║  Fix: provision an isolated worktree first:" >&2
+      echo "║    worktree=\$(scripts/ensure-worktree.sh $current_branch)" >&2
+      echo "║    cd \"\$worktree\"" >&2
+      echo "║  then commit from there." >&2
+      echo "║" >&2
+      echo "║  Deliberate bypass (you know what you're doing):" >&2
+      echo "║    ALLOW_MAIN_CHECKOUT_COMMIT=1 git commit ..." >&2
+      echo "╚══════════════════════════════════════════════════════════════════╝" >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+fi
