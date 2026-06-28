@@ -1,7 +1,7 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 import {
   applyDateTransformToSql,
-  extractUUIDFromColumnAlias,
+  extractColumnAliasComponents,
   getAxisTypeForTransform,
   selectTemporalAggregation,
   temporalTransform,
@@ -38,29 +38,40 @@ export type SuggestionEncoding = ChartEncoding;
 type ExtendedColumnAnalysis = ColumnAnalysis & {
   /** User-visible display name from field metadata */
   displayName: string;
+  /**
+   * Join instance index (0 = first/base, 1 = _j1 repeat-join, 2 = _j2, …).
+   * Tracked separately from fieldId so fieldId always holds the canonical UUID
+   * for field-metadata lookups, while instanceIndex drives unique suggestion IDs
+   * across repeat-join instances of the same field.
+   */
+  instanceIndex: number;
 };
 
 /**
  * Enrich column analysis with display names from field metadata.
  *
  * With UUID-based column naming, column names in analysis are like `field_<uuid>`.
- * This function looks up the original field display name for use in suggestion titles.
+ * For repeat-join instances the alias is `field_<uuid>_j1`, `field_<uuid>_j2`, etc.
+ *
+ * `fieldId` is always set to the **canonical UUID** (shared by all join instances of
+ * the same field) so that field-metadata lookups work against the `fields` map, which
+ * is keyed by bare UUIDs only.  Instance identity is tracked via `instanceIndex`.
  *
  * @param analysis - Raw column analysis with UUID column names
- * @param fields - Field metadata keyed by field ID
- * @returns Enriched analysis with displayName and fieldId
+ * @param fields - Field metadata keyed by field ID (bare UUID)
+ * @returns Enriched analysis with displayName, fieldId, and instanceIndex
  */
 function enrichColumnAnalysis(
   analysis: ColumnAnalysis[],
   fields: Record<string, Field>,
 ): ExtendedColumnAnalysis[] {
   return analysis.map((col) => {
-    // Extract field ID from column alias (field_<uuid> → uuid)
-    const extractedFieldId = extractUUIDFromColumnAlias(col.columnName);
-    // Convert null to undefined to match ColumnAnalysisBase.fieldId type
-    const fieldId = extractedFieldId ?? undefined;
+    const components = extractColumnAliasComponents(col.columnName);
+    // Canonical UUID for field-metadata lookup (same for j0 and j1 of the same field).
+    const fieldId = components?.uuid ?? undefined;
+    const instanceIndex = components?.instanceIndex ?? 0;
 
-    // Look up field by ID for display name
+    // Look up field by canonical UUID for display name
     const field = fieldId ? fields[fieldId] : undefined;
     const displayName = field?.name ?? col.columnName;
 
@@ -68,8 +79,18 @@ function enrichColumnAnalysis(
       ...col,
       displayName,
       fieldId,
+      instanceIndex,
     };
   });
+}
+
+/**
+ * Returns the instance-index suffix string for a suggestion ID.
+ * Empty string for the first (j0) instance; "_j1", "_j2", etc. for repeats.
+ * Prevents suggestion-ID collisions across repeat-join instances.
+ */
+function instanceIdSuffix(col: ExtendedColumnAnalysis): string {
+  return col.instanceIndex > 0 ? `_j${col.instanceIndex}` : "";
 }
 
 /**
@@ -239,10 +260,13 @@ function shuffleWithSeed<T>(array: T[], random: () => number): T[] {
 }
 
 /**
- * Extended date analysis with display name.
+ * Extended date analysis with display name and instance index.
+ * Must include the same extra fields as ExtendedColumnAnalysis so the
+ * isDateAnalysis type-guard predicate is valid.
  */
 type ExtendedDateAnalysis = DateAnalysis & {
   displayName: string;
+  instanceIndex: number;
 };
 
 /**
@@ -483,7 +507,7 @@ export function suggestCharts(
         };
         if (
           addSuggestion({
-            id: `barY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `barY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title: `${yCol.displayName} by ${xCol.displayName}`,
             chartType: "barY",
             encoding,
@@ -519,7 +543,7 @@ export function suggestCharts(
           : `${yCol.displayName} over time`;
         if (
           addSuggestion({
-            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `line-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title,
             chartType: "line",
             encoding,
@@ -551,7 +575,7 @@ export function suggestCharts(
           yLabel: yCol.displayName,
         };
         scatterAdded = addSuggestion({
-          id: `dot-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+          id: `dot-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
           title: `${yCol.displayName} vs ${xCol.displayName}`,
           chartType: "dot",
           encoding,
@@ -580,7 +604,7 @@ export function suggestCharts(
         };
         if (
           addSuggestion({
-            id: `areaY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `areaY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title: `${yCol.displayName} trend`,
             chartType: "areaY",
             encoding,
@@ -646,7 +670,7 @@ export function suggestCharts(
         colorLabel: colorCol.displayName,
       };
       addSuggestion({
-        id: `barY-grouped-${xCol.fieldId ?? xCol.columnName}-${colorCol.fieldId ?? colorCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+        id: `barY-grouped-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${colorCol.fieldId ?? colorCol.columnName}${instanceIdSuffix(colorCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
         title: `${yCol.displayName} by ${xCol.displayName} and ${colorCol.displayName}`,
         chartType: "barY",
         encoding,
@@ -1033,7 +1057,7 @@ export function suggestByChartType(
               ? `${yCol.displayName} ${aggregationLabel}`
               : `${yCol.displayName} over time`;
             suggestion = {
-              id: `barY-trend-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+              id: `barY-trend-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
               title,
               chartType: "barY",
               encoding,
@@ -1044,52 +1068,71 @@ export function suggestByChartType(
           }
         }
       } else {
-        // Default: categorical X-axis for comparing values across categories
+        // Default: categorical X-axis for comparing values across categories.
+        // Outer loop over numerical (y-axis) candidates, inner loop over
+        // categorical (x-axis) candidates. This ensures a repeat-join's j1
+        // column is tried for EITHER axis when earlier combinations are already
+        // in excludeEncodings.
         if (categorical.length > 0 && numerical.length > 0) {
-          const xCol = categorical[0]!;
-          const yCol = numerical[0]!;
-          const encoding: SuggestionEncoding = {
-            x: xCol.columnName,
-            y: `sum(${yCol.columnName})`,
-            xType: getAxisType(xCol),
-            yType: "quantitative",
-            xLabel: xCol.displayName,
-            yLabel: `sum of ${yCol.displayName}`,
-          };
-          if (!isExcludedEncoding(encoding)) {
-            suggestion = {
-              id: `barY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
-              title: `${yCol.displayName} by ${xCol.displayName}`,
-              chartType: "barY",
-              encoding,
-              rationale: "Categorical dimension with numeric measure",
-            };
+          let foundBarY = false;
+          for (const yCol of numerical) {
+            if (foundBarY) break;
+            for (const xCol of categorical) {
+              const encoding: SuggestionEncoding = {
+                x: xCol.columnName,
+                y: `sum(${yCol.columnName})`,
+                xType: getAxisType(xCol),
+                yType: "quantitative",
+                xLabel: xCol.displayName,
+                yLabel: `sum of ${yCol.displayName}`,
+              };
+              if (!isExcludedEncoding(encoding)) {
+                suggestion = {
+                  id: `barY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
+                  title: `${yCol.displayName} by ${xCol.displayName}`,
+                  chartType: "barY",
+                  encoding,
+                  rationale: "Categorical dimension with numeric measure",
+                };
+                foundBarY = true;
+                break;
+              }
+            }
           }
         }
       }
       break;
 
     case "barX":
-      // Horizontal Bar: numerical X + categorical Y
+      // Horizontal Bar: numerical X + categorical Y.
+      // Outer loop over numerical (x-axis) candidates, inner loop over
+      // categorical (y-axis) candidates. Both axes are iterated so a
+      // repeat-join's j1 column is tried when earlier combinations are excluded.
       if (categorical.length > 0 && numerical.length > 0) {
-        const yCol = categorical[0]!;
-        const xCol = numerical[0]!;
-        const encoding: SuggestionEncoding = {
-          x: `sum(${xCol.columnName})`,
-          y: yCol.columnName,
-          xType: "quantitative",
-          yType: getAxisType(yCol),
-          xLabel: `sum of ${xCol.displayName}`,
-          yLabel: yCol.displayName,
-        };
-        if (!isExcludedEncoding(encoding)) {
-          suggestion = {
-            id: `barX-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
-            title: `${xCol.displayName} by ${yCol.displayName}`,
-            chartType: "barX",
-            encoding,
-            rationale: "Horizontal categorical comparison",
-          };
+        let foundBarX = false;
+        for (const xCol of numerical) {
+          if (foundBarX) break;
+          for (const yCol of categorical) {
+            const encoding: SuggestionEncoding = {
+              x: `sum(${xCol.columnName})`,
+              y: yCol.columnName,
+              xType: "quantitative",
+              yType: getAxisType(yCol),
+              xLabel: `sum of ${xCol.displayName}`,
+              yLabel: yCol.displayName,
+            };
+            if (!isExcludedEncoding(encoding)) {
+              suggestion = {
+                id: `barX-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
+                title: `${xCol.displayName} by ${yCol.displayName}`,
+                chartType: "barX",
+                encoding,
+                rationale: "Horizontal categorical comparison",
+              };
+              foundBarX = true;
+              break;
+            }
+          }
         }
       }
       break;
@@ -1116,7 +1159,7 @@ export function suggestByChartType(
             ? `${yCol.displayName} ${aggregationLabel}`
             : `${yCol.displayName} over time`;
           suggestion = {
-            id: `line-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `line-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title,
             chartType: "line",
             encoding,
@@ -1147,7 +1190,7 @@ export function suggestByChartType(
         };
         if (!isExcludedEncoding(encoding)) {
           suggestion = {
-            id: `areaY-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `areaY-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title: `${yCol.displayName} trend`,
             chartType: "areaY",
             encoding,
@@ -1176,7 +1219,7 @@ export function suggestByChartType(
         };
         if (!isExcludedEncoding(encoding)) {
           suggestion = {
-            id: `dot-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `dot-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title: `${yCol.displayName} vs ${xCol.displayName}`,
             chartType: "dot",
             encoding,
@@ -1204,7 +1247,7 @@ export function suggestByChartType(
         if (!isExcludedEncoding(encoding)) {
           const isLargeDataset = rowCount > SCATTER_MAX_POINTS;
           suggestion = {
-            id: `hexbin-${xCol.fieldId ?? xCol.columnName}-${yCol.fieldId ?? yCol.columnName}`,
+            id: `hexbin-${xCol.fieldId ?? xCol.columnName}${instanceIdSuffix(xCol)}-${yCol.fieldId ?? yCol.columnName}${instanceIdSuffix(yCol)}`,
             title: `${yCol.displayName} vs ${xCol.displayName}${isLargeDataset ? "" : " (density)"}`,
             chartType: "hexbin",
             encoding,
