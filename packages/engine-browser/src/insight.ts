@@ -5,6 +5,7 @@ import type {
   JoinType,
   UUID,
 } from "@dashframe/engine";
+import { joinTypeToSQL } from "./join-sql";
 
 // Re-export from core for backwards compatibility
 export type { DataTableField, DataTableInfo } from "@dashframe/engine";
@@ -90,7 +91,10 @@ export type InsightConfiguration = {
     table: DataTableInfo;
     selectedFields: UUID[];
     joinOn: { baseField: UUID; joinedField: UUID };
-    joinType: "inner" | "left" | "right" | "outer";
+    // "outer" is the UI display value; "full" is the persisted config value
+    // (toConfigType maps "outer" → "full" at the save boundary). Both are valid
+    // at this level since Insight.fromJSON may receive either form.
+    joinType: "inner" | "left" | "right" | "outer" | "full";
   }>;
   filters?: FilterPredicate[];
   groupBy?: string[];
@@ -336,7 +340,7 @@ export class Insight {
         if (field) fieldIdToAlias.set(field.id, alias);
       }
 
-      const joinTypeSQL = (join.joinType ?? "inner").toUpperCase();
+      const joinTypeSQL = joinTypeToSQL(join.joinType ?? "inner");
       currentSQL = `(
         SELECT ${selectParts.join(", ")}
         FROM ${currentSQL} AS base

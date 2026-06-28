@@ -114,7 +114,9 @@ describe("Insight - JOIN SQL Generation", () => {
       expect(sql).toContain("RIGHT JOIN");
     });
 
-    it("should generate OUTER JOIN query", () => {
+    it("should generate FULL OUTER JOIN query for joinType 'outer'", () => {
+      // "outer" is the UI display value for a full outer join.
+      // DuckDB rejects bare "OUTER JOIN" — the correct form is "FULL OUTER JOIN".
       const insight = new Insight({
         name: "All Users and Orders",
         baseTable: usersTable,
@@ -133,7 +135,33 @@ describe("Insight - JOIN SQL Generation", () => {
 
       const sql = insight.toSQL();
 
-      expect(sql).toContain("OUTER JOIN");
+      expect(sql).toContain("FULL OUTER JOIN");
+      // Guard: "OUTER JOIN" must not appear without the "FULL" prefix.
+      expect(sql.replace("FULL OUTER JOIN", "")).not.toContain("OUTER JOIN");
+    });
+
+    it("should generate FULL OUTER JOIN query for joinType 'full' (persisted config value)", () => {
+      // "full" is what the persist path stores (toConfigType maps "outer" → "full").
+      // Saved insights that load into Insight.fromJSON carry "full" at runtime.
+      const insight = new Insight({
+        name: "All Users and Orders — persisted",
+        baseTable: usersTable,
+        joins: [
+          {
+            table: ordersTable,
+            selectedFields: [orderFields[2].id],
+            joinOn: {
+              baseField: userFields[0].id,
+              joinedField: orderFields[1].id,
+            },
+            joinType: "full",
+          },
+        ],
+      });
+
+      const sql = insight.toSQL();
+
+      expect(sql).toContain("FULL OUTER JOIN");
     });
 
     it("should use correct table aliases in JOIN", () => {
