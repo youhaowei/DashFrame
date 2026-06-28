@@ -30,6 +30,7 @@ import {
 import {
   InMemoryMappingStore,
   isSecretRef,
+  makeSecretRef,
   SecretRegistry,
   SecretVault,
   TestBackend,
@@ -332,6 +333,86 @@ describe("credential write path — capture-before-log + transition release", ()
       .from(dataSources)
       .where(eq(dataSources.id, id));
     expect(rows[0]?.createdBy).toEqual({ kind: "agent" });
+  });
+
+  // P1 — publish releases an intra-draft superseded ref (two writes to one field).
+  it("releases an intermediate ref superseded within the draft on publish", async () => {
+    const { id, ref: refA } = await seedCanonicalSource(h, "key-a");
+
+    const draftId = await h.controller.openDraft();
+    // Two credential writes to the SAME field, no compactionKey → both replayed.
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", { id, apiKey: "key-b" }),
+    ]);
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", { id, apiKey: "key-c" }),
+    ]);
+    const logRows = await h.db
+      .select({ args: draftCommandLog.args })
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId))
+      .orderBy(draftCommandLog.seq);
+    const refB = (logRows[0]!.args as Record<string, unknown>)
+      .apiKey as SecretRef;
+    const refC = (logRows[1]!.args as Record<string, unknown>)
+      .apiKey as SecretRef;
+    expect(refB).not.toBe(refC);
+
+    await h.app.call("publishDraft", { draftId });
+
+    // Old canonical (A) AND the superseded intra-draft ref (B) are released; only
+    // the final ref (C) survives and is what canonical points at.
+    expect(await h.vault.has(refA)).toBe(false);
+    expect(await h.vault.has(refB)).toBe(false);
+    expect(await h.vault.has(refC)).toBe(true);
+    expect((await readConfig(h, id))!.apiKey).toBe(refC);
+  });
+
+  // P2 — discard releases a ref a draft only INHERITED (held in shadow, not log).
+  it("releases an inherited shadow ref when the pinning draft is discarded", async () => {
+    const { id, ref: refR } = await seedCanonicalSource(h, "shared-key");
+
+    // Draft A touches only connectionString → its shadow inherits apiKey ref R.
+    const draftA = await h.controller.openDraft();
+    await h.controller.appendToDraft(draftA, [
+      cmd("SetDataSourceConfig", { id, connectionString: "conn-a" }),
+    ]);
+
+    // Draft B rotates apiKey and publishes — R is preserved because A pins it.
+    const draftB = await h.controller.openDraft();
+    await h.controller.appendToDraft(draftB, [
+      cmd("SetDataSourceConfig", { id, apiKey: "rotated" }),
+    ]);
+    await h.app.call("publishDraft", { draftId: draftB });
+    const refR2 = (await readConfig(h, id))!.apiKey as SecretRef;
+    expect(await h.vault.has(refR)).toBe(true); // pinned by A, survived B's publish
+
+    // Discard A — R is now referenced nowhere (canonical moved to R2), so the
+    // shadow-sourced candidate set releases it; the live canonical ref stays.
+    await h.app.call("discardDraft", { draftId: draftA });
+    expect(await h.vault.has(refR)).toBe(false);
+    expect(await h.vault.has(refR2)).toBe(true);
+  });
+
+  // P2 — a direct canonical call must STORE a ref-shaped input, never adopt it.
+  it("stores (not adopts) a ref-shaped credential on a direct canonical call", async () => {
+    const id = crypto.randomUUID();
+    const refShaped = makeSecretRef(); // valid shape, NOT in the vault
+    const { result } = await h.app.call("createDataSource", {
+      id,
+      type: "notion",
+      name: "Direct",
+      apiKey: refShaped,
+    });
+    expect((result as { id: string }).id).toBe(id);
+
+    const stored = (await readConfig(h, id))!.apiKey as SecretRef;
+    // The input was stored as plaintext → a DIFFERENT, real ref that resolves to it.
+    expect(stored).not.toBe(refShaped);
+    expect(isSecretRef(stored)).toBe(true);
+    expect(await h.vault.has(stored)).toBe(true);
+    const resolved = await h.vault.withSecret(stored, async (pt) => pt);
+    expect(resolved).toBe(refShaped);
   });
 
   // Exhaustiveness — the capture map must cover EVERY credential-bearing command.

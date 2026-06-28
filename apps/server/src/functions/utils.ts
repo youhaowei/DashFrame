@@ -272,13 +272,12 @@ export async function releaseCredentialRefs(
  *   deferred-release credential commands (CreateDataSource/SetDataSourceConfig)
  *   pass this; the legacy coarse handlers leave it `false` (synchronous release).
  *
- * **Ref pass-through (capture-before-log):** when `value` is already a
- * `SecretRef` — the credential was captured to a ref before the command was
- * snapshotted into `draft_command_log`, or the command is being replayed from
- * that log on publish — it is ADOPTED verbatim, never re-stored. Re-storing a ref
- * string would double-wrap it as plaintext (the historical rotate-branch trap)
- * AND write the ref into the durable log. Pass-through is the seam that keeps
- * plaintext out of the log.
+ * **Ref pass-through (capture-before-log):** on the deferred path (`deferRelease`
+ * — a draft append or publish replay) a `SecretRef` value is ADOPTED verbatim,
+ * never re-stored (re-storing double-wraps it as plaintext and writes the ref into
+ * the durable log). This is the seam that keeps plaintext out of the log. The gate
+ * is deliberate: on a DIRECT canonical call a ref-shaped input is treated as
+ * plaintext and stored, so the fail-closed vault guard cannot be bypassed.
  */
 export async function applyCredentialField(
   config: DataSourceConfig,
@@ -301,13 +300,20 @@ export async function applyCredentialField(
     delete config[field]; // explicit clear
     return;
   }
-  if (isSecretRef(value)) {
-    // PASS-THROUGH: the value is already a vault ref (captured before the log
-    // snapshot, or replayed from the durable log). Adopt it; never re-store.
+  if (isSecretRef(value) && deferRelease) {
+    // PASS-THROUGH — ONLY on the deferred (draft / publish-replay) path, where a
+    // ref-valued credential was minted by capture-before-log or replayed from the
+    // durable log. Adopt it; never re-store (re-storing double-wraps it as plaintext
+    // and writes it into the log). The deferRelease gate is load-bearing: on a
+    // DIRECT canonical call a ref-shaped input must NOT be adopted — otherwise a
+    // user-supplied "secret:<uuid>" string would skip storeCredential, bypassing the
+    // fail-closed vault guard and (on rotate) releasing the old live ref while the
+    // config points at an unverified secret. Direct calls fall to the store branch.
     config[field] = value;
   } else {
-    // ROTATE/SET branch: plaintext → store, adopt the returned ref.
-    // store-new-first preserves the new secret if a later release fails.
+    // ROTATE/SET branch: plaintext (or a ref-shaped input on a direct call) → store,
+    // adopt the returned ref. store-new-first preserves the new secret if a later
+    // release fails.
     config[field] = await storeCredential(vault, value, locatorHint, preview);
   }
   // Release the prior ref unless it is unchanged (idempotent re-set of the same

@@ -19,12 +19,14 @@
  *
  *   2. TRANSITION-TIME RELEASE ({@link releaseRefsAtTransition} + collectors) —
  *      orchestrated by the draft RPC handlers, POST the authoritative transition:
- *        - publish: release the canonical ref each command REPLACES, collected
- *          BEFORE replay (the replay overwrites it) and released AFTER the publish
- *          transaction commits — so a rolled-back publish never deletes a still-
- *          live secret.
- *        - discard: release the refs the draft MINTED (read from its log), after
- *          the draft's log + shadow are dropped.
+ *        - publish ({@link collectSupersededRefs}): release every ref the replay
+ *          SUPERSEDES — the prior canonical ref AND any ref minted intra-draft then
+ *          overwritten — collected BEFORE replay and released AFTER the publish
+ *          transaction commits, so a rolled-back publish never deletes a live secret.
+ *        - discard ({@link collectDiscardCandidateRefs}): release the refs the draft
+ *          holds, from BOTH its log and its shadow config (so an inherited-only ref
+ *          is reconsidered when the draft that pinned it closes), after the draft's
+ *          log + shadow are dropped.
  *      Both are gated by {@link collectReferencedRefs}: a ref still referenced by
  *      canonical or by another OPEN draft's shadow/log is never released.
  *
@@ -151,53 +153,110 @@ function refsFromConfig(config: unknown): SecretRef[] {
   return refs;
 }
 
+const CREDENTIAL_FIELDS = ["apiKey", "connectionString"] as const;
+type CredentialField = (typeof CREDENTIAL_FIELDS)[number];
+type SimulatedConfig = Partial<Record<CredentialField, SecretRef | undefined>>;
+
+/** The data-source id a credential command targets, or undefined if not one. */
+function credentialCommandId(cmd: Command): string | undefined {
+  if (!CREDENTIAL_COMMAND_FIELDS[cmd.path] || !isRecord(cmd.args))
+    return undefined;
+  return typeof cmd.args.id === "string" ? cmd.args.id : undefined;
+}
+
 /**
- * Refs a DISCARD should release: the refs this draft MINTED, read from its own
- * compacted command log. (A captured plaintext arg becomes a fresh ref in the
- * log; an existing canonical ref never enters a draft's log via capture.) The
+ * Refs a DISCARD should release: every ref the draft holds, from BOTH its log AND
+ * its `data_sources__draft` shadow config. The shadow is load-bearing — a ref a
+ * draft only INHERITED (e.g. it touched connectionString and the coalesced shadow
+ * carries the canonical apiKey ref) is not in the draft's log, so a log-only
+ * candidate set would leak it forever once the canonical owner moves on. The
  * cross-draft + canonical guard in {@link collectReferencedRefs} is the backstop
- * that prevents releasing any ref still in use elsewhere.
+ * that keeps a still-referenced ref (incl. the live canonical one) from release.
+ *
+ * Reads must run BEFORE the discard drops the log + shadow.
  */
-export function extractDraftMintedRefs(log: Command[]): SecretRef[] {
+export async function collectDiscardCandidateRefs(
+  db: ArtifactDb,
+  draftId: string,
+  log: Command[],
+): Promise<SecretRef[]> {
   const refs: SecretRef[] = [];
   for (const cmd of log) refs.push(...refsFromCommandArgs(cmd.path, cmd.args));
+  const shadows = await db
+    .select({ config: dataSourcesDraft.config })
+    .from(dataSourcesDraft)
+    .where(eq(dataSourcesDraft.draftId, draftId));
+  for (const row of shadows) refs.push(...refsFromConfig(row.config));
   return refs;
 }
 
 /**
- * Refs a PUBLISH should release: the canonical ref each command in the log will
- * REPLACE. Read BEFORE replay (replay overwrites canonical). A ref is a candidate
- * only for a credential field the command actually SETS (non-undefined — a
- * connectionString-only command must not trigger an apiKey release; `apiKey: ""`
- * (clear) counts as set). A CreateDataSource targets a not-yet-existing row, so it
- * yields no candidate. Reads committed canonical state via the raw artifact db.
+ * Refs a PUBLISH should release: every ref SUPERSEDED by replaying the log. Seeds a
+ * simulated per-source `field → ref` map from the PRE-publish canonical config, then
+ * walks the log in replay order; any ref a later write replaces — whether the prior
+ * CANONICAL ref OR a ref minted earlier in this same draft (two credential writes to
+ * one field, which `compactLog` keeps when no `compactionKey` is set) — is a release
+ * candidate. The pre-publish read alone misses the intra-draft case, leaking the
+ * intermediate ref. The final surviving ref is protected post-commit by
+ * {@link collectReferencedRefs} (it is the one now in canonical). A `CreateDataSource`
+ * seeds from an empty canonical, so its first write yields no candidate.
+ *
+ * Reads committed canonical state via the raw artifact db, BEFORE replay.
  */
-export async function collectOldCanonicalRefs(
+export async function collectSupersededRefs(
   db: ArtifactDb,
   log: Command[],
 ): Promise<SecretRef[]> {
-  const refs: SecretRef[] = [];
+  const simulated = await seedSimulatedConfigs(db, log);
+  const candidates: SecretRef[] = [];
   for (const cmd of log) {
-    const fields = CREDENTIAL_COMMAND_FIELDS[cmd.path];
-    const args = cmd.args;
-    if (!fields || !isRecord(args)) continue;
-    const id = args.id;
-    if (typeof id !== "string") continue;
-    // Only read canonical when at least one credential field is actually set.
-    const setFields = fields.filter((f) => args[f] !== undefined);
-    if (setFields.length === 0) continue;
+    const id = credentialCommandId(cmd);
+    const cur = id !== undefined ? simulated.get(id) : undefined;
+    if (!cur || !isRecord(cmd.args)) continue;
+    for (const field of CREDENTIAL_FIELDS) {
+      supersedeField(cur, field, cmd.args[field], candidates);
+    }
+  }
+  return candidates;
+}
+
+/** Seed each touched source's simulated field→ref map from pre-publish canonical. */
+async function seedSimulatedConfigs(
+  db: ArtifactDb,
+  log: Command[],
+): Promise<Map<string, SimulatedConfig>> {
+  const simulated = new Map<string, SimulatedConfig>();
+  for (const cmd of log) {
+    const id = credentialCommandId(cmd);
+    if (id === undefined || simulated.has(id)) continue;
     const rows = await db
       .select({ config: dataSources.config })
       .from(dataSources)
       .where(eq(dataSources.id, id));
-    const config = rows[0]?.config;
-    if (config == null) continue; // no canonical row yet (e.g. a fresh create)
-    const c = (config ?? {}) as DataSourceConfig;
-    for (const field of setFields) {
-      if (isSecretRef(c[field])) refs.push(c[field]);
-    }
+    const c = (rows[0]?.config ?? {}) as DataSourceConfig;
+    const seed: SimulatedConfig = {};
+    for (const f of CREDENTIAL_FIELDS)
+      seed[f] = isSecretRef(c[f]) ? c[f] : undefined;
+    simulated.set(id, seed);
   }
-  return refs;
+  return simulated;
+}
+
+/**
+ * Apply one field write to the simulated config: if it supersedes a prior ref
+ * (different from the new value), record that prior ref as a release candidate.
+ */
+function supersedeField(
+  cur: SimulatedConfig,
+  field: CredentialField,
+  value: unknown,
+  candidates: SecretRef[],
+): void {
+  if (value === undefined) return; // field not set by this command
+  const next = isSecretRef(value) ? value : undefined; // ref set, or clear / non-ref
+  const prior = cur[field];
+  if (prior && prior !== next) candidates.push(prior);
+  cur[field] = next;
 }
 
 /**

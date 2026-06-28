@@ -348,11 +348,12 @@ export function createDraftController(
       // form. `structuredClone` handles nested args; commands are plain JSON-ish
       // envelopes (path/args/id/compactionKey/kind) so it round-trips cleanly.
       const ranSnapshots: DraftCommand[] = [];
-      // Rollbacks for credentials captured in this batch — invoked only if a
-      // command fails before the batch is persisted to the log (the minted ref
-      // would otherwise be in the vault but in no log, so the log-driven discard
-      // release could never find it). On batch success they are dropped (the refs
-      // are legitimately in the log).
+      // Rollbacks for credentials captured in this batch — invoked if ANYTHING
+      // throws before the durable log write succeeds (capture, handler run, OR log
+      // persistence). Until writeLog commits, a minted ref is in the vault but in
+      // no log, so the log-driven discard release could never find it. The rollback
+      // stays armed across the whole append; on success (after writeLog) the refs
+      // are legitimately in the log and the rollbacks are dropped.
       const captureRollbacks: Array<() => Promise<void>> = [];
       try {
         for (const cmd of batch) {
@@ -373,6 +374,14 @@ export function createDraftController(
           ranSnapshots.push(structuredClone(captured.command) as DraftCommand);
           results.push({ id: captured.command.id, value });
         }
+        // Project the compacted full log into draft_command_log. Read the prior
+        // log, concat the snapshots of what just ran, compact (wystack's exported
+        // algorithm), replace-all (atomically — see writeLog). INSIDE the try so a
+        // log-persistence failure also triggers the capture rollback below.
+        const prior = await readLog(draftId);
+        const compacted = compactLog([...prior, ...ranSnapshots]);
+        await writeLog(draftId, compacted);
+        return results;
       } catch (err) {
         // The batch is non-atomic by contract (recovery = re-append, which
         // re-mints); release the refs captured so far so a failed append leaves
@@ -382,13 +391,6 @@ export function createDraftController(
         }
         throw err;
       }
-      // Project the compacted full log into draft_command_log. Read the prior
-      // log, concat the snapshots of what just ran, compact (wystack's exported
-      // algorithm), replace-all (atomically — see writeLog).
-      const prior = await readLog(draftId);
-      const compacted = compactLog([...prior, ...ranSnapshots]);
-      await writeLog(draftId, compacted);
-      return results;
     },
 
     async publishDraft(draftId, context = {}) {

@@ -26,8 +26,8 @@ import type { Command } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
 
 import {
-  collectOldCanonicalRefs,
-  extractDraftMintedRefs,
+  collectDiscardCandidateRefs,
+  collectSupersededRefs,
   releaseRefsAtTransition,
 } from "../credential-release";
 import type { DraftController } from "../draft-controller";
@@ -84,7 +84,7 @@ const publishDraft = mutation({
     const vault = ctx.vault as SecretVault | undefined;
     const replacedRefs =
       artifactDb != null
-        ? await collectOldCanonicalRefs(artifactDb, prePublishLog)
+        ? await collectSupersededRefs(artifactDb, prePublishLog)
         : [];
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
@@ -153,7 +153,11 @@ const discardDraft = mutation({
     const vault = ctx.vault as SecretVault | undefined;
     const mintedRefs =
       artifactDb != null
-        ? extractDraftMintedRefs(await draftController.getDraftLog(draftId))
+        ? await collectDiscardCandidateRefs(
+            artifactDb,
+            draftId,
+            await draftController.getDraftLog(draftId),
+          )
         : [];
 
     await draftController.discardDraft(draftId);
