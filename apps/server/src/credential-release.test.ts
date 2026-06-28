@@ -191,7 +191,7 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(resolved).toBe("super-secret-plaintext");
   });
 
-  // SECURITY (YW-346) — the capture seam must REFUSE a caller-supplied ref on a
+  // SECURITY — the capture seam must REFUSE a caller-supplied ref on a
   // fresh draft append, never adopt it. This is the durable guarantee for agent
   // DataSource authoring: even driving appendToDraft directly (the runtime-
   // reachable seam, not just the applyCommand tool) a foreign `secret:<uuid>` is
