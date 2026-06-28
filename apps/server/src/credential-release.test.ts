@@ -477,4 +477,79 @@ describe("credential write path — capture-before-log + transition release", ()
       .where(eq(draftCommandLog.draftId, draftId));
     expect(rows.length).toBe(0); // nothing logged
   });
+
+  // P2 (fix #3) — the rollback must also cover LOG PERSISTENCE, not just the
+  // handler run. If writeLog throws AFTER capture minted a ref and the handler
+  // wrote the shadow, the ref is in the vault but in no durable log — discard /
+  // publish could never find it for transition release (orphan). The rollback
+  // stays armed through writeLog, so a log-persistence failure releases the ref.
+  it("releases captured refs when log persistence fails after the handler runs", async () => {
+    const id = crypto.randomUUID();
+    const storeSpy = vi.spyOn(h.vault, "store");
+    const delSpy = vi.spyOn(h.vault, "delete");
+    // writeLog is the only `db.transaction` call in appendToDraft — runHandler
+    // opens no transaction and readLog uses select — so failing the first
+    // `transaction` fails writeLog specifically, AFTER the handler committed the
+    // shadow row. (The shadow-row assertion below is the discriminator: if this
+    // mock ever fired during the handler instead, no shadow row would exist and
+    // this test would fail loudly rather than silently testing the wrong path.)
+    const txSpy = vi
+      .spyOn(h.db, "transaction")
+      .mockRejectedValueOnce(new Error("simulated writeLog failure"));
+
+    const draftId = await h.controller.openDraft();
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id,
+          type: "notion",
+          name: "X",
+          apiKey: "secret-plaintext",
+        }),
+      ]),
+    ).rejects.toThrow(/simulated writeLog failure/);
+
+    // Capture minted a ref before writeLog failed, and the rollback released it.
+    expect(storeSpy).toHaveBeenCalled();
+    const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
+    expect(isSecretRef(mintedRef)).toBe(true);
+    expect(delSpy).toHaveBeenCalled();
+    expect(await h.vault.has(mintedRef)).toBe(false); // no orphan
+
+    // DISCRIMINATOR: the shadow row exists → the handler committed before the
+    // failure → the failure was at writeLog (not the handler). Proves this test
+    // exercises the log-persistence path, not the already-covered handler path.
+    const shadowRows = await h.db
+      .select()
+      .from(schema.dataSourcesDraft)
+      .where(eq(schema.dataSourcesDraft.draftId, draftId));
+    expect(shadowRows.length).toBe(1);
+
+    // The durable log is empty — writeLog never committed.
+    const logRows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(logRows.length).toBe(0);
+
+    txSpy.mockRestore();
+  });
+
+  // P2 (fix #2) — fail-closed on the DIRECT path: a ref-shaped input on a direct
+  // canonical call with NO vault injected must THROW (route through
+  // storeCredential's guard), never silently adopt the ref. This is the security
+  // half of the adoption gate: with the bug, the ref pass-through would accept a
+  // ref-shaped value even absent a vault, persisting config that points at an
+  // unverified/nonexistent secret. Pairs with the "stores (not adopts)" test.
+  it("rejects a ref-shaped credential on a direct call when no vault is injected", async () => {
+    const noVaultApp = await buildDashframeApp({ db: h.db }); // no vault injected
+    await expect(
+      noVaultApp.call("createDataSource", {
+        id: crypto.randomUUID(),
+        type: "notion",
+        name: "NoVault",
+        apiKey: makeSecretRef(), // valid ref shape, must NOT be adopted
+      }),
+    ).rejects.toThrow();
+  });
 });
