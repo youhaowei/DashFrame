@@ -122,9 +122,11 @@ export function DashboardItem({
           )}
         </div>
 
-        {/* Customize button + override badge — visualization cells only.
+        {/* Customize button + override badge — visualization cells only, editor-mode only.
+            Hidden from non-editors: a non-editor invoking updateItem/updateControls
+            would persist their changes, which is not the intended v0.3 scope.
             Visible on hover, anchored bottom-right inside the surface. */}
-        {item.type === "visualization" && (
+        {item.type === "visualization" && isEditable && (
           <div
             className="absolute right-2 bottom-2 z-20 opacity-0 transition-opacity group-hover:opacity-100"
             onMouseDown={(e) => e.stopPropagation()}

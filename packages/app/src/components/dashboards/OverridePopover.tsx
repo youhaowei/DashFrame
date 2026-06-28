@@ -51,7 +51,7 @@ import {
   cn,
 } from "@wystack/ui";
 import { SettingsIcon } from "@wystack/ui-icons";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,
@@ -201,6 +201,15 @@ function LimitOverrideRow({
   onChange: (limit: number | undefined) => void;
 }) {
   const isPinned = overrideLimit !== undefined;
+  // Local draft so that typing "100" doesn't fire three separate DB mutations.
+  // The mutation only fires on blur / Enter.
+  const [draft, setDraft] = useState(overrideLimit?.toString() ?? "");
+
+  function commitDraft() {
+    const n = parseInt(draft, 10);
+    if (!isNaN(n) && n > 0) onChange(n);
+    else if (overrideLimit !== undefined) setDraft(overrideLimit.toString());
+  }
 
   return (
     <div className="py-1.5">
@@ -219,10 +228,11 @@ function LimitOverrideRow({
             <Input
               type="number"
               min={1}
-              value={overrideLimit}
-              onChange={(e) => {
-                const n = parseInt(e.target.value, 10);
-                if (!isNaN(n) && n > 0) onChange(n);
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitDraft}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitDraft();
               }}
               className="h-6 w-20 text-xs"
             />
@@ -242,7 +252,11 @@ function LimitOverrideRow({
             variant="ghost"
             size="sm"
             className="h-6 px-1.5 text-xs"
-            onClick={() => onChange(insightLimit ?? 100)}
+            onClick={() => {
+              const initial = insightLimit ?? 100;
+              setDraft(initial.toString());
+              onChange(initial);
+            }}
           >
             Pin
           </Button>
