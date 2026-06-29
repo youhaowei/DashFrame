@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { applyFloor, isMaskedBySource } from "./floor.js";
 import { neighbors, search, traverse } from "./graph.js";
+import { assembleDataRead } from "./perception.js";
 import type {
   DashboardRead,
   DataFrameRead,
@@ -417,7 +418,7 @@ describe("readData — tiered data, floor-gated", () => {
     expect(ins.columns.find((c) => c.name === "email")!.sensitivity).toBe(
       "sensitive",
     );
-    // Profiles-only: NO raw rows. (`sample` is the never-set seam.)
+    // Profiles-only by default: no host sampler, so no rows.
     expect(ins.sample).toBeUndefined();
 
     // Same masking applies reading the underlying TABLE directly.
@@ -438,8 +439,72 @@ describe("readData — tiered data, floor-gated", () => {
     const data = res.details as DataReadResult;
     expect(data.masked).toBe(false);
     expect(data.columns.map((c) => c.name)).toEqual(["region"]);
-    // Even unmasked, v0.3 emits profiles-only — no raw sample until the perception assembler lands.
+    // Even unmasked, no sample is emitted unless the host provides a sampler.
     expect(data.sample).toBeUndefined();
+  });
+
+  it("returns bounded raw samples when the floor allows values", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => [
+        { region: "north" },
+        { region: "south" },
+        { region: "west" },
+      ],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(false);
+    expect(data.sample).toEqual({
+      tier: "raw",
+      rows: [{ region: "north" }, { region: "south" }, { region: "west" }],
+      rowCount: 3,
+      truncated: false,
+    });
+  });
+
+  it("obfuscates samples when the floor masks a read", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => [{ email: "alice@example.com", amount: 42 }],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblOrders",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(true);
+    expect(data.sample).toEqual({
+      tier: "obfuscated",
+      rows: [{ email: "<text>", amount: 0 }],
+      rowCount: 1,
+      truncated: false,
+    });
+  });
+
+  it("truncates samples under the assembler budget", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        sampleRows: [
+          { region: "north", note: "a".repeat(100) },
+          { region: "south", note: "b".repeat(100) },
+        ],
+        maxRows: 2,
+        maxSampleChars: 80,
+      },
+    );
+    expect(data.sample?.tier).toBe("raw");
+    expect(data.sample?.rows).toHaveLength(0);
+    expect(data.sample?.rowCount).toBe(2);
+    expect(data.sample?.truncated).toBe(true);
   });
 
   it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {

@@ -24,6 +24,7 @@ import { defineToolHandler, Type, type Static } from "../tool.js";
 
 import type { Neighborhood, ReachedNode, SearchHit } from "./graph.js";
 import { neighbors, search, summarize, traverse } from "./graph.js";
+import { assembleDataRead } from "./perception.js";
 import type {
   DashboardRead,
   DataReadResult,
@@ -255,11 +256,22 @@ export function createReadTools(reader: GraphReader) {
       // ./floor.applyFloor over the artifact's source fields). The tool never
       // assembles value data itself — single egress boundary.
       const result = await reader.readDataProfile(node);
+      if (reader.readDataSample !== undefined) {
+        const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
+        result.sample = assembleDataRead(node, result.masked, result.columns, {
+          sampleRows,
+          maxRows: 5,
+        }).sample;
+      }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
+      const sample =
+        result.sample !== undefined
+          ? ` ${result.sample.rows.length} ${result.sample.tier} sample row(s).`
+          : " No raw rows (profiles-only floor).";
       return {
         ...text(
           `${result.columns.length} column profile(s) for ${params.kind} ` +
-            `${params.id}${masked}. No raw rows (profiles-only floor).`,
+            `${params.id}${masked}.${sample}`,
         ),
         details: result,
       };

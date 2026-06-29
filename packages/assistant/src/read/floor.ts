@@ -30,6 +30,10 @@
 import type { Field, FieldSensitivity } from "@dashframe/types";
 import { getFieldSensitivity, isFieldRestricted } from "@dashframe/types";
 
+import {
+  assembleDataRead,
+  type PerceptionAssemblerOptions,
+} from "./perception.js";
 import type { ColumnProfile, DataReadResult, NodeRef } from "./port.js";
 
 /**
@@ -78,9 +82,9 @@ export function profileColumns(
  * source fields. The single VALUE sink: every `readData` path lands here.
  *
  * `masked` is the inherit-source binary over the source fields; `columns` is the
- * profiles-only shape (always emitted, ungated structure). `sample` is never set
- * in v0.3 — the perception assembler plugs the tiered real/obfuscated sample in
- * at this exact seam, selected by `masked`.
+ * always-present profile shape. When sample rows are supplied, the perception
+ * assembler plugs a tiered raw/obfuscated sample in at this exact seam, selected
+ * by `masked`.
  *
  * FAIL-CLOSED on incomplete resolution. `isMaskedBySource([])` is `false` (an
  * empty `.some()`), which would be a FAIL-OPEN if the caller couldn't fully
@@ -99,16 +103,10 @@ export function applyFloor(
       stats?: ColumnProfile["stats"];
     }
   >,
-  opts?: { forceMask?: boolean },
+  opts?: { forceMask?: boolean } & PerceptionAssemblerOptions,
 ): DataReadResult {
-  return {
-    node,
-    masked: (opts?.forceMask ?? false) || isMaskedBySource(sourceFields),
-    columns: profileColumns(sourceFields),
-    // wires to the perception assembler when it lands: the tiered
-    // profile→obfuscated→real sample plugs in here, selected by `masked`.
-    // Until then, profiles-only is the conservative floor — `sample` stays unset.
-  };
+  const masked = (opts?.forceMask ?? false) || isMaskedBySource(sourceFields);
+  return assembleDataRead(node, masked, profileColumns(sourceFields), opts);
 }
 
 // ---------------------------------------------------------------------------

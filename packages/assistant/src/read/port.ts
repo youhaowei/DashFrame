@@ -123,6 +123,17 @@ export interface GraphReader {
   readDataProfile(node: NodeRef): Promise<DataReadResult>;
 
   /**
+   * Optional tiered row sample source for the perception assembler. Hosts that
+   * can safely execute a bounded sample query provide this; hosts that cannot
+   * leave it unset and `readData` remains profiles-only. The privacy floor still
+   * decides whether these rows may flow as raw values or must be obfuscated.
+   */
+  readDataSample?(
+    node: NodeRef,
+    opts: { maxRows: number },
+  ): Promise<ReadonlyArray<Record<string, unknown>>>;
+
+  /**
    * Open a project SOURCE file as text — the agent's BACKUP/verification path
    * for the command vocabulary (the crafted guide in ./command-guide.ts is the
    * PRIMARY reference; this lets the agent fall back to `commands.ts` when the
@@ -157,18 +168,24 @@ export interface ColumnProfile {
  * The result of a tiered data read. STRUCTURE (the column profiles' names/types/
  * sensitivity) is always present and ungated. Whether the read is MASKED is the
  * binary inherit-source decision (./floor.ts): any source column sensitive →
- * masked. `sample` is reserved for the post-assembler tiered real/obfuscated rows;
- * it is ALWAYS `undefined` in v0.3 (profiles-only).
+ * masked. `sample` is optional because hosts may not have a safe row sampler;
+ * when present it is budgeted by the perception assembler.
  */
 export interface DataReadResult {
   node: NodeRef;
   /** True when any contributing source column is sensitive (inherit-source). */
   masked: boolean;
-  /** Per-column profiles — the only value data v0.3 emits. */
+  /** Per-column profiles — always emitted when the artifact can be profiled. */
   columns: ColumnProfile[];
-  /**
-   * Reserved seam: tiered row sample (real | obfuscated). Wires to the
-   * perception assembler when it lands; ALWAYS `undefined` until then.
-   */
-  sample?: never;
+  /** Tiered row sample selected under a bounded budget, when available. */
+  sample?: DataReadSample;
+}
+
+/** A budgeted sample selected by the perception assembler. */
+export interface DataReadSample {
+  /** `raw` only when the source floor permits it; masked reads are obfuscated. */
+  tier: "raw" | "obfuscated";
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  truncated: boolean;
 }
