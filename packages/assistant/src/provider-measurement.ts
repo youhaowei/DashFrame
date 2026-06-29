@@ -60,15 +60,16 @@ function findModel(
   requested?: string,
 ): Model<Api> {
   const models = getModels(provider) as Model<Api>[];
+  const requestedModelId = requested?.trim() || undefined;
   const model =
-    requested !== undefined
-      ? models.find((candidate) => candidate.id === requested)
+    requestedModelId !== undefined
+      ? models.find((candidate) => candidate.id === requestedModelId)
       : DEFAULT_MODELS[provider]
           .map((id) => models.find((candidate) => candidate.id === id))
           .find((candidate) => candidate !== undefined);
 
   if (!model) {
-    const suffix = requested ? ` ${requested}` : "";
+    const suffix = requestedModelId ? ` ${requestedModelId}` : "";
     throw new Error(`No ${provider}${suffix} model is registered in pi-ai`);
   }
   return model as Model<Api>;
@@ -176,12 +177,14 @@ export async function measureProviderRun(
   const label = spec.label ?? spec.provider;
   const startedAtMs = performance.now();
   const startedAt = new Date().toISOString();
+  let modelId = spec.modelId?.trim() || "default";
   try {
     if (spec.provider === "amazon-bedrock") {
       await installBedrockProvider();
     }
 
     const model = findModel(spec.provider, spec.modelId);
+    modelId = model.id;
     const stream = streamSimple(model, measurementContext(prompt), {
       maxTokens: 256,
       temperature: 0,
@@ -200,7 +203,7 @@ export async function measureProviderRun(
     return failedMeasurement({
       label,
       provider: spec.provider,
-      modelId: spec.modelId ?? "default",
+      modelId,
       startedAtMs,
       startedAt,
       error,
@@ -251,7 +254,7 @@ export async function measureProviderRuns(
     return failedMeasurement({
       label: spec.label ?? spec.provider,
       provider: spec.provider,
-      modelId: spec.modelId ?? "default",
+      modelId: spec.modelId?.trim() || "default",
       startedAtMs,
       startedAt: new Date().toISOString(),
       error: result.reason,

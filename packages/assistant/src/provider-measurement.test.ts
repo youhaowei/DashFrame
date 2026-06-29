@@ -1,8 +1,10 @@
 import {
   createAssistantMessageEventStream,
   type AssistantMessage,
+  type AssistantMessageEvent,
+  type AssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { measureAssistantStream } from "./provider-measurement";
 
@@ -33,8 +35,30 @@ function message(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
   };
 }
 
+function throwingStream(error: Error): AssistantMessageEventStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
+      return {
+        next: async () => Promise.reject(error),
+      };
+    },
+    result: async () => {
+      throw new Error("result should not be called");
+    },
+  } as unknown as AssistantMessageEventStream;
+}
+
 describe("provider measurement harness", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("records streaming latency, text deltas, stop reason, and usage", async () => {
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(125)
+      .mockReturnValueOnce(170);
+
     const stream = createAssistantMessageEventStream();
     const final = message();
     stream.push({ type: "start", partial: final });
@@ -65,7 +89,8 @@ describe("provider measurement harness", () => {
     expect(result.outputPreview).toBe("ok");
     expect(result.stopReason).toBe("stop");
     expect(result.usage?.totalTokens).toBe(14);
-    expect(result.timeToFirstTokenMs).not.toBeNull();
+    expect(result.timeToFirstTokenMs).toBe(25);
+    expect(result.durationMs).toBe(70);
   });
 
   it("reports stream error events as failed measurements", async () => {
@@ -98,5 +123,20 @@ describe("provider measurement harness", () => {
     expect(result.stopReason).toBe("error");
     expect(result.error).toBe("no credentials");
     expect(result.outputPreview).toBe("");
+  });
+
+  it("reports thrown stream failures as failed measurements", async () => {
+    const result = await measureAssistantStream({
+      label: "fake-throw",
+      provider: "anthropic",
+      modelId: "claude-haiku-4-5",
+      stream: throwingStream(new Error("stream exploded")),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("stream exploded");
+    expect(result.outputPreview).toBe("");
+    expect(result.textDeltaCount).toBe(0);
+    expect(result.timeToFirstTokenMs).toBeNull();
   });
 });
