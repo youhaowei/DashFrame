@@ -7,33 +7,57 @@ export interface PerceptionAssemblerOptions {
   maxRows?: number;
   /** Approximate JSON-character budget for the sample. Default: 12k. */
   maxSampleChars?: number;
+  /** Incomplete lineage: obfuscate every value even if a column is marked cleared. */
+  maskAllValues?: boolean;
 }
 
 const DEFAULT_MAX_ROWS = 5;
 const DEFAULT_MAX_SAMPLE_CHARS = 12_000;
 
 function obfuscateValue(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
+  if (value === null) return "<null>";
+  if (value === undefined) return "<undefined>";
   if (typeof value === "number") return 0;
   if (typeof value === "boolean") return false;
-  if (typeof value === "string") return value.length === 0 ? "" : "<text>";
+  if (typeof value === "string") return "<text>";
   if (Array.isArray(value)) return "<array>";
   if (typeof value === "object") return "<object>";
   return "<value>";
 }
 
-function projectRow(
-  row: Record<string, unknown>,
-  allowedColumns: ReadonlySet<string>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(row).filter(([key]) => allowedColumns.has(key)),
-  );
+function columnIsRestricted(column: ColumnProfile): boolean {
+  return column.sensitivity !== "cleared";
 }
 
-function obfuscateRow(row: Record<string, unknown>): Record<string, unknown> {
+function sampleTier(
+  columns: ReadonlyArray<ColumnProfile>,
+  maskAllValues: boolean,
+): "raw" | "mixed" | "obfuscated" {
+  if (maskAllValues) return "obfuscated";
+  const hasCleared = columns.some((column) => !columnIsRestricted(column));
+  const hasRestricted = columns.some(columnIsRestricted);
+  if (hasCleared && hasRestricted) return "mixed";
+  return hasRestricted ? "obfuscated" : "raw";
+}
+
+function projectAndTierRow(
+  row: Record<string, unknown>,
+  columnsByName: ReadonlyMap<string, ColumnProfile>,
+  maskAllValues: boolean,
+): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, obfuscateValue(value)]),
+    Object.entries(row).flatMap(([key, value]) => {
+      const column = columnsByName.get(key);
+      if (column === undefined) return [];
+      return [
+        [
+          key,
+          maskAllValues || columnIsRestricted(column)
+            ? obfuscateValue(value)
+            : value,
+        ],
+      ];
+    }),
   );
 }
 
@@ -44,16 +68,17 @@ function withinBudget(rows: Array<Record<string, unknown>>, budget: number) {
 function selectRowsUnderBudget(
   rows: ReadonlyArray<Record<string, unknown>>,
   opts: {
-    allowedColumns: ReadonlySet<string>;
+    columnsByName: ReadonlyMap<string, ColumnProfile>;
+    maskAllValues: boolean;
     maxRows: number;
     maxSampleChars: number;
-    masked: boolean;
   },
 ): { rows: Array<Record<string, unknown>>; truncated: boolean } {
   const capped = rows
     .slice(0, opts.maxRows)
-    .map((row) => projectRow(row, opts.allowedColumns))
-    .map((row) => (opts.masked ? obfuscateRow(row) : row));
+    .map((row) =>
+      projectAndTierRow(row, opts.columnsByName, opts.maskAllValues),
+    );
 
   while (capped.length > 0 && !withinBudget(capped, opts.maxSampleChars)) {
     capped.pop();
@@ -67,8 +92,8 @@ function selectRowsUnderBudget(
 
 /**
  * Assemble the agent's value context under the privacy floor and a bounded
- * sample budget. Profiles are always present; raw rows are included only for
- * unmasked reads. Masked reads may include obfuscated rows, never raw values.
+ * sample budget. Profiles are always present. Cleared columns may flow raw;
+ * restricted columns are obfuscated. Incomplete lineage masks every value.
  */
 export function assembleDataRead(
   node: NodeRef,
@@ -82,19 +107,21 @@ export function assembleDataRead(
   const maxRows = Math.max(0, options.maxRows ?? DEFAULT_MAX_ROWS);
   if (maxRows === 0) return result;
 
-  const allowedColumns = new Set(columns.map((column) => column.name));
+  const maskAllValues =
+    options.maskAllValues ?? (masked && !columns.some(columnIsRestricted));
+  const columnsByName = new Map(columns.map((column) => [column.name, column]));
   const selected = selectRowsUnderBudget(options.sampleRows, {
-    allowedColumns,
+    columnsByName,
+    maskAllValues,
     maxRows,
     maxSampleChars: Math.max(
       2,
       options.maxSampleChars ?? DEFAULT_MAX_SAMPLE_CHARS,
     ),
-    masked,
   });
 
   result.sample = {
-    tier: masked ? "obfuscated" : "raw",
+    tier: sampleTier(columns, maskAllValues),
     rows: selected.rows,
     rowCount: options.sampleRows.length,
     truncated: selected.truncated,

@@ -12,8 +12,8 @@
  *   - readNeighborhood = invocation point + 1 hop, NOT the whole graph.
  *   - readGraph / find navigate BEYOND one hop.
  *   - readArtifact returns structure (the definition), ungated.
- *   - readData always emits profiles; optional samples are raw only for cleared
- *     sources and obfuscated for masked reads; structure is never gated.
+ *   - readData always emits profiles; optional samples keep cleared columns raw
+ *     and obfuscate restricted columns; structure is never gated.
  */
 
 import type {
@@ -479,7 +479,7 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.sample?.rows).toEqual([{ region: "north" }]);
   });
 
-  it("obfuscates samples when the floor masks a read", async () => {
+  it("keeps cleared sample columns raw while obfuscating restricted columns", async () => {
     const reader: GraphReader = {
       ...makeReader(),
       readDataSample: async () => [{ email: "alice@example.com", amount: 42 }],
@@ -492,14 +492,14 @@ describe("readData — tiered data, floor-gated", () => {
     const data = res.details as DataReadResult;
     expect(data.masked).toBe(true);
     expect(data.sample).toEqual({
-      tier: "obfuscated",
-      rows: [{ email: "<text>", amount: 0 }],
+      tier: "mixed",
+      rows: [{ email: "<text>", amount: 42 }],
       rowCount: 1,
       truncated: false,
     });
   });
 
-  it("collapses arrays while obfuscating masked samples", () => {
+  it("collapses arrays while obfuscating restricted columns", () => {
     const data = assembleDataRead(
       { kind: "dataTable", id: "tblOrders" },
       true,
@@ -509,6 +509,23 @@ describe("readData — tiered data, floor-gated", () => {
       },
     );
     expect(data.sample?.rows).toEqual([{ diagnoses: "<array>" }]);
+  });
+
+  it("obfuscates every sample value when lineage is incomplete", () => {
+    const data = applyFloor(
+      { kind: "insight", id: "insUnknown" },
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        forceMask: true,
+        sampleRows: [{ region: "north" }],
+      },
+    );
+    expect(data.sample).toEqual({
+      tier: "obfuscated",
+      rows: [{ region: "<text>" }],
+      rowCount: 1,
+      truncated: false,
+    });
   });
 
   it("keeps an existing profile sample when the optional sampler returns no rows", async () => {

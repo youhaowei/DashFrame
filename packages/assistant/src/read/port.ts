@@ -170,14 +170,15 @@ export interface ColumnProfile {
 
 /**
  * The result of a tiered data read. STRUCTURE (the column profiles' names/types/
- * sensitivity) is always present and ungated. Whether the read is MASKED is the
- * binary inherit-source decision (./floor.ts): any source column sensitive →
- * masked. `sample` is optional because hosts may not have a safe row sampler;
- * when present it is budgeted by the perception assembler.
+ * sensitivity) is always present and ungated. `masked` means protected data is
+ * present or lineage was incomplete; the perception assembler still keeps
+ * cleared sample columns useful when it can prove their column sensitivity.
+ * `sample` is optional because hosts may not have a safe row sampler; when
+ * present it is budgeted by the perception assembler.
  */
 export interface DataReadResult {
   node: NodeRef;
-  /** True when any contributing source column is sensitive (inherit-source). */
+  /** True when protected fields are present, or lineage was incomplete. */
   masked: boolean;
   /** Per-column profiles — always emitted when the artifact can be profiled. */
   columns: ColumnProfile[];
@@ -187,8 +188,8 @@ export interface DataReadResult {
 
 /** A budgeted sample selected by the perception assembler. */
 export interface DataReadSample {
-  /** `raw` only when the source floor permits it; masked reads are obfuscated. */
-  tier: "raw" | "obfuscated";
+  /** raw: all values visible; mixed: protected columns obfuscated; obfuscated: all values hidden. */
+  tier: "raw" | "mixed" | "obfuscated";
   rows: Array<Record<string, unknown>>;
   rowCount: number;
   truncated: boolean;

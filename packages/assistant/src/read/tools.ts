@@ -246,8 +246,8 @@ export function createReadTools(reader: GraphReader) {
       "Column structure (names, types, sensitivity) always flows. VALUES are " +
       "floor-gated: if any contributing SOURCE column is sensitive, the read " +
       "is MASKED. v0.3 always returns column PROFILES (shape/stats). If the " +
-      "host supplies a bounded sample, permitted unmasked reads may include raw " +
-      "values; masked or limited reads obfuscate or omit sample values.",
+      "host supplies a bounded sample, cleared columns may include raw values; " +
+      "restricted columns are obfuscated. Incomplete lineage obfuscates every value.",
     label: "Read data",
     parameters: ReadDataSchema,
     async execute(_id, params): Promise<AgentToolResult<DataReadResult>> {
@@ -255,7 +255,7 @@ export function createReadTools(reader: GraphReader) {
       // The port's readDataProfile IS the floor-gated profile sink (host wires
       // it to ./floor.applyFloor over the artifact's source fields). Optional
       // sample rows still enter only through the port and are immediately
-      // reassembled under the same floor before reaching the agent.
+      // reassembled under the same column-aware floor before reaching the agent.
       const result = await reader.readDataProfile(node);
       if (reader.readDataSample !== undefined) {
         const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
