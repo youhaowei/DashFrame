@@ -45,3 +45,13 @@ export {
   type CreateApplyCommandToolOptions,
   type DraftAppender,
 } from "./apply-command-tool.js";
+
+// Provider measurement harness — live Anthropic/Bedrock streaming smoke.
+export {
+  installBedrockProvider,
+  measureAssistantStream,
+  measureProviderRun,
+  measureProviderRuns,
+  type ProviderMeasurementResult,
+  type ProviderMeasurementSpec,
+} from "./provider-measurement.js";

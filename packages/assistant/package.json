@@ -17,6 +17,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src",
+    "measure:providers": "bun src/provider-measurement.cli.ts",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
