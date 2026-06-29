@@ -32,7 +32,6 @@ import {
   releaseRefsAtTransition,
 } from "../credential-release";
 import type { DraftController } from "../draft-controller";
-import { findLateBound } from "./drafts";
 import { PUBLISH_REPLAY_CONTEXT_KEY } from "./utils";
 
 /**
@@ -135,11 +134,6 @@ const publishDraft = mutation({
     // check, `onWrite` would be skipped and the deletion goes un-snapshotted,
     // leaving a resurrection window across server restarts.
     const prePublishLog = await draftController.getDraftLog(draftId);
-    if (findLateBound(prePublishLog).length > 0) {
-      throw new Error(
-        "publishDraft: draft contains unbound late-bound operands",
-      );
-    }
 
     // TRANSITION-TIME RELEASE — publish half. Collect the canonical refs each
     // command will REPLACE or DELETE *before* replay acts on them; release runs

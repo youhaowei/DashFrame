@@ -89,25 +89,13 @@ describe("DraftController (persisted draft overlay)", () => {
         name: { kind: "lateBound", label: "name" },
       },
     });
-    const guardedController = createDraftController(app, db, {
-      validatePublishLog: (log) => {
-        if (
-          log.some(
-            (command) =>
-              (command.args as { name?: { kind?: string } } | undefined)?.name
-                ?.kind === "lateBound",
-          )
-        ) {
-          throw new Error("blocked late-bound publish");
-        }
-      },
-    });
+    const controller = createDraftController(app, db);
 
-    await expect(guardedController.publishDraft(draftId)).rejects.toThrow(
-      "blocked late-bound publish",
+    await expect(controller.publishDraft(draftId)).rejects.toThrow(
+      /late-bound operands/,
     );
 
-    expect(await guardedController.getDraftLog(draftId)).toHaveLength(1);
+    expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
   /** Seed a DataSource + DataTable on CANONICAL (the draft's base). */

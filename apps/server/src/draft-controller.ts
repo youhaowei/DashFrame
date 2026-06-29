@@ -69,6 +69,8 @@ import {
 } from "@wystack/server";
 import { eq } from "drizzle-orm";
 
+import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
+
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
  * and post-publish teardown sweep by draftId across exactly these six — a static,
@@ -436,6 +438,7 @@ export function createDraftController(
       // routes their DELETEs through the same commit boundary as the replay.
       const result = await app.createTracked().transaction(async (tx) => {
         const log = await readLog(draftId, tx.raw as LogReader);
+        assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);
         const committed = (await applyCommands(app, log, {
           mode: "commit",

@@ -5,27 +5,23 @@
  * Flow:
  *   1. The pi-agent sets `pendingDraftId` in AssistantStore after building a
  *      draft, which surfaces this panel.
- *   2. The panel loads the draft's command log via the `getDraftLog` RPC, then
- *      calls `previewBatch` to produce a PreviewDiff (server metadata only).
+ *   2. The panel loads `draftPublishReview` (redacted command summary + diff +
+ *      late-bound metadata) and opens PreviewDiffDialog.
  *   3. The user opens the diff in PreviewDiffDialog, which fills compute slots
  *      client-side via local DuckDB.
- *   4. The user chooses Publish (→ `publishDraft` RPC, WS invalidation fires
- *      automatically) or Discard (→ `discardDraft` RPC).
- *   5. Either action clears `pendingDraftId` from the store.
- *
- * The dialog is opened by this panel (not the other way around): this component
- * holds the loading / diff state and the publish/discard handlers. PreviewDiffDialog
- * is read-only until both callbacks are wired — that is the case here.
+ *   4. Publish is blocked when the review RPC reports late-bound operands or a
+ *      preview error; the user can open `/drafts/:draftId/publish` to resolve.
+ *   5. Otherwise the user chooses Publish (→ `publishDraft` RPC) or Discard.
  */
 import { useCallback, useState } from "react";
 
 import {
   discardDraft,
-  getDraftLog,
-  previewBatch,
+  getDraftPublishReview,
   publishDraft,
 } from "@dashframe/core";
 import type { PreviewDiff } from "@dashframe/types";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, cn } from "@wystack/ui";
 import { FileIcon, SparklesIcon } from "@wystack/ui-icons";
 import { toast } from "sonner";
@@ -37,37 +33,63 @@ import { useAssistantStore } from "@/lib/stores/assistant-store";
  * Panel body rendered in the assistant sidebar when there is a draft to review.
  */
 export function DraftReviewPanel({ draftId }: { draftId: string }) {
+  const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
 
-  // Diff state: null = not yet loaded / dialog not open.
   const [diff, setDiff] = useState<PreviewDiff | null>(null);
+  const [publishBlocked, setPublishBlocked] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  /** Load the draft log, compute the diff, open the dialog. */
+  const openFullReview = useCallback(() => {
+    void navigate({
+      to: "/drafts/$draftId/publish",
+      params: { draftId },
+    });
+  }, [draftId, navigate]);
+
   const handleReview = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const commands = await getDraftLog(draftId);
-      if (commands.length === 0) {
+      const review = await getDraftPublishReview(draftId);
+      if (review.commands.length === 0) {
         toast.info("The draft has no changes to preview.");
         return;
       }
-      const preview = await previewBatch(commands);
-      setDiff(preview);
+      setPublishBlocked(review.publishBlocked);
+      setDiff(review.diff);
       setDialogOpen(true);
+      if (review.lateBound.length > 0) {
+        toast.warning("Late-bound values need binding before publish.", {
+          description: "Open the full publish review to resolve them.",
+          action: {
+            label: "Open review",
+            onClick: openFullReview,
+          },
+        });
+      } else if (review.diff.error) {
+        toast.warning("Preview failed — publish is blocked until resolved.");
+      }
     } catch (err) {
       console.error("[DraftReviewPanel] failed to load draft:", err);
       setLoadError("Could not load draft. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  }, [draftId]);
+  }, [draftId, openFullReview]);
 
-  /** Publish the draft and close the review surface. */
   const handlePublish = useCallback(async () => {
+    if (publishBlocked) {
+      toast.error("Publish blocked — resolve review issues first.", {
+        action: {
+          label: "Open review",
+          onClick: openFullReview,
+        },
+      });
+      return;
+    }
     try {
       await publishDraft(draftId);
       toast.success("Draft published.");
@@ -76,12 +98,9 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
     } catch (err) {
       console.error("[DraftReviewPanel] publish failed:", err);
       toast.error("Publish failed. Please try again.");
-      // Do not re-throw: PreviewDiffDialog swallows callback errors and its
-      // `finally` block already resets the loading state.
     }
-  }, [draftId, setPendingDraft]);
+  }, [draftId, openFullReview, publishBlocked, setPendingDraft]);
 
-  /** Discard the draft and close the review surface. Used as the dialog's `onDiscard` prop. */
   const handleDiscard = useCallback(async () => {
     try {
       await discardDraft(draftId);
@@ -92,16 +111,9 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
     } catch (err) {
       console.error("[DraftReviewPanel] discard failed:", err);
       toast.error("Discard failed. Please try again.");
-      // Do not re-throw — same as handlePublish.
     }
   }, [draftId, setPendingDraft]);
 
-  /**
-   * Quick-discard from the panel card (no dialog, no re-throw). Guards against
-   * double-click by tracking its own in-flight state independently of `isLoading`
-   * (which covers `handleReview`). Errors surface as toasts; promise is safe to
-   * fire-and-forget.
-   */
   const [isQuickDiscarding, setIsQuickDiscarding] = useState(false);
 
   const handleQuickDiscard = useCallback(async () => {
@@ -126,7 +138,6 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
   return (
     <>
       <div className="flex h-full flex-col">
-        {/* Draft ready card */}
         <div className="flex-1 px-4 py-5">
           <div
             className={cn(
@@ -161,6 +172,14 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
                 size="sm"
               />
               <Button
+                label="Full publish review"
+                variant="outline"
+                onClick={openFullReview}
+                disabled={isLoading || isQuickDiscarding}
+                className="w-full"
+                size="sm"
+              />
+              <Button
                 label={isQuickDiscarding ? "Discarding…" : "Discard draft"}
                 variant="ghost"
                 onClick={() => void handleQuickDiscard()}
@@ -172,7 +191,6 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
           </div>
         </div>
 
-        {/* Footer hint */}
         <div className="border-t border-neutral-border/60 px-4 py-3">
           <p className="flex items-center gap-1.5 text-[10px] leading-relaxed text-neutral-fg-subtle">
             <SparklesIcon className="size-3 shrink-0" />
@@ -181,7 +199,6 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
         </div>
       </div>
 
-      {/* The diff dialog — opened by handleReview, dismissed by handleDialogClose */}
       <PreviewDiffDialog
         diff={diff}
         open={dialogOpen}
@@ -189,6 +206,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
         title="Review draft changes"
         onPublish={handlePublish}
         onDiscard={handleDiscard}
+        publishDisabled={publishBlocked}
       />
     </>
   );

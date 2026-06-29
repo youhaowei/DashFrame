@@ -58,8 +58,8 @@ import { type ArtifactDb } from "@dashframe/server-core";
 
 import { captureCommandCredentials } from "./credential-release";
 import { createDraftController } from "./draft-controller";
+import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
-import { findLateBound } from "./functions/drafts";
 
 type CorsOrigin =
   | string
@@ -606,11 +606,7 @@ export async function createDashframeServer(
       captureCredentials: (cmd) =>
         captureCommandCredentials(cmd, opts.vault, opts.db as ArtifactDb),
       validatePublishLog: (log) => {
-        if (findLateBound(log).length > 0) {
-          throw new Error(
-            "publishDraft: draft contains unbound late-bound operands",
-          );
-        }
+        assertPublishLogHasNoLateBound(log);
       },
     },
   );

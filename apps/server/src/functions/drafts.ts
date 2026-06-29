@@ -5,15 +5,11 @@ import type { Command, WyStackApp } from "@wystack/server";
 import { query } from "@wystack/server";
 
 import { createDraftController } from "../draft-controller";
+import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
 import { buildPreviewDiff } from "./preview-diff";
 
-export interface LateBoundOperandRef {
-  commandIndex: number;
-  path: string;
-  jsonPath: string;
-  kind: string;
-  label?: string;
-}
+export { findLateBound };
+export type { LateBoundOperandRef };
 
 export interface DraftPublishReview {
   draftId: string;
@@ -53,49 +49,6 @@ function requireServerContext(ctx: unknown): {
     );
   }
   return { app, db };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function collectLateBound(
-  value: unknown,
-  path: string,
-  out: Array<Omit<LateBoundOperandRef, "commandIndex" | "path">>,
-): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      collectLateBound(item, `${path}[${index}]`, out),
-    );
-    return;
-  }
-  if (!isRecord(value)) return;
-
-  if (value.kind === "lateBound") {
-    out.push({
-      jsonPath: path,
-      kind: "lateBound",
-      label: typeof value.label === "string" ? value.label : undefined,
-    });
-    return;
-  }
-
-  for (const [key, child] of Object.entries(value)) {
-    collectLateBound(child, path ? `${path}.${key}` : key, out);
-  }
-}
-
-export function findLateBound(commands: Command[]): LateBoundOperandRef[] {
-  return commands.flatMap((command, commandIndex) => {
-    const found: Array<Omit<LateBoundOperandRef, "commandIndex" | "path">> = [];
-    collectLateBound(command.args, "args", found);
-    return found.map((entry) => ({
-      commandIndex,
-      path: command.path,
-      ...entry,
-    }));
-  });
 }
 
 function summarizeCommands(
