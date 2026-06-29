@@ -105,13 +105,24 @@ export function assembleDataRead(
   options: PerceptionAssemblerOptions = {},
 ): DataReadResult {
   const result: DataReadResult = { node, masked, columns };
-  if (!options.sampleRows || options.sampleRows.length === 0) return result;
+  if (options.sampleRows === undefined) return result;
 
   const maxRows = Math.max(0, options.maxRows ?? DEFAULT_MAX_ROWS);
   if (maxRows === 0) return result;
 
   const maskAllValues =
     options.maskAllValues ?? (masked && !columns.some(columnIsRestricted));
+
+  if (options.sampleRows.length === 0) {
+    result.sample = {
+      tier: sampleTier(columns, maskAllValues),
+      rows: [],
+      rowCount: 0,
+      truncated: false,
+    };
+    return result;
+  }
+
   const columnsByName = new Map(columns.map((column) => [column.name, column]));
   const selected = selectRowsUnderBudget(options.sampleRows, {
     columnsByName,
