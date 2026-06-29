@@ -280,9 +280,10 @@ export function createReadTools(reader: GraphReader) {
         }
       }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
+      const truncNote = result.sample?.truncated ? " (truncated)" : "";
       const sample =
         result.sample !== undefined
-          ? ` ${result.sample.rows.length} ${result.sample.tier} sample row(s).`
+          ? ` ${result.sample.rowCount} ${result.sample.tier} sample row(s)${truncNote}.`
           : " No raw rows (profiles-only floor).";
       return {
         ...text(
