@@ -590,6 +590,19 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.sample?.truncated).toBe(true);
   });
 
+  it("does not throw when sample rows contain bigint values", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblCounts" },
+      false,
+      [{ name: "count", type: "bigint", sensitivity: "cleared" }],
+      {
+        sampleRows: [{ count: 42n }],
+      },
+    );
+    expect(data.sample?.rows).toEqual([{ count: 42n }]);
+    expect(data.sample?.rowCount).toBe(1);
+  });
+
   it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {
     const reader = makeReader();
     const { readData } = createReadTools(reader);
