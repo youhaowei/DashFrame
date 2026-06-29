@@ -269,7 +269,12 @@ export function createReadTools(reader: GraphReader) {
               maxRows: 5,
             },
           );
-          if (assembled.sample !== undefined) result.sample = assembled.sample;
+          if (
+            assembled.sample !== undefined &&
+            (result.sample === undefined || assembled.sample.rowCount > 0)
+          ) {
+            result.sample = assembled.sample;
+          }
         } catch {
           // Sample fetch is best-effort; profiles still return on DB/query failures.
         }

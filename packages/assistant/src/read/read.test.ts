@@ -491,6 +491,30 @@ describe("readData — tiered data, floor-gated", () => {
     });
   });
 
+  it("omits sample when sampleRows is undefined", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+    );
+    expect(data.sample).toBeUndefined();
+  });
+
+  it("preserves empty sample tier when the sampler returns no rows", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      { sampleRows: [] },
+    );
+    expect(data.sample).toEqual({
+      tier: "raw",
+      rows: [],
+      rowCount: 0,
+      truncated: false,
+    });
+  });
+
   it("drops unprofiled sample fields before returning raw rows", async () => {
     const data = assembleDataRead(
       { kind: "dataTable", id: "tblPublic" },
@@ -548,6 +572,24 @@ describe("readData — tiered data, floor-gated", () => {
       tier: "obfuscated",
       rows: [{ region: "<text>" }],
       rowCount: 1,
+      truncated: false,
+    });
+  });
+
+  it("reports an empty sample when the sampler returns no rows and no profile sample exists", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => [],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    expect((res.details as DataReadResult).sample).toEqual({
+      tier: "raw",
+      rows: [],
+      rowCount: 0,
       truncated: false,
     });
   });
