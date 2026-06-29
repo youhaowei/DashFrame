@@ -1,3 +1,4 @@
+import type { UseQueryResult } from "@tanstack/react-query";
 import type { RefReturn } from "@wystack/client";
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
@@ -12,22 +13,15 @@ export type DraftPublishReview = RefReturn<typeof api.draftPublishReview>;
 export type LateBoundOperandRef = DraftPublishReview["lateBound"][number];
 export type DraftCommandSummary = DraftPublishReview["commands"][number];
 
-export interface UseDraftPublishReviewResult {
-  data: DraftPublishReview | undefined;
-  isLoading: boolean;
-}
+export type UseDraftPublishReviewResult = UseQueryResult<DraftPublishReview>;
 
 export function useDraftPublishReview(
   draftId: string | undefined,
 ): UseDraftPublishReviewResult {
-  const result = useQuery(api.draftPublishReview, {
+  return useQuery(api.draftPublishReview, {
     args: { draftId: draftId ?? "00000000-0000-0000-0000-000000000000" },
     skip: !draftId,
   });
-  return {
-    data: result.data,
-    isLoading: result.isLoading,
-  };
 }
 
 export interface DraftMutations {

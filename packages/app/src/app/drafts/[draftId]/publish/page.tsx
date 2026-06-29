@@ -2,7 +2,7 @@ import { PreviewDiffRenderer } from "@/components/preview-diff/PreviewDiffRender
 import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewComputeFill";
 import { useDraftMutations, useDraftPublishReview } from "@dashframe/core";
 import { useNavigate } from "@tanstack/react-router";
-import { Badge, Button, cn } from "@wystack/ui";
+import { Badge, Button, cn, ErrorState } from "@wystack/ui";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -63,7 +63,12 @@ function CommandLog({
 export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
-  const { data: review, isLoading } = useDraftPublishReview(draftId);
+  const {
+    data: review,
+    isLoading,
+    error,
+    refetch,
+  } = useDraftPublishReview(draftId);
   const { diff: filledDiff } = usePreviewComputeFill(review?.diff ?? null);
   const { publish, discard } = useDraftMutations();
   const [busy, setBusy] = useState<"publish" | "discard" | null>(null);
@@ -151,7 +156,17 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
           {isLoading && (
             <p className="text-sm text-neutral-fg-subtle">Loading draft…</p>
           )}
-          {!isLoading && review && (
+          {!isLoading && error && (
+            <ErrorState
+              title="Failed to load review"
+              description={
+                error instanceof Error ? error.message : String(error)
+              }
+              retryAction={{ label: "Retry", onClick: () => refetch?.() }}
+              className="min-h-[120px]"
+            />
+          )}
+          {!isLoading && !error && review && (
             <div className="space-y-4">
               {review.lateBound.length > 0 && (
                 <div
