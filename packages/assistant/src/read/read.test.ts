@@ -459,17 +459,19 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.masked).toBe(false);
     expect(data.columns.map((c) => c.name)).toEqual(["region"]);
     expect(data.sample).toBeUndefined();
-    expect(res.content[0]?.text).toContain("No raw rows (profiles-only floor)");
+    expect((res.content[0] as { text?: string } | undefined)?.text).toContain(
+      "No raw rows (profiles-only floor)",
+    );
   });
 
   it("returns bounded raw samples when the floor allows values", async () => {
+    let sampleCall: { node: unknown; opts: unknown } | undefined;
     const reader: GraphReader = {
       ...makeReader(),
-      readDataSample: async () => [
-        { region: "north" },
-        { region: "south" },
-        { region: "west" },
-      ],
+      readDataSample: async (node, opts) => {
+        sampleCall = { node, opts };
+        return [{ region: "north" }, { region: "south" }, { region: "west" }];
+      },
     };
     const { readData } = createReadTools(reader);
     const res = await readData.execute("c", {
@@ -478,6 +480,9 @@ describe("readData — tiered data, floor-gated", () => {
     });
     const data = res.details as DataReadResult;
     expect(data.masked).toBe(false);
+    expect(sampleCall).toBeDefined();
+    expect(sampleCall!.opts).toEqual({ maxRows: 5 });
+    expect(sampleCall!.node).toEqual({ kind: "dataTable", id: "tblPublic" });
     expect(data.sample).toEqual({
       tier: "raw",
       rows: [{ region: "north" }, { region: "south" }, { region: "west" }],
