@@ -89,7 +89,8 @@ export interface DashboardRead {
  *
  * STRUCTURE FLOWS UNGATED. Every value returned here is a DEFINITION (names,
  * types, edge ids, encoding shape) — never row data. Row/value data is a
- * separate egress: it flows ONLY through `readDataProfile` (and ./floor.ts).
+ * separate egress: it flows through `readDataProfile` plus optional
+ * `readDataSample` rows, then through the perception assembler and ./floor.ts.
  * DataSource configs already arrive credential-free from the server seam
  * (presence booleans, never secrets — see app-artifacts.ts `rowToDataSource`).
  */
@@ -115,18 +116,20 @@ export interface GraphReader {
   /**
    * Tiered DATA read for one artifact (a table or an insight result). This is
    * the VALUE egress — the host implementation MUST route the returned payload
-   * through the privacy floor (./floor.ts). Returns column PROFILES only in
-   * v0.3 (the conservative floor until the perception assembler lands;
-   * see ./floor.ts). The reader exposes it so the data tool (./tools.ts) never
-   * reaches past the port for row data.
+   * through the privacy floor (./floor.ts). Always returns column profiles; the
+   * data tool may attach `DataReadResult.sample` from `readDataSample` when the
+   * host can provide bounded rows. The reader exposes both methods so the data
+   * tool (./tools.ts) never reaches past the port for row data.
    */
   readDataProfile(node: NodeRef): Promise<DataReadResult>;
 
   /**
    * Optional tiered row sample source for the perception assembler. Hosts that
    * can safely execute a bounded sample query provide this; hosts that cannot
-   * leave it unset and `readData` remains profiles-only. The privacy floor still
-   * decides whether these rows may flow as raw values or must be obfuscated.
+   * leave it unset and `readData` remains profiles-only. Returned rows are not
+   * exposed directly: the data tool converts them into a `DataReadSample` on
+   * `DataReadResult.sample`, and the privacy floor decides whether values flow
+   * raw, obfuscated, or not at all.
    */
   readDataSample?(
     node: NodeRef,
@@ -148,9 +151,10 @@ export interface GraphReader {
 // ---------------------------------------------------------------------------
 
 /**
- * Per-column profile — SHAPE, never raw rows. The floor-held default until the
- * perception assembler can produce the tiered profile→obfuscated→real
- * sample. `sensitivity` is the column's own classification (inherit-source key).
+ * Per-column profile — SHAPE, never raw rows. Profiles are always present; any
+ * row values live in `DataReadResult.sample` after the perception assembler
+ * applies the privacy floor. `sensitivity` is the column's own classification
+ * (inherit-source key).
  */
 export interface ColumnProfile {
   name: string;

@@ -245,9 +245,9 @@ export function createReadTools(reader: GraphReader) {
       "Read a tiered DATA sample for a data table or an insight result. " +
       "Column structure (names, types, sensitivity) always flows. VALUES are " +
       "floor-gated: if any contributing SOURCE column is sensitive, the read " +
-      "is MASKED. In v0.3 every read returns column PROFILES only (shape/stats, " +
-      "never raw rows) — the conservative floor until the perception assembler " +
-      "lands; a masked read is the same profiles flagged masked.",
+      "is MASKED. v0.3 always returns column PROFILES (shape/stats). If the " +
+      "host supplies a bounded sample, permitted unmasked reads may include raw " +
+      "values; masked or limited reads obfuscate or omit sample values.",
     label: "Read data",
     parameters: ReadDataSchema,
     async execute(_id, params): Promise<AgentToolResult<DataReadResult>> {

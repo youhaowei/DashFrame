@@ -13,18 +13,15 @@
  * That is IT. NO result-level classification, NO k-anonymity, NO per-tier
  * cleverness — those are deferred (a future result-classification pass). STRUCTURE
  * (column names, types, the sensitivity marker itself) ALWAYS flows ungated; only
- * ROW/VALUE data is gated, and in v0.3 "gated" means profiles-only regardless
- * (see below).
+ * ROW/VALUE data is gated: unmasked reads may include a bounded raw sample,
+ * while masked reads obfuscate sample values.
  *
  * SINGLE DATA-EGRESS BOUNDARY: all VALUE data goes through the perception
- * assembler. THE PERCEPTION ASSEMBLER IS NOT BUILT YET — so v0.3 `readData`
- * returns PROFILES-ONLY (column stats / shape / type, never raw rows) as the
- * floor-held default. This is the correct conservative floor until it exists: an
- * unmasked read still emits no rows, a masked read emits the same profiles
- * flagged `masked: true`. When the assembler lands, the tiered
- * profile→obfuscated→real sample plugs in HERE (the `applyFloor` seam), and the
- * masked/unmasked decision computed here selects the tier. Nothing else in the
- * read layer changes.
+ * assembler. v0.3 `readData` always returns column profiles (stats / shape /
+ * type). When the host supplies sample rows, the assembler adds a bounded
+ * sample: cleared-source reads may surface raw values; restricted-source reads
+ * are flagged `masked: true` and emit obfuscated values. Hosts without a safe
+ * sampler still remain profiles-only.
  */
 
 import type { Field, FieldSensitivity } from "@dashframe/types";
@@ -42,10 +39,9 @@ import type { ColumnProfile, DataReadResult, NodeRef } from "./port.js";
  * counts as restricted, exactly as `isFieldRestricted` defines the floor).
  *
  * This is the load-bearing binary. A masked read profiles/obfuscates; an
- * unmasked read may (once the perception assembler lands) surface a real sample.
- * There is no middle tier and there is no per-column gating of the OUTPUT — one
- * sensitive contributing column masks the entire read. Coarse on purpose:
- * auditable at a glance.
+ * unmasked read may surface a real sample. There is no per-column gating of the
+ * OUTPUT — one sensitive contributing column masks the entire read. Coarse on
+ * purpose: auditable at a glance.
  */
 export function isMaskedBySource(
   sourceFields: ReadonlyArray<Pick<Field, "sensitivity">>,
