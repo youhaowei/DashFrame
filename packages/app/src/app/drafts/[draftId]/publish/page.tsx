@@ -12,6 +12,8 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useAssistantStore } from "@/lib/stores/assistant-store";
+
 interface DraftPublishPageProps {
   draftId: string;
 }
@@ -60,16 +62,25 @@ function CommandLog({
 
 export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
   const navigate = useNavigate();
+  const pendingDraftId = useAssistantStore((s) => s.pendingDraftId);
+  const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
   const { data: review, isLoading } = useDraftPublishReview(draftId);
   const { diff: filledDiff } = usePreviewComputeFill(review?.diff ?? null);
   const { publish, discard } = useDraftMutations();
   const [busy, setBusy] = useState<"publish" | "discard" | null>(null);
+
+  const clearPendingDraftIfCurrent = () => {
+    if (pendingDraftId === draftId) {
+      setPendingDraft(null);
+    }
+  };
 
   const handlePublish = async () => {
     if (!review || review.publishBlocked) return;
     setBusy("publish");
     try {
       await publish(draftId);
+      clearPendingDraftIfCurrent();
       toast.success("Draft published");
       navigate({ to: "/", replace: true });
     } catch (error) {
@@ -86,6 +97,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     setBusy("discard");
     try {
       await discard(draftId);
+      clearPendingDraftIfCurrent();
       toast.success("Draft discarded");
       navigate({ to: "/", replace: true });
     } catch (error) {
