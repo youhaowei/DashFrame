@@ -245,7 +245,7 @@ export function createReadTools(reader: GraphReader) {
       "Read a tiered DATA sample for a data table or an insight result. " +
       "Column structure (names, types, sensitivity) always flows. VALUES are " +
       "floor-gated: if any contributing SOURCE column is sensitive, the read " +
-      "is MASKED. v0.3 always returns column PROFILES (shape/stats). If the " +
+      "is MASKED. Every read returns column PROFILES (shape/stats). If the " +
       "host supplies a bounded sample, cleared columns may include raw values; " +
       "restricted columns are obfuscated. Incomplete lineage obfuscates every value.",
     label: "Read data",

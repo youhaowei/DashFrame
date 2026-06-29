@@ -1,7 +1,7 @@
 /**
  * The privacy FLOOR — the single VALUE-egress gate for the assistant's reads.
  *
- * THE WHOLE VALUE OF THIS FILE IS BEING AUDITABLE AT A GLANCE. v0.3 is ONE rule,
+ * THE WHOLE VALUE OF THIS FILE IS BEING AUDITABLE AT A GLANCE. The floor is ONE rule,
  * binary, inherit-source:
  *
  *   A column is sensitive or it isn't (use the canonical Field.sensitivity enum
@@ -18,7 +18,7 @@
  * obfuscated.
  *
  * SINGLE DATA-EGRESS BOUNDARY: all VALUE data goes through the perception
- * assembler. v0.3 `readData` always returns column profiles (stats / shape /
+ * assembler. `readData` always returns column profiles (stats / shape /
  * type). When the host supplies sample rows, the assembler adds a bounded
  * sample: cleared columns may surface raw values; restricted columns are
  * obfuscated. Hosts without a safe sampler still remain profiles-only.

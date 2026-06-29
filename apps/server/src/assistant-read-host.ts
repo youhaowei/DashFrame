@@ -18,7 +18,7 @@
  *      artifact's CONTRIBUTING SOURCE FIELDS (real Field.sensitivity, read
  *      through the same seam) and hands them to the assistant's `applyFloor`,
  *      which makes the binary inherit-source masking decision and emits
- *      profiles-only (the v0.3 conservative floor until the perception assembler lands). This adapter
+ *      profiles plus any safe sample assembled by the assistant read layer. This adapter
  *      NEVER reads or assembles row data — profiles-only is structural.
  */
 
@@ -245,8 +245,8 @@ export function createAssistantReadHost(
       const { fields, forceMask } = await sourceFieldsFor(node);
       // Hand the contributing source fields to the assistant's floor. It makes
       // the binary inherit-source masking decision and emits profiles-only.
-      // We pass name/type/sensitivity (structure) and no stats (v0.3 emits no
-      // row-derived stats — that arrives with the perception assembler).
+      // We pass name/type/sensitivity (structure) and no stats; row-derived
+      // values are assembled separately by the assistant read layer.
       // `forceMask` carries the fail-closed signal up: if resolution couldn't
       // enumerate every contributing column, the floor masks regardless.
       const profileInput = fields.map(
