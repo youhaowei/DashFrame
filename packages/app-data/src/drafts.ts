@@ -5,6 +5,7 @@ import { useMemo } from "react";
 
 import { api } from "./api";
 import { getWyStackClient } from "./client";
+import { loose } from "./wystack-args";
 
 // Derive review types directly from the server RPC contract (via the typed api)
 // so the client shape cannot drift or mask the real return type. This eliminates
@@ -25,7 +26,10 @@ export function useDraftPublishReview(
 }
 
 export interface DraftMutations {
-  publish: (draftId: string) => Promise<void>;
+  publish: (
+    draftId: string,
+    options?: { expectedCommandCount?: number },
+  ) => Promise<void>;
   discard: (draftId: string) => Promise<void>;
 }
 
@@ -35,8 +39,19 @@ export function useDraftMutations(): DraftMutations {
 
   return useMemo(
     () => ({
-      publish: async (draftId: string): Promise<void> => {
-        await publishMutation.mutateAsync({ draftId });
+      publish: async (
+        draftId: string,
+        options?: { expectedCommandCount?: number },
+      ): Promise<void> => {
+        await publishMutation.mutateAsync(
+          loose({
+            draftId,
+            expectedCommandCount:
+              options?.expectedCommandCount !== undefined
+                ? String(options.expectedCommandCount)
+                : undefined,
+          }),
+        );
       },
       discard: async (draftId: string): Promise<void> => {
         await discardMutation.mutateAsync({ draftId });

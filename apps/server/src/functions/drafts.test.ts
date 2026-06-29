@@ -106,9 +106,13 @@ describe("draft publish functions", () => {
       lateBoundCount: 0,
     });
     expect(review.data.commands[0]).not.toHaveProperty("args");
+    expect(review.data.commandCount).toBe(1);
     expect(review.data.diff.directNodes[0]?.nodeId).toBe(sourceId);
 
-    await postJson(`${server.url}/api/publishDraft`, { draftId });
+    await postJson(`${server.url}/api/publishDraft`, {
+      draftId,
+      expectedCommandCount: "1",
+    });
     expect(onWriteCalls).toHaveLength(1);
     const rows = await db.select().from(dataSources);
     expect(rows.find((row) => row.id === sourceId)?.name).toBe("Draft source");
@@ -150,6 +154,7 @@ describe("draft publish functions", () => {
       },
     ]);
     expect(review.commands).toHaveLength(1);
+    expect(review.commandCount).toBe(1);
     expect(review.commands[0]).toMatchObject({
       path: "createDataSource",
       hasArgs: true,

@@ -1,5 +1,6 @@
 import { PreviewDiffRenderer } from "@/components/preview-diff/PreviewDiffRenderer";
 import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewComputeFill";
+import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
 import { useDraftMutations, useDraftPublishReview } from "@dashframe/core";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge, Button, cn, ErrorState } from "@wystack/ui";
@@ -66,7 +67,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
   const {
     data: review,
     isLoading,
-    error,
+    isError,
     refetch,
   } = useDraftPublishReview(draftId);
   const { diff: filledDiff } = usePreviewComputeFill(review?.diff ?? null);
@@ -77,7 +78,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     if (!review || review.publishBlocked) return;
     setBusy("publish");
     try {
-      await publish(draftId);
+      await publish(draftId, { expectedCommandCount: review.commandCount });
       if (useAssistantStore.getState().pendingDraftId === draftId) {
         setPendingDraft(null);
       }
@@ -85,8 +86,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
       navigate({ to: "/", replace: true });
     } catch (error) {
       toast.error("Failed to publish draft", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
+        description: draftLifecycleErrorDescription(error),
       });
     } finally {
       setBusy(null);
@@ -104,8 +104,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
       navigate({ to: "/", replace: true });
     } catch (error) {
       toast.error("Failed to discard draft", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
+        description: draftLifecycleErrorDescription(error),
       });
     } finally {
       setBusy(null);
@@ -156,17 +155,15 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
           {isLoading && (
             <p className="text-sm text-neutral-fg-subtle">Loading draft…</p>
           )}
-          {!isLoading && error && (
+          {!isLoading && isError && (
             <ErrorState
               title="Failed to load review"
-              description={
-                error instanceof Error ? error.message : String(error)
-              }
-              retryAction={{ label: "Retry", onClick: () => refetch?.() }}
+              description="Could not load this draft review. Please try again."
+              retryAction={{ label: "Retry", onClick: () => void refetch() }}
               className="min-h-[120px]"
             />
           )}
-          {!isLoading && !error && review && (
+          {!isLoading && !isError && review && (
             <div className="space-y-4">
               {review.lateBound.length > 0 && (
                 <div
@@ -187,20 +184,6 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
                       </li>
                     ))}
                   </ul>
-                </div>
-              )}
-              {review.diff.error && (
-                <div
-                  role="alert"
-                  className="rounded-[var(--surface-radius)] bg-neutral-bg/80 px-4 py-3 shadow-[var(--surface-shadow)]"
-                >
-                  <div className="flex items-center gap-2 text-palette-danger">
-                    <AlertCircleIcon className="h-4 w-4" />
-                    <p className="text-sm font-semibold">Preview failed</p>
-                  </div>
-                  <p className="mt-2 text-xs text-neutral-fg/70">
-                    {review.diff.error.message}
-                  </p>
                 </div>
               )}
               <PreviewDiffRenderer diff={filledDiff ?? review.diff} />

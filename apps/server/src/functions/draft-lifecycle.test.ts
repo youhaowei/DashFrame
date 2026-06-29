@@ -237,6 +237,28 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
   });
 
   // -------------------------------------------------------------------------
+  // TOCTOU guard: expectedCommandCount
+  // -------------------------------------------------------------------------
+
+  it("publishDraft rejects when expectedCommandCount does not match the log", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const draftId = await seedDraft(project.db as ArtifactDb);
+
+    server = await createDashframeServer({ db: project.db });
+
+    const res = await post(server.url, "publishDraft", {
+      draftId,
+      expectedCommandCount: "99",
+    });
+    expect(res.status).toBe(500);
+
+    const log = await getOk<{ path: string }[]>(server.url, "getDraftLog", {
+      draftId,
+    });
+    expect(log.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
   // getDraftLog: compacted command log
   // -------------------------------------------------------------------------
 

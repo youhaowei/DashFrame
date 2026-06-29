@@ -115,8 +115,11 @@ async function gateSnapshotForRelease(
 }
 
 const publishDraft = mutation({
-  args: { draftId: text },
-  handler: async (ctx, { draftId }): Promise<PublishDraftInternalResult> => {
+  args: { draftId: text, expectedCommandCount: text.optional() },
+  handler: async (
+    ctx,
+    { draftId, expectedCommandCount },
+  ): Promise<PublishDraftInternalResult> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
       throw new Error(
@@ -134,6 +137,13 @@ const publishDraft = mutation({
     // check, `onWrite` would be skipped and the deletion goes un-snapshotted,
     // leaving a resurrection window across server restarts.
     const prePublishLog = await draftController.getDraftLog(draftId);
+
+    if (expectedCommandCount !== undefined) {
+      const expected = Number.parseInt(expectedCommandCount, 10);
+      if (Number.isNaN(expected) || prePublishLog.length !== expected) {
+        throw new Error("publishDraft: draft changed since review");
+      }
+    }
 
     // TRANSITION-TIME RELEASE — publish half. Collect the canonical refs each
     // command will REPLACE or DELETE *before* replay acts on them; release runs

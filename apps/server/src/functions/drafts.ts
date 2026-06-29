@@ -14,6 +14,8 @@ export type { LateBoundOperandRef };
 export interface DraftPublishReview {
   draftId: string;
   commands: DraftCommandSummary[];
+  /** Length of the durable log at review time — publish may pass this back to detect drift. */
+  commandCount: number;
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
@@ -81,6 +83,7 @@ const draftPublishReview = query({
     return {
       draftId,
       commands: summarizeCommands(commands, lateBound),
+      commandCount: commands.length,
       diff,
       lateBound,
       publishBlocked: lateBound.length > 0 || diff.error !== undefined,

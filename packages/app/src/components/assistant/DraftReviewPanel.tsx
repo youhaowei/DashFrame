@@ -27,6 +27,7 @@ import { FileIcon, SparklesIcon } from "@wystack/ui-icons";
 import { toast } from "sonner";
 
 import { PreviewDiffDialog } from "@/components/preview-diff/PreviewDiffDialog";
+import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 
 /**
@@ -38,6 +39,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
 
   const [diff, setDiff] = useState<PreviewDiff | null>(null);
   const [publishBlocked, setPublishBlocked] = useState(true);
+  const [commandCount, setCommandCount] = useState<number | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
         return;
       }
       setPublishBlocked(review.publishBlocked);
+      setCommandCount(review.commandCount);
       setDiff(review.diff);
       setDialogOpen(true);
       if (review.lateBound.length > 0) {
@@ -91,15 +94,21 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
       return;
     }
     try {
-      await publishDraft(draftId);
+      await publishDraft(draftId, {
+        ...(commandCount !== null
+          ? { expectedCommandCount: commandCount }
+          : {}),
+      });
       toast.success("Draft published.");
       setDialogOpen(false);
       setPendingDraft(null);
     } catch (err) {
       console.error("[DraftReviewPanel] publish failed:", err);
-      toast.error("Publish failed. Please try again.");
+      toast.error("Publish failed.", {
+        description: draftLifecycleErrorDescription(err),
+      });
     }
-  }, [draftId, openFullReview, publishBlocked, setPendingDraft]);
+  }, [commandCount, draftId, openFullReview, publishBlocked, setPendingDraft]);
 
   const handleDiscard = useCallback(async () => {
     try {
