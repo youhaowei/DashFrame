@@ -1,32 +1,16 @@
-import type { PreviewDiff } from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
+import type { RefReturn } from "@wystack/client";
 import { useMemo } from "react";
 
 import { api } from "./api";
 import { getWyStackClient } from "./client";
 
-export interface LateBoundOperandRef {
-  commandIndex: number;
-  path: string;
-  jsonPath: string;
-  kind: string;
-  label?: string;
-}
-
-export interface DraftPublishReview {
-  draftId: string;
-  commands: DraftCommandSummary[];
-  diff: PreviewDiff;
-  lateBound: LateBoundOperandRef[];
-  publishBlocked: boolean;
-}
-
-export interface DraftCommandSummary {
-  id?: string;
-  path: string;
-  hasArgs: boolean;
-  lateBoundCount: number;
-}
+// Derive review types directly from the server RPC contract (via the typed api)
+// so the client shape cannot drift or mask the real return type. This eliminates
+// the local narrowed re-declaration and any implicit cast.
+export type DraftPublishReview = RefReturn<typeof api.draftPublishReview>;
+export type LateBoundOperandRef = DraftPublishReview["lateBound"][number];
+export type DraftCommandSummary = DraftPublishReview["commands"][number];
 
 export interface UseDraftPublishReviewResult {
   data: DraftPublishReview | undefined;
