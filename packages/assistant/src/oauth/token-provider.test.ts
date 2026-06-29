@@ -213,7 +213,7 @@ describe("getOAuthToken — string expiresAt", () => {
   it("accepts a future ISO timestamp string as fresh", async () => {
     const futureIso = new Date(Date.now() + 3_600_000).toISOString();
     const mockReadKeychain = vi.fn(async () =>
-      makeKeychain({ expiresAt: futureIso as unknown as number }),
+      makeKeychain({ expiresAt: futureIso }),
     );
     const mockFetchRefresh = vi.fn();
 
@@ -230,7 +230,7 @@ describe("getOAuthToken — string expiresAt", () => {
     const pastIso = new Date(Date.now() - 3_600_000).toISOString();
     const rotated = makeRotated();
     const mockReadKeychain = vi.fn(async () =>
-      makeKeychain({ expiresAt: pastIso as unknown as number }),
+      makeKeychain({ expiresAt: pastIso }),
     );
     const mockFetchRefresh = vi.fn(async (_rt: string) => rotated);
 
@@ -436,9 +436,17 @@ describe("getOAuthToken — missing credentials", () => {
       );
     });
 
-    await expect(
-      getOAuthToken({ readKeychain: mockReadKeychain }),
-    ).rejects.toThrow("Failed to read Claude Code credentials from keychain");
+    const err = await getOAuthToken({ readKeychain: mockReadKeychain }).catch(
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(OAuthTokenExpiredError);
+    expect(err).toHaveProperty(
+      "message",
+      expect.stringContaining(
+        "Failed to read Claude Code credentials from keychain",
+      ),
+    );
   });
 });
 

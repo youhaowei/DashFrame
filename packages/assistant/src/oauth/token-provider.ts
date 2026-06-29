@@ -163,80 +163,81 @@ export function getOAuthToken(
       // we had a chance to refresh it).
       const kc = await keychainReader();
 
-      if (!kc.accessToken && !kc.refreshToken) {
+      try {
+        if (!kc.accessToken && !kc.refreshToken) {
+          throw new OAuthTokenExpiredError(
+            "no claudeAiOauth credentials found in keychain (missing accessToken and refreshToken)",
+          );
+        }
+
+        // Resolve expiresAt — keychain may store numeric ms or ISO string.
+        const expiresAtMs = parseExpiresAt(kc.expiresAt);
+
+        // Conservative freshness: if expiresAt is absent or unparseable, we cannot
+        // assert the token is still valid, so we fall to the refresh path. This
+        // avoids silently serving a potentially-stale token at the cost of an extra
+        // network call. Apply a 60s safety margin so tokens expiring imminently
+        // are proactively refreshed before they actually expire.
+        const isFresh =
+          typeof expiresAtMs === "number" &&
+          Date.now() + EXPIRY_MARGIN_MS < expiresAtMs;
+
+        if (isFresh && kc.accessToken) {
+          return kc.accessToken;
+        }
+
+        // ------------------------------------------------------------------
+        // Determine which refresh token to use: prefer the in-memory
+        // (potentially rotated) token over the keychain's original, which may
+        // be dead after a prior rotation.
+        // ------------------------------------------------------------------
+        const refreshToken =
+          inMemoryCredentials?.refreshToken ?? kc.refreshToken;
+
+        if (!refreshToken) {
+          throw new OAuthTokenExpiredError(
+            "keychain access token is expired and no refreshToken is present — re-authenticate with Claude Code",
+          );
+        }
+
+        // ------------------------------------------------------------------
+        // Perform the in-memory refresh.
+        // NOTE: expiresAt is a timestamp — never the token itself — so
+        // interpolating it here is safe.
+        // ------------------------------------------------------------------
+        process.stderr.write(
+          `[assistant/oauth] keychain access token expired (expiresAt=${kc.expiresAt ?? "none"}); refreshing in-memory…\n`,
+        );
+        const rotated: RefreshedCredentials = await refresher(refreshToken);
+
+        // ------------------------------------------------------------------
+        // Update the in-memory credential slot with the rotated values.
+        // Claude Code rotates the refresh token on every successful refresh —
+        // the old token is dead. We hold the new token in-memory; the keychain
+        // entry is NOT written back (would race Claude Code's own refresher).
+        // ------------------------------------------------------------------
+        const newExpiresAtMs =
+          typeof rotated.expiresIn === "number"
+            ? Date.now() + rotated.expiresIn * 1000
+            : undefined;
+
+        inMemoryCredentials = {
+          accessToken: rotated.accessToken,
+          // If the server didn't return a new refresh token (non-rotating server),
+          // keep the one we just used so the next cycle still has a token to try.
+          refreshToken: rotated.refreshToken ?? refreshToken,
+          expiresAtMs: newExpiresAtMs,
+        };
+
+        return rotated.accessToken;
+      } catch (err) {
+        if (err instanceof OAuthTokenExpiredError) throw err;
+        const cause = err instanceof Error ? err.message : String(err);
         throw new OAuthTokenExpiredError(
-          "no claudeAiOauth credentials found in keychain (missing accessToken and refreshToken)",
+          `OAuth refresh failed — re-authenticate with Claude Code. Cause: ${cause}`,
+          { cause: err },
         );
       }
-
-      // Resolve expiresAt — keychain may store numeric ms or ISO string.
-      const expiresAtMs = parseExpiresAt(
-        kc.expiresAt as number | string | undefined,
-      );
-
-      // Conservative freshness: if expiresAt is absent or unparseable, we cannot
-      // assert the token is still valid, so we fall to the refresh path. This
-      // avoids silently serving a potentially-stale token at the cost of an extra
-      // network call. Apply a 60s safety margin so tokens expiring imminently
-      // are proactively refreshed before they actually expire.
-      const isFresh =
-        typeof expiresAtMs === "number" &&
-        Date.now() + EXPIRY_MARGIN_MS < expiresAtMs;
-
-      if (isFresh && kc.accessToken) {
-        return kc.accessToken;
-      }
-
-      // ------------------------------------------------------------------
-      // Determine which refresh token to use: prefer the in-memory
-      // (potentially rotated) token over the keychain's original, which may
-      // be dead after a prior rotation.
-      // ------------------------------------------------------------------
-      const refreshToken = inMemoryCredentials?.refreshToken ?? kc.refreshToken;
-
-      if (!refreshToken) {
-        throw new OAuthTokenExpiredError(
-          "keychain access token is expired and no refreshToken is present — re-authenticate with Claude Code",
-        );
-      }
-
-      // ------------------------------------------------------------------
-      // Perform the in-memory refresh.
-      // NOTE: expiresAt is a timestamp — never the token itself — so
-      // interpolating it here is safe.
-      // ------------------------------------------------------------------
-      process.stderr.write(
-        `[assistant/oauth] keychain access token expired (expiresAt=${kc.expiresAt ?? "none"}); refreshing in-memory…\n`,
-      );
-      const rotated: RefreshedCredentials = await refresher(refreshToken);
-
-      // ------------------------------------------------------------------
-      // Update the in-memory credential slot with the rotated values.
-      // Claude Code rotates the refresh token on every successful refresh —
-      // the old token is dead. We hold the new token in-memory; the keychain
-      // entry is NOT written back (would race Claude Code's own refresher).
-      // ------------------------------------------------------------------
-      const newExpiresAtMs =
-        typeof rotated.expiresIn === "number"
-          ? Date.now() + rotated.expiresIn * 1000
-          : undefined;
-
-      inMemoryCredentials = {
-        accessToken: rotated.accessToken,
-        // If the server didn't return a new refresh token (non-rotating server),
-        // keep the one we just used so the next cycle still has a token to try.
-        refreshToken: rotated.refreshToken ?? refreshToken,
-        expiresAtMs: newExpiresAtMs,
-      };
-
-      return rotated.accessToken;
-    } catch (err) {
-      if (err instanceof OAuthTokenExpiredError) throw err;
-      const cause = err instanceof Error ? err.message : String(err);
-      throw new OAuthTokenExpiredError(
-        `OAuth refresh failed — re-authenticate with Claude Code. Cause: ${cause}`,
-        { cause: err },
-      );
     } finally {
       // Clear the in-flight guard regardless of outcome so subsequent calls
       // (after this one settles) can initiate a new refresh if needed.

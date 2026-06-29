@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 export interface KeychainOAuth {
   accessToken?: string;
   refreshToken?: string;
-  expiresAt?: number;
+  expiresAt?: number | string;
 }
 
 /**
