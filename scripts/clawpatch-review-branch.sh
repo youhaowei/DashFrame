@@ -26,4 +26,4 @@ worktree="$("$repo_root/scripts/ensure-worktree.sh" "$branch")"
 cd "$worktree"
 
 "$worktree/scripts/clawpatch.sh" map --source heuristic --json
-exec "$worktree/scripts/clawpatch.sh" review --since origin/main --json --no-input "${extra_args[@]}"
+exec "$worktree/scripts/clawpatch.sh" review --since origin/main --json --no-input "${extra_args[@]:-}"
