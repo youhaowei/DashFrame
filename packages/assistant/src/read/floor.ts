@@ -53,7 +53,8 @@ export function isMaskedBySource(
  * Build the per-column profiles — SHAPE, never raw rows. Every profile carries
  * the column's OWN sensitivity (structure: the marker always flows). `stats` are
  * non-row aggregates (counts) safe at every tier; callers pass what the source
- * has, or omit. This is the only value-shaped data v0.3 emits, masked or not.
+ * has, or omit. Row samples, when provided, are assembled separately under the
+ * floor's raw/obfuscated budget.
  */
 export function profileColumns(
   fields: ReadonlyArray<

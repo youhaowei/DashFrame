@@ -12,8 +12,8 @@
  *   - readNeighborhood = invocation point + 1 hop, NOT the whole graph.
  *   - readGraph / find navigate BEYOND one hop.
  *   - readArtifact returns structure (the definition), ungated.
- *   - readData masks (profiles-only) when a source column is sensitive; never
- *     gates structure; emits NO raw rows and NO result-classification.
+ *   - readData always emits profiles; optional samples are raw only for cleared
+ *     sources and obfuscated for masked reads; structure is never gated.
  */
 
 import type {

@@ -252,9 +252,10 @@ export function createReadTools(reader: GraphReader) {
     parameters: ReadDataSchema,
     async execute(_id, params): Promise<AgentToolResult<DataReadResult>> {
       const node: NodeRef = { kind: params.kind, id: params.id };
-      // The port's readDataProfile IS the floor-gated sink (host wires it to
-      // ./floor.applyFloor over the artifact's source fields). The tool never
-      // assembles value data itself — single egress boundary.
+      // The port's readDataProfile IS the floor-gated profile sink (host wires
+      // it to ./floor.applyFloor over the artifact's source fields). Optional
+      // sample rows still enter only through the port and are immediately
+      // reassembled under the same floor before reaching the agent.
       const result = await reader.readDataProfile(node);
       if (reader.readDataSample !== undefined) {
         const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
