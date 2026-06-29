@@ -258,17 +258,21 @@ export function createReadTools(reader: GraphReader) {
       // reassembled under the same column-aware floor before reaching the agent.
       const result = await reader.readDataProfile(node);
       if (reader.readDataSample !== undefined) {
-        const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
-        const assembled = assembleDataRead(
-          node,
-          result.masked,
-          result.columns,
-          {
-            sampleRows,
-            maxRows: 5,
-          },
-        );
-        if (assembled.sample !== undefined) result.sample = assembled.sample;
+        try {
+          const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
+          const assembled = assembleDataRead(
+            node,
+            result.masked,
+            result.columns,
+            {
+              sampleRows,
+              maxRows: 5,
+            },
+          );
+          if (assembled.sample !== undefined) result.sample = assembled.sample;
+        } catch {
+          // Sample fetch is best-effort; profiles still return on DB/query failures.
+        }
       }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
       const sample =

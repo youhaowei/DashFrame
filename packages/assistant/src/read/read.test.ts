@@ -443,6 +443,25 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.sample).toBeUndefined();
   });
 
+  it("degrades to profiles-only when readDataSample fails", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => {
+        throw new Error("query timeout");
+      },
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(false);
+    expect(data.columns.map((c) => c.name)).toEqual(["region"]);
+    expect(data.sample).toBeUndefined();
+    expect(res.content[0]?.text).toContain("No raw rows (profiles-only floor)");
+  });
+
   it("returns bounded raw samples when the floor allows values", async () => {
     const reader: GraphReader = {
       ...makeReader(),
