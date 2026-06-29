@@ -259,10 +259,16 @@ export function createReadTools(reader: GraphReader) {
       const result = await reader.readDataProfile(node);
       if (reader.readDataSample !== undefined) {
         const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
-        result.sample = assembleDataRead(node, result.masked, result.columns, {
-          sampleRows,
-          maxRows: 5,
-        }).sample;
+        const assembled = assembleDataRead(
+          node,
+          result.masked,
+          result.columns,
+          {
+            sampleRows,
+            maxRows: 5,
+          },
+        );
+        if (assembled.sample !== undefined) result.sample = assembled.sample;
       }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
       const sample =

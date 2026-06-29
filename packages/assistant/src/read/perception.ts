@@ -17,9 +17,18 @@ function obfuscateValue(value: unknown): unknown {
   if (typeof value === "number") return 0;
   if (typeof value === "boolean") return false;
   if (typeof value === "string") return value.length === 0 ? "" : "<text>";
-  if (Array.isArray(value)) return value.map(obfuscateValue);
+  if (Array.isArray(value)) return "<array>";
   if (typeof value === "object") return "<object>";
   return "<value>";
+}
+
+function projectRow(
+  row: Record<string, unknown>,
+  allowedColumns: ReadonlySet<string>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([key]) => allowedColumns.has(key)),
+  );
 }
 
 function obfuscateRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -34,11 +43,17 @@ function withinBudget(rows: Array<Record<string, unknown>>, budget: number) {
 
 function selectRowsUnderBudget(
   rows: ReadonlyArray<Record<string, unknown>>,
-  opts: { maxRows: number; maxSampleChars: number; masked: boolean },
+  opts: {
+    allowedColumns: ReadonlySet<string>;
+    maxRows: number;
+    maxSampleChars: number;
+    masked: boolean;
+  },
 ): { rows: Array<Record<string, unknown>>; truncated: boolean } {
   const capped = rows
     .slice(0, opts.maxRows)
-    .map((row) => (opts.masked ? obfuscateRow(row) : { ...row }));
+    .map((row) => projectRow(row, opts.allowedColumns))
+    .map((row) => (opts.masked ? obfuscateRow(row) : row));
 
   while (capped.length > 0 && !withinBudget(capped, opts.maxSampleChars)) {
     capped.pop();
@@ -67,7 +82,9 @@ export function assembleDataRead(
   const maxRows = Math.max(0, options.maxRows ?? DEFAULT_MAX_ROWS);
   if (maxRows === 0) return result;
 
+  const allowedColumns = new Set(columns.map((column) => column.name));
   const selected = selectRowsUnderBudget(options.sampleRows, {
+    allowedColumns,
     maxRows,
     maxSampleChars: Math.max(
       2,

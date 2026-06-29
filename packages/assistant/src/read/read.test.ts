@@ -467,6 +467,18 @@ describe("readData — tiered data, floor-gated", () => {
     });
   });
 
+  it("drops unprofiled sample fields before returning raw rows", async () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        sampleRows: [{ region: "north", email: "alice@example.com" }],
+      },
+    );
+    expect(data.sample?.rows).toEqual([{ region: "north" }]);
+  });
+
   it("obfuscates samples when the floor masks a read", async () => {
     const reader: GraphReader = {
       ...makeReader(),
@@ -487,6 +499,41 @@ describe("readData — tiered data, floor-gated", () => {
     });
   });
 
+  it("collapses arrays while obfuscating masked samples", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblOrders" },
+      true,
+      [{ name: "diagnoses", type: "array", sensitivity: "sensitive" }],
+      {
+        sampleRows: [{ diagnoses: ["a", "b", "c"] }],
+      },
+    );
+    expect(data.sample?.rows).toEqual([{ diagnoses: "<array>" }]);
+  });
+
+  it("keeps an existing profile sample when the optional sampler returns no rows", async () => {
+    const existingSample: DataReadResult["sample"] = {
+      tier: "raw",
+      rows: [{ region: "north" }],
+      rowCount: 1,
+      truncated: false,
+    };
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataProfile: async (node) => ({
+        ...applyFloor(node, [FIELD_REGION]),
+        sample: existingSample,
+      }),
+      readDataSample: async () => [],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    expect((res.details as DataReadResult).sample).toEqual(existingSample);
+  });
+
   it("truncates samples under the assembler budget", () => {
     const data = assembleDataRead(
       { kind: "dataTable", id: "tblPublic" },
@@ -494,8 +541,8 @@ describe("readData — tiered data, floor-gated", () => {
       [{ name: "region", type: "string", sensitivity: "cleared" }],
       {
         sampleRows: [
-          { region: "north", note: "a".repeat(100) },
-          { region: "south", note: "b".repeat(100) },
+          { region: "north".repeat(30) },
+          { region: "south".repeat(30) },
         ],
         maxRows: 2,
         maxSampleChars: 80,
