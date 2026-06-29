@@ -47,6 +47,10 @@
     "changeset": "changeset",
     "changeset:ai": "node scripts/ai-changeset.mjs",
     "changeset:status": "changeset status",
+    "clawpatch": "scripts/clawpatch.sh",
+    "clawpatch:map": "scripts/clawpatch.sh map --source heuristic --json",
+    "clawpatch:review": "scripts/clawpatch.sh review --since origin/main --json --no-input",
+    "clawpatch:review:branch": "scripts/clawpatch-review-branch.sh",
     "version": "changeset version && node scripts/annotate-web-changelog.mjs",
     "release": "changeset publish"
   },
