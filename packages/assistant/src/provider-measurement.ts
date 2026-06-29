@@ -136,6 +136,7 @@ export async function measureAssistantStream(args: {
       } else if (event.type === "error") {
         finalMessage = event.error;
         streamError = event.error.errorMessage ?? event.reason;
+        break;
       }
     }
     finalMessage ??= await args.stream.result();
@@ -236,9 +237,24 @@ export async function measureProviderRuns(
     },
   ];
 
-  const results: ProviderMeasurementResult[] = [];
-  for (const spec of specs) {
-    results.push(await measureProviderRun(spec, args.prompt));
-  }
-  return results;
+  const results = await Promise.allSettled(
+    specs.map((spec) => measureProviderRun(spec, args.prompt)),
+  );
+
+  return specs.map((spec, index) => {
+    const result = results[index]!;
+    if (result.status === "fulfilled") {
+      return result.value;
+    }
+
+    const startedAtMs = performance.now();
+    return failedMeasurement({
+      label: spec.label ?? spec.provider,
+      provider: spec.provider,
+      modelId: spec.modelId ?? "default",
+      startedAtMs,
+      startedAt: new Date().toISOString(),
+      error: result.reason,
+    });
+  });
 }

@@ -74,7 +74,18 @@ describe("provider measurement harness", () => {
       stopReason: "error",
       errorMessage: "no credentials",
     });
+    const later = message({
+      stopReason: "stop",
+      errorMessage: undefined,
+    });
     stream.push({ type: "error", reason: "error", error: final });
+    stream.push({
+      type: "text_delta",
+      contentIndex: 0,
+      delta: "should not be included",
+      partial: later,
+    });
+    stream.push({ type: "done", reason: "stop", message: later });
 
     const result = await measureAssistantStream({
       label: "fake-error",
@@ -86,5 +97,6 @@ describe("provider measurement harness", () => {
     expect(result.ok).toBe(false);
     expect(result.stopReason).toBe("error");
     expect(result.error).toBe("no credentials");
+    expect(result.outputPreview).toBe("");
   });
 });
