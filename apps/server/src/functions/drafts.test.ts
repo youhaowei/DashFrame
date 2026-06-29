@@ -81,7 +81,12 @@ describe("draft publish functions", () => {
       data: {
         publishBlocked: boolean;
         lateBound: unknown[];
-        commands: Array<{ path: string }>;
+        commands: Array<{
+          path: string;
+          hasArgs: boolean;
+          lateBoundCount: number;
+          args?: unknown;
+        }>;
         diff: { directNodes: Array<{ nodeId: string }> };
       };
     }>(
@@ -95,6 +100,12 @@ describe("draft publish functions", () => {
     expect(review.data.commands.map((command) => command.path)).toEqual([
       "createDataSource",
     ]);
+    expect(review.data.commands[0]).toMatchObject({
+      path: "createDataSource",
+      hasArgs: true,
+      lateBoundCount: 0,
+    });
+    expect(review.data.commands[0]).not.toHaveProperty("args");
     expect(review.data.diff.directNodes[0]?.nodeId).toBe(sourceId);
 
     await postJson(`${server.url}/api/publishDraft`, { draftId });
@@ -106,7 +117,7 @@ describe("draft publish functions", () => {
 
   it("blocks publish when the durable log contains late-bound operands", async () => {
     const app = await createWyStack({ db, functions });
-    const draftId = crypto.randomUUID();
+    const draftId = "text-draft-id";
     await db.insert(draftCommandLog).values({
       draftId,
       seq: 0,
@@ -138,6 +149,12 @@ describe("draft publish functions", () => {
         label: "data source name",
       },
     ]);
+    expect(review.commands).toHaveLength(1);
+    expect(review.commands[0]).toMatchObject({
+      path: "createDataSource",
+      hasArgs: true,
+      lateBoundCount: 1,
+    });
 
     await expect(
       app.call(

@@ -19,7 +19,7 @@ interface DraftPublishPageProps {
 function CommandLog({
   commands,
 }: {
-  commands: Array<{ path: string; args: unknown }>;
+  commands: Array<{ path: string; hasArgs: boolean; lateBoundCount: number }>;
 }) {
   if (commands.length === 0) {
     return (
@@ -44,9 +44,14 @@ function CommandLog({
               {command.path}
             </span>
           </div>
-          <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-neutral-fg-subtle">
-            {JSON.stringify(command.args ?? {}, null, 2)}
-          </pre>
+          <div className="mt-1 flex gap-2 text-[11px] leading-relaxed text-neutral-fg-subtle">
+            <span>
+              {command.hasArgs ? "Arguments present" : "No arguments"}
+            </span>
+            {command.lateBoundCount > 0 && (
+              <span>{command.lateBoundCount} late-bound</span>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -66,7 +71,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     try {
       await publish(draftId);
       toast.success("Draft published");
-      navigate({ to: "/" });
+      navigate({ to: "/", replace: true });
     } catch (error) {
       toast.error("Failed to publish draft", {
         description:
@@ -82,7 +87,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     try {
       await discard(draftId);
       toast.success("Draft discarded");
-      navigate({ to: "/" });
+      navigate({ to: "/", replace: true });
     } catch (error) {
       toast.error("Failed to discard draft", {
         description:

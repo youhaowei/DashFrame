@@ -77,6 +77,39 @@ describe("DraftController (persisted draft overlay)", () => {
     return controller.appendToDraft(draftId, commands);
   }
 
+  it("validates the durable publish log inside the publish transaction", async () => {
+    const draftId = "text-draft-id";
+    await db.insert(draftCommandLog).values({
+      draftId,
+      seq: 0,
+      path: "createDataSource",
+      args: {
+        id: id(),
+        type: "csv",
+        name: { kind: "lateBound", label: "name" },
+      },
+    });
+    const guardedController = createDraftController(app, db, {
+      validatePublishLog: (log) => {
+        if (
+          log.some(
+            (command) =>
+              (command.args as { name?: { kind?: string } } | undefined)?.name
+                ?.kind === "lateBound",
+          )
+        ) {
+          throw new Error("blocked late-bound publish");
+        }
+      },
+    });
+
+    await expect(guardedController.publishDraft(draftId)).rejects.toThrow(
+      "blocked late-bound publish",
+    );
+
+    expect(await guardedController.getDraftLog(draftId)).toHaveLength(1);
+  });
+
   /** Seed a DataSource + DataTable on CANONICAL (the draft's base). */
   async function seedTable(
     target: ReturnType<typeof createDraftController>,

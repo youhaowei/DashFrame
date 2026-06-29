@@ -95,6 +95,7 @@ const DRAFT_SHADOW_TABLES = [
  * `.transaction()` is a compile error, not a latent footgun.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
+type LogReader = Pick<ArtifactDb, "select">;
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -191,6 +192,12 @@ export interface CreateDraftControllerOptions {
   captureCredentials?: (
     cmd: DraftCommand,
   ) => Promise<{ command: DraftCommand; rollback: () => Promise<void> }>;
+  /**
+   * Host-owned publish guard over the exact durable log that will be replayed.
+   * Runs inside the publish transaction, after reloading `draft_command_log` and
+   * before `applyCommands`, so validation cannot drift from the replay source.
+   */
+  validatePublishLog?: (log: Command[]) => void;
 }
 
 /**
@@ -205,9 +212,13 @@ export function createDraftController(
   options: CreateDraftControllerOptions = {},
 ): DraftController {
   const { captureCredentials } = options;
+  const { validatePublishLog } = options;
   /** Read the draft's persisted command log, ordered for replay. */
-  async function readLog(draftId: string): Promise<DraftCommand[]> {
-    const rows = await db
+  async function readLog(
+    draftId: string,
+    exec: LogReader = db,
+  ): Promise<DraftCommand[]> {
+    const rows = await exec
       .select({
         path: draftCommandLog.path,
         args: draftCommandLog.args,
@@ -395,7 +406,6 @@ export function createDraftController(
 
     async publishDraft(draftId, context = {}) {
       // ONE publish path, warm or cold: the durable log is always the source.
-      const log = await readLog(draftId);
       // Replay the ordered command log onto CANONICAL, atomically. applyCommands
       // dispatches each command via the (wrapped) `runHandler`, which re-applies
       // `withDraftSeam` to the transaction tracker from THIS context. A `draftId`
@@ -425,6 +435,8 @@ export function createDraftController(
       // bound to this transaction — passing it to `deleteLog`/`sweepShadows`
       // routes their DELETEs through the same commit boundary as the replay.
       const result = await app.createTracked().transaction(async (tx) => {
+        const log = await readLog(draftId, tx.raw as LogReader);
+        validatePublishLog?.(log);
         const committed = (await applyCommands(app, log, {
           mode: "commit",
           context: publishContext,

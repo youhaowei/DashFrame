@@ -1,6 +1,6 @@
 import type { ArtifactDb } from "@dashframe/server-core";
 import type { PreviewDiff } from "@dashframe/types";
-import { uuid } from "@wystack/db";
+import { text } from "@wystack/db";
 import type { Command, WyStackApp } from "@wystack/server";
 import { query } from "@wystack/server";
 
@@ -17,10 +17,17 @@ export interface LateBoundOperandRef {
 
 export interface DraftPublishReview {
   draftId: string;
-  commands: Command[];
+  commands: DraftCommandSummary[];
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
+}
+
+export interface DraftCommandSummary {
+  id?: string;
+  path: string;
+  hasArgs: boolean;
+  lateBoundCount: number;
 }
 
 interface DraftFunctionContext {
@@ -91,13 +98,27 @@ export function findLateBound(commands: Command[]): LateBoundOperandRef[] {
   });
 }
 
+function summarizeCommands(
+  commands: Command[],
+  lateBound: LateBoundOperandRef[],
+): DraftCommandSummary[] {
+  return commands.map((command, commandIndex) => ({
+    id: command.id,
+    path: command.path,
+    hasArgs: command.args !== undefined && command.args !== null,
+    lateBoundCount: lateBound.filter(
+      (entry) => entry.commandIndex === commandIndex,
+    ).length,
+  }));
+}
+
 function handlerContext(ctx: unknown): Record<string, unknown> {
   const draftCtx = asDraftFunctionContext(ctx);
   return draftCtx.vault !== undefined ? { vault: draftCtx.vault } : {};
 }
 
 const draftPublishReview = query({
-  args: { draftId: uuid },
+  args: { draftId: text },
   handler: async (ctx, { draftId }): Promise<DraftPublishReview> => {
     const { app, db } = requireServerContext(ctx);
     const controller = createDraftController(app, db);
@@ -106,7 +127,7 @@ const draftPublishReview = query({
     const diff = await buildPreviewDiff(app, db, commands, handlerContext(ctx));
     return {
       draftId,
-      commands,
+      commands: summarizeCommands(commands, lateBound),
       diff,
       lateBound,
       publishBlocked: lateBound.length > 0 || diff.error !== undefined,

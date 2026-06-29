@@ -15,10 +15,17 @@ export interface LateBoundOperandRef {
 
 export interface DraftPublishReview {
   draftId: string;
-  commands: Array<{ id?: string; path: string; args: unknown }>;
+  commands: DraftCommandSummary[];
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
+}
+
+export interface DraftCommandSummary {
+  id?: string;
+  path: string;
+  hasArgs: boolean;
+  lateBoundCount: number;
 }
 
 export interface UseDraftPublishReviewResult {
@@ -34,7 +41,7 @@ export function useDraftPublishReview(
     skip: !draftId,
   });
   return {
-    data: result.data as DraftPublishReview | undefined,
+    data: result.data,
     isLoading: result.isLoading,
   };
 }
