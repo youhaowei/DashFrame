@@ -13,7 +13,11 @@ branch="${1:?usage: clawpatch-review-branch.sh <branch> [-- extra review flags]}
 shift
 
 extra_args=()
-if [[ "${1:-}" == "--" ]]; then
+if [[ $# -gt 0 ]]; then
+  if [[ "${1:-}" != "--" ]]; then
+    echo "usage: clawpatch-review-branch.sh <branch> [-- extra review flags]" >&2
+    exit 1
+  fi
   shift
   extra_args=("$@")
 fi

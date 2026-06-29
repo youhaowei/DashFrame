@@ -12,7 +12,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 git_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 main_root=$(dirname "$git_dir")
-project_name=$(basename "$main_root")
+project_name="$(basename "$main_root")-$(printf '%s' "$git_dir" | cksum | cut -d' ' -f1)"
 
 # Parse explicit --state-dir (or -s) from caller args before any default/pre-flight init
 state_dir_from_arg=""
