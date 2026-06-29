@@ -595,6 +595,20 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.sample?.truncated).toBe(true);
   });
 
+  it("does not throw when budgeting samples with bigint values", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblCounts" },
+      false,
+      [{ name: "count", type: "bigint", sensitivity: "cleared" }],
+      {
+        sampleRows: [{ count: 42n }, { count: 99n }],
+        maxRows: 2,
+      },
+    );
+    expect(data.sample?.tier).toBe("raw");
+    expect(data.sample?.rows).toEqual([{ count: 42n }, { count: 99n }]);
+  });
+
   it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {
     const reader = makeReader();
     const { readData } = createReadTools(reader);
