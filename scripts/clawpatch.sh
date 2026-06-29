@@ -10,9 +10,27 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-project_name="$(basename "$repo_root")"
+git_dir=$(git rev-parse --git-common-dir); main_root=$(dirname "$git_dir"); project_name=$(basename "$main_root")
 
-if [[ -n "${CLAWPATCH_STATE_DIR:-}" ]]; then
+# Parse explicit --state-dir (or -s) from caller args before any default/pre-flight init
+state_dir_from_arg=""
+parse_args=("$@")
+while [[ ${#parse_args[@]} -gt 0 ]]; do
+  arg="${parse_args[0]}"
+  parse_args=("${parse_args[@]:1}")
+  if [[ "$arg" == "--state-dir" && ${#parse_args[@]} -gt 0 ]]; then
+    state_dir_from_arg="${parse_args[0]}"; break
+  elif [[ "$arg" == --state-dir=* ]]; then
+    state_dir_from_arg="${arg#*=}"; break
+  elif [[ "$arg" == "-s" && ${#parse_args[@]} -gt 0 ]]; then
+    state_dir_from_arg="${parse_args[0]}"; break
+  elif [[ "$arg" == -s=* ]]; then
+    state_dir_from_arg="${arg#*=}"; break
+  fi
+done
+if [[ -n "$state_dir_from_arg" ]]; then
+  state_dir="$state_dir_from_arg"
+elif [[ -n "${CLAWPATCH_STATE_DIR:-}" ]]; then
   state_dir="$CLAWPATCH_STATE_DIR"
 elif [[ -n "${XDG_STATE_HOME:-}" ]]; then
   preferred_state_dir="${XDG_STATE_HOME}/clawpatch/$project_name"
