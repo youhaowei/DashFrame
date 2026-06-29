@@ -62,7 +62,10 @@ function projectAndTierRow(
 }
 
 function withinBudget(rows: Array<Record<string, unknown>>, budget: number) {
-  return JSON.stringify(rows).length <= budget;
+  return (
+    JSON.stringify(rows, (_, v) => (typeof v === "bigint" ? String(v) : v))
+      .length <= budget
+  );
 }
 
 function selectRowsUnderBudget(
