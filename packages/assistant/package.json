@@ -4,13 +4,11 @@
   "private": true,
   "type": "module",
   "description": "OAuth credential lifecycle and tool-layer helper for the DashFrame assistant",
-  "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "default": "./dist/index.js"
+      "bun": "./src/index.ts"
     }
   },
   "engines": {
