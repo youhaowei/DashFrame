@@ -264,6 +264,14 @@ function stampAgentProvenance(type: string, args: unknown): unknown {
   return { ...(args as Record<string, unknown>), createdBy: { kind: "agent" } };
 }
 
+function stringifyResultForText(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return "[unserializable result]";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // applyCommand result detail
 // ---------------------------------------------------------------------------
@@ -481,7 +489,7 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
             type: "text" as const,
             text:
               `Command "${type}" applied to draft. ` +
-              `Result: ${JSON.stringify(result.value ?? null)}`,
+              `Result: ${stringifyResultForText(result.value)}`,
           },
         ],
         details: {

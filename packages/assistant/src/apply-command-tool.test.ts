@@ -135,6 +135,33 @@ describe("createApplyCommandTool — happy path", () => {
     expect(result.content[0]?.type).toBe("text");
   });
 
+  it("does not fail a successful append when result text is not JSON-serializable", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: 1n }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-bigint",
+      buildCommand,
+    });
+
+    const result = await tool.execute("call-bigint", {
+      type: "CreateDashboard",
+      args: { id: "dash-bigint", name: "BigInt result" },
+    });
+
+    expect(controller.appendCalls).toHaveLength(1);
+    expect(result.details.commandType).toBe("CreateDashboard");
+    expect(result.details.commandResult).toBe(1n);
+    expect(result.content[0]?.type).toBe("text");
+    const textContent = result.content[0];
+    expect(textContent?.type).toBe("text");
+    if (textContent?.type !== "text") {
+      throw new Error("expected text content");
+    }
+    expect(textContent.text).toContain("[unserializable result]");
+  });
+
   it("passes the exact (type, args) pair to buildCommand unchanged", async () => {
     const controller = makeMockController();
     const buildCommandSpy = vi.fn(buildCommand);
