@@ -4,11 +4,14 @@
   "private": true,
   "type": "module",
   "description": "OAuth credential lifecycle and tool-layer helper for the DashFrame assistant",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "engines": {
@@ -16,12 +19,12 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "bun build src/index.ts --target=node --format=esm --outdir=dist --entry-naming='[name].[ext]' --sourcemap=linked && tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src",
     "measure:providers": "bun src/provider-measurement.cli.ts",
-    "check": "bun run typecheck && bun run lint && bun run test"
+    "check": "bun run build && bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
     "@dashframe/types": "workspace:*",
