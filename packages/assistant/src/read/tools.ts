@@ -279,6 +279,7 @@ export function createReadTools(reader: GraphReader) {
             {
               sampleRows,
               maxRows: 5,
+              maskAllValues: result.resolution === "unresolved",
             },
           );
           if (

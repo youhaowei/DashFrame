@@ -725,4 +725,32 @@ describe("readData — tiered data, floor-gated", () => {
     if (content?.type !== "text") throw new Error("expected text content");
     expect(content.text).toContain("Unresolved source; fail-closed");
   });
+
+  it("fully obfuscates samples when lineage resolution is unresolved", async () => {
+    const node = { kind: "insight" as const, id: "insPartiallyResolved" };
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataProfile: async () => ({
+        node,
+        masked: true,
+        resolution: "unresolved",
+        unresolvedReason: "lineage incomplete",
+        columns: [
+          { name: "email", type: "string", sensitivity: "sensitive" },
+          { name: "amount", type: "number", sensitivity: "cleared" },
+        ],
+      }),
+      readDataSample: async () => [{ email: "a@example.com", amount: 42 }],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", node);
+
+    const data = res.details as DataReadResult;
+    expect(data.sample).toEqual({
+      tier: "obfuscated",
+      rows: [{ email: "<text>", amount: 0 }],
+      rowCount: 1,
+      truncated: false,
+    });
+  });
 });
