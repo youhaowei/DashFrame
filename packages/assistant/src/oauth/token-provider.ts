@@ -49,6 +49,13 @@ function parseExpiresAt(raw: number | string | undefined): number | undefined {
   return undefined;
 }
 
+function formatExpiresAtForLog(raw: number | string | undefined): string {
+  if (raw === undefined) return "none";
+  const expiresAtMs = parseExpiresAt(raw);
+  if (expiresAtMs === undefined) return "invalid";
+  return new Date(expiresAtMs).toISOString();
+}
+
 /**
  * Returns a live Claude Code OAuth access token (sk-ant-oat…).
  *
@@ -206,7 +213,7 @@ export function getOAuthToken(
         // interpolating it here is safe.
         // ------------------------------------------------------------------
         process.stderr.write(
-          `[assistant/oauth] keychain access token expired (expiresAt=${kc.expiresAt ?? "none"}); refreshing in-memory…\n`,
+          `[assistant/oauth] keychain access token expired (expiresAt=${formatExpiresAtForLog(kc.expiresAt)}); refreshing in-memory…\n`,
         );
         const rotated: RefreshedCredentials = await refresher(refreshToken);
 

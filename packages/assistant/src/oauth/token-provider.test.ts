@@ -145,6 +145,57 @@ describe("getOAuthToken — security invariant", () => {
       vi.restoreAllMocks();
     }
   });
+
+  it("should never log a malformed expiresAt keychain value", async () => {
+    const leakedExpiresAt = "sk-ant-oat-should-not-log";
+    const mockKeychain = makeKeychain({
+      expiresAt: leakedExpiresAt,
+      accessToken: "sk-ant-oat-mock-stale-access-token",
+      refreshToken: "mock-refresh-token",
+    });
+    const mockReadKeychain = vi.fn(async () => mockKeychain);
+    const mockFetchRefresh = vi.fn(async (_rt: string) => makeRotated());
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const origStdout = process.stdout.write.bind(process.stdout);
+    const origStderr = process.stderr.write.bind(process.stderr);
+
+    process.stdout.write = (chunk: unknown) => {
+      stdoutChunks.push(String(chunk));
+      return origStdout(chunk as Parameters<typeof origStdout>[0]);
+    };
+    process.stderr.write = (chunk: unknown) => {
+      stderrChunks.push(String(chunk));
+      return origStderr(chunk as Parameters<typeof origStderr>[0]);
+    };
+
+    const consoleSpy = {
+      log: vi.spyOn(console, "log").mockImplementation(() => {}),
+      error: vi.spyOn(console, "error").mockImplementation(() => {}),
+      warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+      debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
+    };
+
+    try {
+      await getOAuthToken({
+        readKeychain: mockReadKeychain,
+        fetchRefresh: mockFetchRefresh,
+      });
+      const allOutput = [...stdoutChunks, ...stderrChunks].join("\n");
+      expect(allOutput).not.toContain(leakedExpiresAt);
+      expect(allOutput).toContain("expiresAt=invalid");
+
+      for (const spy of Object.values(consoleSpy)) {
+        const allArgs = spy.mock.calls.flat().map(String).join("\n");
+        expect(allArgs).not.toContain(leakedExpiresAt);
+      }
+    } finally {
+      process.stdout.write = origStdout;
+      process.stderr.write = origStderr;
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
