@@ -86,7 +86,7 @@ export async function refreshAccessToken(
     refresh_token?: string;
     expires_in?: unknown;
   };
-  if (!data.access_token) {
+  if (typeof data.access_token !== "string" || data.access_token.length === 0) {
     throw new Error("refresh response had no access_token field");
   }
 
