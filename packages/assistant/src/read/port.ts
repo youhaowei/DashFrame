@@ -89,7 +89,8 @@ export interface DashboardRead {
  *
  * STRUCTURE FLOWS UNGATED. Every value returned here is a DEFINITION (names,
  * types, edge ids, encoding shape) — never row data. Row/value data is a
- * separate egress: it flows ONLY through `readDataProfile` (and ./floor.ts).
+ * separate egress: it flows through `readDataProfile` plus optional
+ * `readDataSample` rows, then through the perception assembler and ./floor.ts.
  * DataSource configs already arrive credential-free from the server seam
  * (presence booleans, never secrets — see app-artifacts.ts `rowToDataSource`).
  */
@@ -115,12 +116,25 @@ export interface GraphReader {
   /**
    * Tiered DATA read for one artifact (a table or an insight result). This is
    * the VALUE egress — the host implementation MUST route the returned payload
-   * through the privacy floor (./floor.ts). Returns column PROFILES only in
-   * v0.3 (the conservative floor until the perception assembler lands;
-   * see ./floor.ts). The reader exposes it so the data tool (./tools.ts) never
-   * reaches past the port for row data.
+   * through the privacy floor (./floor.ts). Always returns column profiles; the
+   * data tool may attach `DataReadResult.sample` from `readDataSample` when the
+   * host can provide bounded rows. The reader exposes both methods so the data
+   * tool (./tools.ts) never reaches past the port for row data.
    */
   readDataProfile(node: NodeRef): Promise<DataReadResult>;
+
+  /**
+   * Optional tiered row sample source for the perception assembler. Hosts that
+   * can safely execute a bounded sample query provide this; hosts that cannot
+   * leave it unset and `readData` remains profiles-only. Returned rows are not
+   * exposed directly: the data tool converts them into a `DataReadSample` on
+   * `DataReadResult.sample`, and the privacy floor decides whether values flow
+   * raw, obfuscated, or not at all.
+   */
+  readDataSample?(
+    node: NodeRef,
+    opts: { maxRows: number },
+  ): Promise<ReadonlyArray<Record<string, unknown>>>;
 
   /**
    * Open a project SOURCE file as text — the agent's BACKUP/verification path
@@ -137,9 +151,10 @@ export interface GraphReader {
 // ---------------------------------------------------------------------------
 
 /**
- * Per-column profile — SHAPE, never raw rows. The floor-held default until the
- * perception assembler can produce the tiered profile→obfuscated→real
- * sample. `sensitivity` is the column's own classification (inherit-source key).
+ * Per-column profile — SHAPE, never raw rows. Profiles are always present; any
+ * row values live in `DataReadResult.sample` after the perception assembler
+ * applies the privacy floor. `sensitivity` is the column's own classification
+ * (inherit-source key).
  */
 export interface ColumnProfile {
   name: string;
@@ -155,20 +170,27 @@ export interface ColumnProfile {
 
 /**
  * The result of a tiered data read. STRUCTURE (the column profiles' names/types/
- * sensitivity) is always present and ungated. Whether the read is MASKED is the
- * binary inherit-source decision (./floor.ts): any source column sensitive →
- * masked. `sample` is reserved for the post-assembler tiered real/obfuscated rows;
- * it is ALWAYS `undefined` in v0.3 (profiles-only).
+ * sensitivity) is always present and ungated. `masked` means protected data is
+ * present or lineage was incomplete; the perception assembler still keeps
+ * cleared sample columns useful when it can prove their column sensitivity.
+ * `sample` is optional because hosts may not have a safe row sampler; when
+ * present it is budgeted by the perception assembler.
  */
 export interface DataReadResult {
   node: NodeRef;
-  /** True when any contributing source column is sensitive (inherit-source). */
+  /** True when protected fields are present, or lineage was incomplete. */
   masked: boolean;
-  /** Per-column profiles — the only value data v0.3 emits. */
+  /** Per-column profiles — always emitted when the artifact can be profiled. */
   columns: ColumnProfile[];
-  /**
-   * Reserved seam: tiered row sample (real | obfuscated). Wires to the
-   * perception assembler when it lands; ALWAYS `undefined` until then.
-   */
-  sample?: never;
+  /** Tiered row sample selected under a bounded budget, when available. */
+  sample?: DataReadSample;
+}
+
+/** A budgeted sample selected by the perception assembler. */
+export interface DataReadSample {
+  /** raw: all values visible; mixed: protected columns obfuscated; obfuscated: all values hidden. */
+  tier: "raw" | "mixed" | "obfuscated";
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  truncated: boolean;
 }

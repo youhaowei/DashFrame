@@ -12,8 +12,8 @@
  *   - readNeighborhood = invocation point + 1 hop, NOT the whole graph.
  *   - readGraph / find navigate BEYOND one hop.
  *   - readArtifact returns structure (the definition), ungated.
- *   - readData masks (profiles-only) when a source column is sensitive; never
- *     gates structure; emits NO raw rows and NO result-classification.
+ *   - readData always emits profiles; optional samples keep cleared columns raw
+ *     and obfuscate restricted columns; structure is never gated.
  */
 
 import type {
@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 
 import { applyFloor, isMaskedBySource } from "./floor.js";
 import { neighbors, search, traverse } from "./graph.js";
+import { assembleDataRead } from "./perception.js";
 import type {
   DashboardRead,
   DataFrameRead,
@@ -417,7 +418,7 @@ describe("readData — tiered data, floor-gated", () => {
     expect(ins.columns.find((c) => c.name === "email")!.sensitivity).toBe(
       "sensitive",
     );
-    // Profiles-only: NO raw rows. (`sample` is the never-set seam.)
+    // Profiles-only by default: no host sampler, so no rows.
     expect(ins.sample).toBeUndefined();
 
     // Same masking applies reading the underlying TABLE directly.
@@ -438,8 +439,216 @@ describe("readData — tiered data, floor-gated", () => {
     const data = res.details as DataReadResult;
     expect(data.masked).toBe(false);
     expect(data.columns.map((c) => c.name)).toEqual(["region"]);
-    // Even unmasked, v0.3 emits profiles-only — no raw sample until the perception assembler lands.
+    // Even unmasked, no sample is emitted unless the host provides a sampler.
     expect(data.sample).toBeUndefined();
+  });
+
+  it("degrades to profiles-only when readDataSample fails", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => {
+        throw new Error("query timeout");
+      },
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(false);
+    expect(data.columns.map((c) => c.name)).toEqual(["region"]);
+    expect(data.sample).toBeUndefined();
+    expect((res.content[0] as { text?: string } | undefined)?.text).toContain(
+      "No raw rows (profiles-only floor)",
+    );
+  });
+
+  it("returns bounded raw samples when the floor allows values", async () => {
+    let sampleCall: { node: unknown; opts: unknown } | undefined;
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async (node, opts) => {
+        sampleCall = { node, opts };
+        return [{ region: "north" }, { region: "south" }, { region: "west" }];
+      },
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(false);
+    expect(sampleCall).toBeDefined();
+    expect(sampleCall!.opts).toEqual({ maxRows: 5 });
+    expect(sampleCall!.node).toEqual({ kind: "dataTable", id: "tblPublic" });
+    expect(data.sample).toEqual({
+      tier: "raw",
+      rows: [{ region: "north" }, { region: "south" }, { region: "west" }],
+      rowCount: 3,
+      truncated: false,
+    });
+  });
+
+  it("omits sample when sampleRows is undefined", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+    );
+    expect(data.sample).toBeUndefined();
+  });
+
+  it("preserves empty sample tier when the sampler returns no rows", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      { sampleRows: [] },
+    );
+    expect(data.sample).toEqual({
+      tier: "raw",
+      rows: [],
+      rowCount: 0,
+      truncated: false,
+    });
+  });
+
+  it("drops unprofiled sample fields before returning raw rows", async () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        sampleRows: [{ region: "north", email: "alice@example.com" }],
+      },
+    );
+    expect(data.sample?.rows).toEqual([{ region: "north" }]);
+  });
+
+  it("keeps cleared sample columns raw while obfuscating restricted columns", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => [{ email: "alice@example.com", amount: 42 }],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblOrders",
+    });
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(true);
+    expect(data.sample).toEqual({
+      tier: "mixed",
+      rows: [{ email: "<text>", amount: 42 }],
+      rowCount: 1,
+      truncated: false,
+    });
+  });
+
+  it("collapses arrays while obfuscating restricted columns", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblOrders" },
+      true,
+      [{ name: "diagnoses", type: "array", sensitivity: "sensitive" }],
+      {
+        sampleRows: [{ diagnoses: ["a", "b", "c"] }],
+      },
+    );
+    expect(data.sample?.rows).toEqual([{ diagnoses: "<array>" }]);
+  });
+
+  it("obfuscates every sample value when lineage is incomplete", () => {
+    const data = applyFloor(
+      { kind: "insight", id: "insUnknown" },
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        forceMask: true,
+        sampleRows: [{ region: "north" }],
+      },
+    );
+    expect(data.sample).toEqual({
+      tier: "obfuscated",
+      rows: [{ region: "<text>" }],
+      rowCount: 1,
+      truncated: false,
+    });
+  });
+
+  it("reports an empty sample when the sampler returns no rows and no profile sample exists", async () => {
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataSample: async () => [],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    expect((res.details as DataReadResult).sample).toEqual({
+      tier: "raw",
+      rows: [],
+      rowCount: 0,
+      truncated: false,
+    });
+  });
+
+  it("keeps an existing profile sample when the optional sampler returns no rows", async () => {
+    const existingSample: DataReadResult["sample"] = {
+      tier: "raw",
+      rows: [{ region: "north" }],
+      rowCount: 1,
+      truncated: false,
+    };
+    const reader: GraphReader = {
+      ...makeReader(),
+      readDataProfile: async (node) => ({
+        ...applyFloor(node, [FIELD_REGION]),
+        sample: existingSample,
+      }),
+      readDataSample: async () => [],
+    };
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "dataTable",
+      id: "tblPublic",
+    });
+    expect((res.details as DataReadResult).sample).toEqual(existingSample);
+  });
+
+  it("truncates samples under the assembler budget", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblPublic" },
+      false,
+      [{ name: "region", type: "string", sensitivity: "cleared" }],
+      {
+        sampleRows: [
+          { region: "north".repeat(30) },
+          { region: "south".repeat(30) },
+        ],
+        maxRows: 2,
+        maxSampleChars: 80,
+      },
+    );
+    expect(data.sample?.tier).toBe("raw");
+    expect(data.sample?.rows).toHaveLength(0);
+    expect(data.sample?.rowCount).toBe(2);
+    expect(data.sample?.truncated).toBe(true);
+  });
+
+  it("does not throw when budgeting samples with bigint values", () => {
+    const data = assembleDataRead(
+      { kind: "dataTable", id: "tblCounts" },
+      false,
+      [{ name: "count", type: "bigint", sensitivity: "cleared" }],
+      {
+        sampleRows: [{ count: 42n }, { count: 99n }],
+        maxRows: 2,
+      },
+    );
+    expect(data.sample?.tier).toBe("raw");
+    expect(data.sample?.rows).toEqual([{ count: 42n }, { count: 99n }]);
   });
 
   it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {

@@ -24,6 +24,7 @@ import { defineToolHandler, Type, type Static } from "../tool.js";
 
 import type { Neighborhood, ReachedNode, SearchHit } from "./graph.js";
 import { neighbors, search, summarize, traverse } from "./graph.js";
+import { assembleDataRead } from "./perception.js";
 import type {
   DashboardRead,
   DataReadResult,
@@ -244,22 +245,50 @@ export function createReadTools(reader: GraphReader) {
       "Read a tiered DATA sample for a data table or an insight result. " +
       "Column structure (names, types, sensitivity) always flows. VALUES are " +
       "floor-gated: if any contributing SOURCE column is sensitive, the read " +
-      "is MASKED. In v0.3 every read returns column PROFILES only (shape/stats, " +
-      "never raw rows) — the conservative floor until the perception assembler " +
-      "lands; a masked read is the same profiles flagged masked.",
+      "is MASKED. Every read returns column PROFILES (shape/stats). If the " +
+      "host supplies a bounded sample, cleared columns may include raw values; " +
+      "restricted columns are obfuscated. Incomplete lineage obfuscates every value.",
     label: "Read data",
     parameters: ReadDataSchema,
     async execute(_id, params): Promise<AgentToolResult<DataReadResult>> {
       const node: NodeRef = { kind: params.kind, id: params.id };
-      // The port's readDataProfile IS the floor-gated sink (host wires it to
-      // ./floor.applyFloor over the artifact's source fields). The tool never
-      // assembles value data itself — single egress boundary.
+      // The port's readDataProfile IS the floor-gated profile sink (host wires
+      // it to ./floor.applyFloor over the artifact's source fields). Optional
+      // sample rows still enter only through the port and are immediately
+      // reassembled under the same column-aware floor before reaching the agent.
       const result = await reader.readDataProfile(node);
+      if (reader.readDataSample !== undefined) {
+        try {
+          const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
+          const assembled = assembleDataRead(
+            node,
+            result.masked,
+            result.columns,
+            {
+              sampleRows,
+              maxRows: 5,
+            },
+          );
+          if (
+            assembled.sample !== undefined &&
+            (result.sample === undefined || assembled.sample.rowCount > 0)
+          ) {
+            result.sample = assembled.sample;
+          }
+        } catch {
+          // Sample fetch is best-effort; profiles still return on DB/query failures.
+        }
+      }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
+      const truncNote = result.sample?.truncated ? " (truncated)" : "";
+      const sample =
+        result.sample !== undefined
+          ? ` ${result.sample.rowCount} ${result.sample.tier} sample row(s)${truncNote}.`
+          : " No raw rows (profiles-only floor).";
       return {
         ...text(
           `${result.columns.length} column profile(s) for ${params.kind} ` +
-            `${params.id}${masked}. No raw rows (profiles-only floor).`,
+            `${params.id}${masked}.${sample}`,
         ),
         details: result,
       };
