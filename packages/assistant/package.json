@@ -5,12 +5,16 @@
   "type": "module",
   "description": "OAuth credential lifecycle and tool-layer helper for the DashFrame assistant",
   "main": "src/index.ts",
-  "types": "src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
+      "types": "./src/index.ts",
       "bun": "./src/index.ts",
       "default": "./src/index.ts"
     }
+  },
+  "engines": {
+    "bun": ">=1.3.0"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
