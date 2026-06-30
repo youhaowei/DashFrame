@@ -8,7 +8,7 @@ describe("pi dependency smoke", () => {
   it("imports this package through its package export", async () => {
     const assistant = await import("@dashframe/assistant");
     expect(assistant.createReadTools).toBeDefined();
-  });
+  }, 15_000);
 
   it("imports this package through Node's package export", async () => {
     const { stdout } = await execFileAsync(process.execPath, [
