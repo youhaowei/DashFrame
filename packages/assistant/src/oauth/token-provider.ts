@@ -152,6 +152,41 @@ function getCredentialState(
   return state;
 }
 
+function wrapRefreshError(err: unknown): never {
+  if (err instanceof OAuthTokenExpiredError) throw err;
+  const cause = err instanceof Error ? err.message : String(err);
+  throw new OAuthTokenExpiredError(
+    `OAuth refresh failed — re-authenticate with Claude Code. Cause: ${cause}`,
+    { cause: err },
+  );
+}
+
+async function refreshWithToken(
+  state: CredentialState,
+  refresher: NonNullable<TokenProviderOptions["fetchRefresh"]>,
+  refreshToken: string,
+): Promise<string> {
+  try {
+    const rotated: RefreshedCredentials = await refresher(refreshToken);
+    const newExpiresAtMs =
+      typeof rotated.expiresIn === "number"
+        ? Date.now() + rotated.expiresIn * 1000
+        : undefined;
+
+    state.inMemoryCredentials = {
+      accessToken: rotated.accessToken,
+      // If the server didn't return a new refresh token (non-rotating server),
+      // keep the one we just used so the next cycle still has a token to try.
+      refreshToken: rotated.refreshToken ?? refreshToken,
+      expiresAtMs: newExpiresAtMs,
+    };
+
+    return rotated.accessToken;
+  } catch (err) {
+    wrapRefreshError(err);
+  }
+}
+
 /**
  * In-flight refresh Promise (single-flight dedup).
  *
@@ -207,6 +242,14 @@ export function getOAuthToken(
   // ------------------------------------------------------------------
   state.inFlightRefresh = (async (): Promise<string> => {
     try {
+      if (state.inMemoryCredentials) {
+        return refreshWithToken(
+          state,
+          refresher,
+          state.inMemoryCredentials.refreshToken,
+        );
+      }
+
       // Read from keychain (first call, or in-memory slot exhausted before
       // we had a chance to refresh it).
       const kc = await keychainReader();
@@ -239,8 +282,7 @@ export function getOAuthToken(
         // (potentially rotated) token over the keychain's original, which may
         // be dead after a prior rotation.
         // ------------------------------------------------------------------
-        const refreshToken =
-          state.inMemoryCredentials?.refreshToken ?? kc.refreshToken;
+        const refreshToken = kc.refreshToken;
 
         if (!refreshToken) {
           throw new OAuthTokenExpiredError(
@@ -256,35 +298,9 @@ export function getOAuthToken(
         process.stderr.write(
           `[assistant/oauth] keychain access token expired (expiresAt=${formatExpiresAtForLog(kc.expiresAt)}); refreshing in-memory…\n`,
         );
-        const rotated: RefreshedCredentials = await refresher(refreshToken);
-
-        // ------------------------------------------------------------------
-        // Update the in-memory credential slot with the rotated values.
-        // Claude Code rotates the refresh token on every successful refresh —
-        // the old token is dead. We hold the new token in-memory; the keychain
-        // entry is NOT written back (would race Claude Code's own refresher).
-        // ------------------------------------------------------------------
-        const newExpiresAtMs =
-          typeof rotated.expiresIn === "number"
-            ? Date.now() + rotated.expiresIn * 1000
-            : undefined;
-
-        state.inMemoryCredentials = {
-          accessToken: rotated.accessToken,
-          // If the server didn't return a new refresh token (non-rotating server),
-          // keep the one we just used so the next cycle still has a token to try.
-          refreshToken: rotated.refreshToken ?? refreshToken,
-          expiresAtMs: newExpiresAtMs,
-        };
-
-        return rotated.accessToken;
+        return refreshWithToken(state, refresher, refreshToken);
       } catch (err) {
-        if (err instanceof OAuthTokenExpiredError) throw err;
-        const cause = err instanceof Error ? err.message : String(err);
-        throw new OAuthTokenExpiredError(
-          `OAuth refresh failed — re-authenticate with Claude Code. Cause: ${cause}`,
-          { cause: err },
-        );
+        wrapRefreshError(err);
       }
     } finally {
       // Clear the in-flight guard regardless of outcome so subsequent calls

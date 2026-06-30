@@ -409,6 +409,59 @@ describe("getOAuthToken — expired token refresh", () => {
       Date.now = originalDateNow;
     }
   });
+
+  it("refreshes a stale in-memory token even when the keychain is unavailable", async () => {
+    const originalDateNow = Date.now;
+    let fakeNow = originalDateNow();
+    Date.now = () => fakeNow;
+
+    try {
+      const mockReadKeychain = vi
+        .fn()
+        .mockResolvedValueOnce(makeKeychain({ expiresAt: fakeNow - 100 }))
+        .mockRejectedValueOnce(
+          new Error("Failed to read Claude Code credentials from keychain"),
+        );
+      const firstRotated: RefreshedCredentials = {
+        accessToken: "sk-ant-oat-first-memory-access",
+        refreshToken: "rotated-refresh-token-v2",
+        expiresIn: 60,
+      };
+      const secondRotated: RefreshedCredentials = {
+        accessToken: "sk-ant-oat-second-memory-access",
+        refreshToken: "rotated-refresh-token-v3",
+        expiresIn: 3600,
+      };
+      const mockFetchRefresh = vi
+        .fn()
+        .mockResolvedValueOnce(firstRotated)
+        .mockResolvedValueOnce(secondRotated);
+
+      await expect(
+        getOAuthToken({
+          readKeychain: mockReadKeychain,
+          fetchRefresh: mockFetchRefresh,
+        }),
+      ).resolves.toBe(firstRotated.accessToken);
+
+      fakeNow += (60 + 61) * 1000;
+
+      await expect(
+        getOAuthToken({
+          readKeychain: mockReadKeychain,
+          fetchRefresh: mockFetchRefresh,
+        }),
+      ).resolves.toBe(secondRotated.accessToken);
+
+      expect(mockReadKeychain).toHaveBeenCalledTimes(1);
+      expect(mockFetchRefresh).toHaveBeenCalledTimes(2);
+      expect(mockFetchRefresh.mock.calls[1]?.[0]).toBe(
+        firstRotated.refreshToken,
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
