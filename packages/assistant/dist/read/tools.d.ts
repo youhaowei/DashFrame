@@ -64,7 +64,9 @@ export declare function createReadTools(reader: GraphReader): {
     readData: import("@earendil-works/pi-agent-core").AgentTool<Type.TObject<{
         kind: Type.TUnion<[Type.TLiteral<"dataTable">, Type.TLiteral<"insight">]>;
         id: Type.TString;
-    }>, DataReadResult>;
+    }>, DataReadResult | {
+        error: string;
+    }>;
     readSource: import("@earendil-works/pi-agent-core").AgentTool<Type.TObject<{
         file: Type.TString;
     }>, {

@@ -119,6 +119,14 @@ const INS_COMPOSED: Insight = {
   metrics: [],
   createdAt: 0,
 };
+const INS_UNRESOLVED: Insight = {
+  id: "insUnresolved",
+  name: "Broken field reference",
+  baseTableId: "tblPublic",
+  selectedFields: ["f-missing"],
+  metrics: [],
+  createdAt: 0,
+};
 const VIZ_BAR: Visualization = {
   id: "vizBar",
   insightId: "insRevenue",
@@ -144,20 +152,33 @@ const DATAFRAME: DataFrameRead = {
  * resolves the artifact's source fields and runs them through `applyFloor`. */
 function makeReader(): GraphReader {
   const tables = [TBL_ORDERS, TBL_PUBLIC];
-  const insights = [INS_REVENUE, INS_PUBLIC, INS_COMPOSED];
+  const insights = [INS_REVENUE, INS_PUBLIC, INS_COMPOSED, INS_UNRESOLVED];
   const vizzes = [VIZ_BAR];
   const dashboards = [DASH_MAIN];
 
-  const sourceFieldsFor = (node: NodeRef): Field[] => {
-    if (node.kind === "dataTable")
-      return tables.find((t) => t.id === node.id)?.fields ?? [];
+  const sourceFieldsFor = (
+    node: NodeRef,
+  ): { fields: Field[]; missing: boolean; unresolved: boolean } => {
+    if (node.kind === "dataTable") {
+      const table = tables.find((t) => t.id === node.id);
+      return {
+        fields: table?.fields ?? [],
+        missing: table === undefined,
+        unresolved: false,
+      };
+    }
     const ins = insights.find((i) => i.id === node.id);
-    if (!ins) return [];
+    if (!ins) return { fields: [], missing: true, unresolved: false };
     const tbl = tables.find((t) => t.id === ins.baseTableId);
     const byId = new Map((tbl?.fields ?? []).map((f) => [f.id, f]));
-    return (ins.selectedFields ?? [])
+    const fields = (ins.selectedFields ?? [])
       .map((id) => byId.get(id))
       .filter((f): f is Field => f !== undefined);
+    return {
+      fields,
+      missing: false,
+      unresolved: (ins.selectedFields ?? []).length > fields.length,
+    };
   };
 
   return {
@@ -179,15 +200,26 @@ function makeReader(): GraphReader {
     listDashboards: async () => dashboards,
     getDataFrameByInsight: async (insightId) =>
       insightId === "insRevenue" ? DATAFRAME : null,
-    readDataProfile: async (node) =>
-      applyFloor(
+    readDataProfile: async (node) => {
+      const source = sourceFieldsFor(node);
+      if (source.missing) return null;
+      const result = applyFloor(
         node,
-        sourceFieldsFor(node).map((f) => ({
+        source.fields.map((f) => ({
           name: f.name,
           type: f.type,
           sensitivity: f.sensitivity,
         })),
-      ),
+        { forceMask: source.unresolved },
+      );
+      return source.unresolved
+        ? {
+            ...result,
+            resolution: "unresolved",
+            unresolvedReason: "one or more selected fields could not resolve",
+          }
+        : { ...result, resolution: "complete" };
+    },
     readSource: async (file) =>
       file === "apps/server/src/functions/commands.ts"
         ? "// source text"
@@ -294,8 +326,8 @@ describe("readGraph / find — global reach beyond one hop", () => {
   it("empty find lists every node (the ls)", async () => {
     const reader = makeReader();
     const hits = await search(reader, {});
-    // 1 source + 2 tables + 1 dataFrame + 3 insights + 1 viz + 1 dashboard = 9
-    expect(hits.length).toBe(9);
+    // 1 source + 2 tables + 1 dataFrame + 4 insights + 1 viz + 1 dashboard = 10
+    expect(hits.length).toBe(10);
   });
 });
 
@@ -659,5 +691,38 @@ describe("readData — tiered data, floor-gated", () => {
       id: "tblPublic",
     });
     expect((res.details as DataReadResult).masked).toBe(false);
+  });
+
+  it("reports not_found for a missing data artifact", async () => {
+    const reader = makeReader();
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "insight",
+      id: "insMissing",
+    });
+
+    expect(res.details).toEqual({ error: "not_found" });
+    const content = res.content[0];
+    expect(content?.type).toBe("text");
+    if (content?.type !== "text") throw new Error("expected text content");
+    expect(content.text).toContain("No data artifact found");
+  });
+
+  it("marks unresolved source fields as masked instead of unmasked empty data", async () => {
+    const reader = makeReader();
+    const { readData } = createReadTools(reader);
+    const res = await readData.execute("c", {
+      kind: "insight",
+      id: "insUnresolved",
+    });
+
+    const data = res.details as DataReadResult;
+    expect(data.masked).toBe(true);
+    expect(data.resolution).toBe("unresolved");
+    expect(data.columns).toEqual([]);
+    const content = res.content[0];
+    expect(content?.type).toBe("text");
+    if (content?.type !== "text") throw new Error("expected text content");
+    expect(content.text).toContain("Unresolved source; fail-closed");
   });
 });

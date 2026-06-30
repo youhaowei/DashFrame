@@ -12,8 +12,10 @@
  *   tools.ts         — the 4 fixed read tools on defineToolHandler
  *   command-guide.ts — the agent-readable command vocabulary + freshness anchor
  */
-export type { ColumnProfile, DashboardRead, DataFrameRead, DataReadResult, GraphReader, NodeRef, } from "./port.js";
+export type { ColumnProfile, DashboardRead, DataFrameRead, DataReadResult, DataReadSample, GraphReader, NodeRef, } from "./port.js";
 export { applyFloor, isMaskedBySource, profileColumns } from "./floor.js";
+export { assembleDataRead } from "./perception.js";
+export type { PerceptionAssemblerOptions } from "./perception.js";
 export { neighbors, search, summarize, traverse } from "./graph.js";
 export type { Neighborhood, NodeSummary, ReachedNode, SearchHit, SearchQuery, } from "./graph.js";
 export { createReadTools } from "./tools.js";
