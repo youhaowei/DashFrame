@@ -10,6 +10,61 @@ export interface KeychainOAuth {
   expiresAt?: number | string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertOptionalString(
+  oauth: Record<string, unknown>,
+  field: "accessToken" | "refreshToken",
+): void {
+  const value = oauth[field];
+  if (value !== undefined && typeof value !== "string") {
+    throw new Error(
+      `Claude Code keychain claudeAiOauth.${field} must be a string when present`,
+    );
+  }
+}
+
+function assertOptionalExpiresAt(oauth: Record<string, unknown>): void {
+  const value = oauth.expiresAt;
+  if (
+    value !== undefined &&
+    typeof value !== "number" &&
+    typeof value !== "string"
+  ) {
+    throw new Error(
+      "Claude Code keychain claudeAiOauth.expiresAt must be a number or string when present",
+    );
+  }
+}
+
+export function _parseKeychainOAuthForTest(value: unknown): KeychainOAuth {
+  if (!isRecord(value)) {
+    throw new Error(
+      "no claudeAiOauth block found in Claude Code keychain entry",
+    );
+  }
+
+  assertOptionalString(value, "accessToken");
+  assertOptionalString(value, "refreshToken");
+  assertOptionalExpiresAt(value);
+
+  const accessToken =
+    typeof value.accessToken === "string" ? value.accessToken : undefined;
+  const refreshToken =
+    typeof value.refreshToken === "string" ? value.refreshToken : undefined;
+  const expiresAt =
+    typeof value.expiresAt === "number" || typeof value.expiresAt === "string"
+      ? value.expiresAt
+      : undefined;
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt,
+  };
+}
+
 /**
  * Reads the Claude Code OAuth credentials from the macOS keychain.
  * Parses the JSON blob and returns the claudeAiOauth sub-object.
@@ -61,14 +116,11 @@ export async function readKeychainOAuth(): Promise<KeychainOAuth> {
     );
   }
 
-  const oauth = (parsed as Record<string, unknown>)?.claudeAiOauth as
-    | KeychainOAuth
-    | undefined;
-  if (!oauth) {
+  if (!isRecord(parsed) || !("claudeAiOauth" in parsed)) {
     throw new Error(
       "no claudeAiOauth block found in Claude Code keychain entry",
     );
   }
 
-  return oauth;
+  return _parseKeychainOAuthForTest(parsed.claudeAiOauth);
 }
