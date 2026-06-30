@@ -105,11 +105,52 @@ const EXPIRY_MARGIN_MS = 60_000;
  * Module-level state is intentional: a single process runs one agent turn;
  * there is no multi-tenant concern. The slot holds secrets only in-memory.
  */
-let inMemoryCredentials: {
-  accessToken: string;
-  refreshToken: string;
-  expiresAtMs: number | undefined;
-} | null = null;
+interface CredentialState {
+  inMemoryCredentials: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAtMs: number | undefined;
+  } | null;
+  inFlightRefresh: Promise<string> | null;
+}
+
+function createCredentialState(): CredentialState {
+  return {
+    inMemoryCredentials: null,
+    inFlightRefresh: null,
+  };
+}
+
+const defaultCredentialState = createCredentialState();
+let credentialStatesByReader = new WeakMap<
+  TokenProviderOptions["readKeychain"] & object,
+  WeakMap<TokenProviderOptions["fetchRefresh"] & object, CredentialState>
+>();
+
+function getCredentialState(
+  keychainReader: TokenProviderOptions["readKeychain"] & object,
+  refresher: TokenProviderOptions["fetchRefresh"] & object,
+): CredentialState {
+  let statesByRefresher = credentialStatesByReader.get(keychainReader);
+  if (!statesByRefresher) {
+    statesByRefresher = new WeakMap<
+      TokenProviderOptions["fetchRefresh"] & object,
+      CredentialState
+    >();
+    credentialStatesByReader.set(keychainReader, statesByRefresher);
+  }
+
+  let state = statesByRefresher.get(refresher);
+  if (!state) {
+    state =
+      keychainReader === readKeychainOAuth && refresher === refreshAccessToken
+        ? defaultCredentialState
+        : createCredentialState();
+    statesByRefresher.set(refresher, state);
+  }
+
+  return state;
+}
 
 /**
  * In-flight refresh Promise (single-flight dedup).
@@ -121,20 +162,20 @@ let inMemoryCredentials: {
  * invalidated → 400 error + corrupted in-memory slot. The Promise is cleared
  * (set to null) when the refresh settles, regardless of outcome.
  */
-let inFlightRefresh: Promise<string> | null = null;
 
 export function getOAuthToken(
   options: TokenProviderOptions = {},
 ): Promise<string> {
   const keychainReader = options.readKeychain ?? readKeychainOAuth;
   const refresher = options.fetchRefresh ?? refreshAccessToken;
+  const state = getCredentialState(keychainReader, refresher);
 
   // ------------------------------------------------------------------
   // 1. Check the in-memory credential slot first (populated after first
   //    successful in-memory refresh — holds the rotated refresh token).
   // ------------------------------------------------------------------
-  if (inMemoryCredentials) {
-    const { accessToken, expiresAtMs } = inMemoryCredentials;
+  if (state.inMemoryCredentials) {
+    const { accessToken, expiresAtMs } = state.inMemoryCredentials;
     const isFresh =
       typeof expiresAtMs === "number" &&
       Date.now() + EXPIRY_MARGIN_MS < expiresAtMs;
@@ -156,15 +197,15 @@ export function getOAuthToken(
   //    lock and all later callers that reach THIS check (steps 1–2) see
   //    the live Promise immediately.
   // ------------------------------------------------------------------
-  if (inFlightRefresh) {
-    return inFlightRefresh;
+  if (state.inFlightRefresh) {
+    return state.inFlightRefresh;
   }
 
   // ------------------------------------------------------------------
   // 3. No in-flight refresh yet. Register the guard Promise synchronously
   //    before any await so concurrent callers see it at step 2.
   // ------------------------------------------------------------------
-  inFlightRefresh = (async (): Promise<string> => {
+  state.inFlightRefresh = (async (): Promise<string> => {
     try {
       // Read from keychain (first call, or in-memory slot exhausted before
       // we had a chance to refresh it).
@@ -199,7 +240,7 @@ export function getOAuthToken(
         // be dead after a prior rotation.
         // ------------------------------------------------------------------
         const refreshToken =
-          inMemoryCredentials?.refreshToken ?? kc.refreshToken;
+          state.inMemoryCredentials?.refreshToken ?? kc.refreshToken;
 
         if (!refreshToken) {
           throw new OAuthTokenExpiredError(
@@ -228,7 +269,7 @@ export function getOAuthToken(
             ? Date.now() + rotated.expiresIn * 1000
             : undefined;
 
-        inMemoryCredentials = {
+        state.inMemoryCredentials = {
           accessToken: rotated.accessToken,
           // If the server didn't return a new refresh token (non-rotating server),
           // keep the one we just used so the next cycle still has a token to try.
@@ -248,11 +289,11 @@ export function getOAuthToken(
     } finally {
       // Clear the in-flight guard regardless of outcome so subsequent calls
       // (after this one settles) can initiate a new refresh if needed.
-      inFlightRefresh = null;
+      state.inFlightRefresh = null;
     }
   })();
 
-  return inFlightRefresh;
+  return state.inFlightRefresh;
 }
 
 /**
@@ -264,6 +305,7 @@ export function getOAuthToken(
  * @internal
  */
 export function _resetInMemoryCredentials(): void {
-  inMemoryCredentials = null;
-  inFlightRefresh = null;
+  defaultCredentialState.inMemoryCredentials = null;
+  defaultCredentialState.inFlightRefresh = null;
+  credentialStatesByReader = new WeakMap();
 }

@@ -582,4 +582,58 @@ describe("getOAuthToken — concurrent refresh dedup (single-flight)", () => {
     // The refresh was only called once — no rotation-invalidating second call.
     expect(mockFetchRefresh).toHaveBeenCalledTimes(1);
   });
+
+  it("does not share in-flight refreshes across distinct injected providers", async () => {
+    const mockReadKeychainA = vi.fn(async () =>
+      makeKeychain({
+        accessToken: "sk-ant-oat-stale-access-a",
+        refreshToken: "refresh-token-a",
+        expiresAt: PAST,
+      }),
+    );
+    const mockReadKeychainB = vi.fn(async () =>
+      makeKeychain({
+        accessToken: "sk-ant-oat-stale-access-b",
+        refreshToken: "refresh-token-b",
+        expiresAt: PAST,
+      }),
+    );
+
+    let resolveRefreshA!: (v: RefreshedCredentials) => void;
+    let resolveRefreshB!: (v: RefreshedCredentials) => void;
+    const refreshPromiseA = new Promise<RefreshedCredentials>((resolve) => {
+      resolveRefreshA = resolve;
+    });
+    const refreshPromiseB = new Promise<RefreshedCredentials>((resolve) => {
+      resolveRefreshB = resolve;
+    });
+
+    const mockFetchRefreshA = vi.fn(() => refreshPromiseA);
+    const mockFetchRefreshB = vi.fn(() => refreshPromiseB);
+
+    const [pA, pB] = [
+      getOAuthToken({
+        readKeychain: mockReadKeychainA,
+        fetchRefresh: mockFetchRefreshA,
+      }),
+      getOAuthToken({
+        readKeychain: mockReadKeychainB,
+        fetchRefresh: mockFetchRefreshB,
+      }),
+    ];
+
+    resolveRefreshA(
+      makeRotated({ accessToken: "sk-ant-oat-refreshed-access-a" }),
+    );
+    resolveRefreshB(
+      makeRotated({ accessToken: "sk-ant-oat-refreshed-access-b" }),
+    );
+
+    await expect(pA).resolves.toBe("sk-ant-oat-refreshed-access-a");
+    await expect(pB).resolves.toBe("sk-ant-oat-refreshed-access-b");
+    expect(mockReadKeychainA).toHaveBeenCalledOnce();
+    expect(mockReadKeychainB).toHaveBeenCalledOnce();
+    expect(mockFetchRefreshA).toHaveBeenCalledWith("refresh-token-a");
+    expect(mockFetchRefreshB).toHaveBeenCalledWith("refresh-token-b");
+  });
 });
