@@ -58,22 +58,17 @@ export async function refreshAccessToken(
   });
 
   if (!res.ok) {
-    // Parse structured OAuth error when possible; otherwise cap the raw body to
-    // avoid surfacing attacker-influenced or credential-echoing server text in
-    // exception messages that callers will log.
+    // Parse only the stable OAuth error code. Do not surface
+    // error_description/raw body text because providers and intermediaries can
+    // echo credential-bearing request details there.
     const rawBody = await res.text().catch(() => "(unreadable body)");
     let detail: string;
     try {
       const parsed = JSON.parse(rawBody) as {
         error?: unknown;
-        error_description?: unknown;
       };
       const code = typeof parsed.error === "string" ? parsed.error : null;
-      const desc =
-        typeof parsed.error_description === "string"
-          ? parsed.error_description
-          : null;
-      detail = [code, desc].filter(Boolean).join(": ") || `HTTP ${res.status}`;
+      detail = code ? `${code} (HTTP ${res.status})` : `HTTP ${res.status}`;
     } catch {
       // Non-JSON error body — surface HTTP status only (never raw body text).
       detail = `HTTP ${res.status}`;

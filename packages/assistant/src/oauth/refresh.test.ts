@@ -10,6 +10,13 @@ function okJson(body: unknown): Response {
   });
 }
 
+function errorJson(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 describe("refreshAccessToken", () => {
   it("returns a string access token from a successful refresh response", async () => {
     const fetchFn = vi.fn(async () =>
@@ -37,5 +44,22 @@ describe("refreshAccessToken", () => {
     await expect(
       refreshAccessToken("refresh-old", fetchFn as unknown as RefreshFetch),
     ).rejects.toThrow("refresh response had no access_token field");
+  });
+
+  it("redacts OAuth error descriptions from thrown refresh failures", async () => {
+    const fetchFn = vi.fn(async () =>
+      errorJson(400, {
+        error: "invalid_grant",
+        error_description: "bad refresh token refresh-secret",
+      }),
+    );
+
+    await expect(
+      refreshAccessToken("refresh-secret", fetchFn as unknown as RefreshFetch),
+    ).rejects.toThrow("token refresh failed: invalid_grant (HTTP 400)");
+
+    await expect(
+      refreshAccessToken("refresh-secret", fetchFn as unknown as RefreshFetch),
+    ).rejects.not.toThrow("refresh-secret");
   });
 });
