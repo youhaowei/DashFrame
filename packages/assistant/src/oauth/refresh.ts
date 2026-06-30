@@ -90,7 +90,9 @@ export async function refreshAccessToken(
     // Claude Code rotates the refresh token on each successful refresh.
     // Preserve it in-memory so the next expiry cycle uses the live token.
     refreshToken:
-      typeof data.refresh_token === "string" ? data.refresh_token : undefined,
+      typeof data.refresh_token === "string" && data.refresh_token.trim() !== ""
+        ? data.refresh_token
+        : undefined,
     // Standard OAuth2 expires_in is seconds; validate it's a positive number.
     expiresIn:
       typeof data.expires_in === "number" && data.expires_in > 0

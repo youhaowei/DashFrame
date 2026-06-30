@@ -46,6 +46,24 @@ describe("refreshAccessToken", () => {
     ).rejects.toThrow("refresh response had no access_token field");
   });
 
+  it("treats an empty rotated refresh_token as absent", async () => {
+    const fetchFn = vi.fn(async () =>
+      okJson({
+        access_token: "access-new",
+        refresh_token: "  ",
+        expires_in: 3600,
+      }),
+    );
+
+    await expect(
+      refreshAccessToken("refresh-old", fetchFn as unknown as RefreshFetch),
+    ).resolves.toEqual({
+      accessToken: "access-new",
+      refreshToken: undefined,
+      expiresIn: 3600,
+    });
+  });
+
   it("redacts OAuth error descriptions from thrown refresh failures", async () => {
     const fetchFn = vi.fn(async () =>
       errorJson(400, {
