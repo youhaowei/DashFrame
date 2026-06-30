@@ -14,8 +14,8 @@
  *   5. `executionMode` is "sequential" (mutating — serialised against the batch).
  *   6. `buildCommand` receives the exact (type, args) pair from execute params —
  *      no silent mutation or drop.
- *   7. An empty `appendToDraft` result array is a host contract violation and
- *      throws rather than silently returning null.
+ *   7. A result-count mismatch from `appendToDraft` is a host contract
+ *      violation and throws rather than silently returning null/dropping extras.
  *   8. DeleteNode is DENIED at the allow-list gate — no vault call, no append.
  *   9. Unlisted arbitrary command types are DENIED at the gate (default-deny).
  *  10. Draft-safe artifact commands (CreateInsight, etc.) pass the gate and
@@ -286,6 +286,24 @@ describe("createApplyCommandTool — error propagation", () => {
         args: { id: "dash-003", name: "Ghost" },
       }),
     ).rejects.toThrow(/appendToDraft returned 0 results for 1 command/);
+  });
+
+  it("throws when appendToDraft returns extra results for one command", async () => {
+    const controller = makeMockController({
+      appendResult: [{ value: { ok: 1 } }, { value: { ok: 2 } }],
+    });
+    const tool = createApplyCommandTool({
+      controller,
+      draftId: "draft-extra",
+      buildCommand,
+    });
+
+    await expect(
+      tool.execute("call-extra", {
+        type: "CreateDashboard",
+        args: { id: "dash-extra", name: "Extra" },
+      }),
+    ).rejects.toThrow(/appendToDraft returned 2 results for 1 command/);
   });
 
   it("does NOT call publishDraft — canonical is never touched", async () => {
