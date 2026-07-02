@@ -97,7 +97,7 @@ const DRAFT_SHADOW_TABLES = [
  * `.transaction()` is a compile error, not a latent footgun.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
-type LogReader = Pick<ArtifactDb, "select">;
+export type LogReader = Pick<ArtifactDb, "select">;
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -189,6 +189,30 @@ export interface PublishDraftOptions {
    * a pre-transaction read cannot provide this guarantee.
    */
   expectedCommandCount?: number;
+  /**
+   * Pre-replay hook, invoked INSIDE the publish transaction — after the
+   * `expectedCommandCount` and late-bound/`validatePublishLog` guards pass,
+   * before `applyCommands` replays the log onto canonical.
+   *
+   * Exists so a host can collect state the replay is about to overwrite (e.g.
+   * DashFrame's credential-release refs: which vault refs the replay's writes
+   * SUPERSEDE) against the AUTHORITATIVE reloaded log and the pre-replay
+   * canonical rows — never a pre-transaction read, which a command appended
+   * between review and publish would make stale (the TOCTOU this hook closes).
+   * `tx` is the transaction's native handle (same `ArtifactDb` shape queries
+   * elsewhere use) — reads through it see the same pre-replay snapshot the
+   * replay itself is about to act on.
+   *
+   * Runs AFTER both guards so an aborted publish (drift or late-bound) never
+   * invokes collection — nothing here observes a log that won't actually
+   * replay. A throw here aborts the publish transaction like any other guard.
+   *
+   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so both
+   * misuses are compile errors rather than latent runtime failures: the hook
+   * COLLECTS, never mutates, and a transaction-bound `tx.raw` does NOT
+   * support `.transaction()` at runtime.
+   */
+  beforeReplay?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
 
 /**
@@ -463,6 +487,11 @@ export function createDraftController(
         }
         assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);
+        // Pre-replay hook: runs on the AUTHORITATIVE reloaded log, after both
+        // guards above, before replay mutates canonical rows. See
+        // `PublishDraftOptions.beforeReplay` for why this must live here and
+        // not before the transaction opens.
+        await options.beforeReplay?.(log, tx.raw as LogReader);
         const committed = (await applyCommands(app, log, {
           mode: "commit",
           context: publishContext,

@@ -644,6 +644,68 @@ describe("credential write path — capture-before-log + transition release", ()
     expect((await readConfig(h, id))!.apiKey).toBe(canonicalRef);
   });
 
+  // TOCTOU regression: a publish that FAILS DURING REPLAY (after
+  // collection has already run inside the transaction via `beforeReplay`) must
+  // release nothing. Unlike the duplicate-PK CreateDataSource rollback above
+  // (which `collectSupersededRefs` never sees, since CreateDataSource is not a
+  // credential-superseding command), this forces the failure on a draft that
+  // DOES supersede a live credential ref — the exact case the ref-release list
+  // is computed for — so the assertion is meaningful rather than vacuous.
+  it("releases nothing when a credential-superseding publish fails mid-transaction", async () => {
+    const { id, ref: oldRef } = await seedCanonicalSource(h, "orig-key");
+
+    const draftId = await h.controller.openDraft();
+    await h.controller.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", { id, apiKey: "rotated-key" }),
+    ]);
+    const args = await firstLogArgs(h, draftId);
+    const mintedRef = args.apiKey as SecretRef;
+
+    // Fault-inject a failure INSIDE the publish transaction, after replay would
+    // have run (mirrors the GH #157 fault injector in draft-controller.test.ts):
+    // patch the tx-bound raw handle's `delete` to throw when it targets
+    // `draftCommandLog` — the teardown step that runs immediately after replay,
+    // inside the same commit boundary. `beforeReplay` (and therefore
+    // `collectSupersededRefs`) has ALREADY run by this point — proving that even
+    // though collection observed the superseded ref, a rolled-back transaction
+    // still releases nothing.
+    /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam, mirrors draft-controller.test.ts GH#157 */
+    const realCreateTracked = h.app.createTracked.bind(h.app);
+    (h.app as any).createTracked = () => {
+      const t = realCreateTracked();
+      const realTx = t.transaction.bind(t);
+      t.transaction = ((fn: any, opts: any) =>
+        realTx(async (tx) => {
+          const realDelete = tx.raw.delete.bind(tx.raw);
+          tx.raw.delete = (table: any) => {
+            if (table === draftCommandLog) {
+              throw new Error("injected teardown failure");
+            }
+            return realDelete(table);
+          };
+          return fn(tx);
+        }, opts)) as any;
+      return t;
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    try {
+      await expect(h.app.call("publishDraft", { draftId })).rejects.toThrow(
+        "injected teardown failure",
+      );
+
+      // The whole publish transaction rolled back — canonical still holds the
+      // OLD ref, and NEITHER ref was released (release only runs after
+      // `publishDraft` resolves, and it never resolved).
+      expect((await readConfig(h, id))!.apiKey).toBe(oldRef);
+      expect(await h.vault.has(oldRef)).toBe(true);
+      expect(await h.vault.has(mintedRef)).toBe(true);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- undo the structural fault injector patched above
+      (h.app as any).createTracked = realCreateTracked;
+    }
+  });
+
   // 9 — provenance: an agent-context create is auditably distinct.
   it("stamps agent provenance when the create runs in an agent context", async () => {
     const id = crypto.randomUUID();

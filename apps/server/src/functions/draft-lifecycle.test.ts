@@ -33,9 +33,18 @@ import { join } from "node:path";
 
 import {
   openProject,
+  schema,
   type ArtifactDb,
   type ProjectHandle,
 } from "@dashframe/server-core";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+  type SecretRef,
+} from "@wystack/secret-vault";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -44,7 +53,18 @@ import {
   createDraftController,
   type DashframeServer,
 } from "../app";
+import { captureCommandCredentials } from "../credential-release";
 import { cmd } from "./commands";
+
+const { dataSources } = schema;
+
+function makeTestVault(): SecretVault {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  return new SecretVault(registry, new InMemoryMappingStore());
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -256,6 +276,81 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       draftId,
     });
     expect(log.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // TOCTOU guard: credential-release refs must reflect the AUTHORITATIVE log
+  // -------------------------------------------------------------------------
+
+  it("publish releases the ref superseded by a command appended after a draft is opened, via the real HTTP path", async () => {
+    // End-to-end (HTTP + real vault) coverage of the release flow: a
+    // credential-superseding command appended to a draft is picked up and its
+    // superseded ref released when the draft is published through the RPC.
+    //
+    // This does NOT reproduce the intra-publish TOCTOU race itself — the
+    // append below happens before `publishDraft` is invoked, so both the old
+    // (pre-transaction) and new (in-transaction) read would observe it here.
+    // The race the fix closes is a command landing BETWEEN a pre-transaction
+    // read and the transaction's own reload inside a single publish call; that
+    // window no longer exists by construction (collection now runs strictly
+    // inside the transaction, against the reloaded log — see
+    // `PublishDraftOptions.beforeReplay`), and there is no pre-transaction read
+    // left to race against, so a live repro isn't constructible at this layer.
+    // The regression guard for that ordering lives in draft-controller.test.ts
+    // ("beforeReplay observes the AUTHORITATIVE reloaded log, not a stale
+    // pre-read"), which asserts the hook sees a command appended after an
+    // intermediate `getDraftLog` read within the same publish flow.
+    const vault = makeTestVault();
+    project = await openProject({ dir: join(root, "proj") });
+    const db = project.db as ArtifactDb;
+
+    // Seed a canonical, credentialed DataSource via a real controller (so the
+    // capture-before-log seam mints a real vault ref, not plaintext).
+    const seedApp = await buildDashframeApp({ db, vault });
+    const seedController = createDraftController(seedApp, db, {
+      captureCredentials: (c) => captureCommandCredentials(c, vault, db),
+    });
+    const sourceId = crypto.randomUUID();
+    const baseDraft = await seedController.openDraft();
+    await seedController.appendToDraft(baseDraft, [
+      cmd("CreateDataSource", {
+        id: sourceId,
+        type: "notion",
+        name: "Base",
+        apiKey: "orig-key",
+      }),
+    ]);
+    await seedController.publishDraft(baseDraft);
+    const canonicalRows = await db
+      .select()
+      .from(dataSources)
+      .where(eq(dataSources.id, sourceId));
+    const oldRef = (canonicalRows[0]!.config as Record<string, unknown>)
+      .apiKey as SecretRef;
+    expect(await vault.has(oldRef)).toBe(true);
+
+    // Open the draft the RPC will publish, then append a credential-superseding
+    // command to it.
+    const draftId = await seedController.openDraft();
+
+    server = await createDashframeServer({
+      db: project.db,
+      vault,
+      flushSnapshot: async () => {},
+    });
+
+    await seedController.appendToDraft(draftId, [
+      cmd("SetDataSourceConfig", { id: sourceId, apiKey: "rotated-key" }),
+    ]);
+
+    await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
+      draftId,
+    });
+
+    // Collection (via `beforeReplay`) sees the appended SetDataSourceConfig
+    // against the authoritative in-tx log, so the superseded ref is released
+    // after publish commits.
+    expect(await vault.has(oldRef)).toBe(false);
   });
 
   // -------------------------------------------------------------------------
