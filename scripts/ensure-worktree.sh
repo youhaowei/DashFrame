@@ -140,28 +140,39 @@ _wt_rc=0
 if git show-ref --verify --quiet "refs/heads/$branch"; then
   git worktree add "$worktree_path" "$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
 else
-  # Try to track from origin; error out only if the branch doesn't exist
-  # anywhere AND we have no base ref to create it from.
-  if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+  # Check whether the branch exists on origin. `git ls-remote --exit-code`
+  # only guarantees exit code 2 for "no matching refs" — other non-zero
+  # exits (network down, auth failure, etc.) mean the lookup itself failed,
+  # not that the branch is confirmed absent. Distinguish the two so a
+  # transient remote failure can't be misread as "brand new branch" and
+  # silently branch from main instead.
+  _ls_remote_rc=0
+  git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || _ls_remote_rc=$?
+  if [ "$_ls_remote_rc" -eq 0 ]; then
     # Fetch to ensure the local remote-tracking ref exists — ls-remote verifies the
     # branch on the network but git worktree add resolves against the local
     # refs/remotes/origin/<branch> ref, which only exists after a fetch.
     git fetch origin "$branch" >/dev/null 2>&1 || true
     git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
+  elif [ "$_ls_remote_rc" -ne 2 ]; then
+    echo "ERROR [ensure-worktree]: could not determine whether branch '$branch' exists on origin (git ls-remote exited $_ls_remote_rc)." >&2
+    echo "  This looks like a network or auth problem reaching 'origin', not a missing branch — not falling back to branching from main." >&2
+    exit 1
   else
-    # Brand-new branch: create it AND the worktree in one atomic command,
-    # rooted at a fresh origin/main. This never touches the main checkout's
-    # HEAD or current branch — unlike instructing the caller to run
-    # `git checkout -b <branch>` in the main checkout (the historical
-    # behaviour here), which yanks the branch out from under whoever else
-    # is using that checkout.
+    # Brand-new branch (ls-remote confirmed no matching ref, exit 2): create
+    # it AND the worktree in one atomic command, rooted at a fresh
+    # origin/main, with tracking disabled so the new branch's upstream isn't
+    # main. This never touches the main checkout's HEAD or current branch —
+    # unlike instructing the caller to run `git checkout -b <branch>` in the
+    # main checkout (the historical behaviour here), which yanks the branch
+    # out from under whoever else is using that checkout.
     git fetch origin main >/dev/null 2>&1 || true
     if ! git show-ref --verify --quiet "refs/remotes/origin/main"; then
       rm -f "$_wt_log"
       echo "ERROR [ensure-worktree]: branch '$branch' not found locally or on origin, and 'origin/main' is unavailable to branch from." >&2
       exit 1
     fi
-    git worktree add -b "$branch" "$worktree_path" origin/main >"$_wt_log" 2>&1 || _wt_rc=$?
+    git worktree add --no-track -b "$branch" "$worktree_path" origin/main >"$_wt_log" 2>&1 || _wt_rc=$?
   fi
 fi
 if [ "$_wt_rc" -ne 0 ]; then

@@ -188,7 +188,13 @@ main_branch_before=$(git branch --show-current)
 # 8a: provisioning for a branch that already exists locally (feature-e).
 git checkout -b feature-e --quiet 2>/dev/null
 git checkout main --quiet 2>/dev/null
-WORKTREE_BASE="$SCRATCH/wt-out2" "$HELPER" feature-e >/dev/null 2>&1 || true
+feature_e_rc=0
+feature_e_result=$(WORKTREE_BASE="$SCRATCH/wt-out2" "$HELPER" feature-e 2>/dev/null) || feature_e_rc=$?
+if [ "$feature_e_rc" -eq 0 ] && [ -d "$feature_e_result" ] && git -C "$feature_e_result" rev-parse --verify HEAD >/dev/null 2>&1; then
+  ok "helper provisioned feature-e successfully (exit 0, valid checkout at $feature_e_result)"
+else
+  fail "helper did not provision feature-e as expected (exit $feature_e_rc, result '$feature_e_result')"
+fi
 main_head_after=$(git rev-parse HEAD)
 main_branch_after=$(git branch --show-current)
 if [ "$main_head_after" = "$main_head_before" ] && [ "$main_branch_after" = "$main_branch_before" ]; then
@@ -214,6 +220,72 @@ if [ "$main_head_after2" = "$main_head_before" ] && [ "$main_branch_after2" = "$
   ok "main checkout unchanged after an unresolvable branch request"
 else
   fail "main checkout mutated on unresolvable branch: HEAD $main_head_before -> $main_head_after2, branch $main_branch_before -> $main_branch_after2"
+fi
+echo ""
+
+# ── Test 9: brand-new branch created atomically from a real, fetchable origin/main ──
+# The scratch repo's 'origin' remote (https://example.com/repo.git) is
+# deliberately unreachable so Test 8b can exercise the "lookup failed"
+# path. Exercise the success path separately against a real local bare
+# repo standing in for a fetchable 'origin', proving the new branch is
+# created directly from origin/main, does NOT track main (avoiding a
+# broken first push/pull), and — again — never touches the main checkout.
+echo "Test 9: ensure-worktree.sh creates a brand-new branch atomically from origin/main"
+FAKE_ORIGIN="$SCRATCH/fake-origin.git"
+git init --quiet --bare "$FAKE_ORIGIN"
+
+REAL_ORIGIN_REPO="$SCRATCH/real-origin-checkout"
+git init --quiet "$REAL_ORIGIN_REPO"
+(
+  cd "$REAL_ORIGIN_REPO"
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  git config commit.gpgsign false 2>/dev/null || true
+  git checkout -b main --quiet
+  printf 'origin-main\n' > origin-main.txt
+  git add origin-main.txt
+  git commit -m "origin main" --quiet
+  git remote add origin "$FAKE_ORIGIN"
+  git push --quiet origin main
+)
+
+cd "$SCRATCH"
+git remote set-url origin "$FAKE_ORIGIN"
+git fetch --quiet origin main
+origin_main_sha=$(git rev-parse origin/main)
+
+new_branch_rc=0
+new_branch_result=$(WORKTREE_BASE="$SCRATCH/wt-out3" "$HELPER" brand-new-from-origin-main 2>/dev/null) || new_branch_rc=$?
+if [ "$new_branch_rc" -eq 0 ] && [ -d "$new_branch_result" ]; then
+  ok "helper created the new branch's worktree (exit 0, at $new_branch_result)"
+else
+  fail "helper did not create the new-branch worktree as expected (exit $new_branch_rc, result '$new_branch_result')"
+fi
+new_branch_actual=$(git -C "$new_branch_result" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if [ "$new_branch_actual" = "brand-new-from-origin-main" ]; then
+  ok "new worktree is on the requested branch"
+else
+  fail "new worktree is on '$new_branch_actual', expected 'brand-new-from-origin-main'"
+fi
+new_branch_sha=$(git -C "$new_branch_result" rev-parse HEAD 2>/dev/null || echo "")
+if [ "$new_branch_sha" = "$origin_main_sha" ]; then
+  ok "new branch is rooted at origin/main's commit ($origin_main_sha)"
+else
+  fail "new branch HEAD ($new_branch_sha) does not match origin/main ($origin_main_sha)"
+fi
+new_branch_upstream=$(git -C "$new_branch_result" rev-parse --abbrev-ref "brand-new-from-origin-main@{upstream}" 2>/dev/null || echo "")
+if [ -z "$new_branch_upstream" ]; then
+  ok "new branch does not track origin/main (--no-track honoured, no broken upstream)"
+else
+  fail "new branch unexpectedly tracks '$new_branch_upstream' — first push/pull would target the wrong branch"
+fi
+
+main_head_after3=$(git rev-parse HEAD)
+main_branch_after3=$(git branch --show-current)
+if [ "$main_head_after3" = "$main_head_before" ] && [ "$main_branch_after3" = "$main_branch_before" ]; then
+  ok "main checkout unchanged after creating a brand-new branch from origin/main"
+else
+  fail "main checkout mutated on new-branch creation: HEAD $main_head_before -> $main_head_after3, branch $main_branch_before -> $main_branch_after3"
 fi
 echo ""
 
