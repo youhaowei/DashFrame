@@ -670,7 +670,7 @@ describe("credential write path — capture-before-log + transition release", ()
     // though collection observed the superseded ref, a rolled-back transaction
     // still releases nothing.
     /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam, mirrors draft-controller.test.ts GH#157 */
-    let failTeardown = true;
+    const failTeardown = true;
     const realCreateTracked = h.app.createTracked.bind(h.app);
     (h.app as any).createTracked = () => {
       const t = realCreateTracked();
