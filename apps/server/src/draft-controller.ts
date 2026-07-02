@@ -91,11 +91,10 @@ const DRAFT_SHADOW_TABLES = [
 
 /**
  * The DB-handle surface the teardown helpers (`deleteLog`/`sweepShadows`) need:
- * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) keeps
- * the publish path's `tx.raw` cast honest — a transaction-bound raw handle does
- * NOT expose `.transaction()`, so widening to `ArtifactDb` would advertise a
- * method that fails at runtime. With this type, any future helper that reaches for
- * `.transaction()` is a compile error, not a latent footgun.
+ * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) is
+ * least authority by construction: any future helper that reaches for
+ * `.transaction()` or another surface it wasn't granted is a compile error,
+ * regardless of what the runtime handle happens to support.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
 export type LogReader = Pick<ArtifactDb, "select">;
@@ -211,9 +210,9 @@ export interface DiscardDraftOptions {
    * publish side.
    *
    * Typed as `LogReader` — the same narrowed slice `readLog` uses — so the
-   * hook COLLECTS, never mutates: a transaction-bound handle does NOT support
-   * `.transaction()` at runtime, so widening the type to `ArtifactDb` would
-   * advertise a method that fails.
+   * contract "the hook COLLECTS, never mutates" is enforced at compile time:
+   * mutation and nested-transaction calls are unrepresentable through the
+   * narrowed type, regardless of what the runtime handle supports.
    */
   beforeDiscard?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
@@ -266,10 +265,10 @@ export interface PublishDraftOptions {
    * invokes collection — nothing here observes a log that won't actually
    * replay. A throw here aborts the publish transaction like any other guard.
    *
-   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so both
-   * misuses are compile errors rather than latent runtime failures: the hook
-   * COLLECTS, never mutates, and a transaction-bound `tx.raw` does NOT
-   * support `.transaction()` at runtime.
+   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so the
+   * contract "the hook COLLECTS, never mutates" is enforced at compile time:
+   * mutation and nested-transaction calls are unrepresentable through the
+   * narrowed type, regardless of what the runtime handle supports.
    */
   beforeReplay?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
