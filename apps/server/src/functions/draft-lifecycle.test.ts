@@ -330,7 +330,9 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
           // same drift branch `draft-controller.ts` uses for real content
           // drift, without needing a second controller to race the log.
           expectedCommandCount: "99",
-        } as never,
+        } as unknown as Parameters<
+          typeof client.mutate<typeof api.publishDraft>
+        >[1],
       );
     } catch (err) {
       caught = err as Error;
