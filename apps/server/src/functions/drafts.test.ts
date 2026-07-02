@@ -87,6 +87,7 @@ describe("draft publish functions", () => {
           lateBoundCount: number;
           args?: unknown;
         }>;
+        commandCount: number;
         diff: { directNodes: Array<{ nodeId: string }> };
       };
     }>(
