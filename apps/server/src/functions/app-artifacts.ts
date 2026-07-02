@@ -553,11 +553,20 @@ const updateDataSource = mutation({
     // `config` in place — the discriminator the HARD INVARIANT below relies on.
     const priorApiKey = config.apiKey;
     const priorConnectionString = config.connectionString;
-    // HARD INVARIANT: `minted` collects ONLY refs that are NEW after this call's
-    // applyCredentialField invocations — i.e. `config[field]` changed from its
-    // pre-existing value. A pre-existing canonical ref on an untouched (or
-    // re-affirmed-to-the-same-value) field is therefore never captured here, so a
-    // write failure can never release it — only refs minted in THIS operation.
+    // HARD INVARIANT (scoped to this `minted` set, not the function as a whole):
+    // `minted` collects ONLY refs that are NEW after this call's applyCredentialField
+    // invocations — i.e. `config[field]` changed from its pre-existing value. A
+    // pre-existing canonical ref on an untouched (or re-affirmed-to-the-same-value)
+    // field is therefore never captured here, so THIS compensation block can never
+    // release it on a write failure — only refs minted in THIS operation.
+    //
+    // This does NOT mean a pre-existing ref is safe from release altogether: on a
+    // ROTATE (existing ref + new plaintext) or CLEAR (`""` on a field with a prior
+    // ref), applyCredentialField releases the prior canonical ref synchronously,
+    // inside itself, via pushOrRelease → releaseCredentialRefs — BEFORE the DB write
+    // below runs. That release is upstream of and out of reach of this compensation;
+    // it happens regardless of whether the write later succeeds or fails. Pre-existing
+    // behavior, tracked in #201.
     const minted: SecretRef[] = [];
     try {
       // store non-empty / clear-on-empty / leave-on-undefined (applyCredentialField);

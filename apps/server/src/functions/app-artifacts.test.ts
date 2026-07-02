@@ -656,7 +656,7 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     expect(await vault.has(mintedRef)).toBe(false);
   });
 
-  it("does not release the pre-existing ref on the row when a DIFFERENT field's update write fails (guardrail)", async () => {
+  it("releases the same-op minted ref and leaves untouched fields' refs intact when the update write fails", async () => {
     // Seed a row with a live connectionString ref via a successful addDataSource.
     const { id } = (await call("addDataSource", {
       type: "postgres",
@@ -674,6 +674,7 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
 
     // Now update apiKey (a DIFFERENT field) and force the DB update to fail.
     // connectionString is left untouched — its pre-existing ref must survive.
+    const storeSpy = vi.spyOn(vault, "store");
     const updateSpy = vi.spyOn(db, "update").mockImplementationOnce(() => {
       throw new Error("simulated update failure");
     });
@@ -686,6 +687,14 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     ).rejects.toThrow(/simulated update failure/);
 
     updateSpy.mockRestore();
+
+    // Positive half: the apiKey ref minted by THIS call was released by the
+    // compensation (captured via the store spy, since it never lands anywhere
+    // else once the update fails).
+    expect(storeSpy).toHaveBeenCalledTimes(1);
+    const newApiKeyRef = await storeSpy.mock.results[0]?.value;
+    expect(isSecretRef(newApiKeyRef)).toBe(true);
+    expect(await vault.has(newApiKeyRef)).toBe(false);
 
     // Guardrail: the pre-existing connectionString ref is untouched by the failed
     // apiKey write — it must still be live.
