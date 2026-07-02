@@ -11,9 +11,11 @@ import { createApplyCommandTool } from "./apply-command-tool.js";
 import type { AssistantHost } from "./assistant-host.js";
 import { createReadTools } from "./read/tools.js";
 
+export type AssistantRunPrompt = string | AgentMessage | AgentMessage[];
+
 export interface CreateAssistantRunOptions {
   model: Model<Api>;
-  prompt: string | AgentMessage | AgentMessage[];
+  prompt: AssistantRunPrompt;
   systemPrompt?: string;
   streamFn?: StreamFn;
   getApiKey?: (
@@ -50,12 +52,47 @@ function passThroughMessages(messages: AgentMessage[]): Message[] {
   });
 }
 
-function promptAgent(
-  agent: Agent,
-  prompt: string | AgentMessage | AgentMessage[],
-): Promise<void> {
-  // Union is passed directly; TypeScript resolves agent.prompt's overload.
+async function discardIfUnsurfaced(options: {
+  host: AssistantHost;
+  draftId: string;
+  wasSurfaced: () => boolean;
+}): Promise<void> {
+  // An unmutated draft was never surfaced (onFirstMutation did not fire), so
+  // nothing references it — discard it best-effort. A mutated draft is
+  // already surfaced with its draftId via onFirstMutation; the host owns its
+  // disposition.
+  if (options.wasSurfaced()) return;
+  try {
+    await options.host.discard(options.draftId);
+  } catch {
+    // Best-effort cleanup — the caller's failure/cancellation is the signal.
+  }
+}
+
+function promptAgent(agent: Agent, prompt: AssistantRunPrompt): Promise<void> {
+  // The calls look identical, but agent.prompt is overloaded on (string) vs
+  // (AgentMessage | AgentMessage[]) — the typeof narrowing is what lets each
+  // call match one overload.
+  if (typeof prompt === "string") return agent.prompt(prompt);
   return agent.prompt(prompt);
+}
+
+async function promptWithDraftCleanup(options: {
+  agent: Agent;
+  prompt: AssistantRunPrompt;
+  host: AssistantHost;
+  draftId: string;
+  wasSurfaced: () => boolean;
+}): Promise<void> {
+  try {
+    await promptAgent(options.agent, options.prompt);
+  } catch (error) {
+    // pi resolves provider failures into stopReason:"error" messages, so a
+    // rejection here is exceptional (setup/internal). It must still not
+    // orphan the sandbox.
+    await discardIfUnsurfaced(options);
+    throw error;
+  }
 }
 
 function createTools(options: {
@@ -117,46 +154,29 @@ export async function createAssistantRun(
   }
 
   let onAbort: (() => void) | undefined;
-  if (options.signal !== undefined) {
+  if (options.signal !== undefined && !options.signal.aborted) {
     onAbort = () => agent.abort();
-    if (!options.signal.aborted) {
-      options.signal.addEventListener("abort", onAbort, { once: true });
-    }
+    options.signal.addEventListener("abort", onAbort, { once: true });
   }
 
   try {
     if (options.signal?.aborted) {
-      if (!firstMutationObserved) {
-        try {
-          await host.discard(draftId);
-        } catch {
-          // Best-effort cleanup — the caller already cancelled.
-        }
-      }
-      return {
+      // Cancelled before the run started: nothing to prompt; clean up the
+      // just-minted sandbox if it never surfaced.
+      await discardIfUnsurfaced({
+        host,
         draftId,
-        messages: agent.state.messages,
-        firstMutationObserved,
-        discard: () => host.discard(draftId),
-      };
+        wasSurfaced: () => firstMutationObserved,
+      });
+    } else {
+      await promptWithDraftCleanup({
+        agent,
+        prompt: options.prompt,
+        host,
+        draftId,
+        wasSurfaced: () => firstMutationObserved,
+      });
     }
-
-    await promptAgent(agent, options.prompt);
-  } catch (error) {
-    // pi resolves provider failures into stopReason:"error" messages, so a
-    // rejection here is exceptional (setup/internal). It must still not
-    // orphan the sandbox: an unmutated draft was never surfaced
-    // (onFirstMutation did not fire), so nothing references it — discard it
-    // best-effort. A mutated draft is already surfaced with its draftId via
-    // onFirstMutation; the host owns its disposition.
-    if (!firstMutationObserved) {
-      try {
-        await host.discard(draftId);
-      } catch {
-        // Best-effort cleanup — the run failure is the error that matters.
-      }
-    }
-    throw error;
   } finally {
     if (onAbort !== undefined && options.signal !== undefined) {
       options.signal.removeEventListener("abort", onAbort);
