@@ -86,7 +86,13 @@ export async function createAssistantRun(
   async function markFirstMutation() {
     if (firstMutationObserved) return;
     firstMutationObserved = true;
-    await options.onFirstMutation?.({ draftId });
+    try {
+      await options.onFirstMutation?.({ draftId });
+    } catch {
+      // The first-mutation signal is advisory (UI surfacing). An observer
+      // failure must not fail the applyCommand tool call — the append has
+      // already persisted, and a false tool error would invite a retry.
+    }
   }
 
   const agent = new Agent({
@@ -118,7 +124,24 @@ export async function createAssistantRun(
       });
   }
 
-  await promptAgent(agent, options.prompt);
+  try {
+    await promptAgent(agent, options.prompt);
+  } catch (error) {
+    // pi resolves provider failures into stopReason:"error" messages, so a
+    // rejection here is exceptional (setup/internal). It must still not
+    // orphan the sandbox: an unmutated draft was never surfaced
+    // (onFirstMutation did not fire), so nothing references it — discard it
+    // best-effort. A mutated draft is already surfaced with its draftId via
+    // onFirstMutation; the host owns its disposition.
+    if (!firstMutationObserved) {
+      try {
+        await host.discard(draftId);
+      } catch {
+        // Best-effort cleanup — the run failure is the error that matters.
+      }
+    }
+    throw error;
+  }
 
   return {
     draftId,

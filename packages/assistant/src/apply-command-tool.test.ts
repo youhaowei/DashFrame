@@ -154,9 +154,14 @@ describe("createApplyCommandTool — internal AssistantHost tool", () => {
     });
   });
 
-  it("surfaces AssistantHost append result-count violations", async () => {
+  it("surfaces AssistantHost append result-count violations without signaling success", async () => {
     const host = makeHost({ appendResult: [] });
-    const tool = createApplyCommandTool({ host, draftId: "draft-bad-host" });
+    const onSuccess = vi.fn();
+    const tool = createApplyCommandTool({
+      host,
+      draftId: "draft-bad-host",
+      onSuccess,
+    });
 
     await expect(
       tool.execute("call-1", {
@@ -164,5 +169,9 @@ describe("createApplyCommandTool — internal AssistantHost tool", () => {
         args: { id: "dashboard-1", name: "Executive" },
       }),
     ).rejects.toThrow("AssistantHost contract violation");
+
+    // onSuccess drives the first-mutation signal — it must not fire for an
+    // append whose outcome is unknowable.
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

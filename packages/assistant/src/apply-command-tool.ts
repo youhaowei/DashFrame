@@ -385,7 +385,6 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       // ToolResultMessage as isError: true — NO silent swallowing.
       // The agent receives the honest error and can retry with corrected args.
       const results = await host.append(draftId, [command], context);
-      await options.onSuccess?.();
 
       // AssistantHost.append returns one CommandResult per command in the batch.
       // We passed exactly one command; the contract requires exactly one result.
@@ -398,6 +397,11 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
         );
       }
       const result = results[0]!;
+
+      // Success is signaled only after the contract check: onSuccess drives the
+      // first-mutation signal, which must never fire for an append whose outcome
+      // is unknowable (malformed result batch throws above).
+      await options.onSuccess?.();
 
       return {
         content: [

@@ -261,6 +261,109 @@ describe("createAssistantRun", () => {
     ]);
   });
 
+  it("isolates onFirstMutation observer failures from tool success", async () => {
+    const host = makeHost();
+    const events: AgentEvent[] = [];
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Create despite a broken observer.",
+      streamFn: scriptedStream([
+        assistantMessage(
+          [
+            call("create-dashboard", "applyCommand", {
+              type: "CreateDashboard",
+              args: { id: "dashboard-1", name: "Executive" },
+            }),
+          ],
+          "toolUse",
+        ),
+        assistantMessage([{ type: "text", text: "Draft ready." }], "stop"),
+      ]),
+      onEvent: (event) => {
+        events.push(event);
+      },
+      onFirstMutation: () => {
+        throw new Error("UI surfacing failed");
+      },
+    });
+
+    // The append persisted — the tool call must not report an error, or the
+    // agent would retry an already-applied command.
+    const toolEnds = events.filter(
+      (event): event is Extract<AgentEvent, { type: "tool_execution_end" }> =>
+        event.type === "tool_execution_end",
+    );
+    expect(toolEnds.map((event) => event.isError)).toEqual([false]);
+    expect(result.firstMutationObserved).toBe(true);
+    expect(host.appends).toHaveLength(1);
+  });
+
+  it("returns the discard handle when the provider fails — no orphaned draft", async () => {
+    const host = makeHost();
+
+    // pi resolves provider failures into a stopReason:"error" assistant
+    // message rather than rejecting — the caller always gets the handle.
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Fail before any mutation.",
+      streamFn: () => {
+        throw new Error("provider unreachable");
+      },
+    });
+
+    const last = result.messages.at(-1);
+    expect(last?.role === "assistant" ? last.stopReason : undefined).toBe(
+      "error",
+    );
+    expect(result.firstMutationObserved).toBe(false);
+    expect(host.discarded).toEqual([]);
+
+    await result.discard();
+    expect(host.discarded).toEqual(["draft-run"]);
+  });
+
+  it("keeps a mutated draft when the provider drops mid-run", async () => {
+    const host = makeHost();
+    const firstMutations: string[] = [];
+    let streamCalls = 0;
+
+    const mutationStream = scriptedStream([
+      assistantMessage(
+        [
+          call("create-dashboard", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "dashboard-1", name: "Executive" },
+          }),
+        ],
+        "toolUse",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Fail after the first mutation.",
+      streamFn: (...args) => {
+        streamCalls += 1;
+        if (streamCalls === 1) return mutationStream(...args);
+        throw new Error("provider dropped mid-run");
+      },
+      onFirstMutation: ({ draftId }) => {
+        firstMutations.push(draftId);
+      },
+    });
+
+    // The draft was surfaced (onFirstMutation carried its id) and holds real
+    // work — the failed run must not discard it; disposition is the host's.
+    const last = result.messages.at(-1);
+    expect(last?.role === "assistant" ? last.stopReason : undefined).toBe(
+      "error",
+    );
+    expect(firstMutations).toEqual(["draft-run"]);
+    expect(host.appends).toHaveLength(1);
+    expect(host.discarded).toEqual([]);
+  });
+
   it("returns a discard handle over the same host port", async () => {
     const host = makeHost();
 
