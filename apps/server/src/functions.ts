@@ -15,6 +15,7 @@ import { appArtifactFunctions } from "./functions/app-artifacts";
 import { commandFunctions } from "./functions/commands";
 import { dashboardFunctions } from "./functions/dashboards";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
+import { draftFunctions } from "./functions/drafts";
 import { previewDiffFunctions } from "./functions/preview-diff";
 
 const { projectMeta } = schema;
@@ -62,6 +63,7 @@ export const functions = {
   ...commandFunctions,
   ...dashboardFunctions,
   ...draftLifecycleFunctions,
+  ...draftFunctions,
   ...previewDiffFunctions,
 };
 

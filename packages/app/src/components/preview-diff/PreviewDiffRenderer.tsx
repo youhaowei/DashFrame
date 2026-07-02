@@ -23,6 +23,11 @@ import type {
 } from "@dashframe/types";
 import { Badge, cn } from "@wystack/ui";
 
+import {
+  previewFailureDetail,
+  previewFailureSummary,
+} from "./user-facing-errors";
+
 // ---------------------------------------------------------------------------
 // Kind labels — human-readable kind names for the consent surface
 // ---------------------------------------------------------------------------
@@ -324,10 +329,10 @@ export function PreviewDiffRenderer({
           className="rounded-[var(--surface-radius)] bg-neutral-bg/80 px-4 py-3 shadow-[var(--surface-shadow)]"
         >
           <p className="text-sm font-semibold text-palette-danger">
-            Command {diff.error!.commandIndex + 1} failed
+            {previewFailureSummary(diff.error!.commandIndex)}
           </p>
           <p className="mt-1 text-xs text-neutral-fg/70">
-            {diff.error!.message}
+            {previewFailureDetail()}
           </p>
           {hasDirectNodes && (
             <p className="mt-2 text-xs text-neutral-fg/60">

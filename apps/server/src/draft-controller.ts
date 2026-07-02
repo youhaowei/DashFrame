@@ -69,6 +69,8 @@ import {
 } from "@wystack/server";
 import { eq } from "drizzle-orm";
 
+import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
+
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
  * and post-publish teardown sweep by draftId across exactly these six — a static,
@@ -95,6 +97,7 @@ const DRAFT_SHADOW_TABLES = [
  * `.transaction()` is a compile error, not a latent footgun.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
+type LogReader = Pick<ArtifactDb, "select">;
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -163,6 +166,7 @@ export interface DraftController {
   publishDraft(
     draftId: string,
     context?: Record<string, unknown>,
+    options?: PublishDraftOptions,
   ): Promise<CommitResult>;
   /**
    * Discard = drop the draft's deltas: delete every `<table>__draft` row and
@@ -172,6 +176,19 @@ export interface DraftController {
   discardDraft(draftId: string): Promise<void>;
   /** Read-only peek at a draft's persisted (compacted) command log. */
   getDraftLog(draftId: string): Promise<Command[]>;
+}
+
+/**
+ * Per-call guards for `publishDraft`.
+ */
+export interface PublishDraftOptions {
+  /**
+   * Review-drift guard: the command-log length the reviewer saw. Enforced
+   * INSIDE the publish transaction against the reloaded durable log, so a
+   * command appended between review and publish aborts the replay atomically —
+   * a pre-transaction read cannot provide this guarantee.
+   */
+  expectedCommandCount?: number;
 }
 
 /**
@@ -191,6 +208,12 @@ export interface CreateDraftControllerOptions {
   captureCredentials?: (
     cmd: DraftCommand,
   ) => Promise<{ command: DraftCommand; rollback: () => Promise<void> }>;
+  /**
+   * Host-owned publish guard over the exact durable log that will be replayed.
+   * Runs inside the publish transaction, after reloading `draft_command_log` and
+   * before `applyCommands`, so validation cannot drift from the replay source.
+   */
+  validatePublishLog?: (log: Command[]) => void;
 }
 
 /**
@@ -205,9 +228,13 @@ export function createDraftController(
   options: CreateDraftControllerOptions = {},
 ): DraftController {
   const { captureCredentials } = options;
+  const { validatePublishLog } = options;
   /** Read the draft's persisted command log, ordered for replay. */
-  async function readLog(draftId: string): Promise<DraftCommand[]> {
-    const rows = await db
+  async function readLog(
+    draftId: string,
+    exec: LogReader = db,
+  ): Promise<DraftCommand[]> {
+    const rows = await exec
       .select({
         path: draftCommandLog.path,
         args: draftCommandLog.args,
@@ -393,9 +420,8 @@ export function createDraftController(
       }
     },
 
-    async publishDraft(draftId, context = {}) {
+    async publishDraft(draftId, context = {}, options = {}) {
       // ONE publish path, warm or cold: the durable log is always the source.
-      const log = await readLog(draftId);
       // Replay the ordered command log onto CANONICAL, atomically. applyCommands
       // dispatches each command via the (wrapped) `runHandler`, which re-applies
       // `withDraftSeam` to the transaction tracker from THIS context. A `draftId`
@@ -425,6 +451,18 @@ export function createDraftController(
       // bound to this transaction — passing it to `deleteLog`/`sweepShadows`
       // routes their DELETEs through the same commit boundary as the replay.
       const result = await app.createTracked().transaction(async (tx) => {
+        const log = await readLog(draftId, tx.raw as LogReader);
+        // Review-drift guard first: this log read shares the replay's commit
+        // boundary, so a mismatch here means the draft REALLY changed since the
+        // reviewed count was taken — abort before content validation.
+        if (
+          options.expectedCommandCount !== undefined &&
+          log.length !== options.expectedCommandCount
+        ) {
+          throw new Error("publishDraft: draft changed since review");
+        }
+        assertPublishLogHasNoLateBound(log);
+        validatePublishLog?.(log);
         const committed = (await applyCommands(app, log, {
           mode: "commit",
           context: publishContext,

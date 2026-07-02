@@ -8,6 +8,7 @@
 import { api } from "./api";
 import { getWyStackClient } from "./client";
 import type { PreviewCommand } from "./preview-diff";
+import { loose } from "./wystack-args";
 
 /**
  * Publish a draft: replay its command log onto canonical tables, then clean up
@@ -19,8 +20,18 @@ import type { PreviewCommand } from "./preview-diff";
  */
 export async function publishDraft(
   draftId: string,
+  options?: { expectedCommandCount?: number },
 ): Promise<{ tablesWritten: string[] }> {
-  return getWyStackClient().mutate(api.publishDraft, { draftId });
+  return getWyStackClient().mutate(
+    api.publishDraft,
+    loose({
+      draftId,
+      expectedCommandCount:
+        options?.expectedCommandCount !== undefined
+          ? String(options.expectedCommandCount)
+          : undefined,
+    }),
+  );
 }
 
 /**

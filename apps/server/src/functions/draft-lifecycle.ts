@@ -115,8 +115,11 @@ async function gateSnapshotForRelease(
 }
 
 const publishDraft = mutation({
-  args: { draftId: text },
-  handler: async (ctx, { draftId }): Promise<PublishDraftInternalResult> => {
+  args: { draftId: text, expectedCommandCount: text.optional() },
+  handler: async (
+    ctx,
+    { draftId, expectedCommandCount },
+  ): Promise<PublishDraftInternalResult> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
       throw new Error(
@@ -134,6 +137,19 @@ const publishDraft = mutation({
     // check, `onWrite` would be skipped and the deletion goes un-snapshotted,
     // leaving a resurrection window across server restarts.
     const prePublishLog = await draftController.getDraftLog(draftId);
+
+    // Parse the reviewed count here; ENFORCEMENT happens inside the publish
+    // transaction (see DraftController.publishDraft's expectedCommandCount
+    // guard) against the reloaded durable log — a command appended between
+    // this read and the replay aborts the publish atomically rather than
+    // bypassing a pre-transaction check.
+    let expected: number | undefined;
+    if (expectedCommandCount !== undefined) {
+      expected = Number.parseInt(expectedCommandCount, 10);
+      if (Number.isNaN(expected)) {
+        throw new Error("publishDraft: draft changed since review");
+      }
+    }
 
     // TRANSITION-TIME RELEASE — publish half. Collect the canonical refs each
     // command will REPLACE or DELETE *before* replay acts on them; release runs
@@ -161,9 +177,11 @@ const publishDraft = mutation({
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
     // command handlers' direct-call guard accepts it (release is handled here).
-    const result = await draftController.publishDraft(draftId, {
-      [PUBLISH_REPLAY_CONTEXT_KEY]: true,
-    });
+    const result = await draftController.publishDraft(
+      draftId,
+      { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
+      { expectedCommandCount: expected },
+    );
 
     // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does
     // NOT fire `onWrite` here (its tracker sees zero writes from the sub-tracker

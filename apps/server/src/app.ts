@@ -58,6 +58,7 @@ import { type ArtifactDb } from "@dashframe/server-core";
 
 import { captureCommandCredentials } from "./credential-release";
 import { createDraftController } from "./draft-controller";
+import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
 
 type CorsOrigin =
@@ -604,6 +605,9 @@ export async function createDashframeServer(
       // (a draft append is never a preview); a missing vault fails closed.
       captureCredentials: (cmd) =>
         captureCommandCredentials(cmd, opts.vault, opts.db as ArtifactDb),
+      validatePublishLog: (log) => {
+        assertPublishLogHasNoLateBound(log);
+      },
     },
   );
   serverContext.onWrite = opts.onWrite;
