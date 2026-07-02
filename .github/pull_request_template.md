@@ -7,11 +7,16 @@
 ## Screenshots
 
 <!--
-REQUIRED. Diffs can't show hover, focus, spacing, or dark mode — attach proof.
-- UI-touching PR (anything rendered: components, layout, CSS, tokens): paste
-  before/after images from the running app. Capture the relevant states
-  (hover/focus, light + dark) when they changed.
-- No UI change: write "No UI change" and delete this note.
+REQUIRED for UI-touching PRs. Do not commit PNGs to the repo — attach to this section only.
+Capture screenshots with any available local/browser tool, save them outside the repo,
+then drag/paste/upload them into this PR section so GitHub hosts the images.
+For scripted updates: generate screenshots outside the repo, upload/host them with
+whatever GitHub-capable tool is available, then update the PR body with Markdown
+image links (for example, `gh pr edit <number> --body-file <body.md>` after
+writing the complete PR body to a temp file).
+Include before/after when comparing to production or main; otherwise attach standalone
+states that prove the changed UI (light/dark, blocked/ready, hover/focus as relevant).
+Backend-only: write "No UI change" and delete this note.
 -->
 
 ## Verification
