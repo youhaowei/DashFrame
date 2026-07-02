@@ -16,15 +16,33 @@
  */
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import type { DataFrameAnalysis } from "@dashframe/types";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+  isSecretRef,
+  type SecretRef,
+} from "@wystack/secret-vault";
 import { createWyStack, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
 
-const { dataFrames } = schema;
+const { dataFrames, dataSources } = schema;
+
+/** Real vault (TestBackend) — matches credential-release.test.ts's idiom. */
+function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("connector-key", "test");
+  const vault = new SecretVault(registry, new InMemoryMappingStore());
+  return { vault, backend };
+}
 
 // A DataFrameAnalysis with raw sampleValues — simulates what analyzeDataFrame
 // returns in memory before the privacy boundary strips it.
@@ -569,5 +587,129 @@ describe("patchInsight — Zod guard rejects malformed inputs", () => {
       }),
       // Zod v4 error for invalid union discriminator uses code "invalid_union".
     ).rejects.toThrow(/invalid_union/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addDataSource / updateDataSource — same-operation minted-ref rollback
+// ---------------------------------------------------------------------------
+//
+// These legacy coarse handlers mint a vault ref (a real keychain-class write via
+// storeCredential) BEFORE the canonical DB insert/update. Without a rollback, a
+// DB failure after the mint orphans the freshly-stored secret forever (no row
+// references it, so no lifecycle transition can ever find and release it).
+//
+// The fix collects only refs minted in THIS call and releases them best-effort
+// on a write failure, then rethrows. HARD INVARIANT under test in (2): a
+// pre-existing canonical ref on an untouched field must never be released just
+// because a DIFFERENT field's write failed in the same call — releasing it would
+// destroy a live credential.
+
+describe("addDataSource / updateDataSource — same-operation minted-ref rollback", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-cred-rollback-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args, { vault });
+    return result;
+  }
+
+  it("releases the same-operation minted ref when the insert fails, and the error propagates", async () => {
+    const storeSpy = vi.spyOn(vault, "store");
+    const insertSpy = vi.spyOn(db, "insert").mockImplementationOnce(() => {
+      throw new Error("simulated insert failure");
+    });
+
+    await expect(
+      call("addDataSource", {
+        type: "notion",
+        name: "Will Fail",
+        apiKey: "plaintext-key",
+      }),
+    ).rejects.toThrow(/simulated insert failure/);
+
+    insertSpy.mockRestore();
+
+    // No row was written that could reference the minted ref.
+    const rows = await db.select().from(dataSources);
+    expect(rows.length).toBe(0);
+
+    // The rollback released the ref this call minted (captured via the store spy,
+    // since it never lands anywhere else once the insert fails).
+    expect(storeSpy).toHaveBeenCalledTimes(1);
+    const mintedRef = await storeSpy.mock.results[0]?.value;
+    expect(isSecretRef(mintedRef)).toBe(true);
+    expect(await vault.has(mintedRef)).toBe(false);
+  });
+
+  it("does not release the pre-existing ref on the row when a DIFFERENT field's update write fails (guardrail)", async () => {
+    // Seed a row with a live connectionString ref via a successful addDataSource.
+    const { id } = (await call("addDataSource", {
+      type: "postgres",
+      name: "Seed",
+      connectionString: "postgres://seed",
+    })) as { id: string };
+
+    const before = await db.select().from(dataSources);
+    const priorConnectionStringRaw = (
+      before[0]?.config as { connectionString?: unknown }
+    ).connectionString;
+    expect(isSecretRef(priorConnectionStringRaw)).toBe(true);
+    const priorConnectionString = priorConnectionStringRaw as SecretRef;
+    expect(await vault.has(priorConnectionString)).toBe(true);
+
+    // Now update apiKey (a DIFFERENT field) and force the DB update to fail.
+    // connectionString is left untouched — its pre-existing ref must survive.
+    const updateSpy = vi.spyOn(db, "update").mockImplementationOnce(() => {
+      throw new Error("simulated update failure");
+    });
+
+    await expect(
+      call("updateDataSource", {
+        id,
+        apiKey: "new-api-key-plaintext",
+      }),
+    ).rejects.toThrow(/simulated update failure/);
+
+    updateSpy.mockRestore();
+
+    // Guardrail: the pre-existing connectionString ref is untouched by the failed
+    // apiKey write — it must still be live.
+    expect(await vault.has(priorConnectionString)).toBe(true);
+
+    // The row itself was never updated (write failed before/at the DB call).
+    const after = await db.select().from(dataSources);
+    expect(
+      (after[0]?.config as { connectionString?: string }).connectionString,
+    ).toBe(priorConnectionString);
+  });
+
+  it("succeeds unchanged on the happy path: the minted ref persists and the row is written", async () => {
+    const result = (await call("addDataSource", {
+      type: "notion",
+      name: "Happy Path",
+      apiKey: "plaintext-key",
+    })) as { id: string };
+
+    const rows = await db.select().from(dataSources);
+    expect(rows.length).toBe(1);
+    const config = rows[0]?.config as { apiKey?: unknown };
+    expect(isSecretRef(config.apiKey)).toBe(true);
+    expect(await vault.has(config.apiKey as SecretRef)).toBe(true);
+    expect(rows[0]?.id).toBe(result.id);
   });
 });
