@@ -121,7 +121,7 @@ export interface GraphReader {
    * host can provide bounded rows. The reader exposes both methods so the data
    * tool (./tools.ts) never reaches past the port for row data.
    */
-  readDataProfile(node: NodeRef): Promise<DataReadResult>;
+  readDataProfile(node: NodeRef): Promise<DataReadResult | null>;
 
   /**
    * Optional tiered row sample source for the perception assembler. Hosts that
@@ -180,6 +180,10 @@ export interface DataReadResult {
   node: NodeRef;
   /** True when protected fields are present, or lineage was incomplete. */
   masked: boolean;
+  /** Complete when all contributing columns were resolved; unresolved is fail-closed. */
+  resolution?: "complete" | "unresolved";
+  /** Reader-supplied reason when resolution is incomplete and therefore masked. */
+  unresolvedReason?: string;
   /** Per-column profiles — always emitted when the artifact can be profiled. */
   columns: ColumnProfile[];
   /** Tiered row sample selected under a bounded budget, when available. */

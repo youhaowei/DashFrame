@@ -216,6 +216,21 @@ describe("validateToolArgs — invalid args", () => {
       expect(isValidationError(result.error)).toBe(true);
     }
   });
+
+  it("returns ok: false when raw args cannot be structured-cloned", () => {
+    const result = validateToolArgs(QuerySchema, {
+      tableId: "orders",
+      limit: () => 10,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isValidationError(result.error)).toBe(true);
+      expect(result.error.kind).toBe("validation_error");
+      expect(result.error.message).toMatch(/Tool argument validation failed/);
+      expect(result.error.errors[0]?.path).toBe("");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

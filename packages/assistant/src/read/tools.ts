@@ -239,7 +239,10 @@ export function createReadTools(reader: GraphReader) {
     }),
     id: Type.String({ description: "Artifact id (UUID)." }),
   });
-  const readData = defineToolHandler<typeof ReadDataSchema, DataReadResult>({
+  const readData = defineToolHandler<
+    typeof ReadDataSchema,
+    DataReadResult | { error: string }
+  >({
     name: "read_data",
     description:
       "Read a tiered DATA sample for a data table or an insight result. " +
@@ -250,13 +253,22 @@ export function createReadTools(reader: GraphReader) {
       "restricted columns are obfuscated. Incomplete lineage obfuscates every value.",
     label: "Read data",
     parameters: ReadDataSchema,
-    async execute(_id, params): Promise<AgentToolResult<DataReadResult>> {
+    async execute(
+      _id,
+      params,
+    ): Promise<AgentToolResult<DataReadResult | { error: string }>> {
       const node: NodeRef = { kind: params.kind, id: params.id };
       // The port's readDataProfile IS the floor-gated profile sink (host wires
       // it to ./floor.applyFloor over the artifact's source fields). Optional
       // sample rows still enter only through the port and are immediately
       // reassembled under the same column-aware floor before reaching the agent.
       const result = await reader.readDataProfile(node);
+      if (result === null) {
+        return {
+          ...text(`No data artifact found for ${params.kind} ${params.id}.`),
+          details: { error: "not_found" },
+        };
+      }
       if (reader.readDataSample !== undefined) {
         try {
           const sampleRows = await reader.readDataSample(node, { maxRows: 5 });
@@ -267,6 +279,7 @@ export function createReadTools(reader: GraphReader) {
             {
               sampleRows,
               maxRows: 5,
+              maskAllValues: result.resolution === "unresolved",
             },
           );
           if (
@@ -280,6 +293,10 @@ export function createReadTools(reader: GraphReader) {
         }
       }
       const masked = result.masked ? " (MASKED — sensitive source)" : "";
+      const resolution =
+        result.resolution === "unresolved"
+          ? " Unresolved source; fail-closed."
+          : "";
       const truncNote = result.sample?.truncated ? " (truncated)" : "";
       const sample =
         result.sample !== undefined
@@ -288,7 +305,7 @@ export function createReadTools(reader: GraphReader) {
       return {
         ...text(
           `${result.columns.length} column profile(s) for ${params.kind} ` +
-            `${params.id}${masked}.${sample}`,
+            `${params.id}${masked}.${resolution}${sample}`,
         ),
         details: result,
       };
