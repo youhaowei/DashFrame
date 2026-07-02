@@ -166,6 +166,7 @@ export interface DraftController {
   publishDraft(
     draftId: string,
     context?: Record<string, unknown>,
+    options?: PublishDraftOptions,
   ): Promise<CommitResult>;
   /**
    * Discard = drop the draft's deltas: delete every `<table>__draft` row and
@@ -175,6 +176,19 @@ export interface DraftController {
   discardDraft(draftId: string): Promise<void>;
   /** Read-only peek at a draft's persisted (compacted) command log. */
   getDraftLog(draftId: string): Promise<Command[]>;
+}
+
+/**
+ * Per-call guards for `publishDraft`.
+ */
+export interface PublishDraftOptions {
+  /**
+   * Review-drift guard: the command-log length the reviewer saw. Enforced
+   * INSIDE the publish transaction against the reloaded durable log, so a
+   * command appended between review and publish aborts the replay atomically —
+   * a pre-transaction read cannot provide this guarantee.
+   */
+  expectedCommandCount?: number;
 }
 
 /**
@@ -406,7 +420,7 @@ export function createDraftController(
       }
     },
 
-    async publishDraft(draftId, context = {}) {
+    async publishDraft(draftId, context = {}, options = {}) {
       // ONE publish path, warm or cold: the durable log is always the source.
       // Replay the ordered command log onto CANONICAL, atomically. applyCommands
       // dispatches each command via the (wrapped) `runHandler`, which re-applies
@@ -438,6 +452,15 @@ export function createDraftController(
       // routes their DELETEs through the same commit boundary as the replay.
       const result = await app.createTracked().transaction(async (tx) => {
         const log = await readLog(draftId, tx.raw as LogReader);
+        // Review-drift guard first: this log read shares the replay's commit
+        // boundary, so a mismatch here means the draft REALLY changed since the
+        // reviewed count was taken — abort before content validation.
+        if (
+          options.expectedCommandCount !== undefined &&
+          log.length !== options.expectedCommandCount
+        ) {
+          throw new Error("publishDraft: draft changed since review");
+        }
         assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);
         const committed = (await applyCommands(app, log, {

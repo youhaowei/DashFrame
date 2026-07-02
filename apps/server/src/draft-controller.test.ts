@@ -98,6 +98,29 @@ describe("DraftController (persisted draft overlay)", () => {
     expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
+  it("enforces expectedCommandCount inside the publish transaction", async () => {
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+    // Reviewer saw 1 command; a second lands after review (the drift race).
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S2" }),
+    );
+
+    await expect(
+      controller.publishDraft(draftId, {}, { expectedCommandCount: 1 }),
+    ).rejects.toThrow(/changed since review/);
+    // The aborted publish rolls back atomically — the draft survives intact.
+    expect(await controller.getDraftLog(draftId)).toHaveLength(2);
+
+    // A count matching the reloaded log publishes normally.
+    await controller.publishDraft(draftId, {}, { expectedCommandCount: 2 });
+    expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+  });
+
   /** Seed a DataSource + DataTable on CANONICAL (the draft's base). */
   async function seedTable(
     target: ReturnType<typeof createDraftController>,

@@ -138,9 +138,15 @@ const publishDraft = mutation({
     // leaving a resurrection window across server restarts.
     const prePublishLog = await draftController.getDraftLog(draftId);
 
+    // Parse the reviewed count here; ENFORCEMENT happens inside the publish
+    // transaction (see DraftController.publishDraft's expectedCommandCount
+    // guard) against the reloaded durable log — a command appended between
+    // this read and the replay aborts the publish atomically rather than
+    // bypassing a pre-transaction check.
+    let expected: number | undefined;
     if (expectedCommandCount !== undefined) {
-      const expected = Number.parseInt(expectedCommandCount, 10);
-      if (Number.isNaN(expected) || prePublishLog.length !== expected) {
+      expected = Number.parseInt(expectedCommandCount, 10);
+      if (Number.isNaN(expected)) {
         throw new Error("publishDraft: draft changed since review");
       }
     }
@@ -171,9 +177,11 @@ const publishDraft = mutation({
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
     // command handlers' direct-call guard accepts it (release is handled here).
-    const result = await draftController.publishDraft(draftId, {
-      [PUBLISH_REPLAY_CONTEXT_KEY]: true,
-    });
+    const result = await draftController.publishDraft(
+      draftId,
+      { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
+      { expectedCommandCount: expected },
+    );
 
     // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does
     // NOT fire `onWrite` here (its tracker sees zero writes from the sub-tracker
