@@ -40,6 +40,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
   const [diff, setDiff] = useState<PreviewDiff | null>(null);
   const [publishBlocked, setPublishBlocked] = useState(true);
   const [commandCount, setCommandCount] = useState<number | null>(null);
+  const [logSignature, setLogSignature] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
       }
       setPublishBlocked(review.publishBlocked);
       setCommandCount(review.commandCount);
+      setLogSignature(review.logSignature);
       setDiff(review.diff);
       setDialogOpen(true);
       if (review.lateBound.length > 0) {
@@ -98,6 +100,9 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
         ...(commandCount !== null
           ? { expectedCommandCount: commandCount }
           : {}),
+        ...(logSignature !== null
+          ? { expectedLogSignature: logSignature }
+          : {}),
       });
       toast.success("Draft published.");
       setDialogOpen(false);
@@ -108,7 +113,14 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
         description: draftLifecycleErrorDescription(err),
       });
     }
-  }, [commandCount, draftId, openFullReview, publishBlocked, setPendingDraft]);
+  }, [
+    commandCount,
+    draftId,
+    logSignature,
+    openFullReview,
+    publishBlocked,
+    setPendingDraft,
+  ]);
 
   const handleDiscard = useCallback(async () => {
     try {

@@ -20,7 +20,7 @@ import { loose } from "./wystack-args";
  */
 export async function publishDraft(
   draftId: string,
-  options?: { expectedCommandCount?: number },
+  options?: { expectedCommandCount?: number; expectedLogSignature?: string },
 ): Promise<{ tablesWritten: string[] }> {
   return getWyStackClient().mutate(
     api.publishDraft,
@@ -30,6 +30,7 @@ export async function publishDraft(
         options?.expectedCommandCount !== undefined
           ? String(options.expectedCommandCount)
           : undefined,
+      expectedLogSignature: options?.expectedLogSignature,
     }),
   );
 }

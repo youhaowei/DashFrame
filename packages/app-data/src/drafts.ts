@@ -28,7 +28,7 @@ export function useDraftPublishReview(
 export interface DraftMutations {
   publish: (
     draftId: string,
-    options?: { expectedCommandCount?: number },
+    options?: { expectedCommandCount?: number; expectedLogSignature?: string },
   ) => Promise<void>;
   discard: (draftId: string) => Promise<void>;
 }
@@ -41,7 +41,10 @@ export function useDraftMutations(): DraftMutations {
     () => ({
       publish: async (
         draftId: string,
-        options?: { expectedCommandCount?: number },
+        options?: {
+          expectedCommandCount?: number;
+          expectedLogSignature?: string;
+        },
       ): Promise<void> => {
         await publishMutation.mutateAsync(
           loose({
@@ -50,6 +53,7 @@ export function useDraftMutations(): DraftMutations {
               options?.expectedCommandCount !== undefined
                 ? String(options.expectedCommandCount)
                 : undefined,
+            expectedLogSignature: options?.expectedLogSignature,
           }),
         );
       },

@@ -6,6 +6,7 @@ import { query } from "@wystack/server";
 
 import { createDraftController } from "../draft-controller";
 import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
+import { computeLogSignature } from "../draft-log-signature";
 import { buildPreviewDiff } from "./preview-diff";
 
 export { findLateBound };
@@ -16,6 +17,17 @@ export interface DraftPublishReview {
   commands: DraftCommandSummary[];
   /** Length of the durable log at review time — publish may pass this back to detect drift. */
   commandCount: number;
+  /**
+   * Content signature (see `computeLogSignature`) of the durable log at
+   * review time — publish passes this back as `expectedLogSignature` so the
+   * server can detect same-length content drift that `commandCount` alone
+   * cannot see (compaction can drop earlier positions while a different
+   * command backfills the count). Computed HERE, over the same `commands`
+   * this response returns, and recomputed inside the publish transaction
+   * over the reloaded log with the SAME function — one serializer, so an
+   * unchanged log is guaranteed to signature-match byte for byte.
+   */
+  logSignature: string;
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
@@ -84,6 +96,7 @@ const draftPublishReview = query({
       draftId,
       commands: summarizeCommands(commands, lateBound),
       commandCount: commands.length,
+      logSignature: computeLogSignature(commands),
       diff,
       lateBound,
       publishBlocked: lateBound.length > 0 || diff.error !== undefined,

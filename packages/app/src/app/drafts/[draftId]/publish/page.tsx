@@ -78,7 +78,10 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     if (!review || review.publishBlocked) return;
     setBusy("publish");
     try {
-      await publish(draftId, { expectedCommandCount: review.commandCount });
+      await publish(draftId, {
+        expectedCommandCount: review.commandCount,
+        expectedLogSignature: review.logSignature,
+      });
       if (useAssistantStore.getState().pendingDraftId === draftId) {
         setPendingDraft(null);
       }

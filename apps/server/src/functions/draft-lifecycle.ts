@@ -115,10 +115,14 @@ async function gateSnapshotForRelease(
 }
 
 const publishDraft = mutation({
-  args: { draftId: text, expectedCommandCount: text.optional() },
+  args: {
+    draftId: text,
+    expectedCommandCount: text.optional(),
+    expectedLogSignature: text.optional(),
+  },
   handler: async (
     ctx,
-    { draftId, expectedCommandCount },
+    { draftId, expectedCommandCount, expectedLogSignature },
   ): Promise<PublishDraftInternalResult> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
@@ -129,10 +133,13 @@ const publishDraft = mutation({
     }
 
     // Parse the reviewed count here; ENFORCEMENT happens inside the publish
-    // transaction (see DraftController.publishDraft's expectedCommandCount
-    // guard) against the reloaded durable log — a command appended between
-    // this parse and the replay aborts the publish atomically rather than
-    // bypassing a pre-transaction check.
+    // transaction (see DraftController.publishDraft's expectedCommandCount +
+    // expectedLogSignature guards) against the reloaded durable log — a
+    // command appended between this parse and the replay aborts the publish
+    // atomically rather than bypassing a pre-transaction check.
+    //
+    // `expectedLogSignature` is already a hex string (RPC args are text), so
+    // it is forwarded verbatim — no parse step, unlike the count.
     let expected: number | undefined;
     if (expectedCommandCount !== undefined) {
       expected = Number.parseInt(expectedCommandCount, 10);
@@ -180,6 +187,7 @@ const publishDraft = mutation({
       { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
       {
         expectedCommandCount: expected,
+        expectedLogSignature,
         beforeReplay: async (log, tx) => {
           publishLogLength = log.length;
           if (artifactDb != null) {
