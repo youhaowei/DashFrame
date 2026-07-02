@@ -181,7 +181,20 @@ export function validateToolArgs<TParams extends TSchema>(
   | { ok: false; error: ToolArgValidationError } {
   // Convert mutates in place and returns the coerced value — clone first so the
   // caller's input is untouched, matching pi's structuredClone in validateToolArguments.
-  const coerced = Convert(schema, structuredClone(raw));
+  let coerced: unknown;
+  try {
+    coerced = Convert(schema, structuredClone(raw));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: {
+        kind: "validation_error",
+        message: `Tool argument validation failed: ${message}`,
+        errors: [{ path: "", message }],
+      },
+    };
+  }
 
   if (Check(schema, coerced)) {
     return { ok: true, value: coerced };
