@@ -145,6 +145,57 @@ describe("getOAuthToken — security invariant", () => {
       vi.restoreAllMocks();
     }
   });
+
+  it("should never log a malformed expiresAt keychain value", async () => {
+    const leakedExpiresAt = "sk-ant-oat-should-not-log";
+    const mockKeychain = makeKeychain({
+      expiresAt: leakedExpiresAt,
+      accessToken: "sk-ant-oat-mock-stale-access-token",
+      refreshToken: "mock-refresh-token",
+    });
+    const mockReadKeychain = vi.fn(async () => mockKeychain);
+    const mockFetchRefresh = vi.fn(async (_rt: string) => makeRotated());
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const origStdout = process.stdout.write.bind(process.stdout);
+    const origStderr = process.stderr.write.bind(process.stderr);
+
+    process.stdout.write = (chunk: unknown) => {
+      stdoutChunks.push(String(chunk));
+      return origStdout(chunk as Parameters<typeof origStdout>[0]);
+    };
+    process.stderr.write = (chunk: unknown) => {
+      stderrChunks.push(String(chunk));
+      return origStderr(chunk as Parameters<typeof origStderr>[0]);
+    };
+
+    const consoleSpy = {
+      log: vi.spyOn(console, "log").mockImplementation(() => {}),
+      error: vi.spyOn(console, "error").mockImplementation(() => {}),
+      warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+      debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
+    };
+
+    try {
+      await getOAuthToken({
+        readKeychain: mockReadKeychain,
+        fetchRefresh: mockFetchRefresh,
+      });
+      const allOutput = [...stdoutChunks, ...stderrChunks].join("\n");
+      expect(allOutput).not.toContain(leakedExpiresAt);
+      expect(allOutput).toContain("expiresAt=invalid");
+
+      for (const spy of Object.values(consoleSpy)) {
+        const allArgs = spy.mock.calls.flat().map(String).join("\n");
+        expect(allArgs).not.toContain(leakedExpiresAt);
+      }
+    } finally {
+      process.stdout.write = origStdout;
+      process.stderr.write = origStderr;
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -213,7 +264,7 @@ describe("getOAuthToken — string expiresAt", () => {
   it("accepts a future ISO timestamp string as fresh", async () => {
     const futureIso = new Date(Date.now() + 3_600_000).toISOString();
     const mockReadKeychain = vi.fn(async () =>
-      makeKeychain({ expiresAt: futureIso as unknown as number }),
+      makeKeychain({ expiresAt: futureIso }),
     );
     const mockFetchRefresh = vi.fn();
 
@@ -230,7 +281,7 @@ describe("getOAuthToken — string expiresAt", () => {
     const pastIso = new Date(Date.now() - 3_600_000).toISOString();
     const rotated = makeRotated();
     const mockReadKeychain = vi.fn(async () =>
-      makeKeychain({ expiresAt: pastIso as unknown as number }),
+      makeKeychain({ expiresAt: pastIso }),
     );
     const mockFetchRefresh = vi.fn(async (_rt: string) => rotated);
 
@@ -358,6 +409,59 @@ describe("getOAuthToken — expired token refresh", () => {
       Date.now = originalDateNow;
     }
   });
+
+  it("refreshes a stale in-memory token even when the keychain is unavailable", async () => {
+    const originalDateNow = Date.now;
+    let fakeNow = originalDateNow();
+    Date.now = () => fakeNow;
+
+    try {
+      const mockReadKeychain = vi
+        .fn()
+        .mockResolvedValueOnce(makeKeychain({ expiresAt: fakeNow - 100 }))
+        .mockRejectedValueOnce(
+          new Error("Failed to read Claude Code credentials from keychain"),
+        );
+      const firstRotated: RefreshedCredentials = {
+        accessToken: "sk-ant-oat-first-memory-access",
+        refreshToken: "rotated-refresh-token-v2",
+        expiresIn: 60,
+      };
+      const secondRotated: RefreshedCredentials = {
+        accessToken: "sk-ant-oat-second-memory-access",
+        refreshToken: "rotated-refresh-token-v3",
+        expiresIn: 3600,
+      };
+      const mockFetchRefresh = vi
+        .fn()
+        .mockResolvedValueOnce(firstRotated)
+        .mockResolvedValueOnce(secondRotated);
+
+      await expect(
+        getOAuthToken({
+          readKeychain: mockReadKeychain,
+          fetchRefresh: mockFetchRefresh,
+        }),
+      ).resolves.toBe(firstRotated.accessToken);
+
+      fakeNow += (60 + 61) * 1000;
+
+      await expect(
+        getOAuthToken({
+          readKeychain: mockReadKeychain,
+          fetchRefresh: mockFetchRefresh,
+        }),
+      ).resolves.toBe(secondRotated.accessToken);
+
+      expect(mockReadKeychain).toHaveBeenCalledTimes(1);
+      expect(mockFetchRefresh).toHaveBeenCalledTimes(2);
+      expect(mockFetchRefresh.mock.calls[1]?.[0]).toBe(
+        firstRotated.refreshToken,
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -436,9 +540,17 @@ describe("getOAuthToken — missing credentials", () => {
       );
     });
 
-    await expect(
-      getOAuthToken({ readKeychain: mockReadKeychain }),
-    ).rejects.toThrow("Failed to read Claude Code credentials from keychain");
+    const err = await getOAuthToken({ readKeychain: mockReadKeychain }).catch(
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(OAuthTokenExpiredError);
+    expect(err).toHaveProperty(
+      "message",
+      expect.stringContaining(
+        "Failed to read Claude Code credentials from keychain",
+      ),
+    );
   });
 });
 
@@ -522,5 +634,59 @@ describe("getOAuthToken — concurrent refresh dedup (single-flight)", () => {
     expect(t2).toBe(rotated.accessToken);
     // The refresh was only called once — no rotation-invalidating second call.
     expect(mockFetchRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not share in-flight refreshes across distinct injected providers", async () => {
+    const mockReadKeychainA = vi.fn(async () =>
+      makeKeychain({
+        accessToken: "sk-ant-oat-stale-access-a",
+        refreshToken: "refresh-token-a",
+        expiresAt: PAST,
+      }),
+    );
+    const mockReadKeychainB = vi.fn(async () =>
+      makeKeychain({
+        accessToken: "sk-ant-oat-stale-access-b",
+        refreshToken: "refresh-token-b",
+        expiresAt: PAST,
+      }),
+    );
+
+    let resolveRefreshA!: (v: RefreshedCredentials) => void;
+    let resolveRefreshB!: (v: RefreshedCredentials) => void;
+    const refreshPromiseA = new Promise<RefreshedCredentials>((resolve) => {
+      resolveRefreshA = resolve;
+    });
+    const refreshPromiseB = new Promise<RefreshedCredentials>((resolve) => {
+      resolveRefreshB = resolve;
+    });
+
+    const mockFetchRefreshA = vi.fn(() => refreshPromiseA);
+    const mockFetchRefreshB = vi.fn(() => refreshPromiseB);
+
+    const [pA, pB] = [
+      getOAuthToken({
+        readKeychain: mockReadKeychainA,
+        fetchRefresh: mockFetchRefreshA,
+      }),
+      getOAuthToken({
+        readKeychain: mockReadKeychainB,
+        fetchRefresh: mockFetchRefreshB,
+      }),
+    ];
+
+    resolveRefreshA(
+      makeRotated({ accessToken: "sk-ant-oat-refreshed-access-a" }),
+    );
+    resolveRefreshB(
+      makeRotated({ accessToken: "sk-ant-oat-refreshed-access-b" }),
+    );
+
+    await expect(pA).resolves.toBe("sk-ant-oat-refreshed-access-a");
+    await expect(pB).resolves.toBe("sk-ant-oat-refreshed-access-b");
+    expect(mockReadKeychainA).toHaveBeenCalledOnce();
+    expect(mockReadKeychainB).toHaveBeenCalledOnce();
+    expect(mockFetchRefreshA).toHaveBeenCalledWith("refresh-token-a");
+    expect(mockFetchRefreshB).toHaveBeenCalledWith("refresh-token-b");
   });
 });

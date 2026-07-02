@@ -264,6 +264,14 @@ function stampAgentProvenance(type: string, args: unknown): unknown {
   return { ...(args as Record<string, unknown>), createdBy: { kind: "agent" } };
 }
 
+function stringifyResultForText(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return "[unserializable result]";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // applyCommand result detail
 // ---------------------------------------------------------------------------
@@ -465,11 +473,11 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
 
       // appendToDraft returns one CommandResult per command in the batch.
       // We passed exactly one command; the contract requires exactly one result.
-      // A shorter array is a host implementation bug — surface it loudly rather
-      // than silently returning null, which would look like success to the agent.
-      if (results.length === 0) {
+      // Any length mismatch is a host implementation bug — surface it loudly
+      // rather than silently dropping missing or extra handler evidence.
+      if (results.length !== 1) {
         throw new Error(
-          `appendToDraft returned 0 results for 1 command (draftId=${draftId}, type="${type}") ` +
+          `appendToDraft returned ${results.length} results for 1 command (draftId=${draftId}, type="${type}") ` +
             "— host DraftAppender contract violation: expected one result per batch element",
         );
       }
@@ -481,7 +489,7 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
             type: "text" as const,
             text:
               `Command "${type}" applied to draft. ` +
-              `Result: ${JSON.stringify(result.value ?? null)}`,
+              `Result: ${stringifyResultForText(result.value)}`,
           },
         ],
         details: {

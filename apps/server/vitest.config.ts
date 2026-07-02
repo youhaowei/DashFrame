@@ -18,6 +18,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@dashframe/assistant": path.resolve(
+        configDir,
+        "../../packages/assistant/src",
+      ),
       "@dashframe/server-core": path.resolve(
         configDir,
         "../../packages/server-core/src",

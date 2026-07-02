@@ -97,6 +97,8 @@ export function createAssistantReadHost(
   interface SourceResolution {
     fields: Field[];
     forceMask: boolean;
+    missing?: boolean;
+    unresolvedReason?: string;
   }
 
   /**
@@ -128,11 +130,18 @@ export function createAssistantReadHost(
       // created before schema discovery/classification has empty `fields`).
       // "Unknown columns" must mask exactly like "unresolvable" — the inherit-
       // source floor's whole point is that unknown ⇒ restricted.
-      if (table === null || (table.fields?.length ?? 0) === 0)
-        return { fields: table?.fields ?? [], forceMask: true };
+      if (table === null) return { fields: [], forceMask: true, missing: true };
+      if ((table.fields?.length ?? 0) === 0)
+        return {
+          fields: [],
+          forceMask: true,
+          unresolvedReason: "data table has no resolved fields",
+        };
       return { fields: table.fields, forceMask: false };
     }
-    return resolveInsightSourceFields(node.id, new Set<UUID>());
+    const insight = await read<Insight | null>("getInsight", { id: node.id });
+    if (insight === null) return { fields: [], forceMask: true, missing: true };
+    return resolveInsightSourceFields(insight, new Set<UUID>());
   }
 
   /**
@@ -141,17 +150,16 @@ export function createAssistantReadHost(
    * write, but a read must never loop). Any unresolved hop forces masking.
    */
   async function resolveInsightSourceFields(
-    insightId: UUID,
+    insight: Insight,
     seen: Set<UUID>,
   ): Promise<SourceResolution> {
+    const insightId = insight.id;
     if (seen.has(insightId)) return { fields: [], forceMask: true };
     seen.add(insightId);
 
-    const insight = await read<Insight | null>("getInsight", { id: insightId });
-    if (insight === null) return { fields: [], forceMask: true };
-
     const fields: Field[] = [];
     let forceMask = false;
+    let unresolvedReason: string | undefined;
     // Add a referenced table's fields. A DANGLING ref (null table) forces
     // masking: deleting a DataTable does NOT cascade-delete dependent insights
     // (the server routes them to drift-repair), so an insight can carry a
@@ -166,8 +174,11 @@ export function createAssistantReadHost(
       });
       // Null (dangling) OR empty-fields (columns not discovered yet) → fail
       // closed: a table whose columns we can't enumerate may hide a sensitive one.
-      if (table === null || (table.fields?.length ?? 0) === 0) forceMask = true;
-      else fields.push(...table.fields);
+      if (table === null || (table.fields?.length ?? 0) === 0) {
+        forceMask = true;
+        unresolvedReason ??=
+          "one or more contributing tables could not be resolved";
+      } else fields.push(...table.fields);
     };
 
     // Base source: a dataTable, OR an upstream insight (composition). Probe as a
@@ -180,12 +191,21 @@ export function createAssistantReadHost(
     if (baseTable !== null) {
       await addTableFields(insight.baseTableId);
     } else {
-      const upstream = await resolveInsightSourceFields(
-        insight.baseTableId,
-        seen,
-      );
-      fields.push(...upstream.fields);
-      forceMask = forceMask || upstream.forceMask;
+      const upstreamInsight = await read<Insight | null>("getInsight", {
+        id: insight.baseTableId,
+      });
+      if (upstreamInsight === null) {
+        forceMask = true;
+        unresolvedReason ??= "base source could not be resolved";
+      } else {
+        const upstream = await resolveInsightSourceFields(
+          upstreamInsight,
+          seen,
+        );
+        fields.push(...upstream.fields);
+        forceMask = forceMask || upstream.forceMask;
+        unresolvedReason ??= upstream.unresolvedReason;
+      }
     }
 
     // Join tables — every joined table's columns are read (incl. the join keys).
@@ -197,7 +217,7 @@ export function createAssistantReadHost(
       if (m.sourceTable) await addTableFields(m.sourceTable);
     }
 
-    return { fields, forceMask };
+    return { fields, forceMask, unresolvedReason };
   }
 
   return {
@@ -241,8 +261,10 @@ export function createAssistantReadHost(
     },
 
     // --- value read (floor-gated) — the single value egress ---
-    async readDataProfile(node: NodeRef): Promise<DataReadResult> {
-      const { fields, forceMask } = await sourceFieldsFor(node);
+    async readDataProfile(node: NodeRef): Promise<DataReadResult | null> {
+      const { fields, forceMask, missing, unresolvedReason } =
+        await sourceFieldsFor(node);
+      if (missing === true) return null;
       // Hand the contributing source fields to the assistant's floor. It makes
       // the binary inherit-source masking decision and emits profiles-only.
       // We pass name/type/sensitivity (structure) and no stats; row-derived
@@ -262,7 +284,16 @@ export function createAssistantReadHost(
             : {}),
         }),
       );
-      return applyFloor(node, profileInput, { forceMask });
+      const result = applyFloor(node, profileInput, { forceMask });
+      if (forceMask) {
+        return {
+          ...result,
+          resolution: "unresolved",
+          unresolvedReason:
+            unresolvedReason ?? "source field resolution was incomplete",
+        };
+      }
+      return { ...result, resolution: "complete" };
     },
 
     // --- source fallback (allowlisted) ---
