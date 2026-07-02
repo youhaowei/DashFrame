@@ -98,8 +98,19 @@ describe("DashFrame AssistantHost integration", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-assistant-host-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await buildDashframeApp({ db });
+    // Mirror createDashframeServer's serverContext composition: the host's
+    // discard routes through app.call("discardDraft"), whose handler requires
+    // ctx.draftController (and reads ctx.artifactDb for credential release).
+    const serverContext: Record<string, unknown> = {};
+    const rawApp = await buildDashframeApp({ db });
+    app = {
+      ...rawApp,
+      call: (path, args, context) =>
+        rawApp.call(path, args, { ...(context ?? {}), ...serverContext }),
+    };
     draftController = createDraftController(app, db);
+    serverContext.draftController = draftController;
+    serverContext.artifactDb = db;
   });
 
   afterEach(async () => {

@@ -11,6 +11,11 @@ import {
 } from "./functions/commands";
 
 export interface DashframeAssistantHostOptions {
+  /**
+   * Must be the serverContext-wrapped app (createDashframeServer's `app`, or
+   * a test equivalent): discard routes through `app.call("discardDraft")`,
+   * whose handler requires `ctx.draftController` in every call context.
+   */
   app: WyStackApp;
   draftController: DraftController;
   readSourceFile?: (file: string) => Promise<string>;
@@ -33,7 +38,12 @@ export function createDashframeAssistantHost(
     open: () => options.draftController.openDraft(),
     append: (draftId, batch, context) =>
       options.draftController.appendToDraft(draftId, batch, context),
-    discard: (draftId) => options.app.call("discardDraft", { draftId }),
+    discard: async (draftId) => {
+      // Route through the registered command so discard runs the full
+      // lifecycle (credential release, persistence scheduling), not just the
+      // controller's in-memory drop.
+      await options.app.call("discardDraft", { draftId });
+    },
     buildCommand,
     reader: (draftId) =>
       createAssistantReadHost({
