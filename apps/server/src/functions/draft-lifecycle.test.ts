@@ -353,6 +353,65 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     expect(await vault.has(oldRef)).toBe(false);
   });
 
+  it("discard releases the ref minted by a command appended right before discard, via the real HTTP path", async () => {
+    // Discard-side mirror of the publish test above: pins that a credential
+    // ref minted by a command appended to the draft's log is still collected
+    // and released when the draft is discarded through the RPC — the case an
+    // OUTER pre-read (the old `collectDiscardCandidateRefs(artifactDb,
+    // draftId, await draftController.getDraftLog(draftId))` taken before
+    // `discardDraft` opened its transaction) could miss if the append landed
+    // between that pre-read and the discard call.
+    //
+    // As with the publish test, this does not reproduce the intra-discard
+    // race itself (the append below happens before `discardDraft` is
+    // invoked, so both an outer pre-read and the in-transaction reload would
+    // observe it here) — the regression guard for the ordering itself lives
+    // in draft-controller.test.ts ("beforeDiscard observes the AUTHORITATIVE
+    // reloaded log, not a stale pre-read"). This test instead pins the
+    // end-to-end outcome: the ref a late-appended command mints is not
+    // orphaned by discard.
+    const vault = makeTestVault();
+    project = await openProject({ dir: join(root, "proj") });
+    const db = project.db as ArtifactDb;
+
+    const seedApp = await buildDashframeApp({ db, vault });
+    const seedController = createDraftController(seedApp, db, {
+      captureCredentials: (c) => captureCommandCredentials(c, vault, db),
+    });
+
+    // Open the draft the RPC will discard.
+    const draftId = await seedController.openDraft();
+
+    server = await createDashframeServer({
+      db: project.db,
+      vault,
+      flushSnapshot: async () => {},
+    });
+
+    // Append a fresh credentialed CreateDataSource right before discard — the
+    // capture-before-log seam mints a real vault ref for it.
+    const sourceId = crypto.randomUUID();
+    await seedController.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id: sourceId,
+        type: "notion",
+        name: "Draft source",
+        apiKey: "fresh-key",
+      }),
+    ]);
+    const draftLog = await seedController.getDraftLog(draftId);
+    const mintedRef = (draftLog[0]!.args as Record<string, unknown>)
+      .apiKey as SecretRef;
+    expect(await vault.has(mintedRef)).toBe(true);
+
+    await postOk<void>(server.url, "discardDraft", { draftId });
+
+    // Collection (via `beforeDiscard`) sees the appended CreateDataSource
+    // against the authoritative in-tx log, so the draft-minted ref is
+    // released after discard commits — never left as an inert vault orphan.
+    expect(await vault.has(mintedRef)).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // getDraftLog: compacted command log
   // -------------------------------------------------------------------------

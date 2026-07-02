@@ -54,11 +54,11 @@ import {
 
 /**
  * Read-only slice of `ArtifactDb` for the pre-transition collectors: they
- * COLLECT release candidates, never mutate — and on the publish path they run
- * on a transaction-bound raw handle that does NOT support `.transaction()` at
- * runtime. The narrowed type turns both misuses into compile errors and lets
- * the collectors accept `DraftController`'s `beforeReplay` tx (`LogReader`,
- * the structurally identical slice) without a cast.
+ * COLLECT release candidates, never mutate. The narrowed type makes mutation
+ * unrepresentable at compile time — least authority by construction,
+ * regardless of what the runtime handle supports — and lets the collectors
+ * accept `DraftController`'s hook tx (`LogReader`, the structurally identical
+ * slice) without a cast.
  */
 export type ArtifactReader = Pick<ArtifactDb, "select">;
 

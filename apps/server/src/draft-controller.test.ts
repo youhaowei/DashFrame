@@ -352,6 +352,55 @@ describe("DraftController (persisted draft overlay)", () => {
     expect(hookCalled).toBe(false);
   });
 
+  it("a throw in beforeReplay aborts the publish transaction — nothing lands on canonical, log survives intact", async () => {
+    // Sibling of the discard-side "a throw in beforeDiscard aborts..." test
+    // below: pins the publish half's identical guarantee. The hook runs INSIDE
+    // the publish transaction, after the drift guard passes and the log is
+    // reloaded, but BEFORE applyCommands/deleteLog/sweepShadows run — a throw
+    // here must roll back the whole transaction, not just skip the write.
+    const { tableId } = await seedTable(controller);
+    const before = await canonicalInsights();
+
+    const draftId = await controller.openDraft();
+    const insightId = id();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "Throwaway src" }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Throwaway",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    );
+    expect(await draftInsightRows(draftId)).toHaveLength(1);
+    expect(await draftDataSourceRows(draftId)).toHaveLength(1);
+
+    await expect(
+      controller.publishDraft(
+        draftId,
+        {},
+        {
+          beforeReplay: () => {
+            throw new Error("collection failed");
+          },
+        },
+      ),
+    ).rejects.toThrow(/collection failed/);
+
+    // Nothing replayed to canonical.
+    const after = await canonicalInsights();
+    expect(after).toHaveLength(before.length);
+    expect(after.find((r) => r.id === insightId)).toBeUndefined();
+    // The draft survives intact: both shadow tables AND the command log are
+    // untouched, so a retry (without the failing hook) can still publish it.
+    expect(await draftInsightRows(draftId)).toHaveLength(1);
+    expect(await draftDataSourceRows(draftId)).toHaveLength(1);
+    const logRows = (await db.select().from(draftCommandLog)).filter(
+      (r) => r.draftId === draftId,
+    );
+    expect(logRows).toHaveLength(2);
+  });
+
   /** Seed a DataSource + DataTable on CANONICAL (the draft's base). */
   async function seedTable(
     target: ReturnType<typeof createDraftController>,
@@ -523,6 +572,80 @@ describe("DraftController (persisted draft overlay)", () => {
       (r) => r.draftId === draftId,
     );
     expect(logRows).toHaveLength(0);
+  });
+
+  it("beforeDiscard observes the AUTHORITATIVE reloaded log, not a stale pre-read (TOCTOU regression)", async () => {
+    // Mirrors the publish-side "beforeReplay observes the AUTHORITATIVE
+    // reloaded log" test above. A host that reads the draft log BEFORE
+    // calling discardDraft (e.g. to decide which credential-vault refs to
+    // release) races a command appended between that read and the discard
+    // transaction's own reload. `beforeDiscard` exists so the host instead
+    // reasons about the log INSIDE the transaction, after it is reloaded —
+    // this pins that it really does see the append, not whatever the caller
+    // read earlier.
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+
+    // Simulate a caller's stale pre-read (what draft-lifecycle.ts used to do
+    // via `draftController.getDraftLog(draftId)` before this fix).
+    const stalePreRead = await controller.getDraftLog(draftId);
+    expect(stalePreRead).toHaveLength(1);
+
+    // A second command lands after the stale read but before discard — the
+    // drift race this hook must be immune to.
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S2" }),
+    );
+
+    let observedLogLength: number | undefined;
+    await controller.discardDraft(draftId, {
+      beforeDiscard: (log) => {
+        observedLogLength = log.length;
+      },
+    });
+
+    // The hook saw the AUTHORITATIVE 2-command log, not the stale 1-command
+    // pre-read — proving collection cannot run against stale state.
+    expect(observedLogLength).toBe(2);
+    expect(observedLogLength).not.toBe(stalePreRead.length);
+  });
+
+  it("a throw in beforeDiscard aborts the discard transaction — log + shadow rows survive intact", async () => {
+    const { tableId } = await seedTable(controller);
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "Throwaway src" }),
+      cmd("CreateInsight", {
+        id: id(),
+        name: "Throwaway",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    );
+    expect(await draftInsightRows(draftId)).toHaveLength(1);
+    expect(await draftDataSourceRows(draftId)).toHaveLength(1);
+
+    await expect(
+      controller.discardDraft(draftId, {
+        beforeDiscard: () => {
+          throw new Error("collection failed");
+        },
+      }),
+    ).rejects.toThrow(/collection failed/);
+
+    // The aborted discard rolls back atomically — the draft survives intact
+    // across BOTH shadow tables AND the command log, exactly like an aborted
+    // publish (see the `expectedCommandCount` rollback tests above).
+    expect(await draftInsightRows(draftId)).toHaveLength(1);
+    expect(await draftDataSourceRows(draftId)).toHaveLength(1);
+    const logRows = (await db.select().from(draftCommandLog)).filter(
+      (r) => r.draftId === draftId,
+    );
+    expect(logRows).toHaveLength(2);
   });
 
   it("does NOT draft when no draftId is in context — the seam writes straight to canonical", async () => {

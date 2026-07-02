@@ -91,11 +91,10 @@ const DRAFT_SHADOW_TABLES = [
 
 /**
  * The DB-handle surface the teardown helpers (`deleteLog`/`sweepShadows`) need:
- * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) keeps
- * the publish path's `tx.raw` cast honest — a transaction-bound raw handle does
- * NOT expose `.transaction()`, so widening to `ArtifactDb` would advertise a
- * method that fails at runtime. With this type, any future helper that reaches for
- * `.transaction()` is a compile error, not a latent footgun.
+ * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) is
+ * least authority by construction: any future helper that reaches for
+ * `.transaction()` or another surface it wasn't granted is a compile error,
+ * regardless of what the runtime handle happens to support.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
 export type LogReader = Pick<ArtifactDb, "select">;
@@ -172,11 +171,50 @@ export interface DraftController {
   /**
    * Discard = drop the draft's deltas: delete every `<table>__draft` row and
    * every `draft_command_log` row for this draftId. Canonical is untouched.
-   * Pure DELETE-by-draftId; no wystack call needed.
+   * Runs in ONE transaction (log reload, optional `beforeDiscard` hook, log
+   * delete, shadow sweep) — mirrors `publishDraft`'s outer-tx seam so a host
+   * can collect pre-teardown state (e.g. credential-release refs) against the
+   * AUTHORITATIVE reloaded log rather than a pre-transaction read. See
+   * `DiscardDraftOptions.beforeDiscard`.
    */
-  discardDraft(draftId: string): Promise<void>;
+  discardDraft(draftId: string, options?: DiscardDraftOptions): Promise<void>;
   /** Read-only peek at a draft's persisted (compacted) command log. */
   getDraftLog(draftId: string): Promise<Command[]>;
+}
+
+/**
+ * Per-call guards for `discardDraft`.
+ */
+export interface DiscardDraftOptions {
+  /**
+   * Pre-teardown hook, invoked INSIDE the discard transaction — after the log
+   * is reloaded via `readLog(draftId, tx)`, before the log delete + shadow
+   * sweep run.
+   *
+   * Mirrors `PublishDraftOptions.beforeReplay`: exists so a host can collect
+   * state the teardown is about to remove (DashFrame's credential-release
+   * refs — which vault refs the draft's log/shadow hold) against the
+   * AUTHORITATIVE reloaded log, never a pre-transaction read. A command
+   * appended between an outer `getDraftLog` call and `discardDraft` would
+   * make that pre-read stale — the same TOCTOU the publish half's
+   * `beforeReplay` closes (see its doc comment). Collection here observes
+   * exactly the log/shadow rows that are about to be dropped.
+   *
+   * Runs BEFORE the log delete and shadow sweep, so `dataSourcesDraft` (and
+   * the other five shadow tables) still hold this draft's rows when the hook
+   * fires — collectors that read the shadow (e.g. an inherited-only
+   * credential ref not present in the log) see them.
+   *
+   * A throw here aborts the discard transaction — the log and shadow rows
+   * survive intact, same abort semantics as a `beforeReplay` throw on the
+   * publish side.
+   *
+   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so the
+   * contract "the hook COLLECTS, never mutates" is enforced at compile time:
+   * mutation and nested-transaction calls are unrepresentable through the
+   * narrowed type, regardless of what the runtime handle supports.
+   */
+  beforeDiscard?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
 
 /**
@@ -227,10 +265,10 @@ export interface PublishDraftOptions {
    * invokes collection — nothing here observes a log that won't actually
    * replay. A throw here aborts the publish transaction like any other guard.
    *
-   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so both
-   * misuses are compile errors rather than latent runtime failures: the hook
-   * COLLECTS, never mutates, and a transaction-bound `tx.raw` does NOT
-   * support `.transaction()` at runtime.
+   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so the
+   * contract "the hook COLLECTS, never mutates" is enforced at compile time:
+   * mutation and nested-transaction calls are unrepresentable through the
+   * narrowed type, regardless of what the runtime handle supports.
    */
   beforeReplay?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
@@ -343,8 +381,11 @@ export function createDraftController(
    * the OUTER transaction's handle (`tx.raw`) so the log delete commits ATOMICALLY
    * with the canonical replay — this is the load-bearing step that closes the
    * crash window (a process death between replay-commit and log-delete is no
-   * longer possible; both land in one commit or both roll back). Other callers
-   * (discard) pass the autocommit `db` handle. Defaults to `db`.
+   * longer possible; both land in one commit or both roll back). The discard
+   * path (`dropDraft`) similarly passes its own transaction's handle, so the log
+   * delete commits atomically with the shadow sweep and any `beforeDiscard`
+   * hook. Defaults to `db` (autocommit) for a direct call outside either
+   * lifecycle path.
    */
   async function deleteLog(
     draftId: string,
@@ -357,12 +398,17 @@ export function createDraftController(
 
   /**
    * Sweep a draft's `<table>__draft` shadow rows across the closed set. `exec` is
-   * the Drizzle handle the DELETEs run against — the publish path passes the outer
-   * transaction's `tx.raw` so the sweep commits ATOMICALLY with the canonical
-   * replay + log delete (defaults to the autocommit `db` for discard).
+   * the Drizzle handle the DELETEs run against — BOTH callers now pass their
+   * outer transaction's handle (publish: `tx.raw`; discard: `dropDraft`'s own
+   * `db.transaction` callback) so the sweep commits ATOMICALLY with the rest of
+   * that transaction (defaults to the autocommit `db` only for a direct call
+   * outside either lifecycle path, e.g. tests).
    *
    * A sweep failure HARD-FAILS (propagates). Both callers want this:
-   *   - discard — the whole draft must be fully gone; a partial sweep must surface.
+   *   - discard — the sweep runs inside `dropDraft`'s tx, so a failure rolls
+   *     back the whole discard (log delete + any `beforeDiscard` effects
+   *     included) and leaves the draft intact for a clean retry, rather than a
+   *     partially-torn-down draft.
    *   - publish — the sweep runs inside the outer tx, so a failure must roll back
    *     the whole publish (canonical replay + log delete included) and leave the
    *     draft intact for a clean retry, never canonical-committed with a half-swept
@@ -381,13 +427,41 @@ export function createDraftController(
   }
 
   /**
-   * Delete every log row + shadow row for a draft. Log-FIRST + hard-fail on any
-   * step: used by discard, where the whole draft must be removed atomically-ish
-   * (a failure should surface so the caller knows the draft is not fully gone).
+   * Delete every log row + shadow row for a draft, inside ONE transaction, with
+   * an optional pre-teardown hook run against the reloaded log.
+   *
+   * ATOMIC (mirrors `publishDraft`'s outer-tx seam): the log reload, the
+   * `beforeDiscard` hook, the log delete, and the shadow sweep all share one
+   * commit boundary. A `beforeDiscard` throw rolls back the whole discard —
+   * the log and shadow rows survive intact for a clean retry — rather than
+   * leaving a partially-torn-down draft. `tx` here is `db.transaction`'s own
+   * callback handle — already the native Drizzle handle (no `.raw` unwrap
+   * needed, unlike the `DrizzleTracker.transaction` the publish path uses);
+   * passing it to `readLog`/`deleteLog`/`sweepShadows` routes all four steps
+   * through the same pre-teardown snapshot and commit boundary, closing the
+   * same TOCTOU class `PublishDraftOptions.beforeReplay` closes on the
+   * publish side (a pre-transaction `getDraftLog` read can miss a
+   * command appended between that read and discard; reloading inside the tx
+   * cannot).
    */
-  async function dropDraft(draftId: string): Promise<void> {
-    await deleteLog(draftId);
-    await sweepShadows(draftId);
+  async function dropDraft(
+    draftId: string,
+    options: DiscardDraftOptions = {},
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      // `db.transaction`'s callback handle is ALREADY the plain Drizzle
+      // handle (unlike `DrizzleTracker.transaction`, whose callback wraps it
+      // behind `.raw` — see `writeLog` above for the same pattern). It
+      // structurally satisfies both `LogReader` and `DeleteExecutor`.
+      const log = await readLog(draftId, tx);
+      // Pre-teardown hook: runs on the AUTHORITATIVE reloaded log, BEFORE the
+      // log delete and shadow sweep remove the rows it might read (e.g. the
+      // `dataSourcesDraft` shadow config for an inherited-only ref). See
+      // `DiscardDraftOptions.beforeDiscard` for why this must live here.
+      await options.beforeDiscard?.(log, tx);
+      await deleteLog(draftId, tx);
+      await sweepShadows(draftId, tx);
+    });
   }
 
   return {
@@ -561,8 +635,8 @@ export function createDraftController(
       return result;
     },
 
-    async discardDraft(draftId) {
-      await dropDraft(draftId);
+    async discardDraft(draftId, options = {}) {
+      await dropDraft(draftId, options);
     },
 
     async getDraftLog(draftId) {
