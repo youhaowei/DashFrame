@@ -701,6 +701,7 @@ describe("credential write path — capture-before-log + transition release", ()
       expect(await h.vault.has(oldRef)).toBe(true);
       expect(await h.vault.has(mintedRef)).toBe(true);
     } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- undo the structural fault injector patched above
       (h.app as any).createTracked = realCreateTracked;
     }
   });
