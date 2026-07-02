@@ -203,23 +203,31 @@ else
   fail "main checkout mutated: HEAD $main_head_before -> $main_head_after, branch $main_branch_before -> $main_branch_after"
 fi
 
-# 8b: requesting a branch that does not exist anywhere (no local branch, and
-# 'origin' is not fetchable in this scratch repo) must fail closed WITHOUT
-# ever touching the main checkout — it must not fall back to instructing
-# (or performing) a checkout in the main checkout.
+# 8b: requesting a branch when 'origin' itself is unreachable (this scratch
+# repo's 'origin' remote is a deliberately unfetchable URL, so `git
+# ls-remote` fails with a network-error exit code, not the "no matching
+# ref" exit code 2). This must be treated as a remote-lookup FAILURE — fail
+# closed with a diagnostic naming that distinction — not misread as
+# "confirmed absent, fall back to branching from main". It must also never
+# touch the main checkout.
 nonexistent_rc=0
-"$HELPER" totally-nonexistent-branch >/dev/null 2>&1 || nonexistent_rc=$?
+nonexistent_stderr=$(WORKTREE_BASE="$SCRATCH/wt-out2b" "$HELPER" totally-nonexistent-branch 2>&1 >/dev/null) || nonexistent_rc=$?
 main_head_after2=$(git rev-parse HEAD)
 main_branch_after2=$(git branch --show-current)
 if [ "$nonexistent_rc" -ne 0 ]; then
-  ok "unresolvable branch request fails closed (exit $nonexistent_rc)"
+  ok "unresolvable-origin branch request fails closed (exit $nonexistent_rc)"
 else
-  fail "unresolvable branch request unexpectedly succeeded"
+  fail "unresolvable-origin branch request unexpectedly succeeded"
+fi
+if printf '%s' "$nonexistent_stderr" | grep -q "network or auth problem reaching 'origin'"; then
+  ok "failure message correctly identifies a remote lookup failure, not a confirmed-missing branch"
+else
+  fail "expected a remote-lookup-failure diagnostic, got: $nonexistent_stderr"
 fi
 if [ "$main_head_after2" = "$main_head_before" ] && [ "$main_branch_after2" = "$main_branch_before" ]; then
-  ok "main checkout unchanged after an unresolvable branch request"
+  ok "main checkout unchanged after an unresolvable-origin branch request"
 else
-  fail "main checkout mutated on unresolvable branch: HEAD $main_head_before -> $main_head_after2, branch $main_branch_before -> $main_branch_after2"
+  fail "main checkout mutated on unresolvable-origin branch: HEAD $main_head_before -> $main_head_after2, branch $main_branch_before -> $main_branch_after2"
 fi
 echo ""
 
