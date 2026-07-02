@@ -38,6 +38,11 @@ import {
   type ProjectHandle,
 } from "@dashframe/server-core";
 import {
+  createApi,
+  createClient,
+  type ApiFromFunctions,
+} from "@wystack/client";
+import {
   InMemoryMappingStore,
   SecretRegistry,
   SecretVault,
@@ -54,7 +59,11 @@ import {
   type DashframeServer,
 } from "../app";
 import { captureCommandCredentials } from "../credential-release";
+import type { Functions } from "../functions";
 import { cmd } from "./commands";
+
+/** Mirrors packages/app-data/src/api.ts's module-scope api object. */
+const api: ApiFromFunctions<Functions> = createApi<Functions>();
 
 const { dataSources } = schema;
 
@@ -276,6 +285,66 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       draftId,
     });
     expect(log.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // RPC-boundary regression guard: the real @wystack/client must surface the
+  // server's drift message, not a generic `HTTP 500`.
+  //
+  // `@wystack/client`'s own test suite (packages/client/src/__tests__/
+  // client.test.ts) already proves the client forwards an arbitrary server
+  // error message against a synthetic handler; what that suite cannot prove
+  // is that DashFrame's ACTUAL drift error — the string draft-controller.ts
+  // throws — survives the round trip through DashFrame's real server. Before
+  // the client fix, it discarded the response body and threw a bare
+  // `Error("HTTP 500")`, so `draftLifecycleErrorDescription` (packages/app/
+  // src/components/preview-diff/user-facing-errors.ts) could never match
+  // `.includes("changed since review")` — the drift-specific toast copy was
+  // dead code. The other half of that contract (message → user-facing copy)
+  // is pinned by user-facing-errors.test.ts in packages/app; the two tests
+  // share the "changed since review" substring as their join point instead of
+  // a single cross-package test, since apps/server does not (and should not)
+  // depend on the packages/app UI layer.
+  // -------------------------------------------------------------------------
+
+  it("publishDraft's drift rejection survives the real @wystack/client RPC boundary with the drift message intact", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const draftId = await seedDraft(project.db as ArtifactDb);
+
+    server = await createDashframeServer({ db: project.db });
+
+    const client = createClient({ url: server.url });
+
+    let caught: Error | undefined;
+    try {
+      await client.mutate(
+        api.publishDraft,
+        // WyStack's InferArg discards a column's `.optional()` flag, so the
+        // generated arg type demands `expectedLogSignature` even though the
+        // handler treats it as optional (see packages/app-data/src/
+        // wystack-args.ts's `loose` helper, which documents and works around
+        // the same upstream gap for the app's own publishDraft caller).
+        {
+          draftId,
+          // A count that can never match the seeded log's length forces the
+          // same drift branch `draft-controller.ts` uses for real content
+          // drift, without needing a second controller to race the log.
+          expectedCommandCount: "99",
+        } as unknown as Parameters<
+          typeof client.mutate<typeof api.publishDraft>
+        >[1],
+      );
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    // Pre-bump, this was `Error("HTTP 500")` — the server's actual message
+    // never reached the client. Post-bump, the client parses the `{ error }`
+    // JSON body @wystack/server always sends and throws with that message.
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught?.message).toContain("changed since review");
+    expect(caught?.message).not.toBe("HTTP 500");
+    expect((caught as Error & { status?: number })?.status).toBe(500);
   });
 
   // -------------------------------------------------------------------------
