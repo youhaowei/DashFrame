@@ -259,22 +259,33 @@ const discardDraft = mutation({
       );
     }
 
-    // TRANSITION-TIME RELEASE — discard half. Read the draft-minted credential
-    // refs from its log BEFORE the discard drops the log + shadow; release them
-    // AFTER the draft is gone (best-effort), gated so a ref another open draft
-    // still references is never deleted.
+    // TRANSITION-TIME RELEASE — discard half. Collect the draft-minted
+    // credential refs from its log + shadow config; release them AFTER the
+    // draft is gone (best-effort), gated so a ref another open draft still
+    // references is never deleted.
+    //
+    // TOCTOU: collection must read the AUTHORITATIVE durable log/shadow — the
+    // ones `discardDraft` actually drops — not a pre-transaction read, which a
+    // command appended between an outer `getDraftLog` read and discard would
+    // make stale (an orphaned ref never collected). `beforeDiscard` runs
+    // INSIDE the discard transaction, after the log is reloaded and BEFORE the
+    // log delete + shadow sweep remove the rows collection reads (mirrors the
+    // publish half's `beforeReplay` — see its handler above and
+    // `DiscardDraftOptions.beforeDiscard`'s doc comment for the full
+    // rationale). `collectDiscardCandidateRefs` reads the `dataSourcesDraft`
+    // shadow for this draftId; those rows still exist at hook time because the
+    // hook runs strictly before teardown.
     const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
     const vault = ctx.vault as SecretVault | undefined;
-    const mintedRefs =
-      artifactDb != null
-        ? await collectDiscardCandidateRefs(
-            artifactDb,
-            draftId,
-            await draftController.getDraftLog(draftId),
-          )
-        : [];
+    let mintedRefs: SecretRef[] = [];
 
-    await draftController.discardDraft(draftId);
+    await draftController.discardDraft(draftId, {
+      beforeDiscard: async (log, tx) => {
+        if (artifactDb != null) {
+          mintedRefs = await collectDiscardCandidateRefs(tx, draftId, log);
+        }
+      },
+    });
 
     // Trigger snapshot persistence after discard — the shadow rows live in the
     // durable store; a stale snapshot would resurrect them on restart. This MUST
