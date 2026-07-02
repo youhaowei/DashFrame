@@ -18,11 +18,15 @@ export type {
   DashboardRead,
   DataFrameRead,
   DataReadResult,
+  DataReadSample,
   GraphReader,
   NodeRef,
 } from "./port.js";
 
 export { applyFloor, isMaskedBySource, profileColumns } from "./floor.js";
+
+export { assembleDataRead } from "./perception.js";
+export type { PerceptionAssemblerOptions } from "./perception.js";
 
 export { neighbors, search, summarize, traverse } from "./graph.js";
 export type {
