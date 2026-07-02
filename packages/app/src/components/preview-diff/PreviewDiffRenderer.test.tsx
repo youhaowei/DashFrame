@@ -298,7 +298,7 @@ describe("PreviewDiffRenderer", () => {
   });
 
   describe("partial-failure error banner", () => {
-    it("renders the error banner with command index and message", () => {
+    it("renders the error banner with user-facing copy, never the raw message", () => {
       const diff = makeDiff([], {
         error: { commandIndex: 2, message: "Table not found: sales_data" },
       });
@@ -306,8 +306,12 @@ describe("PreviewDiffRenderer", () => {
       render(<PreviewDiffRenderer diff={diff} />);
 
       expect(screen.getByRole("alert")).toBeDefined();
-      expect(screen.getByText("Command 3 failed")).toBeDefined();
-      expect(screen.getByText("Table not found: sales_data")).toBeDefined();
+      expect(
+        screen.getByText(
+          "Command 3 in this draft could not be previewed. Review or edit the draft, then try again.",
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText("Table not found: sales_data")).toBeNull();
     });
 
     it("changes 'Changes' section header to 'Would change' when error present", () => {
