@@ -81,6 +81,32 @@ describe("computeLogSignature", () => {
     expect(computeLogSignature(a)).toBe(computeLogSignature(b));
   });
 
+  it("is sensitive to a differing __proto__-named argument key (prototype-pollution regression)", () => {
+    // args is attacker-influenced JSON parsed from `jsonb` storage. A key
+    // literally named `__proto__` assigned via bracket notation on a normal
+    // object invokes the legacy prototype SETTER rather than creating an
+    // enumerable own property, so a naive canonicalizer would silently drop
+    // it — a drifted log differing only in this field would wrongly hash the
+    // same as the reviewed one. Parse from JSON (not an object literal) so
+    // the key is genuinely an own `__proto__` property, matching how
+    // `readLog` reconstructs args from stored jsonb.
+    const a: Command[] = [
+      {
+        path: "createDataSource",
+        args: JSON.parse('{"__proto__": {"evil": true}, "id": "1"}') as unknown,
+      },
+    ];
+    const b: Command[] = [
+      {
+        path: "createDataSource",
+        args: JSON.parse(
+          '{"__proto__": {"evil": false}, "id": "1"}',
+        ) as unknown,
+      },
+    ];
+    expect(computeLogSignature(a)).not.toBe(computeLogSignature(b));
+  });
+
   it("returns the empty-log signature for an empty log, distinct from any non-empty log", () => {
     expect(computeLogSignature([])).toBe(computeLogSignature([]));
     expect(computeLogSignature([])).not.toBe(
