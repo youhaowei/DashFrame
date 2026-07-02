@@ -21,7 +21,7 @@
  */
 import type { ArtifactDb } from "@dashframe/server-core";
 import { text } from "@wystack/db";
-import type { SecretVault } from "@wystack/secret-vault";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
 
@@ -128,20 +128,10 @@ const publishDraft = mutation({
       );
     }
 
-    // Pre-read the log length before publishing so we can determine whether
-    // any durable rows were deleted, even when all commands are no-ops.
-    // `publishDraft` unconditionally deletes the command log + shadow rows for
-    // any non-empty draft (inside one atomic tx), so a draft with no-op
-    // commands (e.g. GetOrCreateDataSource for an existing source) produces
-    // `tablesWritten = {}` but still modifies durable storage. Without this
-    // check, `onWrite` would be skipped and the deletion goes un-snapshotted,
-    // leaving a resurrection window across server restarts.
-    const prePublishLog = await draftController.getDraftLog(draftId);
-
     // Parse the reviewed count here; ENFORCEMENT happens inside the publish
     // transaction (see DraftController.publishDraft's expectedCommandCount
     // guard) against the reloaded durable log — a command appended between
-    // this read and the replay aborts the publish atomically rather than
+    // this parse and the replay aborts the publish atomically rather than
     // bypassing a pre-transaction check.
     let expected: number | undefined;
     if (expectedCommandCount !== undefined) {
@@ -165,22 +155,41 @@ const publishDraft = mutation({
     //    handling it here (pre-commit) lets the deleteNode replay handler skip
     //    flushSnapshot+release inside the uncommitted transaction, preserving
     //    the ordering invariant (delete-row → commit → flush → release-ref).
+    //
+    // TOCTOU: both collectors must read the AUTHORITATIVE durable log — the one
+    // `publishDraft` actually replays — not a pre-transaction read, which a
+    // command appended between review and publish would make stale (a still-live
+    // ref released, or a due release missed). `beforeReplay` runs INSIDE the
+    // publish transaction, after the reloaded log passes the
+    // expectedCommandCount + late-bound guards and BEFORE replay mutates the
+    // canonical rows the collectors read — so `log` here is always the log that
+    // is about to replay, and `tx` sees the pre-replay canonical state.
     const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
     const vault = ctx.vault as SecretVault | undefined;
-    const replacedRefs =
-      artifactDb != null
-        ? [
-            ...(await collectSupersededRefs(artifactDb, prePublishLog)),
-            ...(await collectDeletedSourceRefs(artifactDb, prePublishLog)),
-          ]
-        : [];
+    let replacedRefs: SecretRef[] = [];
+    // Log length at the authoritative pre-replay read, for the snapshot-trigger
+    // condition below — replaces the old pre-transaction `prePublishLog.length`.
+    // Set unconditionally (not gated on `artifactDb`) so the no-op-commands
+    // snapshot trigger still fires even without an artifactDb wired in.
+    let publishLogLength = 0;
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
     // command handlers' direct-call guard accepts it (release is handled here).
     const result = await draftController.publishDraft(
       draftId,
       { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
-      { expectedCommandCount: expected },
+      {
+        expectedCommandCount: expected,
+        beforeReplay: async (log, tx) => {
+          publishLogLength = log.length;
+          if (artifactDb != null) {
+            replacedRefs = [
+              ...(await collectSupersededRefs(tx, log)),
+              ...(await collectDeletedSourceRefs(tx, log)),
+            ];
+          }
+        },
+      },
     );
 
     // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does
@@ -191,7 +200,7 @@ const publishDraft = mutation({
     // When credential refs are replaced, a durable flush (not debounced onWrite)
     // is required — `gateSnapshotForRelease` handles both paths.
     let snapshotPersisted = true;
-    if (result.tablesWritten.size > 0 || prePublishLog.length > 0) {
+    if (result.tablesWritten.size > 0 || publishLogLength > 0) {
       snapshotPersisted = await gateSnapshotForRelease(
         ctx as Record<string, unknown>,
         replacedRefs.length > 0,

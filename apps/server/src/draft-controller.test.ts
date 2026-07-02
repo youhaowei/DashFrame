@@ -121,6 +121,79 @@ describe("DraftController (persisted draft overlay)", () => {
     expect(await controller.getDraftLog(draftId)).toHaveLength(0);
   });
 
+  it("beforeReplay observes the AUTHORITATIVE reloaded log, not a stale pre-read (TOCTOU regression)", async () => {
+    // A host that reads the draft log BEFORE calling publishDraft (e.g.
+    // to decide which credential-vault refs a publish will supersede) races a
+    // command appended between that read and the publish transaction's own
+    // reload. `beforeReplay` exists so the host instead reasons about the log
+    // INSIDE the transaction, after it is reloaded — this pins that it really
+    // does see the append, not whatever the caller read earlier.
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+
+    // Simulate a caller's stale pre-read (what draft-lifecycle.ts used to do
+    // via `draftController.getDraftLog(draftId)` before this fix).
+    const stalePreRead = await controller.getDraftLog(draftId);
+    expect(stalePreRead).toHaveLength(1);
+
+    // A second command lands after the stale read but before publish — the
+    // drift race this hook must be immune to.
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S2" }),
+    );
+
+    let observedLogLength: number | undefined;
+    await controller.publishDraft(
+      draftId,
+      {},
+      {
+        beforeReplay: (log) => {
+          observedLogLength = log.length;
+        },
+      },
+    );
+
+    // The hook saw the AUTHORITATIVE 2-command log, not the stale 1-command
+    // pre-read — proving collection cannot run against stale state.
+    expect(observedLogLength).toBe(2);
+    expect(observedLogLength).not.toBe(stalePreRead.length);
+  });
+
+  it("beforeReplay never runs when expectedCommandCount aborts the publish", async () => {
+    // The hook must run AFTER the drift guard, not before — an aborted publish
+    // (draft changed since review) must never invoke collection over a log that
+    // is not actually about to replay.
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S2" }),
+    );
+
+    let hookCalled = false;
+    await expect(
+      controller.publishDraft(
+        draftId,
+        {},
+        {
+          expectedCommandCount: 1,
+          beforeReplay: () => {
+            hookCalled = true;
+          },
+        },
+      ),
+    ).rejects.toThrow(/changed since review/);
+
+    expect(hookCalled).toBe(false);
+  });
+
   /** Seed a DataSource + DataTable on CANONICAL (the draft's base). */
   async function seedTable(
     target: ReturnType<typeof createDraftController>,
