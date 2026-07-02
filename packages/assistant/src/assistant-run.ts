@@ -54,7 +54,7 @@ function promptAgent(
   agent: Agent,
   prompt: string | AgentMessage | AgentMessage[],
 ): Promise<void> {
-  if (typeof prompt === "string") return agent.prompt(prompt);
+  // Union is passed directly; TypeScript resolves agent.prompt's overload.
   return agent.prompt(prompt);
 }
 
@@ -116,15 +116,31 @@ export async function createAssistantRun(
     agent.subscribe((event) => options.onEvent?.(event));
   }
 
+  let onAbort: (() => void) | undefined;
   if (options.signal !== undefined) {
-    if (options.signal.aborted) agent.abort();
-    else
-      options.signal.addEventListener("abort", () => agent.abort(), {
-        once: true,
-      });
+    onAbort = () => agent.abort();
+    if (!options.signal.aborted) {
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
   }
 
   try {
+    if (options.signal?.aborted) {
+      if (!firstMutationObserved) {
+        try {
+          await host.discard(draftId);
+        } catch {
+          // Best-effort cleanup — the caller already cancelled.
+        }
+      }
+      return {
+        draftId,
+        messages: agent.state.messages,
+        firstMutationObserved,
+        discard: () => host.discard(draftId),
+      };
+    }
+
     await promptAgent(agent, options.prompt);
   } catch (error) {
     // pi resolves provider failures into stopReason:"error" messages, so a
@@ -141,6 +157,10 @@ export async function createAssistantRun(
       }
     }
     throw error;
+  } finally {
+    if (onAbort !== undefined && options.signal !== undefined) {
+      options.signal.removeEventListener("abort", onAbort);
+    }
   }
 
   return {

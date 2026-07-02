@@ -33,7 +33,7 @@ export function createDashframeAssistantHost(
     open: () => options.draftController.openDraft(),
     append: (draftId, batch, context) =>
       options.draftController.appendToDraft(draftId, batch, context),
-    discard: (draftId) => options.draftController.discardDraft(draftId),
+    discard: (draftId) => options.app.call("discardDraft", { draftId }),
     buildCommand,
     reader: (draftId) =>
       createAssistantReadHost({

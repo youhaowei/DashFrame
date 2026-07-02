@@ -364,6 +364,28 @@ describe("createAssistantRun", () => {
     expect(host.discarded).toEqual([]);
   });
 
+  it("bails out before prompting when the signal is already aborted", async () => {
+    const host = makeHost();
+    const controller = new AbortController();
+    controller.abort();
+    let streamCalls = 0;
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Should not run.",
+      signal: controller.signal,
+      streamFn: () => {
+        streamCalls += 1;
+        throw new Error("provider should not be reached");
+      },
+    });
+
+    expect(streamCalls).toBe(0);
+    expect(host.appends).toEqual([]);
+    expect(result.firstMutationObserved).toBe(false);
+    expect(host.discarded).toEqual(["draft-run"]);
+  });
+
   it("returns a discard handle over the same host port", async () => {
     const host = makeHost();
 
