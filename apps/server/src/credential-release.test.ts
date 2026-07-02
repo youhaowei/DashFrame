@@ -670,7 +670,6 @@ describe("credential write path — capture-before-log + transition release", ()
     // though collection observed the superseded ref, a rolled-back transaction
     // still releases nothing.
     /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam, mirrors draft-controller.test.ts GH#157 */
-    const failTeardown = true;
     const realCreateTracked = h.app.createTracked.bind(h.app);
     (h.app as any).createTracked = () => {
       const t = realCreateTracked();
@@ -679,7 +678,7 @@ describe("credential write path — capture-before-log + transition release", ()
         realTx(async (tx) => {
           const realDelete = tx.raw.delete.bind(tx.raw);
           tx.raw.delete = (table: any) => {
-            if (table === draftCommandLog && failTeardown) {
+            if (table === draftCommandLog) {
               throw new Error("injected teardown failure");
             }
             return realDelete(table);
@@ -690,16 +689,20 @@ describe("credential write path — capture-before-log + transition release", ()
     };
     /* eslint-enable @typescript-eslint/no-explicit-any */
 
-    await expect(h.app.call("publishDraft", { draftId })).rejects.toThrow(
-      "injected teardown failure",
-    );
+    try {
+      await expect(h.app.call("publishDraft", { draftId })).rejects.toThrow(
+        "injected teardown failure",
+      );
 
-    // The whole publish transaction rolled back — canonical still holds the
-    // OLD ref, and NEITHER ref was released (release only runs after
-    // `publishDraft` resolves, and it never resolved).
-    expect((await readConfig(h, id))!.apiKey).toBe(oldRef);
-    expect(await h.vault.has(oldRef)).toBe(true);
-    expect(await h.vault.has(mintedRef)).toBe(true);
+      // The whole publish transaction rolled back — canonical still holds the
+      // OLD ref, and NEITHER ref was released (release only runs after
+      // `publishDraft` resolves, and it never resolved).
+      expect((await readConfig(h, id))!.apiKey).toBe(oldRef);
+      expect(await h.vault.has(oldRef)).toBe(true);
+      expect(await h.vault.has(mintedRef)).toBe(true);
+    } finally {
+      (h.app as any).createTracked = realCreateTracked;
+    }
   });
 
   // 9 — provenance: an agent-context create is auditably distinct.
