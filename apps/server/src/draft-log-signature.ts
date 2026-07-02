@@ -29,18 +29,28 @@ import { createHash } from "node:crypto";
  * identically regardless of key insertion order (which `jsonb` does not
  * preserve). Arrays keep their order — position is semantic there, unlike
  * object keys.
+ *
+ * Built via `Object.fromEntries`, NOT `out[key] = ...` assignment: command
+ * args are attacker-influenced JSON, and a key literally named `__proto__`
+ * assigned with bracket notation invokes the legacy prototype SETTER instead
+ * of creating an enumerable own property — the field would silently vanish
+ * from `JSON.stringify`, making a log that differs only in a `__proto__`
+ * argument value hash identically to one that doesn't (the signature's whole
+ * job is to catch content differences). `Object.fromEntries` defines each
+ * entry as a genuine own property, so `__proto__` round-trips like any other
+ * key.
  */
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize);
   }
   if (value !== null && typeof value === "object") {
-    const sortedKeys = Object.keys(value as Record<string, unknown>).sort();
-    const out: Record<string, unknown> = {};
-    for (const key of sortedKeys) {
-      out[key] = canonicalize((value as Record<string, unknown>)[key]);
-    }
-    return out;
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, canonicalize(record[key])]),
+    );
   }
   return value;
 }

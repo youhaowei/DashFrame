@@ -510,13 +510,17 @@ export function createDraftController(
           options.expectedCommandCount !== undefined &&
           log.length !== options.expectedCommandCount
         ) {
-          throw new Error("publishDraft: draft changed since review");
+          throw new Error(
+            "publishDraft: draft changed since review (count mismatch)",
+          );
         }
         if (
           options.expectedLogSignature !== undefined &&
           computeLogSignature(log) !== options.expectedLogSignature
         ) {
-          throw new Error("publishDraft: draft changed since review");
+          throw new Error(
+            "publishDraft: draft changed since review (content drift)",
+          );
         }
         assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);
