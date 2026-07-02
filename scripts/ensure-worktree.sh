@@ -8,8 +8,11 @@
 #   - Verifies the caller is already in an isolated worktree (not the main
 #     checkout).  If so, prints the worktree path and exits 0.
 #   - If the caller IS in the main checkout, creates a new worktree at
-#     ~/worktrees/<project>/<branch>, checks out <branch-name> there, and
-#     prints the new path.  The caller must cd into that path.
+#     ~/worktrees/<project>/<branch> via `git worktree add`, which populates
+#     <branch-name> in the *new* worktree only, and prints the new path.  The
+#     caller must cd into that path.  The main checkout's HEAD and current
+#     branch are never switched — verified by an assertion before this
+#     script hands back control.
 #   - Hard-fails (exit 1) if anything goes wrong — this is fail-closed by
 #     design so that a briefed agent cannot silently proceed in main.
 #
@@ -23,6 +26,24 @@
 # or, in a brief: "Run scripts/ensure-worktree.sh <branch>; cd into the path it prints."
 
 set -eu
+
+# assert_main_checkout_unchanged <repo_root> <head_before> <branch_before>
+# Fail closed if provisioning the new worktree mutated the main checkout's
+# HEAD or current branch out from under whoever else is using it.
+assert_main_checkout_unchanged() {
+  _amcu_repo_root="$1"
+  _amcu_head_before="$2"
+  _amcu_branch_before="$3"
+  _amcu_head_after=$(git -C "$_amcu_repo_root" rev-parse HEAD 2>/dev/null || echo "")
+  _amcu_branch_after=$(git -C "$_amcu_repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [ "$_amcu_head_after" != "$_amcu_head_before" ] || [ "$_amcu_branch_after" != "$_amcu_branch_before" ]; then
+    echo "ERROR [ensure-worktree]: main checkout at '$_amcu_repo_root' was mutated while provisioning the worktree." >&2
+    echo "  Before: HEAD=$_amcu_head_before branch=$_amcu_branch_before" >&2
+    echo "  After:  HEAD=$_amcu_head_after branch=$_amcu_branch_after" >&2
+    echo "  This should never happen — refusing to hand back a worktree path." >&2
+    exit 1
+  fi
+}
 
 # ── 1. Require a branch argument ────────────────────────────────────────────
 branch="${1:-}"
@@ -58,6 +79,13 @@ if [ "$git_dir" != "$git_common_dir" ]; then
 fi
 
 # ── 3. We're in the main checkout — provision a new worktree ────────────────
+# Snapshot the main checkout's HEAD + current branch so we can assert, right
+# before we hand control back to the caller, that provisioning the new
+# worktree never mutated the main checkout itself (see assertion at the
+# bottom of this branch).
+main_head_before=$(git rev-parse HEAD 2>/dev/null || echo "")
+main_branch_before=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
 repo_root=$(git rev-parse --show-toplevel)
 # Lowercase the project name so the canonical worktree base is always
 # ~/worktrees/<lower-project>/<branch> regardless of how the repo dir is
@@ -93,6 +121,7 @@ if [ -d "$worktree_path" ]; then
     echo "  Remove it manually ('git worktree remove $worktree_path') or choose a different base." >&2
     exit 1
   fi
+  assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
   echo "$worktree_path"
   exit 0
 fi
@@ -111,18 +140,50 @@ _wt_rc=0
 if git show-ref --verify --quiet "refs/heads/$branch"; then
   git worktree add "$worktree_path" "$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
 else
-  # Try to track from origin; error out if the branch doesn't exist anywhere.
-  if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+  # Check whether the branch exists on origin. `git ls-remote --exit-code`
+  # only guarantees exit code 2 for "no matching refs" — other non-zero
+  # exits (network down, auth failure, etc.) mean the lookup itself failed,
+  # not that the branch is confirmed absent. Distinguish the two so a
+  # transient remote failure can't be misread as "brand new branch" and
+  # silently branch from main instead.
+  _ls_remote_rc=0
+  git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || _ls_remote_rc=$?
+  if [ "$_ls_remote_rc" -eq 0 ]; then
     # Fetch to ensure the local remote-tracking ref exists — ls-remote verifies the
     # branch on the network but git worktree add resolves against the local
-    # refs/remotes/origin/<branch> ref, which only exists after a fetch.
-    git fetch origin "$branch" >/dev/null 2>&1 || true
+    # refs/remotes/origin/<branch> ref, which only exists after a fetch. Fail
+    # closed if the fetch itself fails rather than silently falling back to
+    # whatever (possibly stale, possibly absent) refs/remotes/origin/<branch>
+    # already exists locally.
+    if ! git fetch origin "$branch" >/dev/null 2>&1; then
+      echo "ERROR [ensure-worktree]: branch '$branch' exists on origin but 'git fetch origin $branch' failed — not falling back to a possibly stale local ref." >&2
+      exit 1
+    fi
     git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
-  else
-    rm -f "$_wt_log"
-    echo "ERROR [ensure-worktree]: branch '$branch' not found locally or on origin." >&2
-    echo "  Create it first: git checkout -b $branch" >&2
+  elif [ "$_ls_remote_rc" -ne 2 ]; then
+    echo "ERROR [ensure-worktree]: could not determine whether branch '$branch' exists on origin (git ls-remote exited $_ls_remote_rc)." >&2
+    echo "  This looks like a network or auth problem reaching 'origin', not a missing branch — not falling back to branching from main." >&2
     exit 1
+  else
+    # Brand-new branch (ls-remote confirmed no matching ref, exit 2): create
+    # it AND the worktree in one atomic command, rooted at a fresh
+    # origin/main, with tracking disabled so the new branch's upstream isn't
+    # main. This never touches the main checkout's HEAD or current branch —
+    # unlike instructing the caller to run `git checkout -b <branch>` in the
+    # main checkout (the historical behaviour here), which yanks the branch
+    # out from under whoever else is using that checkout.
+    #
+    # DashFrame convention: upstream default branch is always main (CLAUDE.md,
+    # CI, branch protection). We hardcode origin/main here rather than deriving
+    # from origin/HEAD — that would be the right call if this script were
+    # vendored for other repos, but it wouldn't change behaviour here.
+    git fetch origin main >/dev/null 2>&1 || true
+    if ! git show-ref --verify --quiet "refs/remotes/origin/main"; then
+      rm -f "$_wt_log"
+      echo "ERROR [ensure-worktree]: branch '$branch' not found locally or on origin, and 'origin/main' is unavailable to branch from." >&2
+      exit 1
+    fi
+    git worktree add --no-track -b "$branch" "$worktree_path" origin/main >"$_wt_log" 2>&1 || _wt_rc=$?
   fi
 fi
 if [ "$_wt_rc" -ne 0 ]; then
@@ -146,5 +207,7 @@ if [ "$actual_branch" != "$branch" ]; then
   echo "ERROR [ensure-worktree]: worktree created but is on '$actual_branch' instead of '$branch'." >&2
   exit 1
 fi
+
+assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
 echo "$worktree_path"
