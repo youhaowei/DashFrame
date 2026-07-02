@@ -8,8 +8,8 @@
  * Typed tool-layer helper: the seam all assistant mutation and read tools
  * build through.
  *
- * applyCommand tool: the assistant's single generic mutation tool — emits
- * commands into the open draft via the draft controller. Never canonical.
+ * Assistant run entry point: consumes a single AssistantHost port, opens a draft,
+ * assembles tools, and drives pi's loop. Never canonical.
  */
 
 // OAuth credential lifecycle
@@ -35,15 +35,23 @@ export {
 // GraphReader port, and the command vocabulary guide.
 export * from "./read/index.js";
 
-// applyCommand mutation tool — the assistant's write surface.
+// AssistantHost port + run entry point.
+export {
+  type AssistantCommand,
+  type AssistantCommandResult,
+  type AssistantHost,
+} from "./assistant-host.js";
+
+export {
+  createAssistantRun,
+  type AssistantRunResult,
+  type CreateAssistantRunOptions,
+} from "./assistant-run.js";
+
+// Public constants for server-side drift/security tests; applyCommand itself is package-internal.
 export {
   CREDENTIAL_COMMAND_ARG_FIELDS,
   DRAFT_SAFE_COMMANDS,
-  createApplyCommandTool,
-  type ApplyCommandDetails,
-  type AssistantCommand,
-  type CreateApplyCommandToolOptions,
-  type DraftAppender,
 } from "./apply-command-tool.js";
 
 // Provider measurement harness — live Anthropic/Bedrock streaming smoke.

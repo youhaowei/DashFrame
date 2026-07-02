@@ -12,6 +12,10 @@
       "bun": "./src/app.ts",
       "default": "./src/app.ts"
     },
+    "./assistant-host": {
+      "bun": "./src/assistant-host.ts",
+      "default": "./src/assistant-host.ts"
+    },
     "./functions": {
       "bun": "./src/functions.ts",
       "default": "./src/functions.ts"
