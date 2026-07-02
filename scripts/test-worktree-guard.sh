@@ -172,6 +172,51 @@ else
 fi
 echo ""
 
+# ── Regression: main checkout must never be mutated ─────────────────────────
+# ensure-worktree.sh used to instruct the caller to run `git checkout -b
+# <branch>` in the main checkout when the branch didn't exist anywhere yet —
+# mutating the main checkout's HEAD/branch out from under whoever else was
+# using it. Assert the main checkout is untouched by a provisioning call,
+# both for the "branch already exists locally" path (exercised above) and
+# the brand-new-branch path.
+echo "Test 8: ensure-worktree.sh never mutates the main checkout's HEAD/branch"
+cd "$SCRATCH"
+git checkout main --quiet 2>/dev/null
+main_head_before=$(git rev-parse HEAD)
+main_branch_before=$(git branch --show-current)
+
+# 8a: provisioning for a branch that already exists locally (feature-e).
+git checkout -b feature-e --quiet 2>/dev/null
+git checkout main --quiet 2>/dev/null
+WORKTREE_BASE="$SCRATCH/wt-out2" "$HELPER" feature-e >/dev/null 2>&1 || true
+main_head_after=$(git rev-parse HEAD)
+main_branch_after=$(git branch --show-current)
+if [ "$main_head_after" = "$main_head_before" ] && [ "$main_branch_after" = "$main_branch_before" ]; then
+  ok "main checkout unchanged after provisioning an existing branch"
+else
+  fail "main checkout mutated: HEAD $main_head_before -> $main_head_after, branch $main_branch_before -> $main_branch_after"
+fi
+
+# 8b: requesting a branch that does not exist anywhere (no local branch, and
+# 'origin' is not fetchable in this scratch repo) must fail closed WITHOUT
+# ever touching the main checkout — it must not fall back to instructing
+# (or performing) a checkout in the main checkout.
+nonexistent_rc=0
+"$HELPER" totally-nonexistent-branch >/dev/null 2>&1 || nonexistent_rc=$?
+main_head_after2=$(git rev-parse HEAD)
+main_branch_after2=$(git branch --show-current)
+if [ "$nonexistent_rc" -ne 0 ]; then
+  ok "unresolvable branch request fails closed (exit $nonexistent_rc)"
+else
+  fail "unresolvable branch request unexpectedly succeeded"
+fi
+if [ "$main_head_after2" = "$main_head_before" ] && [ "$main_branch_after2" = "$main_branch_before" ]; then
+  ok "main checkout unchanged after an unresolvable branch request"
+else
+  fail "main checkout mutated on unresolvable branch: HEAD $main_head_before -> $main_head_after2, branch $main_branch_before -> $main_branch_after2"
+fi
+echo ""
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 if [ "$FAILURES" -eq 0 ]; then
   printf "${GREEN}All tests passed — worktree isolation guard is working.${RESET}\n"
