@@ -88,6 +88,11 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
       toast.error("Failed to publish draft", {
         description: draftLifecycleErrorDescription(error),
       });
+      // The failure may mean the draft changed since this review loaded (or
+      // otherwise reflects stale state) — reload the review so the page
+      // shows the current draft instead of sitting stale behind a toast
+      // that fades.
+      void refetch();
     } finally {
       setBusy(null);
     }
