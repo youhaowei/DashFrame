@@ -151,8 +151,14 @@ else
   if [ "$_ls_remote_rc" -eq 0 ]; then
     # Fetch to ensure the local remote-tracking ref exists — ls-remote verifies the
     # branch on the network but git worktree add resolves against the local
-    # refs/remotes/origin/<branch> ref, which only exists after a fetch.
-    git fetch origin "$branch" >/dev/null 2>&1 || true
+    # refs/remotes/origin/<branch> ref, which only exists after a fetch. Fail
+    # closed if the fetch itself fails rather than silently falling back to
+    # whatever (possibly stale, possibly absent) refs/remotes/origin/<branch>
+    # already exists locally.
+    if ! git fetch origin "$branch" >/dev/null 2>&1; then
+      echo "ERROR [ensure-worktree]: branch '$branch' exists on origin but 'git fetch origin $branch' failed — not falling back to a possibly stale local ref." >&2
+      exit 1
+    fi
     git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
   elif [ "$_ls_remote_rc" -ne 2 ]; then
     echo "ERROR [ensure-worktree]: could not determine whether branch '$branch' exists on origin (git ls-remote exited $_ls_remote_rc)." >&2
