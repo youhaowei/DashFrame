@@ -70,6 +70,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
+import { computeLogSignature } from "./draft-log-signature";
 
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
@@ -183,12 +184,31 @@ export interface DraftController {
  */
 export interface PublishDraftOptions {
   /**
-   * Review-drift guard: the command-log length the reviewer saw. Enforced
-   * INSIDE the publish transaction against the reloaded durable log, so a
-   * command appended between review and publish aborts the replay atomically —
-   * a pre-transaction read cannot provide this guarantee.
+   * Review-drift guard, cheap fast-path: the command-log length the reviewer
+   * saw. Enforced INSIDE the publish transaction against the reloaded durable
+   * log, so a command appended between review and publish aborts the replay
+   * atomically — a pre-transaction read cannot provide this guarantee.
+   *
+   * COUNT ALONE IS NOT SUFFICIENT: `compactLog` can DROP earlier log
+   * positions (a create cancelled by a later delete collapses to nothing), so
+   * a concurrent append that triggers compaction can leave the length
+   * unchanged while the content differs from what the reviewer saw. Kept
+   * alongside `expectedLogSignature` as a cheap, distinct-evidence check
+   * (a count mismatch and a signature mismatch are different failure modes
+   * worth telling apart when debugging), not folded into it.
    */
   expectedCommandCount?: number;
+  /**
+   * Review-drift guard, content check: the SHA-256 hex signature (see
+   * `computeLogSignature`) of the command log the reviewer saw, over
+   * `[{path, args}]` in replay order. Enforced INSIDE the publish transaction
+   * against the reloaded durable log, same placement and atomicity guarantee
+   * as `expectedCommandCount`. Closes the gap the count-only guard misses:
+   * same-length, different-content drift caused by compaction (see the
+   * `expectedCommandCount` doc above) slips a count check but changes the
+   * signature.
+   */
+  expectedLogSignature?: string;
   /**
    * Pre-replay hook, invoked INSIDE the publish transaction — after the
    * `expectedCommandCount` and late-bound/`validatePublishLog` guards pass,
@@ -476,14 +496,31 @@ export function createDraftController(
       // routes their DELETEs through the same commit boundary as the replay.
       const result = await app.createTracked().transaction(async (tx) => {
         const log = await readLog(draftId, tx.raw as LogReader);
-        // Review-drift guard first: this log read shares the replay's commit
+        // Review-drift guards first: this log read shares the replay's commit
         // boundary, so a mismatch here means the draft REALLY changed since the
-        // reviewed count was taken — abort before content validation.
+        // reviewed state was taken — abort before content validation.
+        //
+        // Count is the cheap fast-path; signature is the content check that
+        // catches same-length drift the count alone misses (see
+        // `PublishDraftOptions` docs for why compaction makes this possible).
+        // Both checks read the SAME reloaded log, so their evidence is always
+        // consistent with each other — never a case where count passes,
+        // signature fails, but on a log that's already been mutated further.
         if (
           options.expectedCommandCount !== undefined &&
           log.length !== options.expectedCommandCount
         ) {
-          throw new Error("publishDraft: draft changed since review");
+          throw new Error(
+            "publishDraft: draft changed since review (count mismatch)",
+          );
+        }
+        if (
+          options.expectedLogSignature !== undefined &&
+          computeLogSignature(log) !== options.expectedLogSignature
+        ) {
+          throw new Error(
+            "publishDraft: draft changed since review (content drift)",
+          );
         }
         assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);

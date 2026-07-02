@@ -24,6 +24,7 @@ import {
   schema,
 } from "@dashframe/server-core";
 import type { Command } from "@wystack/server";
+import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,7 @@ import {
   createFallThroughDraftDb,
   withDraftSeam,
 } from "./app";
+import { computeLogSignature } from "./draft-log-signature";
 import { cmd } from "./functions/commands";
 
 const { insights, dataSources, projectMeta } = schema;
@@ -119,6 +121,162 @@ describe("DraftController (persisted draft overlay)", () => {
     // A count matching the reloaded log publishes normally.
     await controller.publishDraft(draftId, {}, { expectedCommandCount: 2 });
     expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+  });
+
+  it("publishes when expectedLogSignature matches the unchanged reloaded log", async () => {
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+
+    const reviewedLog = await controller.getDraftLog(draftId);
+    const signature = computeLogSignature(reviewedLog);
+
+    await controller.publishDraft(
+      draftId,
+      {},
+      { expectedLogSignature: signature },
+    );
+    expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+  });
+
+  /**
+   * Seed the same "reviewer saw one create, then a same-key delete+recreate
+   * compacts to a DIFFERENT surviving command at the SAME length" scenario in
+   * a fresh draft. `compactionKey`/`kind` are lifecycle-internal fields the
+   * `cmd()` vocabulary never sets, so this seeds raw `draft_command_log` rows
+   * directly (same technique as the late-bound test above) rather than
+   * relying on real command handlers to mint them.
+   *
+   * Returns the reviewer's signature/count and confirms the reload really is
+   * same-length-different-content — the blind spot this guard closes.
+   */
+  async function seedSameLengthContentDrift() {
+    const draftId = await controller.openDraft();
+    const keptId = id();
+    await db.insert(draftCommandLog).values({
+      draftId,
+      seq: 0,
+      path: "createDataSource",
+      args: { id: keptId, type: "csv", name: "Reviewed" },
+      compactionKey: `createDataSource:${keptId}`,
+      kind: "create",
+    });
+
+    const reviewedLog = await controller.getDraftLog(draftId);
+    expect(reviewedLog).toHaveLength(1);
+    const reviewedSignature = computeLogSignature(reviewedLog);
+
+    // After review: the REVIEWED row is deleted (cancelling its own create —
+    // compacts to nothing for that key) while an unrelated create backfills
+    // the count — net length is still 1, but the surviving command is NOT
+    // what was reviewed.
+    const swapId = id();
+    await db.insert(draftCommandLog).values([
+      {
+        draftId,
+        seq: 1,
+        path: "deleteNode",
+        args: { id: keptId },
+        compactionKey: `createDataSource:${keptId}`,
+        kind: "delete",
+      },
+      {
+        draftId,
+        seq: 2,
+        path: "createDataSource",
+        args: { id: swapId, type: "csv", name: "Swapped in" },
+      },
+    ]);
+
+    const rawRows = await db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    // Sanity: 3 raw rows on disk, but the create+delete pair (same key as the
+    // reviewed row) cancels — the controller's own compaction on the NEXT
+    // append would collapse this; here we assert the read-time state
+    // directly reflects what publish will see when it reloads (readLog does
+    // not itself compact — `writeLog` does, on append). Simulate the
+    // post-compaction reload by appending an effect-free batch, which
+    // re-runs `compactLog` over the full log.
+    expect(rawRows).toHaveLength(3);
+    await controller.appendToDraft(draftId, []);
+
+    const driftedLog = await controller.getDraftLog(draftId);
+    // Count-only guard would NOT catch this: same length as reviewed.
+    expect(driftedLog).toHaveLength(reviewedLog.length);
+    expect(computeLogSignature(driftedLog)).not.toBe(reviewedSignature);
+
+    return { draftId, reviewedCount: reviewedLog.length, reviewedSignature };
+  }
+
+  it("expectedCommandCount alone does NOT catch same-length content drift (the blind spot)", async () => {
+    const { draftId, reviewedCount } = await seedSameLengthContentDrift();
+
+    // The count-only guard sees the drifted log's length matches what the
+    // reviewer saw, so it wrongly lets a content-drifted publish through.
+    await expect(
+      controller.publishDraft(
+        draftId,
+        {},
+        { expectedCommandCount: reviewedCount },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("rejects same-length content drift that expectedCommandCount alone would miss", async () => {
+    const { draftId, reviewedCount, reviewedSignature } =
+      await seedSameLengthContentDrift();
+
+    // The SAME drifted log, this time guarded by the content signature: it
+    // must reject even though the count still matches what the reviewer saw.
+    await expect(
+      controller.publishDraft(
+        draftId,
+        {},
+        {
+          expectedCommandCount: reviewedCount,
+          expectedLogSignature: reviewedSignature,
+        },
+      ),
+    ).rejects.toThrow(/changed since review/);
+    // The aborted publish rolls back atomically — the draft survives intact.
+    expect(await controller.getDraftLog(draftId)).toHaveLength(reviewedCount);
+  });
+
+  it("rejects publish when expectedLogSignature does not match the reloaded log, even with a correct count", async () => {
+    const draftId = await controller.openDraft();
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S1" }),
+    );
+    const reviewedLog = await controller.getDraftLog(draftId);
+    const staleSignature = computeLogSignature(reviewedLog);
+
+    // Draft changes after review, but the count happens to still match (a
+    // command is replaced rather than added) — content drift the signature
+    // must catch even when expectedCommandCount is not passed at all.
+    await db
+      .delete(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    await appendCmds(
+      draftId,
+      cmd("CreateDataSource", { id: id(), type: "csv", name: "S2 (drifted)" }),
+    );
+    const driftedLog = await controller.getDraftLog(draftId);
+    expect(driftedLog).toHaveLength(reviewedLog.length);
+
+    await expect(
+      controller.publishDraft(
+        draftId,
+        {},
+        { expectedLogSignature: staleSignature },
+      ),
+    ).rejects.toThrow(/changed since review/);
+    // The aborted publish rolls back atomically — the draft survives intact.
+    expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
   it("beforeReplay observes the AUTHORITATIVE reloaded log, not a stale pre-read (TOCTOU regression)", async () => {

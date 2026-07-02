@@ -88,6 +88,7 @@ describe("draft publish functions", () => {
           args?: unknown;
         }>;
         commandCount: number;
+        logSignature: string;
         diff: { directNodes: Array<{ nodeId: string }> };
       };
     }>(
@@ -108,15 +109,62 @@ describe("draft publish functions", () => {
     });
     expect(review.data.commands[0]).not.toHaveProperty("args");
     expect(review.data.commandCount).toBe(1);
+    expect(review.data.logSignature).toMatch(/^[0-9a-f]{64}$/);
     expect(review.data.diff.directNodes[0]?.nodeId).toBe(sourceId);
 
     await postJson(`${server.url}/api/publishDraft`, {
       draftId,
       expectedCommandCount: "1",
+      expectedLogSignature: review.data.logSignature,
     });
     expect(onWriteCalls).toHaveLength(1);
     const rows = await db.select().from(dataSources);
     expect(rows.find((row) => row.id === sourceId)?.name).toBe("Draft source");
+    expect(await draftController.getDraftLog(draftId)).toHaveLength(0);
+  });
+
+  it("rejects publish when expectedLogSignature does not match what draftPublishReview returned (end-to-end)", async () => {
+    const draftController = await controller();
+    const draftId = await draftController.openDraft();
+    await draftController.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id: crypto.randomUUID(),
+        type: "csv",
+        name: "Draft source",
+      }),
+    ]);
+
+    server = await createDashframeServer({ db });
+
+    const review = await getJson<{ data: DraftPublishReview }>(
+      `${server.url}/api/draftPublishReview?args=${encodeURIComponent(
+        JSON.stringify({ draftId }),
+      )}`,
+    );
+    expect(review.data.logSignature).toMatch(/^[0-9a-f]{64}$/);
+
+    // A signature that does not match the reviewed (and still-current) log —
+    // the same failure mode a stale client would trigger after a real drift.
+    const res = await fetch(`${server.url}/api/publishDraft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        draftId,
+        expectedLogSignature: "0".repeat(64),
+      }),
+    });
+    expect(res.status).toBe(500);
+
+    // Rejected publish leaves the draft intact for a clean retry.
+    expect(await draftController.getDraftLog(draftId)).toHaveLength(1);
+
+    // The review-produced signature, passed back verbatim, publishes cleanly
+    // — proving review-time compute and publish-time recompute agree
+    // byte-for-byte for an unchanged log.
+    await postJson(`${server.url}/api/publishDraft`, {
+      draftId,
+      expectedLogSignature: review.data.logSignature,
+    });
     expect(await draftController.getDraftLog(draftId)).toHaveLength(0);
   });
 
