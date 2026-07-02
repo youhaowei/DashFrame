@@ -52,6 +52,16 @@ import {
   type DataSourceConfig,
 } from "./functions/utils";
 
+/**
+ * Read-only slice of `ArtifactDb` for the pre-transition collectors: they
+ * COLLECT release candidates, never mutate — and on the publish path they run
+ * on a transaction-bound raw handle that does NOT support `.transaction()` at
+ * runtime. The narrowed type turns both misuses into compile errors and lets
+ * the collectors accept `DraftController`'s `beforeReplay` tx (`LogReader`,
+ * the structurally identical slice) without a cast.
+ */
+export type ArtifactReader = Pick<ArtifactDb, "select">;
+
 // ---------------------------------------------------------------------------
 // Seam 1 — capture-before-log
 // ---------------------------------------------------------------------------
@@ -371,7 +381,7 @@ function credentialCommandId(cmd: Command): string | undefined {
  * Reads must run BEFORE the discard drops the log + shadow.
  */
 export async function collectDiscardCandidateRefs(
-  db: ArtifactDb,
+  db: ArtifactReader,
   draftId: string,
   log: Command[],
 ): Promise<SecretRef[]> {
@@ -399,7 +409,7 @@ export async function collectDiscardCandidateRefs(
  * Reads committed canonical state via the raw artifact db, BEFORE replay.
  */
 export async function collectSupersededRefs(
-  db: ArtifactDb,
+  db: ArtifactReader,
   log: Command[],
 ): Promise<SecretRef[]> {
   const simulated = await seedSimulatedConfigs(db, log);
@@ -433,7 +443,7 @@ export async function collectSupersededRefs(
  * Reads committed canonical state via the raw artifact db, BEFORE replay.
  */
 export async function collectDeletedSourceRefs(
-  db: ArtifactDb,
+  db: ArtifactReader,
   log: Command[],
 ): Promise<SecretRef[]> {
   const refs: SecretRef[] = [];
@@ -452,7 +462,7 @@ export async function collectDeletedSourceRefs(
 
 /** Seed each touched source's simulated field→ref map from pre-publish canonical. */
 async function seedSimulatedConfigs(
-  db: ArtifactDb,
+  db: ArtifactReader,
   log: Command[],
 ): Promise<Map<string, SimulatedConfig>> {
   const simulated = new Map<string, SimulatedConfig>();

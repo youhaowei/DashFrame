@@ -97,7 +97,7 @@ const DRAFT_SHADOW_TABLES = [
  * `.transaction()` is a compile error, not a latent footgun.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
-type LogReader = Pick<ArtifactDb, "select">;
+export type LogReader = Pick<ArtifactDb, "select">;
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -207,16 +207,12 @@ export interface PublishDraftOptions {
    * invokes collection — nothing here observes a log that won't actually
    * replay. A throw here aborts the publish transaction like any other guard.
    *
-   * Typed as the full `ArtifactDb` rather than a narrowed `Pick<>` (unlike
-   * `LogReader`/`DeleteExecutor` below) because the collectors this hook is
-   * built for (`collectSupersededRefs`/`collectDeletedSourceRefs` in
-   * `credential-release.ts`) are themselves typed `db: ArtifactDb` and are
-   * shared with non-tx-bound call sites; narrowing here would force a cast at
-   * every call. As with those helpers, `tx.raw` inside a transaction does
-   * NOT actually support `.transaction()` at runtime — a `beforeReplay`
-   * implementation must not call it.
+   * Typed as `LogReader` — the same narrowed slice `readLog` uses — so both
+   * misuses are compile errors rather than latent runtime failures: the hook
+   * COLLECTS, never mutates, and a transaction-bound `tx.raw` does NOT
+   * support `.transaction()` at runtime.
    */
-  beforeReplay?: (log: Command[], tx: ArtifactDb) => Promise<void> | void;
+  beforeReplay?: (log: Command[], tx: LogReader) => Promise<void> | void;
 }
 
 /**
@@ -495,7 +491,7 @@ export function createDraftController(
         // guards above, before replay mutates canonical rows. See
         // `PublishDraftOptions.beforeReplay` for why this must live here and
         // not before the transaction opens.
-        await options.beforeReplay?.(log, tx.raw as ArtifactDb);
+        await options.beforeReplay?.(log, tx.raw as LogReader);
         const committed = (await applyCommands(app, log, {
           mode: "commit",
           context: publishContext,
