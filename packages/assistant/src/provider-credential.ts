@@ -9,7 +9,13 @@ const NO_CREDENTIAL_HINT =
   "[assistant] no Anthropic credential: set ANTHROPIC_API_KEY or log in to Claude Code";
 
 export interface EnsureAnthropicCredentialOptions {
-  /** Defaults to `process.env`. Mutated in place when the keychain fallback fires. */
+  /**
+   * Defaults to `process.env`. Mutated in place when the keychain fallback
+   * fires — acceptable ONLY for a one-shot CLI that exits after the run.
+   * Calling this from a long-lived host (Electron main, server) would leave
+   * the token resident in global `process.env` for the process lifetime;
+   * such a caller must pass a scoped `env` instead.
+   */
   env?: Record<string, string | undefined>;
   /** Defaults to the real `getOAuthToken` (macOS keychain read + refresh). */
   getToken?: () => Promise<string>;
