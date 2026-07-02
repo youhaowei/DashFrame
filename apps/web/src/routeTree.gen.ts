@@ -19,6 +19,7 @@ import { Route as VisualizationsVisualizationIdRouteImport } from './../../../pa
 import { Route as InsightsInsightIdRouteImport } from './../../../packages/app/src/routes/insights/$insightId'
 import { Route as DataSourcesSourceIdRouteImport } from './../../../packages/app/src/routes/data-sources/$sourceId'
 import { Route as DashboardsDashboardIdRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId'
+import { Route as DraftsDraftIdPublishRouteImport } from './../../../packages/app/src/routes/drafts/$draftId.publish'
 import { Route as InsightsInsightIdJoinTableIdRouteImport } from './../../../packages/app/src/routes/insights/$insightId_.join.$tableId'
 
 const DataFramesRoute = DataFramesRouteImport.update({
@@ -72,6 +73,11 @@ const DashboardsDashboardIdRoute = DashboardsDashboardIdRouteImport.update({
   path: '/dashboards/$dashboardId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DraftsDraftIdPublishRoute = DraftsDraftIdPublishRouteImport.update({
+  id: '/drafts/$draftId/publish',
+  path: '/drafts/$draftId/publish',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InsightsInsightIdJoinTableIdRoute =
   InsightsInsightIdJoinTableIdRouteImport.update({
     id: '/insights/$insightId_/join/$tableId',
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/data-sources/': typeof DataSourcesIndexRoute
   '/insights/': typeof InsightsIndexRoute
   '/visualizations/': typeof VisualizationsIndexRoute
+  '/drafts/$draftId/publish': typeof DraftsDraftIdPublishRoute
   '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
 export interface FileRoutesByTo {
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   '/data-sources': typeof DataSourcesIndexRoute
   '/insights': typeof InsightsIndexRoute
   '/visualizations': typeof VisualizationsIndexRoute
+  '/drafts/$draftId/publish': typeof DraftsDraftIdPublishRoute
   '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
 export interface FileRoutesById {
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   '/data-sources/': typeof DataSourcesIndexRoute
   '/insights/': typeof InsightsIndexRoute
   '/visualizations/': typeof VisualizationsIndexRoute
+  '/drafts/$draftId/publish': typeof DraftsDraftIdPublishRoute
   '/insights/$insightId_/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
 export interface FileRouteTypes {
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/data-sources/'
     | '/insights/'
     | '/visualizations/'
+    | '/drafts/$draftId/publish'
     | '/insights/$insightId/join/$tableId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/data-sources'
     | '/insights'
     | '/visualizations'
+    | '/drafts/$draftId/publish'
     | '/insights/$insightId/join/$tableId'
   id:
     | '__root__'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/data-sources/'
     | '/insights/'
     | '/visualizations/'
+    | '/drafts/$draftId/publish'
     | '/insights/$insightId_/join/$tableId'
   fileRoutesById: FileRoutesById
 }
@@ -172,6 +184,7 @@ export interface RootRouteChildren {
   DataSourcesIndexRoute: typeof DataSourcesIndexRoute
   InsightsIndexRoute: typeof InsightsIndexRoute
   VisualizationsIndexRoute: typeof VisualizationsIndexRoute
+  DraftsDraftIdPublishRoute: typeof DraftsDraftIdPublishRoute
   InsightsInsightIdJoinTableIdRoute: typeof InsightsInsightIdJoinTableIdRoute
 }
 
@@ -247,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardsDashboardIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/drafts/$draftId/publish': {
+      id: '/drafts/$draftId/publish'
+      path: '/drafts/$draftId/publish'
+      fullPath: '/drafts/$draftId/publish'
+      preLoaderRoute: typeof DraftsDraftIdPublishRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/insights/$insightId_/join/$tableId': {
       id: '/insights/$insightId_/join/$tableId'
       path: '/insights/$insightId/join/$tableId'
@@ -268,6 +288,7 @@ const rootRouteChildren: RootRouteChildren = {
   DataSourcesIndexRoute: DataSourcesIndexRoute,
   InsightsIndexRoute: InsightsIndexRoute,
   VisualizationsIndexRoute: VisualizationsIndexRoute,
+  DraftsDraftIdPublishRoute: DraftsDraftIdPublishRoute,
   InsightsInsightIdJoinTableIdRoute: InsightsInsightIdJoinTableIdRoute,
 }
 export const routeTree = rootRouteImport

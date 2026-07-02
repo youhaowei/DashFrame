@@ -57,6 +57,8 @@ interface PreviewDiffDialogProps {
    * Same in-flight semantics as `onPublish`.
    */
   onDiscard?: () => Promise<void> | void;
+  /** When true, the Publish button is disabled (e.g. late-bound operands). */
+  publishDisabled?: boolean;
 }
 
 /**
@@ -70,6 +72,7 @@ export function PreviewDiffDialog({
   title = "Preview changes",
   onPublish,
   onDiscard,
+  publishDisabled = false,
 }: PreviewDiffDialogProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -165,7 +168,7 @@ export function PreviewDiffDialog({
               <Button
                 label={isPublishing ? "Publishing…" : "Publish"}
                 onClick={handlePublish}
-                disabled={isBusy}
+                disabled={isBusy || publishDisabled}
               />
             )}
           </DialogFooter>
