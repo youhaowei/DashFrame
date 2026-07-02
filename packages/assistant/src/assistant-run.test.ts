@@ -1,5 +1,3 @@
-import { openArtifactDb } from "@dashframe/server-core";
-import type { UUID } from "@dashframe/types";
 import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
 import {
   createAssistantMessageEventStream,
@@ -9,13 +7,15 @@ import {
   type ToolCall,
   type Usage,
 } from "@earendil-works/pi-ai";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { buildDashframeApp, createDraftController } from "./app";
-import { createPiAgentRunController } from "./pi-agent-run-controller";
+import type {
+  AssistantCommand,
+  AssistantCommandResult,
+  AssistantHost,
+} from "./assistant-host.js";
+import { createAssistantRun } from "./assistant-run.js";
+import type { GraphReader } from "./read/port.js";
 
 const usage: Usage = {
   input: 0,
@@ -94,69 +94,104 @@ function scriptedStream(messages: AssistantMessage[]): StreamFn {
   };
 }
 
-describe("pi-agent run controller", () => {
-  let dir: string;
-  let db: Awaited<ReturnType<typeof openArtifactDb>>;
-  let app: Awaited<ReturnType<typeof buildDashframeApp>>;
-  let draftController: ReturnType<typeof createDraftController>;
+function emptyReader(): GraphReader {
+  const missing = async () => null;
+  const empty = async () => [];
+  return {
+    getDataSource: missing,
+    getDataTable: missing,
+    getDataFrameEntry: missing,
+    getInsight: missing,
+    getVisualization: missing,
+    getDashboard: missing,
+    listDataSources: empty,
+    listDataTables: empty,
+    listDataFrames: empty,
+    listInsights: empty,
+    listVisualizations: empty,
+    listDashboards: empty,
+    getDataFrameByInsight: missing,
+    readDataProfile: missing,
+    readSource: missing,
+  };
+}
 
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "dashframe-pi-run-"));
-    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await buildDashframeApp({ db });
-    draftController = createDraftController(app, db);
-  });
+function makeHost(): AssistantHost & {
+  opened: number;
+  discarded: string[];
+  appends: Array<{ draftId: string; batch: AssistantCommand[] }>;
+} {
+  return {
+    opened: 0,
+    discarded: [],
+    appends: [],
+    async open() {
+      this.opened += 1;
+      return "draft-run";
+    },
+    async append(draftId, batch) {
+      this.appends.push({ draftId, batch });
+      return batch.map(
+        (command): AssistantCommandResult => ({
+          id: command.id,
+          value: { path: command.path },
+        }),
+      );
+    },
+    async discard(draftId) {
+      this.discarded.push(draftId);
+    },
+    buildCommand(type, args) {
+      if (type === "Unknown") throw new Error(`Unknown command: "${type}"`);
+      return { path: `${type}Path`, args };
+    },
+    reader: emptyReader,
+  };
+}
 
-  afterEach(async () => {
-    await db.$client.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
+describe("createAssistantRun", () => {
+  it("eager-mints a draft but lazy-surfaces only after first successful mutation", async () => {
+    const host = makeHost();
+    const firstMutations: string[] = [];
 
-  it("eager-mints a draft and does not surface it when the run makes no mutation", async () => {
-    const runController = createPiAgentRunController({
-      app,
-      draftController,
+    const result = await createAssistantRun(host, {
       model,
+      prompt: "Inspect only.",
       streamFn: scriptedStream([
         assistantMessage(
           [{ type: "text", text: "No draft edits needed." }],
           "stop",
         ),
       ]),
-    });
-
-    const firstMutations: string[] = [];
-    const result = await runController.start({
-      prompt: "Inspect only.",
       onFirstMutation: ({ draftId }) => {
         firstMutations.push(draftId);
       },
     });
 
-    expect(result.draftId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
-    expect(firstMutations).toEqual([]);
+    expect(host.opened).toBe(1);
+    expect(result.draftId).toBe("draft-run");
     expect(result.firstMutationObserved).toBe(false);
-    expect(await draftController.getDraftLog(result.draftId)).toEqual([]);
+    expect(firstMutations).toEqual([]);
+    expect(host.appends).toEqual([]);
   });
 
-  it("fires the first successful applyCommand signal exactly once", async () => {
-    const dashboardId = crypto.randomUUID() as UUID;
-    const runController = createPiAgentRunController({
-      app,
-      draftController,
+  it("signals the first successful applyCommand exactly once", async () => {
+    const host = makeHost();
+    const firstMutations: string[] = [];
+
+    const result = await createAssistantRun(host, {
       model,
+      prompt: "Create and rename.",
       streamFn: scriptedStream([
         assistantMessage(
           [
             call("create-dashboard", "applyCommand", {
               type: "CreateDashboard",
-              args: { id: dashboardId, name: "Executive" },
+              args: { id: "dashboard-1", name: "Executive" },
             }),
             call("rename-dashboard", "applyCommand", {
               type: "RenameNode",
-              args: { id: dashboardId, name: "Executive Overview" },
+              args: { id: "dashboard-1", name: "Executive Overview" },
             }),
           ],
           "toolUse",
@@ -166,38 +201,32 @@ describe("pi-agent run controller", () => {
           "stop",
         ),
       ]),
-    });
-
-    const firstMutations: string[] = [];
-    const result = await runController.start({
-      prompt: "Create a dashboard.",
       onFirstMutation: ({ draftId }) => {
         firstMutations.push(draftId);
       },
     });
 
-    expect(firstMutations).toEqual([result.draftId]);
     expect(result.firstMutationObserved).toBe(true);
-    const log = await draftController.getDraftLog(result.draftId);
-    expect(log.map((entry) => entry.path)).toEqual([
-      "createDashboardCmd",
-      "renameNode",
+    expect(firstMutations).toEqual(["draft-run"]);
+    expect(host.appends.map((append) => append.batch[0]?.path)).toEqual([
+      "CreateDashboardPath",
+      "RenameNodePath",
     ]);
   });
 
-  it("round-trips applyCommand failures as isError tool results and lets pi continue", async () => {
-    const dashboardId = crypto.randomUUID() as UUID;
+  it("round-trips tool errors as isError and pi continues to the coherent boundary", async () => {
+    const host = makeHost();
     const events: AgentEvent[] = [];
-    const runController = createPiAgentRunController({
-      app,
-      draftController,
+
+    const result = await createAssistantRun(host, {
       model,
+      prompt: "Recover from an unsafe command.",
       streamFn: scriptedStream([
         assistantMessage(
           [
             call("bad-command", "applyCommand", {
               type: "DeleteNode",
-              args: { id: dashboardId },
+              args: { id: "dashboard-1" },
             }),
           ],
           "toolUse",
@@ -206,25 +235,16 @@ describe("pi-agent run controller", () => {
           [
             call("fixed-command", "applyCommand", {
               type: "CreateDashboard",
-              args: { id: dashboardId, name: "Recovered" },
+              args: { id: "dashboard-1", name: "Recovered" },
             }),
           ],
           "toolUse",
         ),
         assistantMessage(
-          [
-            {
-              type: "text",
-              text: "Recovered and stopped at a review boundary.",
-            },
-          ],
+          [{ type: "text", text: "Stopped at a review boundary." }],
           "stop",
         ),
       ]),
-    });
-
-    const result = await runController.start({
-      prompt: "Create a dashboard, recover if needed.",
       onEvent: (event) => {
         events.push(event);
       },
@@ -236,22 +256,23 @@ describe("pi-agent run controller", () => {
     );
     expect(toolEnds.map((event) => event.isError)).toEqual([true, false]);
     expect(result.messages.at(-1)?.role).toBe("assistant");
-    const log = await draftController.getDraftLog(result.draftId);
-    expect(log.map((entry) => entry.path)).toEqual(["createDashboardCmd"]);
+    expect(host.appends.map((append) => append.batch[0]?.path)).toEqual([
+      "CreateDashboardPath",
+    ]);
   });
 
-  it("returns a discard handle for the human-gated draft lifecycle", async () => {
-    const dashboardId = crypto.randomUUID() as UUID;
-    const runController = createPiAgentRunController({
-      app,
-      draftController,
+  it("returns a discard handle over the same host port", async () => {
+    const host = makeHost();
+
+    const result = await createAssistantRun(host, {
       model,
+      prompt: "Create a draft.",
       streamFn: scriptedStream([
         assistantMessage(
           [
             call("create-dashboard", "applyCommand", {
               type: "CreateDashboard",
-              args: { id: dashboardId, name: "Discard Me" },
+              args: { id: "dashboard-1", name: "Discard Me" },
             }),
           ],
           "toolUse",
@@ -263,20 +284,8 @@ describe("pi-agent run controller", () => {
       ]),
     });
 
-    const result = await runController.start({
-      prompt: "Create a dashboard draft.",
-    });
-    expect(await draftController.getDraftLog(result.draftId)).toHaveLength(1);
-
     await result.discard();
 
-    expect(await draftController.getDraftLog(result.draftId)).toEqual([]);
-    const canonical = await app.runHandler(
-      "getDashboard",
-      { id: dashboardId },
-      app.createTracked(),
-      {},
-    );
-    expect(canonical).toBeNull();
+    expect(host.discarded).toEqual(["draft-run"]);
   });
 });

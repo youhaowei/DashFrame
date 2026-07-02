@@ -30,53 +30,22 @@
  *   draft-overlay-unsafe cascade operations are denied at the tool boundary
  *   before reaching buildCommand or appendToDraft (see DRAFT_SAFE_COMMANDS).
  *
- * Factory pattern: `createApplyCommandTool(options)`. The draftId is the handle
- * minted by `openDraft` at assistant session start — captured once in the
- * factory, not passed per-call. This keeps the per-call surface minimal
- * (type + args only) and makes it impossible for the agent to steer writes to a
- * different draft.
+ * Internal factory pattern: `createApplyCommandTool(options)`. The draftId is
+ * the handle minted by `AssistantHost.open()` at assistant run start — captured
+ * once in the factory, not passed per-call. This keeps the per-call surface
+ * minimal (type + args only) and makes it impossible for the agent to steer
+ * writes to a different draft.
  *
  * Dependency direction: `@dashframe/assistant` must NOT import from
- * `@dashframe/server` (server depends on assistant, not the other way). The
- * `buildCommand` callback lets the host inject the `cmd()` factory from
- * commands.ts without creating a circular dependency. The `DraftAppender`
- * interface captures only the one method this tool calls (`appendToDraft`) so
- * the assistant package carries no server import.
+ * `@dashframe/server` (server depends on assistant, not the other way). This
+ * tool consumes only `AssistantHost`; the host folds command lowering, draft
+ * lifecycle, and read binding into one port.
  */
 
 import { isSecretRef } from "@wystack/secret-vault";
 
+import type { AssistantHost } from "./assistant-host.js";
 import { defineToolHandler, Type } from "./tool.js";
-
-// ---------------------------------------------------------------------------
-// Minimal dependency interfaces (no server import)
-// ---------------------------------------------------------------------------
-
-/**
- * The `Command` envelope shape `applyCommands` dispatches. Inlined here so the
- * assistant package does not import from @wystack/server.
- */
-export interface AssistantCommand {
-  /** The wire path the app's function registry dispatches against. */
-  path: string;
-  /** Handler args, opaque at this layer — the mutation validates shape. */
-  args: unknown;
-  /** Optional correlation id echoed in the CommandResult. */
-  id?: string;
-}
-
-/**
- * Minimal interface capturing only the one DraftController method this tool
- * calls. The server host injects its `DraftController`; structural compatibility
- * means no import of the server type is needed here.
- */
-export interface DraftAppender {
-  appendToDraft(
-    draftId: string,
-    batch: AssistantCommand[],
-    context?: Record<string, unknown>,
-  ): Promise<Array<{ id?: string; value: unknown }>>;
-}
 
 // ---------------------------------------------------------------------------
 // Draft-safe command allow-list
@@ -298,48 +267,22 @@ export interface ApplyCommandDetails {
 // ---------------------------------------------------------------------------
 
 export interface CreateApplyCommandToolOptions {
+  /** Single assistant host port. */
+  host: AssistantHost;
   /**
-   * The draft controller bound to the current project. Only `appendToDraft` is
-   * called — the interface is intentionally minimal (structural duck-typing).
-   */
-  controller: DraftAppender;
-  /**
-   * The draft handle minted by `controller.openDraft()` at assistant session
+   * The draft handle minted by `AssistantHost.open()` at assistant session
    * start. Captured once so the agent cannot redirect writes per-call.
    */
   draftId: string;
   /**
-   * Maps a command name string (e.g. "CreateInsight") to a `{ path, args }`
-   * Command envelope the app's function registry can dispatch. Injected by the
-   * server host so this package carries no direct dependency on @dashframe/server.
-   *
-   * Only called for command types that pass the DRAFT_SAFE_COMMANDS allow-list
-   * gate (enforced in execute() before this function is invoked). The host does
-   * not need to re-validate the type — the gate already runs.
-   *
-   * **Unknown-type guard** — The `cmd()` helper in commands.ts is typed at
-   * compile time only; at runtime `cmd(unknownName, args)` silently produces
-   * `{ path: undefined, args }`, which reaches `runHandler` as the cryptic
-   * error `"Unknown function: undefined"`. Wrap `cmd()` with a runtime
-   * key-guard so the agent sees a clear error to fix+retry:
-   *
-   * ```ts
-   * buildCommand: (type, args) => {
-   *   if (!(type in COMMAND_PATHS)) throw new Error(`Unknown command: "${type}"`);
-   *   return cmd(type as CommandName, args as CommandPayloads[CommandName]);
-   * }
-   * ```
-   *
-   * Thrown errors propagate honestly to the agent (no swallow).
-   */
-  buildCommand: (type: string, args: unknown) => AssistantCommand;
-  /**
-   * Optional extra context forwarded to `appendToDraft` as the third positional
+   * Optional extra context forwarded to `AssistantHost.append` as the third positional
    * argument alongside the draftId (first) and batch (second). Supplemental
    * session metadata — e.g. vault resolver, session id. The draftId is already
    * passed as a separate positional arg; it is NOT merged into this object.
    */
   context?: Record<string, unknown>;
+  /** Called after a successful append; used by the run to lazy-surface drafts. */
+  onSuccess?: () => Promise<void> | void;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,35 +290,11 @@ export interface CreateApplyCommandToolOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Create the `applyCommand` AgentTool bound to a draft controller + draftId.
- *
- * @example
- * ```ts
- * // In the server host (where cmd() is available):
- * import { cmd, type CommandName, type CommandPayloads } from "./functions/commands.js";
- * import { createApplyCommandTool, DRAFT_SAFE_COMMANDS } from "@dashframe/assistant";
- *
- * const applyCommandTool = createApplyCommandTool({
- *   controller,
- *   draftId,
- *   // Only called for types that pass the DRAFT_SAFE_COMMANDS gate.
- *   // Add a runtime key-guard so cmd() maps the name to a real path
- *   // (cmd() is compile-time-only typed; unknown names silently produce
- *   // { path: undefined } which reaches runHandler as a cryptic error).
- *   buildCommand: (type, args) => {
- *     if (!(type in COMMAND_PATHS)) {
- *       throw new Error(`Unknown command: "${type}"`);
- *     }
- *     return cmd(type as CommandName, args as CommandPayloads[CommandName]);
- *   },
- * });
- *
- * // Then pass to the agent's tool set:
- * agent.state.tools = [applyCommandTool, ...readTools];
- * ```
+ * Create the internal `applyCommand` AgentTool bound to the single host port and
+ * the eager-minted draft id. Public callers use `createAssistantRun`.
  */
 export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
-  const { controller, draftId, buildCommand, context } = options;
+  const { host, draftId, context } = options;
 
   return defineToolHandler({
     name: "applyCommand",
@@ -449,36 +368,33 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
       // only; never gates trust (see AGENT_PROVENANCE_COMMANDS).
       const stampedArgs = stampAgentProvenance(type, args);
 
-      // Build the Command envelope. `buildCommand` is the host-injected bridge
+      // Build the Command envelope. `host.buildCommand` is the host bridge
       // to cmd() in commands.ts — the single source of truth for name→path
       // mapping. An unknown command type throws here with a clear error before
-      // appendToDraft is called, so the agent gets a useful message to fix+retry.
+      // host.append is called, so the agent gets a useful message to fix+retry.
       //
       // TRANSPARENT: the command is constructed and emitted as an explicit plan
       // step visible in the draft log — no behind-the-scenes canonical write.
-      const command = buildCommand(type, stampedArgs);
+      const command = host.buildCommand(type, stampedArgs);
 
-      // Emit into the draft via the controller's sanctioned write path.
+      // Emit into the draft via the host's sanctioned write path.
       // NEVER CANONICAL: appendToDraft → runHandler → withDraft overlay.
       //
       // Validation failures inside the mutation handler surface as thrown
       // errors. defineToolHandler lets them propagate so pi marks the
       // ToolResultMessage as isError: true — NO silent swallowing.
       // The agent receives the honest error and can retry with corrected args.
-      const results = await controller.appendToDraft(
-        draftId,
-        [command],
-        context,
-      );
+      const results = await host.append(draftId, [command], context);
+      await options.onSuccess?.();
 
-      // appendToDraft returns one CommandResult per command in the batch.
+      // AssistantHost.append returns one CommandResult per command in the batch.
       // We passed exactly one command; the contract requires exactly one result.
       // Any length mismatch is a host implementation bug — surface it loudly
       // rather than silently dropping missing or extra handler evidence.
       if (results.length !== 1) {
         throw new Error(
-          `appendToDraft returned ${results.length} results for 1 command (draftId=${draftId}, type="${type}") ` +
-            "— host DraftAppender contract violation: expected one result per batch element",
+          `AssistantHost.append returned ${results.length} results for 1 command (draftId=${draftId}, type="${type}") ` +
+            "— AssistantHost contract violation: expected one result per batch element",
         );
       }
       const result = results[0]!;
