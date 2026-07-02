@@ -15,6 +15,15 @@ export class OAuthTokenExpiredError extends Error {
   }
 }
 
+/**
+ * `readKeychain` and `fetchRefresh` must be stable function references (a
+ * module-level function, a memoized closure, etc.) — NOT an inline closure
+ * created fresh per call. `getOAuthToken`'s `CredentialState` cache is
+ * WeakMap-keyed on these two functions (see `credentialStatesByReader`
+ * below); a new closure each call is a new WeakMap key, so every call misses
+ * the cache and loses both the in-memory refresh-token rotation tracking and
+ * the single-flight in-flight-refresh dedup.
+ */
 export interface TokenProviderOptions {
   /**
    * Injectable keychain reader for testing.
