@@ -37,6 +37,8 @@ export interface CreateAssistantRunOptions {
 
 export type AssistantRunTerminationReason =
   | "completed"
+  | "aborted"
+  | "error"
   | "failureCap"
   | "oscillation";
 
@@ -132,41 +134,56 @@ function normalizeMaxConsecutiveFailures(value: number | undefined): number {
 function createRecoveryGuard(maxConsecutiveFailures: number) {
   let consecutiveFailures = 0;
   const failedFingerprints = new Set<string>();
+  const finalizedToolCallIds = new Set<string>();
   let terminationReason: AssistantRunTerminationReason = "completed";
 
   return {
     get terminationReason() {
       return terminationReason;
     },
-    afterToolCall(options: {
+    get shouldBlockApplyCommand() {
+      return terminationReason !== "completed";
+    },
+    observeApplyCommandResult(options: {
       toolCall: AgentToolCall;
       args: unknown;
       isError: boolean;
+      source: "afterToolCall" | "messageEnd";
     }) {
+      if (options.toolCall.name !== "applyCommand") {
+        return terminationReason;
+      }
       if (
-        options.toolCall.name !== "applyCommand" ||
-        terminationReason !== "completed"
+        options.source === "messageEnd" &&
+        finalizedToolCallIds.delete(options.toolCall.id)
       ) {
-        return;
+        return terminationReason;
+      }
+      if (options.source === "afterToolCall") {
+        finalizedToolCallIds.add(options.toolCall.id);
+      }
+      if (terminationReason !== "completed") {
+        return terminationReason;
       }
 
       if (!options.isError) {
         consecutiveFailures = 0;
         failedFingerprints.clear();
-        return;
+        return terminationReason;
       }
 
       consecutiveFailures += 1;
       const fingerprint = fingerprintApplyCommand(options.args);
       if (failedFingerprints.has(fingerprint)) {
         terminationReason = "oscillation";
-        return;
+        return terminationReason;
       }
       failedFingerprints.add(fingerprint);
 
       if (consecutiveFailures >= maxConsecutiveFailures) {
         terminationReason = "failureCap";
       }
+      return terminationReason;
     },
   };
 }
@@ -245,6 +262,7 @@ function createTools(options: {
   draftId: string;
   context?: Record<string, unknown>;
   markFirstMutation: () => Promise<void>;
+  shouldExecuteApplyCommand: () => boolean;
 }): AgentTool[] {
   const readTools = Object.values(
     createReadTools(options.host.reader(options.draftId)),
@@ -254,6 +272,7 @@ function createTools(options: {
     draftId: options.draftId,
     context: options.context,
     onSuccess: options.markFirstMutation,
+    shouldExecute: options.shouldExecuteApplyCommand,
   });
   return [...readTools, applyCommand];
 }
@@ -265,6 +284,8 @@ export async function createAssistantRun(
   const draftId = await host.open();
   let firstMutationObserved = false;
   const messages: AgentMessage[] = [];
+  const applyCommandCalls = new Map<string, AgentToolCall>();
+  let runTerminationReason: AssistantRunTerminationReason | undefined;
   const recoveryGuard = createRecoveryGuard(
     normalizeMaxConsecutiveFailures(options.maxConsecutiveFailures),
   );
@@ -286,11 +307,56 @@ export async function createAssistantRun(
     draftId,
     context: options.context,
     markFirstMutation,
+    // pi's afterToolCall terminate hint is evaluated only after the current
+    // tool batch, so a same-turn second applyCommand may still be prepared.
+    // Refusing inside the tool blocks further draft mutations for this run;
+    // other non-mutating or invalid tool results may still finish the turn.
+    shouldExecuteApplyCommand: () => !recoveryGuard.shouldBlockApplyCommand,
   });
 
   async function emit(event: AgentEvent) {
+    if (
+      event.type === "tool_execution_start" &&
+      event.toolName === "applyCommand"
+    ) {
+      applyCommandCalls.set(event.toolCallId, {
+        type: "toolCall",
+        id: event.toolCallId,
+        name: event.toolName,
+        arguments: event.args,
+      });
+    }
     if (event.type === "message_end") {
       messages.push(event.message);
+      if (
+        event.message.role === "assistant" &&
+        event.message.stopReason === "aborted"
+      ) {
+        runTerminationReason ??= "aborted";
+      } else if (
+        event.message.role === "assistant" &&
+        event.message.stopReason === "error"
+      ) {
+        runTerminationReason ??= "error";
+      } else if (
+        event.message.role === "toolResult" &&
+        event.message.toolName === "applyCommand"
+      ) {
+        const toolCall =
+          applyCommandCalls.get(event.message.toolCallId) ??
+          ({
+            type: "toolCall",
+            id: event.message.toolCallId,
+            name: event.message.toolName,
+            arguments: {},
+          } satisfies AgentToolCall);
+        recoveryGuard.observeApplyCommandResult({
+          toolCall,
+          args: toolCall.arguments,
+          isError: event.message.isError,
+          source: "messageEnd",
+        });
+      }
     }
     await options.onEvent?.(event);
   }
@@ -298,6 +364,7 @@ export async function createAssistantRun(
   if (options.signal?.aborted) {
     // Cancelled before the run started: nothing to prompt; clean up the
     // just-minted sandbox if it never surfaced.
+    runTerminationReason = "aborted";
     await discardIfUnsurfaced({
       host,
       draftId,
@@ -323,8 +390,13 @@ export async function createAssistantRun(
               getApiKey: options.getApiKey,
               toolExecution: "sequential",
               afterToolCall: async ({ toolCall, args, isError }) => {
-                recoveryGuard.afterToolCall({ toolCall, args, isError });
-                return undefined;
+                const reason = recoveryGuard.observeApplyCommandResult({
+                  toolCall,
+                  args,
+                  isError,
+                  source: "afterToolCall",
+                });
+                return reason === "completed" ? undefined : { terminate: true };
               },
               shouldStopAfterTurn: () =>
                 recoveryGuard.terminationReason !== "completed",
@@ -334,6 +406,8 @@ export async function createAssistantRun(
             options.streamFn,
           );
         } catch (error) {
+          runTerminationReason =
+            options.signal?.aborted === true ? "aborted" : "error";
           await emitFailure({
             message: createFailureMessage({
               model: options.model,
@@ -351,7 +425,7 @@ export async function createAssistantRun(
     draftId,
     messages,
     firstMutationObserved,
-    terminationReason: recoveryGuard.terminationReason,
+    terminationReason: runTerminationReason ?? recoveryGuard.terminationReason,
     discard: () => host.discard(draftId),
   };
 }
