@@ -1,11 +1,18 @@
 import {
-  Agent,
+  runAgentLoop,
   type AgentEvent,
   type AgentMessage,
   type AgentTool,
+  type AgentToolCall,
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
-import type { Api, Message, Model } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessage,
+  Message,
+  Model,
+} from "@earendil-works/pi-ai";
+import { createHash } from "node:crypto";
 
 import { createApplyCommandTool } from "./apply-command-tool.js";
 import type { AssistantHost } from "./assistant-host.js";
@@ -25,19 +32,43 @@ export interface CreateAssistantRunOptions {
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => Promise<void> | void;
   onFirstMutation?: (event: { draftId: string }) => Promise<void> | void;
+  maxConsecutiveFailures?: number;
 }
+
+export type AssistantRunTerminationReason =
+  | "completed"
+  | "failureCap"
+  | "oscillation";
 
 export interface AssistantRunResult {
   draftId: string;
   messages: AgentMessage[];
   firstMutationObserved: boolean;
+  terminationReason: AssistantRunTerminationReason;
   discard(): Promise<void>;
 }
+
+const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
 
 const DEFAULT_SYSTEM_PROMPT =
   "You are the DashFrame authoring assistant. Use the provided read tools to " +
   "understand the project graph and applyCommand for all mutations. Write only " +
   "to the draft sandbox; publishing is a human action.";
+
+const EMPTY_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+} as const;
 
 function passThroughMessages(messages: AgentMessage[]): Message[] {
   return messages.flatMap((message) => {
@@ -50,6 +81,94 @@ function passThroughMessages(messages: AgentMessage[]): Message[] {
     }
     return [];
   });
+}
+
+function normalizePrompt(prompt: AssistantRunPrompt): AgentMessage[] {
+  if (typeof prompt === "string") {
+    return [
+      {
+        role: "user",
+        content: [{ type: "text", text: prompt }],
+        timestamp: Date.now(),
+      },
+    ];
+  }
+  if (Array.isArray(prompt)) return prompt;
+  return [prompt];
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, canonicalize(record[key])]),
+    );
+  }
+  return value;
+}
+
+function fingerprintApplyCommand(args: unknown): string {
+  const params = args as { type?: unknown; args?: unknown };
+  const batch = [
+    {
+      type: params.type ?? null,
+      args: canonicalize(params.args ?? null),
+    },
+  ];
+  return createHash("sha256").update(JSON.stringify(batch)).digest("hex");
+}
+
+function normalizeMaxConsecutiveFailures(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_CONSECUTIVE_FAILURES;
+  if (!Number.isFinite(value)) return DEFAULT_MAX_CONSECUTIVE_FAILURES;
+  return Math.max(1, Math.floor(value));
+}
+
+function createRecoveryGuard(maxConsecutiveFailures: number) {
+  let consecutiveFailures = 0;
+  const failedFingerprints = new Set<string>();
+  let terminationReason: AssistantRunTerminationReason = "completed";
+
+  return {
+    get terminationReason() {
+      return terminationReason;
+    },
+    afterToolCall(options: {
+      toolCall: AgentToolCall;
+      args: unknown;
+      isError: boolean;
+    }) {
+      if (
+        options.toolCall.name !== "applyCommand" ||
+        terminationReason !== "completed"
+      ) {
+        return;
+      }
+
+      if (!options.isError) {
+        consecutiveFailures = 0;
+        failedFingerprints.clear();
+        return;
+      }
+
+      consecutiveFailures += 1;
+      const fingerprint = fingerprintApplyCommand(options.args);
+      if (failedFingerprints.has(fingerprint)) {
+        terminationReason = "oscillation";
+        return;
+      }
+      failedFingerprints.add(fingerprint);
+
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        terminationReason = "failureCap";
+      }
+    },
+  };
 }
 
 async function discardIfUnsurfaced(options: {
@@ -69,23 +188,14 @@ async function discardIfUnsurfaced(options: {
   }
 }
 
-function promptAgent(agent: Agent, prompt: AssistantRunPrompt): Promise<void> {
-  // The calls look identical, but agent.prompt is overloaded on (string) vs
-  // (AgentMessage | AgentMessage[]) — the typeof narrowing is what lets each
-  // call match one overload.
-  if (typeof prompt === "string") return agent.prompt(prompt);
-  return agent.prompt(prompt);
-}
-
 async function promptWithDraftCleanup(options: {
-  agent: Agent;
-  prompt: AssistantRunPrompt;
+  run: () => Promise<void>;
   host: AssistantHost;
   draftId: string;
   wasSurfaced: () => boolean;
 }): Promise<void> {
   try {
-    await promptAgent(options.agent, options.prompt);
+    await options.run();
   } catch (error) {
     // pi resolves provider failures into stopReason:"error" messages, so a
     // rejection here is exceptional (setup/internal). It must still not
@@ -93,6 +203,41 @@ async function promptWithDraftCleanup(options: {
     await discardIfUnsurfaced(options);
     throw error;
   }
+}
+
+function createFailureMessage(options: {
+  model: Model<Api>;
+  error: unknown;
+  aborted: boolean;
+}): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: "" }],
+    api: options.model.api,
+    provider: options.model.provider,
+    model: options.model.id,
+    usage: EMPTY_USAGE,
+    stopReason: options.aborted ? "aborted" : "error",
+    errorMessage:
+      options.error instanceof Error
+        ? options.error.message
+        : String(options.error),
+    timestamp: Date.now(),
+  };
+}
+
+async function emitFailure(options: {
+  message: AssistantMessage;
+  emit: (event: AgentEvent) => Promise<void>;
+}): Promise<void> {
+  await options.emit({ type: "message_start", message: options.message });
+  await options.emit({ type: "message_end", message: options.message });
+  await options.emit({
+    type: "turn_end",
+    message: options.message,
+    toolResults: [],
+  });
+  await options.emit({ type: "agent_end", messages: [options.message] });
 }
 
 function createTools(options: {
@@ -119,6 +264,10 @@ export async function createAssistantRun(
 ): Promise<AssistantRunResult> {
   const draftId = await host.open();
   let firstMutationObserved = false;
+  const messages: AgentMessage[] = [];
+  const recoveryGuard = createRecoveryGuard(
+    normalizeMaxConsecutiveFailures(options.maxConsecutiveFailures),
+  );
 
   async function markFirstMutation() {
     if (firstMutationObserved) return;
@@ -132,61 +281,77 @@ export async function createAssistantRun(
     }
   }
 
-  const agent = new Agent({
-    initialState: {
-      model: options.model,
-      systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-      tools: createTools({
-        host,
-        draftId,
-        context: options.context,
-        markFirstMutation,
-      }),
-    },
-    convertToLlm: passThroughMessages,
-    streamFn: options.streamFn,
-    getApiKey: options.getApiKey,
-    toolExecution: "sequential",
+  const tools = createTools({
+    host,
+    draftId,
+    context: options.context,
+    markFirstMutation,
   });
 
-  if (options.onEvent !== undefined) {
-    agent.subscribe((event) => options.onEvent?.(event));
+  async function emit(event: AgentEvent) {
+    if (event.type === "message_end") {
+      messages.push(event.message);
+    }
+    await options.onEvent?.(event);
   }
 
-  let onAbort: (() => void) | undefined;
-  if (options.signal !== undefined && !options.signal.aborted) {
-    onAbort = () => agent.abort();
-    options.signal.addEventListener("abort", onAbort, { once: true });
-  }
-
-  try {
-    if (options.signal?.aborted) {
-      // Cancelled before the run started: nothing to prompt; clean up the
-      // just-minted sandbox if it never surfaced.
-      await discardIfUnsurfaced({
-        host,
-        draftId,
-        wasSurfaced: () => firstMutationObserved,
-      });
-    } else {
-      await promptWithDraftCleanup({
-        agent,
-        prompt: options.prompt,
-        host,
-        draftId,
-        wasSurfaced: () => firstMutationObserved,
-      });
-    }
-  } finally {
-    if (onAbort !== undefined && options.signal !== undefined) {
-      options.signal.removeEventListener("abort", onAbort);
-    }
+  if (options.signal?.aborted) {
+    // Cancelled before the run started: nothing to prompt; clean up the
+    // just-minted sandbox if it never surfaced.
+    await discardIfUnsurfaced({
+      host,
+      draftId,
+      wasSurfaced: () => firstMutationObserved,
+    });
+  } else {
+    await promptWithDraftCleanup({
+      host,
+      draftId,
+      wasSurfaced: () => firstMutationObserved,
+      run: async () => {
+        try {
+          await runAgentLoop(
+            normalizePrompt(options.prompt),
+            {
+              systemPrompt: options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+              messages: [],
+              tools,
+            },
+            {
+              model: options.model,
+              convertToLlm: passThroughMessages,
+              getApiKey: options.getApiKey,
+              toolExecution: "sequential",
+              afterToolCall: async ({ toolCall, args, isError }) => {
+                recoveryGuard.afterToolCall({ toolCall, args, isError });
+                return undefined;
+              },
+              shouldStopAfterTurn: () =>
+                recoveryGuard.terminationReason !== "completed",
+            },
+            emit,
+            options.signal,
+            options.streamFn,
+          );
+        } catch (error) {
+          await emitFailure({
+            message: createFailureMessage({
+              model: options.model,
+              error,
+              aborted: options.signal?.aborted === true,
+            }),
+            emit,
+          });
+        }
+      },
+    });
   }
 
   return {
     draftId,
-    messages: agent.state.messages,
+    messages,
     firstMutationObserved,
+    terminationReason: recoveryGuard.terminationReason,
     discard: () => host.discard(draftId),
   };
 }

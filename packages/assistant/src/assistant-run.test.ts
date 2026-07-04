@@ -149,6 +149,25 @@ function makeHost(): AssistantHost & {
   };
 }
 
+function failAppendForCommandIds(
+  host: ReturnType<typeof makeHost>,
+  ids: string[],
+) {
+  const failingIds = new Set(ids);
+  const append = host.append.bind(host);
+  host.append = async (draftId, batch) => {
+    const args = batch[0]?.args;
+    const id =
+      args !== null && typeof args === "object"
+        ? (args as { id?: unknown }).id
+        : undefined;
+    if (typeof id === "string" && failingIds.has(id)) {
+      throw new Error(`invalid command: ${id}`);
+    }
+    return append(draftId, batch);
+  };
+}
+
 describe("createAssistantRun", () => {
   it("eager-mints a draft but lazy-surfaces only after first successful mutation", async () => {
     const host = makeHost();
@@ -259,6 +278,216 @@ describe("createAssistantRun", () => {
     expect(host.appends.map((append) => append.batch[0]?.path)).toEqual([
       "CreateDashboardPath",
     ]);
+  });
+
+  it("terminates after the configured consecutive applyCommand failure cap", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["bad-1", "bad-2", "bad-3"]);
+    let streamCalls = 0;
+    const stream = scriptedStream([
+      assistantMessage(
+        [
+          call("bad-1", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-1", name: "Bad 1" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-2", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-2", name: "Bad 2" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-3", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-3", name: "Bad 3" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Keep trying unsafe drafts.",
+      maxConsecutiveFailures: 3,
+      streamFn: (...args) => {
+        streamCalls += 1;
+        return stream(...args);
+      },
+    });
+
+    expect(result.terminationReason).toBe("failureCap");
+    expect(streamCalls).toBe(3);
+    expect(result.messages.at(-1)?.role).toBe("toolResult");
+    expect(host.appends).toEqual([]);
+  });
+
+  it("terminates on repeated failing applyCommand fingerprints before the cap", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["repeat", "other"]);
+    let streamCalls = 0;
+    const stream = scriptedStream([
+      assistantMessage(
+        [
+          call("bad-a", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "repeat", name: "Repeated" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-b", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "other", name: "Other" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-a-again", "applyCommand", {
+            type: "CreateDashboard",
+            args: { name: "Repeated", id: "repeat" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Oscillate.",
+      maxConsecutiveFailures: 5,
+      streamFn: (...args) => {
+        streamCalls += 1;
+        return stream(...args);
+      },
+    });
+
+    expect(result.terminationReason).toBe("oscillation");
+    expect(streamCalls).toBe(3);
+    expect(host.appends).toEqual([]);
+  });
+
+  it("resets the failure counter after a successful applyCommand", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["bad-1", "bad-2"]);
+    const stream = scriptedStream([
+      assistantMessage(
+        [
+          call("bad-1", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-1", name: "Bad 1" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("good", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "good", name: "Recovered" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-2", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-2", name: "Bad 2" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage([{ type: "text", text: "Stopped normally." }], "stop"),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Recover once, then fail again.",
+      maxConsecutiveFailures: 2,
+      streamFn: stream,
+    });
+
+    expect(result.terminationReason).toBe("completed");
+    expect(result.messages.at(-1)?.role).toBe("assistant");
+    expect(host.appends.map((append) => append.batch[0]?.path)).toEqual([
+      "CreateDashboardPath",
+    ]);
+  });
+
+  it("keeps a guard-terminated draft after a prior successful mutation", async () => {
+    const host = makeHost();
+    const firstMutations: string[] = [];
+    failAppendForCommandIds(host, ["bad-1", "bad-2"]);
+    const stream = scriptedStream([
+      assistantMessage(
+        [
+          call("good", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "good", name: "Keep Me" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-1", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-1", name: "Bad 1" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("bad-2", "applyCommand", {
+            type: "CreateDashboard",
+            args: { id: "bad-2", name: "Bad 2" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Mutate, then get stuck.",
+      maxConsecutiveFailures: 2,
+      streamFn: stream,
+      onFirstMutation: ({ draftId }) => {
+        firstMutations.push(draftId);
+      },
+    });
+
+    expect(result.terminationReason).toBe("failureCap");
+    expect(result.firstMutationObserved).toBe(true);
+    expect(firstMutations).toEqual(["draft-run"]);
+    expect(host.appends).toHaveLength(1);
+    expect(host.discarded).toEqual([]);
   });
 
   it("isolates onFirstMutation observer failures from tool success", async () => {
