@@ -243,6 +243,13 @@ export async function handleAssistantRunRequest(
     return c.json({ error: "Assistant prompt is required" }, 400);
   }
 
+  if (body.provider !== undefined && body.provider !== "anthropic") {
+    return c.json(
+      { error: 'Unsupported provider — only "anthropic" is available' },
+      400,
+    );
+  }
+
   const model = resolveDefaultAnthropicModel(
     typeof body.modelId === "string" ? body.modelId : undefined,
   );
@@ -251,11 +258,32 @@ export async function handleAssistantRunRequest(
     draftController: options.draftController,
   });
 
+  // Abort the provider run when the client goes away — either the fetch is
+  // aborted (request signal) or the SSE stream consumer cancels. Without this
+  // the run keeps spending provider tokens and mutating the draft after the
+  // user has navigated away.
+  const runAbort = new AbortController();
+  const requestSignal = c.req.raw.signal;
+  if (requestSignal.aborted) {
+    runAbort.abort();
+  } else {
+    requestSignal.addEventListener("abort", () => runAbort.abort(), {
+      once: true,
+    });
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: AssistantSidebarEvent) => {
-        controller.enqueue(encoder.encode(encodeSse(event)));
+        // The consumer may have cancelled mid-run; enqueue on a closed
+        // stream throws and would mask the run's own termination path.
+        if (runAbort.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(encodeSse(event)));
+        } catch {
+          runAbort.abort();
+        }
       };
 
       send({ type: "run-start" });
@@ -268,6 +296,7 @@ export async function handleAssistantRunRequest(
               ? { artifact: body.artifact }
               : undefined,
           getApiKey: getScopedApiKey,
+          signal: runAbort.signal,
           onFirstMutation: ({ draftId }) => {
             send({ type: "first-mutation", draftId });
           },
@@ -286,10 +315,16 @@ export async function handleAssistantRunRequest(
       } catch (error) {
         send({ type: "error", message: errorMessage(error) });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already closed by consumer cancellation.
+        }
       }
     },
-    cancel() {},
+    cancel() {
+      runAbort.abort();
+    },
   });
 
   return new Response(stream, {
