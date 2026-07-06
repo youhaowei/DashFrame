@@ -107,6 +107,7 @@ async function getOk<T>(url: string, path: string, args: unknown): Promise<T> {
   return json.data;
 }
 
+/** Wall-clock pause so a subsequent canonical write's `updated_at` clears the draft's `baseVersion`. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -291,6 +292,11 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       cmd("RenameNode", { id: sourceId, name: "Draft rename" }),
     ]);
 
+    // Separate the draft's baseVersion from the canonical write by ~5ms of real
+    // elapsed time. Both timestamps are independent `new Date()` reads, not
+    // coalesced DB writes — CI contention only widens the gap. An explicit
+    // past baseVersion would pull seed writes into the stale window and break
+    // the disjoint-cell test below.
     await delay(5);
     await db
       .update(dataSources)
@@ -344,6 +350,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       cmd("RenameNode", { id: draftSourceId, name: "Draft rename" }),
     ]);
 
+    // Same ordering guarantee as the overlapping-cell conflict test above.
     await delay(5);
     await db
       .update(dataSources)
