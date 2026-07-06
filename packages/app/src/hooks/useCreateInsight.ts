@@ -215,7 +215,11 @@ export function useCreateInsight() {
       options?: { visualize?: boolean },
     ) => {
       try {
-        return await createFromInsight(sourceInsightId, sourceInsightName, options);
+        return await createFromInsight(
+          sourceInsightId,
+          sourceInsightName,
+          options,
+        );
       } catch (error) {
         console.error("[useCreateInsight] create from insight failed:", error);
         toast.error("Couldn't create insight");

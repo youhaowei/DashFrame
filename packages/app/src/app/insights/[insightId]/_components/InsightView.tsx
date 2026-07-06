@@ -378,7 +378,9 @@ function lookupEncodingFieldRef(
   // The instance-qualified id is not a bare UUID, but it IS the id the
   // render path's instance-aware fields carry — the cast is the seam where
   // the two id spaces meet.
-  return instanceSuffix ? (`${canonicalId}${instanceSuffix}` as UUID) : canonicalId;
+  return instanceSuffix
+    ? (`${canonicalId}${instanceSuffix}` as UUID)
+    : canonicalId;
 }
 
 /**
