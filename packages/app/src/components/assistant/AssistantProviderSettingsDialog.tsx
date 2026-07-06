@@ -27,7 +27,12 @@ import {
   SelectValue,
 } from "@wystack/ui";
 import { DeleteIcon, ExternalLinkIcon, PlusIcon } from "@wystack/ui-icons";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 interface AssistantProviderSettingsDialogProps {
   open: boolean;
@@ -61,19 +66,6 @@ function formFromCatalog(
   };
 }
 
-const emptyCatalogForm = formFromCatalog([]);
-
-function isPristineEmptySeed(form: DraftProviderForm): boolean {
-  return (
-    form.providerId === emptyCatalogForm.providerId &&
-    form.displayLabel === emptyCatalogForm.displayLabel &&
-    form.authKind === emptyCatalogForm.authKind &&
-    form.baseUrl === emptyCatalogForm.baseUrl &&
-    form.credential === emptyCatalogForm.credential &&
-    form.defaultModel === emptyCatalogForm.defaultModel
-  );
-}
-
 export function AssistantProviderSettingsDialog({
   open,
   onOpenChange,
@@ -84,9 +76,19 @@ export function AssistantProviderSettingsDialog({
   const { showError, showSuccess } = useToastStore();
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);
   const configs = useMemo(() => configsResult.data ?? [], [configsResult.data]);
-  const [form, setForm] = useState<DraftProviderForm>(() =>
-    formFromCatalog(catalog),
+  // The form derives from the catalog until the user edits it; the first
+  // edit pins it as an override so a late-arriving catalog can't clobber
+  // user input.
+  const [formOverride, setFormOverride] = useState<DraftProviderForm | null>(
+    null,
   );
+  const form = formOverride ?? formFromCatalog(catalog);
+  const setForm: Dispatch<SetStateAction<DraftProviderForm>> = (action) => {
+    setFormOverride((current) => {
+      const base = current ?? formFromCatalog(catalog);
+      return typeof action === "function" ? action(base) : action;
+    });
+  };
   const [saving, setSaving] = useState(false);
 
   const selectedCatalog = useMemo(
@@ -95,13 +97,6 @@ export function AssistantProviderSettingsDialog({
   );
   const selectedCatalogIsLocal =
     selectedCatalog?.authKinds.includes("local") || form.authKind === "local";
-
-  useEffect(() => {
-    if (catalog.length === 0) return;
-    setForm((current) =>
-      isPristineEmptySeed(current) ? formFromCatalog(catalog) : current,
-    );
-  }, [catalog]);
 
   function chooseProvider(providerId: string | null) {
     if (!providerId) return;

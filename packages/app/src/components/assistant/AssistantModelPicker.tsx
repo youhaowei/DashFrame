@@ -81,7 +81,7 @@ export function AssistantModelPicker() {
             setSelectedModel(next.id, next.defaultModel);
             // Selecting a provider also persists it as the default — the
             // picker is the "active provider" control, not a per-run choice.
-            void mutations.save({ ...next, isDefault: true }).catch((error) => {
+            mutations.save({ ...next, isDefault: true }).catch((error) => {
               showError("Failed to switch assistant provider", {
                 description:
                   error instanceof Error ? error.message : "Please try again.",
@@ -106,7 +106,7 @@ export function AssistantModelPicker() {
         onValueChange={(defaultModel) => {
           if (!defaultModel) return;
           setSelectedModel(selected.id, defaultModel);
-          void mutations
+          mutations
             .setDefaultModel({ id: selected.id, defaultModel })
             .catch((error) => {
               showError("Failed to set assistant model", {
