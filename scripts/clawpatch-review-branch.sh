@@ -23,6 +23,7 @@ if [[ $# -gt 0 ]]; then
 fi
 
 review_branch=""
+review_branch_created=false
 review_worktree=""
 review_worktree_parent=""
 
@@ -30,7 +31,7 @@ cleanup_review_worktree() {
   if [[ -n "$review_worktree" ]]; then
     git -C "$repo_root" worktree remove --force "$review_worktree" >/dev/null 2>&1 || true
   fi
-  if [[ -n "$review_branch" ]]; then
+  if [[ "$review_branch_created" == true && -n "$review_branch" ]]; then
     git -C "$repo_root" branch -D "$review_branch" >/dev/null 2>&1 || true
   fi
   if [[ -n "$review_worktree_parent" ]]; then
@@ -39,18 +40,20 @@ cleanup_review_worktree() {
 }
 trap cleanup_review_worktree EXIT
 
-is_bare_commit_sha() {
-  [[ "$1" =~ ^[0-9a-fA-F]{7,40}$ ]] && git -C "$repo_root" cat-file -e "$1^{commit}" 2>/dev/null
+looks_like_commit_sha() {
+  [[ "$1" =~ ^[0-9a-fA-F]{7,40}$ ]]
 }
 
 resolve_target_sha() {
   local ref="$1"
-  git -C "$repo_root" rev-parse --verify "${ref}^{commit}" 2>/dev/null && return 0
-  git -C "$repo_root" rev-parse --verify "origin/${ref}^{commit}" 2>/dev/null && return 0
-
+  # A fresh fetch is the only trustworthy source for a remote branch; an
+  # existing origin/<ref> tracking ref may be stale, so never use it without
+  # a successful fetch backing it.
   if git -C "$repo_root" fetch origin "$ref" >/dev/null 2>&1; then
     git -C "$repo_root" rev-parse --verify "FETCH_HEAD^{commit}" 2>/dev/null && return 0
   fi
+  # Local-only branches never exist on origin; a local head is authoritative.
+  git -C "$repo_root" rev-parse --verify "refs/heads/${ref}^{commit}" 2>/dev/null && return 0
 
   return 1
 }
@@ -88,16 +91,28 @@ create_review_worktree() {
 
   if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$review_branch"; then
     echo "ERROR [clawpatch-review-branch]: could not allocate a throwaway review branch for '$ref'." >&2
+    review_branch=""
     exit 1
   fi
 
   review_worktree_parent="$(mktemp -d "${TMPDIR:-/tmp}/clawpatch-review-${slug}.XXXXXX")"
   review_worktree="$review_worktree_parent/worktree"
   git -C "$repo_root" worktree add -b "$review_branch" "$review_worktree" "$sha" >/dev/null
+  review_branch_created=true
 }
 
 worktree=""
-if is_bare_commit_sha "$target"; then
+if looks_like_commit_sha "$target"; then
+  # A hex-shaped target is always treated as a commit, never handed to
+  # ensure-worktree.sh as a branch name (which would silently create a fresh
+  # branch off origin/main and review the wrong diff).
+  if ! git -C "$repo_root" cat-file -e "${target}^{commit}" 2>/dev/null; then
+    git -C "$repo_root" fetch origin "$target" >/dev/null 2>&1 || true
+  fi
+  if ! git -C "$repo_root" cat-file -e "${target}^{commit}" 2>/dev/null; then
+    echo "ERROR [clawpatch-review-branch]: '$target' looks like a commit SHA but cannot be resolved locally or fetched from origin." >&2
+    exit 1
+  fi
   target_sha="$(git -C "$repo_root" rev-parse --verify "${target}^{commit}")"
   create_review_worktree "$target" "$target_sha"
   worktree="$review_worktree"
