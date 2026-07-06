@@ -553,6 +553,13 @@ export function createDraftController(
     return cells;
   }
 
+  /**
+   * Probe whether any canonical row advanced after `baseVersion`. Uses strict
+   * `>` — not `>=` — so rows written in `baseVersion`'s own millisecond (the
+   * draft-open instant) are not mistaken for post-open canonical writes. The
+   * trade-off is a same-millisecond false-negative; see
+   * {@link overlappingCellsSince} and {@link deletedTouchedCells}.
+   */
   async function hasCanonicalWritesSince(
     baseVersion: Date,
     exec: SqlExecutor = db,
