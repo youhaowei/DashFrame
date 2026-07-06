@@ -42,6 +42,9 @@ const setDefaultModelSchema = z.object({
   defaultModel: z.string().min(1),
 }) satisfies z.ZodType<SetAssistantDefaultModelInput>;
 
+// Opens the OAuth URL in a browser ON THE SERVER HOST — a desktop-app
+// assumption (Electron main runs next to the user's browser). A hosted
+// deployment must replace this with a client-side redirect flow.
 function openAuthUrl(url: string): void {
   let opener = "xdg-open";
   if (process.platform === "darwin") {

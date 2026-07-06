@@ -63,6 +63,8 @@ export function AssistantModelPicker() {
           const next = configs.find((config) => config.id === id);
           if (next) {
             setSelectedModel(next.id, next.defaultModel);
+            // Selecting a provider also persists it as the default — the
+            // picker is the "active provider" control, not a per-run choice.
             mutations.save({ ...next, isDefault: true });
           }
         }}
