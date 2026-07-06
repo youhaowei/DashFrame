@@ -9,7 +9,15 @@ describe("useAssistantStore", () => {
     // Reset to defaults between tests (the store is a module singleton) and
     // drop any persisted payload from a prior test.
     useAssistantStore.persist.clearStorage();
-    useAssistantStore.setState({ isOpen: false });
+    useAssistantStore.setState({
+      isOpen: false,
+      pendingDraftId: null,
+      runStatus: "idle",
+      activeDraftId: null,
+      turns: [],
+      streamingText: "",
+      error: null,
+    });
   });
 
   it("toggles open state", () => {
@@ -39,6 +47,58 @@ describe("useAssistantStore", () => {
 
     await useAssistantStore.persist.rehydrate();
 
+    expect(useAssistantStore.getState().isOpen).toBe(true);
+  });
+
+  it("keeps eager-open draft ids hidden until first mutation", () => {
+    useAssistantStore.getState().beginRun("Make a dashboard");
+    useAssistantStore.getState().receiveRunEvent({ type: "run-start" });
+    useAssistantStore.getState().receiveRunEvent({
+      type: "run-end",
+      draftId: "draft-empty",
+      firstMutationObserved: false,
+      terminationReason: "completed",
+    });
+
+    expect(useAssistantStore.getState().activeDraftId).toBe("draft-empty");
+    expect(useAssistantStore.getState().pendingDraftId).toBeNull();
+    expect(useAssistantStore.getState().runStatus).toBe("completed");
+  });
+
+  it("surfaces the review draft only after first successful mutation", () => {
+    useAssistantStore.getState().beginRun("Rename it");
+    useAssistantStore.getState().receiveRunEvent({
+      type: "command-start",
+      toolCallId: "tool-1",
+      commandType: "RenameNode",
+      args: { id: "node-1", name: "Revenue" },
+    });
+
+    expect(useAssistantStore.getState().pendingDraftId).toBeNull();
+
+    useAssistantStore.getState().receiveRunEvent({
+      type: "first-mutation",
+      draftId: "draft-mutated",
+    });
+    useAssistantStore.getState().receiveRunEvent({
+      type: "command-end",
+      toolCallId: "tool-1",
+      commandType: "RenameNode",
+      isError: false,
+      result: { commandType: "RenameNode" },
+    });
+
+    expect(useAssistantStore.getState().pendingDraftId).toBe("draft-mutated");
+    expect(useAssistantStore.getState().turns.at(-1)?.status).toBe("success");
+  });
+
+  it("clears the surfaced draft after publish or discard", () => {
+    useAssistantStore.getState().setPendingDraft("draft-review");
+    expect(useAssistantStore.getState().isOpen).toBe(true);
+
+    useAssistantStore.getState().setPendingDraft(null);
+
+    expect(useAssistantStore.getState().pendingDraftId).toBeNull();
     expect(useAssistantStore.getState().isOpen).toBe(true);
   });
 });

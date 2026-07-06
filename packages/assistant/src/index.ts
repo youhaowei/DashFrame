@@ -49,6 +49,8 @@ export {
   type CreateAssistantRunOptions,
 } from "./assistant-run.js";
 
+export { resolveDefaultAnthropicModel } from "./model.js";
+
 // Public constants for server-side drift/security tests; applyCommand itself is package-internal.
 export {
   CREDENTIAL_COMMAND_ARG_FIELDS,

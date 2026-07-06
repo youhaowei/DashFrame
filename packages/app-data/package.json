@@ -23,6 +23,7 @@
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "@types/react": "^19.2.7",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "^4.1.6"
   }
 }

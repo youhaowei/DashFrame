@@ -56,8 +56,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { type ArtifactDb } from "@dashframe/server-core";
 
+import { handleAssistantRunRequest } from "./assistant-run-route";
 import { captureCommandCredentials } from "./credential-release";
-import { createDraftController } from "./draft-controller";
+import {
+  createDraftController,
+  type DraftController,
+} from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
 
@@ -644,6 +648,14 @@ export async function createDashframeServer(
       }),
     );
   }
+
+  honoApp.post("/assistant/run", (c) =>
+    handleAssistantRunRequest(c, {
+      app,
+      draftController: serverContext.draftController as DraftController,
+      resolveContext,
+    }),
+  );
 
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 

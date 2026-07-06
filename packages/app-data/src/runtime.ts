@@ -28,6 +28,17 @@ export interface WyStackRuntimeConfig {
   token?: string;
 }
 
+let currentRuntimeConfig: WyStackRuntimeConfig | null = null;
+
+export function getWyStackRuntimeConfig(): WyStackRuntimeConfig {
+  if (!currentRuntimeConfig) {
+    throw new Error(
+      "WyStack runtime config not set — call createWyStackRuntime before using assistant streaming",
+    );
+  }
+  return currentRuntimeConfig;
+}
+
 /**
  * Mint the client for `config`, wire the imperative singleton, and return the
  * bound Provider. Call once per host, before rendering.
@@ -36,6 +47,7 @@ export function createWyStackRuntime(
   config: string | WyStackRuntimeConfig,
 ): WyStackRuntime {
   const runtimeConfig = typeof config === "string" ? { url: config } : config;
+  currentRuntimeConfig = runtimeConfig;
   const token = runtimeConfig.token;
   const instance = createWyStack<Functions>({
     url: runtimeConfig.url,
