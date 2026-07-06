@@ -6,11 +6,15 @@ import {
   type AssistantRunTerminationReason,
   type CreateAssistantRunOptions,
 } from "@dashframe/assistant";
+import { schema, type ArtifactDb } from "@dashframe/server-core";
+import type { SecretVault } from "@wystack/secret-vault";
 import type { WyStackApp } from "@wystack/server";
+import { eq } from "drizzle-orm";
 import type { Context } from "hono";
 
 import { createDashframeAssistantHost } from "./assistant-host";
 import type { DraftController } from "./draft-controller";
+import { resolveAssistantProviderConfigForRun } from "./functions/assistant-provider-configs";
 
 export type AssistantSidebarEvent =
   | { type: "run-start" }
@@ -47,7 +51,9 @@ export type AssistantSidebarEvent =
 
 interface AssistantRunRouteOptions {
   app: WyStackApp;
+  db: ArtifactDb;
   draftController: DraftController;
+  vault?: SecretVault;
   resolveContext?: (req: Request) => Promise<Record<string, unknown>>;
 }
 
@@ -57,6 +63,9 @@ interface AssistantRunRequestBody {
   provider?: unknown;
   modelId?: unknown;
 }
+
+type AssistantProviderConfigRow =
+  typeof schema.assistantProviderConfigs.$inferSelect;
 
 type AgentEvent = Parameters<
   NonNullable<CreateAssistantRunOptions["onEvent"]>
@@ -210,6 +219,70 @@ async function getScopedApiKey(provider: string): Promise<string | undefined> {
   return getOAuthToken();
 }
 
+function requestedText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+async function selectAssistantProviderConfigForRun(args: {
+  db: ArtifactDb;
+  provider?: string;
+  modelId?: string;
+}): Promise<AssistantProviderConfigRow | undefined> {
+  const rows = (await args.db
+    .select()
+    .from(schema.assistantProviderConfigs)) as AssistantProviderConfigRow[];
+  if (rows.length === 0) return undefined;
+
+  const selected = args.provider
+    ? rows.find(
+        (row) => row.id === args.provider || row.providerId === args.provider,
+      )
+    : (rows.find((row) => row.isDefault) ??
+      rows.find((row) => row.providerId === "anthropic") ??
+      rows[0]);
+  if (!selected) return undefined;
+  return args.modelId ? { ...selected, defaultModel: args.modelId } : selected;
+}
+
+async function resolveRunProvider(args: {
+  body: AssistantRunRequestBody;
+  db: ArtifactDb;
+  vault?: SecretVault;
+}): Promise<{
+  model: ReturnType<typeof resolveDefaultAnthropicModel>;
+  getApiKey: CreateAssistantRunOptions["getApiKey"];
+}> {
+  const provider = requestedText(args.body.provider);
+  const modelId = requestedText(args.body.modelId);
+  const row = await selectAssistantProviderConfigForRun({
+    db: args.db,
+    provider,
+    modelId,
+  });
+
+  if (!row) {
+    const model = resolveDefaultAnthropicModel(modelId);
+    return { model, getApiKey: getScopedApiKey };
+  }
+
+  const resolved = await resolveAssistantProviderConfigForRun({
+    row,
+    vault: args.vault,
+    updateCredentialRef: async (ref) => {
+      await args.db
+        .update(schema.assistantProviderConfigs)
+        .set({ credentialRef: ref })
+        .where(eq(schema.assistantProviderConfigs.id, row.id));
+    },
+  });
+  const apiKey = (resolved.options as { apiKey?: string }).apiKey;
+  return {
+    model: resolved.model as ReturnType<typeof resolveDefaultAnthropicModel>,
+    getApiKey: (requestedProvider) =>
+      requestedProvider === resolved.model.provider ? apiKey : undefined,
+  };
+}
+
 function encodeSse(event: AssistantSidebarEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
@@ -248,24 +321,24 @@ export async function handleAssistantRunRequest(
     return c.json({ error: "Assistant prompt is required" }, 400);
   }
 
-  if (body.provider !== undefined && body.provider !== "anthropic") {
-    return c.json(
-      { error: 'Unsupported provider — only "anthropic" is available' },
-      400,
-    );
-  }
-
-  let model: ReturnType<typeof resolveDefaultAnthropicModel>;
+  let runProvider: Awaited<ReturnType<typeof resolveRunProvider>>;
   try {
-    model = resolveDefaultAnthropicModel(
-      typeof body.modelId === "string" ? body.modelId : undefined,
-    );
+    runProvider = await resolveRunProvider({
+      body,
+      db: options.db,
+      vault: options.vault,
+    });
   } catch (err) {
     // Unknown requested model id is a client error; a failure to resolve
     // the default list is a server configuration fault — let it propagate.
-    if (typeof body.modelId === "string") {
+    if (typeof body.modelId === "string" || typeof body.provider === "string") {
       return c.json(
-        { error: err instanceof Error ? err.message : "Unknown model id" },
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Unknown assistant provider or model",
+        },
         400,
       );
     }
@@ -307,13 +380,13 @@ export async function handleAssistantRunRequest(
       send({ type: "run-start" });
       try {
         const result = await createAssistantRun(host, {
-          model,
+          model: runProvider.model,
           prompt,
           context:
             body.artifact && typeof body.artifact === "object"
               ? { artifact: body.artifact }
               : undefined,
-          getApiKey: getScopedApiKey,
+          getApiKey: runProvider.getApiKey,
           signal: runAbort.signal,
           onFirstMutation: ({ draftId }) => {
             send({ type: "first-mutation", draftId });

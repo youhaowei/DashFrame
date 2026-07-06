@@ -233,6 +233,36 @@ export const secretMappings = pgTable("secret_mappings", {
     .defaultNow(),
 });
 
+// assistant_provider_configs — assistant model-provider settings.
+//
+// Credentials are stored in the vault and referenced here only by SecretRef.
+// NOT drafted: credential infrastructure. A draft shadow would allow transient
+// assistant credentials to leak into command logs / preview state.
+export const assistantProviderConfigs = pgTable(
+  "assistant_provider_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    providerId: text("provider_id").notNull(),
+    displayLabel: text("display_label").notNull(),
+    authKind: text("auth_kind").notNull(), // 'api-key' | 'local' | 'oauth'
+    baseUrl: text("base_url"),
+    credentialRef: text("credential_ref"),
+    defaultModel: text("default_model").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("assistant_provider_configs_provider_id_idx").on(t.providerId),
+    index("assistant_provider_configs_is_default_idx").on(t.isDefault),
+  ],
+);
+
 // ─── Draft shadow tables ──────────────────────────────────────────────────────
 //
 // Each `<table>__draft` is the sparse overlay the @wystack/db `withDraft`
@@ -440,6 +470,7 @@ export const schema = {
   dashboards,
   // Credential infrastructure — NOT drafted (security boundary)
   secretMappings,
+  assistantProviderConfigs,
   // Draft shadow tables (artifact overlay)
   dataSourcesDraft,
   dataTablesDraft,

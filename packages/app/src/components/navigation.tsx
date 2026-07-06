@@ -34,6 +34,7 @@ import {
 } from "@wystack/ui-icons";
 import { type ReactNode, useState } from "react";
 
+import { AssistantProviderSettingsDialog } from "./assistant/AssistantProviderSettingsDialog";
 import {
   DESKTOP_NAV_BREAKPOINT_CLASS,
   DESKTOP_NAV_WIDTH,
@@ -75,6 +76,7 @@ const navItems: NavItem[] = [
 
 interface SidebarContentProps {
   onClearData?: () => void;
+  onAssistantProviders?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -83,7 +85,11 @@ interface SidebarContentProps {
   footerSlot?: ReactNode;
 }
 
-function SidebarContent({ onClearData, footerSlot }: SidebarContentProps) {
+function SidebarContent({
+  onClearData,
+  onAssistantProviders,
+  footerSlot,
+}: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
 
   return (
@@ -148,6 +154,10 @@ function SidebarContent({ onClearData, footerSlot }: SidebarContentProps) {
             }
           />
           <DropdownMenuContent align="start" side="top">
+            <DropdownMenuItem onClick={onAssistantProviders}>
+              <SparklesIcon className="mr-2 h-4 w-4" />
+              Assistant providers
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={onClearData}
               className="text-palette-danger focus:text-palette-danger"
@@ -176,6 +186,7 @@ export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showAssistantProviders, setShowAssistantProviders] = useState(false);
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
@@ -214,6 +225,7 @@ export function Navigation() {
         >
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
+            onAssistantProviders={() => setShowAssistantProviders(true)}
             footerSlot={<PerfHud />}
           />
         </div>
@@ -244,7 +256,10 @@ export function Navigation() {
               />
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SidebarContent onClearData={() => setShowClearConfirm(true)} />
+              <SidebarContent
+                onClearData={() => setShowClearConfirm(true)}
+                onAssistantProviders={() => setShowAssistantProviders(true)}
+              />
             </div>
           </div>
         </DialogContent>
@@ -274,6 +289,10 @@ export function Navigation() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AssistantProviderSettingsDialog
+        open={showAssistantProviders}
+        onOpenChange={setShowAssistantProviders}
+      />
     </>
   );
 }

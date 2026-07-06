@@ -47,6 +47,7 @@ export {
   // Constants
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
+  assistantProviderConfigs,
   dashboards,
   dashboardsDraft,
   dataFrames,
