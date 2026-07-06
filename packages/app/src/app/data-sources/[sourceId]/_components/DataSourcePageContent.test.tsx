@@ -11,7 +11,7 @@
  *   Columns from a repeat-join have _j0 / _j1 suffixes on their aliases. The
  *   analysis map must store them under distinct keys so j1 cannot overwrite j0.
  */
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -20,12 +20,26 @@ const { mockUseDataSources } = vi.hoisted(() => ({
   mockUseDataSources: vi.fn(),
 }));
 
+const { mockUseDataTables } = vi.hoisted(() => ({
+  mockUseDataTables: vi.fn(),
+}));
+
+const { mockCreateInsightFromTable } = vi.hoisted(() => ({
+  mockCreateInsightFromTable: vi.fn(),
+}));
+
 vi.mock("@dashframe/core", () => ({
   useDataSources: () => mockUseDataSources(),
   useDataSourceMutations: () => ({ update: vi.fn() }),
   useDataFrames: () => ({ data: [] }),
   useDataTableMutations: () => ({ remove: vi.fn(), updateField: vi.fn() }),
-  useDataTables: () => ({ data: [] }),
+  useDataTables: () => mockUseDataTables(),
+}));
+
+vi.mock("@/hooks/useCreateInsight", () => ({
+  useCreateInsight: () => ({
+    createInsightFromTable: mockCreateInsightFromTable,
+  }),
 }));
 
 vi.mock("@/components/assistant/artifact-context", () => ({
@@ -205,6 +219,7 @@ const DATA_SOURCE = {
 describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseDataTables.mockReturnValue({ data: [] });
   });
 
   it("shows loading while useDataSources is fetching and then shows content — never 'not found'", async () => {
@@ -299,6 +314,41 @@ describe("DataSourcePageContent — loading state contract", () => {
     // Content renders; not-found never appeared for the real source
     expect(screen.queryByText("Data source not found")).toBeNull();
     screen.getByDisplayValue("My Database");
+  });
+
+  it("creates and opens a visualize-intent insight from the selected table", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+      isFetching: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [
+        {
+          id: "table-orders",
+          name: "Orders",
+          fields: [{ id: "field-a", name: "Amount" }],
+          metrics: [],
+        },
+      ],
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Orders" }));
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Visualize this data" }),
+      );
+    });
+
+    expect(mockCreateInsightFromTable).toHaveBeenCalledWith(
+      "table-orders",
+      "Orders",
+      { visualize: true },
+    );
   });
 });
 

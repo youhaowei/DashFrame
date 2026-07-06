@@ -14,6 +14,7 @@ import { useCallback, useState } from "react";
 interface CreateVisualizationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  visualizeOnCreate?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ interface CreateVisualizationModalProps {
 export function CreateVisualizationModal({
   isOpen,
   onClose,
+  visualizeOnCreate = false,
 }: CreateVisualizationModalProps) {
   const navigate = useNavigate();
   const { createInsightFromTable, createInsightFromInsight } =
@@ -57,18 +59,22 @@ export function CreateVisualizationModal({
   const handleCreateBasedOn = useCallback(() => {
     if (!selectedInsight) return;
     // Create new insight that chains from the selected insight's DataFrame
-    createInsightFromInsight(selectedInsight.id, selectedInsight.name);
+    createInsightFromInsight(selectedInsight.id, selectedInsight.name, {
+      visualize: visualizeOnCreate,
+    });
     setSelectedInsight(null);
     onClose();
-  }, [selectedInsight, createInsightFromInsight, onClose]);
+  }, [selectedInsight, createInsightFromInsight, onClose, visualizeOnCreate]);
 
   // When selecting a table, create new insight directly
   const handleTableSelect = useCallback(
     (tableId: string, tableName: string) => {
-      createInsightFromTable(tableId, tableName);
+      createInsightFromTable(tableId, tableName, {
+        visualize: visualizeOnCreate,
+      });
       onClose();
     },
-    [createInsightFromTable, onClose],
+    [createInsightFromTable, onClose, visualizeOnCreate],
   );
 
   // Close action dialog

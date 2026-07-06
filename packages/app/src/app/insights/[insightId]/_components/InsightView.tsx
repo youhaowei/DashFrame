@@ -1,12 +1,27 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { formatCellValue } from "@/lib/cell-formatter";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
+import {
+  TABLE_CANVAS_VIEW,
+  canvasViewsEqual,
+  sanitizeInsightCanvasView,
+  useInsightCanvasStore,
+  type InsightCanvasView,
+} from "@/lib/stores/insight-canvas-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { mergeAnalyses } from "@/lib/visualizations/merge-analyses";
-import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
+import {
+  suggestByChartType,
+  type ChartSuggestion,
+} from "@/lib/visualizations/suggest-charts";
 import {
   getDataFrame,
+  useDashboardMutations,
+  useDashboards,
   useDataFrameMutations,
   useDataFrames,
   useDataTables,
@@ -14,7 +29,10 @@ import {
   useVisualizationMutations,
   useVisualizations,
 } from "@dashframe/core";
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import {
+  extractUUIDFromColumnAlias,
+  fieldIdToColumnAlias,
+} from "@dashframe/engine";
 import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
   ColumnAnalysis,
@@ -24,14 +42,37 @@ import type {
   InsightMetric,
   UUID,
   VegaLiteSpec,
+  VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
+import { CHART_TYPE_METADATA } from "@dashframe/types";
+import {
+  CHART_ICONS,
+  VirtualTable,
+  type VirtualTableColumnConfig,
+} from "@dashframe/ui";
+import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, cn } from "@wystack/ui";
+import {
+  CheckIcon,
+  DashboardIcon,
+  PlusIcon,
+  SparklesIcon,
+  TableIcon,
+} from "@wystack/ui-icons";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
 import { DataModelSection } from "./sections/DataModelSection";
-import { DataPreviewSection } from "./sections/DataPreviewSection";
-import { VisualizationsSection } from "./sections/VisualizationsSection";
 
 /**
  * Remap column names in analysis results from original names to UUID aliases.
@@ -71,7 +112,7 @@ function remapAnalysisColumnNames(
 }
 
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import type { ChartEncoding, VisualizationEncoding } from "@dashframe/types";
+import type { ChartEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 
@@ -253,11 +294,93 @@ async function analyzeJoinedDataFrames(
 
 interface InsightViewProps {
   insight: Insight;
+  visualizeIntent?: boolean;
 }
 
 interface ParsedEncoding {
   dimensionFields: string[];
   metrics: InsightMetric[];
+}
+
+/**
+ * Unwrap a date-transform expression to its underlying column reference.
+ * Suggestion encodings wrap temporal axes in either legacy vgplot functions
+ * (dateMonth(col)) or DuckDB date_trunc('period', "col"); the transform itself
+ * travels separately as xTransform/yTransform, so field resolution must look
+ * through the wrapper to the raw column alias.
+ */
+function unwrapEncodingExpression(value: string): string {
+  const legacyMatch = value.match(
+    /^(?:dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
+  );
+  if (legacyMatch?.[1]) {
+    return legacyMatch[1].replace(/(?:^["'])|(?:["']$)/g, "");
+  }
+  const dateTruncMatch = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
+  if (dateTruncMatch?.[1]) {
+    return dateTruncMatch[1];
+  }
+  return value.replace(/(?:^["'])|(?:["']$)/g, "");
+}
+
+/**
+ * Resolve an encoding channel value to a CANONICAL field ID. Tries, in order:
+ * the raw value, the value with date-transform wrappers removed, and finally
+ * the canonical UUID behind an instance-qualified repeat-join alias
+ * (field_<uuid>_jN). Use this for the persisted Insight model
+ * (selectedFields/metrics), which stores canonical field IDs only.
+ */
+function lookupEncodingFieldId(
+  fieldIdMap: Map<string, UUID>,
+  value: string,
+): UUID | undefined {
+  const direct = fieldIdMap.get(value);
+  if (direct) return direct;
+
+  const unwrapped = unwrapEncodingExpression(value);
+  const unwrappedId = fieldIdMap.get(unwrapped);
+  if (unwrappedId) return unwrappedId;
+
+  const canonicalUuid = extractUUIDFromColumnAlias(unwrapped);
+  if (canonicalUuid) {
+    return fieldIdMap.get(fieldIdToColumnAlias(canonicalUuid));
+  }
+  return undefined;
+}
+
+/**
+ * Like lookupEncodingFieldId, but PRESERVES the repeat-join instance
+ * qualifier: a `field_<uuid>_jN` alias resolves to `<uuid>_jN`, not the
+ * canonical UUID. Visualization encodings support instance-qualified refs
+ * (VisualizationPreview resolves `field:<uuid>_jN` through the pagination
+ * hook's instance-aware fields), and collapsing to canonical would silently
+ * re-point the pinned chart at the FIRST join instance. Use this for
+ * VisualizationEncoding values; use lookupEncodingFieldId for the Insight
+ * model.
+ */
+function lookupEncodingFieldRef(
+  fieldIdMap: Map<string, UUID>,
+  value: string,
+): UUID | undefined {
+  const direct = fieldIdMap.get(value);
+  if (direct) return direct;
+
+  const unwrapped = unwrapEncodingExpression(value);
+  const unwrappedId = fieldIdMap.get(unwrapped);
+  if (unwrappedId) return unwrappedId;
+
+  const canonicalUuid = extractUUIDFromColumnAlias(unwrapped);
+  if (!canonicalUuid) return undefined;
+  const canonicalId = fieldIdMap.get(fieldIdToColumnAlias(canonicalUuid));
+  if (!canonicalId) return undefined;
+
+  const instanceSuffix = unwrapped.match(/(_j\d+)$/)?.[1];
+  // The instance-qualified id is not a bare UUID, but it IS the id the
+  // render path's instance-aware fields carry — the cast is the seam where
+  // the two id spaces meet.
+  return instanceSuffix
+    ? (`${canonicalId}${instanceSuffix}` as UUID)
+    : canonicalId;
 }
 
 /**
@@ -432,8 +555,9 @@ function convertToVisualizationEncoding(
       return undefined;
     }
 
-    // It's a dimension field - find field ID by column name
-    const fieldId = fieldIdMap.get(value);
+    // It's a dimension field - find field ID by column name (looking through
+    // date-transform wrappers, preserving repeat-join instance qualifiers)
+    const fieldId = lookupEncodingFieldRef(fieldIdMap, value);
     if (fieldId) {
       return fieldEncoding(fieldId);
     }
@@ -461,6 +585,179 @@ function convertToVisualizationEncoding(
   return result;
 }
 
+const CANVAS_CHART_TYPES: VisualizationType[] = [
+  "barY",
+  "barX",
+  "line",
+  "areaY",
+  "dot",
+  "hexbin",
+  "heatmap",
+  "raster",
+];
+
+function getCanvasViewKey(view: InsightCanvasView): string {
+  if (view.kind === "chart") return `chart:${view.chartType}`;
+  if (view.kind === "visualization")
+    return `visualization:${view.visualizationId}`;
+  return "table";
+}
+
+function chartView(chartType: VisualizationType): InsightCanvasView {
+  return { kind: "chart", chartType };
+}
+
+function visualizationView(visualizationId: string): InsightCanvasView {
+  return { kind: "visualization", visualizationId };
+}
+
+function getVisualizationEncodingSignature(
+  encoding: VisualizationEncoding | undefined,
+): string {
+  if (!encoding) return "";
+  return [
+    encoding.x ?? "",
+    encoding.y ?? "",
+    encoding.color ?? "",
+    encoding.size ?? "",
+    encoding.xTransform ? JSON.stringify(encoding.xTransform) : "",
+    encoding.yTransform ? JSON.stringify(encoding.yTransform) : "",
+  ].join("|");
+}
+
+function InsightResultTable({ insight }: { insight: Insight }) {
+  const {
+    fetchData,
+    totalCount,
+    fieldCount,
+    isReady,
+    columnDisplayNames,
+    columnTypeMap,
+  } = useInsightPagination({
+    insight,
+    showModelPreview: false,
+  });
+
+  const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
+    return Object.entries(columnDisplayNames).map(([id, label]) => {
+      const colType = columnTypeMap[id];
+      return {
+        id,
+        label,
+        format:
+          colType !== undefined
+            ? (value: unknown) => formatCellValue(value, colType)
+            : undefined,
+      };
+    });
+  }, [columnDisplayNames, columnTypeMap]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-3 px-4 text-sm text-neutral-fg-subtle">
+        {isReady
+          ? `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`
+          : "Loading data..."}
+      </div>
+      <div className="min-h-0 flex-1 px-4 pb-4">
+        {/* Mount only when the pagination hook is ready (per its contract):
+            mounting earlier lets the initial fetch race the hook's own
+            init-driven fetchData identity changes. */}
+        {isReady && (
+          <VirtualTable
+            onFetchData={fetchData}
+            columnConfigs={columnConfigs}
+            height={520}
+            compact
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CanvasViewButton({
+  active,
+  muted = false,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  muted?: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex h-8 max-w-44 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+        active
+          ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
+          : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
+        muted && !active && "opacity-60",
+      )}
+      title={label}
+    >
+      <span className="shrink-0">
+        {active ? <CheckIcon className="h-3.5 w-3.5" /> : icon}
+      </span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function EphemeralChartCanvas({
+  tableName,
+  suggestion,
+  isLoading,
+  onRegenerate,
+}: {
+  tableName?: string;
+  suggestion?: ChartSuggestion;
+  isLoading: boolean;
+  onRegenerate: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-neutral-fg-subtle">
+        Loading chart view...
+      </div>
+    );
+  }
+
+  if (!tableName || !suggestion) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-neutral-fg-subtle">
+        <p>This chart view needs usable fields.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          icon={SparklesIcon}
+          label="Try another suggestion"
+          onClick={onRegenerate}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full px-4 pb-4">
+      <Chart
+        tableName={tableName}
+        visualizationType={suggestion.chartType}
+        encoding={suggestion.encoding}
+        height={520}
+        className="h-full w-full"
+      />
+    </div>
+  );
+}
+
 /**
  * InsightView - Unified view for insight page
  *
@@ -475,7 +772,10 @@ function convertToVisualizationEncoding(
  * - Local state for insight name with debounced updates
  * - Sections only re-render when their specific data changes
  */
-export function InsightView({ insight }: InsightViewProps) {
+export function InsightView({
+  insight,
+  visualizeIntent = false,
+}: InsightViewProps) {
   const insightId = insight.id;
   const navigate = useNavigate();
 
@@ -541,6 +841,13 @@ export function InsightView({ insight }: InsightViewProps) {
   const { data: allDataTables = [] } = useDataTables();
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allVisualizations = [] } = useVisualizations();
+  const { data: dashboards = [] } = useDashboards();
+  const { create: createDashboard, addItem: addDashboardItem } =
+    useDashboardMutations();
+  const persistedActiveView = useInsightCanvasStore(
+    (s) => s.activeViewByInsight[insightId],
+  );
+  const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
 
   // DuckDB connection for chart suggestions (initialized by DuckDBProvider during idle time)
   const {
@@ -563,12 +870,16 @@ export function InsightView({ insight }: InsightViewProps) {
 
   // Derived column-analysis: only return cached results if they match the
   // currently-active chart view. Otherwise treat as empty.
-  const columnAnalysis: ColumnAnalysis[] =
-    chartTableName &&
-    isChartViewReady &&
-    columnAnalysisState?.viewName === chartTableName
-      ? columnAnalysisState.columns
-      : [];
+  const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
+    if (
+      chartTableName &&
+      isChartViewReady &&
+      columnAnalysisState?.viewName === chartTableName
+    ) {
+      return columnAnalysisState.columns;
+    }
+    return [];
+  }, [chartTableName, columnAnalysisState, isChartViewReady]);
   const setColumnAnalysis = (columns: ColumnAnalysis[]) => {
     if (chartTableName) {
       setColumnAnalysisState({ viewName: chartTableName, columns });
@@ -601,6 +912,33 @@ export function InsightView({ insight }: InsightViewProps) {
   const insightVisualizations = useMemo(
     () => allVisualizations.filter((v) => v.insightId === insightId),
     [allVisualizations, insightId],
+  );
+  const pinnedVisualizationIds = useMemo(
+    () => new Set(insightVisualizations.map((viz) => viz.id)),
+    [insightVisualizations],
+  );
+  const activeView = useMemo(
+    () =>
+      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
+    [persistedActiveView, pinnedVisualizationIds],
+  );
+  const activeVisualization =
+    activeView.kind === "visualization"
+      ? insightVisualizations.find(
+          (viz) => viz.id === activeView.visualizationId,
+        )
+      : undefined;
+
+  // No write-back of the sanitized view into the store: right after a pin,
+  // the persisted selection can reference a visualization the list hasn't
+  // loaded yet — persisting the table fallback would clobber that intent.
+  // Read-time sanitization above is enough; the view self-heals on load.
+
+  const handleSetActiveView = useCallback(
+    (view: InsightCanvasView) => {
+      setPersistedActiveView(insightId, view);
+    },
+    [insightId, setPersistedActiveView],
   );
 
   // Build field map for suggestions
@@ -827,6 +1165,52 @@ export function InsightView({ insight }: InsightViewProps) {
     dataTable,
   ]);
 
+  const chartSuggestionsByType = useMemo(() => {
+    const suggestions = new Map<VisualizationType, ChartSuggestion>();
+    if (
+      !insightForSuggestions ||
+      columnAnalysis.length === 0 ||
+      rowCount === 0
+    ) {
+      return suggestions;
+    }
+
+    for (const chartType of CANVAS_CHART_TYPES) {
+      const suggestion = suggestByChartType(
+        insightForSuggestions,
+        columnAnalysis,
+        rowCount,
+        fieldMap,
+        chartType,
+        { existingFields: existingFieldNames, seed: suggestionSeed },
+      );
+      if (suggestion) {
+        suggestions.set(chartType, suggestion);
+      }
+    }
+    return suggestions;
+  }, [
+    insightForSuggestions,
+    columnAnalysis,
+    rowCount,
+    fieldMap,
+    existingFieldNames,
+    suggestionSeed,
+  ]);
+
+  const firstChartSuggestion = useMemo(() => {
+    for (const chartType of CANVAS_CHART_TYPES) {
+      const suggestion = chartSuggestionsByType.get(chartType);
+      if (suggestion) return suggestion;
+    }
+    return null;
+  }, [chartSuggestionsByType]);
+
+  const activeChartSuggestion =
+    activeView.kind === "chart"
+      ? chartSuggestionsByType.get(activeView.chartType)
+      : undefined;
+
   // Parse aggregate expression like "sum(amount)" → { aggregation: "sum", columnName: "amount" }
   const parseAggregateExpression = useCallback(
     (
@@ -849,10 +1233,9 @@ export function InsightView({ insight }: InsightViewProps) {
     [],
   );
 
-  // Handle creating a chart from suggestion
-  const handleCreateChart = useCallback(
-    async (suggestion: ChartSuggestion) => {
-      if (!dataTable?.dataFrameId || !isChartViewReady) return;
+  const pinChartSuggestion = useCallback(
+    async (suggestion: ChartSuggestion): Promise<UUID | null> => {
+      if (!dataTable?.dataFrameId || !isChartViewReady) return null;
 
       // Parse encoding to extract dimensions and metrics
       const { dimensionFields, metrics } = parseChartEncoding(
@@ -891,13 +1274,34 @@ export function InsightView({ insight }: InsightViewProps) {
 
       // Convert dimension column names to field IDs
       const newSelectedFieldIds = dimensionFields
-        .map((colName) => fieldIdMap.get(colName))
+        .map((colName) => lookupEncodingFieldId(fieldIdMap, colName))
         .filter((id): id is UUID => id !== undefined);
+
+      // Suggestion encodings reference UUID column aliases, so metrics parsed
+      // from them carry names like "sum(field_<uuid>)". Rename to the field's
+      // display name for the Metrics panel; columnName stays untouched (it
+      // drives SQL generation and encoding matching).
+      const fieldNameById = new Map<UUID, string>();
+      (dataTable.fields ?? []).forEach((f) => fieldNameById.set(f.id, f.name));
+      insight.joins?.forEach((join) => {
+        const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+        (joinTable?.fields ?? []).forEach((f) =>
+          fieldNameById.set(f.id, f.name),
+        );
+      });
+      const namedMetrics = metrics.map((metric) => {
+        if (!metric.columnName) return metric;
+        const fieldId = lookupEncodingFieldId(fieldIdMap, metric.columnName);
+        const fieldName = fieldId ? fieldNameById.get(fieldId) : undefined;
+        return fieldName
+          ? { ...metric, name: `${metric.aggregation}(${fieldName})` }
+          : metric;
+      });
 
       // Merge with existing insight fields/metrics
       const { mergedFieldIds, mergedMetrics } = mergeFieldsAndMetrics(
         newSelectedFieldIds,
-        metrics,
+        namedMetrics,
         insight.selectedFields ?? [],
         insight.metrics ?? [],
       );
@@ -920,6 +1324,18 @@ export function InsightView({ insight }: InsightViewProps) {
       );
 
       // Create visualization using encoding-driven rendering
+      const matchingVisualization = insightVisualizations.find(
+        (viz) =>
+          viz.visualizationType === suggestion.chartType &&
+          getVisualizationEncodingSignature(viz.encoding) ===
+            getVisualizationEncodingSignature(visualizationEncoding),
+      );
+
+      if (matchingVisualization) {
+        handleSetActiveView(visualizationView(matchingVisualization.id));
+        return matchingVisualization.id;
+      }
+
       const vizId = await createVisualizationLocal(
         suggestion.title,
         insightId,
@@ -928,8 +1344,8 @@ export function InsightView({ insight }: InsightViewProps) {
         visualizationEncoding,
       );
 
-      // Navigate to the visualization
-      navigate({ to: `/visualizations/${vizId}` } as never);
+      handleSetActiveView(visualizationView(vizId));
+      return vizId;
     },
     [
       dataTable,
@@ -940,7 +1356,8 @@ export function InsightView({ insight }: InsightViewProps) {
       updateInsight,
       insightId,
       createVisualizationLocal,
-      navigate,
+      insightVisualizations,
+      handleSetActiveView,
     ],
   );
 
@@ -948,6 +1365,84 @@ export function InsightView({ insight }: InsightViewProps) {
   const handleRegenerate = useCallback(() => {
     setSuggestionSeed((prev) => prev + 1);
   }, []);
+
+  const autoPinAttemptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!visualizeIntent) return;
+    if (autoPinAttemptRef.current === insightId) return;
+    if (insightVisualizations.length > 0) return;
+    if (!firstChartSuggestion) return;
+
+    autoPinAttemptRef.current = insightId;
+    pinChartSuggestion(firstChartSuggestion).catch((error) => {
+      console.error("[InsightView] Auto-pin failed:", error);
+      toast.error("Couldn't pin the chart view");
+    });
+  }, [
+    firstChartSuggestion,
+    insightId,
+    insightVisualizations.length,
+    pinChartSuggestion,
+    visualizeIntent,
+  ]);
+
+  const handlePinActiveChart = useCallback(async () => {
+    if (!activeChartSuggestion) return;
+    try {
+      await pinChartSuggestion(activeChartSuggestion);
+      toast.success("Chart view pinned");
+    } catch (error) {
+      console.error("[InsightView] Pin failed:", error);
+      toast.error("Couldn't pin chart view");
+    }
+  }, [activeChartSuggestion, pinChartSuggestion]);
+
+  const ensureActiveVisualization =
+    useCallback(async (): Promise<UUID | null> => {
+      if (activeView.kind === "visualization")
+        return activeView.visualizationId;
+      if (activeView.kind === "chart" && activeChartSuggestion) {
+        return pinChartSuggestion(activeChartSuggestion);
+      }
+      return null;
+    }, [activeChartSuggestion, activeView, pinChartSuggestion]);
+
+  const handleAddActiveViewToDashboard = useCallback(async () => {
+    try {
+      const visualizationId = await ensureActiveVisualization();
+      if (!visualizationId) return;
+
+      const dashboard = dashboards[0];
+      const dashboardId =
+        dashboard?.id ?? (await createDashboard(`${insight.name} dashboard`));
+      const bottomY =
+        dashboard?.items.reduce(
+          (max, item) => Math.max(max, item.y + item.height),
+          0,
+        ) ?? 0;
+
+      await addDashboardItem(dashboardId, {
+        type: "visualization",
+        visualizationId,
+        position: {
+          x: 0,
+          y: bottomY,
+          width: 6,
+          height: 6,
+        },
+      });
+      toast.success("Added to dashboard");
+    } catch (error) {
+      console.error("[InsightView] Add to dashboard failed:", error);
+      toast.error("Couldn't add to dashboard");
+    }
+  }, [
+    addDashboardItem,
+    createDashboard,
+    dashboards,
+    ensureActiveVisualization,
+    insight.name,
+  ]);
 
   // Handle duplicating a visualization
   const handleDuplicateVisualization = useCallback(
@@ -984,6 +1479,24 @@ export function InsightView({ insight }: InsightViewProps) {
     [confirm, removeVisualization],
   );
 
+  let activeViewLabel = "Table";
+  if (activeView.kind === "chart") {
+    activeViewLabel = CHART_TYPE_METADATA[activeView.chartType].displayName;
+  } else if (activeView.kind === "visualization") {
+    activeViewLabel = activeVisualization?.name ?? "Pinned view";
+  }
+  let activeViewDescription = "Insight result";
+  if (activeView.kind === "chart") {
+    activeViewDescription = "Unpinned chart view";
+  } else if (activeView.kind === "visualization") {
+    activeViewDescription = "Pinned visualization";
+  }
+  const canPinActiveChart =
+    activeView.kind === "chart" && activeChartSuggestion !== undefined;
+  const canAddActiveViewToDashboard =
+    activeView.kind === "visualization" ||
+    (activeView.kind === "chart" && activeChartSuggestion !== undefined);
+
   // Data table not found - check after all hooks are called
   if (!dataTable) {
     return <NotFoundView type="dataTable" />;
@@ -1005,38 +1518,136 @@ export function InsightView({ insight }: InsightViewProps) {
         />
       }
     >
-      {/* Main content - unified view */}
-      <div className="container mx-auto max-w-6xl space-y-6 px-6 py-6">
-        {/* Data Model - shows data sources (tables and joins) */}
-        <DataModelSection
-          insight={insight}
-          dataTable={dataTable}
-          allDataTables={allDataTables}
-          combinedFieldCount={combinedFieldCount}
-        />
+      <div className="container mx-auto flex h-full max-w-7xl flex-col gap-4 px-6 py-6">
+        <section className="flex min-h-[620px] flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg/90 shadow-[var(--surface-shadow)]">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-neutral-fg">
+                {activeViewLabel}
+              </h2>
+              <p className="text-xs text-neutral-fg-subtle">
+                {activeViewDescription}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canPinActiveChart && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  icon={PlusIcon}
+                  label="Pin view"
+                  onClick={handlePinActiveChart}
+                />
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                icon={DashboardIcon}
+                label="Add to dashboard"
+                onClick={handleAddActiveViewToDashboard}
+                disabled={!canAddActiveViewToDashboard}
+              />
+              {activeView.kind === "visualization" && activeVisualization && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    label="Duplicate"
+                    onClick={() =>
+                      handleDuplicateVisualization(activeVisualization.id)
+                    }
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    color="danger"
+                    label="Delete"
+                    onClick={() =>
+                      handleDeleteVisualization(
+                        activeVisualization.id,
+                        activeVisualization.name,
+                      )
+                    }
+                  />
+                </>
+              )}
+            </div>
+          </div>
 
-        {/* Data Preview - shows table with toggle for Join Preview vs Insight Result */}
-        <DataPreviewSection
-          insight={insight}
-          combinedFieldCount={combinedFieldCount}
-        />
+          <div className="flex shrink-0 flex-wrap items-center gap-1 px-4 pb-3">
+            <CanvasViewButton
+              active={canvasViewsEqual(activeView, TABLE_CANVAS_VIEW)}
+              icon={<TableIcon className="h-3.5 w-3.5" />}
+              label="Table"
+              onClick={() => handleSetActiveView(TABLE_CANVAS_VIEW)}
+            />
+            {CANVAS_CHART_TYPES.map((chartType) => {
+              const ChartIcon = CHART_ICONS[chartType];
+              const chartAvailable = chartSuggestionsByType.has(chartType);
+              const view = chartView(chartType);
+              return (
+                <CanvasViewButton
+                  key={getCanvasViewKey(view)}
+                  active={canvasViewsEqual(activeView, view)}
+                  muted={!chartAvailable}
+                  icon={<ChartIcon size={14} />}
+                  label={CHART_TYPE_METADATA[chartType].displayName}
+                  onClick={() => handleSetActiveView(view)}
+                />
+              );
+            })}
+            {insightVisualizations.map((visualization) => {
+              const view = visualizationView(visualization.id);
+              const ChartIcon = CHART_ICONS[visualization.visualizationType];
+              return (
+                <CanvasViewButton
+                  key={getCanvasViewKey(view)}
+                  active={canvasViewsEqual(activeView, view)}
+                  icon={<ChartIcon size={14} />}
+                  label={visualization.name}
+                  onClick={() => handleSetActiveView(view)}
+                />
+              );
+            })}
+          </div>
 
-        {/* Visualizations - Shows chart type picker or grid of existing visualizations */}
-        <VisualizationsSection
-          visualizations={insightVisualizations}
-          tableName={chartTableName ?? undefined}
-          insight={insightForSuggestions ?? undefined}
-          columnAnalysis={columnAnalysis}
-          rowCount={rowCount}
-          fieldMap={fieldMap}
-          existingFields={existingFieldNames}
-          onCreateChart={handleCreateChart}
-          onDuplicateVisualization={handleDuplicateVisualization}
-          onDeleteVisualization={handleDeleteVisualization}
-          isChartViewLoading={!isChartViewReady}
-          suggestionSeed={suggestionSeed}
-          onRegenerate={handleRegenerate}
-        />
+          <div className="min-h-0 flex-1">
+            {activeView.kind === "table" && (
+              <InsightResultTable insight={insight} />
+            )}
+            {activeView.kind === "chart" && (
+              <EphemeralChartCanvas
+                tableName={chartTableName ?? undefined}
+                suggestion={activeChartSuggestion}
+                isLoading={!isChartViewReady || isAnalyzing}
+                onRegenerate={handleRegenerate}
+              />
+            )}
+            {activeView.kind === "visualization" && activeVisualization && (
+              <div className="h-full px-4 pb-4">
+                <VisualizationPreview
+                  visualization={activeVisualization}
+                  height={520}
+                />
+              </div>
+            )}
+          </div>
+        </section>
+
+        <details className="rounded-[var(--surface-radius)] bg-neutral-bg/90 shadow-[var(--surface-shadow)]">
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-sm font-semibold text-neutral-fg">
+            <SparklesIcon className="h-4 w-4 text-neutral-fg-subtle" />
+            Data model
+          </summary>
+          <div className="px-4 pb-4">
+            <DataModelSection
+              insight={insight}
+              dataTable={dataTable}
+              allDataTables={allDataTables}
+              combinedFieldCount={combinedFieldCount}
+            />
+          </div>
+        </details>
       </div>
     </AppLayout>
   );

@@ -345,6 +345,7 @@ export default function VisualizationsPage() {
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
+        visualizeOnCreate
       />
     </div>
   );

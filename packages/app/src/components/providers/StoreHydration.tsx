@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect } from "react";
 
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 
 /**
  * Triggers client-side rehydration for persisted Zustand stores.
@@ -13,6 +14,9 @@ import { useAssistantStore } from "@/lib/stores/assistant-store";
 export function StoreHydration({ children }: { children: ReactNode }) {
   useEffect(() => {
     useAssistantStore.persist.rehydrate()?.catch(() => {
+      // Rehydration is best-effort; a corrupt payload just means defaults.
+    });
+    useInsightCanvasStore.persist.rehydrate()?.catch(() => {
       // Rehydration is best-effort; a corrupt payload just means defaults.
     });
   }, []);

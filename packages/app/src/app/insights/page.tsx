@@ -31,6 +31,8 @@ import {
 } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
 
+import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
+
 // Type for insight with joined details
 type InsightWithDetails = {
   insight: Insight;
@@ -72,6 +74,7 @@ export default function InsightsPage() {
 
   const { data: allInsights = [] } = useInsights();
   const { remove: removeInsightLocal } = useInsightMutations();
+  const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const { data: visualizations = [] } = useVisualizations();
   const { data: dataSources = [] } = useDataSources();
   const { data: allDataTables = [] } = useDataTables();
@@ -198,12 +201,16 @@ export default function InsightsPage() {
     e.stopPropagation();
     e.preventDefault();
     await removeInsightLocal(insightId);
+    // Drop the persisted canvas-view entry so deleted insights don't
+    // accumulate stale keys in localStorage.
+    clearActiveView(insightId);
   };
 
   // Handle delete all drafts
   const handleDeleteAllDrafts = async () => {
     for (const item of groupedInsights.drafts) {
       await removeInsightLocal(item.insight.id);
+      clearActiveView(item.insight.id);
     }
   };
 

@@ -1,13 +1,13 @@
 /**
  * Chart Editing Tests
  *
- * Tests for switching chart types and editing visualizations
+ * Tests for switching chart views and pinning visualizations
  */
 import { expect, test } from "../lib/test-fixtures";
 
 test.describe("Chart Editing", () => {
   test.beforeEach(async ({ page, homePage, uploadFile }) => {
-    // Setup: Create a visualization first
+    // Setup: Create an insight first
     await homePage();
     await uploadFile("sales_data.csv");
 
@@ -15,46 +15,41 @@ test.describe("Chart Editing", () => {
       timeout: 15_000,
     });
 
-    // Create first chart
-    await expect(page.getByText("Create visualization")).toBeVisible({
+    // Start from the table-first canvas and pin one chart view.
+    // `exact: true` disambiguates against the view switcher's other buttons —
+    // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
+    // which Playwright's default (non-exact) name matching would also match.
+    await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
       timeout: 30_000,
     });
-    await page
-      .getByRole("button", { name: /^Comparison/ })
-      .first()
-      .click();
-
-    await expect(page).toHaveURL(/\/visualizations\/[a-zA-Z0-9-]+/);
+    await page.getByRole("button", { name: "Bar", exact: true }).click();
+    // "Pin view" appears once chart suggestions are computed (DuckDB init +
+    // column analysis run after the table loads), so allow a generous wait.
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Pin view" }).click();
+    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
 
   test("can switch between chart types", async ({ page, waitForChart }) => {
-    // Wait for initial chart
+    // Wait for initial pinned chart.
     await waitForChart();
 
-    // Get current chart type indicator (if visible in UI)
-    // Switch to different chart types and verify render
+    // Pinning wrote the chart's config (Product + sum(Quantity)) into the
+    // insight, so the table view now runs query mode: 4 distinct products
+    // grouped from the 5 source rows, dimension + metric = 2 fields.
+    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
 
-    // Look for chart type selector or edit mode
-    const editButton = page.getByRole("button", { name: /edit/i });
-    if (await editButton.isVisible()) {
-      await editButton.click();
-    }
+    // Each unpinned chart view renders and offers "Pin view"; switching views
+    // does NOT mint a new Visualization (only pinning does).
+    await page.getByRole("button", { name: "Line", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await waitForChart();
 
-    // If there's a chart type dropdown/selector, test switching
-    // This depends on actual UI implementation
-    const chartTypeSelector = page.locator(
-      '[data-testid="chart-type-selector"]',
-    );
-    if (await chartTypeSelector.isVisible()) {
-      // Test switching to line chart
-      await chartTypeSelector.click();
-      await page.getByRole("option", { name: /line/i }).click();
-      await waitForChart();
-
-      // Test switching to area chart
-      await chartTypeSelector.click();
-      await page.getByRole("option", { name: /area/i }).click();
-      await waitForChart();
-    }
+    await page.getByRole("button", { name: "Area", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await waitForChart();
   });
 });
