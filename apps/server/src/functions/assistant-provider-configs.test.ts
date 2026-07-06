@@ -39,7 +39,18 @@ describe("assistant provider config functions", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-assistant-provider-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     vault = makeTestVault();
-    app = await buildDashframeApp({ db, vault });
+    const baseApp = await buildDashframeApp({ db, vault });
+    // Mirror createDashframeServer's serverContext seam: production merges a
+    // durable flushSnapshot hook into every call context, and the post-commit
+    // credential release is gated on it (fail-closed).
+    app = {
+      ...baseApp,
+      call: (path, args, ctx) =>
+        baseApp.call(path, args, {
+          ...(ctx ?? {}),
+          flushSnapshot: async () => {},
+        }),
+    };
   });
 
   afterEach(async () => {
@@ -156,7 +167,7 @@ describe("assistant provider config functions", () => {
     ).toHaveLength(0);
   });
 
-  it("an error after the row commit never releases the credential the row references", async () => {
+  it("a release failure after the row commit is swallowed and never touches the committed ref", async () => {
     const { result } = (await app.call("saveAssistantProviderConfig", {
       input: {
         providerId: "anthropic",
@@ -170,23 +181,22 @@ describe("assistant provider config functions", () => {
     const oldRef = before!.credentialRef! as SecretRef;
 
     // Fail the post-commit release of the replaced ref. The update row is
-    // already committed with the new ref, so the error must propagate WITHOUT
-    // the handler releasing that new ref as "compensation".
+    // already committed with the new ref, so the failure must be swallowed
+    // (best-effort release — an inert orphan) and the handler must never
+    // release that new ref as "compensation".
     vi.spyOn(vault, "delete").mockRejectedValueOnce(
       new Error("vault backend unavailable"),
     );
-    await expect(
-      app.call("saveAssistantProviderConfig", {
-        input: {
-          id: result.id,
-          providerId: "anthropic",
-          displayLabel: "Anthropic API",
-          authKind: "api-key",
-          credential: "second-secret",
-          defaultModel: "claude-sonnet-4-5",
-        },
-      }),
-    ).rejects.toThrow();
+    await app.call("saveAssistantProviderConfig", {
+      input: {
+        id: result.id,
+        providerId: "anthropic",
+        displayLabel: "Anthropic API",
+        authKind: "api-key",
+        credential: "second-secret",
+        defaultModel: "claude-sonnet-4-5",
+      },
+    });
 
     const [after] = await db.select().from(schema.assistantProviderConfigs);
     const newRef = after!.credentialRef! as SecretRef;
@@ -194,9 +204,11 @@ describe("assistant provider config functions", () => {
     await expect(
       vault.withSecret(newRef, async (value) => value),
     ).resolves.toBe("second-secret");
+    // The failed release leaves the replaced ref as an inert orphan.
+    await expect(vault.has(oldRef)).resolves.toBe(true);
   });
 
-  it("an error after the OAuth login commit never releases the credential the row references", async () => {
+  it("a release failure after the OAuth login commit is swallowed and never touches the committed ref", async () => {
     await app.call("saveAssistantProviderConfig", {
       input: {
         providerId: "anthropic",
@@ -227,14 +239,13 @@ describe("assistant provider config functions", () => {
     });
 
     // Fail the post-commit release of the replaced ref. The row is already
-    // committed with the new ref, so the error must propagate WITHOUT the
-    // handler releasing that new ref as "compensation".
+    // committed with the new ref, so the failure must be swallowed
+    // (best-effort release — an inert orphan) and the handler must never
+    // release that new ref as "compensation".
     vi.spyOn(vault, "delete").mockRejectedValueOnce(
       new Error("vault backend unavailable"),
     );
-    await expect(
-      app.call("startAssistantOAuthLogin", { id: before!.id }),
-    ).rejects.toThrow();
+    await app.call("startAssistantOAuthLogin", { id: before!.id });
 
     const [after] = await db.select().from(schema.assistantProviderConfigs);
     const newRef = after!.credentialRef! as SecretRef;
@@ -242,6 +253,8 @@ describe("assistant provider config functions", () => {
     await expect(
       vault.withSecret(newRef, async (value) => JSON.parse(value)),
     ).resolves.toMatchObject({ access: "fresh-access" });
+    // The failed release leaves the replaced ref as an inert orphan.
+    await expect(vault.has(oldRef)).resolves.toBe(true);
   });
 
   it("refresh rotation persists a new OAuth credential ref and releases the old ref", async () => {
@@ -277,6 +290,7 @@ describe("assistant provider config functions", () => {
     await resolveAssistantProviderConfigForRun({
       row: row!,
       vault,
+      flushSnapshot: async () => {},
       updateCredentialRef: async (ref) => {
         await db
           .update(schema.assistantProviderConfigs)

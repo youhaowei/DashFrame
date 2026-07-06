@@ -241,6 +241,52 @@ export async function releaseCredentialRefs(
 }
 
 /**
+ * Flush a durable snapshot, then best-effort release superseded credential
+ * refs. The ordering closes the crash window: releasing before the snapshot
+ * that drops or replaces a ref is on disk can leave a restored row pointing at
+ * a deleted vault entry. Fail-closed: when `flushSnapshot` is absent or
+ * throws, release is skipped — inert orphan, never a dangling live reference.
+ * A release failure is logged, never thrown — it must not fail the committed
+ * write it follows.
+ */
+export async function flushThenReleaseRefs(
+  flushSnapshot: (() => Promise<void>) | undefined,
+  supersededRefs: SecretRef[],
+  vault: SecretVault | undefined,
+  label: string,
+): Promise<void> {
+  if (supersededRefs.length === 0) return;
+  if (flushSnapshot == null) {
+    console.error(
+      `[dashframe] ${label}: no flushSnapshot hook — skipping credential release ` +
+        "(fail-closed). Wire flushSnapshot to ensure replaced credential refs are released.",
+    );
+    return;
+  }
+  try {
+    await flushSnapshot();
+  } catch (err) {
+    console.error(
+      `[dashframe] ${label}: flushSnapshot failed, skipping credential release:`,
+      err,
+    );
+    return;
+  }
+  const results = await Promise.allSettled(
+    supersededRefs.map((ref) => vault?.delete(ref)),
+  );
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${label}: ${failures.length} of ${supersededRefs.length} credential ref(s) failed to release (inert orphan):`,
+      failures.map((f) => f.reason),
+    );
+  }
+}
+
+/**
  * Push the prior ref into the superseded collector (when one is provided) or
  * release it immediately via `releaseCredentialRefs`. Extracted to reduce
  * `applyCredentialField`'s cognitive complexity — the two call sites have

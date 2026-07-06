@@ -103,6 +103,7 @@ import {
   applyCredentialField,
   coerceProvenance,
   type DataSourceConfig,
+  flushThenReleaseRefs,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
@@ -438,36 +439,7 @@ async function flushAndReleaseRefs(
   const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
     | (() => Promise<void>)
     | undefined;
-  if (flushSnapshot == null) {
-    console.error(
-      `[dashframe] ${label}: no flushSnapshot hook — skipping credential release ` +
-        "(fail-closed). Wire flushSnapshot to ensure replaced credential refs are released.",
-    );
-    return;
-  }
-  try {
-    await flushSnapshot();
-  } catch (err) {
-    console.error(
-      `[dashframe] ${label}: flushSnapshot failed, skipping credential release:`,
-      err,
-    );
-    return;
-  }
-  // Best-effort: a release failure leaves an inert orphan; it must never fail the
-  // committed write. Parallel deletes; log any failures.
-  const results = await Promise.allSettled(
-    supersededRefs.map((ref) => vault?.delete(ref)),
-  );
-  const failures = results.filter(
-    (r): r is PromiseRejectedResult => r.status === "rejected",
-  );
-  if (failures.length > 0) {
-    console.error(
-      `[dashframe] ${label}: ${failures.length} of ${supersededRefs.length} credential ref(s) failed to release (inert orphan):`,
-      failures.map((f) => f.reason),
-    );
-  }
+  await flushThenReleaseRefs(flushSnapshot, supersededRefs, vault, label);
 }
 
 const setDataSourceConfig = mutation({

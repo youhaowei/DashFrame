@@ -18,7 +18,13 @@ import { mutation, query } from "@wystack/server";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 
-import { vaultFromCtx } from "./utils";
+import { flushThenReleaseRefs, vaultFromCtx } from "./utils";
+
+function flushSnapshotFromCtx(ctx: unknown): (() => Promise<void>) | undefined {
+  return (ctx as Record<string, unknown>).flushSnapshot as
+    | (() => Promise<void>)
+    | undefined;
+}
 
 const { assistantProviderConfigs } = schema;
 
@@ -250,10 +256,18 @@ const saveAssistantProviderConfig = mutation({
       throw error;
     }
 
-    // Post-commit: the row now references mintedRef, so release the replaced
-    // ref. Never mintedRef itself past this point.
-    if (mintedRef && current?.credentialRef !== mintedRef) {
-      await deleteRef(vault, current?.credentialRef);
+    // Post-commit: the row now references mintedRef, so the replaced ref is
+    // superseded. Release only after a durable snapshot (fail-closed,
+    // best-effort) — releasing before the snapshot holding the new ref is on
+    // disk could leave a restored row pointing at a deleted vault entry.
+    // Never mintedRef itself past this point.
+    if (mintedRef && isSecretRef(current?.credentialRef)) {
+      await flushThenReleaseRefs(
+        flushSnapshotFromCtx(ctx),
+        [current.credentialRef],
+        vault ?? undefined,
+        "saveAssistantProviderConfig",
+      );
     }
     return rowToDto(row);
   },
@@ -276,8 +290,13 @@ const removeAssistantProviderConfig = mutation({
       await tx.from(assistantProviderConfigs).where(eq("id", id)).delete();
       return current;
     });
-    if (removed) {
-      await deleteRef(vault, removed.credentialRef);
+    if (removed && isSecretRef(removed.credentialRef)) {
+      await flushThenReleaseRefs(
+        flushSnapshotFromCtx(ctx),
+        [removed.credentialRef],
+        vault ?? undefined,
+        "removeAssistantProviderConfig",
+      );
     }
     return { ok: true };
   },
@@ -356,9 +375,17 @@ const startAssistantOAuthLogin = mutation({
       await deleteRef(vault, ref);
       throw error;
     }
-    // Post-commit: the row references the new ref, so only release the
-    // replaced one. Never the new ref past this point.
-    await deleteRef(vault, row.credentialRef);
+    // Post-commit: the row references the new ref, so only the replaced one is
+    // superseded. Release after a durable snapshot (fail-closed, best-effort);
+    // never the new ref past this point.
+    if (isSecretRef(row.credentialRef)) {
+      await flushThenReleaseRefs(
+        flushSnapshotFromCtx(ctx),
+        [row.credentialRef],
+        vault ?? undefined,
+        "startAssistantOAuthLogin",
+      );
+    }
     return rowToDto(updated ?? { ...row, credentialRef: ref });
   },
 });
@@ -367,6 +394,7 @@ export async function resolveAssistantProviderConfigForRun(args: {
   row: AssistantProviderConfigRow;
   vault: ReturnType<typeof vaultFromCtx>;
   updateCredentialRef: (ref: SecretRef) => Promise<void>;
+  flushSnapshot?: () => Promise<void>;
 }): Promise<Awaited<ReturnType<typeof resolveAssistantProvider>>> {
   const resolved = await resolveAssistantProvider(
     rowToStored(args.row),
@@ -386,7 +414,16 @@ export async function resolveAssistantProviderConfigForRun(args: {
     await deleteRef(args.vault, newRef);
     throw error;
   }
-  await deleteRef(args.vault, oldRef);
+  // Post-commit: the row references newRef, so only the rotated-out ref is
+  // superseded. Release after a durable snapshot (fail-closed, best-effort).
+  if (isSecretRef(oldRef)) {
+    await flushThenReleaseRefs(
+      args.flushSnapshot,
+      [oldRef],
+      args.vault ?? undefined,
+      "resolveAssistantProviderConfigForRun",
+    );
+  }
   return resolved;
 }
 

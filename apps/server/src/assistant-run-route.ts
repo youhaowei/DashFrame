@@ -54,6 +54,7 @@ interface AssistantRunRouteOptions {
   db: ArtifactDb;
   draftController: DraftController;
   vault?: SecretVault;
+  flushSnapshot?: () => Promise<void>;
   resolveContext?: (req: Request) => Promise<Record<string, unknown>>;
 }
 
@@ -257,6 +258,7 @@ async function resolveRunProvider(args: {
   body: AssistantRunRequestBody;
   db: ArtifactDb;
   vault?: SecretVault;
+  flushSnapshot?: () => Promise<void>;
 }): Promise<{
   model: ReturnType<typeof resolveDefaultAnthropicModel>;
   getApiKey: CreateAssistantRunOptions["getApiKey"];
@@ -277,6 +279,7 @@ async function resolveRunProvider(args: {
   const resolved = await resolveAssistantProviderConfigForRun({
     row,
     vault: args.vault,
+    flushSnapshot: args.flushSnapshot,
     updateCredentialRef: async (ref) => {
       await args.db
         .update(schema.assistantProviderConfigs)
@@ -336,6 +339,7 @@ export async function handleAssistantRunRequest(
       body,
       db: options.db,
       vault: options.vault,
+      flushSnapshot: options.flushSnapshot,
     });
   } catch (err) {
     // Unknown requested model id is a client error; a failure to resolve

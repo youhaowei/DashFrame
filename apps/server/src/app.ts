@@ -655,6 +655,7 @@ export async function createDashframeServer(
       db: opts.db as ArtifactDb,
       draftController: serverContext.draftController as DraftController,
       vault: opts.vault,
+      flushSnapshot: opts.flushSnapshot,
       resolveContext,
     }),
   );
