@@ -211,6 +211,25 @@ describe("createDashframeServer", () => {
       expect(body.data.version).toBe(project.meta.version);
     });
 
+    it("rejects a non-object JSON body on /assistant/run with 400, not a crash", async () => {
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Run Co",
+      });
+      server = await createDashframeServer({ db: project.db });
+
+      // "null" is valid JSON, so JSON.parse succeeds — the route must still
+      // treat it as a client error instead of throwing at `body.prompt`.
+      const res = await fetch(`${server.url}/assistant/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Invalid JSON in request body");
+    });
+
     it("should require the loopback token and allow packaged Origin null", async () => {
       project = await openProject({
         dir: join(root, "proj"),

@@ -17,10 +17,19 @@
 export { getWyStackClient, setWyStackClient } from "./client";
 export {
   createWyStackRuntime,
+  getWyStackRuntimeConfig,
   resolveWyStackConfig,
   type WyStackRuntime,
   type WyStackRuntimeConfig,
 } from "./runtime";
+
+export {
+  parseAssistantSseChunk,
+  runAssistantPrompt,
+  type AssistantRunRequest,
+  type AssistantSidebarEvent,
+  type RunAssistantPromptOptions,
+} from "./assistant-run";
 
 // Dashboards
 export {

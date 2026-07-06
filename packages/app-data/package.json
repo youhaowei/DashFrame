@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "check": "bun run typecheck && bun run lint"
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
     "@dashframe/engine-browser": "workspace:*",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
     "@types/react": "^19.2.7",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "^4.1.6"
   }
 }

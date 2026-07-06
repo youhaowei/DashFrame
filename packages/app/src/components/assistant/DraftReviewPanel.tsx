@@ -33,7 +33,13 @@ import { useAssistantStore } from "@/lib/stores/assistant-store";
 /**
  * Panel body rendered in the assistant sidebar when there is a draft to review.
  */
-export function DraftReviewPanel({ draftId }: { draftId: string }) {
+export function DraftReviewPanel({
+  draftId,
+  compact = false,
+}: {
+  draftId: string;
+  compact?: boolean;
+}) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
 
@@ -158,11 +164,11 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
 
   return (
     <>
-      <div className="flex h-full flex-col">
-        <div className="flex-1 px-4 py-5">
+      <div className={cn("flex flex-col", compact ? "" : "h-full")}>
+        <div className={compact ? "px-3 py-3" : "flex-1 px-4 py-5"}>
           <div
             className={cn(
-              "rounded-xl border border-palette-primary/20 bg-palette-primary/5 p-4",
+              "rounded-[var(--surface-radius)] bg-neutral-bg/90 p-4 shadow-[var(--surface-shadow)]",
             )}
           >
             <div className="mb-3 flex items-center gap-2">
@@ -212,12 +218,14 @@ export function DraftReviewPanel({ draftId }: { draftId: string }) {
           </div>
         </div>
 
-        <div className="border-t border-neutral-border/60 px-4 py-3">
-          <p className="flex items-center gap-1.5 text-[10px] leading-relaxed text-neutral-fg-subtle">
-            <SparklesIcon className="size-3 shrink-0" />
-            Review the proposed changes before publishing to your project.
-          </p>
-        </div>
+        {!compact && (
+          <div className="px-4 py-3 shadow-[inset_0_1px_0_var(--neutral-border)]">
+            <p className="flex items-center gap-1.5 text-[10px] leading-relaxed text-neutral-fg-subtle">
+              <SparklesIcon className="size-3 shrink-0" />
+              Review the proposed changes before publishing to your project.
+            </p>
+          </div>
+        )}
       </div>
 
       <PreviewDiffDialog
