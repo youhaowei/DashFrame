@@ -144,76 +144,81 @@ const saveAssistantProviderConfig = mutation({
     const parsed = saveInputSchema.parse(input);
     const vault = vaultFromCtx(ctx);
     const id = parsed.id ?? crypto.randomUUID();
-    const mintedRef = await storeAssistantCredential({
-      vault,
-      plaintext: parsed.credential,
-      locatorHint: `assistant-provider-${id}`,
-    });
     const current = parsed.id
       ? ((await ctx.db
           .from(assistantProviderConfigs)
           .where(eq("id", parsed.id))
           .first()) as AssistantProviderConfigRow | undefined)
       : undefined;
+    const mintedRef = await storeAssistantCredential({
+      vault,
+      plaintext: parsed.credential,
+      locatorHint: `assistant-provider-${id}`,
+    });
 
+    // The row write and the default-reset commit atomically; a failure rolls
+    // back the whole transaction, so no committed row can reference mintedRef.
+    // Only then is the compensating deleteRef(mintedRef) safe — releasing a
+    // ref that a committed row references would corrupt the config.
+    let row: AssistantProviderConfigRow;
     try {
-      let row: AssistantProviderConfigRow | undefined;
-      if (current) {
-        const [updated] = (await ctx.db
-          .from(assistantProviderConfigs)
-          .where(eq("id", current.id))
-          .update({
+      row = await ctx.db.transaction(async (tx) => {
+        let written: AssistantProviderConfigRow | undefined;
+        if (current) {
+          const [updated] = (await tx
+            .from(assistantProviderConfigs)
+            .where(eq("id", current.id))
+            .update({
+              providerId: parsed.providerId,
+              displayLabel: parsed.displayLabel,
+              authKind: parsed.authKind,
+              baseUrl: parsed.baseUrl?.trim() || null,
+              credentialRef: mintedRef ?? current.credentialRef,
+              defaultModel: parsed.defaultModel,
+              isDefault: parsed.isDefault ?? current.isDefault,
+            })) as AssistantProviderConfigRow[];
+          written = updated;
+        } else {
+          const [inserted] = (await tx.into(assistantProviderConfigs).insert({
+            id,
             providerId: parsed.providerId,
             displayLabel: parsed.displayLabel,
             authKind: parsed.authKind,
             baseUrl: parsed.baseUrl?.trim() || null,
-            credentialRef: mintedRef ?? current.credentialRef,
+            credentialRef: mintedRef ?? null,
             defaultModel: parsed.defaultModel,
-            isDefault: parsed.isDefault ?? current.isDefault,
+            isDefault: parsed.isDefault ?? false,
           })) as AssistantProviderConfigRow[];
-        row = updated;
-      } else {
-        const [inserted] = (await ctx.db.into(assistantProviderConfigs).insert({
-          id,
-          providerId: parsed.providerId,
-          displayLabel: parsed.displayLabel,
-          authKind: parsed.authKind,
-          baseUrl: parsed.baseUrl?.trim() || null,
-          credentialRef: mintedRef ?? null,
-          defaultModel: parsed.defaultModel,
-          isDefault: parsed.isDefault ?? false,
-        })) as AssistantProviderConfigRow[];
-        row = inserted;
-      }
-      if (!row)
-        throw new Error("assistant provider config write returned no row");
+          written = inserted;
+        }
+        if (!written)
+          throw new Error("assistant provider config write returned no row");
 
-      if (row.isDefault) {
-        const rows = (await ctx.db
-          .from(assistantProviderConfigs)
-          .all()) as AssistantProviderConfigRow[];
-        await Promise.all(
-          rows
-            .filter(
-              (candidate) => candidate.id !== row!.id && candidate.isDefault,
-            )
-            .map((candidate) =>
-              ctx.db
-                .from(assistantProviderConfigs)
-                .where(eq("id", candidate.id))
-                .update({ isDefault: false }),
-            ),
-        );
-      }
-
-      if (mintedRef && current?.credentialRef !== mintedRef) {
-        await deleteRef(vault, current?.credentialRef);
-      }
-      return rowToDto(row);
+        if (written.isDefault) {
+          const rows = (await tx
+            .from(assistantProviderConfigs)
+            .all()) as AssistantProviderConfigRow[];
+          for (const candidate of rows) {
+            if (candidate.id === written.id || !candidate.isDefault) continue;
+            await tx
+              .from(assistantProviderConfigs)
+              .where(eq("id", candidate.id))
+              .update({ isDefault: false });
+          }
+        }
+        return written;
+      });
     } catch (error) {
       await deleteRef(vault, mintedRef);
       throw error;
     }
+
+    // Post-commit: the row now references mintedRef, so release the replaced
+    // ref. Never mintedRef itself past this point.
+    if (mintedRef && current?.credentialRef !== mintedRef) {
+      await deleteRef(vault, current?.credentialRef);
+    }
+    return rowToDto(row);
   },
 });
 

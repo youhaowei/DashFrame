@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AssistantProviderConfig } from "@dashframe/types";
 import { buildDashframeApp } from "../app";
@@ -94,6 +94,46 @@ describe("assistant provider config functions", () => {
     expect(
       await db.select().from(schema.assistantProviderConfigs),
     ).toHaveLength(0);
+  });
+
+  it("an error after the row commit never releases the credential the row references", async () => {
+    const { result } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic API",
+        authKind: "api-key",
+        credential: "first-secret",
+        defaultModel: "claude-sonnet-4-5",
+      },
+    })) as { result: AssistantProviderConfig };
+    const [before] = await db.select().from(schema.assistantProviderConfigs);
+    const oldRef = before!.credentialRef! as SecretRef;
+
+    // Fail the post-commit release of the replaced ref. The update row is
+    // already committed with the new ref, so the error must propagate WITHOUT
+    // the handler releasing that new ref as "compensation".
+    vi.spyOn(vault, "delete").mockRejectedValueOnce(
+      new Error("vault backend unavailable"),
+    );
+    await expect(
+      app.call("saveAssistantProviderConfig", {
+        input: {
+          id: result.id,
+          providerId: "anthropic",
+          displayLabel: "Anthropic API",
+          authKind: "api-key",
+          credential: "second-secret",
+          defaultModel: "claude-sonnet-4-5",
+        },
+      }),
+    ).rejects.toThrow();
+
+    const [after] = await db.select().from(schema.assistantProviderConfigs);
+    const newRef = after!.credentialRef! as SecretRef;
+    expect(newRef).not.toBe(oldRef);
+    await expect(
+      vault.withSecret(newRef, async (value) => value),
+    ).resolves.toBe("second-secret");
   });
 
   it("refresh rotation persists a new OAuth credential ref and releases the old ref", async () => {
