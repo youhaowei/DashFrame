@@ -492,6 +492,19 @@ export function createDraftController(
     return false;
   }
 
+  /**
+   * Overlap is ROW-granular by design: a cell is `(table, id)`, so a draft
+   * edit and a canonical write touching DIFFERENT COLUMNS of the same row
+   * still count as a conflict. That is the safe (false-positive) direction
+   * and matches the wystack `Cell` contract — do not "optimize" to
+   * column-level.
+   *
+   * The strict `>` against a wall-clock `baseVersion` has a same-millisecond
+   * false-negative: a canonical write landing in the exact ms the draft was
+   * opened is not seen (the tests' `delay()` calls dodge this window). A
+   * monotonic version token would close it; accepted for now — the window is
+   * one clock tick on a local single-writer DB.
+   */
   async function overlappingCellsSince(
     draftId: string,
     baseVersion: Date,
@@ -526,6 +539,9 @@ export function createDraftController(
   ): Promise<ConflictReport> {
     const baseVersion = await readBaseVersion(draftId, exec);
     if (baseVersion === null) {
+      // Fail-open by choice: only legacy drafts opened before draft_metadata
+      // existed lack a base version (openDraft always inserts one now), and
+      // blocking every such publish would strand them.
       return { staleBase: false, overlappingCells: [] };
     }
 
