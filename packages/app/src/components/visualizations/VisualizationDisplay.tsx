@@ -533,7 +533,7 @@ export function VisualizationDisplay({
             </p>
             <div className="flex items-center gap-2">
               <p className="text-sm text-neutral-fg-subtle">
-                {totalCount.toLocaleString()} rows · {columns.length} columns
+                {totalCount.toLocaleString()} rows • {columns.length} columns
               </p>
               {colorDisplayName && (
                 <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
