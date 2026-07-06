@@ -83,4 +83,36 @@ if [[ "$1" == "review" ]]; then
   fi
 fi
 
+if [[ "${1:-}" == "review" ]]; then
+  since_base=""
+  previous_arg=""
+  for arg in "$@"; do
+    if [[ "$previous_arg" == "--since" ]]; then
+      since_base="$arg"
+      break
+    fi
+    if [[ "$arg" == --since=* ]]; then
+      since_base="${arg#--since=}"
+      break
+    fi
+    previous_arg="$arg"
+  done
+
+  set +e
+  review_output="$(clawpatch --state-dir "$state_dir" "$@" 2>&1)"
+  review_rc=$?
+  set -e
+  printf '%s\n' "$review_output"
+
+  if [[ "$review_rc" -eq 0 && -n "$since_base" ]] \
+    && printf '%s\n' "$review_output" | grep -Fq "no features touched by diff" \
+    && git diff --name-only "$since_base" -- | grep -q .; then
+    echo "ERROR [clawpatch]: stale map / unmapped files: review reported no features touched by diff, but git diff --name-only '$since_base' is non-empty." >&2
+    echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and check whether changed files are mapped to features." >&2
+    exit 1
+  fi
+
+  exit "$review_rc"
+fi
+
 clawpatch --state-dir "$state_dir" "$@"
