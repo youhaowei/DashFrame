@@ -168,7 +168,7 @@ export function DraftReviewPanel({
         <div className={compact ? "px-3 py-3" : "flex-1 px-4 py-5"}>
           <div
             className={cn(
-              "rounded-xl bg-palette-primary/5 p-4 ring-1 ring-palette-primary/20",
+              "rounded-[var(--surface-radius)] bg-neutral-bg/90 p-4 shadow-[var(--surface-shadow)]",
             )}
           >
             <div className="mb-3 flex items-center gap-2">

@@ -44,9 +44,17 @@ export type AssistantStoreEvent =
       type: "run-end";
       draftId: string;
       firstMutationObserved: boolean;
-      terminationReason: string;
+      terminationReason: AssistantRunTerminationReason;
     }
   | { type: "error"; message: string };
+
+/** Mirrors AssistantRunTerminationReason in @dashframe/assistant. */
+export type AssistantRunTerminationReason =
+  | "completed"
+  | "aborted"
+  | "error"
+  | "failureCap"
+  | "oscillation";
 
 /**
  * Whether the assistant is visible. Panel geometry lives in the shell store.
@@ -81,6 +89,8 @@ interface AssistantActions {
   beginRun: (prompt: string) => void;
   receiveRunEvent: (event: AssistantStoreEvent) => void;
   failRun: (message: string) => void;
+  /** Client-side cancel (e.g. rail dismissed mid-run) — clean, not an error. */
+  abortRun: () => void;
   clearTranscript: () => void;
 }
 
@@ -189,6 +199,24 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
             },
           ],
         })),
+      abortRun: () =>
+        set((s) => {
+          if (s.runStatus !== "running") return s;
+          return {
+            ...s,
+            runStatus: "aborted",
+            streamingText: "",
+            turns: [
+              ...flushStreamingTurn(s),
+              {
+                id: makeTurnId("aborted"),
+                kind: "status",
+                text: "Run cancelled",
+                status: "success",
+              },
+            ],
+          };
+        }),
       clearTranscript: () =>
         set({
           runStatus: "idle",
@@ -207,6 +235,19 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
     },
   ),
 );
+
+function terminationFailureMessage(
+  reason: AssistantRunTerminationReason,
+): string {
+  switch (reason) {
+    case "failureCap":
+      return "Run stopped after repeated command failures.";
+    case "oscillation":
+      return "Run stopped after repeating itself without progress.";
+    default:
+      return "Run ended with an error.";
+  }
+}
 
 let fallbackTurnCounter = 0;
 
@@ -330,12 +371,30 @@ function applyAssistantEvent(
       let runStatus: AssistantRunStatus = "error";
       if (event.terminationReason === "completed") runStatus = "completed";
       else if (event.terminationReason === "aborted") runStatus = "aborted";
+      // Abnormal terminations must leave a visible trace — without a status
+      // turn the timeline just stops and the user gets no signal the run
+      // ended early (the "error" SSE event doesn't fire for these).
+      const failureMessage =
+        runStatus === "error"
+          ? terminationFailureMessage(event.terminationReason)
+          : null;
       return {
         ...state,
         activeDraftId: event.draftId,
         runStatus,
         streamingText: "",
-        turns: flushStreamingTurn(state),
+        error: failureMessage ?? state.error,
+        turns: failureMessage
+          ? [
+              ...flushStreamingTurn(state),
+              {
+                id: makeTurnId("run-end"),
+                kind: "status",
+                text: failureMessage,
+                status: "error",
+              },
+            ]
+          : flushStreamingTurn(state),
       };
     }
     case "error":

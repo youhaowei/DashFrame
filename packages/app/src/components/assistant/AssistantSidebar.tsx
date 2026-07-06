@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { runAssistantPrompt } from "@dashframe/core";
 import { Button, Textarea, cn } from "@wystack/ui";
@@ -47,6 +47,7 @@ function AssistantPanelBody() {
   const beginRun = useAssistantStore((s) => s.beginRun);
   const receiveRunEvent = useAssistantStore((s) => s.receiveRunEvent);
   const failRun = useAssistantStore((s) => s.failRun);
+  const abortRun = useAssistantStore((s) => s.abortRun);
   const turns = useAssistantStore((s) => s.turns);
   const streamingText = useAssistantStore((s) => s.streamingText);
   const runStatus = useAssistantStore((s) => s.runStatus);
@@ -54,19 +55,45 @@ function AssistantPanelBody() {
   const [prompt, setPrompt] = useState("");
   const isRunning = runStatus === "running";
 
+  // Cancels the in-flight run when the rail is dismissed mid-run so a
+  // stalled stream can't leave the store stuck in "running". The Dock keeps
+  // the closed rail mounted (extent 0), so this keys on the store's isOpen —
+  // plus an unmount guard for route-level teardown. The run's mutations live
+  // in a draft, so cancelling loses nothing unreviewed.
+  const isOpen = useAssistantStore((s) => s.isOpen);
+  const runAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!isOpen) runAbortRef.current?.abort();
+  }, [isOpen]);
+  useEffect(
+    () => () => {
+      runAbortRef.current?.abort();
+    },
+    [],
+  );
+
   async function submitPrompt() {
     const text = prompt.trim();
     if (!text || isRunning) return;
     setPrompt("");
     beginRun(text);
+    const controller = new AbortController();
+    runAbortRef.current = controller;
     try {
       await runAssistantPrompt({
         prompt: text,
         artifact,
+        signal: controller.signal,
         onEvent: receiveRunEvent,
       });
     } catch (err) {
+      if (controller.signal.aborted) {
+        abortRun();
+        return;
+      }
       failRun(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (runAbortRef.current === controller) runAbortRef.current = null;
     }
   }
 
@@ -112,7 +139,7 @@ function AssistantPanelBody() {
         )}
 
         <div className="shrink-0 p-3 shadow-[inset_0_1px_0_var(--neutral-border)]">
-          <div className="flex items-end gap-2 rounded-xl bg-neutral-bg/70 p-1.5 ring-1 ring-neutral-border/60">
+          <div className="flex items-end gap-2 rounded-[var(--surface-radius)] bg-neutral-bg/70 p-1.5 shadow-[var(--surface-shadow)]">
             <Textarea
               rows={2}
               value={prompt}
@@ -202,7 +229,7 @@ function AssistantTurnRow({ turn }: { turn: AssistantTurn }) {
   return (
     <div
       className={cn(
-        "rounded-lg bg-neutral-bg/65 px-3 py-2 text-xs text-neutral-fg shadow-[inset_0_0_0_1px_var(--neutral-border)]",
+        "rounded-[var(--surface-radius)] bg-neutral-bg/65 px-3 py-2 text-xs text-neutral-fg shadow-[var(--surface-shadow)]",
         turn.kind === "user" && "bg-neutral-bg-subtle",
       )}
     >

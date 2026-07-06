@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseAssistantSseChunk } from "./assistant-run";
+import { parseAssistantSseChunk, runAssistantPrompt } from "./assistant-run";
+
+vi.mock("./runtime", () => ({
+  getWyStackRuntimeConfig: () => ({ url: "http://localhost:4000" }),
+}));
 
 describe("assistant SSE parsing", () => {
   it("parses complete events and preserves partial carry", () => {
@@ -27,5 +31,51 @@ describe("assistant SSE parsing", () => {
     expect(parsed.events).toEqual([
       { type: "assistant-message", text: "done", stopReason: "stop" },
     ]);
+  });
+});
+
+describe("runAssistantPrompt error paths", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("throws the server's error message on a non-OK response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: "Unknown Anthropic model id: nope" },
+          {
+            status: 400,
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      runAssistantPrompt({ prompt: "hi", onEvent: () => {} }),
+    ).rejects.toThrow("Unknown Anthropic model id: nope");
+  });
+
+  it("falls back to an HTTP-status message when the error body is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 502 })),
+    );
+
+    await expect(
+      runAssistantPrompt({ prompt: "hi", onEvent: () => {} }),
+    ).rejects.toThrow("Assistant run failed with HTTP 502");
+  });
+
+  it("throws when an OK response carries no stream body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 200 })),
+    );
+
+    await expect(
+      runAssistantPrompt({ prompt: "hi", onEvent: () => {} }),
+    ).rejects.toThrow("Assistant run response did not include a stream");
   });
 });

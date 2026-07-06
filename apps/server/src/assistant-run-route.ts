@@ -250,9 +250,22 @@ export async function handleAssistantRunRequest(
     );
   }
 
-  const model = resolveDefaultAnthropicModel(
-    typeof body.modelId === "string" ? body.modelId : undefined,
-  );
+  let model: ReturnType<typeof resolveDefaultAnthropicModel>;
+  try {
+    model = resolveDefaultAnthropicModel(
+      typeof body.modelId === "string" ? body.modelId : undefined,
+    );
+  } catch (err) {
+    // Unknown requested model id is a client error; a failure to resolve
+    // the default list is a server configuration fault — let it propagate.
+    if (typeof body.modelId === "string") {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Unknown model id" },
+        400,
+      );
+    }
+    throw err;
+  }
   const host = createDashframeAssistantHost({
     app: options.app,
     draftController: options.draftController,
