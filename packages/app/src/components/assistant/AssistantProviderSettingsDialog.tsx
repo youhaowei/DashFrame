@@ -98,16 +98,9 @@ export function AssistantProviderSettingsDialog({
 
   useEffect(() => {
     if (catalog.length === 0) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setForm((current) =>
-        isPristineEmptySeed(current) ? formFromCatalog(catalog) : current,
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
+    setForm((current) =>
+      isPristineEmptySeed(current) ? formFromCatalog(catalog) : current,
+    );
   }, [catalog]);
 
   function chooseProvider(providerId: string | null) {
@@ -164,6 +157,17 @@ export function AssistantProviderSettingsDialog({
     }
   }
 
+  async function removeProvider(id: string) {
+    try {
+      await mutations.remove(id);
+    } catch (error) {
+      showError("Failed to remove assistant provider", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
@@ -177,14 +181,14 @@ export function AssistantProviderSettingsDialog({
         <div className="grid gap-5 md:grid-cols-[1fr_1.15fr]">
           <section className="space-y-2">
             {configs.length === 0 ? (
-              <div className="rounded-lg bg-neutral-bg-muted/60 p-3 text-sm text-neutral-fg-subtle">
+              <div className="rounded-[var(--surface-radius)] bg-neutral-bg-muted/60 p-3 text-sm text-neutral-fg-subtle">
                 No providers configured.
               </div>
             ) : (
               configs.map((config) => (
                 <div
                   key={config.id}
-                  className="rounded-lg bg-neutral-bg-muted/60 p-3"
+                  className="rounded-[var(--surface-radius)] bg-neutral-bg-muted/60 p-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -202,7 +206,7 @@ export function AssistantProviderSettingsDialog({
                       iconOnly
                       label="Remove provider"
                       tooltip="Remove provider"
-                      onClick={() => mutations.remove(config.id)}
+                      onClick={() => void removeProvider(config.id)}
                       className="size-7 text-neutral-fg-subtle hover:text-palette-danger"
                     />
                   </div>

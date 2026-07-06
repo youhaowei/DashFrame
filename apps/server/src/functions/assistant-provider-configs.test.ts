@@ -180,6 +180,54 @@ describe("assistant provider config functions", () => {
     ).resolves.toBe("second-secret");
   });
 
+  it("an error after the OAuth login commit never releases the credential the row references", async () => {
+    await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic Pro",
+        authKind: "oauth",
+        credential: JSON.stringify({
+          access: "old-access",
+          refresh: "old-refresh",
+          expires: Date.now() + 60_000,
+        }),
+        defaultModel: "claude-haiku-4-5",
+      },
+    });
+    const [before] = await db.select().from(schema.assistantProviderConfigs);
+    const oldRef = before!.credentialRef! as SecretRef;
+    registerOAuthProvider({
+      id: "anthropic",
+      name: "Test Anthropic",
+      login: async () => ({
+        access: "fresh-access",
+        refresh: "fresh-refresh",
+        expires: Date.now() + 60_000,
+      }),
+      refreshToken: async () => {
+        throw new Error("not used");
+      },
+      getApiKey: (credentials) => credentials.access,
+    });
+
+    // Fail the post-commit release of the replaced ref. The row is already
+    // committed with the new ref, so the error must propagate WITHOUT the
+    // handler releasing that new ref as "compensation".
+    vi.spyOn(vault, "delete").mockRejectedValueOnce(
+      new Error("vault backend unavailable"),
+    );
+    await expect(
+      app.call("startAssistantOAuthLogin", { id: before!.id }),
+    ).rejects.toThrow();
+
+    const [after] = await db.select().from(schema.assistantProviderConfigs);
+    const newRef = after!.credentialRef! as SecretRef;
+    expect(newRef).not.toBe(oldRef);
+    await expect(
+      vault.withSecret(newRef, async (value) => JSON.parse(value)),
+    ).resolves.toMatchObject({ access: "fresh-access" });
+  });
+
   it("refresh rotation persists a new OAuth credential ref and releases the old ref", async () => {
     const expired: OAuthCredentials = {
       access: "old-access",

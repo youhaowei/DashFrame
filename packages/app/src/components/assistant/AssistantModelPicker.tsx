@@ -12,6 +12,7 @@ import {
 } from "@wystack/ui";
 import { useEffect, useMemo } from "react";
 
+import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 
 export function AssistantModelPicker() {
@@ -23,6 +24,7 @@ export function AssistantModelPicker() {
   );
   const selectedModelId = useAssistantStore((s) => s.selectedModelId);
   const setSelectedModel = useAssistantStore((s) => s.setSelectedModel);
+  const showError = useToastStore((s) => s.showError);
   const configs = useMemo(() => configsResult.data ?? [], [configsResult.data]);
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);
   const configsLoaded =
@@ -79,7 +81,12 @@ export function AssistantModelPicker() {
             setSelectedModel(next.id, next.defaultModel);
             // Selecting a provider also persists it as the default — the
             // picker is the "active provider" control, not a per-run choice.
-            mutations.save({ ...next, isDefault: true });
+            void mutations.save({ ...next, isDefault: true }).catch((error) => {
+              showError("Failed to switch assistant provider", {
+                description:
+                  error instanceof Error ? error.message : "Please try again.",
+              });
+            });
           }
         }}
       >
@@ -99,7 +106,14 @@ export function AssistantModelPicker() {
         onValueChange={(defaultModel) => {
           if (!defaultModel) return;
           setSelectedModel(selected.id, defaultModel);
-          mutations.setDefaultModel({ id: selected.id, defaultModel });
+          void mutations
+            .setDefaultModel({ id: selected.id, defaultModel })
+            .catch((error) => {
+              showError("Failed to set assistant model", {
+                description:
+                  error instanceof Error ? error.message : "Please try again.",
+              });
+            });
         }}
       >
         <SelectTrigger className="h-7 w-32 px-2 text-[11px]">

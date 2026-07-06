@@ -253,15 +253,22 @@ const removeAssistantProviderConfig = mutation({
   args: { id: uuid },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
     const vault = vaultFromCtx(ctx);
-    await ctx.db.transaction(async (tx) => {
+    // The vault release stays OUTSIDE the transaction: it is not rolled back
+    // with the DB, so releasing inside could leave a surviving row with a
+    // dangling ref if the transaction aborts afterwards. Worst case post-commit
+    // is a leaked (unreferenced) secret, never a dangling reference.
+    const removed = await ctx.db.transaction(async (tx) => {
       const current = (await tx
         .from(assistantProviderConfigs)
         .where(eq("id", id))
         .first()) as AssistantProviderConfigRow | undefined;
-      if (!current) return;
+      if (!current) return undefined;
       await tx.from(assistantProviderConfigs).where(eq("id", id)).delete();
-      await deleteRef(vault, current.credentialRef);
+      return current;
     });
+    if (removed) {
+      await deleteRef(vault, removed.credentialRef);
+    }
     return { ok: true };
   },
 });
@@ -328,17 +335,21 @@ const startAssistantOAuthLogin = mutation({
     if (!ref) {
       throw new Error("OAuth login returned no credential to store");
     }
+    let updated: AssistantProviderConfigRow | undefined;
     try {
-      const [updated] = (await ctx.db
+      [updated] = (await ctx.db
         .from(assistantProviderConfigs)
         .where(eq("id", row.id))
         .update({ credentialRef: ref })) as AssistantProviderConfigRow[];
-      await deleteRef(vault, row.credentialRef);
-      return rowToDto(updated ?? { ...row, credentialRef: ref });
     } catch (error) {
+      // Update never committed → releasing the freshly minted ref is safe.
       await deleteRef(vault, ref);
       throw error;
     }
+    // Post-commit: the row references the new ref, so only release the
+    // replaced one. Never the new ref past this point.
+    await deleteRef(vault, row.credentialRef);
+    return rowToDto(updated ?? { ...row, credentialRef: ref });
   },
 });
 
