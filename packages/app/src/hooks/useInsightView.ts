@@ -3,6 +3,10 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame, getDataTable } from "@dashframe/core";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
+  buildInsightAvailableFields,
+  fieldIdToColumnAlias,
+} from "@dashframe/engine";
+import {
   buildInsightSQL,
   ensureTableLoaded,
   loadArrowData,
@@ -49,8 +53,13 @@ interface CachedView {
 // This survives React Strict Mode's double-invoke and HMR remounts
 const createdViewsCache = new Map<string, CachedView>(); // configKey -> CachedView
 
-// Module-level set to track in-flight requests (prevents race conditions)
-const pendingRequests = new Set<string>();
+// Module-level map of in-flight view creations. Deduplicates work AND lets
+// every concurrent hook instance for the same configKey subscribe to the one
+// in-flight creation — the module cache is not reactive, so an instance that
+// merely early-returned on "already pending" would never re-render when the
+// first creation completes. Resolves with the CachedView on success, null on
+// failure.
+const pendingRequests = new Map<string, Promise<CachedView | null>>();
 
 /**
  * Clear the view cache.
@@ -363,13 +372,30 @@ export function useInsightView(
       return;
     }
 
-    // Prevent duplicate in-flight requests for same config (module-level)
-    if (pendingRequests.has(configKey)) {
-      return;
+    // Another hook instance is already creating this view (e.g. the canvas
+    // and VisualizationPreview mount for the same insight). Subscribe to its
+    // promise instead of returning silently — a bare return would leave this
+    // instance permanently not-ready because nothing re-renders it when the
+    // module cache fills.
+    const pending = pendingRequests.get(configKey);
+    if (pending) {
+      let cancelled = false;
+      pending.then((cached) => {
+        if (cancelled || currentConfigKeyRef.current !== configKey) return;
+        if (cached) {
+          setResolvedViewName(cached.viewName);
+          setResolvedConfigKey(configKey);
+          setNativeCapable(cached.nativeCapable);
+          setError(null);
+        } else {
+          setError("Failed to create view");
+          setResolvedViewName(null);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
     }
-
-    // Mark this config as in-flight (module-level, survives unmount/remount)
-    pendingRequests.add(configKey);
 
     // Capture stable values at effect start (insight object may change during async)
     const joins = insight?.joins ?? [];
@@ -380,7 +406,7 @@ export function useInsightView(
     const snapshotEffectiveFilters = effectiveParams?.filters ?? null;
 
     // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (currentConfigKeyRef checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
-    const createView = async () => {
+    const createView = async (): Promise<CachedView | null> => {
       try {
         // Double-check cache in case another effect already created it
         if (createdViewsCache.has(configKey)) {
@@ -389,28 +415,27 @@ export function useInsightView(
           setResolvedConfigKey(configKey);
           // Restore the cached fallback decision — never assume native-capable.
           setNativeCapable(cached.nativeCapable);
-          pendingRequests.delete(configKey);
-          return;
+          return cached;
         }
 
         // Get base table
         const baseTable = await getDataTable(baseTableId);
         if (!baseTable || !baseTable.dataFrameId) {
-          pendingRequests.delete(configKey);
-          if (currentConfigKeyRef.current !== configKey) return;
-          setError("Base table not found");
-          setResolvedViewName(null);
-          return;
+          if (currentConfigKeyRef.current === configKey) {
+            setError("Base table not found");
+            setResolvedViewName(null);
+          }
+          return null;
         }
 
         // Ensure base DataFrame is loaded
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
         if (!baseDataFrame) {
-          pendingRequests.delete(configKey);
-          if (currentConfigKeyRef.current !== configKey) return;
-          setError("Base DataFrame not found");
-          setResolvedViewName(null);
-          return;
+          if (currentConfigKeyRef.current === configKey) {
+            setError("Base DataFrame not found");
+            setResolvedViewName(null);
+          }
+          return null;
         }
 
         // Collect all DataFrames to load (base + joined tables) for parallel loading
@@ -490,11 +515,11 @@ export function useInsightView(
         );
 
         if (!sql) {
-          pendingRequests.delete(configKey);
-          if (currentConfigKeyRef.current !== configKey) return;
-          setError("Failed to build SQL for insight view");
-          setResolvedViewName(null);
-          return;
+          if (currentConfigKeyRef.current === configKey) {
+            setError("Failed to build SQL for insight view");
+            setResolvedViewName(null);
+          }
+          return null;
         }
 
         // View name: base insight view for the unfiltered case.  When effective
@@ -509,7 +534,29 @@ export function useInsightView(
         const newViewName = hasFilterOverride
           ? `insight_view_${idSafe}_cell_${toViewSuffix(JSON.stringify(snapshotEffectiveFilters))}`
           : `insight_view_${idSafe}`;
-        const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${sql}`;
+
+        // Normalize date-typed columns to TIMESTAMP in the chart view.
+        // CSV/Arrow ingest can produce TIMESTAMP_MS columns, which vgplot's
+        // DuckDB type map does not recognize (throws "Unsupported type:
+        // TIMESTAMP_MS" and the chart renders blank). The cast is lossless
+        // (ms → µs) and applies only to this chart-facing view — the table
+        // pagination path builds its own SQL and is unaffected.
+        // REPLACE targets assume the model-mode full projection above: every
+        // available-field alias exists in the subquery. Routing this view
+        // through query/aggregation mode would break unselected date aliases.
+        const dateAliases = (
+          buildInsightAvailableFields(baseTable, joinedTables, { joins }) ??
+          baseTable.fields ??
+          []
+        )
+          .filter((f) => f.type === "date")
+          .map((f) => fieldIdToColumnAlias(f.id));
+        const viewSql = dateAliases.length
+          ? `SELECT * REPLACE (${dateAliases
+              .map((a) => `CAST("${a}" AS TIMESTAMP) AS "${a}"`)
+              .join(", ")}) FROM (${sql})`
+          : sql;
+        const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${viewSql}`;
         await connection.query(createViewSql);
 
         // Desktop: chart queries run against the native engine, so the view
@@ -524,31 +571,45 @@ export function useInsightView(
         // Store in module-level cache (survives Strict Mode and HMR). The
         // fallback decision travels with the view name so a later remount that
         // hits this cache restores the correct engine routing.
-        createdViewsCache.set(configKey, {
+        const created: CachedView = {
           viewName: newViewName,
           nativeCapable: allNativeCapable,
-        });
-        pendingRequests.delete(configKey);
+        };
+        createdViewsCache.set(configKey, created);
 
         // Guard: if the component has moved on to a different configKey while
-        // this async path was in-flight, discard these results. The newer
-        // config's createView will (or already did) set the correct state.
-        if (currentConfigKeyRef.current !== configKey) return;
-
-        setResolvedViewName(newViewName);
-        setResolvedConfigKey(configKey);
-        setNativeCapable(allNativeCapable);
-        setError(null);
+        // this async path was in-flight, discard these results (but still
+        // resolve with the created view so subscribed followers get it). The
+        // newer config's createView will (or already did) set the correct state.
+        if (currentConfigKeyRef.current === configKey) {
+          setResolvedViewName(newViewName);
+          setResolvedConfigKey(configKey);
+          setNativeCapable(allNativeCapable);
+          setError(null);
+        }
+        return created;
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);
-        pendingRequests.delete(configKey);
-        if (currentConfigKeyRef.current !== configKey) return;
-        setError(err instanceof Error ? err.message : "Failed to create view");
-        setResolvedViewName(null);
+        if (currentConfigKeyRef.current === configKey) {
+          setError(
+            err instanceof Error ? err.message : "Failed to create view",
+          );
+          setResolvedViewName(null);
+        }
+        return null;
       }
     };
 
-    createView();
+    // Register the in-flight creation so concurrent hook instances subscribe
+    // to it (see the `pending` branch above), then clean up the entry once it
+    // settles — guarded so a retry that re-registered the key isn't clobbered.
+    const creation = createView();
+    pendingRequests.set(configKey, creation);
+    creation.finally(() => {
+      if (pendingRequests.get(configKey) === creation) {
+        pendingRequests.delete(configKey);
+      }
+    });
 
     // No cleanup needed - module-level state persists across unmounts
     // IMPORTANT: Only depend on stable primitive values

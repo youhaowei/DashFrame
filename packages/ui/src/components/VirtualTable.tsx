@@ -306,11 +306,15 @@ export function VirtualTable({
       setTotalCount(result.totalCount);
 
       const firstResultRow = result.rows[0];
-      if (firstResultRow && inferredColumns.length === 0) {
+      if (firstResultRow) {
         const cols = Object.keys(firstResultRow)
           .filter((key) => !key.startsWith("_"))
           .map((name) => ({ name }));
-        setInferredColumns(cols);
+        // Functional update: the closure's `inferredColumns` can be stale when
+        // a data-source reset cleared columns after this fetch started — a
+        // closure-based emptiness check would skip the set and leave the table
+        // with zero columns forever.
+        setInferredColumns((prev) => (prev.length === 0 ? cols : prev));
       }
 
       setData((prev) => {
@@ -379,11 +383,13 @@ export function VirtualTable({
         setTotalCount(result.totalCount);
 
         const firstResetRow = result.rows[0];
-        if (firstResetRow && inferredColumns.length === 0) {
+        if (firstResetRow) {
           const cols = Object.keys(firstResetRow)
             .filter((key) => !key.startsWith("_"))
             .map((name) => ({ name }));
-          setInferredColumns(cols);
+          // Functional update — see processQueue: a concurrent reset can clear
+          // columns after this fetch started; the closure check would go stale.
+          setInferredColumns((prev) => (prev.length === 0 ? cols : prev));
         }
 
         setData(result.rows);

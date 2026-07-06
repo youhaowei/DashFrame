@@ -186,20 +186,20 @@ export const test = base.extend<
   },
 
   /**
-   * Wait for visualization chart to fully render
-   * Checks for data metadata and SVG presence
+   * Wait for the active chart view to fully render.
+   *
+   * A chart is "ready" when an SVG has rendered inside the chart container.
+   * Chart.tsx keeps data-testid="visualization-chart" on both the loading
+   * placeholder and the rendered container, so the SVG child is the signal
+   * that data loaded AND the renderer drew it. The old "N rows • N columns"
+   * metadata gate belonged to the standalone visualization page; the insight
+   * canvas (where charts render now) never shows that text on chart views.
    */
   waitForChart: async ({ page }, use) => {
     await use(async () => {
-      // Wait for data metadata (indicates data loaded)
-      await expect(page.getByText(/\d+ rows • \d+ columns/)).toBeVisible({
-        timeout: 30_000,
-      });
-
-      // Wait for SVG to render (vgplot renders async)
       await expect(
         page.locator('[data-testid="visualization-chart"] svg'),
-      ).toBeVisible({ timeout: 15_000 });
+      ).toBeVisible({ timeout: 30_000 });
     });
   },
 
@@ -211,9 +211,13 @@ export const test = base.extend<
   homePage: async ({ page, workerBaseURL }, use) => {
     await use(async () => {
       await page.goto(workerBaseURL);
+      // Home decides between onboarding and returning-user views only after
+      // the visualization list loads from the WyStack server, so allow a
+      // server round-trip (plus post-heavy-test latency) beyond the 5s
+      // default expect timeout.
       await expect(
         page.getByRole("heading", { name: "Welcome to DashFrame" }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15_000 });
     });
   },
 });

@@ -3,7 +3,9 @@ import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/insights/$insightId")({
   validateSearch: (search: Record<string, unknown>) => ({
-    visualize: search.visualize === "true",
+    // The router's default search parser JSON-parses values, so
+    // `?visualize=true` arrives as boolean true — accept both forms.
+    visualize: search.visualize === true || search.visualize === "true",
   }),
   component: InsightRoute,
 });

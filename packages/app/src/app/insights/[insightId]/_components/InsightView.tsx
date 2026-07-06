@@ -625,12 +625,17 @@ function InsightResultTable({ insight }: { insight: Insight }) {
           : "Loading data..."}
       </div>
       <div className="min-h-0 flex-1 px-4 pb-4">
-        <VirtualTable
-          onFetchData={fetchData}
-          columnConfigs={columnConfigs}
-          height={520}
-          compact
-        />
+        {/* Mount only when the pagination hook is ready (per its contract):
+            mounting earlier lets the initial fetch race the hook's own
+            init-driven fetchData identity changes. */}
+        {isReady && (
+          <VirtualTable
+            onFetchData={fetchData}
+            columnConfigs={columnConfigs}
+            height={520}
+            compact
+          />
+        )}
       </div>
     </div>
   );
@@ -889,14 +894,10 @@ export function InsightView({
         )
       : undefined;
 
-  useEffect(() => {
-    if (
-      persistedActiveView &&
-      !canvasViewsEqual(persistedActiveView, activeView)
-    ) {
-      setPersistedActiveView(insightId, activeView);
-    }
-  }, [activeView, insightId, persistedActiveView, setPersistedActiveView]);
+  // No write-back of the sanitized view into the store: right after a pin,
+  // the persisted selection can reference a visualization the list hasn't
+  // loaded yet — persisting the table fallback would clobber that intent.
+  // Read-time sanitization above is enough; the view self-heals on load.
 
   const handleSetActiveView = useCallback(
     (view: InsightCanvasView) => {
@@ -1241,10 +1242,31 @@ export function InsightView({
         .map((colName) => lookupEncodingFieldId(fieldIdMap, colName))
         .filter((id): id is UUID => id !== undefined);
 
+      // Suggestion encodings reference UUID column aliases, so metrics parsed
+      // from them carry names like "sum(field_<uuid>)". Rename to the field's
+      // display name for the Metrics panel; columnName stays untouched (it
+      // drives SQL generation and encoding matching).
+      const fieldNameById = new Map<UUID, string>();
+      (dataTable.fields ?? []).forEach((f) => fieldNameById.set(f.id, f.name));
+      insight.joins?.forEach((join) => {
+        const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
+        (joinTable?.fields ?? []).forEach((f) =>
+          fieldNameById.set(f.id, f.name),
+        );
+      });
+      const namedMetrics = metrics.map((metric) => {
+        if (!metric.columnName) return metric;
+        const fieldId = lookupEncodingFieldId(fieldIdMap, metric.columnName);
+        const fieldName = fieldId ? fieldNameById.get(fieldId) : undefined;
+        return fieldName
+          ? { ...metric, name: `${metric.aggregation}(${fieldName})` }
+          : metric;
+      });
+
       // Merge with existing insight fields/metrics
       const { mergedFieldIds, mergedMetrics } = mergeFieldsAndMetrics(
         newSelectedFieldIds,
-        metrics,
+        namedMetrics,
         insight.selectedFields ?? [],
         insight.metrics ?? [],
       );

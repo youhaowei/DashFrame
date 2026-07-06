@@ -30,8 +30,14 @@ test.describe("CSV to Chart", () => {
     await expect(page.getByText(/5 rows/).first()).toBeVisible();
 
     // Switch to an ephemeral chart view, then pin it into a Visualization.
-    await page.getByRole("button", { name: "Bar" }).click();
-    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    // `exact: true` avoids matching "Horizontal bar" / "Hide sidebar", which
+    // both contain "bar" as a substring under Playwright's default name match.
+    await page.getByRole("button", { name: "Bar", exact: true }).click();
+    // "Pin view" appears once chart suggestions are computed (DuckDB init +
+    // column analysis run after the table loads), so allow a generous wait.
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByRole("button", { name: "Pin view" }).click();
 
     // Pinning keeps the user on the insight canvas.

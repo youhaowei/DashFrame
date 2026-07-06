@@ -302,9 +302,19 @@ function buildTemporalEncoding(col: ExtendedDateAnalysis): {
   const aggregation = selectTemporalAggregation(col.minDate, col.maxDate);
   const transform = temporalTransform(aggregation);
 
-  // Generate SQL expression using DuckDB date_trunc
-  // Use UUID column name for SQL, not display name
-  const xExpr = applyDateTransformToSql(col.columnName, transform);
+  // Generate SQL expression using DuckDB date_trunc.
+  // Use UUID column name for SQL, not display name.
+  //
+  // For the identity aggregation ("none") use the PLAIN column name, not
+  // applyDateTransformToSql's output: that helper quotes the identifier at
+  // the sink, and a bare quoted identifier violates the encoding convention
+  // (plain column name OR function-wrapped expression). Downstream consumers
+  // quote plain names themselves — a pre-quoted one gets double-quoted and
+  // fails to bind.
+  const xExpr =
+    transform.kind === "temporal" && transform.aggregation === "none"
+      ? col.columnName
+      : applyDateTransformToSql(col.columnName, transform);
 
   // Get appropriate axis type based on data
   const xType = getAxisTypeForTransform(transform) as "temporal" | "ordinal";

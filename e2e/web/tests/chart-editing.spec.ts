@@ -16,10 +16,18 @@ test.describe("Chart Editing", () => {
     });
 
     // Start from the table-first canvas and pin one chart view.
+    // `exact: true` disambiguates against the view switcher's other buttons —
+    // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
+    // which Playwright's default (non-exact) name matching would also match.
     await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByRole("button", { name: "Bar" }).click();
+    await page.getByRole("button", { name: "Bar", exact: true }).click();
+    // "Pin view" appears once chart suggestions are computed (DuckDB init +
+    // column analysis run after the table loads), so allow a generous wait.
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByRole("button", { name: "Pin view" }).click();
     await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
@@ -28,14 +36,18 @@ test.describe("Chart Editing", () => {
     // Wait for initial pinned chart.
     await waitForChart();
 
-    await page.getByRole("button", { name: "Table" }).click();
+    // Switching back to the table view shows the result table immediately
+    // (fields were select-all'd on create).
+    await page.getByRole("button", { name: "Table", exact: true }).click();
     await expect(page.getByText(/5 rows/).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Line" }).click();
+    // Each unpinned chart view renders and offers "Pin view"; switching views
+    // does NOT mint a new Visualization (only pinning does).
+    await page.getByRole("button", { name: "Line", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
     await waitForChart();
 
-    await page.getByRole("button", { name: "Area" }).click();
+    await page.getByRole("button", { name: "Area", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
     await waitForChart();
   });
