@@ -2880,7 +2880,7 @@ describe("command vocabulary", () => {
       // The Artifact Model's typed-edge rule: DataTable → Insight is a reference
       // edge. Deleting the DataTable must NOT auto-delete the Insight; instead it
       // must return the Insight in orphanedNodes so the caller can route it to
-      // drift-repair. The Insight remains in the DB, reachable but broken.
+      // the TBD repair target. The Insight remains in the DB, reachable but broken.
       const { tableId } = await makeTable();
       const insight1Id = id();
       const insight2Id = id();

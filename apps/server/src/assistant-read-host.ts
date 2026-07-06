@@ -162,7 +162,7 @@ export function createAssistantReadHost(
     let unresolvedReason: string | undefined;
     // Add a referenced table's fields. A DANGLING ref (null table) forces
     // masking: deleting a DataTable does NOT cascade-delete dependent insights
-    // (the server routes them to drift-repair), so an insight can carry a
+    // (the repair target is TBD), so an insight can carry a
     // dangling join `rightTableId` / metric `sourceTable`. A draft can also
     // delete a table the insight still references. If that vanished table held
     // the only sensitive column, silently contributing nothing would fail OPEN —

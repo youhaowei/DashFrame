@@ -27,6 +27,7 @@ import {
   dataSourcesDraft,
   dataTablesDraft,
   draftCommandLog,
+  draftMetadata,
   insightsDraft,
   schema,
   visualizationsDraft,
@@ -235,6 +236,23 @@ describe("draft_command_log table", () => {
         ),
       ),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("draft_metadata table", () => {
+  test("draft_metadata is materialised by syncSchema", async () => {
+    expect(await tableExists("draft_metadata")).toBe(true);
+  });
+
+  test("draft_metadata has the expected columns", async () => {
+    const cols = await liveColumns("draft_metadata");
+    expect(cols.has("draft_id")).toBe(true);
+    expect(cols.has("base_version")).toBe(true);
+    expect(cols.has("created_at")).toBe(true);
+  });
+
+  test("draft_metadata Drizzle table name is 'draft_metadata'", () => {
+    expect(getTableName(draftMetadata)).toBe("draft_metadata");
   });
 });
 

@@ -59,6 +59,7 @@ export {
   dataTablesDraft,
   // Draft command log
   draftCommandLog,
+  draftMetadata,
   insights,
   insightsDraft,
   // Canonical artifact tables

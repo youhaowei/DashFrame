@@ -49,25 +49,34 @@
  * draft, or make vault.store draft-aware) before routing untrusted drafts.
  */
 import {
+  dashboards,
   dashboardsDraft,
+  dataFrames,
   dataFramesDraft,
+  dataSources,
   dataSourcesDraft,
+  dataTables,
   dataTablesDraft,
   draftCommandLog,
+  draftMetadata,
+  insights,
   insightsDraft,
+  visualizations,
   visualizationsDraft,
   type ArtifactDb,
 } from "@dashframe/server-core";
 import {
   applyCommands,
   compactLog,
+  type Cell,
   type Command,
   type CommandResult,
   type CommitResult,
+  type ConflictReport,
   type DraftCommand,
   type WyStackApp,
 } from "@wystack/server";
-import { eq } from "drizzle-orm";
+import { eq, getTableName, sql } from "drizzle-orm";
 
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { computeLogSignature } from "./draft-log-signature";
@@ -89,6 +98,15 @@ const DRAFT_SHADOW_TABLES = [
   dashboardsDraft,
 ] as const;
 
+const DRAFT_CONFLICT_TABLES = [
+  { canonical: dataSources, draft: dataSourcesDraft },
+  { canonical: dataTables, draft: dataTablesDraft },
+  { canonical: dataFrames, draft: dataFramesDraft },
+  { canonical: insights, draft: insightsDraft },
+  { canonical: visualizations, draft: visualizationsDraft },
+  { canonical: dashboards, draft: dashboardsDraft },
+] as const;
+
 /**
  * The DB-handle surface the teardown helpers (`deleteLog`/`sweepShadows`) need:
  * just `.delete()`. Narrowing to this (rather than the full `ArtifactDb`) is
@@ -97,7 +115,33 @@ const DRAFT_SHADOW_TABLES = [
  * regardless of what the runtime handle happens to support.
  */
 type DeleteExecutor = Pick<ArtifactDb, "delete">;
+type SqlExecutor = Pick<ArtifactDb, "execute">;
 export type LogReader = Pick<ArtifactDb, "select">;
+
+function normalizeRows(result: unknown): Record<string, unknown>[] {
+  if (Array.isArray(result)) return result as Record<string, unknown>[];
+  const rows = (result as { rows?: unknown })?.rows;
+  return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+}
+
+function normalizeBaseVersion(baseVersion: unknown): Date {
+  if (baseVersion instanceof Date && !Number.isNaN(baseVersion.getTime())) {
+    return baseVersion;
+  }
+  if (typeof baseVersion === "number") {
+    const date = new Date(baseVersion);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  if (typeof baseVersion === "string") {
+    const date = new Date(baseVersion);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return new Date();
+}
+
+function timestampExpression(tableAlias: string): string {
+  return `COALESCE(${tableAlias}."updated_at", ${tableAlias}."created_at")`;
+}
 
 /** A persisted log row mapped back to the `DraftCommand` shape replay consumes. */
 function rowToDraftCommand(row: {
@@ -178,6 +222,11 @@ export interface DraftController {
    * `DiscardDraftOptions.beforeDiscard`.
    */
   discardDraft(draftId: string, options?: DiscardDraftOptions): Promise<void>;
+  /**
+   * Detect whether canonical has moved under this draft's base version and
+   * whether that movement overlaps cells the draft touched.
+   */
+  detectConflict(draftId: string): Promise<ConflictReport>;
   /** Read-only peek at a draft's persisted (compacted) command log. */
   getDraftLog(draftId: string): Promise<Command[]>;
 }
@@ -271,6 +320,18 @@ export interface PublishDraftOptions {
    * narrowed type, regardless of what the runtime handle supports.
    */
   beforeReplay?: (log: Command[], tx: LogReader) => Promise<void> | void;
+  /**
+   * When true, publish checks the draft's base version against canonical writes
+   * inside the same transaction as replay and blocks overlapping stale cells.
+   */
+  blockOnConflict?: boolean;
+}
+
+export class DraftPublishConflictError extends Error {
+  constructor(readonly conflictReport: ConflictReport) {
+    super("publishDraft: draft conflicts with canonical changes");
+    this.name = "DraftPublishConflictError";
+  }
 }
 
 /**
@@ -396,6 +457,86 @@ export function createDraftController(
       .where(eq(draftCommandLog.draftId, draftId));
   }
 
+  async function deleteDraftMetadata(
+    draftId: string,
+    exec: DeleteExecutor = db,
+  ): Promise<void> {
+    await exec.delete(draftMetadata).where(eq(draftMetadata.draftId, draftId));
+  }
+
+  async function readBaseVersion(
+    draftId: string,
+    exec: LogReader = db,
+  ): Promise<Date | null> {
+    const rows = await exec
+      .select({ baseVersion: draftMetadata.baseVersion })
+      .from(draftMetadata)
+      .where(eq(draftMetadata.draftId, draftId));
+    return rows[0]?.baseVersion ?? null;
+  }
+
+  async function hasCanonicalWritesSince(
+    baseVersion: Date,
+    exec: SqlExecutor = db,
+  ): Promise<boolean> {
+    for (const table of DRAFT_CONFLICT_TABLES) {
+      const canonicalName = getTableName(table.canonical);
+      const prefix = sql.raw(
+        `SELECT 1 FROM "${canonicalName}" c WHERE ${timestampExpression("c")} > `,
+      );
+      const rows = normalizeRows(
+        await exec.execute(sql`${prefix}${baseVersion}${sql.raw(" LIMIT 1")}`),
+      );
+      if (rows.length > 0) return true;
+    }
+    return false;
+  }
+
+  async function overlappingCellsSince(
+    draftId: string,
+    baseVersion: Date,
+    exec: SqlExecutor = db,
+  ): Promise<Cell[]> {
+    const cells: Cell[] = [];
+    for (const table of DRAFT_CONFLICT_TABLES) {
+      const canonicalName = getTableName(table.canonical);
+      const draftName = getTableName(table.draft);
+      const prefix = sql.raw(
+        `SELECT d."id" AS id FROM "${draftName}" d ` +
+          `INNER JOIN "${canonicalName}" c ON c."id" = d."id" ` +
+          `WHERE d."draft_id" = `,
+      );
+      const rows = normalizeRows(
+        await exec.execute(
+          sql`${prefix}${draftId}${sql.raw(
+            ` AND ${timestampExpression("c")} > `,
+          )}${baseVersion}`,
+        ),
+      );
+      for (const row of rows) {
+        cells.push({ table: canonicalName, id: row.id });
+      }
+    }
+    return cells;
+  }
+
+  async function detectConflictReport(
+    draftId: string,
+    exec: LogReader & SqlExecutor = db,
+  ): Promise<ConflictReport> {
+    const baseVersion = await readBaseVersion(draftId, exec);
+    if (baseVersion === null) {
+      return { staleBase: false, overlappingCells: [] };
+    }
+
+    const staleBase = await hasCanonicalWritesSince(baseVersion, exec);
+    const overlappingCells = staleBase
+      ? await overlappingCellsSince(draftId, baseVersion, exec)
+      : [];
+
+    return { staleBase, overlappingCells };
+  }
+
   /**
    * Sweep a draft's `<table>__draft` shadow rows across the closed set. `exec` is
    * the Drizzle handle the DELETEs run against — BOTH callers now pass their
@@ -461,14 +602,20 @@ export function createDraftController(
       await options.beforeDiscard?.(log, tx);
       await deleteLog(draftId, tx);
       await sweepShadows(draftId, tx);
+      await deleteDraftMetadata(draftId, tx);
     });
   }
 
   return {
-    async openDraft(_baseVersion?: unknown): Promise<string> {
+    async openDraft(baseVersion?: unknown): Promise<string> {
       // DashFrame owns the handle. `withDraft` accepts any id, so a UUID is the
       // durable draftId across the shadow tables and the command log.
-      return crypto.randomUUID();
+      const draftId = crypto.randomUUID();
+      await db.insert(draftMetadata).values({
+        draftId,
+        baseVersion: normalizeBaseVersion(baseVersion),
+      });
+      return draftId;
     },
 
     async appendToDraft(draftId, batch, context = {}) {
@@ -598,6 +745,18 @@ export function createDraftController(
         }
         assertPublishLogHasNoLateBound(log);
         validatePublishLog?.(log);
+        if (options.blockOnConflict === true) {
+          const conflictReport = await detectConflictReport(
+            draftId,
+            tx.raw as LogReader & SqlExecutor,
+          );
+          if (
+            conflictReport.staleBase &&
+            conflictReport.overlappingCells.length > 0
+          ) {
+            throw new DraftPublishConflictError(conflictReport);
+          }
+        }
         // Pre-replay hook: runs on the AUTHORITATIVE reloaded log, after both
         // guards above, before replay mutates canonical rows. See
         // `PublishDraftOptions.beforeReplay` for why this must live here and
@@ -626,6 +785,7 @@ export function createDraftController(
         const exec = tx.raw as DeleteExecutor;
         await deleteLog(draftId, exec);
         await sweepShadows(draftId, exec);
+        await deleteDraftMetadata(draftId, exec);
         return committed;
       });
       // The host flushes result.tablesWritten to invalidation (the controller
@@ -637,6 +797,10 @@ export function createDraftController(
 
     async discardDraft(draftId, options = {}) {
       await dropDraft(draftId, options);
+    },
+
+    async detectConflict(draftId) {
+      return detectConflictReport(draftId);
     },
 
     async getDraftLog(draftId) {

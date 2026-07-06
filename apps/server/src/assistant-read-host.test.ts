@@ -314,7 +314,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
   it("masks (fail-closed) when a joined table is DELETED out from under the insight", async () => {
     // AddJoin validates rightTableId at write time, so a dangling ref arises via
     // DELETION: deleting a DataTable does NOT cascade-delete dependent insights
-    // (drift-repair territory), leaving the join's rightTableId dangling. The
+    // (repair target TBD), leaving the join's rightTableId dangling. The
     // base is cleared, so masking depends entirely on the dangling-ref →
     // forceMask path — a vanished table may have held the only sensitive column.
     const sourceId = id();

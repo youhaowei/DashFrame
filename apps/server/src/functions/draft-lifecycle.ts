@@ -23,7 +23,7 @@ import type { ArtifactDb } from "@dashframe/server-core";
 import { text } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
-import { mutation, query } from "@wystack/server";
+import { mutation, query, ValidationError } from "@wystack/server";
 
 import {
   collectDeletedSourceRefs,
@@ -31,7 +31,10 @@ import {
   collectSupersededRefs,
   releaseRefsAtTransition,
 } from "../credential-release";
-import type { DraftController } from "../draft-controller";
+import {
+  DraftPublishConflictError,
+  type DraftController,
+} from "../draft-controller";
 import { PUBLISH_REPLAY_CONTEXT_KEY } from "./utils";
 
 /**
@@ -46,6 +49,22 @@ import { PUBLISH_REPLAY_CONTEXT_KEY } from "./utils";
 interface PublishDraftInternalResult {
   tablesWritten: string[];
   __extraTablesWritten: string[];
+}
+
+function draftConflictError(
+  conflictReport: Awaited<ReturnType<DraftController["detectConflict"]>>,
+): ValidationError {
+  return new ValidationError([
+    {
+      code: "custom",
+      path: ["draftId"],
+      message: "publishDraft: draft conflicts with canonical changes",
+      params: {
+        kind: "draft_conflict",
+        conflictReport,
+      },
+    },
+  ] as ConstructorParameters<typeof ValidationError>[0]);
 }
 
 /**
@@ -182,23 +201,32 @@ const publishDraft = mutation({
 
     // Mark the replay as the sanctioned canonical-commit path so the credential
     // command handlers' direct-call guard accepts it (release is handled here).
-    const result = await draftController.publishDraft(
-      draftId,
-      { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
-      {
-        expectedCommandCount: expected,
-        expectedLogSignature,
-        beforeReplay: async (log, tx) => {
-          publishLogLength = log.length;
-          if (artifactDb != null) {
-            replacedRefs = [
-              ...(await collectSupersededRefs(tx, log)),
-              ...(await collectDeletedSourceRefs(tx, log)),
-            ];
-          }
+    let result: Awaited<ReturnType<DraftController["publishDraft"]>>;
+    try {
+      result = await draftController.publishDraft(
+        draftId,
+        { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
+        {
+          expectedCommandCount: expected,
+          expectedLogSignature,
+          blockOnConflict: true,
+          beforeReplay: async (log, tx) => {
+            publishLogLength = log.length;
+            if (artifactDb != null) {
+              replacedRefs = [
+                ...(await collectSupersededRefs(tx, log)),
+                ...(await collectDeletedSourceRefs(tx, log)),
+              ];
+            }
+          },
         },
-      },
-    );
+      );
+    } catch (err) {
+      if (err instanceof DraftPublishConflictError) {
+        throw draftConflictError(err.conflictReport);
+      }
+      throw err;
+    }
 
     // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does
     // NOT fire `onWrite` here (its tracker sees zero writes from the sub-tracker
