@@ -34,6 +34,11 @@ import {
 } from "@wystack/ui-icons";
 import { type ReactNode, useState } from "react";
 
+import {
+  DESKTOP_NAV_BREAKPOINT_CLASS,
+  DESKTOP_NAV_WIDTH,
+} from "./shell/layout-constants";
+
 type NavItem = {
   name: string;
   href: string;
@@ -198,12 +203,15 @@ export function Navigation() {
       <Dock
         side="left"
         open={leftNavOpen}
-        width={240}
+        width={DESKTOP_NAV_WIDTH}
         surface={false}
-        className="hidden lg:flex"
+        className={cn("hidden", DESKTOP_NAV_BREAKPOINT_CLASS)}
         aria-label="Primary navigation"
       >
-        <div className="flex h-full w-60 flex-col">
+        <div
+          className="flex h-full flex-col"
+          style={{ width: DESKTOP_NAV_WIDTH }}
+        >
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
             footerSlot={<PerfHud />}
@@ -218,7 +226,7 @@ export function Navigation() {
         iconOnly
         label="Open menu"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 left-4 z-40 rounded-full bg-palette-primary shadow-lg hover:bg-palette-primary/90 lg:hidden"
+        className="fixed bottom-4 left-4 z-40 rounded-full bg-palette-primary shadow-lg hover:bg-palette-primary/90 min-[1024px]:hidden"
       />
 
       {/* Mobile Sidebar Dialog */}

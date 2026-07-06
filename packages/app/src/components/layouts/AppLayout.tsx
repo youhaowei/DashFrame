@@ -11,8 +11,6 @@ export interface AppLayoutProps {
   headerContent?: ReactNode;
   /** Left sidebar panel (e.g., controls, configuration) */
   leftPanel?: ReactNode;
-  /** Optional right sidebar panel */
-  rightPanel?: ReactNode;
   /** Optional footer content */
   footer?: ReactNode;
   /** Main content area */
@@ -29,7 +27,7 @@ export interface AppLayoutProps {
  * Provides a consistent structure with:
  * - Sticky top header with breadcrumb navigation
  * - Optional additional header content
- * - Left/Right attached sidebars
+ * - Optional left attached sidebar
  * - Main content area with scrolling
  * - Optional footer
  *
@@ -50,7 +48,6 @@ export function AppLayout({
   breadcrumbs,
   headerContent,
   leftPanel,
-  rightPanel,
   footer,
   children,
   className,
@@ -99,13 +96,6 @@ export function AppLayout({
             {children}
           </div>
         </main>
-
-        {/* Right panel (optional) */}
-        {rightPanel && (
-          <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-y-auto">
-            {rightPanel}
-          </aside>
-        )}
       </div>
 
       {/* Footer (optional) */}

@@ -28,8 +28,8 @@ export function AppTopBar() {
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const toggleLeftNav = useShellStore((s) => s.toggleLeftNav);
-  const rightPanelOpen = useShellStore((s) => s.rightPanelOpen);
-  const toggleRightPanel = useShellStore((s) => s.toggleRightPanel);
+  const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
+  const toggleAppearance = useShellStore((s) => s.toggleContextAppearance);
 
   return (
     <TopBar
@@ -66,14 +66,14 @@ export function AppTopBar() {
             icon={PaletteIcon}
             iconOnly
             label={
-              rightPanelOpen ? "Hide appearance panel" : "Show appearance panel"
+              appearanceOpen ? "Hide appearance panel" : "Show appearance panel"
             }
             tooltip="Appearance"
-            onClick={toggleRightPanel}
-            active={rightPanelOpen}
+            onClick={toggleAppearance}
+            active={appearanceOpen}
             className={cn(
               "h-7 w-7",
-              !rightPanelOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
+              !appearanceOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
             )}
           />
         </div>

@@ -7,8 +7,8 @@ import { useAssistantHotkey } from "./useAssistantHotkey";
 
 /**
  * The center Stage. Registers the global ⌘J assistant summon and the per-route
- * render-perf boundary. The assistant itself lives in the shared right Dock
- * (see RightDock), which reflows the Stage when open.
+ * render-perf boundary. The assistant itself lives in the persistent shell rail,
+ * which reflows the Stage when open.
  */
 export function AssistantRegion({ children }: { children: ReactNode }) {
   useAssistantHotkey();

@@ -2,10 +2,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 /**
- * Whether the assistant is visible. Panel *geometry* (width) is no longer the
- * assistant's concern — it shares the shell's right Dock, whose width lives in
- * the shell store (see RightDock). This store holds only the open/closed state
- * and its ⌘J summon.
+ * Whether the assistant is visible. Panel geometry lives in the shell store.
+ * This store holds only the open/closed state and its ⌘J summon.
  *
  * `pendingDraftId` is a transient draft waiting for user review. It is NOT
  * persisted — a persisted draftId could go stale across server restarts. The
