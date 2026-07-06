@@ -45,6 +45,7 @@ export {
 export {
   createAssistantRun,
   type AssistantRunResult,
+  type AssistantRunTerminationReason,
   type CreateAssistantRunOptions,
 } from "./assistant-run.js";
 

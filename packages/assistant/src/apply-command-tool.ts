@@ -283,6 +283,8 @@ export interface CreateApplyCommandToolOptions {
   context?: Record<string, unknown>;
   /** Called after a successful append; used by the run to lazy-surface drafts. */
   onSuccess?: () => Promise<void> | void;
+  /** Return false to refuse new mutations for this run before host.append. */
+  shouldExecute?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +331,13 @@ export function createApplyCommandTool(options: CreateApplyCommandToolOptions) {
     }),
 
     async execute(_toolCallId, params) {
+      if (options.shouldExecute?.() === false) {
+        throw new Error(
+          "applyCommand: the assistant run has stopped after repeated command failures; " +
+            "further draft mutations are blocked for this run.",
+        );
+      }
+
       const { type, args } = params;
 
       // SECURITY GATE: enforce the draft-safe allow-list BEFORE calling

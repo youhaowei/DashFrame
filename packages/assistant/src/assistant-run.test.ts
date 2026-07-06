@@ -74,6 +74,16 @@ function call(
   return { type: "toolCall", id, name, arguments: args };
 }
 
+function createDashboardCall(
+  id: string,
+  args: Record<string, unknown>,
+): ToolCall {
+  return call(id, "applyCommand", {
+    type: "CreateDashboard",
+    args,
+  });
+}
+
 function scriptedStream(messages: AssistantMessage[]): StreamFn {
   let index = 0;
   return () => {
@@ -149,6 +159,25 @@ function makeHost(): AssistantHost & {
   };
 }
 
+function failAppendForCommandIds(
+  host: ReturnType<typeof makeHost>,
+  ids: string[],
+) {
+  const failingIds = new Set(ids);
+  const append = host.append.bind(host);
+  host.append = async (draftId, batch) => {
+    const args = batch[0]?.args;
+    const id =
+      args !== null && typeof args === "object"
+        ? (args as { id?: unknown }).id
+        : undefined;
+    if (typeof id === "string" && failingIds.has(id)) {
+      throw new Error(`invalid command: ${id}`);
+    }
+    return append(draftId, batch);
+  };
+}
+
 describe("createAssistantRun", () => {
   it("eager-mints a draft but lazy-surfaces only after first successful mutation", async () => {
     const host = makeHost();
@@ -185,9 +214,9 @@ describe("createAssistantRun", () => {
       streamFn: scriptedStream([
         assistantMessage(
           [
-            call("create-dashboard", "applyCommand", {
-              type: "CreateDashboard",
-              args: { id: "dashboard-1", name: "Executive" },
+            createDashboardCall("create-dashboard", {
+              id: "dashboard-1",
+              name: "Executive",
             }),
             call("rename-dashboard", "applyCommand", {
               type: "RenameNode",
@@ -233,9 +262,9 @@ describe("createAssistantRun", () => {
         ),
         assistantMessage(
           [
-            call("fixed-command", "applyCommand", {
-              type: "CreateDashboard",
-              args: { id: "dashboard-1", name: "Recovered" },
+            createDashboardCall("fixed-command", {
+              id: "dashboard-1",
+              name: "Recovered",
             }),
           ],
           "toolUse",
@@ -261,6 +290,243 @@ describe("createAssistantRun", () => {
     ]);
   });
 
+  it("terminates after the configured consecutive applyCommand failure cap", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["bad-1", "bad-2", "bad-3"]);
+    let streamCalls = 0;
+    const stream = scriptedStream([
+      assistantMessage(
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-3", { id: "bad-3", name: "Bad 3" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Keep trying unsafe drafts.",
+      maxConsecutiveFailures: 3,
+      streamFn: (...args) => {
+        streamCalls += 1;
+        return stream(...args);
+      },
+    });
+
+    expect(result.terminationReason).toBe("failureCap");
+    expect(streamCalls).toBe(3);
+    expect(result.messages.at(-1)?.role).toBe("toolResult");
+    expect(host.appends).toEqual([]);
+    expect(host.discarded).toEqual([]);
+  });
+
+  it("counts applyCommand validation failures toward the configured cap", async () => {
+    const host = makeHost();
+    let streamCalls = 0;
+    const stream = scriptedStream([
+      assistantMessage(
+        [
+          call("missing-args", "applyCommand", {
+            type: "CreateDashboard",
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          call("missing-type", "applyCommand", {
+            args: { id: "bad-2", name: "Bad 2" },
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Keep emitting malformed applyCommand args.",
+      maxConsecutiveFailures: 2,
+      streamFn: (...args) => {
+        streamCalls += 1;
+        return stream(...args);
+      },
+    });
+
+    expect(result.terminationReason).toBe("failureCap");
+    expect(streamCalls).toBe(2);
+    expect(result.messages.at(-1)?.role).toBe("toolResult");
+    expect(host.appends).toEqual([]);
+    expect(host.discarded).toEqual([]);
+  });
+
+  it("refuses later applyCommand executions in the same turn after the guard trips", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["bad-1"]);
+    const events: AgentEvent[] = [];
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Try two mutations at once.",
+      maxConsecutiveFailures: 1,
+      streamFn: scriptedStream([
+        assistantMessage(
+          [
+            createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" }),
+            createDashboardCall("good", { id: "good", name: "Should Block" }),
+          ],
+          "toolUse",
+        ),
+        assistantMessage(
+          [{ type: "text", text: "Should not be requested." }],
+          "stop",
+        ),
+      ]),
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    const toolEnds = events.filter(
+      (event): event is Extract<AgentEvent, { type: "tool_execution_end" }> =>
+        event.type === "tool_execution_end",
+    );
+    expect(result.terminationReason).toBe("failureCap");
+    expect(toolEnds.map((event) => event.isError)).toEqual([true, true]);
+    expect(host.appends).toEqual([]);
+    expect(host.discarded).toEqual([]);
+  });
+
+  it("terminates on repeated failing applyCommand fingerprints before the cap", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["repeat", "other"]);
+    let streamCalls = 0;
+    const stream = scriptedStream([
+      assistantMessage(
+        [createDashboardCall("bad-a", { id: "repeat", name: "Repeated" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-b", { id: "other", name: "Other" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [
+          createDashboardCall("bad-a-again", {
+            name: "Repeated",
+            id: "repeat",
+          }),
+        ],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Oscillate.",
+      maxConsecutiveFailures: 5,
+      streamFn: (...args) => {
+        streamCalls += 1;
+        return stream(...args);
+      },
+    });
+
+    expect(result.terminationReason).toBe("oscillation");
+    expect(streamCalls).toBe(3);
+    expect(host.appends).toEqual([]);
+    expect(host.discarded).toEqual([]);
+  });
+
+  it("resets the failure counter after a successful applyCommand", async () => {
+    const host = makeHost();
+    failAppendForCommandIds(host, ["bad-1", "bad-2"]);
+    const stream = scriptedStream([
+      assistantMessage(
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("good", { id: "good", name: "Recovered" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
+        "toolUse",
+      ),
+      assistantMessage([{ type: "text", text: "Stopped normally." }], "stop"),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Recover once, then fail again.",
+      maxConsecutiveFailures: 2,
+      streamFn: stream,
+    });
+
+    expect(result.terminationReason).toBe("completed");
+    expect(result.messages.at(-1)?.role).toBe("assistant");
+    expect(host.appends.map((append) => append.batch[0]?.path)).toEqual([
+      "CreateDashboardPath",
+    ]);
+  });
+
+  it("keeps a guard-terminated draft after a prior successful mutation", async () => {
+    const host = makeHost();
+    const firstMutations: string[] = [];
+    failAppendForCommandIds(host, ["bad-1", "bad-2"]);
+    const stream = scriptedStream([
+      assistantMessage(
+        [createDashboardCall("good", { id: "good", name: "Keep Me" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
+        "toolUse",
+      ),
+      assistantMessage(
+        [{ type: "text", text: "Should not be requested." }],
+        "stop",
+      ),
+    ]);
+
+    const result = await createAssistantRun(host, {
+      model,
+      prompt: "Mutate, then get stuck.",
+      maxConsecutiveFailures: 2,
+      streamFn: stream,
+      onFirstMutation: ({ draftId }) => {
+        firstMutations.push(draftId);
+      },
+    });
+
+    expect(result.terminationReason).toBe("failureCap");
+    expect(result.firstMutationObserved).toBe(true);
+    expect(firstMutations).toEqual(["draft-run"]);
+    expect(host.appends).toHaveLength(1);
+    expect(host.discarded).toEqual([]);
+  });
+
   it("isolates onFirstMutation observer failures from tool success", async () => {
     const host = makeHost();
     const events: AgentEvent[] = [];
@@ -271,9 +537,9 @@ describe("createAssistantRun", () => {
       streamFn: scriptedStream([
         assistantMessage(
           [
-            call("create-dashboard", "applyCommand", {
-              type: "CreateDashboard",
-              args: { id: "dashboard-1", name: "Executive" },
+            createDashboardCall("create-dashboard", {
+              id: "dashboard-1",
+              name: "Executive",
             }),
           ],
           "toolUse",
@@ -316,6 +582,7 @@ describe("createAssistantRun", () => {
     expect(last?.role === "assistant" ? last.stopReason : undefined).toBe(
       "error",
     );
+    expect(result.terminationReason).toBe("error");
     expect(result.firstMutationObserved).toBe(false);
     expect(host.discarded).toEqual([]);
 
@@ -331,9 +598,9 @@ describe("createAssistantRun", () => {
     const mutationStream = scriptedStream([
       assistantMessage(
         [
-          call("create-dashboard", "applyCommand", {
-            type: "CreateDashboard",
-            args: { id: "dashboard-1", name: "Executive" },
+          createDashboardCall("create-dashboard", {
+            id: "dashboard-1",
+            name: "Executive",
           }),
         ],
         "toolUse",
@@ -359,6 +626,7 @@ describe("createAssistantRun", () => {
     expect(last?.role === "assistant" ? last.stopReason : undefined).toBe(
       "error",
     );
+    expect(result.terminationReason).toBe("error");
     expect(firstMutations).toEqual(["draft-run"]);
     expect(host.appends).toHaveLength(1);
     expect(host.discarded).toEqual([]);
@@ -382,6 +650,7 @@ describe("createAssistantRun", () => {
 
     expect(streamCalls).toBe(0);
     expect(host.appends).toEqual([]);
+    expect(result.terminationReason).toBe("aborted");
     expect(result.firstMutationObserved).toBe(false);
     expect(host.discarded).toEqual(["draft-run"]);
   });
@@ -395,9 +664,9 @@ describe("createAssistantRun", () => {
       streamFn: scriptedStream([
         assistantMessage(
           [
-            call("create-dashboard", "applyCommand", {
-              type: "CreateDashboard",
-              args: { id: "dashboard-1", name: "Discard Me" },
+            createDashboardCall("create-dashboard", {
+              id: "dashboard-1",
+              name: "Discard Me",
             }),
           ],
           "toolUse",
