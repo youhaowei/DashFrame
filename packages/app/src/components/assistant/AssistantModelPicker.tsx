@@ -25,6 +25,8 @@ export function AssistantModelPicker() {
   const setSelectedModel = useAssistantStore((s) => s.setSelectedModel);
   const configs = useMemo(() => configsResult.data ?? [], [configsResult.data]);
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);
+  const configsLoaded =
+    configsResult.data !== undefined && !configsResult.isLoading;
   const selected =
     configs.find((config) => config.id === selectedProviderConfigId) ??
     configs.find((config) => config.isDefault) ??
@@ -42,9 +44,21 @@ export function AssistantModelPicker() {
   }, [catalog, selected?.providerId]);
 
   useEffect(() => {
-    if (!selected || activeModel) return;
+    if (!selected) return;
+    const storedConfigMissing =
+      configsLoaded &&
+      selectedProviderConfigId !== null &&
+      configs.every((config) => config.id !== selectedProviderConfigId);
+    if (!storedConfigMissing && activeModel) return;
     setSelectedModel(selected.id, selected.defaultModel);
-  }, [activeModel, selected, setSelectedModel]);
+  }, [
+    activeModel,
+    configs,
+    configsLoaded,
+    selected,
+    selectedProviderConfigId,
+    setSelectedModel,
+  ]);
 
   if (!selected) {
     return (

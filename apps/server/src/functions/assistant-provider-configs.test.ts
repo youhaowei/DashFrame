@@ -96,6 +96,50 @@ describe("assistant provider config functions", () => {
     ).toHaveLength(0);
   });
 
+  it("setting a non-default config's model leaves provider defaults untouched", async () => {
+    const { result: defaultConfig } = (await app.call(
+      "saveAssistantProviderConfig",
+      {
+        input: {
+          providerId: "anthropic",
+          displayLabel: "Anthropic API",
+          authKind: "api-key",
+          credential: "anthropic-secret",
+          defaultModel: "claude-sonnet-4-5",
+          isDefault: true,
+        },
+      },
+    )) as { result: AssistantProviderConfig };
+    const { result: secondaryConfig } = (await app.call(
+      "saveAssistantProviderConfig",
+      {
+        input: {
+          providerId: "openai",
+          displayLabel: "OpenAI",
+          authKind: "api-key",
+          credential: "openai-secret",
+          defaultModel: "gpt-4.1",
+          isDefault: false,
+        },
+      },
+    )) as { result: AssistantProviderConfig };
+
+    await app.call("setAssistantDefaultModel", {
+      input: {
+        id: secondaryConfig.id,
+        defaultModel: "gpt-4.1-mini",
+      },
+    });
+
+    const rows = await db.select().from(schema.assistantProviderConfigs);
+    const defaultRow = rows.find((row) => row.id === defaultConfig.id);
+    const secondaryRow = rows.find((row) => row.id === secondaryConfig.id);
+    expect(defaultRow?.defaultModel).toBe("claude-sonnet-4-5");
+    expect(defaultRow?.isDefault).toBe(true);
+    expect(secondaryRow?.defaultModel).toBe("gpt-4.1-mini");
+    expect(secondaryRow?.isDefault).toBe(false);
+  });
+
   it("an error after the row commit never releases the credential the row references", async () => {
     const { result } = (await app.call("saveAssistantProviderConfig", {
       input: {
@@ -186,5 +230,40 @@ describe("assistant provider config functions", () => {
         JSON.parse(value),
       ),
     ).resolves.toMatchObject({ access: "new-access" });
+  });
+
+  it("rejects device-code OAuth when the host cannot display the user code", async () => {
+    const { result } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "device-code-test",
+        displayLabel: "Device Code Test",
+        authKind: "oauth",
+        defaultModel: "test-model",
+      },
+    })) as { result: AssistantProviderConfig };
+    const credentials: OAuthCredentials = {
+      access: "access",
+      refresh: "refresh",
+      expires: Date.now() + 60_000,
+    };
+    registerOAuthProvider({
+      id: "device-code-test",
+      name: "Device Code Test",
+      login: async (callbacks) => {
+        callbacks.onDeviceCode({
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://example.test/device",
+        });
+        return credentials;
+      },
+      refreshToken: async () => credentials,
+      getApiKey: (value) => value.access,
+    });
+
+    await expect(
+      app.call("startAssistantOAuthLogin", { id: result.id }),
+    ).rejects.toThrow(
+      "device-code flow requires displaying a user code, not supported in this host flow yet",
+    );
   });
 });

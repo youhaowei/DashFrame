@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@wystack/ui";
 import { DeleteIcon, ExternalLinkIcon, PlusIcon } from "@wystack/ui-icons";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface AssistantProviderSettingsDialogProps {
   open: boolean;
@@ -61,6 +61,19 @@ function formFromCatalog(
   };
 }
 
+const emptyCatalogForm = formFromCatalog([]);
+
+function isPristineEmptySeed(form: DraftProviderForm): boolean {
+  return (
+    form.providerId === emptyCatalogForm.providerId &&
+    form.displayLabel === emptyCatalogForm.displayLabel &&
+    form.authKind === emptyCatalogForm.authKind &&
+    form.baseUrl === emptyCatalogForm.baseUrl &&
+    form.credential === emptyCatalogForm.credential &&
+    form.defaultModel === emptyCatalogForm.defaultModel
+  );
+}
+
 export function AssistantProviderSettingsDialog({
   open,
   onOpenChange,
@@ -80,6 +93,22 @@ export function AssistantProviderSettingsDialog({
     () => catalog.find((entry) => entry.providerId === form.providerId),
     [catalog, form.providerId],
   );
+  const selectedCatalogIsLocal =
+    selectedCatalog?.authKinds.includes("local") || form.authKind === "local";
+
+  useEffect(() => {
+    if (catalog.length === 0) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setForm((current) =>
+        isPristineEmptySeed(current) ? formFromCatalog(catalog) : current,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [catalog]);
 
   function chooseProvider(providerId: string | null) {
     if (!providerId) return;
@@ -286,24 +315,40 @@ export function AssistantProviderSettingsDialog({
             )}
             <Field>
               <FieldLabel>Default model</FieldLabel>
-              <Select
-                value={form.defaultModel}
-                onValueChange={(value) => {
-                  if (!value) return;
-                  setForm((current) => ({ ...current, defaultModel: value }));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectedCatalog?.models.slice(0, 80).map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {selectedCatalogIsLocal ? (
+                <Input
+                  value={form.defaultModel}
+                  placeholder={firstModel(selectedCatalog)}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      defaultModel: event.target.value,
+                    }))
+                  }
+                />
+              ) : (
+                <Select
+                  value={form.defaultModel}
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    setForm((current) => ({
+                      ...current,
+                      defaultModel: value,
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedCatalog?.models.slice(0, 80).map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </Field>
           </section>
         </div>

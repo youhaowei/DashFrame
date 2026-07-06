@@ -231,7 +231,14 @@ async function selectAssistantProviderConfigForRun(args: {
   const rows = (await args.db
     .select()
     .from(schema.assistantProviderConfigs)) as AssistantProviderConfigRow[];
-  if (rows.length === 0) return undefined;
+  if (rows.length === 0) {
+    if (args.provider) {
+      throw new Error(
+        `Assistant provider/config ${args.provider} was not found`,
+      );
+    }
+    return undefined;
+  }
 
   const selected = args.provider
     ? rows.find(
@@ -240,7 +247,9 @@ async function selectAssistantProviderConfigForRun(args: {
     : (rows.find((row) => row.isDefault) ??
       rows.find((row) => row.providerId === "anthropic") ??
       rows[0]);
-  if (!selected) return undefined;
+  if (!selected) {
+    throw new Error(`Assistant provider/config ${args.provider} was not found`);
+  }
   return args.modelId ? { ...selected, defaultModel: args.modelId } : selected;
 }
 

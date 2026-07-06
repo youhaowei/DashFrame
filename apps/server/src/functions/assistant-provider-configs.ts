@@ -45,7 +45,7 @@ const setDefaultModelSchema = z.object({
 // Opens the OAuth URL in a browser ON THE SERVER HOST — a desktop-app
 // assumption (Electron main runs next to the user's browser). A hosted
 // deployment must replace this with a client-side redirect flow.
-function openAuthUrl(url: string): void {
+function openAuthUrl(url: string): Promise<void> {
   let opener = "xdg-open";
   if (process.platform === "darwin") {
     opener = "open";
@@ -57,7 +57,31 @@ function openAuthUrl(url: string): void {
     detached: true,
     stdio: "ignore",
   });
-  child.unref();
+  return new Promise((resolve, reject) => {
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+    child.once("error", reject);
+  });
+}
+
+function deviceCodeVerificationUrl(info: {
+  verificationUri: string;
+  userCode: string;
+}): string {
+  const verificationUriComplete = (
+    info as { verificationUriComplete?: unknown }
+  ).verificationUriComplete;
+  if (
+    typeof verificationUriComplete === "string" &&
+    verificationUriComplete.trim()
+  ) {
+    return verificationUriComplete;
+  }
+  throw new Error(
+    "device-code flow requires displaying a user code, not supported in this host flow yet",
+  );
 }
 
 function millis(value: Date): number {
@@ -249,20 +273,7 @@ const setAssistantDefaultModel = mutation({
     await ctx.db
       .from(assistantProviderConfigs)
       .where(eq("id", parsed.id))
-      .update({ defaultModel: parsed.defaultModel, isDefault: true });
-    const rows = (await ctx.db
-      .from(assistantProviderConfigs)
-      .all()) as AssistantProviderConfigRow[];
-    await Promise.all(
-      rows
-        .filter((row) => row.id !== parsed.id && row.isDefault)
-        .map((row) =>
-          ctx.db
-            .from(assistantProviderConfigs)
-            .where(eq("id", row.id))
-            .update({ isDefault: false }),
-        ),
-    );
+      .update({ defaultModel: parsed.defaultModel });
     return { ok: true };
   },
 });
@@ -281,18 +292,34 @@ const startAssistantOAuthLogin = mutation({
     if (row.authKind !== "oauth") {
       throw new Error("Assistant provider is not configured for OAuth");
     }
-    const credentials = await loginAssistantProviderOAuth(row.providerId, {
-      onAuth: (info) => openAuthUrl(info.url),
-      onDeviceCode: (info) => openAuthUrl(info.verificationUri),
-      onPrompt: async () => {
-        throw new Error(
-          "Manual OAuth code entry is not available in this host flow.",
-        );
-      },
-      onSelect: async (prompt) =>
-        prompt.options.find((option) => option.id === "browser")?.id ??
-        prompt.options[0]?.id,
+    let rejectOpenerFailure: (error: Error) => void = () => {};
+    const openerFailure = new Promise<never>((_, reject) => {
+      rejectOpenerFailure = reject;
     });
+    const openAndTrack = (url: string): Promise<void> => {
+      const opened = openAuthUrl(url);
+      opened.catch((error: unknown) => {
+        rejectOpenerFailure(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
+      return opened;
+    };
+    const credentials = await Promise.race([
+      loginAssistantProviderOAuth(row.providerId, {
+        onAuth: (info) => openAndTrack(info.url),
+        onDeviceCode: (info) => openAndTrack(deviceCodeVerificationUrl(info)),
+        onPrompt: async () => {
+          throw new Error(
+            "Manual OAuth code entry is not available in this host flow.",
+          );
+        },
+        onSelect: async (prompt) =>
+          prompt.options.find((option) => option.id === "browser")?.id ??
+          prompt.options[0]?.id,
+      }),
+      openerFailure,
+    ]);
     const ref = await storeAssistantCredential({
       vault,
       plaintext: JSON.stringify(credentials),
