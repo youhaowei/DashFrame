@@ -109,6 +109,9 @@ export const dataTables = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
     lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
   },
   (t) => [index("data_tables_data_source_id_idx").on(t.dataSourceId)],
@@ -131,6 +134,9 @@ export const dataFrames = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
   },
   (t) => [index("data_frames_insight_id_idx").on(t.insightId)],
 );
@@ -320,6 +326,7 @@ export const dataTablesDraft = pgTable(
     metrics: jsonb("metrics"),
     dataFrameId: uuid("data_frame_id"),
     createdAt: timestamp("created_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }),
     lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
     // Draft control columns.
     tombstone: boolean("__tombstone").notNull().default(false),
@@ -342,6 +349,7 @@ export const dataFramesDraft = pgTable(
     columnCount: integer("column_count"),
     analysis: jsonb("analysis"),
     createdAt: timestamp("created_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }),
     // Draft control columns.
     tombstone: boolean("__tombstone").notNull().default(false),
   },
@@ -457,6 +465,21 @@ export const draftCommandLog = pgTable(
   ],
 );
 
+export const draftMetadata = pgTable("draft_metadata", {
+  draftId: text("draft_id").primaryKey(),
+  baseVersion: timestamp("base_version", { withTimezone: true }).notNull(),
+  // Snapshot of the canonical id inventory (per conflict table) at the instant
+  // the draft opened: `{ [canonicalTableName]: id[] }`. Deletes leave no
+  // surviving row for the timestamp probe to see, so conflict detection diffs a
+  // draft-touched id against this base inventory — an id present at open but
+  // gone from canonical now is a delete conflict. Nullable: drafts opened before
+  // this column existed have no inventory and skip delete detection (fail-open).
+  baseInventory: jsonb("base_inventory"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ─── Schema export ────────────────────────────────────────────────────────────
 
 export const schema = {
@@ -471,6 +494,8 @@ export const schema = {
   // Credential infrastructure — NOT drafted (security boundary)
   secretMappings,
   assistantProviderConfigs,
+  // Draft metadata — base version for conflict detection
+  draftMetadata,
   // Draft shadow tables (artifact overlay)
   dataSourcesDraft,
   dataTablesDraft,

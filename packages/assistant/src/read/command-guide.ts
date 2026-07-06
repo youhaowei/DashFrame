@@ -374,7 +374,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: { id: "UUID" },
     notes:
       "Cascades ownership edges (source→table); stops at reference edges and " +
-      "reports orphanedNodes for drift-repair.",
+      "reports orphanedNodes for a TBD repair target.",
   },
 ] as const;
 

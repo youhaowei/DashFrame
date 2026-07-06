@@ -1806,8 +1806,8 @@ const renameNode = mutation({
 
 /**
  * An orphaned node description returned by DeleteNode when a delete stops at a
- * reference edge. The caller (UI or agent) routes these into the Data-Drift
- * Repair flow — from a reference child's perspective, a deleted parent is
+ * reference edge. The caller (UI or agent) routes these into a TBD repair
+ * target — from a reference child's perspective, a deleted parent is
  * indistinguishable from drift.
  */
 export interface OrphanedNode {
@@ -1824,7 +1824,7 @@ export interface OrphanedNode {
  * kind, instead of hard-coding `dataTable` (which mislabeled a deleted Visualization
  * / Dashboard / Insight / DataSource and read the wrong before-slice). Mirrors the
  * RenameNodeResult precedent. `orphanedNodes` is the reference-boundary warning
- * surface routed into Data-Drift Repair (orphan-and-warn is by design).
+ * surface routed into a TBD repair target (orphan-and-warn is by design).
  */
 export interface DeleteNodeResult {
   ok: true;
@@ -1835,7 +1835,7 @@ export interface DeleteNodeResult {
 /**
  * Walk all Insights whose primary source OR any join dependency equals
  * `sourceId`. These are the reference-boundary nodes that must be routed to
- * drift-repair when `sourceId` is deleted.
+ * a TBD repair target when `sourceId` is deleted.
  *
  * The check covers:
  *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
@@ -2099,8 +2099,8 @@ function assertVaultPresentForCredentialDelete(
  *       • Insights that SOURCE any of those DataTables are returned as
  *         `orphanedNodes`.
  *
- * The returned `orphanedNodes` list is the "warning surface" the ticket
- * describes — the UI/agent routes these into the Data-Drift Repair flow.
+ * The returned `orphanedNodes` list is the warning surface; the UI/agent
+ * repair target is TBD.
  * Nothing is silently orphaned and no authored artifact is silently destroyed.
  */
 const deleteNode = mutation({
@@ -2109,7 +2109,7 @@ const deleteNode = mutation({
     // --- Visualization -------------------------------------------------------
     // No owned children. Reference boundary: Dashboards that contain this
     // visualization via a layout item's `visualizationId` are orphaned when the
-    // visualization is deleted — surface them in orphanedNodes for drift-repair.
+    // visualization is deleted — surface them in orphanedNodes for TBD repair.
     const viz = await ctx.db.from(visualizations).where(eq("id", id)).first();
     if (viz) {
       const allDashboards = (await ctx.db
@@ -2144,9 +2144,9 @@ const deleteNode = mutation({
     // --- Insight ------------------------------------------------------------
     // Owned visualizations cascade-delete via the DB schema FK
     // (visualizations.insight_id references insights.id ON DELETE CASCADE).
-    // Reference-boundary: Insights that SOURCE this Insight enter drift-repair.
-    // Dashboard items that reference any of the owned Visualizations also enter
-    // drift-repair (the FK cascade removes the viz, the layout item becomes stale).
+    // Reference-boundary: Insights that SOURCE this Insight need repair. Dashboard
+    // items that reference owned Visualizations need the same TBD repair target
+    // (the FK cascade removes the viz, the layout item becomes stale).
     const insight = (await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -2195,7 +2195,8 @@ const deleteNode = mutation({
 
     // --- DataTable ----------------------------------------------------------
     // No owned children (DataTable is owned by DataSource, not by DataTable).
-    // Reference-boundary: Insights that SOURCE this DataTable enter drift-repair.
+    // Reference-boundary: Insights that SOURCE this DataTable need the TBD
+    // repair target.
     // Arrow cleanup: delete the DataTable's DataFrame metadata if it has one.
     const table = (await ctx.db
       .from(dataTables)

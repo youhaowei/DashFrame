@@ -107,6 +107,11 @@ async function getOk<T>(url: string, path: string, args: unknown): Promise<T> {
   return json.data;
 }
 
+/** Wall-clock pause so a subsequent canonical write's `updated_at` clears the draft's `baseVersion`. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -160,6 +165,18 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     ]);
 
     return draftId;
+  }
+
+  async function seedCanonicalSource(db: ArtifactDb, name: string) {
+    const seedApp = await buildDashframeApp({ db });
+    const seedController = createDraftController(seedApp, db);
+    const sourceId = crypto.randomUUID();
+    const seedDraftId = await seedController.openDraft();
+    await seedController.appendToDraft(seedDraftId, [
+      cmd("CreateDataSource", { id: sourceId, type: "csv", name }),
+    ]);
+    await seedController.publishDraft(seedDraftId);
+    return { sourceId, seedController };
   }
 
   // -------------------------------------------------------------------------
@@ -263,6 +280,172 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     expect(body.data).not.toHaveProperty("__extraTablesWritten");
     // The public field is still present.
     expect(body.data).toHaveProperty("tablesWritten");
+  });
+
+  it("publishDraft blocks a stale draft when canonical changed the same touched cell and surfaces the conflict report", async () => {
+    project = await openProject({ dir: join(root, "conflict") });
+    const db = project.db as ArtifactDb;
+    const { sourceId, seedController } = await seedCanonicalSource(db, "Base");
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: sourceId, name: "Draft rename" }),
+    ]);
+
+    // Separate the draft's baseVersion from the canonical write by ~5ms of real
+    // elapsed time. Both timestamps are independent `new Date()` reads, not
+    // coalesced DB writes — CI contention only widens the gap. An explicit
+    // past baseVersion would pull seed writes into the stale window and break
+    // the disjoint-cell test below.
+    await delay(5);
+    await db
+      .update(dataSources)
+      .set({ name: "Canonical rename" })
+      .where(eq(dataSources.id, sourceId));
+
+    server = await createDashframeServer({ db });
+
+    const res = await post(server.url, "publishDraft", { draftId });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      issues: Array<{
+        params?: {
+          kind?: string;
+          conflictReport?: {
+            staleBase: boolean;
+            overlappingCells: Array<{ table: string; id: string }>;
+          };
+        };
+      }>;
+    };
+
+    expect(body.error).toContain("draft conflicts with canonical changes");
+    const report = body.issues[0]?.params?.conflictReport;
+    expect(body.issues[0]?.params?.kind).toBe("draft_conflict");
+    expect(report).toEqual({
+      staleBase: true,
+      overlappingCells: [{ table: "data_sources", id: sourceId }],
+    });
+
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(1);
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((row) => row.id === sourceId)?.name).toBe(
+      "Canonical rename",
+    );
+  });
+
+  it("publishDraft still succeeds when canonical changed a disjoint cell after the draft opened", async () => {
+    project = await openProject({ dir: join(root, "disjoint") });
+    const db = project.db as ArtifactDb;
+    const { sourceId: draftSourceId, seedController } =
+      await seedCanonicalSource(db, "Draft target");
+    const { sourceId: canonicalSourceId } = await seedCanonicalSource(
+      db,
+      "Canonical target",
+    );
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: draftSourceId, name: "Draft rename" }),
+    ]);
+
+    // Same ordering guarantee as the overlapping-cell conflict test above.
+    await delay(5);
+    await db
+      .update(dataSources)
+      .set({ name: "Disjoint canonical rename" })
+      .where(eq(dataSources.id, canonicalSourceId));
+
+    server = await createDashframeServer({ db });
+
+    await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
+      draftId,
+    });
+
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((row) => row.id === draftSourceId)?.name).toBe(
+      "Draft rename",
+    );
+    expect(rows.find((row) => row.id === canonicalSourceId)?.name).toBe(
+      "Disjoint canonical rename",
+    );
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(0);
+  });
+
+  it("publishDraft blocks when canonical DELETED a row the draft touched and surfaces the conflict report", async () => {
+    project = await openProject({ dir: join(root, "delete-conflict") });
+    const db = project.db as ArtifactDb;
+    const { sourceId, seedController } = await seedCanonicalSource(db, "Base");
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: sourceId, name: "Draft rename" }),
+    ]);
+
+    // Another session deletes the row the draft is editing. A delete bumps no
+    // surviving row's timestamp, so this is caught only against the base
+    // inventory — no `delay()` needed (the row's absence, not its timestamp, is
+    // the signal).
+    await db.delete(dataSources).where(eq(dataSources.id, sourceId));
+
+    server = await createDashframeServer({ db });
+
+    const res = await post(server.url, "publishDraft", { draftId });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      issues: Array<{
+        params?: {
+          kind?: string;
+          conflictReport?: {
+            staleBase: boolean;
+            overlappingCells: Array<{ table: string; id: string }>;
+          };
+        };
+      }>;
+    };
+
+    expect(body.issues[0]?.params?.kind).toBe("draft_conflict");
+    expect(body.issues[0]?.params?.conflictReport).toEqual({
+      staleBase: true,
+      overlappingCells: [{ table: "data_sources", id: sourceId }],
+    });
+    // The blocked publish leaves the draft intact for a rebase/repair.
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(1);
+  });
+
+  it("publishDraft still succeeds when canonical DELETED a row the draft did not touch", async () => {
+    project = await openProject({ dir: join(root, "delete-disjoint") });
+    const db = project.db as ArtifactDb;
+    const { sourceId: draftSourceId, seedController } =
+      await seedCanonicalSource(db, "Draft target");
+    const { sourceId: deletedSourceId } = await seedCanonicalSource(
+      db,
+      "Deleted elsewhere",
+    );
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: draftSourceId, name: "Draft rename" }),
+    ]);
+
+    // Canonical deletes a DIFFERENT source than the draft touches — disjoint,
+    // so the publish must proceed.
+    await db.delete(dataSources).where(eq(dataSources.id, deletedSourceId));
+
+    server = await createDashframeServer({ db });
+
+    await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
+      draftId,
+    });
+
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((row) => row.id === draftSourceId)?.name).toBe(
+      "Draft rename",
+    );
+    expect(rows.some((row) => row.id === deletedSourceId)).toBe(false);
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------
