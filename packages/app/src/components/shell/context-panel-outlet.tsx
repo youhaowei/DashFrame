@@ -15,17 +15,27 @@ export interface ContextPanelSection {
 }
 
 interface ContextPanelRegistry {
-  sections: ContextPanelSection[];
   registerSection: (section: ContextPanelSection) => () => void;
+  unregisterSection: (id: string) => void;
 }
 
-const ContextPanelContext = createContext<ContextPanelRegistry | null>(null);
+const ContextPanelRegistryContext = createContext<ContextPanelRegistry | null>(
+  null,
+);
+const ContextPanelSectionsContext = createContext<ContextPanelSection[] | null>(
+  null,
+);
 
 function replaceSection(
   current: ContextPanelSection[],
   section: ContextPanelSection,
 ) {
-  return [...current.filter((item) => item.id !== section.id), section];
+  const index = current.findIndex((item) => item.id === section.id);
+  if (index === -1) return [...current, section];
+
+  const next = [...current];
+  next[index] = section;
+  return next;
 }
 
 function removeSection(current: ContextPanelSection[], id: string) {
@@ -48,19 +58,21 @@ export function ContextPanelProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ sections, registerSection }),
-    [registerSection, sections],
+    () => ({ registerSection, unregisterSection }),
+    [registerSection, unregisterSection],
   );
 
   return (
-    <ContextPanelContext.Provider value={value}>
-      {children}
-    </ContextPanelContext.Provider>
+    <ContextPanelRegistryContext.Provider value={value}>
+      <ContextPanelSectionsContext.Provider value={sections}>
+        {children}
+      </ContextPanelSectionsContext.Provider>
+    </ContextPanelRegistryContext.Provider>
   );
 }
 
 function useContextPanelRegistry() {
-  const registry = useContext(ContextPanelContext);
+  const registry = useContext(ContextPanelRegistryContext);
   if (!registry) {
     throw new Error(
       "Context panel outlet hooks must be used inside ContextPanelProvider",
@@ -70,14 +82,32 @@ function useContextPanelRegistry() {
 }
 
 export function useContextPanelSections() {
-  return useContextPanelRegistry().sections;
+  const sections = useContext(ContextPanelSectionsContext);
+  if (!sections) {
+    throw new Error(
+      "Context panel outlet hooks must be used inside ContextPanelProvider",
+    );
+  }
+  return sections;
 }
 
 export function useContextPanelSection(section: ContextPanelSection | null) {
-  const { registerSection } = useContextPanelRegistry();
+  const { registerSection, unregisterSection } = useContextPanelRegistry();
+  const sectionId = section?.id;
+  const sectionTitle = section?.title;
+  const sectionContent = section?.content;
 
   useEffect(() => {
-    if (!section) return;
-    return registerSection(section);
-  }, [registerSection, section]);
+    if (!sectionId) return;
+    return () => unregisterSection(sectionId);
+  }, [sectionId, unregisterSection]);
+
+  useEffect(() => {
+    if (!sectionId || sectionTitle === undefined) return;
+    registerSection({
+      id: sectionId,
+      title: sectionTitle,
+      content: sectionContent,
+    });
+  }, [registerSection, sectionContent, sectionId, sectionTitle]);
 }
