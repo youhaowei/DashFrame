@@ -83,4 +83,48 @@ if [[ "$1" == "review" ]]; then
   fi
 fi
 
+if [[ "${1:-}" == "review" ]]; then
+  since_base=""
+  previous_arg=""
+  for arg in "$@"; do
+    if [[ "$previous_arg" == "--since" ]]; then
+      since_base="$arg"
+      break
+    fi
+    if [[ "$arg" == --since=* ]]; then
+      since_base="${arg#--since=}"
+      break
+    fi
+    previous_arg="$arg"
+  done
+
+  review_stdout_file="$(mktemp)"
+  review_stderr_file="$(mktemp)"
+  set +e
+  clawpatch --state-dir "$state_dir" "$@" >"$review_stdout_file" 2>"$review_stderr_file"
+  review_rc=$?
+  set -e
+  review_stdout="$(cat "$review_stdout_file")"
+  review_stderr="$(cat "$review_stderr_file")"
+  rm -f "$review_stdout_file" "$review_stderr_file"
+  if [[ -n "$review_stdout" ]]; then
+    printf '%s\n' "$review_stdout"
+  fi
+  if [[ -n "$review_stderr" ]]; then
+    printf '%s\n' "$review_stderr" >&2
+  fi
+
+  if [[ "$review_rc" -eq 0 && -n "$since_base" ]] \
+    && grep -Fq "no features touched by diff" <<<"${review_stdout}${review_stderr}"; then
+    changed_files="$(git diff --name-only "$since_base" -- || true)"
+    if [[ -n "$changed_files" ]]; then
+      echo "ERROR [clawpatch]: stale map / unmapped files: review reported no features touched by diff, but git diff --name-only '$since_base' is non-empty." >&2
+      echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and check whether changed files are mapped to features." >&2
+      exit 1
+    fi
+  fi
+
+  exit "$review_rc"
+fi
+
 clawpatch --state-dir "$state_dir" "$@"
