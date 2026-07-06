@@ -296,21 +296,15 @@ describe("createAssistantRun", () => {
     let streamCalls = 0;
     const stream = scriptedStream([
       assistantMessage(
-        [
-          createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" }),
-        ],
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" }),
-        ],
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-3", { id: "bad-3", name: "Bad 3" }),
-        ],
+        [createDashboardCall("bad-3", { id: "bad-3", name: "Bad 3" })],
         "toolUse",
       ),
       assistantMessage(
@@ -422,15 +416,11 @@ describe("createAssistantRun", () => {
     let streamCalls = 0;
     const stream = scriptedStream([
       assistantMessage(
-        [
-          createDashboardCall("bad-a", { id: "repeat", name: "Repeated" }),
-        ],
+        [createDashboardCall("bad-a", { id: "repeat", name: "Repeated" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-b", { id: "other", name: "Other" }),
-        ],
+        [createDashboardCall("bad-b", { id: "other", name: "Other" })],
         "toolUse",
       ),
       assistantMessage(
@@ -469,21 +459,15 @@ describe("createAssistantRun", () => {
     failAppendForCommandIds(host, ["bad-1", "bad-2"]);
     const stream = scriptedStream([
       assistantMessage(
-        [
-          createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" }),
-        ],
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("good", { id: "good", name: "Recovered" }),
-        ],
+        [createDashboardCall("good", { id: "good", name: "Recovered" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" }),
-        ],
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
         "toolUse",
       ),
       assistantMessage([{ type: "text", text: "Stopped normally." }], "stop"),
@@ -509,21 +493,15 @@ describe("createAssistantRun", () => {
     failAppendForCommandIds(host, ["bad-1", "bad-2"]);
     const stream = scriptedStream([
       assistantMessage(
-        [
-          createDashboardCall("good", { id: "good", name: "Keep Me" }),
-        ],
+        [createDashboardCall("good", { id: "good", name: "Keep Me" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" }),
-        ],
+        [createDashboardCall("bad-1", { id: "bad-1", name: "Bad 1" })],
         "toolUse",
       ),
       assistantMessage(
-        [
-          createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" }),
-        ],
+        [createDashboardCall("bad-2", { id: "bad-2", name: "Bad 2" })],
         "toolUse",
       ),
       assistantMessage(
