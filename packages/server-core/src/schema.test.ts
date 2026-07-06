@@ -248,6 +248,7 @@ describe("draft_metadata table", () => {
     const cols = await liveColumns("draft_metadata");
     expect(cols.has("draft_id")).toBe(true);
     expect(cols.has("base_version")).toBe(true);
+    expect(cols.has("base_inventory")).toBe(true);
     expect(cols.has("created_at")).toBe(true);
   });
 

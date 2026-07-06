@@ -125,6 +125,8 @@ function normalizeRows(result: unknown): Record<string, unknown>[] {
 }
 
 function normalizeBaseVersion(baseVersion: unknown): Date {
+  // No base supplied → the draft's base is "now" (the legitimate default).
+  if (baseVersion === undefined) return new Date();
   if (baseVersion instanceof Date && !Number.isNaN(baseVersion.getTime())) {
     return baseVersion;
   }
@@ -136,7 +138,12 @@ function normalizeBaseVersion(baseVersion: unknown): Date {
     const date = new Date(baseVersion);
     if (!Number.isNaN(date.getTime())) return date;
   }
-  return new Date();
+  // A value was supplied but is not a valid Date/epoch/ISO string. Silently
+  // coercing it to `new Date()` would push the base to "now" and quietly mask
+  // every prior canonical write from conflict detection — throw instead.
+  throw new Error(
+    `openDraft: invalid baseVersion (${typeof baseVersion}); expected a Date, epoch number, or ISO string`,
+  );
 }
 
 function timestampExpression(tableAlias: string): string {
@@ -475,6 +482,77 @@ export function createDraftController(
     return rows[0]?.baseVersion ?? null;
   }
 
+  /**
+   * The canonical id inventory captured at open, as `{ table: id[] }`, or null
+   * for a legacy draft opened before the column existed (delete detection then
+   * fails open). See {@link snapshotCanonicalInventory} and the `base_inventory`
+   * schema note.
+   */
+  async function readBaseInventory(
+    draftId: string,
+    exec: LogReader = db,
+  ): Promise<Record<string, unknown[]> | null> {
+    const rows = await exec
+      .select({ baseInventory: draftMetadata.baseInventory })
+      .from(draftMetadata)
+      .where(eq(draftMetadata.draftId, draftId));
+    const inventory = rows[0]?.baseInventory;
+    return inventory != null && typeof inventory === "object"
+      ? (inventory as Record<string, unknown[]>)
+      : null;
+  }
+
+  /** Read every canonical id in one conflict table. */
+  async function canonicalIds(
+    canonicalName: string,
+    exec: SqlExecutor = db,
+  ): Promise<Set<unknown>> {
+    const rows = normalizeRows(
+      // `canonicalName` is a static schema table name (getTableName), never
+      // caller input — no injection surface.
+      await exec.execute(sql.raw(`SELECT "id" AS id FROM "${canonicalName}"`)),
+    );
+    return new Set(rows.map((row) => row.id));
+  }
+
+  /**
+   * Delete conflicts the timestamp probe cannot see. A canonical DELETE removes
+   * the row, so `hasCanonicalWritesSince`/`overlappingCellsSince` (which read
+   * `updated_at` on surviving rows) miss it entirely. Instead, diff each
+   * draft-touched id against the base inventory: an id the draft touched that
+   * EXISTED at open but is now ABSENT from canonical was deleted underneath the
+   * draft — a genuine conflict (the draft edits, or re-deletes, a row that is
+   * gone). draft-CREATED ids (not in the base inventory) are correctly ignored.
+   */
+  async function deletedTouchedCells(
+    draftId: string,
+    baseInventory: Record<string, unknown[]>,
+    exec: SqlExecutor = db,
+  ): Promise<Cell[]> {
+    const cells: Cell[] = [];
+    for (const table of DRAFT_CONFLICT_TABLES) {
+      const canonicalName = getTableName(table.canonical);
+      const baseIds = baseInventory[canonicalName];
+      if (!Array.isArray(baseIds) || baseIds.length === 0) continue;
+      const draftName = getTableName(table.draft);
+      const prefix = sql.raw(
+        `SELECT d."id" AS id FROM "${draftName}" d WHERE d."draft_id" = `,
+      );
+      const touched = normalizeRows(
+        await exec.execute(sql`${prefix}${draftId}`),
+      );
+      if (touched.length === 0) continue;
+      const baseIdSet = new Set(baseIds);
+      const surviving = await canonicalIds(canonicalName, exec);
+      for (const row of touched) {
+        if (baseIdSet.has(row.id) && !surviving.has(row.id)) {
+          cells.push({ table: canonicalName, id: row.id });
+        }
+      }
+    }
+    return cells;
+  }
+
   async function hasCanonicalWritesSince(
     baseVersion: Date,
     exec: SqlExecutor = db,
@@ -504,6 +582,10 @@ export function createDraftController(
    * opened is not seen (the tests' `delay()` calls dodge this window). A
    * monotonic version token would close it; accepted for now — the window is
    * one clock tick on a local single-writer DB.
+   *
+   * Covers UPDATEs only: this INNER JOIN matches surviving canonical rows, so a
+   * DELETE (the row is gone) is invisible here and detected separately against
+   * the base inventory — see {@link deletedTouchedCells}.
    */
   async function overlappingCellsSince(
     draftId: string,
@@ -545,10 +627,24 @@ export function createDraftController(
       return { staleBase: false, overlappingCells: [] };
     }
 
-    const staleBase = await hasCanonicalWritesSince(baseVersion, exec);
-    const overlappingCells = staleBase
+    const timestampStale = await hasCanonicalWritesSince(baseVersion, exec);
+    const updatedCells = timestampStale
       ? await overlappingCellsSince(draftId, baseVersion, exec)
       : [];
+    // Deletes bump no surviving row's timestamp, so they must be detected
+    // separately against the base inventory (independent of `timestampStale`).
+    const baseInventory = await readBaseInventory(draftId, exec);
+    const deletedCells = baseInventory
+      ? await deletedTouchedCells(draftId, baseInventory, exec)
+      : [];
+
+    // `updatedCells` requires the canonical row to still exist (INNER JOIN);
+    // `deletedCells` requires it absent — the two sets are disjoint by
+    // construction, so a plain concat cannot double-count a cell.
+    const overlappingCells = [...updatedCells, ...deletedCells];
+    // A delete IS a canonical advance even when no surviving row's timestamp
+    // moved, so a delete-only conflict must still report `staleBase: true`.
+    const staleBase = timestampStale || deletedCells.length > 0;
 
     return { staleBase, overlappingCells };
   }
@@ -622,14 +718,36 @@ export function createDraftController(
     });
   }
 
+  /**
+   * Snapshot the canonical id inventory across the conflict tables at open, as
+   * `{ [canonicalTableName]: id[] }`. This is the base against which delete
+   * detection later diffs (see {@link deletedTouchedCells}) — the only way to
+   * see a canonical row that a later publish finds already gone. Tables here are
+   * small artifact-metadata tables, so a full id scan per table is cheap and
+   * open is rare.
+   */
+  async function snapshotCanonicalInventory(
+    exec: SqlExecutor = db,
+  ): Promise<Record<string, unknown[]>> {
+    const inventory: Record<string, unknown[]> = {};
+    for (const table of DRAFT_CONFLICT_TABLES) {
+      const canonicalName = getTableName(table.canonical);
+      inventory[canonicalName] = [...(await canonicalIds(canonicalName, exec))];
+    }
+    return inventory;
+  }
+
   return {
     async openDraft(baseVersion?: unknown): Promise<string> {
       // DashFrame owns the handle. `withDraft` accepts any id, so a UUID is the
       // durable draftId across the shadow tables and the command log.
       const draftId = crypto.randomUUID();
+      // Capture baseVersion and the id inventory together at open — the paired
+      // base for both timestamp- and delete-based conflict detection.
       await db.insert(draftMetadata).values({
         draftId,
         baseVersion: normalizeBaseVersion(baseVersion),
+        baseInventory: await snapshotCanonicalInventory(),
       });
       return draftId;
     },

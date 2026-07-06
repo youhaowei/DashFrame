@@ -366,6 +366,81 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     expect(await seedController.getDraftLog(draftId)).toHaveLength(0);
   });
 
+  it("publishDraft blocks when canonical DELETED a row the draft touched and surfaces the conflict report", async () => {
+    project = await openProject({ dir: join(root, "delete-conflict") });
+    const db = project.db as ArtifactDb;
+    const { sourceId, seedController } = await seedCanonicalSource(db, "Base");
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: sourceId, name: "Draft rename" }),
+    ]);
+
+    // Another session deletes the row the draft is editing. A delete bumps no
+    // surviving row's timestamp, so this is caught only against the base
+    // inventory — no `delay()` needed (the row's absence, not its timestamp, is
+    // the signal).
+    await db.delete(dataSources).where(eq(dataSources.id, sourceId));
+
+    server = await createDashframeServer({ db });
+
+    const res = await post(server.url, "publishDraft", { draftId });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      issues: Array<{
+        params?: {
+          kind?: string;
+          conflictReport?: {
+            staleBase: boolean;
+            overlappingCells: Array<{ table: string; id: string }>;
+          };
+        };
+      }>;
+    };
+
+    expect(body.issues[0]?.params?.kind).toBe("draft_conflict");
+    expect(body.issues[0]?.params?.conflictReport).toEqual({
+      staleBase: true,
+      overlappingCells: [{ table: "data_sources", id: sourceId }],
+    });
+    // The blocked publish leaves the draft intact for a rebase/repair.
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(1);
+  });
+
+  it("publishDraft still succeeds when canonical DELETED a row the draft did not touch", async () => {
+    project = await openProject({ dir: join(root, "delete-disjoint") });
+    const db = project.db as ArtifactDb;
+    const { sourceId: draftSourceId, seedController } =
+      await seedCanonicalSource(db, "Draft target");
+    const { sourceId: deletedSourceId } = await seedCanonicalSource(
+      db,
+      "Deleted elsewhere",
+    );
+
+    const draftId = await seedController.openDraft();
+    await seedController.appendToDraft(draftId, [
+      cmd("RenameNode", { id: draftSourceId, name: "Draft rename" }),
+    ]);
+
+    // Canonical deletes a DIFFERENT source than the draft touches — disjoint,
+    // so the publish must proceed.
+    await db.delete(dataSources).where(eq(dataSources.id, deletedSourceId));
+
+    server = await createDashframeServer({ db });
+
+    await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
+      draftId,
+    });
+
+    const rows = await db.select().from(dataSources);
+    expect(rows.find((row) => row.id === draftSourceId)?.name).toBe(
+      "Draft rename",
+    );
+    expect(rows.some((row) => row.id === deletedSourceId)).toBe(false);
+    expect(await seedController.getDraftLog(draftId)).toHaveLength(0);
+  });
+
   // -------------------------------------------------------------------------
   // TOCTOU guard: expectedCommandCount
   // -------------------------------------------------------------------------

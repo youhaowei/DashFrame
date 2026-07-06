@@ -468,6 +468,13 @@ export const draftCommandLog = pgTable(
 export const draftMetadata = pgTable("draft_metadata", {
   draftId: text("draft_id").primaryKey(),
   baseVersion: timestamp("base_version", { withTimezone: true }).notNull(),
+  // Snapshot of the canonical id inventory (per conflict table) at the instant
+  // the draft opened: `{ [canonicalTableName]: id[] }`. Deletes leave no
+  // surviving row for the timestamp probe to see, so conflict detection diffs a
+  // draft-touched id against this base inventory — an id present at open but
+  // gone from canonical now is a delete conflict. Nullable: drafts opened before
+  // this column existed have no inventory and skip delete detection (fail-open).
+  baseInventory: jsonb("base_inventory"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
