@@ -7,6 +7,7 @@ import { NotFoundView } from "./NotFoundView";
 
 interface InsightPageContentProps {
   insightId: string;
+  visualizeIntent?: boolean;
 }
 
 /**
@@ -17,6 +18,7 @@ interface InsightPageContentProps {
  */
 export default function InsightPageContent({
   insightId,
+  visualizeIntent = false,
 }: InsightPageContentProps) {
   const { data: insight, isLoading } = useInsight(insightId);
 
@@ -43,5 +45,5 @@ export default function InsightPageContent({
     return <NotFoundView type="insight" />;
   }
 
-  return <InsightView insight={insight} />;
+  return <InsightView insight={insight} visualizeIntent={visualizeIntent} />;
 }

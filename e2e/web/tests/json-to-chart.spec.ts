@@ -1,7 +1,7 @@
 /**
  * JSON to Chart Workflow
  *
- * Core user journey: Upload JSON -> Configure Insight -> Create Chart
+ * Core user journey: Upload JSON -> Table-first Insight -> Pin Chart View
  */
 import { expect, test } from "../lib/test-fixtures";
 
@@ -22,19 +22,18 @@ test.describe("JSON to Chart", () => {
       timeout: 15_000,
     });
 
-    // Verify chart suggestions appear
-    await expect(page.getByText("Create visualization")).toBeVisible({
+    // Verify the insight opens table-first.
+    await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
       timeout: 30_000,
     });
 
-    // Click first suggestion
-    await page
-      .getByRole("button", { name: /^Comparison/ })
-      .first()
-      .click();
+    // Switch to an ephemeral chart view, then pin it into a Visualization.
+    await page.getByRole("button", { name: "Bar" }).click();
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await page.getByRole("button", { name: "Pin view" }).click();
 
-    // Verify redirect to visualization page
-    await expect(page).toHaveURL(/\/visualizations\/[a-zA-Z0-9-]+/);
+    // Pinning keeps the user on the insight canvas.
+    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
 
     // Verify chart renders
     await waitForChart();

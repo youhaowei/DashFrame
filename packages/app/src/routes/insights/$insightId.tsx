@@ -2,10 +2,16 @@ import InsightPageContent from "@/app/insights/[insightId]/_components/InsightPa
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/insights/$insightId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    visualize: search.visualize === "true",
+  }),
   component: InsightRoute,
 });
 
 function InsightRoute() {
   const { insightId } = Route.useParams();
-  return <InsightPageContent insightId={insightId} />;
+  const { visualize } = Route.useSearch();
+  return (
+    <InsightPageContent insightId={insightId} visualizeIntent={visualize} />
+  );
 }

@@ -14,6 +14,7 @@ import { useCallback, useState } from "react";
 interface CreateVisualizationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  visualizeOnCreate?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ interface CreateVisualizationModalProps {
 export function CreateVisualizationModal({
   isOpen,
   onClose,
+  visualizeOnCreate = false,
 }: CreateVisualizationModalProps) {
   const navigate = useNavigate();
   const { createInsightFromTable, createInsightFromInsight } =
@@ -65,10 +67,12 @@ export function CreateVisualizationModal({
   // When selecting a table, create new insight directly
   const handleTableSelect = useCallback(
     (tableId: string, tableName: string) => {
-      createInsightFromTable(tableId, tableName);
+      createInsightFromTable(tableId, tableName, {
+        visualize: visualizeOnCreate,
+      });
       onClose();
     },
-    [createInsightFromTable, onClose],
+    [createInsightFromTable, onClose, visualizeOnCreate],
   );
 
   // Close action dialog

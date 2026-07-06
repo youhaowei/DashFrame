@@ -1,13 +1,13 @@
 /**
  * Chart Editing Tests
  *
- * Tests for switching chart types and editing visualizations
+ * Tests for switching chart views and pinning visualizations
  */
 import { expect, test } from "../lib/test-fixtures";
 
 test.describe("Chart Editing", () => {
   test.beforeEach(async ({ page, homePage, uploadFile }) => {
-    // Setup: Create a visualization first
+    // Setup: Create an insight first
     await homePage();
     await uploadFile("sales_data.csv");
 
@@ -15,46 +15,28 @@ test.describe("Chart Editing", () => {
       timeout: 15_000,
     });
 
-    // Create first chart
-    await expect(page.getByText("Create visualization")).toBeVisible({
+    // Start from the table-first canvas and pin one chart view.
+    await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
       timeout: 30_000,
     });
-    await page
-      .getByRole("button", { name: /^Comparison/ })
-      .first()
-      .click();
-
-    await expect(page).toHaveURL(/\/visualizations\/[a-zA-Z0-9-]+/);
+    await page.getByRole("button", { name: "Bar" }).click();
+    await page.getByRole("button", { name: "Pin view" }).click();
+    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
 
   test("can switch between chart types", async ({ page, waitForChart }) => {
-    // Wait for initial chart
+    // Wait for initial pinned chart.
     await waitForChart();
 
-    // Get current chart type indicator (if visible in UI)
-    // Switch to different chart types and verify render
+    await page.getByRole("button", { name: "Table" }).click();
+    await expect(page.getByText(/5 rows/).first()).toBeVisible();
 
-    // Look for chart type selector or edit mode
-    const editButton = page.getByRole("button", { name: /edit/i });
-    if (await editButton.isVisible()) {
-      await editButton.click();
-    }
+    await page.getByRole("button", { name: "Line" }).click();
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await waitForChart();
 
-    // If there's a chart type dropdown/selector, test switching
-    // This depends on actual UI implementation
-    const chartTypeSelector = page.locator(
-      '[data-testid="chart-type-selector"]',
-    );
-    if (await chartTypeSelector.isVisible()) {
-      // Test switching to line chart
-      await chartTypeSelector.click();
-      await page.getByRole("option", { name: /line/i }).click();
-      await waitForChart();
-
-      // Test switching to area chart
-      await chartTypeSelector.click();
-      await page.getByRole("option", { name: /area/i }).click();
-      await waitForChart();
-    }
+    await page.getByRole("button", { name: "Area" }).click();
+    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await waitForChart();
   });
 });

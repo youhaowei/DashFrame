@@ -1,4 +1,3 @@
-import { ChartTypePicker } from "@/components/visualizations/ChartTypePicker";
 import { ChartTypePickerModal } from "@/components/visualizations/ChartTypePickerModal";
 import { VisualizationItemCard } from "@/components/visualizations/VisualizationItemCard";
 import type { Insight } from "@/lib/stores/types";
@@ -50,15 +49,10 @@ interface VisualizationListItem extends ListItem {
 }
 
 /**
- * VisualizationsSection - Shows visualizations or creation flow
+ * VisualizationsSection - Legacy pinned visualization list.
  *
- * Two states:
- * 1. Empty state (no visualizations): Shows inline ChartTypePicker grid
- *    for immediate chart creation without modal.
- * 2. Has visualizations: Shows grid of existing visualizations with
- *    "Create visualization" button that opens modal.
- *
- * Memoized to prevent re-renders when unrelated data changes.
+ * InsightView now owns the table-first canvas and view switcher. This section
+ * intentionally does not render a standalone blank-chart picker.
  */
 export const VisualizationsSection = memo(function VisualizationsSection({
   visualizations,
@@ -151,33 +145,6 @@ export const VisualizationsSection = memo(function VisualizationsSection({
 
   // Check if we have the required props for chart creation
   const canCreateChart = tableName && insight && onCreateChart;
-  const hasVisualizations = visualizations.length > 0;
-
-  // Empty state: show inline chart type picker
-  if (!hasVisualizations && canCreateChart) {
-    return (
-      <Section
-        title="Create visualization"
-        description="Select a chart type to get started"
-      >
-        <ChartTypePicker
-          tableName={tableName}
-          insight={insight}
-          columnAnalysis={columnAnalysis}
-          rowCount={rowCount}
-          fieldMap={fieldMap}
-          existingFields={existingFields}
-          onCreateChart={onCreateChart}
-          gridColumns={3}
-          isLoading={isChartViewLoading}
-          suggestionSeed={suggestionSeed}
-          onRegenerate={onRegenerate}
-        />
-      </Section>
-    );
-  }
-
-  // Has visualizations: show grid with "Create visualization" button
   return (
     <>
       <Section

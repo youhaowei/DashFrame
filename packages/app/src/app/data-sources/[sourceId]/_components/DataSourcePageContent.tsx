@@ -5,6 +5,7 @@ import {
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
@@ -154,6 +155,7 @@ export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
+  const { createInsightFromTable } = useCreateInsight();
 
   const { data: allDataSources = [], isLoading, isFetching } = useDataSources();
   const { update: updateDataSource } = useDataSourceMutations();
@@ -226,14 +228,12 @@ export default function DataSourcePageContent({
     }
   };
 
-  // Handle create insight from table
-  const handleCreateInsight = (tableId: UUID) => {
-    // Navigate to insights page with pre-selected table
-    // The actual insight creation will happen there
-    navigate({
-      to: "/insights",
-      search: { newInsight: "true", tableId },
-    } as never);
+  // Handle explicit visualize intent from the table detail surface.
+  const handleCreateInsight = async (tableId: UUID) => {
+    const table = dataTables.find((item) => item.id === tableId);
+    await createInsightFromTable(tableId, table?.name ?? "Untitled table", {
+      visualize: true,
+    });
   };
 
   // Cached column analysis keyed by field ID, for data-driven sensitivity
@@ -410,7 +410,7 @@ export default function DataSourcePageContent({
               </div>
               <div className="flex items-center gap-2">
                 <Button
-                  label="Create Insight"
+                  label="Visualize this data"
                   onClick={() => handleCreateInsight(selectedTableId)}
                   icon={PlusIcon}
                 />
