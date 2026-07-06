@@ -75,6 +75,8 @@ interface AssistantState {
   pendingDraftId: string | null;
   runStatus: AssistantRunStatus;
   activeDraftId: string | null;
+  selectedProviderConfigId: string | null;
+  selectedModelId: string | null;
   turns: AssistantTurn[];
   streamingText: string;
   error: string | null;
@@ -86,6 +88,7 @@ interface AssistantActions {
   toggle: () => void;
   /** Set (or clear) a draft waiting for review. Opens the panel when non-null. */
   setPendingDraft: (id: string | null) => void;
+  setSelectedModel: (providerConfigId: string, modelId: string) => void;
   beginRun: (prompt: string) => void;
   receiveRunEvent: (event: AssistantStoreEvent) => void;
   failRun: (message: string) => void;
@@ -149,6 +152,8 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
       pendingDraftId: null,
       runStatus: "idle",
       activeDraftId: null,
+      selectedProviderConfigId: null,
+      selectedModelId: null,
       turns: [],
       streamingText: "",
       error: null,
@@ -162,6 +167,11 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
           // Open the panel automatically when a draft is queued.
           isOpen: id !== null ? true : s.isOpen,
         })),
+      setSelectedModel: (providerConfigId, modelId) =>
+        set({
+          selectedProviderConfigId: providerConfigId,
+          selectedModelId: modelId,
+        }),
       beginRun: (prompt) =>
         set((s) => ({
           isOpen: true,

@@ -164,6 +164,10 @@ describe("security boundary — no shadow for credential/infra tables", () => {
     expect(await tableExists("project_meta__draft")).toBe(false);
   });
 
+  test("assistant_provider_configs__draft does NOT exist", async () => {
+    expect(await tableExists("assistant_provider_configs__draft")).toBe(false);
+  });
+
   test("schema export has no secret_mappings draft entry", () => {
     const keys = Object.keys(schema);
     const forbidden = keys.filter(

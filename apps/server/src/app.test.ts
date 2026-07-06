@@ -230,6 +230,39 @@ describe("createDashframeServer", () => {
       expect(body.error).toBe("Invalid JSON in request body");
     });
 
+    it("rejects a nonexistent requested assistant provider config instead of falling back", async () => {
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Run Co",
+      });
+      const seedApp = await buildDashframeApp({ db: project.db });
+      await seedApp.call("saveAssistantProviderConfig", {
+        input: {
+          providerId: "ollama",
+          displayLabel: "Ollama",
+          authKind: "local",
+          baseUrl: "http://localhost:11434/v1",
+          defaultModel: "llama3.1",
+          isDefault: true,
+        },
+      });
+      server = await createDashframeServer({ db: project.db });
+
+      const missingId = "00000000-0000-4000-8000-000000000000";
+      const res = await fetch(`${server.url}/assistant/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: "Say hello",
+          provider: missingId,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain(missingId);
+    });
+
     it("should require the loopback token and allow packaged Origin null", async () => {
       project = await openProject({
         dir: join(root, "proj"),

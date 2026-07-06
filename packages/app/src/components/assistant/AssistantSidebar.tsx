@@ -16,6 +16,7 @@ import {
   useAssistantStore,
 } from "@/lib/stores/assistant-store";
 
+import { AssistantModelPicker } from "./AssistantModelPicker";
 import { DraftReviewPanel } from "./DraftReviewPanel";
 import { useArtifactContext } from "./artifact-context";
 
@@ -52,6 +53,10 @@ function AssistantPanelBody() {
   const streamingText = useAssistantStore((s) => s.streamingText);
   const runStatus = useAssistantStore((s) => s.runStatus);
   const error = useAssistantStore((s) => s.error);
+  const selectedProviderConfigId = useAssistantStore(
+    (s) => s.selectedProviderConfigId,
+  );
+  const selectedModelId = useAssistantStore((s) => s.selectedModelId);
   const [prompt, setPrompt] = useState("");
   const isRunning = runStatus === "running";
 
@@ -83,6 +88,8 @@ function AssistantPanelBody() {
       await runAssistantPrompt({
         prompt: text,
         artifact,
+        provider: selectedProviderConfigId ?? undefined,
+        modelId: selectedModelId ?? undefined,
         signal: controller.signal,
         onEvent: receiveRunEvent,
       });
@@ -112,6 +119,7 @@ function AssistantPanelBody() {
             {artifact ? artifact.title : "No artifact in focus"}
           </span>
         </div>
+        <AssistantModelPicker />
         <Button
           variant="ghost"
           icon={CloseIcon}

@@ -652,7 +652,10 @@ export async function createDashframeServer(
   honoApp.post("/assistant/run", (c) =>
     handleAssistantRunRequest(c, {
       app,
+      db: opts.db as ArtifactDb,
       draftController: serverContext.draftController as DraftController,
+      vault: opts.vault,
+      flushSnapshot: opts.flushSnapshot,
       resolveContext,
     }),
   );

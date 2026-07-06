@@ -261,6 +261,7 @@ app
     });
     secretRegistry.setClassDefault("connector-key", "electron-keychain");
     secretRegistry.setClassDefault("serve-token", "electron-keychain");
+    secretRegistry.setClassDefault("assistant-provider", "electron-keychain");
     // Compose the vault from the registry. The mapping store persists the
     // ref→{backend, locator} binding in the project DB (`secret_mappings` table)
     // so refs stay resolvable across restarts: the ref in `data_sources.config`,

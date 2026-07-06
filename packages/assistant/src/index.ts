@@ -51,6 +51,23 @@ export {
 
 export { resolveDefaultAnthropicModel } from "./model.js";
 
+export {
+  getAssistantProviderCatalog,
+  loginAssistantProviderOAuth,
+  resolveAssistantProvider,
+  type AssistantProviderAuthKind,
+  type AssistantProviderCatalogEntry,
+  type AssistantProviderModelOption,
+  type ResolvedAssistantProvider,
+  type StoredAssistantProviderConfig,
+} from "./provider-config.js";
+
+export {
+  registerOAuthProvider,
+  resetOAuthProviders,
+  type OAuthCredentials,
+} from "@earendil-works/pi-ai/oauth";
+
 // Public constants for server-side drift/security tests; applyCommand itself is package-internal.
 export {
   CREDENTIAL_COMMAND_ARG_FIELDS,

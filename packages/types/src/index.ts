@@ -44,6 +44,18 @@ export type { DataTableField, DataTableInfo } from "./data-table-info";
 export type { UseQueryResult } from "./repository-base";
 
 export type {
+  AssistantProviderAuthKind,
+  AssistantProviderCatalogEntry,
+  AssistantProviderConfig,
+  AssistantProviderConfigMutations,
+  AssistantProviderModelOption,
+  SaveAssistantProviderConfigInput,
+  SetAssistantDefaultModelInput,
+  UseAssistantProviderCatalogResult,
+  UseAssistantProviderConfigsResult,
+} from "./assistant-provider-configs";
+
+export type {
   ConnectorConfig,
   CreateDataSourceInput,
   DataSource,

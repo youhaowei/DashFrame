@@ -40,6 +40,12 @@ export {
 } from "./dashboards";
 
 export {
+  useAssistantProviderCatalog,
+  useAssistantProviderConfigMutations,
+  useAssistantProviderConfigs,
+} from "./assistant-provider-configs";
+
+export {
   addDataSource,
   getAllDataSources,
   getDataSource,
