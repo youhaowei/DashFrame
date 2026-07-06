@@ -92,6 +92,27 @@ describe("useAssistantStore", () => {
     expect(useAssistantStore.getState().turns.at(-1)?.status).toBe("success");
   });
 
+  it("clears a prior run's pending draft when a new run begins", () => {
+    useAssistantStore.getState().setPendingDraft("draft-old-run");
+
+    useAssistantStore.getState().beginRun("Follow-up prompt");
+
+    expect(useAssistantStore.getState().pendingDraftId).toBeNull();
+  });
+
+  it("reports an aborted run as aborted, not as an error", () => {
+    useAssistantStore.getState().beginRun("Make a dashboard");
+    useAssistantStore.getState().receiveRunEvent({
+      type: "run-end",
+      draftId: "draft-aborted",
+      firstMutationObserved: false,
+      terminationReason: "aborted",
+    });
+
+    expect(useAssistantStore.getState().runStatus).toBe("aborted");
+    expect(useAssistantStore.getState().error).toBeNull();
+  });
+
   it("clears the surfaced draft after publish or discard", () => {
     useAssistantStore.getState().setPendingDraft("draft-review");
     expect(useAssistantStore.getState().isOpen).toBe(true);

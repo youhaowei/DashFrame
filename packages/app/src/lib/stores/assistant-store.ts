@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type AssistantRunStatus = "idle" | "running" | "completed" | "error";
+export type AssistantRunStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "aborted"
+  | "error";
 
 export interface AssistantTurn {
   id: string;
@@ -152,6 +157,10 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
           isOpen: true,
           runStatus: "running",
           activeDraftId: null,
+          // Clear any draft left pending by a previous run — its review
+          // panel must not survive into the new run. If this run mutates,
+          // first-mutation re-populates it.
+          pendingDraftId: null,
           streamingText: "",
           error: null,
           turns: [
@@ -317,15 +326,18 @@ function applyAssistantEvent(
         pendingDraftId: event.draftId,
         isOpen: true,
       };
-    case "run-end":
+    case "run-end": {
+      let runStatus: AssistantRunStatus = "error";
+      if (event.terminationReason === "completed") runStatus = "completed";
+      else if (event.terminationReason === "aborted") runStatus = "aborted";
       return {
         ...state,
         activeDraftId: event.draftId,
-        runStatus:
-          event.terminationReason === "completed" ? "completed" : "error",
+        runStatus,
         streamingText: "",
         turns: flushStreamingTurn(state),
       };
+    }
     case "error":
       return {
         ...state,
