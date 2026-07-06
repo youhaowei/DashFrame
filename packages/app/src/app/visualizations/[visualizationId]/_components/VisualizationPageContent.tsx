@@ -1,6 +1,7 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
+import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -84,6 +85,39 @@ function getVizIcon(type: string) {
 
 function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
   return field === "x" || field === "y";
+}
+
+function AlternativeChartTypeButtons({
+  chartType,
+  onSelect,
+}: {
+  chartType: VisualizationType;
+  onSelect: (type: VisualizationType) => void;
+}) {
+  const alternatives = getAlternativeChartTypes(chartType);
+  if (alternatives.length === 0) return null;
+
+  return (
+    <div className="mt-3">
+      <p className="mb-2 text-xs text-neutral-fg-subtle">Similar charts</p>
+      <div className="flex flex-wrap gap-1">
+        {alternatives.map((altType) => {
+          const meta = CHART_TYPE_METADATA[altType];
+          return (
+            <Button
+              key={altType}
+              label={meta.displayName}
+              variant="outline"
+              size="sm"
+              onClick={() => onSelect(altType)}
+              className="text-xs"
+              tooltip={meta.hint}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -670,53 +704,157 @@ export default function VisualizationPageContent({
 
   // Handle encoding change
   // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
-  const handleEncodingChange = async (field: EncodingField, value: string) => {
-    if (!visualization) return;
+  const handleEncodingChange = useCallback(
+    async (field: EncodingField, value: string) => {
+      if (!visualization) return;
 
-    const newEncoding: VisualizationEncoding = {
-      ...visualization.encoding,
-      [field]: value,
-    };
+      const newEncoding: VisualizationEncoding = {
+        ...visualization.encoding,
+        [field]: value,
+      };
 
-    applyAxisAnalysisToEncoding(newEncoding, field, value);
+      applyAxisAnalysisToEncoding(newEncoding, field, value);
 
-    await updateEncoding(visualizationId as UUID, newEncoding);
-  };
+      await updateEncoding(visualizationId as UUID, newEncoding);
+    },
+    [
+      applyAxisAnalysisToEncoding,
+      updateEncoding,
+      visualization,
+      visualizationId,
+    ],
+  );
 
   // Handle visualization type change
   // Auto-swaps axes when switching between barY and barX
-  const handleTypeChange = async (type: string) => {
-    const newType = type as VisualizationType;
-    const currentType = visualization?.visualizationType;
+  const handleTypeChange = useCallback(
+    async (type: string) => {
+      const newType = type as VisualizationType;
+      const currentType = visualization?.visualizationType;
 
-    // Check if switching between bar orientations - auto-swap axes
-    const isBarSwitch =
-      (currentType === "barY" && newType === "barX") ||
-      (currentType === "barX" && newType === "barY");
+      // Check if switching between bar orientations - auto-swap axes
+      const isBarSwitch =
+        (currentType === "barY" && newType === "barX") ||
+        (currentType === "barX" && newType === "barY");
 
-    if (isBarSwitch && visualization?.encoding) {
-      // Swap X and Y when changing bar orientation
-      const currentEncoding = visualization.encoding;
-      const newEncoding = {
-        ...currentEncoding,
-        x: currentEncoding.y,
-        y: currentEncoding.x,
-        xType: currentEncoding.yType,
-        yType: currentEncoding.xType,
-      };
+      if (isBarSwitch && visualization?.encoding) {
+        // Swap X and Y when changing bar orientation
+        const currentEncoding = visualization.encoding;
+        const newEncoding = {
+          ...currentEncoding,
+          x: currentEncoding.y,
+          y: currentEncoding.x,
+          xType: currentEncoding.yType,
+          yType: currentEncoding.xType,
+        };
 
-      // Update both type and encoding together
+        // Update both type and encoding together
+        await updateVisualization(visualizationId as UUID, {
+          visualizationType: newType,
+        });
+        await updateEncoding(visualizationId as UUID, newEncoding);
+      } else {
+        // Just update the type
+        await updateVisualization(visualizationId as UUID, {
+          visualizationType: newType,
+        });
+      }
+    },
+    [updateEncoding, updateVisualization, visualization, visualizationId],
+  );
+
+  const hasNumericColumns = dataFrame?.columns?.some(
+    (col) => col.type === "number",
+  );
+  const vizTypeOptions = useMemo(
+    () =>
+      hasNumericColumns
+        ? [
+            { label: "Bar", value: "barY" },
+            { label: "Line", value: "line" },
+            { label: "Scatter", value: "dot" },
+            { label: "Area", value: "areaY" },
+          ]
+        : [],
+    [hasNumericColumns],
+  );
+
+  const isScatterType = ["dot", "hexbin", "heatmap", "raster"].includes(
+    visualization?.visualizationType ?? "",
+  );
+  const rowCount = dataFrameEntry?.rowCount ?? 0;
+  const isLargeDataset = rowCount > 10000;
+  const scatterRenderModeOptions = useMemo(
+    () => [
+      {
+        label: "Dots",
+        value: "dot",
+        description: isLargeDataset
+          ? `Disabled for large datasets (${rowCount.toLocaleString()} rows)`
+          : "Raw dots - best for small datasets",
+        disabled: isLargeDataset,
+      },
+      {
+        label: "Hexbin",
+        value: "hexbin",
+        description: "Hexagonal binning - shows density patterns",
+      },
+      {
+        label: "Heatmap",
+        value: "heatmap",
+        description: "Smooth density visualization",
+      },
+      {
+        label: "Raster",
+        value: "raster",
+        description: "Pixel aggregation - fastest for huge datasets",
+      },
+    ],
+    [isLargeDataset, rowCount],
+  );
+  const displayChartType = isScatterType
+    ? "dot"
+    : (visualization?.visualizationType ?? "barY");
+
+  const handleDisplayTypeChange = useCallback(
+    async (type: string) => {
+      if (type === "dot" && !isScatterType) {
+        const newType = isLargeDataset ? "hexbin" : "dot";
+        await handleTypeChange(newType);
+      } else if (type !== "dot") {
+        await handleTypeChange(type);
+      }
+    },
+    [handleTypeChange, isLargeDataset, isScatterType],
+  );
+
+  const handleSwapAxes = useCallback(async () => {
+    if (!visualization) return;
+
+    const currentEncoding = visualization.encoding || {};
+    const newEncoding = {
+      ...currentEncoding,
+      x: currentEncoding.y,
+      y: currentEncoding.x,
+      xType: currentEncoding.yType,
+      yType: currentEncoding.xType,
+    };
+
+    const newChartType = getSwappedChartType(visualization.visualizationType);
+
+    if (newChartType !== visualization.visualizationType) {
       await updateVisualization(visualizationId as UUID, {
-        visualizationType: newType,
+        visualizationType: newChartType,
+        encoding: newEncoding,
       });
-      await updateEncoding(visualizationId as UUID, newEncoding);
     } else {
-      // Just update the type
-      await updateVisualization(visualizationId as UUID, {
-        visualizationType: newType,
-      });
+      await updateEncoding(visualizationId as UUID, newEncoding);
     }
-  };
+  }, [updateEncoding, updateVisualization, visualization, visualizationId]);
+
+  const canSwap = visualization
+    ? isSwapAllowed(visualization.visualizationType)
+    : false;
 
   // Handle delete
   const handleDelete = async () => {
@@ -725,6 +863,174 @@ export default function VisualizationPageContent({
       navigate({ to: "/insights" });
     }
   };
+
+  const contextPanelContent = useMemo(() => {
+    if (!visualization || !dataFrame) return null;
+
+    return (
+      <div className="space-y-4">
+        <div className="space-y-3">
+          {compiledInsight && (
+            <AxisSelectField
+              label="X Axis"
+              value={visualization.encoding?.x || ""}
+              onChange={(value) => handleEncodingChange("x", value)}
+              placeholder="Select column..."
+              axis="x"
+              chartType={visualization.visualizationType}
+              columnAnalysis={columnAnalysis}
+              compiledInsight={compiledInsight}
+              availableFields={
+                instanceAwareFields.length > 0
+                  ? instanceAwareFields
+                  : dataTable?.fields
+              }
+              availableColumns={axisSourceColumns}
+              columnDisplayNames={axisColumnDisplayNames}
+              otherAxisColumn={visualization.encoding?.y}
+              onSwapAxes={canSwap ? handleSwapAxes : undefined}
+            />
+          )}
+
+          {canSwap && (
+            <div className="flex justify-center">
+              <Button
+                label="Swap"
+                variant="ghost"
+                size="sm"
+                onClick={handleSwapAxes}
+                className="text-neutral-fg-subtle hover:text-neutral-fg"
+                tooltip="Swap X and Y axes"
+                icon={ArrowUpDownIcon}
+              />
+            </div>
+          )}
+
+          {compiledInsight && (
+            <AxisSelectField
+              label="Y Axis"
+              value={visualization.encoding?.y || ""}
+              onChange={(value) => handleEncodingChange("y", value)}
+              placeholder="Select column..."
+              axis="y"
+              chartType={visualization.visualizationType}
+              columnAnalysis={columnAnalysis}
+              compiledInsight={compiledInsight}
+              availableFields={
+                instanceAwareFields.length > 0
+                  ? instanceAwareFields
+                  : dataTable?.fields
+              }
+              availableColumns={axisSourceColumns}
+              columnDisplayNames={axisColumnDisplayNames}
+              otherAxisColumn={visualization.encoding?.x}
+              onSwapAxes={canSwap ? handleSwapAxes : undefined}
+            />
+          )}
+
+          <SelectField
+            label="Color (optional)"
+            value={visualization.encoding?.color || ""}
+            onChange={(value) => handleEncodingChange("color", value)}
+            onClear={() => handleEncodingChange("color", "")}
+            options={columnOptions}
+            placeholder="None"
+          />
+
+          {visualization.visualizationType === "dot" && (
+            <SelectField
+              label="Size (optional)"
+              value={visualization.encoding?.size || ""}
+              onChange={(value) => handleEncodingChange("size", value)}
+              onClear={() => handleEncodingChange("size", "")}
+              options={columnOptions}
+              placeholder="None"
+            />
+          )}
+        </div>
+
+        <div className="border-t border-neutral-border/60 pt-4">
+          <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
+          <SelectField
+            label=""
+            value={displayChartType}
+            onChange={handleDisplayTypeChange}
+            options={vizTypeOptions}
+          />
+
+          {isScatterType && (
+            <div className="mt-3">
+              <SelectField
+                label="Render mode"
+                value={visualization.visualizationType}
+                onChange={handleTypeChange}
+                options={scatterRenderModeOptions}
+              />
+            </div>
+          )}
+
+          <AlternativeChartTypeButtons
+            chartType={visualization.visualizationType}
+            onSelect={handleTypeChange}
+          />
+        </div>
+
+        {visualization.insightId && (
+          <div className="border-t border-neutral-border/60 pt-4">
+            <h3 className="mb-2 text-sm font-semibold">Source</h3>
+            <Card
+              className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
+              onClick={() =>
+                navigate({
+                  to: `/insights/${visualization.insightId}`,
+                } as never)
+              }
+            >
+              <CardContent className="p-3">
+                <p className="truncate text-sm font-medium">Source Insight</p>
+                <p className="text-xs text-neutral-fg-subtle">
+                  Click to view insight details
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    );
+  }, [
+    axisColumnDisplayNames,
+    axisSourceColumns,
+    canSwap,
+    columnAnalysis,
+    columnOptions,
+    compiledInsight,
+    dataFrame,
+    dataTable?.fields,
+    displayChartType,
+    handleDisplayTypeChange,
+    handleEncodingChange,
+    handleSwapAxes,
+    handleTypeChange,
+    instanceAwareFields,
+    isScatterType,
+    navigate,
+    scatterRenderModeOptions,
+    visualization,
+    vizTypeOptions,
+  ]);
+
+  const contextPanelSection = useMemo(
+    () =>
+      contextPanelContent
+        ? {
+            id: "visualization-encodings",
+            title: "Encodings",
+            content: contextPanelContent,
+          }
+        : null,
+    [contextPanelContent],
+  );
+  useContextPanelSection(contextPanelSection);
 
   // Loading state
   if (isLoading) {
@@ -806,101 +1112,6 @@ export default function VisualizationPageContent({
     );
   }
 
-  // Visualization type options - condensed (bar orientations combined, scatter as umbrella)
-  const hasNumericColumns = dataFrame?.columns?.some(
-    (col) => col.type === "number",
-  );
-  const vizTypeOptions = hasNumericColumns
-    ? [
-        { label: "Bar", value: "barY" },
-        { label: "Line", value: "line" },
-        { label: "Scatter", value: "dot" },
-        { label: "Area", value: "areaY" },
-      ]
-    : [];
-
-  // Check if current chart is a scatter-type (dot, hexbin, heatmap, raster)
-  const isScatterType = ["dot", "hexbin", "heatmap", "raster"].includes(
-    visualization?.visualizationType ?? "",
-  );
-
-  // Scatter render mode options - disable Dots for large datasets
-  const rowCount = dataFrameEntry?.rowCount ?? 0;
-  const isLargeDataset = rowCount > 10000;
-  const scatterRenderModeOptions = [
-    {
-      label: "Dots",
-      value: "dot",
-      description: isLargeDataset
-        ? `Disabled for large datasets (${rowCount.toLocaleString()} rows)`
-        : "Raw dots - best for small datasets",
-      disabled: isLargeDataset,
-    },
-    {
-      label: "Hexbin",
-      value: "hexbin",
-      description: "Hexagonal binning - shows density patterns",
-    },
-    {
-      label: "Heatmap",
-      value: "heatmap",
-      description: "Smooth density visualization",
-    },
-    {
-      label: "Raster",
-      value: "raster",
-      description: "Pixel aggregation - fastest for huge datasets",
-    },
-  ];
-
-  // Get the display chart type (maps scatter variants back to "dot" for UI)
-  const displayChartType = isScatterType
-    ? "dot"
-    : (visualization?.visualizationType ?? "barY");
-
-  // Handle chart type change with scatter umbrella logic
-  const handleDisplayTypeChange = async (type: string) => {
-    if (type === "dot" && !isScatterType) {
-      // Switching to scatter - default to appropriate render mode based on data size
-      const newType = isLargeDataset ? "hexbin" : "dot";
-      await handleTypeChange(newType);
-    } else if (type !== "dot") {
-      await handleTypeChange(type);
-    }
-    // If already scatter-type and selecting dot, keep current render mode
-  };
-
-  // Handle swap button click - swaps X/Y axes and toggles bar orientation
-  const handleSwapAxes = async () => {
-    if (!visualization) return;
-
-    const currentEncoding = visualization.encoding || {};
-    const newEncoding = {
-      ...currentEncoding,
-      x: currentEncoding.y,
-      y: currentEncoding.x,
-      xType: currentEncoding.yType,
-      yType: currentEncoding.xType,
-    };
-
-    // For bar charts, also toggle the chart type
-    const newChartType = getSwappedChartType(visualization.visualizationType);
-
-    if (newChartType !== visualization.visualizationType) {
-      // Update both encoding and chart type
-      await updateVisualization(visualizationId as UUID, {
-        visualizationType: newChartType,
-        encoding: newEncoding,
-      });
-    } else {
-      // Just update encoding
-      await updateEncoding(visualizationId as UUID, newEncoding);
-    }
-  };
-
-  // Check if swap is allowed for current chart type
-  const canSwap = isSwapAllowed(visualization.visualizationType);
-
   return (
     <AppLayout
       headerContent={
@@ -958,170 +1169,6 @@ export default function VisualizationPageContent({
               icon={DeleteIcon}
             />
           </div>
-        </div>
-      }
-      rightPanel={
-        <div className="space-y-4 p-4">
-          <div>
-            <h3 className="mb-3 text-sm font-semibold">Encodings</h3>
-
-            <div className="space-y-3">
-              {compiledInsight && (
-                <AxisSelectField
-                  label="X Axis"
-                  value={visualization.encoding?.x || ""}
-                  onChange={(value) => handleEncodingChange("x", value)}
-                  placeholder="Select column..."
-                  axis="x"
-                  chartType={visualization.visualizationType}
-                  columnAnalysis={columnAnalysis}
-                  compiledInsight={compiledInsight}
-                  availableFields={
-                    instanceAwareFields.length > 0
-                      ? instanceAwareFields
-                      : dataTable?.fields
-                  }
-                  availableColumns={axisSourceColumns}
-                  columnDisplayNames={axisColumnDisplayNames}
-                  otherAxisColumn={visualization.encoding?.y}
-                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
-                />
-              )}
-
-              {/* Swap button - swaps axes and toggles bar orientation */}
-              {canSwap && (
-                <div className="flex justify-center">
-                  <Button
-                    label="Swap"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleSwapAxes}
-                    className="text-neutral-fg-subtle hover:text-neutral-fg"
-                    tooltip="Swap X and Y axes"
-                    icon={ArrowUpDownIcon}
-                  />
-                </div>
-              )}
-
-              {compiledInsight && (
-                <AxisSelectField
-                  label="Y Axis"
-                  value={visualization.encoding?.y || ""}
-                  onChange={(value) => handleEncodingChange("y", value)}
-                  placeholder="Select column..."
-                  axis="y"
-                  chartType={visualization.visualizationType}
-                  columnAnalysis={columnAnalysis}
-                  compiledInsight={compiledInsight}
-                  availableFields={
-                    instanceAwareFields.length > 0
-                      ? instanceAwareFields
-                      : dataTable?.fields
-                  }
-                  availableColumns={axisSourceColumns}
-                  columnDisplayNames={axisColumnDisplayNames}
-                  otherAxisColumn={visualization.encoding?.x}
-                  onSwapAxes={canSwap ? handleSwapAxes : undefined}
-                />
-              )}
-
-              <SelectField
-                label="Color (optional)"
-                value={visualization.encoding?.color || ""}
-                onChange={(value) => handleEncodingChange("color", value)}
-                onClear={() => handleEncodingChange("color", "")}
-                options={columnOptions}
-                placeholder="None"
-              />
-
-              {visualization.visualizationType === "dot" && (
-                <SelectField
-                  label="Size (optional)"
-                  value={visualization.encoding?.size || ""}
-                  onChange={(value) => handleEncodingChange("size", value)}
-                  onClear={() => handleEncodingChange("size", "")}
-                  options={columnOptions}
-                  placeholder="None"
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="border-t pt-4">
-            <h3 className="mb-3 text-sm font-semibold">Chart Type</h3>
-            <SelectField
-              label=""
-              value={displayChartType}
-              onChange={handleDisplayTypeChange}
-              options={vizTypeOptions}
-            />
-
-            {/* Render mode selector for scatter-type charts */}
-            {isScatterType && (
-              <div className="mt-3">
-                <SelectField
-                  label="Render mode"
-                  value={visualization.visualizationType}
-                  onChange={handleTypeChange}
-                  options={scatterRenderModeOptions}
-                />
-              </div>
-            )}
-
-            {/* Alternative chart types - show related charts from same tags */}
-            {(() => {
-              const alternatives = getAlternativeChartTypes(
-                visualization.visualizationType,
-              );
-              if (alternatives.length === 0) return null;
-
-              return (
-                <div className="mt-3">
-                  <p className="mb-2 text-xs text-neutral-fg-subtle">
-                    Similar charts
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {alternatives.map((altType) => {
-                      const meta = CHART_TYPE_METADATA[altType];
-                      return (
-                        <Button
-                          key={altType}
-                          label={meta.displayName}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleTypeChange(altType)}
-                          className="text-xs"
-                          tooltip={meta.hint}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Source insight link */}
-          {visualization.insightId && (
-            <div className="border-t pt-4">
-              <h3 className="mb-2 text-sm font-semibold">Source</h3>
-              <Card
-                className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
-                onClick={() =>
-                  navigate({
-                    to: `/insights/${visualization.insightId}`,
-                  } as never)
-                }
-              >
-                <CardContent className="p-3">
-                  <p className="truncate text-sm font-medium">Source Insight</p>
-                  <p className="text-xs text-neutral-fg-subtle">
-                    Click to view insight details
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
         </div>
       }
     >
