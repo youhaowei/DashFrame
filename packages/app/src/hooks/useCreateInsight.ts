@@ -139,7 +139,11 @@ export function useCreateInsight() {
    * allowing users to build on their previous analysis.
    */
   const createInsightFromInsight = useCallback(
-    async (sourceInsightId: string, sourceInsightName: string) => {
+    async (
+      sourceInsightId: string,
+      sourceInsightName: string,
+      options?: { visualize?: boolean },
+    ) => {
       const sourceInsight = await getInsight(sourceInsightId);
 
       if (!sourceInsight) {
@@ -158,7 +162,10 @@ export function useCreateInsight() {
       );
 
       // Navigate to new insight
-      navigate({ to: `/insights/${insightId}` } as never);
+      navigate({
+        to: `/insights/${insightId}`,
+        search: options?.visualize ? { visualize: "true" } : undefined,
+      } as never);
 
       return insightId;
     },

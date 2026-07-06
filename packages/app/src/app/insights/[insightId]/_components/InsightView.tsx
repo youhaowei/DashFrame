@@ -29,7 +29,10 @@ import {
   useVisualizationMutations,
   useVisualizations,
 } from "@dashframe/core";
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import {
+  extractUUIDFromColumnAlias,
+  fieldIdToColumnAlias,
+} from "@dashframe/engine";
 import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
   ColumnAnalysis,
@@ -300,6 +303,52 @@ interface ParsedEncoding {
 }
 
 /**
+ * Unwrap a date-transform expression to its underlying column reference.
+ * Suggestion encodings wrap temporal axes in either legacy vgplot functions
+ * (dateMonth(col)) or DuckDB date_trunc('period', "col"); the transform itself
+ * travels separately as xTransform/yTransform, so field resolution must look
+ * through the wrapper to the raw column alias.
+ */
+function unwrapEncodingExpression(value: string): string {
+  const legacyMatch = value.match(
+    /^(?:dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
+  );
+  if (legacyMatch?.[1]) {
+    return legacyMatch[1].replace(/(?:^["'])|(?:["']$)/g, "");
+  }
+  const dateTruncMatch = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
+  if (dateTruncMatch?.[1]) {
+    return dateTruncMatch[1];
+  }
+  return value.replace(/(?:^["'])|(?:["']$)/g, "");
+}
+
+/**
+ * Resolve an encoding channel value to a field ID. Tries, in order:
+ * the raw value, the value with date-transform wrappers removed, and finally
+ * the canonical UUID behind an instance-qualified repeat-join alias
+ * (field_<uuid>_jN — those synthetic aliases are never persisted, so the
+ * canonical field ID is the correct durable reference).
+ */
+function lookupEncodingFieldId(
+  fieldIdMap: Map<string, UUID>,
+  value: string,
+): UUID | undefined {
+  const direct = fieldIdMap.get(value);
+  if (direct) return direct;
+
+  const unwrapped = unwrapEncodingExpression(value);
+  const unwrappedId = fieldIdMap.get(unwrapped);
+  if (unwrappedId) return unwrappedId;
+
+  const canonicalUuid = extractUUIDFromColumnAlias(unwrapped);
+  if (canonicalUuid) {
+    return fieldIdMap.get(fieldIdToColumnAlias(canonicalUuid));
+  }
+  return undefined;
+}
+
+/**
  * Parse a single encoding axis value to determine if it's a dimension or metric.
  * Dimensions are raw field names, metrics are aggregation expressions like "sum(revenue)".
  *
@@ -471,8 +520,9 @@ function convertToVisualizationEncoding(
       return undefined;
     }
 
-    // It's a dimension field - find field ID by column name
-    const fieldId = fieldIdMap.get(value);
+    // It's a dimension field - find field ID by column name (looking through
+    // date-transform wrappers and repeat-join instance aliases)
+    const fieldId = lookupEncodingFieldId(fieldIdMap, value);
     if (fieldId) {
       return fieldEncoding(fieldId);
     }
@@ -1188,7 +1238,7 @@ export function InsightView({
 
       // Convert dimension column names to field IDs
       const newSelectedFieldIds = dimensionFields
-        .map((colName) => fieldIdMap.get(colName))
+        .map((colName) => lookupEncodingFieldId(fieldIdMap, colName))
         .filter((id): id is UUID => id !== undefined);
 
       // Merge with existing insight fields/metrics

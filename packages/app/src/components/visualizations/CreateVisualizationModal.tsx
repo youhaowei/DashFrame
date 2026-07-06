@@ -59,10 +59,12 @@ export function CreateVisualizationModal({
   const handleCreateBasedOn = useCallback(() => {
     if (!selectedInsight) return;
     // Create new insight that chains from the selected insight's DataFrame
-    createInsightFromInsight(selectedInsight.id, selectedInsight.name);
+    createInsightFromInsight(selectedInsight.id, selectedInsight.name, {
+      visualize: visualizeOnCreate,
+    });
     setSelectedInsight(null);
     onClose();
-  }, [selectedInsight, createInsightFromInsight, onClose]);
+  }, [selectedInsight, createInsightFromInsight, onClose, visualizeOnCreate]);
 
   // When selecting a table, create new insight directly
   const handleTableSelect = useCallback(
