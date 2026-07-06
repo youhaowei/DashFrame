@@ -140,6 +140,22 @@ describe("assistant provider config functions", () => {
     expect(secondaryRow?.isDefault).toBe(false);
   });
 
+  it("rejects a providerId that is not in the catalog", async () => {
+    await expect(
+      app.call("saveAssistantProviderConfig", {
+        input: {
+          providerId: "not-a-provider",
+          displayLabel: "Mystery",
+          authKind: "api-key",
+          defaultModel: "some-model",
+        },
+      }),
+    ).rejects.toThrow(/Unknown assistant provider/);
+    expect(
+      await db.select().from(schema.assistantProviderConfigs),
+    ).toHaveLength(0);
+  });
+
   it("an error after the row commit never releases the credential the row references", async () => {
     const { result } = (await app.call("saveAssistantProviderConfig", {
       input: {
@@ -283,7 +299,7 @@ describe("assistant provider config functions", () => {
   it("rejects device-code OAuth when the host cannot display the user code", async () => {
     const { result } = (await app.call("saveAssistantProviderConfig", {
       input: {
-        providerId: "device-code-test",
+        providerId: "anthropic",
         displayLabel: "Device Code Test",
         authKind: "oauth",
         defaultModel: "test-model",
@@ -295,7 +311,7 @@ describe("assistant provider config functions", () => {
       expires: Date.now() + 60_000,
     };
     registerOAuthProvider({
-      id: "device-code-test",
+      id: "anthropic",
       name: "Device Code Test",
       login: async (callbacks) => {
         callbacks.onDeviceCode({

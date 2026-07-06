@@ -169,6 +169,16 @@ const saveAssistantProviderConfig = mutation({
   args: { input: jsonb },
   handler: async (ctx, { input }): Promise<AssistantProviderConfig> => {
     const parsed = saveInputSchema.parse(input);
+    // The schema keeps providerId a plain string (the catalog is runtime
+    // data); reject unknown providers here so a bad id can never reach the
+    // KnownProvider casts in the model-resolution path.
+    if (
+      !getAssistantProviderCatalog().some(
+        (entry) => entry.providerId === parsed.providerId,
+      )
+    ) {
+      throw new Error(`Unknown assistant provider: ${parsed.providerId}`);
+    }
     const vault = vaultFromCtx(ctx);
     const id = parsed.id ?? crypto.randomUUID();
     const current = parsed.id
