@@ -217,8 +217,13 @@ function encodeSse(event: AssistantSidebarEvent): string {
 async function readBody(c: Context): Promise<AssistantRunRequestBody> {
   const raw = await c.req.text();
   if (!raw.trim()) return {};
-  const parsed = JSON.parse(raw) as AssistantRunRequestBody;
-  return parsed;
+  const parsed = JSON.parse(raw) as unknown;
+  // JSON.parse accepts non-object payloads ("null", "42", "[]"); a null body
+  // would otherwise escape the caller's catch and throw at `body.prompt`.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Request body must be a JSON object");
+  }
+  return parsed as AssistantRunRequestBody;
 }
 
 export async function handleAssistantRunRequest(
