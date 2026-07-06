@@ -48,6 +48,12 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
+const { mockToastError } = vi.hoisted(() => ({ mockToastError: vi.fn() }));
+
+vi.mock("sonner", () => ({
+  toast: { error: mockToastError },
+}));
+
 const SELECTED_FIELD_IDS = ["field-a", "field-b"];
 
 /**
@@ -97,7 +103,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Sales Data", // name
         "table-abc", // baseTableId
-        { selectedFields: SELECTED_FIELD_IDS, reuseUnmodifiedDraft: true },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
     });
 
@@ -132,7 +138,11 @@ describe("useCreateInsight", () => {
       expect(insightId).toBe("created-insight-789");
     });
 
-    it("should create table insight with all visible fields selected", async () => {
+    it("should create an EMPTY draft — no fields preselected", async () => {
+      // Empty selectedFields is load-bearing: it keeps the draft eligible for
+      // the server's unmodified-draft reuse gate, and the engine's unconfigured
+      // fallback shows raw rows (preselecting fields would GROUP BY them and
+      // collapse duplicate source rows).
       mockCreateInsight.mockResolvedValue("draft-insight-001");
 
       const { result } = renderHook(() => useCreateInsight());
@@ -146,7 +156,7 @@ describe("useCreateInsight", () => {
 
       const callArgs = mockCreateInsight.mock.calls[0];
       expect(callArgs[2]).toEqual({
-        selectedFields: SELECTED_FIELD_IDS,
+        selectedFields: [],
         reuseUnmodifiedDraft: true,
       });
     });
@@ -166,7 +176,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Sales (2024) - Q1",
         "table-123",
-        { selectedFields: SELECTED_FIELD_IDS, reuseUnmodifiedDraft: true },
+        { selectedFields: [], reuseUnmodifiedDraft: true },
       );
     });
 
@@ -180,24 +190,27 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockCreateInsight).toHaveBeenCalledWith("", "table-empty", {
-        selectedFields: SELECTED_FIELD_IDS,
+        selectedFields: [],
         reuseUnmodifiedDraft: true,
       });
     });
 
-    it("should handle creation errors by propagating them", async () => {
+    it("should surface creation errors as a toast and return null, not reject", async () => {
       mockCreateInsight.mockRejectedValue(new Error("Database error"));
 
       const { result } = renderHook(() => useCreateInsight());
 
-      await expect(async () => {
-        await act(async () => {
-          await result.current.createInsightFromTable(
-            "table-fail",
-            "Fail Test",
-          );
-        });
-      }).rejects.toThrow("Database error");
+      let insightId: string | null | undefined;
+      await act(async () => {
+        insightId = await result.current.createInsightFromTable(
+          "table-fail",
+          "Fail Test",
+        );
+      });
+
+      expect(insightId).toBeNull();
+      expect(mockToastError).toHaveBeenCalledWith("Couldn't create insight");
+      expect(mockPush).not.toHaveBeenCalled();
     });
   });
 
@@ -227,7 +240,7 @@ describe("useCreateInsight", () => {
 
       // No suffix: only an unmodified empty insight exists for this table.
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
-        selectedFields: SELECTED_FIELD_IDS,
+        selectedFields: [],
         reuseUnmodifiedDraft: true,
       });
       expect(mockPush).toHaveBeenCalledWith("/insights/existing-draft");
@@ -245,7 +258,7 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
-        selectedFields: SELECTED_FIELD_IDS,
+        selectedFields: [],
         reuseUnmodifiedDraft: true,
       });
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft");
@@ -273,7 +286,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: SELECTED_FIELD_IDS, reuseUnmodifiedDraft: false },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft-2");
     });
@@ -302,7 +315,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: SELECTED_FIELD_IDS, reuseUnmodifiedDraft: false },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
     });
 
@@ -325,7 +338,7 @@ describe("useCreateInsight", () => {
 
       // The existing insight is for a different table — no suffix.
       expect(mockCreateInsight).toHaveBeenCalledWith("orders", "table-orders", {
-        selectedFields: SELECTED_FIELD_IDS,
+        selectedFields: [],
         reuseUnmodifiedDraft: true,
       });
     });
@@ -358,7 +371,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)", // gap-free: (2) is missing, not (4)
         "table-orders",
-        { selectedFields: SELECTED_FIELD_IDS, reuseUnmodifiedDraft: false },
+        { selectedFields: [], reuseUnmodifiedDraft: false },
       );
     });
   });
@@ -518,22 +531,24 @@ describe("useCreateInsight", () => {
       expect(mockPush).not.toHaveBeenCalled();
     });
 
-    it("should handle getInsight errors by propagating them", async () => {
+    it("should surface getInsight errors as a toast and return null, not reject", async () => {
       mockGetInsight.mockRejectedValue(new Error("Fetch error"));
 
       const { result } = renderHook(() => useCreateInsight());
 
-      await expect(async () => {
-        await act(async () => {
-          await result.current.createInsightFromInsight(
-            "error-123",
-            "Error Test",
-          );
-        });
-      }).rejects.toThrow("Fetch error");
+      let insightId: string | null | undefined;
+      await act(async () => {
+        insightId = await result.current.createInsightFromInsight(
+          "error-123",
+          "Error Test",
+        );
+      });
+
+      expect(insightId).toBeNull();
+      expect(mockToastError).toHaveBeenCalledWith("Couldn't create insight");
     });
 
-    it("should handle createInsight errors after successful fetch", async () => {
+    it("should surface createInsight errors after successful fetch as a toast", async () => {
       const sourceInsight = createMockInsight({
         id: "source-fail",
         baseTableId: "table-fail",
@@ -544,14 +559,17 @@ describe("useCreateInsight", () => {
 
       const { result } = renderHook(() => useCreateInsight());
 
-      await expect(async () => {
-        await act(async () => {
-          await result.current.createInsightFromInsight(
-            "source-fail",
-            "Source Fail",
-          );
-        });
-      }).rejects.toThrow("Creation failed");
+      let insightId: string | null | undefined;
+      await act(async () => {
+        insightId = await result.current.createInsightFromInsight(
+          "source-fail",
+          "Source Fail",
+        );
+      });
+
+      expect(insightId).toBeNull();
+      expect(mockToastError).toHaveBeenCalledWith("Couldn't create insight");
+      expect(mockPush).not.toHaveBeenCalled();
     });
 
     it("should handle source insight names with '(derived)' already in them", async () => {
@@ -584,7 +602,7 @@ describe("useCreateInsight", () => {
 
   describe("integration scenarios", () => {
     it("should suffix a second table-created insight once the first is configured", async () => {
-      // First call — no existing insights, creates a new select-all insight.
+      // First call — no existing insights, creates a new empty draft.
       mockGetAllInsights.mockResolvedValueOnce([]);
       mockCreateInsight.mockResolvedValueOnce("insight-1");
 
@@ -599,8 +617,9 @@ describe("useCreateInsight", () => {
 
       vi.clearAllMocks();
 
-      // Second call for the SAME table — the first select-all insight is
-      // configured, so the hook computes the next display suffix.
+      // Second call for the SAME table — the first draft has since been
+      // configured (selectedFields below makes it a MODIFIED insight), so
+      // the hook computes the next display suffix.
       const existingDraft = createMockInsight({
         id: "insight-1",
         name: "Orders",
@@ -622,7 +641,7 @@ describe("useCreateInsight", () => {
         "Orders (2)",
         "table-shared",
         {
-          selectedFields: SELECTED_FIELD_IDS,
+          selectedFields: [],
           reuseUnmodifiedDraft: false,
         },
       );

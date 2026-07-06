@@ -36,10 +36,11 @@ test.describe("Chart Editing", () => {
     // Wait for initial pinned chart.
     await waitForChart();
 
-    // Switching back to the table view shows the result table immediately
-    // (fields were select-all'd on create).
+    // Pinning wrote the chart's config (Product + sum(Quantity)) into the
+    // insight, so the table view now runs query mode: 4 distinct products
+    // grouped from the 5 source rows, dimension + metric = 2 fields.
     await page.getByRole("button", { name: "Table", exact: true }).click();
-    await expect(page.getByText(/5 rows/).first()).toBeVisible();
+    await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
 
     // Each unpinned chart view renders and offers "Pin view"; switching views
     // does NOT mint a new Visualization (only pinning does).

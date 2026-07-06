@@ -324,11 +324,11 @@ function unwrapEncodingExpression(value: string): string {
 }
 
 /**
- * Resolve an encoding channel value to a field ID. Tries, in order:
+ * Resolve an encoding channel value to a CANONICAL field ID. Tries, in order:
  * the raw value, the value with date-transform wrappers removed, and finally
  * the canonical UUID behind an instance-qualified repeat-join alias
- * (field_<uuid>_jN — those synthetic aliases are never persisted, so the
- * canonical field ID is the correct durable reference).
+ * (field_<uuid>_jN). Use this for the persisted Insight model
+ * (selectedFields/metrics), which stores canonical field IDs only.
  */
 function lookupEncodingFieldId(
   fieldIdMap: Map<string, UUID>,
@@ -346,6 +346,39 @@ function lookupEncodingFieldId(
     return fieldIdMap.get(fieldIdToColumnAlias(canonicalUuid));
   }
   return undefined;
+}
+
+/**
+ * Like lookupEncodingFieldId, but PRESERVES the repeat-join instance
+ * qualifier: a `field_<uuid>_jN` alias resolves to `<uuid>_jN`, not the
+ * canonical UUID. Visualization encodings support instance-qualified refs
+ * (VisualizationPreview resolves `field:<uuid>_jN` through the pagination
+ * hook's instance-aware fields), and collapsing to canonical would silently
+ * re-point the pinned chart at the FIRST join instance. Use this for
+ * VisualizationEncoding values; use lookupEncodingFieldId for the Insight
+ * model.
+ */
+function lookupEncodingFieldRef(
+  fieldIdMap: Map<string, UUID>,
+  value: string,
+): UUID | undefined {
+  const direct = fieldIdMap.get(value);
+  if (direct) return direct;
+
+  const unwrapped = unwrapEncodingExpression(value);
+  const unwrappedId = fieldIdMap.get(unwrapped);
+  if (unwrappedId) return unwrappedId;
+
+  const canonicalUuid = extractUUIDFromColumnAlias(unwrapped);
+  if (!canonicalUuid) return undefined;
+  const canonicalId = fieldIdMap.get(fieldIdToColumnAlias(canonicalUuid));
+  if (!canonicalId) return undefined;
+
+  const instanceSuffix = unwrapped.match(/(_j\d+)$/)?.[1];
+  // The instance-qualified id is not a bare UUID, but it IS the id the
+  // render path's instance-aware fields carry — the cast is the seam where
+  // the two id spaces meet.
+  return instanceSuffix ? (`${canonicalId}${instanceSuffix}` as UUID) : canonicalId;
 }
 
 /**
@@ -521,8 +554,8 @@ function convertToVisualizationEncoding(
     }
 
     // It's a dimension field - find field ID by column name (looking through
-    // date-transform wrappers and repeat-join instance aliases)
-    const fieldId = lookupEncodingFieldId(fieldIdMap, value);
+    // date-transform wrappers, preserving repeat-join instance qualifiers)
+    const fieldId = lookupEncodingFieldRef(fieldIdMap, value);
     if (fieldId) {
       return fieldEncoding(fieldId);
     }

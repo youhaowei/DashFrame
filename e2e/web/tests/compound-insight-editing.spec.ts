@@ -16,20 +16,20 @@
  *
  * Setup mirrors the existing csv-to-chart.spec.ts: upload sales_data.csv
  * (Date, Product, Category, Sales, Quantity) → land on the insight page.
- * Creating an insight from a table now select-alls its fields immediately
- * (definition.selectedFields = every field on the source table), so the
- * Fields section starts populated with all 5 columns and metrics start
- * empty. The addField/removeField tests below exercise the mutation in the
- * direction that's actually reachable from that starting state: remove a
- * field first (to reproduce the empty state), then add it back.
+ * Creating an insight from a table produces an EMPTY draft (no fields
+ * preselected — that keeps the server's draft-reuse dedup working and avoids
+ * the all-fields GROUP BY collapsing duplicate source rows), so the Fields
+ * and Metrics sections both start empty and the canvas table renders the raw
+ * base table. The tests below add a field first, then exercise the other
+ * mutations from that state.
  */
 import { expect, test } from "../lib/test-fixtures";
 
 test.describe("compound-insight field/metric editing", () => {
   /**
    * Upload CSV and wait for the insight page to finish loading.
-   * Creating an insight from a table select-alls its fields, so each test
-   * starts with all 5 columns already in the Fields section and 0 metrics.
+   * Creating an insight from a table produces an empty draft, so each test
+   * starts with 0 selected fields and 0 metrics.
    */
   test.beforeEach(async ({ page, homePage, uploadFile }) => {
     await homePage();
@@ -40,28 +40,60 @@ test.describe("compound-insight field/metric editing", () => {
       timeout: 15_000,
     });
 
-    // Wait for the config panel to be rendered — the "Remove Product" button
-    // confirms the select-all fields are populated once the panel loads
+    // Wait for the config panel to be rendered — the Fields empty state
+    // confirms the panel loaded with the fresh draft's empty selection.
+    await expect(page.getByText("No fields selected.")).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  /** Add a field by name via the Add Field dialog and confirm persistence. */
+  async function addField(page: import("@playwright/test").Page, name: string) {
+    // Open the Add Field dialog (first "Add" button = Fields section)
+    await page.getByRole("button", { name: "Add" }).first().click();
+    await expect(page.getByRole("dialog", { name: "Add field" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Scope to the dialog to avoid matching chart-suggestion buttons (which
+    // can also contain the field name in their accessible name).
+    const dialog = page.getByRole("dialog", { name: "Add field" });
+    const fieldButton = dialog.getByRole("button", {
+      name: new RegExp(name, "i"),
+    });
+    await expect(fieldButton).toBeVisible({ timeout: 10_000 });
+    await fieldButton.waitFor({ state: "visible" });
+
+    // Intercept the updateInsight mutation to confirm it fires and succeeds.
+    const updateResponse = page.waitForResponse(
+      (resp) => resp.url().includes("/api/updateInsight"),
+      { timeout: 20_000 },
+    );
+    await fieldButton.click();
+    await expect(
+      page.getByRole("dialog", { name: "Add field" }),
+    ).not.toBeVisible({ timeout: 5_000 });
+    expect((await updateResponse).status()).toBe(200);
+  }
+
+  // ---------------------------------------------------------------------------
+  // addField + removeField: definition.selectedFields grows then shrinks back
+  // ---------------------------------------------------------------------------
+  test("addField then removeField: Product can be added and removed", async ({
+    page,
+  }) => {
+    // ── addField ─────────────────────────────────────────────────────────
+    await addField(page, "Product");
+
+    // Reload the page to get fresh server state — confirms server persisted correctly
+    await page.reload();
+
+    // Observable: "Product" field item appears in the Fields section,
+    // confirming definition.selectedFields includes <productFieldId>
+    // and was written and read back from the server
     await expect(
       page.getByRole("button", { name: "Remove Product" }),
     ).toBeVisible({ timeout: 20_000 });
-  });
-
-  // ---------------------------------------------------------------------------
-  // removeField + addField: definition.selectedFields shrinks then grows back
-  //
-  // Creating an insight now select-alls its fields, so there's no reachable
-  // "add the first field" path — every field already starts selected. To
-  // exercise the addField mutation we first removeField to reproduce an
-  // empty slot, then add it back.
-  // ---------------------------------------------------------------------------
-  test("removeField then addField: Product can be removed and re-added", async ({
-    page,
-  }) => {
-    // Initial: "Product" is already selected (select-all on create)
-    await expect(
-      page.getByRole("button", { name: "Remove Product" }),
-    ).toBeVisible({ timeout: 10_000 });
 
     // ── removeField ──────────────────────────────────────────────────────
     await page.getByRole("button", { name: "Remove Product" }).click();
@@ -79,67 +111,14 @@ test.describe("compound-insight field/metric editing", () => {
     ).not.toBeVisible({ timeout: 5_000 });
     expect((await removeFieldResponse).status()).toBe(200);
 
-    // Reload to verify removal was persisted
+    // Reload to verify removal was persisted — back to the empty state
     await page.reload();
-    await expect(
-      page.getByRole("button", { name: "Remove Date" }),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("No fields selected.")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(
       page.getByRole("button", { name: "Remove Product" }),
     ).not.toBeVisible({ timeout: 5_000 });
-
-    // ── addField ─────────────────────────────────────────────────────────
-    // Open the Add Field dialog (first "Add" button = Fields section)
-    await page.getByRole("button", { name: "Add" }).first().click();
-    await expect(page.getByRole("dialog", { name: "Add field" })).toBeVisible({
-      timeout: 10_000,
-    });
-
-    // Select the "Product" field from the available fields list.
-    // Scope to the dialog to avoid matching chart-suggestion buttons (which also
-    // contain "Product" in their accessible name) that are visible in the background.
-    const addFieldDialog = page.getByRole("dialog", { name: "Add field" });
-
-    // Wait for field buttons to populate inside the dialog, then wait a beat for
-    // the list to finish rendering (avoids DOM-detach flake when the field list
-    // re-renders while the click is in flight).
-    const productButton = addFieldDialog.getByRole("button", {
-      name: /Product/i,
-    });
-    await expect(productButton).toBeVisible({ timeout: 10_000 });
-    await productButton.waitFor({ state: "visible" });
-
-    // Intercept the updateInsight mutation to confirm it fires and succeeds.
-    // 20s timeout accommodates Playwright's click-retry loop if the button
-    // momentarily detaches during a list re-render.
-    const updateInsightResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
-      { timeout: 20_000 },
-    );
-
-    await productButton.click();
-
-    // Dialog closes after selection
-    await expect(
-      page.getByRole("dialog", { name: "Add field" }),
-    ).not.toBeVisible({ timeout: 5_000 });
-
-    // Confirm the mutation reached the server. Assert the status explicitly so a
-    // non-200 surfaces as a clear assertion failure instead of a waitForResponse timeout.
-    expect((await updateInsightResponse).status()).toBe(200);
-
-    // Reload the page to get fresh server state — confirms server persisted correctly
-    await page.reload();
-    await expect(
-      page.getByRole("button", { name: "Remove Date" }),
-    ).toBeVisible({ timeout: 20_000 });
-
-    // Observable: "Product" field item is back in the Fields section,
-    // confirming definition.selectedFields includes <productFieldId> again
-    // and was written and read back from the server
-    await expect(
-      page.getByRole("button", { name: "Remove Product" }),
-    ).toBeVisible({ timeout: 15_000 });
   });
 
   // ---------------------------------------------------------------------------
@@ -203,59 +182,18 @@ test.describe("compound-insight field/metric editing", () => {
   // Full compound path: all five mutations in sequence
   // Proves the jsonb read-modify-write chain is correct at runtime,
   // not just at typecheck. Each step asserts an observable state change.
+  // NOTE: the observable state here is the config panel + persistence
+  // (reload survives), not the result table's cells — the "computed result"
+  // is verified at that seam.
   // ---------------------------------------------------------------------------
   test("editing an insight's fields/metrics is reflected in the computed result", async ({
     page,
   }) => {
-    // ── 1. removeField + addField ───────────────────────────────────────────
-    // Creating an insight select-alls its fields, so "Product" already exists
-    // in the Fields section (per beforeEach). To exercise addField we first
-    // remove it, then add it back.
-    // Cause: remove "Product", confirm; then re-add it via the field picker
-    // Effect: "Product" disappears then reappears in the Fields item list
-    await page.getByRole("button", { name: "Remove Product" }).click();
-    await expect(
-      page.getByRole("dialog", { name: "Delete field" }),
-    ).toBeVisible({ timeout: 10_000 });
-
-    const removeFieldResponse0 = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
-      { timeout: 10_000 },
-    );
-    await page.getByRole("button", { name: "Delete field" }).click();
-    await expect(
-      page.getByRole("dialog", { name: "Delete field" }),
-    ).not.toBeVisible({ timeout: 5_000 });
-    expect((await removeFieldResponse0).status()).toBe(200);
-
-    // Reload to verify removal was persisted
-    await page.reload();
-    await expect(
-      page.getByRole("button", { name: "Remove Date" }),
-    ).toBeVisible({ timeout: 20_000 });
-    await expect(
-      page.getByRole("button", { name: "Remove Product" }),
-    ).not.toBeVisible({ timeout: 5_000 });
-
-    await page.getByRole("button", { name: "Add" }).first().click();
-    await expect(page.getByRole("dialog", { name: "Add field" })).toBeVisible({
-      timeout: 10_000,
-    });
-
-    const addFieldDialog = page.getByRole("dialog", { name: "Add field" });
-    const productBtn = addFieldDialog.getByRole("button", { name: /Product/i });
-    await expect(productBtn).toBeVisible({ timeout: 10_000 });
-    await productBtn.waitFor({ state: "visible" });
-
-    const addFieldResponse1 = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
-      { timeout: 20_000 },
-    );
-    await productBtn.click();
-    await expect(
-      page.getByRole("dialog", { name: "Add field" }),
-    ).not.toBeVisible({ timeout: 5_000 });
-    expect((await addFieldResponse1).status()).toBe(200);
+    // ── 1. addField ─────────────────────────────────────────────────────────
+    // The draft starts empty, so addField is the natural first mutation.
+    // Cause: add "Product" via the field picker
+    // Effect: "Product" appears in the Fields item list
+    await addField(page, "Product");
 
     // Reload to verify field was persisted
     await page.reload();
@@ -338,10 +276,8 @@ test.describe("compound-insight field/metric editing", () => {
 
     // ── 4. removeField ──────────────────────────────────────────────────────
     // Cause: click Remove on "Product", confirm deletion
-    // Effect: "Product" disappears from the Fields section. The other
-    // select-all fields (Date, Category, Sales, Quantity) remain, so this
-    // asserts Product's specific absence rather than the empty-state message
-    // (which only applies when zero fields remain selected).
+    // Effect: "Product" disappears from the Fields section — back to the
+    // empty state, since it was the only selected field.
     await page.getByRole("button", { name: "Remove Product" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete field" }),
@@ -363,14 +299,14 @@ test.describe("compound-insight field/metric editing", () => {
       { timeout: 20_000 },
     );
 
-    // ✓ definition.selectedFields no longer includes Product, but the other
-    // select-all fields are still present
+    // ✓ definition.selectedFields no longer includes Product — the Fields
+    // section is back to its empty state (Product was the only field).
     await expect(
       page.getByRole("button", { name: "Remove Product" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    await expect(
-      page.getByRole("button", { name: "Remove Date" }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("No fields selected.")).toBeVisible({
+      timeout: 15_000,
+    });
 
     // ── 5. removeMetric ─────────────────────────────────────────────────────
     // Cause: click Remove on "Row Count", confirm deletion
