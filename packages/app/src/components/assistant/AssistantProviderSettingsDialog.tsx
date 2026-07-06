@@ -27,12 +27,7 @@ import {
   SelectValue,
 } from "@wystack/ui";
 import { DeleteIcon, ExternalLinkIcon, PlusIcon } from "@wystack/ui-icons";
-import {
-  useMemo,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
 interface AssistantProviderSettingsDialogProps {
   open: boolean;
