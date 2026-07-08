@@ -1,7 +1,7 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { useRenderPerf } from "@/lib/perf";
 import { useInsight } from "@dashframe/core";
-import { Spinner } from "@wystack/ui";
+import { Spinner } from "@wystack/ui-react";
 import { InsightView } from "./InsightView";
 import { NotFoundView } from "./NotFoundView";
 

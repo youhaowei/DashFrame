@@ -1,6 +1,6 @@
 import { useVisualizations } from "@dashframe/core";
 import type { UUID } from "@dashframe/types";
-import { Spinner } from "@wystack/ui";
+import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
 import { VisualizationDisplay } from "./VisualizationDisplay";

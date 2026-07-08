@@ -21,8 +21,8 @@ import {
   VisualizationProvider,
   useVisualization,
 } from "@dashframe/visualization";
-import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui";
-import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-icons";
+import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
+import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
 import {
   useEffect,
   useLayoutEffect,

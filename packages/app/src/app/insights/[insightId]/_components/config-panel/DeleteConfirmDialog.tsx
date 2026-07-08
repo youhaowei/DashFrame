@@ -8,8 +8,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@wystack/ui";
-import { AlertCircleIcon, CloseIcon, DeleteIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import {
+  AlertCircleIcon,
+  CloseIcon,
+  DeleteIcon,
+} from "@wystack/ui-react/icons";
 
 /** Information about a visualization that uses the item being deleted */
 export interface AffectedVisualization {

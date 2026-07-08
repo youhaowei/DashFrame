@@ -15,13 +15,13 @@ import {
   Section,
   type ItemCardAction,
   type ListItem,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   CloseIcon,
   DatabaseIcon,
   ExternalLinkIcon,
   PlusIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 
 interface DataModelSectionProps {

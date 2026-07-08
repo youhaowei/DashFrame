@@ -53,13 +53,13 @@ import {
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
-import { Button, cn } from "@wystack/ui";
+import { Button, cn } from "@wystack/ui-react";
 import {
   DashboardIcon,
   PlusIcon,
   SparklesIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import {
   useCallback,
   useEffect,

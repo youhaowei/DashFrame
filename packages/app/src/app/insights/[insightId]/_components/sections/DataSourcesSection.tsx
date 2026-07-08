@@ -7,8 +7,8 @@ import {
   Section,
   type ItemCardAction,
   type ListItem,
-} from "@wystack/ui";
-import { CloseIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { CloseIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface DataSourcesSectionProps {

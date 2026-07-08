@@ -7,8 +7,8 @@ import {
   useShellStore,
 } from "@/lib/stores/shell-store";
 import { useAssistantProviderConfigs } from "@dashframe/core";
-import { Dock, cn } from "@wystack/ui";
-import { ThemePanel } from "@wystack/ui/views";
+import { Dock, cn } from "@wystack/ui-react";
+import { ThemePanel } from "@wystack/ui-react/views";
 import { useEffect, useState } from "react";
 
 import { AssistantSidebar } from "../assistant/AssistantSidebar";

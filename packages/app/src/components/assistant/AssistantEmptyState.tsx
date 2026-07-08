@@ -1,10 +1,10 @@
-import { Textarea, cn } from "@wystack/ui";
+import { Textarea, cn } from "@wystack/ui-react";
 import {
   ChartIcon,
   LightbulbIcon,
   SparklesIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 
 import { type ArtifactContextValue } from "./artifact-context";
 

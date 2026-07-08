@@ -21,8 +21,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@wystack/ui";
-import { MoreIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { MoreIcon } from "@wystack/ui-react/icons";
 import * as React from "react";
 
 interface DataGridProps<TData> {

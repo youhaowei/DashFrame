@@ -1,6 +1,6 @@
 import { SuggestedInsights } from "@/components/visualization-preview/SuggestedInsights";
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
-import { Section } from "@wystack/ui";
+import { Section } from "@wystack/ui-react";
 import { memo } from "react";
 
 interface SuggestedChartsSectionProps {

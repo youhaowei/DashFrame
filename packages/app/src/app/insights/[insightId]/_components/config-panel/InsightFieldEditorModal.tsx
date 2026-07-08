@@ -8,8 +8,12 @@ import {
   DialogTitle,
   Input,
   cn,
-} from "@wystack/ui";
-import { DatabaseIcon, NumberTypeIcon, SearchIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import {
+  DatabaseIcon,
+  NumberTypeIcon,
+  SearchIcon,
+} from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
 interface InsightFieldEditorModalProps {

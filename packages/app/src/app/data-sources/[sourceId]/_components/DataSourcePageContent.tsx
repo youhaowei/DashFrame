@@ -44,7 +44,7 @@ import {
   DropdownMenuTrigger,
   Input,
   ItemCard,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   DatabaseIcon,
   DeleteIcon,
@@ -52,7 +52,7 @@ import {
   MoreIcon as LuMoreHorizontal,
   PlusIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 

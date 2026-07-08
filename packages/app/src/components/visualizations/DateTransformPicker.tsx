@@ -10,8 +10,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
-import { DateTypeIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { DateTypeIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
 /**

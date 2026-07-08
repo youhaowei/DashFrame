@@ -25,8 +25,12 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
-import { DeleteIcon, ExternalLinkIcon, PlusIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import {
+  DeleteIcon,
+  ExternalLinkIcon,
+  PlusIcon,
+} from "@wystack/ui-react/icons";
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
 interface AssistantProviderSettingsDialogProps {

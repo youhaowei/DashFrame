@@ -1,5 +1,5 @@
 /* Base theme from @wystack/ui (includes @import "tailwindcss", token vars, @layer base) */
-@import "@wystack/ui/styles";
+@import "@wystack/ui-core/styles";
 
 /* Scan DashFrame UI package for Tailwind classes */
 @source "./**/*.{ts,tsx}";

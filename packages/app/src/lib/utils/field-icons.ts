@@ -13,7 +13,7 @@ import {
   DateTypeIcon,
   NumberTypeIcon,
   TextTypeIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 
 /**
  * Get icon for a field based on its type string.

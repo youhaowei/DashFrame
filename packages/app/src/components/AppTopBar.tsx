@@ -1,11 +1,11 @@
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
-import { Button, TopBar, cn } from "@wystack/ui";
+import { Button, TopBar, cn } from "@wystack/ui-react";
 import {
   PaletteIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 
 import { AssistantToggle } from "./assistant/AssistantToggle";
 

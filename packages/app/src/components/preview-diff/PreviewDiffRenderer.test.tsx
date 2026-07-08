@@ -28,7 +28,7 @@ import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
 // Lightweight @wystack/ui stub — avoids pulling in the full component library.
 // ---------------------------------------------------------------------------
 
-vi.mock("@wystack/ui", () => ({
+vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => (
     <span>{children}</span>
   ),

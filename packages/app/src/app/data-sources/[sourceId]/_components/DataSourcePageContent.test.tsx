@@ -102,7 +102,7 @@ vi.mock("@dashframe/ui", () => ({
 
 // Stub UI components — only Button needs a real label so the "Go to Data Sources"
 // button text shows up in the DOM for the not-found assertion.
-vi.mock("@wystack/ui", () => ({
+vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => (
     <span>{children}</span>
   ),

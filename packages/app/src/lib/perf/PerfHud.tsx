@@ -1,4 +1,4 @@
-import { cn } from "@wystack/ui";
+import { cn } from "@wystack/ui-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { type PerfSample, usePerfStore } from "./perfStore";

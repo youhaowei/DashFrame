@@ -1,7 +1,7 @@
 import { useRenderPerf } from "@/lib/perf";
 import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
-import { cn } from "@wystack/ui";
+import { cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
 export interface AppLayoutProps {

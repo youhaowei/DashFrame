@@ -30,8 +30,8 @@ import type {
   RemoteApiConnector,
 } from "@dashframe/engine";
 import { getFieldSensitivity, type UUID } from "@dashframe/types";
-import { Button, SectionList } from "@wystack/ui";
-import { ArrowLeftIcon } from "@wystack/ui-icons";
+import { Button, SectionList } from "@wystack/ui-react";
+import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";

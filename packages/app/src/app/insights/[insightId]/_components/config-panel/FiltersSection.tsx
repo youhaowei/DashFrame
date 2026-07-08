@@ -11,14 +11,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   cn,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChevronRightIcon,
   CloseIcon,
   EditIcon,
   PlusIcon,
   SettingsIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
 
 // ============================================================================

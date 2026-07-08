@@ -7,7 +7,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   cn,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   BooleanTypeIcon,
   ChevronRightIcon,
@@ -17,7 +17,7 @@ import {
   NumberTypeIcon,
   PlusIcon,
   TextTypeIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useState } from "react";
 
 /**

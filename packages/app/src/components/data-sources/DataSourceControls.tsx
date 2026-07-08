@@ -17,14 +17,14 @@ import {
   Panel,
   Spinner,
   Surface,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChevronDownIcon,
   DatabaseIcon,
   DeleteIcon,
   PlusIcon,
   RefreshIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 

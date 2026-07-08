@@ -1,7 +1,7 @@
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useAssistantProviderConfigs } from "@dashframe/core";
-import { Button, cn } from "@wystack/ui";
-import { SparklesIcon } from "@wystack/ui-icons";
+import { Button, cn } from "@wystack/ui-react";
+import { SparklesIcon } from "@wystack/ui-react/icons";
 
 /**
  * Discoverable summon for the assistant. The keyboard path (⌘J) is invisible to

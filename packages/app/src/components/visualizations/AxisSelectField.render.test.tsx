@@ -89,7 +89,7 @@ vi.mock("@/lib/visualizations/encoding-enforcer", () => ({
   isColumnValidForChannel: () => ({ suitable: true }),
 }));
 
-vi.mock("@wystack/ui", () => ({
+vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => (
     <span>{children}</span>
   ),

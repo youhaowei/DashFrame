@@ -4,9 +4,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@wystack/ui";
-import { DarkModeIcon, LightModeIcon } from "@wystack/ui-icons";
-import { useTheme } from "@wystack/ui/theme";
+} from "@wystack/ui-react";
+import { DarkModeIcon, LightModeIcon } from "@wystack/ui-react/icons";
+import { useTheme } from "@wystack/ui-react/theme";
 import * as React from "react";
 
 // Subscribe is a no-op: the snapshot transitions from server (false) to

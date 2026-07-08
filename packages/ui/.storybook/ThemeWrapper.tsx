@@ -1,4 +1,4 @@
-import { StduiProvider, useTheme } from "@wystack/ui/theme";
+import { StduiProvider, useTheme } from "@wystack/ui-react/theme";
 import { useEffect, type ReactNode } from "react";
 
 interface ThemeWrapperProps {

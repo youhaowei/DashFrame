@@ -11,7 +11,13 @@ import {
   suggestSensitivityReasons,
 } from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
-import { Button, ButtonGroup, EmptyState, Panel, Toggle } from "@wystack/ui";
+import {
+  Button,
+  ButtonGroup,
+  EmptyState,
+  Panel,
+  Toggle,
+} from "@wystack/ui-react";
 import {
   CloseIcon,
   DeleteIcon,
@@ -19,7 +25,7 @@ import {
   LayersIcon,
   PlusIcon,
   SparklesIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { SensitivityBadge } from "./SensitivityBadge";
 

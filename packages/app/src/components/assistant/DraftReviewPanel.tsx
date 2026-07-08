@@ -22,8 +22,8 @@ import {
 } from "@dashframe/core";
 import type { PreviewDiff } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { Button, cn } from "@wystack/ui";
-import { FileIcon, SparklesIcon } from "@wystack/ui-icons";
+import { Button, cn } from "@wystack/ui-react";
+import { FileIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
 
 import { PreviewDiffDialog } from "@/components/preview-diff/PreviewDiffDialog";

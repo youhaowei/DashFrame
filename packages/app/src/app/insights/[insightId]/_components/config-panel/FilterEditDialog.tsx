@@ -18,7 +18,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import { type ChangeEvent, useState } from "react";
 import { NEW_FILTER_ID, prepareFilterForSave } from "./filter-id";
 import {

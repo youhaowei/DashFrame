@@ -23,8 +23,8 @@ import {
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@wystack/ui";
-import { InfoIcon, SparklesIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { InfoIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 /** Height of the chart preview area in pixels */

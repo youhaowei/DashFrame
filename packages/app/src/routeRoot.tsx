@@ -22,7 +22,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { PlatformProvider } from "@/lib/platform";
 import { DatabaseProvider } from "@dashframe/core";
 import { Outlet } from "@tanstack/react-router";
-import { TooltipProvider } from "@wystack/ui";
+import { TooltipProvider } from "@wystack/ui-react";
 import { Toaster } from "sonner";
 
 /**

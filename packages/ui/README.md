@@ -23,7 +23,7 @@ packages/ui/
 │   ├── fields/           # Form field wrappers
 │   ├── lib/
 │   │   └── icons.tsx     # Icon re-exports from @wystack/ui-icons
-│   ├── globals.css       # Imports @wystack/ui/styles + app fonts
+│   ├── globals.css       # Imports @wystack/ui-core/styles + app fonts
 │   └── index.ts          # Barrel exports (stdui + DashFrame components)
 ├── .storybook/           # Storybook v10 configuration
 └── package.json
@@ -54,10 +54,10 @@ import { StduiProvider, useTheme } from "@dashframe/ui";
 `@dashframe/ui` is a thin re-export layer:
 
 - **stdui primitives** (from `@wystack/ui`) — Button, Card, Input, Select, Dialog, Badge, Tabs, etc.
-- **stdui theme** (from `@wystack/ui/theme`) — StduiProvider, useTheme
+- **stdui theme** (from `@wystack/ui-core/theme` for tokens, `@wystack/ui-react/theme` for Provider/useTheme) — StduiProvider, useTheme
 - **DashFrame components** — ItemSelector, VirtualTable, SortableList, Breadcrumb, JoinTypeIcon
 
-All stdui components are re-exported via `export * from "@wystack/ui"` in `index.ts`.
+All stdui components are re-exported via `export * from "@wystack/ui-react"` in `index.ts` (tokens/core come from `@wystack/ui`).
 
 ## Design Tokens
 

@@ -18,8 +18,8 @@ import {
 } from "@/lib/dashboards/controls";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type { DashboardControl, InsightFilter } from "@dashframe/types";
-import { Input, Label, cn } from "@wystack/ui";
-import { SettingsIcon } from "@wystack/ui-icons";
+import { Input, Label, cn } from "@wystack/ui-react";
+import { SettingsIcon } from "@wystack/ui-react/icons";
 import type { ChangeEvent } from "react";
 
 // ---------------------------------------------------------------------------

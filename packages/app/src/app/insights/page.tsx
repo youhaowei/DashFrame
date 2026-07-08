@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChartIcon,
   DeleteIcon,
@@ -33,7 +33,7 @@ import {
   PlusIcon,
   SearchIcon,
   SettingsIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";

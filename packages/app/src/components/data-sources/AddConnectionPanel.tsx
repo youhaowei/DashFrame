@@ -3,7 +3,7 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import { Alert, AlertDescription } from "@wystack/ui";
+import { Alert, AlertDescription } from "@wystack/ui-react";
 import { useMemo } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 

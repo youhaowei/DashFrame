@@ -19,7 +19,8 @@
     "@dashframe/core": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
-    "@wystack/ui": "workspace:*",
+    "@wystack/ui-core": "workspace:*",
+    "@wystack/ui-react": "workspace:*",
     "@duckdb/duckdb-wasm": "1.32.0",
     "@uwdata/vgplot": "^0.21.1",
     "react": "^19.0.0"

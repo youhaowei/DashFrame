@@ -4,8 +4,8 @@ import {
   useVisualizations,
 } from "@dashframe/core";
 import { useNavigate } from "@tanstack/react-router";
-import { ItemList } from "@wystack/ui";
-import { ChartIcon, DatabaseIcon, SparklesIcon } from "@wystack/ui-icons";
+import { ItemList } from "@wystack/ui-react";
+import { ChartIcon, DatabaseIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
 /**

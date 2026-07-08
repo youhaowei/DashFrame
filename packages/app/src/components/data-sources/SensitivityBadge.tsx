@@ -1,6 +1,6 @@
 import type { Field } from "@dashframe/types";
 import { getFieldSensitivity } from "@dashframe/types";
-import { Badge } from "@wystack/ui";
+import { Badge } from "@wystack/ui-react";
 
 interface SensitivityBadgeProps {
   field: Field;

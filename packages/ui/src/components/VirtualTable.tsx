@@ -1,7 +1,7 @@
 "use client";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn, Spinner } from "@wystack/ui";
+import { cn, Spinner } from "@wystack/ui-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatNumeric } from "../lib/format-numeric";
 

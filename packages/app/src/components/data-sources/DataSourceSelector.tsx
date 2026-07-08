@@ -4,8 +4,8 @@ import { useDataSources, useDataTables } from "@dashframe/core";
 import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
-import { Button, Surface, type ItemAction } from "@wystack/ui";
-import { ChartIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-icons";
+import { Button, Surface, type ItemAction } from "@wystack/ui-react";
+import { ChartIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
 /**

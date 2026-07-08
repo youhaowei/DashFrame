@@ -46,7 +46,14 @@ import type {
 import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { Badge, Button, Card, CardContent, Input, Spinner } from "@wystack/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Spinner,
+} from "@wystack/ui-react";
 import {
   AlertCircleIcon,
   ArrowLeftIcon,
@@ -54,7 +61,7 @@ import {
   ChartIcon,
   DataPointIcon,
   DeleteIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface VisualizationPageContentProps {

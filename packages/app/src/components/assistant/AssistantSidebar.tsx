@@ -4,7 +4,7 @@ import {
   runAssistantPrompt,
   useAssistantProviderConfigs,
 } from "@dashframe/core";
-import { Button, Textarea, cn } from "@wystack/ui";
+import { Button, Textarea, cn } from "@wystack/ui-react";
 import {
   ArrowRightIcon,
   CheckCircleIcon,
@@ -12,7 +12,7 @@ import {
   LoaderIcon,
   SparklesIcon,
   TerminalIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 
 import {
   type AssistantTurn,

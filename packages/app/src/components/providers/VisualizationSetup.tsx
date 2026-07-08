@@ -5,7 +5,7 @@ import {
   registerRenderer,
   useVisualization,
 } from "@dashframe/visualization";
-import { ErrorState } from "@wystack/ui";
+import { ErrorState } from "@wystack/ui-react";
 import { Component, useCallback, useEffect, type ReactNode } from "react";
 import { useChartEngine } from "./ChartEngineProvider";
 import { useDuckDBContext } from "./DuckDBProvider";

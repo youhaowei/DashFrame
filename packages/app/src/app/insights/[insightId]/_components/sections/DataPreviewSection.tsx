@@ -2,8 +2,8 @@ import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { formatCellValue } from "@/lib/cell-formatter";
 import type { Insight } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
-import { Section, Toggle } from "@wystack/ui";
-import { MergeIcon, TableIcon } from "@wystack/ui-icons";
+import { Section, Toggle } from "@wystack/ui-react";
+import { MergeIcon, TableIcon } from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 type PreviewMode = "join" | "result";

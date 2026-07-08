@@ -7,14 +7,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   cn,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   CalculatorIcon,
   ChevronRightIcon,
   CloseIcon,
   EditIcon,
   PlusIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useState } from "react";
 
 /** Extended sortable item with metric data */
