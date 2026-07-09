@@ -31,12 +31,26 @@ Root `bun run dev` launches the **Electron desktop** app (embeds the server
 in-process, auto-starts the renderer on 5173). It needs a display, so it is not
 suitable for the headless VM — prefer the web+server combo above.
 
+### Committing (pre-commit worktree guard)
+
+`.husky/pre-commit` refuses feature-branch commits made from the **main
+checkout** (it's meant to force human/local multi-agent work into isolated
+worktrees via `scripts/ensure-worktree.sh`, per `CLAUDE.md`). A Cursor Cloud
+agent works on its branch directly in the single main checkout, so that guard
+would block every commit. Commit with the documented bypass:
+`ALLOW_MAIN_CHECKOUT_COMMIT=1 git commit ...`. The hook still runs `lint-staged`
+(prettier) on staged files.
+
 ### Lint / test / build
 
-Use the project's own gate `bun check` (or filter `--filter='!@wystack/*'`).
-The vendored `@wystack/*` submodule packages lint with `oxlint`, which is not
-installed, so a raw `bun run lint` / `turbo lint` fails on `@wystack/ui`. The
-project deliberately excludes them (`bun check` = `turbo check --filter=!@wystack/*`).
+Use the project's own gate `bun check`, which runs the ticket-ref check
+(`scripts/check-no-ticket-refs.mjs`) and then `turbo check --filter=!@wystack/*`
+(lint + typecheck + test, excluding the vendored submodule packages). The
+`@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
+`bun run lint` / `turbo lint` fails on `@wystack/ui`; the project deliberately
+filters them out. The per-task commands below skip the ticket-ref gate — run
+`bun check` (or `bun run check:ticket-refs`) if you touched code that might carry
+ticket references.
 
 - Lint: `bunx turbo lint --filter='!@wystack/*'`
 - Test: `bunx turbo test --filter='!@wystack/*'`
