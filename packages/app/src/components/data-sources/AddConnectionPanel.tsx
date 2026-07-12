@@ -20,12 +20,11 @@ export interface AddConnectionPanelProps {
   onConnect: (
     connector: RemoteApiConnector,
     credentials: Record<string, unknown>,
-  ) => void;
-  /** Whether to show Notion connector (feature flag) */
+  ) => Promise<void>;
+  /** Whether to show Notion connector on this surface. */
   showNotion?: boolean;
   /**
-   * Whether to show Postgres connector (feature flag, default false).
-   * Hidden until the renderer-side connect UI is complete.
+   * Whether to show Postgres connector on this surface.
    */
   showPostgres?: boolean;
 }

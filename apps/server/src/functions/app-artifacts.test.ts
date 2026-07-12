@@ -721,4 +721,34 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     expect(await vault.has(config.apiKey as SecretRef)).toBe(true);
     expect(rows[0]?.id).toBe(result.id);
   });
+
+  it("persists connector-specific config beside a vault-backed credential", async () => {
+    await call("addDataSource", {
+      type: "postgres",
+      name: "Warehouse",
+      connectionString: "postgres://user:secret@host/db",
+      config: { defaultSchema: "analytics" },
+    });
+
+    const rows = await db.select().from(dataSources);
+    const config = rows[0]?.config as {
+      connectionString?: unknown;
+      defaultSchema?: unknown;
+    };
+    expect(config.defaultSchema).toBe("analytics");
+    expect(isSecretRef(config.connectionString)).toBe(true);
+    expect(JSON.stringify(config)).not.toContain("postgres://user:secret");
+  });
+
+  it("rejects credentials smuggled through connector-specific config", async () => {
+    await expect(
+      call("addDataSource", {
+        type: "postgres",
+        name: "Unsafe",
+        config: { connectionString: "postgres://plaintext" },
+      }),
+    ).rejects.toThrow(/typed credential fields/);
+
+    expect(await db.select().from(dataSources)).toHaveLength(0);
+  });
 });

@@ -1,16 +1,12 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { materializeRemoteTable } from "@/lib/remote-table-materialization";
 import {
-  addDataFrameEntry,
-  getDataTable,
-  replaceDataFrame,
-  updateDataTable,
   useDataSources,
   useDataTables,
   useNotionMutations,
 } from "@dashframe/core";
-import { DataFrame } from "@dashframe/engine-browser";
-import type { DataTable, Field, UUID } from "@dashframe/types";
+import type { DataTable, Field } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
 import {
   Button,
@@ -480,72 +476,6 @@ function NotionDataSourceView({
   );
 }
 
-// Decode a base64 Arrow IPC buffer (as returned by the server) into bytes the
-// browser engine can persist. Lives at module scope so it's testable in
-// isolation and out of the hook's complexity budget.
-function decodeBase64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-interface MaterializedNotion {
-  dataFrameId: UUID;
-  rowCount: number;
-  columnCount: number;
-}
-
-// Persist the server's serializable Notion result as a durable browser
-// DataFrame and link it to the DataTable. This is what makes an added/synced
-// Notion source survive a reload: the Arrow bytes land in IndexedDB, the
-// DataFrame entry is registered, and the table is updated with its fields +
-// dataFrameId (replacing any prior frame). Mirrors the local-CSV ingest path.
-async function materializeNotionTable(
-  table: { id: string },
-  result: {
-    arrowBuffer: string;
-    fieldIds: string[];
-    fields: Field[];
-    rowCount: number;
-  },
-  name: string,
-): Promise<MaterializedNotion> {
-  const fields = result.fields;
-  const columnCount = result.fieldIds.length;
-  const bytes = decodeBase64ToBytes(result.arrowBuffer);
-  const dataFrame = await DataFrame.create(bytes, result.fieldIds as UUID[]);
-
-  // Re-read the table to resolve its current frame (avoids a stale prop on
-  // re-sync) and replace-in-place rather than orphaning the old Arrow blob.
-  const existing = await getDataTable(table.id as UUID);
-  let dataFrameId: UUID;
-  if (existing?.dataFrameId) {
-    await replaceDataFrame(existing.dataFrameId, dataFrame, {
-      rowCount: result.rowCount,
-      columnCount,
-    });
-    dataFrameId = existing.dataFrameId;
-  } else {
-    await addDataFrameEntry(dataFrame, {
-      name,
-      rowCount: result.rowCount,
-      columnCount,
-    });
-    dataFrameId = dataFrame.id as UUID;
-  }
-
-  // Persist fields AND the frame link, then stamp lastFetchedAt. After this the
-  // table has a real schema and a durable frame — both survive a reload.
-  await updateDataTable(table.id as UUID, {
-    fields,
-    dataFrameId,
-    lastFetchedAt: Date.now(),
-  });
-
-  return { dataFrameId, rowCount: result.rowCount, columnCount };
-}
-
 // Hook that owns Notion query state and the server-side query call.
 // Extracted from DataSourceDisplay so the branch-heavy async body does not
 // contribute toward the component function's cognitive complexity budget.
@@ -602,7 +532,7 @@ function useNotionSync(
 
       // Persist the frame + fields BEFORE reporting success, so a reload finds
       // the data and schema intact (not just a refreshed timestamp).
-      const materialized = await materializeNotionTable(
+      const materialized = await materializeRemoteTable(
         selectedDataTable,
         result,
         selectedDataTable.name,

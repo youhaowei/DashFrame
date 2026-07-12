@@ -1,15 +1,26 @@
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
+  connectRemoteSource,
+  type RemoteResource,
+  type SupportedRemoteConnectorId,
+} from "@/lib/remote-connector-onboarding";
+import { materializeRemoteTable } from "@/lib/remote-table-materialization";
+import {
   useDataFrames,
+  useDataSourceMutations,
   useDataSources,
+  useDataTableMutations,
   useDataTables,
   useInsights,
+  useNotionMutations,
+  usePostgresMutations,
 } from "@dashframe/core";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
+import type { UUID } from "@dashframe/types";
 import { Button, SectionList } from "@wystack/ui";
 import { ArrowLeftIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo, useState } from "react";
@@ -42,12 +53,12 @@ export interface DataPickerContentProps {
   onCancel?: () => void;
   /**
    * Whether to show Notion connection option
-   * @default false
+   * @default true
    */
   showNotion?: boolean;
   /**
-   * Whether to show Postgres connection option (connect UI not yet wired)
-   * @default false
+   * Whether to show Postgres connection option
+   * @default true
    */
   showPostgres?: boolean;
   /**
@@ -55,6 +66,12 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+}
+
+interface RemoteResourceState {
+  connectorId: SupportedRemoteConnectorId;
+  sourceId: UUID;
+  resources: RemoteResource[];
 }
 
 /**
@@ -73,18 +90,27 @@ export function DataPickerContent({
   excludeInsightIds = [],
   excludeTableIds = [],
   onCancel,
-  showNotion = false,
-  showPostgres = false,
+  showNotion = true,
+  showPostgres = true,
   showInsights = true,
 }: DataPickerContentProps) {
   const { data: dataSources = [] } = useDataSources();
   const { data: allDataTables = [] } = useDataTables();
   const { data: allInsights = [] } = useInsights();
   const { data: dataFrames = [] } = useDataFrames();
+  const dataSourceMutations = useDataSourceMutations();
+  const tableMutations = useDataTableMutations();
+  const notionMutations = useNotionMutations();
+  const postgresMutations = usePostgresMutations();
 
   // Local state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [remoteResourceState, setRemoteResourceState] =
+    useState<RemoteResourceState | null>(null);
+  const [materializingResourceId, setMaterializingResourceId] = useState<
+    string | null
+  >(null);
 
   // Transform sources for DataSourceList
   const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
@@ -215,15 +241,75 @@ export function DataPickerContent({
     [onTableSelect, allDataTables],
   );
 
-  // Handle remote connector form submission (Notion, Airtable, etc.).
-  // The renderer never calls connector.connect(); the credential is resolved
-  // server-side. Full implementation: create the DataSource, then list databases
-  // via the listNotionDatabases mutation. Stubbed pending the add-remote flow.
   const handleConnect = useCallback(
-    (connector: RemoteApiConnector, _credentials: Record<string, unknown>) => {
-      console.log(`Connector form submitted: ${connector.name}`);
+    async (
+      connector: RemoteApiConnector,
+      credentials: Record<string, unknown>,
+    ) => {
+      if (connector.id !== "notion" && connector.id !== "postgres") {
+        throw new Error(`${connector.name} onboarding is not supported yet`);
+      }
+
+      setError(null);
+      setRemoteResourceState(
+        await connectRemoteSource({
+          connectorId: connector.id,
+          connectorName: connector.name,
+          credentials,
+          addSource: dataSourceMutations.add,
+          removeSource: dataSourceMutations.remove,
+          listNotionDatabases: notionMutations.listDatabases,
+          listPostgresTables: postgresMutations.listTables,
+        }),
+      );
     },
-    [],
+    [dataSourceMutations, notionMutations, postgresMutations],
+  );
+
+  const handleRemoteResourceSelect = useCallback(
+    async (resource: { id: string; title: string }) => {
+      if (!remoteResourceState) return;
+      setMaterializingResourceId(resource.id);
+      setError(null);
+      let tableId: UUID | null = null;
+      try {
+        tableId = await tableMutations.add(
+          remoteResourceState.sourceId,
+          resource.title,
+          resource.id,
+        );
+        const result =
+          remoteResourceState.connectorId === "notion"
+            ? await notionMutations.queryDatabase(
+                remoteResourceState.sourceId,
+                resource.id,
+                tableId,
+              )
+            : await postgresMutations.queryTable(
+                remoteResourceState.sourceId,
+                resource.id,
+                tableId,
+              );
+        await materializeRemoteTable({ id: tableId }, result, resource.title);
+        onTableSelect(tableId, resource.title);
+      } catch (cause) {
+        if (tableId) await tableMutations.remove(tableId).catch(() => {});
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Failed to import remote table",
+        );
+      } finally {
+        setMaterializingResourceId(null);
+      }
+    },
+    [
+      notionMutations,
+      onTableSelect,
+      postgresMutations,
+      remoteResourceState,
+      tableMutations,
+    ],
   );
 
   const hasInsights =
@@ -273,7 +359,7 @@ export function DataPickerContent({
         )}
 
         {/* Section: Add New Source */}
-        {!selectedSourceId && (
+        {!selectedSourceId && !remoteResourceState && (
           <SectionList title="Add New Data">
             <AddConnectionPanel
               error={error}
@@ -282,6 +368,30 @@ export function DataPickerContent({
               showNotion={showNotion}
               showPostgres={showPostgres}
             />
+          </SectionList>
+        )}
+
+        {remoteResourceState && !selectedSourceId && (
+          <SectionList title="Choose data to import">
+            <div className="space-y-2">
+              {remoteResourceState.resources.length === 0 ? (
+                <p className="text-sm text-neutral-fg-subtle">
+                  The connection succeeded, but no databases or tables were
+                  found.
+                </p>
+              ) : (
+                remoteResourceState.resources.map((resource) => (
+                  <Button
+                    key={resource.id}
+                    label={resource.title}
+                    variant="outline"
+                    className="w-full justify-start"
+                    disabled={materializingResourceId !== null}
+                    onClick={() => handleRemoteResourceSelect(resource)}
+                  />
+                ))
+              )}
+            </div>
           </SectionList>
         )}
       </div>

@@ -119,14 +119,12 @@ export function clearConnectorRegistry(): void {
  * Options for filtering connectors
  */
 export interface GetConnectorsOptions {
-  /** Show Notion connector (default: false for feature flag control) */
+  /** Show Notion connector (default: false for explicit surface control) */
   showNotion?: boolean;
   /**
    * Show Postgres connector (default: false).
    *
-   * Postgres is registered for static metadata and server-side query routing
-   * but the renderer-side connect() flow is not yet wired. Keep hidden until
-   * the connect UI is complete.
+   * Postgres is registered for static metadata and server-side query routing.
    */
   showPostgres?: boolean;
   /** Filter by source type */

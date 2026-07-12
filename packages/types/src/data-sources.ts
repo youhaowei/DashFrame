@@ -53,6 +53,8 @@ export interface CreateDataSourceInput {
   name: string;
   apiKey?: string;
   connectionString?: string;
+  /** Connector-specific, non-credential settings. */
+  config?: Record<string, unknown>;
 }
 
 // ============================================================================

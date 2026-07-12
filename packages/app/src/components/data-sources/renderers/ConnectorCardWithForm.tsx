@@ -26,7 +26,7 @@ interface ConnectorCardWithFormProps {
   onConnect: (
     connector: RemoteApiConnector,
     credentials: Record<string, unknown>,
-  ) => void;
+  ) => Promise<void>;
 }
 
 /**
@@ -83,10 +83,7 @@ export function ConnectorCardWithForm({
     // resolver throws by design). execute() validates the form and returns the
     // credential values; the parent creates the DataSource (storing the key as a
     // vault SecretRef) and lists databases via the listNotionDatabases mutation.
-    const credentials = await execute(async (data) => data);
-    if (credentials) {
-      onConnect(connector, credentials);
-    }
+    await execute((data) => onConnect(connector, data));
   };
 
   return (
