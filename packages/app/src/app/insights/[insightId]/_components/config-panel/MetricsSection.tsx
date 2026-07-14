@@ -29,6 +29,7 @@ interface MetricsSectionProps {
   onEditClick: (metric: InsightMetric) => void;
   onAddClick: () => void;
   defaultOpen?: boolean;
+  embedded?: boolean;
 }
 
 /**
@@ -44,6 +45,7 @@ export function MetricsSection({
   onEditClick,
   onAddClick,
   defaultOpen = true,
+  embedded = false,
 }: MetricsSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -60,6 +62,49 @@ export function MetricsSection({
     },
     [onReorder],
   );
+
+  const content = (
+    <div className={embedded ? "p-4" : "overflow-hidden px-4 pb-4"}>
+      {embedded && (
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-fg">Metrics</h3>
+            <p className="text-xs text-neutral-fg-subtle">
+              Define the values to aggregate.
+            </p>
+          </div>
+          <Button
+            label="Add"
+            icon={PlusIcon}
+            variant="outline"
+            size="sm"
+            onClick={onAddClick}
+          />
+        </div>
+      )}
+      {sortableItems.length > 0 ? (
+        <SortableList
+          items={sortableItems}
+          onReorder={handleReorder}
+          gap={6}
+          itemClassName="bg-palette-primary/5 border-palette-primary/20"
+          renderItem={(item) => (
+            <MetricItemContent
+              metric={item.metric}
+              onRemove={() => onRemove(item.id)}
+              onEditClick={() => onEditClick(item.metric)}
+            />
+          )}
+        />
+      ) : (
+        <p className="py-2 text-sm text-neutral-fg-subtle">
+          No metrics configured.
+        </p>
+      )}
+    </div>
+  );
+
+  if (embedded) return content;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -95,29 +140,7 @@ export function MetricsSection({
             onClick={onAddClick}
           />
         </div>
-        <CollapsibleContent>
-          <div className="overflow-hidden px-4 pb-4">
-            {sortableItems.length > 0 ? (
-              <SortableList
-                items={sortableItems}
-                onReorder={handleReorder}
-                gap={6}
-                itemClassName="bg-palette-primary/5 border-palette-primary/20"
-                renderItem={(item) => (
-                  <MetricItemContent
-                    metric={item.metric}
-                    onRemove={() => onRemove(item.id)}
-                    onEditClick={() => onEditClick(item.metric)}
-                  />
-                )}
-              />
-            ) : (
-              <p className="py-2 text-sm text-neutral-fg-subtle">
-                No metrics configured.
-              </p>
-            )}
-          </div>
-        </CollapsibleContent>
+        <CollapsibleContent>{content}</CollapsibleContent>
       </div>
     </Collapsible>
   );
