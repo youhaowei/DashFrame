@@ -1,4 +1,4 @@
-import type { UseQueryResult } from "./repository-base";
+import type { UseRetryableQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -64,7 +64,7 @@ export interface CreateDataSourceInput {
 /**
  * Result type for useDataSources hook.
  */
-export type UseDataSourcesResult = UseQueryResult<DataSource[]>;
+export type UseDataSourcesResult = UseRetryableQueryResult<DataSource[]>;
 
 /**
  * Mutation methods for data sources - pure CRUD operations.

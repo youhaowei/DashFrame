@@ -17,6 +17,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  ErrorState,
   Input,
 } from "@wystack/ui";
 import {
@@ -28,7 +29,7 @@ import {
   SearchIcon,
   TableIcon,
 } from "@wystack/ui-icons";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 // Type for data source with table count
 type DataSourceWithTables = {
@@ -45,20 +46,28 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const navigate = useNavigate();
 
-  const { data: dataSources = [], isLoading } = useDataSources();
+  const dataSourcesQuery = useDataSources();
+  const dataSources = dataSourcesQuery.data;
+  const refetchDataSources = dataSourcesQuery.refetch;
   const { remove: removeDataSourceLocal } = useDataSourceMutations();
 
   // Get all data tables to count them per source
-  const { data: allDataTables = [] } = useDataTables();
+  const dataTablesQuery = useDataTables();
+  const allDataTables = dataTablesQuery.data;
+  const refetchDataTables = dataTablesQuery.refetch;
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
+  const handleRetry = useCallback(async () => {
+    await Promise.all([refetchDataSources(), refetchDataTables()]);
+  }, [refetchDataSources, refetchDataTables]);
+
   // Transform data sources for display
   const allDataSources = useMemo((): DataSourceWithTables[] => {
-    return dataSources.map((source) => {
-      const tableCount = allDataTables.filter(
+    return (dataSources ?? []).map((source) => {
+      const tableCount = (allDataTables ?? []).filter(
         (table) => table.dataSourceId === source.id,
       ).length;
       return {
@@ -187,11 +196,29 @@ export default function DataSourcesPage() {
     </Card>
   );
 
-  if (isLoading && dataSources.length === 0) {
+  const isInitialLoading =
+    (dataSourcesQuery.isLoading && dataSourcesQuery.data === undefined) ||
+    (dataTablesQuery.isLoading && dataTablesQuery.data === undefined);
+  const hasInitialError =
+    (dataSourcesQuery.isError && dataSourcesQuery.data === undefined) ||
+    (dataTablesQuery.isError && dataTablesQuery.data === undefined);
+
+  if (isInitialLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-neutral-fg-subtle">Loading data sources…</p>
       </div>
+    );
+  }
+
+  if (hasInitialError) {
+    return (
+      <ErrorState
+        title="Failed to load data sources"
+        description="DashFrame could not reach the data service. Check that the server is running, then retry."
+        retryAction={{ label: "Retry", onClick: handleRetry }}
+        className="h-full"
+      />
     );
   }
 

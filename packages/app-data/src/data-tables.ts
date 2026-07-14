@@ -20,7 +20,11 @@ export function useDataTables(dataSourceId?: UUID): UseDataTablesResult {
   });
   return {
     data: result.data as DataTable[] | undefined,
+    error: result.error,
+    isError: result.isError,
     isLoading: result.isLoading,
+    isFetching: result.isFetching,
+    refetch: result.refetch,
   };
 }
 

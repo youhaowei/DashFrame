@@ -21,6 +21,7 @@ export interface PostHogLoadResult {
 // Track loading state to prevent multiple initializations
 let loadingPromise: Promise<PostHogLoadResult> | null = null;
 let loadedInstance: PostHog | null = null;
+let loadGeneration = 0;
 
 /**
  * Cross-browser requestIdleCallback with setTimeout fallback.
@@ -81,13 +82,20 @@ export async function loadPostHog(
     return loadingPromise;
   }
 
-  loadingPromise = (async () => {
+  const generation = loadGeneration;
+  const promise = (async () => {
     // Wait for browser idle time before loading
     await waitForIdle();
 
     // Dynamically import posthog-js
     const posthogModule = await import("posthog-js");
     const posthog = posthogModule.default;
+
+    // A reset invalidates work that was already waiting for idle time or the
+    // dynamic import. Stale loads must never initialize the shared SDK.
+    if (generation !== loadGeneration) {
+      throw new Error("PostHog load was cancelled");
+    }
 
     // Initialize PostHog with the provided config
     posthog.init(config.apiKey, {
@@ -104,11 +112,14 @@ export async function loadPostHog(
     // Clear the cached promise so subsequent calls can retry — without this,
     // a transient chunk/network failure would permanently disable analytics
     // for the rest of the session.
-    loadingPromise = null;
+    if (generation === loadGeneration) {
+      loadingPromise = null;
+    }
     throw err;
   });
+  loadingPromise = promise;
 
-  return loadingPromise;
+  return promise;
 }
 
 /**
@@ -131,6 +142,9 @@ export function isPostHogLoaded(): boolean {
  * Properly cleans up the PostHog SDK instance (listeners/timers) before resetting state.
  */
 export async function resetPostHogLoader(): Promise<void> {
+  // Invalidate any load currently waiting for idle time or a dynamic import.
+  loadGeneration += 1;
+
   if (loadedInstance) {
     try {
       // Clean up listeners and timers by calling reset()

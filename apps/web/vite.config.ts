@@ -146,7 +146,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port,
-      strictPort: false,
+      strictPort: true,
       proxy: wystackUrl
         ? {
             "/api": {

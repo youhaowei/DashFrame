@@ -1,6 +1,6 @@
 import type { Field, SourceSchema } from "./field";
 import type { Metric } from "./metric";
-import type { UseQueryResult } from "./repository-base";
+import type { UseRetryableQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -41,7 +41,7 @@ export interface DataTable {
 /**
  * Result type for useDataTables hook.
  */
-export type UseDataTablesResult = UseQueryResult<DataTable[]>;
+export type UseDataTablesResult = UseRetryableQueryResult<DataTable[]>;
 
 /**
  * Mutation methods for data tables.

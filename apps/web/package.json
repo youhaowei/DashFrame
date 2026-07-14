@@ -83,6 +83,7 @@
     "dev": "../../scripts/dev-web.sh bunx vite",
     "dev:direct": "vite --host 127.0.0.1",
     "lint": "bunx eslint .",
+    "prestart": "bun run build",
     "preview": "vite preview",
     "start": "vite preview",
     "test": "vitest run",
