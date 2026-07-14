@@ -128,9 +128,26 @@ if [[ "${1:-}" == "review" ]]; then
         clawpatch --state-dir "$state_dir" clean-locks --json >&2
         CLAWPATCH_STALE_LOCK_RETRY=1 exec "$0" "${original_args[@]}"
       fi
-      echo "ERROR [clawpatch]: stale map / unmapped files: review reported no features touched by diff, but git diff --name-only '$since_base' is non-empty." >&2
-      echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and check whether changed files are mapped to features." >&2
-      exit 1
+
+      unmapped_reviewable_files=""
+      while IFS= read -r changed_file; do
+        case "$changed_file" in
+          *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.go|*.py|*.rb|*.ex|*.exs|*.rs|*.cs|*.cpp|*.cc|*.c|*.h|*.hpp|*.swift|*.java|*.kt|*.kts|*.php|*.vue|*.svelte)
+            if ! grep -Fq -- "\"path\": \"$changed_file\"" "$state_dir"/features/*.json 2>/dev/null; then
+              unmapped_reviewable_files+="${unmapped_reviewable_files:+$'\n'}$changed_file"
+            fi
+            ;;
+        esac
+      done <<<"$changed_files"
+
+      if [[ -n "$unmapped_reviewable_files" ]]; then
+        echo "ERROR [clawpatch]: reviewable files are missing from the feature map:" >&2
+        printf '%s\n' "$unmapped_reviewable_files" >&2
+        echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and inspect the missing ownership." >&2
+        exit 1
+      fi
+
+      echo "INFO [clawpatch]: diff is mapped; no eligible features remain to review." >&2
     fi
   fi
 

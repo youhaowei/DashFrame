@@ -27,7 +27,11 @@ case "${1:-}" in
     fi
     ;;
   status)
-    printf '{"activeLocks":1,"lockFiles":0}\n'
+    if [[ -f "$state_dir/converged" ]]; then
+      printf '{"activeLocks":0,"lockFiles":0}\n'
+    else
+      printf '{"activeLocks":1,"lockFiles":0}\n'
+    fi
     ;;
   clean-locks)
     touch "$state_dir/retried"
@@ -63,3 +67,37 @@ grep -Fq '"reviewed":1' <<<"$output"
 test -f "$scratch/state/retried"
 
 printf 'clawpatch wrapper stale-lock recovery: pass\n'
+
+rm -f "$scratch/state/retried"
+touch "$scratch/state/converged"
+mkdir -p "$scratch/state/features"
+cat >"$scratch/state/features/feature.json" <<'EOF'
+{"ownedFiles":[{"path": "file.ts"}]}
+EOF
+mv "$scratch/repo/file.txt" "$scratch/repo/file.ts"
+git -C "$scratch/repo" add file.txt file.ts
+
+output="$(
+  cd "$scratch/repo"
+  PATH="$scratch/bin:$PATH" \
+    CLAWPATCH_STATE_DIR="$scratch/state" \
+    "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input --limit 1 2>&1
+)"
+
+grep -Fq 'diff is mapped; no eligible features remain to review' <<<"$output"
+printf 'clawpatch wrapper converged-review handling: pass\n'
+
+printf 'unmapped\n' >"$scratch/repo/unmapped.ts"
+git -C "$scratch/repo" add unmapped.ts
+if (
+  cd "$scratch/repo"
+  PATH="$scratch/bin:$PATH" \
+    CLAWPATCH_STATE_DIR="$scratch/state" \
+    "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input --limit 1
+) >"$scratch/unmapped.out" 2>&1; then
+  printf 'expected unmapped reviewable file to fail\n' >&2
+  exit 1
+fi
+
+grep -Fq 'unmapped.ts' "$scratch/unmapped.out"
+printf 'clawpatch wrapper unmapped-file guard: pass\n'
