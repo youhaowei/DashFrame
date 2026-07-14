@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { runAssistantPrompt } from "@dashframe/core";
+import {
+  runAssistantPrompt,
+  useAssistantProviderConfigs,
+} from "@dashframe/core";
 import { Button, Textarea, cn } from "@wystack/ui";
 import {
   ArrowRightIcon,
@@ -57,8 +60,14 @@ function AssistantPanelBody() {
     (s) => s.selectedProviderConfigId,
   );
   const selectedModelId = useAssistantStore((s) => s.selectedModelId);
+  const providerConfigsResult = useAssistantProviderConfigs();
+  const hasConfiguredProvider = (providerConfigsResult.data?.length ?? 0) > 0;
   const [prompt, setPrompt] = useState("");
   const isRunning = runStatus === "running";
+  let sendTooltip = "Send";
+  if (isRunning) sendTooltip = "Assistant is running";
+  else if (!hasConfiguredProvider)
+    sendTooltip = "Configure an assistant provider first";
 
   // Cancels the in-flight run when the rail is dismissed mid-run so a
   // stalled stream can't leave the store stuck in "running". The Dock keeps
@@ -79,7 +88,7 @@ function AssistantPanelBody() {
 
   async function submitPrompt() {
     const text = prompt.trim();
-    if (!text || isRunning) return;
+    if (!text || isRunning || !hasConfiguredProvider) return;
     setPrompt("");
     beginRun(text);
     const controller = new AbortController();
@@ -172,10 +181,10 @@ function AssistantPanelBody() {
               icon={isRunning ? LoaderIcon : ArrowRightIcon}
               iconOnly
               size="sm"
-              disabled={!prompt.trim() || isRunning}
+              disabled={!prompt.trim() || isRunning || !hasConfiguredProvider}
               onClick={() => void submitPrompt()}
               className="mb-0.5 size-8 shrink-0"
-              tooltip={isRunning ? "Assistant is running" : "Send"}
+              tooltip={sendTooltip}
             />
           </div>
         </div>

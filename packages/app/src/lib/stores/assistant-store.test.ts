@@ -11,6 +11,7 @@ describe("useAssistantStore", () => {
     useAssistantStore.persist.clearStorage();
     useAssistantStore.setState({
       isOpen: false,
+      isSetupOpen: false,
       pendingDraftId: null,
       runStatus: "idle",
       activeDraftId: null,
@@ -25,6 +26,13 @@ describe("useAssistantStore", () => {
     useAssistantStore.getState().toggle();
     expect(useAssistantStore.getState().isOpen).toBe(true);
     useAssistantStore.getState().toggle();
+    expect(useAssistantStore.getState().isOpen).toBe(false);
+  });
+
+  it("tracks provider setup separately from the assistant rail", () => {
+    useAssistantStore.getState().setSetupOpen(true);
+
+    expect(useAssistantStore.getState().isSetupOpen).toBe(true);
     expect(useAssistantStore.getState().isOpen).toBe(false);
   });
 

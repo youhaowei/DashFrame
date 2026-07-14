@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { useAssistantProviderConfigs } from "@dashframe/core";
 
 /**
  * Global keyboard summon for the assistant: ⌘J (mac) / Ctrl+J toggles the
@@ -8,7 +9,13 @@ import { useAssistantStore } from "@/lib/stores/assistant-store";
  * reachable from anywhere, matching the "global, summonable" shape.
  */
 export function useAssistantHotkey(): void {
+  const close = useAssistantStore((s) => s.close);
   const toggle = useAssistantStore((s) => s.toggle);
+  const setSetupOpen = useAssistantStore((s) => s.setSetupOpen);
+  const configsResult = useAssistantProviderConfigs();
+  const configsLoaded =
+    configsResult.data !== undefined && !configsResult.isLoading;
+  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -17,10 +24,16 @@ export function useAssistantHotkey(): void {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "j" || e.key === "J")) {
         e.preventDefault();
-        toggle();
+        if (!configsLoaded) return;
+        if (assistantAvailable) {
+          toggle();
+        } else {
+          close();
+          setSetupOpen(true);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle]);
+  }, [assistantAvailable, close, configsLoaded, setSetupOpen, toggle]);
 }

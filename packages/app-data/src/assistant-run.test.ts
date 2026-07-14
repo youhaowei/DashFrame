@@ -68,6 +68,26 @@ describe("runAssistantPrompt error paths", () => {
     ).rejects.toThrow("Assistant run failed with HTTP 502");
   });
 
+  it("does not expose an HTML proxy error body to the assistant timeline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            "<!DOCTYPE html><html><head><title>502 - Bad Gateway</title></head></html>",
+            {
+              status: 502,
+              headers: { "Content-Type": "text/html" },
+            },
+          ),
+      ),
+    );
+
+    await expect(
+      runAssistantPrompt({ prompt: "hi", onEvent: () => {} }),
+    ).rejects.toThrow("Assistant service is unavailable (HTTP 502)");
+  });
+
   it("throws when an OK response carries no stream body", async () => {
     vi.stubGlobal(
       "fetch",

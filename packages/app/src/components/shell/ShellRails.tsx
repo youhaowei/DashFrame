@@ -6,6 +6,7 @@ import {
   CONTEXT_PANEL_MIN_WIDTH,
   useShellStore,
 } from "@/lib/stores/shell-store";
+import { useAssistantProviderConfigs } from "@dashframe/core";
 import { Dock, cn } from "@wystack/ui";
 import { ThemePanel } from "@wystack/ui/views";
 import { useEffect, useState } from "react";
@@ -76,7 +77,10 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const setContextWidth = useShellStore((s) => s.setContextPanelWidth);
   const assistantWidth = useShellStore((s) => s.assistantRailWidth);
   const setAssistantWidth = useShellStore((s) => s.setAssistantRailWidth);
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
+  const assistantIntentOpen = useAssistantStore((s) => s.isOpen);
+  const assistantConfigs = useAssistantProviderConfigs();
+  const assistantAvailable = (assistantConfigs.data?.length ?? 0) > 0;
+  const assistantOpen = assistantIntentOpen && assistantAvailable;
 
   const contextIntentOpen = appearanceOpen || sections.length > 0;
   const desktopNavInFlow = leftNavOpen && shellWidth >= DESKTOP_NAV_BREAKPOINT;
@@ -170,7 +174,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
         maxExtent={ASSISTANT_RAIL_MAX_WIDTH}
         aria-label="Assistant"
       >
-        <AssistantSidebar />
+        {assistantAvailable ? <AssistantSidebar /> : null}
       </Dock>
     </>
   );
