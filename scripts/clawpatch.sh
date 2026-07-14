@@ -9,6 +9,8 @@
 # State dir: CLAWPATCH_STATE_DIR → XDG_STATE_HOME → ~/.local/state → /tmp fallback.
 set -euo pipefail
 
+original_args=("$@")
+
 repo_root="$(git rev-parse --show-toplevel)"
 git_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 main_root=$(dirname "$git_dir")
@@ -118,6 +120,14 @@ if [[ "${1:-}" == "review" ]]; then
     && grep -Fq "no features touched by diff" <<<"${review_stdout}${review_stderr}"; then
     changed_files="$(git diff --name-only "$since_base" -- || true)"
     if [[ -n "$changed_files" ]]; then
+      status_json="$(clawpatch --state-dir "$state_dir" status --json 2>/dev/null || true)"
+      if [[ "${CLAWPATCH_STALE_LOCK_RETRY:-0}" != "1" ]] \
+        && grep -Eq '"activeLocks"[[:space:]]*:[[:space:]]*[1-9][0-9]*' <<<"$status_json" \
+        && grep -Eq '"lockFiles"[[:space:]]*:[[:space:]]*0' <<<"$status_json"; then
+        echo "WARN [clawpatch]: clearing orphaned feature locks and retrying review once." >&2
+        clawpatch --state-dir "$state_dir" clean-locks --json >&2
+        CLAWPATCH_STALE_LOCK_RETRY=1 exec "$0" "${original_args[@]}"
+      fi
       echo "ERROR [clawpatch]: stale map / unmapped files: review reported no features touched by diff, but git diff --name-only '$since_base' is non-empty." >&2
       echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and check whether changed files are mapped to features." >&2
       exit 1

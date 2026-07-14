@@ -372,27 +372,36 @@ export function DataPickerContent({
         )}
 
         {remoteResourceState && !selectedSourceId && (
-          <SectionList title="Choose data to import">
-            <div className="space-y-2">
-              {remoteResourceState.resources.length === 0 ? (
-                <p className="text-sm text-neutral-fg-subtle">
-                  The connection succeeded, but no databases or tables were
-                  found.
-                </p>
-              ) : (
-                remoteResourceState.resources.map((resource) => (
-                  <Button
-                    key={resource.id}
-                    label={resource.title}
-                    variant="outline"
-                    className="w-full justify-start"
-                    disabled={materializingResourceId !== null}
-                    onClick={() => handleRemoteResourceSelect(resource)}
-                  />
-                ))
-              )}
-            </div>
-          </SectionList>
+          <>
+            <Button
+              label="Choose another connection"
+              variant="ghost"
+              size="sm"
+              onClick={() => setRemoteResourceState(null)}
+              icon={ArrowLeftIcon}
+            />
+            <SectionList title="Choose data to import">
+              <div className="space-y-2">
+                {remoteResourceState.resources.length === 0 ? (
+                  <p className="text-sm text-neutral-fg-subtle">
+                    The connection succeeded, but no databases or tables were
+                    found.
+                  </p>
+                ) : (
+                  remoteResourceState.resources.map((resource) => (
+                    <Button
+                      key={resource.id}
+                      label={resource.title}
+                      variant="outline"
+                      className="w-full justify-start"
+                      disabled={materializingResourceId !== null}
+                      onClick={() => handleRemoteResourceSelect(resource)}
+                    />
+                  ))
+                )}
+              </div>
+            </SectionList>
+          </>
         )}
       </div>
 
