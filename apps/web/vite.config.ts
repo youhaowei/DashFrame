@@ -103,6 +103,11 @@ export default defineConfig(({ mode }) => {
       ? rawPort
       : 3000;
   const wystackUrl = env.VITE_WYSTACK_URL?.trim();
+  if (mode === "development" && !wystackUrl) {
+    throw new Error(
+      "VITE_WYSTACK_URL is required for web development. Start the app with `bun run dev:web` so the DashFrame server and Vite proxy are launched together.",
+    );
+  }
 
   return {
     plugins: [

@@ -80,7 +80,7 @@
   "scripts": {
     "build": "vite build",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "dev": "portless",
+    "dev": "../../scripts/dev-web.sh bunx vite",
     "dev:direct": "vite --host 127.0.0.1",
     "lint": "bunx eslint .",
     "preview": "vite preview",
