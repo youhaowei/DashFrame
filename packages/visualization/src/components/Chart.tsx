@@ -188,6 +188,12 @@ export function Chart({
 }: ChartProps) {
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  // Suggestions and persisted visualizations can recreate an equivalent
+  // encoding object during unrelated store updates. Key renderer lifecycle to
+  // the serialized value instead of object identity so those renders do not
+  // tear down a healthy chart and briefly leave its container empty.
+  const serializedEncoding = JSON.stringify(encoding);
+
   // Track chart colors to detect theme changes
   const chartColors = useChartColors();
 
@@ -276,7 +282,7 @@ export function Chart({
     // Build config with resolved dimensions
     const config: ChartConfig = {
       tableName,
-      encoding,
+      encoding: JSON.parse(serializedEncoding) as ChartEncoding,
       width: resolvedWidth,
       height: resolvedHeight,
       preview,
@@ -310,7 +316,7 @@ export function Chart({
   }, [
     tableName,
     visualizationType,
-    encoding,
+    serializedEncoding,
     resolvedWidth,
     resolvedHeight,
     preview,

@@ -127,4 +127,47 @@ describe("Chart renderer resolution", () => {
     // No render happened — the wrong-engine flash is prevented.
     expect(calls).toHaveLength(0);
   });
+
+  it("keeps the renderer mounted when an equivalent encoding object is recreated", () => {
+    const cleanup = vi.fn();
+    const renderer: ChartRenderer = {
+      supportedTypes: ["barY"] as readonly VisualizationType[],
+      render: vi.fn(() => cleanup),
+    };
+    mockUseVisualization.mockReturnValue({
+      renderer,
+      isReady: true,
+      error: null,
+    });
+
+    const { rerender } = render(
+      <Chart
+        tableName="insight_view_x"
+        visualizationType={"barY" as VisualizationType}
+        encoding={{ x: "category", y: "sum(value)" }}
+      />,
+    );
+
+    rerender(
+      <Chart
+        tableName="insight_view_x"
+        visualizationType={"barY" as VisualizationType}
+        encoding={{ x: "category", y: "sum(value)" }}
+      />,
+    );
+
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    expect(cleanup).not.toHaveBeenCalled();
+
+    rerender(
+      <Chart
+        tableName="insight_view_x"
+        visualizationType={"barY" as VisualizationType}
+        encoding={{ x: "category", y: "avg(value)" }}
+      />,
+    );
+
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
 });
