@@ -47,6 +47,7 @@ import type {
 import { CHART_TYPE_METADATA } from "@dashframe/types";
 import {
   CHART_ICONS,
+  ControlTooltip,
   VirtualTable,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
@@ -54,7 +55,6 @@ import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
 import { Button, cn } from "@wystack/ui";
 import {
-  CheckIcon,
   DashboardIcon,
   PlusIcon,
   SparklesIcon,
@@ -679,34 +679,35 @@ function CanvasViewButton({
   muted = false,
   icon,
   label,
+  description,
   onClick,
 }: {
   active: boolean;
   muted?: boolean;
   icon: ReactNode;
   label: string;
+  description: string;
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "flex h-8 max-w-44 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-        active
-          ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
-          : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-        muted && !active && "opacity-60",
-      )}
-      title={label}
-    >
-      <span className="shrink-0">
-        {active ? <CheckIcon className="h-3.5 w-3.5" /> : icon}
-      </span>
-      <span className="truncate">{label}</span>
-    </button>
+    <ControlTooltip label={label} description={description} side="bottom">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={cn(
+          "flex h-8 max-w-44 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+          "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+          active
+            ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
+            : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
+          muted && !active && "opacity-60",
+        )}
+      >
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </button>
+    </ControlTooltip>
   );
 }
 
@@ -1363,8 +1364,8 @@ export function InsightView({
 
     autoPinAttemptRef.current = insightId;
     pinChartSuggestion(firstChartSuggestion).catch((error) => {
-      console.error("[InsightView] Auto-pin failed:", error);
-      toast.error("Couldn't pin the chart view");
+      console.error("[InsightView] Auto-save failed:", error);
+      toast.error("Couldn't save the chart");
     });
   }, [
     firstChartSuggestion,
@@ -1378,10 +1379,10 @@ export function InsightView({
     if (!activeChartSuggestion) return;
     try {
       await pinChartSuggestion(activeChartSuggestion);
-      toast.success("Chart view pinned");
+      toast.success("Chart saved");
     } catch (error) {
-      console.error("[InsightView] Pin failed:", error);
-      toast.error("Couldn't pin chart view");
+      console.error("[InsightView] Save failed:", error);
+      toast.error("Couldn't save the chart");
     }
   }, [activeChartSuggestion, pinChartSuggestion]);
 
@@ -1488,13 +1489,13 @@ export function InsightView({
   if (activeView.kind === "chart") {
     activeViewLabel = CHART_TYPE_METADATA[activeView.chartType].displayName;
   } else if (activeView.kind === "visualization") {
-    activeViewLabel = activeVisualization?.name ?? "Pinned view";
+    activeViewLabel = activeVisualization?.name ?? "Saved chart";
   }
   let activeViewDescription = "Rows produced by the current data model";
   if (activeView.kind === "chart") {
-    activeViewDescription = "Unpinned chart view";
+    activeViewDescription = "Chart preview — changes are not saved";
   } else if (activeView.kind === "visualization") {
-    activeViewDescription = "Pinned visualization";
+    activeViewDescription = "Saved chart — reusable in dashboards";
   }
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
@@ -1532,12 +1533,14 @@ export function InsightView({
                   active={activeView.kind === "table"}
                   icon={<TableIcon className="h-3.5 w-3.5" />}
                   label="Data"
+                  description="View the rows produced by the current data model."
                   onClick={() => handleSetActiveView(TABLE_CANVAS_VIEW)}
                 />
                 <CanvasViewButton
                   active={activeView.kind !== "table"}
                   icon={<SparklesIcon className="h-3.5 w-3.5" />}
                   label="Visualize"
+                  description="Explore chart types before saving a chart."
                   onClick={handleSelectVisualMode}
                 />
               </div>
@@ -1552,13 +1555,18 @@ export function InsightView({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {canPinActiveChart && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  icon={PlusIcon}
-                  label="Pin view"
-                  onClick={handlePinActiveChart}
-                />
+                <ControlTooltip
+                  label="Save chart"
+                  description="Keep this chart as a reusable view for dashboards."
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon={PlusIcon}
+                    label="Save chart"
+                    onClick={handlePinActiveChart}
+                  />
+                </ControlTooltip>
               )}
               <Button
                 size="sm"
@@ -1611,10 +1619,20 @@ export function InsightView({
                     muted={!chartAvailable}
                     icon={<ChartIcon size={14} />}
                     label={CHART_TYPE_METADATA[chartType].displayName}
+                    description={
+                      chartAvailable
+                        ? CHART_TYPE_METADATA[chartType].description
+                        : "No suitable fields are available for this chart type."
+                    }
                     onClick={() => handleSetActiveView(view)}
                   />
                 );
               })}
+              {insightVisualizations.length > 0 && (
+                <span className="ml-2 border-l border-neutral-border/60 pl-3 text-xs font-medium text-neutral-fg-subtle">
+                  Saved
+                </span>
+              )}
               {insightVisualizations.map((visualization) => {
                 const view = visualizationView(visualization.id);
                 const ChartIcon = CHART_ICONS[visualization.visualizationType];
@@ -1624,6 +1642,7 @@ export function InsightView({
                     active={canvasViewsEqual(activeView, view)}
                     icon={<ChartIcon size={14} />}
                     label={visualization.name}
+                    description="Saved chart — reusable in dashboards."
                     onClick={() => handleSetActiveView(view)}
                   />
                 );
