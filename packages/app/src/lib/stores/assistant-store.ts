@@ -412,21 +412,26 @@ function applyAssistantEvent(
           : flushStreamingTurn(state),
       };
     }
-    case "error":
+    case "error": {
+      // Treat the server event as untrusted: runtime/provider details belong in
+      // logs, never in the user-visible timeline.
+      const assistantError =
+        "The assistant couldn't complete this request. Try again.";
       return {
         ...state,
         runStatus: "error",
         streamingText: "",
-        error: event.message,
+        error: assistantError,
         turns: [
           ...flushStreamingTurn(state),
           {
             id: makeTurnId("error"),
             kind: "status",
-            text: event.message,
+            text: assistantError,
             status: "error",
           },
         ],
       };
+    }
   }
 }

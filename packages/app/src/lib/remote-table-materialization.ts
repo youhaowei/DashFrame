@@ -1,11 +1,11 @@
 import {
   addDataFrameEntry,
   getDataTable,
-  replaceDataFrame,
+  removeDataFrame,
   updateDataTable,
 } from "@dashframe/core";
-import { DataFrame } from "@dashframe/engine-browser";
-import type { Field, UUID } from "@dashframe/types";
+import { DataFrame, deleteArrowData } from "@dashframe/engine-browser";
+import { getFieldSensitivity, type Field, type UUID } from "@dashframe/types";
 
 export interface RemoteQueryResult {
   arrowBuffer: string;
@@ -34,33 +34,66 @@ export async function materializeRemoteTable(
   name: string,
 ): Promise<MaterializedRemoteTable> {
   const columnCount = result.fieldIds.length;
+  const existing = await getDataTable(table.id as UUID);
+  const fieldsById = new Map(result.fields.map((field) => [field.id, field]));
+  const everyColumnIsExplicitlyCleared =
+    result.fieldIds.length > 0 &&
+    result.fields.length === result.fieldIds.length &&
+    fieldsById.size === result.fieldIds.length &&
+    result.fieldIds.every((fieldId) => {
+      const field = fieldsById.get(fieldId);
+      return field !== undefined && getFieldSensitivity(field) === "cleared";
+    });
+  if (!everyColumnIsExplicitlyCleared) {
+    throw new Error(
+      "Every remote column must be reviewed and marked safe before local storage",
+    );
+  }
   const dataFrame = await DataFrame.create(
     decodeBase64ToBytes(result.arrowBuffer),
     result.fieldIds as UUID[],
   );
-  const existing = await getDataTable(table.id as UUID);
-  let dataFrameId: UUID;
+  let metadataAdded = false;
 
-  if (existing?.dataFrameId) {
-    await replaceDataFrame(existing.dataFrameId, dataFrame, {
-      rowCount: result.rowCount,
-      columnCount,
-    });
-    dataFrameId = existing.dataFrameId;
-  } else {
+  try {
     await addDataFrameEntry(dataFrame, {
       name,
       rowCount: result.rowCount,
       columnCount,
     });
-    dataFrameId = dataFrame.id as UUID;
+    metadataAdded = true;
+
+    await updateDataTable(table.id as UUID, {
+      fields: result.fields,
+      dataFrameId: dataFrame.id as UUID,
+      lastFetchedAt: Date.now(),
+    });
+  } catch (cause) {
+    const cleanupErrors: unknown[] = [];
+    if (metadataAdded) {
+      await removeDataFrame(dataFrame.id as UUID).catch((cleanupCause) => {
+        cleanupErrors.push(cleanupCause);
+      });
+    }
+    await deleteArrowData(dataFrame.storage.key).catch((cleanupCause) => {
+      cleanupErrors.push(cleanupCause);
+    });
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [cause, ...cleanupErrors],
+        "Failed to materialize and clean up the remote table",
+      );
+    }
+    throw cause;
   }
 
-  await updateDataTable(table.id as UUID, {
-    fields: result.fields,
-    dataFrameId,
-    lastFetchedAt: Date.now(),
-  });
+  if (existing?.dataFrameId && existing.dataFrameId !== dataFrame.id) {
+    await removeDataFrame(existing.dataFrameId);
+  }
 
-  return { dataFrameId, rowCount: result.rowCount, columnCount };
+  return {
+    dataFrameId: dataFrame.id as UUID,
+    rowCount: result.rowCount,
+    columnCount,
+  };
 }

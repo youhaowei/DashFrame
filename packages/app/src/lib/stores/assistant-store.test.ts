@@ -121,6 +121,21 @@ describe("useAssistantStore", () => {
     expect(useAssistantStore.getState().error).toBeNull();
   });
 
+  it("does not expose streamed runtime errors in the timeline", () => {
+    useAssistantStore.getState().beginRun("Make a dashboard");
+    useAssistantStore.getState().receiveRunEvent({
+      type: "error",
+      message: "provider secret and stack trace",
+    });
+
+    const state = useAssistantStore.getState();
+    expect(state.error).toBe(
+      "The assistant couldn't complete this request. Try again.",
+    );
+    expect(state.turns.at(-1)?.text).toBe(state.error);
+    expect(JSON.stringify(state.turns)).not.toContain("provider secret");
+  });
+
   it("clears the surfaced draft after publish or discard", () => {
     useAssistantStore.getState().setPendingDraft("draft-review");
     expect(useAssistantStore.getState().isOpen).toBe(true);

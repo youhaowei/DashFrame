@@ -489,6 +489,7 @@ function useNotionSync(
     id: string;
     table: string;
     name: string;
+    fields: Field[];
     dataFrameId?: string | null;
   } | null,
 ) {
@@ -520,8 +521,29 @@ function useNotionSync(
         selectedDataTable.table,
         selectedDataTable.id,
       );
+      const reviewedFieldsByColumn = new Map(
+        selectedDataTable.fields.map((field) => [
+          field.columnName ?? field.name,
+          field,
+        ]),
+      );
+      const reviewedResult = {
+        ...result,
+        fields: result.fields.map((field) => {
+          const reviewed = reviewedFieldsByColumn.get(
+            field.columnName ?? field.name,
+          );
+          return reviewed
+            ? {
+                ...field,
+                sensitivity: reviewed.sensitivity,
+                sensitivityReason: reviewed.sensitivityReason,
+              }
+            : field;
+        }),
+      };
 
-      const columns = result.fields
+      const columns = reviewedResult.fields
         .filter((f) => !f.name.startsWith("_"))
         .map((f) => ({ name: f.columnName ?? f.name, type: f.type }));
 
@@ -534,7 +556,7 @@ function useNotionSync(
       // the data and schema intact (not just a refreshed timestamp).
       const materialized = await materializeRemoteTable(
         selectedDataTable,
-        result,
+        reviewedResult,
         selectedDataTable.name,
       );
 
@@ -546,9 +568,9 @@ function useNotionSync(
       });
 
       toast.success(successMsg(columns.length));
-    } catch (error) {
+    } catch {
       toast.error(
-        error instanceof Error ? error.message : "Failed to sync data",
+        "Couldn't sync this source. Check the connection and try again.",
       );
     } finally {
       setIsRefreshing(false);

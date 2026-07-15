@@ -59,4 +59,28 @@ describe("connectRemoteSource", () => {
 
     expect(removeSource).toHaveBeenCalledWith(SOURCE_ID);
   });
+
+  it("surfaces a failed rollback instead of reporting cleanup as complete", async () => {
+    const probeError = new Error("invalid token");
+    const cleanupError = new Error("vault unavailable");
+
+    await expect(
+      connectRemoteSource({
+        connectorId: "notion",
+        connectorName: "Notion",
+        credentials: { apiKey: "secret_test" },
+        addSource: vi.fn(async () => SOURCE_ID),
+        removeSource: vi.fn(async () => {
+          throw cleanupError;
+        }),
+        listNotionDatabases: vi.fn(async () => {
+          throw probeError;
+        }),
+        listPostgresTables: vi.fn(),
+      }),
+    ).rejects.toMatchObject({
+      message: "Failed to connect and clean up the data source",
+      errors: [probeError, cleanupError],
+    });
+  });
 });

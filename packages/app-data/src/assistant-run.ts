@@ -118,21 +118,7 @@ export async function runAssistantPrompt({
 }
 
 async function readErrorMessage(res: Response): Promise<string> {
-  const text = await res.text().catch(() => "");
-  if (!text) return `Assistant run failed with HTTP ${res.status}`;
-  const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
-  const looksLikeHtml =
-    contentType.includes("text/html") ||
-    /^\s*(?:<!doctype html|<html)/i.test(text);
-  if (looksLikeHtml) {
-    return res.status >= 500
-      ? `Assistant service is unavailable (HTTP ${res.status})`
-      : `Assistant run failed with HTTP ${res.status}`;
-  }
-  try {
-    const parsed = JSON.parse(text) as { error?: unknown };
-    return typeof parsed.error === "string" ? parsed.error : text;
-  } catch {
-    return text;
-  }
+  return res.status >= 500
+    ? `Assistant service is unavailable (HTTP ${res.status})`
+    : `Assistant request failed (HTTP ${res.status})`;
 }

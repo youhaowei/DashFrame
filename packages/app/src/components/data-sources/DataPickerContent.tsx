@@ -6,7 +6,9 @@ import {
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
+import { useConfirmDialogStore } from "@/lib/stores";
 import {
+  removeDataFrame,
   useDataFrames,
   useDataSourceMutations,
   useDataSources,
@@ -20,7 +22,7 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import type { UUID } from "@dashframe/types";
+import { getFieldSensitivity, type UUID } from "@dashframe/types";
 import { Button, SectionList } from "@wystack/ui";
 import { ArrowLeftIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo, useState } from "react";
@@ -102,6 +104,7 @@ export function DataPickerContent({
   const tableMutations = useDataTableMutations();
   const notionMutations = useNotionMutations();
   const postgresMutations = usePostgresMutations();
+  const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -272,6 +275,7 @@ export function DataPickerContent({
       setMaterializingResourceId(resource.id);
       setError(null);
       let tableId: UUID | null = null;
+      let dataFrameId: UUID | null = null;
       try {
         tableId = await tableMutations.add(
           remoteResourceState.sourceId,
@@ -290,14 +294,63 @@ export function DataPickerContent({
                 resource.id,
                 tableId,
               );
-        await materializeRemoteTable({ id: tableId }, result, resource.title);
+        const explicitlySensitive = result.fields.some(
+          (field) => getFieldSensitivity(field) === "sensitive",
+        );
+        if (explicitlySensitive) {
+          throw new Error("Sensitive remote columns cannot be cached locally");
+        }
+
+        const hasUnclassifiedFields = result.fields.some(
+          (field) => getFieldSensitivity(field) === "unclassified",
+        );
+        const mayStoreLocally = hasUnclassifiedFields
+          ? await new Promise<boolean>((resolve) => {
+              confirm({
+                title: "Review data privacy",
+                description: `DashFrame will store a local copy of ${resource.title}. Confirm that all ${result.fields.length} columns contain no sensitive data. If you are unsure, cancel and review the source first.`,
+                confirmLabel: "Mark all safe and import",
+                cancelLabel: "Cancel",
+                onConfirm: () => resolve(true),
+                onCancel: () => resolve(false),
+              });
+            })
+          : true;
+        if (!mayStoreLocally) {
+          await tableMutations.remove(tableId);
+          tableId = null;
+          return;
+        }
+
+        const reviewedResult = hasUnclassifiedFields
+          ? {
+              ...result,
+              fields: result.fields.map((field) => ({
+                ...field,
+                sensitivity: "cleared" as const,
+                sensitivityReason: "Reviewed before remote import",
+              })),
+            }
+          : result;
+        const materialized = await materializeRemoteTable(
+          { id: tableId },
+          reviewedResult,
+          resource.title,
+        );
+        dataFrameId = materialized.dataFrameId;
         onTableSelect(tableId, resource.title);
-      } catch (cause) {
-        if (tableId) await tableMutations.remove(tableId).catch(() => {});
+      } catch {
+        const cleanupResults = await Promise.allSettled([
+          ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
+          ...(tableId ? [tableMutations.remove(tableId)] : []),
+        ]);
+        const cleanupFailed = cleanupResults.some(
+          ({ status }) => status === "rejected",
+        );
         setError(
-          cause instanceof Error
-            ? cause.message
-            : "Failed to import remote table",
+          cleanupFailed
+            ? "The import failed and cleanup could not finish. Remove the partial table from Data Sources before retrying."
+            : "Couldn't import this table. Check the connection and try again.",
         );
       } finally {
         setMaterializingResourceId(null);
@@ -307,6 +360,7 @@ export function DataPickerContent({
       notionMutations,
       onTableSelect,
       postgresMutations,
+      confirm,
       remoteResourceState,
       tableMutations,
     ],

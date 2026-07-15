@@ -58,7 +58,16 @@ export async function connectRemoteSource({
         : await listPostgresTables(sourceId);
     return { connectorId, sourceId, resources };
   } catch (cause) {
-    if (sourceId) await removeSource(sourceId).catch(() => {});
+    if (sourceId) {
+      try {
+        await removeSource(sourceId);
+      } catch (cleanupCause) {
+        throw new AggregateError(
+          [cause, cleanupCause],
+          "Failed to connect and clean up the data source",
+        );
+      }
+    }
     throw cause;
   }
 }

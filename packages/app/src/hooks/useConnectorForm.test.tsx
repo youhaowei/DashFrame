@@ -391,7 +391,9 @@ describe("useConnectorForm", () => {
         });
       });
 
-      expect(result.current.submitError).toBe("Network error");
+      expect(result.current.submitError).toBe(
+        "Couldn't connect. Check your settings and try again.",
+      );
     });
 
     it("should return null when action throws", async () => {
@@ -420,7 +422,9 @@ describe("useConnectorForm", () => {
         });
       });
 
-      expect(result.current.submitError).toBe("Operation failed");
+      expect(result.current.submitError).toBe(
+        "Couldn't connect. Check your settings and try again.",
+      );
     });
 
     it("should set isSubmitting to false after action fails", async () => {
@@ -451,7 +455,9 @@ describe("useConnectorForm", () => {
         });
       });
 
-      expect(result.current.submitError).toBe("Test error");
+      expect(result.current.submitError).toBe(
+        "Couldn't connect. Check your settings and try again.",
+      );
 
       // Clear the error
       act(() => {
@@ -506,7 +512,9 @@ describe("useConnectorForm", () => {
         });
       });
 
-      expect(result.current.submitError).toBe("Test error");
+      expect(result.current.submitError).toBe(
+        "Couldn't connect. Check your settings and try again.",
+      );
 
       // Reset
       act(() => {
