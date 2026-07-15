@@ -19,12 +19,12 @@ import type {
 import { InputField } from "@dashframe/ui";
 import { Badge, Panel, cn } from "@wystack/ui";
 import {
-  CalculatorIcon,
-  DatabaseIcon,
-  ListIcon,
-  NumberTypeIcon,
-  SettingsIcon,
-} from "@wystack/ui-icons";
+  ArrowUpDown,
+  Columns3,
+  ListFilter,
+  Sigma,
+  Workflow,
+} from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { DataModelSection } from "../sections/DataModelSection";
 import {
@@ -99,7 +99,7 @@ function ConfigSectionButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-9 min-w-0 flex-[1_1_7rem] items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+        "flex h-9 min-w-0 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
         "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
         active
           ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
@@ -440,41 +440,41 @@ export function InsightConfigPanel({
             />
           </div>
           <div
-            className="flex flex-wrap gap-1 px-2 pb-2"
+            className="grid grid-cols-2 gap-1 px-2 pb-2"
             aria-label="Data model sections"
           >
             <ConfigSectionButton
               active={activeSection === "model"}
               count={(insight.joins?.length ?? 0) + 1}
-              icon={<DatabaseIcon className="h-3.5 w-3.5" />}
+              icon={<Workflow className="h-3.5 w-3.5" />}
               label="Model"
               onClick={() => setActiveSection("model")}
             />
             <ConfigSectionButton
               active={activeSection === "fields"}
               count={selectedFields.length}
-              icon={<NumberTypeIcon className="h-3.5 w-3.5" />}
+              icon={<Columns3 className="h-3.5 w-3.5" />}
               label="Fields"
               onClick={() => setActiveSection("fields")}
             />
             <ConfigSectionButton
               active={activeSection === "metrics"}
               count={visibleMetrics.length}
-              icon={<CalculatorIcon className="h-3.5 w-3.5" />}
+              icon={<Sigma className="h-3.5 w-3.5" />}
               label="Metrics"
               onClick={() => setActiveSection("metrics")}
             />
             <ConfigSectionButton
               active={activeSection === "filters"}
               count={filtersWithIds.length}
-              icon={<SettingsIcon className="h-3.5 w-3.5" />}
+              icon={<ListFilter className="h-3.5 w-3.5" />}
               label="Filters"
               onClick={() => setActiveSection("filters")}
             />
             <ConfigSectionButton
               active={activeSection === "sort"}
               count={sorts.length}
-              icon={<ListIcon className="h-3.5 w-3.5" />}
+              icon={<ArrowUpDown className="h-3.5 w-3.5" />}
               label="Sort"
               onClick={() => setActiveSection("sort")}
             />
