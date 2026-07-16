@@ -37,8 +37,12 @@ import {
   SelectValue,
   Spinner,
   Surface,
-} from "@wystack/ui";
-import { AlertCircleIcon, ArrowLeftIcon, MergeIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  MergeIcon,
+} from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   findExistingJoinsToTable,

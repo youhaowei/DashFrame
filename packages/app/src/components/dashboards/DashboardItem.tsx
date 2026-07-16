@@ -5,8 +5,8 @@ import type {
   DashboardItemOverrides,
   DashboardItem as DashboardItemType,
 } from "@dashframe/types";
-import { Button, cn, Surface } from "@wystack/ui";
-import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-icons";
+import { Button, cn, Surface } from "@wystack/ui-react";
+import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";

@@ -1,6 +1,6 @@
 "use client";
 
-import { cn, Tooltip } from "@wystack/ui";
+import { cn, Tooltip } from "@wystack/ui-react";
 import type { ReactElement } from "react";
 
 interface SharedTooltipProps {

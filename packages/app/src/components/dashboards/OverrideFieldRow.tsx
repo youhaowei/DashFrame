@@ -32,8 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
   cn,
-} from "@wystack/ui";
-import { CheckIcon, CloseIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { CheckIcon, CloseIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
 import {
   formatFilterValue,

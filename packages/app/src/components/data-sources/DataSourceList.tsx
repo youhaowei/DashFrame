@@ -1,5 +1,5 @@
 import { getConnectorById } from "@/lib/connectors/registry";
-import { ItemCard } from "@wystack/ui";
+import { ItemCard } from "@wystack/ui-react";
 import { ConnectorIcon } from "./renderers/ConnectorIcon";
 
 export interface DataSourceInfo {

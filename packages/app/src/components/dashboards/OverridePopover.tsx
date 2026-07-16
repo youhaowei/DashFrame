@@ -48,8 +48,8 @@ import {
   SelectValue,
   Separator,
   cn,
-} from "@wystack/ui";
-import { SettingsIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { SettingsIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {

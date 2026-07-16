@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import { useEffect, useMemo } from "react";
 
 import { useToastStore } from "@/lib/stores";

@@ -8,7 +8,7 @@
  *
  * Design constraints (from DESIGN.md):
  * - Surface system: no borders — uses shadow-lifted `bg-neutral-bg` strip.
- * - Off-token color forbidden — only `@wystack/ui` tokens.
+ * - Off-token color forbidden — only `@wystack/ui-core` tokens.
  * - A signal earns its surface: the bar is only rendered when controls exist.
  */
 
@@ -18,8 +18,8 @@ import {
 } from "@/lib/dashboards/controls";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type { DashboardControl, InsightFilter } from "@dashframe/types";
-import { Input, Label, cn } from "@wystack/ui";
-import { SettingsIcon } from "@wystack/ui-icons";
+import { Input, Label, cn } from "@wystack/ui-react";
+import { SettingsIcon } from "@wystack/ui-react/icons";
 import type { ChangeEvent } from "react";
 
 // ---------------------------------------------------------------------------

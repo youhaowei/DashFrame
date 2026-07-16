@@ -12,7 +12,7 @@
 **References** (what to look like):
 
 - **workforce** (sibling project) — the primary reference, taken deeply: floating surface panels on a tinted canvas, shadow-lifted rather than border-boxed, calm density, window chrome integrated with the sidebar. Where workforce and this document disagree, check workforce first — divergence should be deliberate.
-- **@wystack/ui defaults** — the shared portfolio look. DashFrame customizes by exception, not by default.
+- **@wystack/ui-core defaults** — the shared portfolio look. DashFrame customizes by exception, not by default.
 
 **Anti-references** — _provisional, to be confirmed in use_:
 
@@ -26,15 +26,15 @@
 ## Theme
 
 - **Mode**: both; default follows system.
-- **Brand color (anchor)**: TBD — currently inherits `@wystack/ui` neutral primary `oklch(0.205 0 0)`. The hardcoded blue (`rgba(59,130,246,…)`) in the current nav is drift, not a decision; replace with tokens when touched.
+- **Brand color (anchor)**: TBD — currently inherits `@wystack/ui-core` neutral primary `oklch(0.205 0 0)`. The hardcoded blue (`rgba(59,130,246,…)`) in the current nav is drift, not a decision; replace with tokens when touched.
 
 ## Tokens
 
-`@wystack/ui` (vendored at `libs/stdui` — directory name is historical; the package and vocabulary are `@wystack/ui`) is the **source of truth**. This document records the mapping, never duplicates values. Token changes that aren't DashFrame-specific go upstream to the submodule.
+`@wystack/ui-core` (core tokens + utils, vendored at `libs/stdui` — directory name is historical) and `@wystack/ui-react` (React components) are the source of truth. The package and vocabulary split is: tokens/common in `@wystack/ui-core`, components in `@wystack/ui-react`. This document records the mapping, never duplicates values. Token changes go upstream to the submodule.
 
 ### The surface system (canonical shell recipe)
 
-The floating-panels look is built entirely from `@wystack/ui` surface tokens:
+The floating-panels look is built entirely from `@wystack/ui-core` surface tokens:
 
 | Role           | Recipe                                                                                                                          |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -46,13 +46,13 @@ Every top-level shell region (nav, artifact, assistant) is one surface panel. Pa
 
 ### Everything else
 
-Neutral scale (`neutral-bg*`, `neutral-fg*`, `neutral-border`), palette (`palette-primary`, `palette-danger`, …), radii, and shadows come straight from `@wystack/ui` tokens. The neutral scale stays chroma-free — tint belongs to the surface system only.
+Neutral scale (`neutral-bg*`, `neutral-fg*`, `neutral-border`), palette (`palette-primary`, `palette-danger`, …), radii, and shadows come straight from `@wystack/ui-core` tokens. The neutral scale stays chroma-free — tint belongs to the surface system only.
 
 ## Primitives
 
-- **In active use** from `@wystack/ui`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, cn; icons from `@wystack/ui-icons`.
+- **In active use** from `@wystack/ui-react`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, cn; icons from `@wystack/ui-react/icons`; tokens and core from `@wystack/ui-core`.
 - **Local extensions** live in `packages/ui` (`@dashframe/ui`) — e.g. SensitivityBadge.
-- **Rule**: don't restyle `@wystack/ui` primitives locally. If a primitive needs a different shape, upstream the change to the submodule (Rule of Three applies before generalizing).
+- **Rule**: don't restyle `@wystack/ui-react` primitives locally. If a primitive needs a different shape, upstream the change to the submodule (Rule of Three applies before generalizing). Token changes go to `@wystack/ui-core`.
 
 ## Principle: a signal earns its surface
 

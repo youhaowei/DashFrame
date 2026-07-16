@@ -1,4 +1,4 @@
-import { Tooltip, cn } from "@wystack/ui";
+import { Tooltip, cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
 export interface ControlTooltipProps {

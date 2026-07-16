@@ -14,7 +14,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import { useMemo, useState } from "react";
 
 type AggregationType =

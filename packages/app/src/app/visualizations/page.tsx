@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChartIcon,
   DataPointIcon,
@@ -28,7 +28,7 @@ import {
   PlusIcon,
   SearchIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
 // Type for visualization with joined details

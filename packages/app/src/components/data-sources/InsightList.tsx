@@ -1,5 +1,5 @@
-import { ItemCard } from "@wystack/ui";
-import { LightbulbIcon } from "@wystack/ui-icons";
+import { ItemCard } from "@wystack/ui-react";
+import { LightbulbIcon } from "@wystack/ui-react/icons";
 
 /**
  * Display info for an insight in the list.

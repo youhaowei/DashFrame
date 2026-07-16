@@ -6,7 +6,7 @@ import {
   FileIcon,
   PlusIcon,
   RefreshIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useState } from "react";
 import { ItemSelector, type SelectableItem } from "./ItemSelector";
 

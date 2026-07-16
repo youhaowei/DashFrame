@@ -23,7 +23,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ArrowLeftIcon,
   ChartIcon,
@@ -31,7 +31,7 @@ import {
   EditIcon,
   FileIcon,
   PlusIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 

@@ -72,6 +72,7 @@
     "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "shadcn": "^3.6.1",
+    "tailwindcss": "4.1.16",
     "turbo": "^2.7.3",
     "typescript": "5.7.2",
     "typescript-eslint": "^8.46.2"

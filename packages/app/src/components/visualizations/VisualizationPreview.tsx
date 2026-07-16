@@ -4,7 +4,7 @@ import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
-import { Spinner } from "@wystack/ui";
+import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
 const PREVIEW_HEIGHT = 200; // px

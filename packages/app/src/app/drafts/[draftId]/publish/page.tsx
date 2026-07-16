@@ -3,13 +3,13 @@ import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewCompu
 import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
 import { useDraftMutations, useDraftPublishReview } from "@dashframe/core";
 import { useNavigate } from "@tanstack/react-router";
-import { Badge, Button, cn, ErrorState } from "@wystack/ui";
+import { Badge, Button, cn, ErrorState } from "@wystack/ui-react";
 import {
   AlertCircleIcon,
   CheckIcon,
   DeleteIcon,
   ListIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useState } from "react";
 import { toast } from "sonner";
 

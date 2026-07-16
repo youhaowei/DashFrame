@@ -1,6 +1,6 @@
 import type { Field } from "@dashframe/types";
 import { getFieldSensitivity } from "@dashframe/types";
-import { Badge } from "@wystack/ui";
+import { Badge } from "@wystack/ui-react";
 
 interface SensitivityBadgeProps {
   field: Field;
@@ -42,11 +42,11 @@ export function SensitivityBadge({
 
   if (suggestedReasons.length > 0) {
     // Clickable confirm affordance. Built from the composed Badge (not a raw
-    // primitive — those are construction blocks internal to @wystack/ui) made
+    // primitive — those are construction blocks internal to @wystack/ui-react) made
     // interactive via role/tabIndex + keyboard activation.
     //
     // This relies on Badge forwarding arbitrary props to its root DOM node.
-    // @wystack/ui's Badge renders `<div className={...} {...props} />`
+    // @wystack/ui-react's Badge renders `<div className={...} {...props} />`
     // (libs/.../primitives/badge.tsx), so role/tabIndex/onKeyDown/onClick reach
     // the DOM — keyboard nav and SR announcement work. If Badge ever stops
     // spreading ...rest, this affordance must move to an interactive primitive.

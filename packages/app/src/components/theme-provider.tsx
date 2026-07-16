@@ -1,4 +1,4 @@
-import { StduiProvider } from "@wystack/ui/theme";
+import { StduiProvider } from "@wystack/ui-react/theme";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (

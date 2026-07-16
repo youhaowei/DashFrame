@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
   ErrorState,
   Input,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   DatabaseIcon,
   DeleteIcon,
@@ -28,7 +28,7 @@ import {
   PlusIcon,
   SearchIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
 
 // Type for data source with table count

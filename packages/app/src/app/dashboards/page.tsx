@@ -11,8 +11,8 @@ import {
   Input,
   Label,
   Surface,
-} from "@wystack/ui";
-import { DashboardIcon, DeleteIcon, PlusIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { DashboardIcon, DeleteIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
 
 export default function DashboardsPage() {

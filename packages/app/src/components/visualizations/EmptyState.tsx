@@ -1,6 +1,6 @@
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { SparklesIcon } from "@wystack/ui-icons";
+import { SparklesIcon } from "@wystack/ui-react/icons";
 import { useCallback } from "react";
 
 interface EmptyStateProps {

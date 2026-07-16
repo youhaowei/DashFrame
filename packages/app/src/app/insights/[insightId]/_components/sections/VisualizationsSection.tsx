@@ -10,8 +10,13 @@ import {
   Section,
   type ItemCardAction,
   type ListItem,
-} from "@wystack/ui";
-import { ChartIcon, CopyIcon, DeleteIcon, PlusIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import {
+  ChartIcon,
+  CopyIcon,
+  DeleteIcon,
+  PlusIcon,
+} from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState } from "react";
 
 interface VisualizationsSectionProps {

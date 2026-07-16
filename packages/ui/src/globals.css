@@ -1,5 +1,5 @@
-/* Base theme from @wystack/ui (includes @import "tailwindcss", token vars, @layer base) */
-@import "@wystack/ui/styles";
+/* React UI styles include Tailwind, core tokens, base layers, and component sources. */
+@import "@wystack/ui-react/styles";
 
 /* Scan DashFrame UI package for Tailwind classes */
 @source "./**/*.{ts,tsx}";
@@ -9,7 +9,7 @@
  * SFMono-Regular, ...) apply automatically — no overrides needed. */
 
 /* Surface system: panel elevation alias (mirrors workforce's app-level
- * definition; upstream candidate for @wystack/ui once both apps agree). */
+ * definition; upstream candidate for @wystack/ui-core once both apps agree). */
 :root {
   --surface-shadow: var(--shadow-md);
 }

@@ -1,4 +1,4 @@
-/* Import base theme from UI package (which imports @wystack/ui/styles) */
+/* Import shared theme and component sources from @wystack/ui-react/styles. */
 @import "../../ui/src/globals.css";
 
 /* App-specific library imports */

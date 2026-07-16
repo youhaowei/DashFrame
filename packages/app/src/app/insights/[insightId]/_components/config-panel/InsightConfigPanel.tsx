@@ -18,7 +18,7 @@ import type {
   InsightSort,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
-import { Badge, Panel, cn } from "@wystack/ui";
+import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
   Columns3,

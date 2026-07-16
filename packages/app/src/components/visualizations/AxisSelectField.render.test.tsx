@@ -89,7 +89,7 @@ vi.mock("@/lib/visualizations/encoding-enforcer", () => ({
   isColumnValidForChannel: () => ({ suitable: true }),
 }));
 
-vi.mock("@wystack/ui", () => ({
+vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => (
     <span>{children}</span>
   ),
@@ -100,7 +100,7 @@ vi.mock("@wystack/ui", () => ({
   TooltipTrigger: ({ render: r }: { render: React.ReactNode }) => r,
 }));
 
-vi.mock("@wystack/ui-icons", () => ({
+vi.mock("@wystack/ui-react/icons", () => ({
   AlertCircleIcon: () => null,
   ArrowUpDownIcon: () => null,
 }));

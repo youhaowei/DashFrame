@@ -7,13 +7,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   type ItemCardAction,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChartIcon,
   DataPointIcon,
   MoreIcon,
   TableIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import * as React from "react";
 import { VisualizationPreview } from "./VisualizationPreview";
 

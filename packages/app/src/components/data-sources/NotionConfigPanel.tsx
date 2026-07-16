@@ -13,7 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 
 export interface NotionConfigPanelProps {
   /**

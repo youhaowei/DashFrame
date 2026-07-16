@@ -22,7 +22,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { PlatformProvider } from "@/lib/platform";
 import { DatabaseProvider } from "@dashframe/core";
 import { Outlet } from "@tanstack/react-router";
-import { TooltipProvider } from "@wystack/ui";
+import { TooltipProvider } from "@wystack/ui-react";
 import { Toaster } from "sonner";
 
 /**
@@ -47,7 +47,7 @@ export interface AppRouterContext {
 const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
 
 /**
- * The chrome layout, built on the @wystack/ui layout shell:
+ * The chrome layout, built on the @wystack/ui-react layout shell:
  *
  *   TopBar  (full-width window chrome)
  *   ├── Dock side=left   — Navigation (flat, on the canvas)

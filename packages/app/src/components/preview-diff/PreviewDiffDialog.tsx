@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
   cn,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 
 import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
 import { usePreviewComputeFill } from "./usePreviewComputeFill";

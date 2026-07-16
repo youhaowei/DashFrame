@@ -1,4 +1,4 @@
-import { ErrorState } from "@wystack/ui";
+import { ErrorState } from "@wystack/ui-react";
 import { useCallback } from "react";
 
 /**

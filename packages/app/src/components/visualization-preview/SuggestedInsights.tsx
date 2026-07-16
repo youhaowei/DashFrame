@@ -1,7 +1,7 @@
 import type { ChartSuggestion } from "@/lib/visualizations/suggest-charts";
 import { Chart, useVisualization } from "@dashframe/visualization";
-import { Button, Card } from "@wystack/ui";
-import { SparklesIcon } from "@wystack/ui-icons";
+import { Button, Card } from "@wystack/ui-react";
+import { SparklesIcon } from "@wystack/ui-react/icons";
 
 /**
  * EncodingRow - Displays a single encoding channel

@@ -31,8 +31,8 @@ import {
   TooltipPrimitive as Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@wystack/ui";
-import { AlertCircleIcon, ArrowUpDownIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { AlertCircleIcon, ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo } from "react";
 
 /**

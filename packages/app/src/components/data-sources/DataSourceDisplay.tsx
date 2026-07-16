@@ -17,14 +17,14 @@ import {
   CardTitle,
   cn,
   Surface,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   ChevronDownIcon,
   ChevronUpIcon,
   DatabaseIcon,
   LayersIcon,
   RefreshIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 

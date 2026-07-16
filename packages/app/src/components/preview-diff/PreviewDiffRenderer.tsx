@@ -21,7 +21,7 @@ import type {
   PreviewDirectNode,
   PreviewDownstreamNode,
 } from "@dashframe/types";
-import { Badge, cn } from "@wystack/ui";
+import { Badge, cn } from "@wystack/ui-react";
 
 import {
   previewFailureDetail,

@@ -15,8 +15,8 @@ import {
   DialogTitle,
   Input,
   Label,
-} from "@wystack/ui";
-import { ArrowUpDownIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
 export default function DataFramesPage() {

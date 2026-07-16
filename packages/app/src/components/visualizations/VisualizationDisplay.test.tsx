@@ -85,14 +85,14 @@ vi.mock("@dashframe/visualization", () => ({
   useVisualization: vi.fn().mockReturnValue({ error: null }),
 }));
 
-vi.mock("@wystack/ui", () => ({
+vi.mock("@wystack/ui-react", () => ({
   ErrorState: () => null,
   Spinner: () => null,
   Surface: ({ children }: { children: React.ReactNode }) => children,
   Toggle: () => null,
 }));
 
-vi.mock("@wystack/ui-icons", () => ({
+vi.mock("@wystack/ui-react/icons", () => ({
   ChartIcon: () => null,
   LayersIcon: () => null,
   TableIcon: () => null,

@@ -1,7 +1,7 @@
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { Card, CardContent } from "@wystack/ui";
-import { ChartIcon } from "@wystack/ui-icons";
+import { Card, CardContent } from "@wystack/ui-react";
+import { ChartIcon } from "@wystack/ui-react/icons";
 
 const WelcomeHeader = () => (
   <div className="mb-8 text-center">

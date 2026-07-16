@@ -1,11 +1,11 @@
 "use client";
 
-import type { MultiSelectOption } from "@wystack/ui";
+import type { MultiSelectOption } from "@wystack/ui-react";
 import {
   Field,
   FieldLabel,
   MultiSelect as MultiSelectPrimitive,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 
 interface MultiSelectProps {
   label?: string;

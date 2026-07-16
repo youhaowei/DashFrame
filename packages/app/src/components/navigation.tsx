@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   cn,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import {
   type LucideIcon,
   ChartIcon,
@@ -32,7 +32,7 @@ import {
   MenuIcon,
   SettingsIcon,
   SparklesIcon,
-} from "@wystack/ui-icons";
+} from "@wystack/ui-react/icons";
 import { type ReactNode, useState } from "react";
 
 import {

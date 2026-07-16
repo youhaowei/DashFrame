@@ -8,7 +8,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@wystack/ui";
+} from "@wystack/ui-react";
 import { useCallback, useState } from "react";
 
 interface CreateVisualizationModalProps {
